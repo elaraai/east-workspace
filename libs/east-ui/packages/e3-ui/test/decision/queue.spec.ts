@@ -307,7 +307,7 @@ describe("DecisionQueue.decisions: the cases, read only, each role an East funct
     });
 
     test("cases with alternatives: `recommended` among them, the option's roles over the option, its key and its case", () => {
-        const of = /DecisionQueue\.decisions: `options\.change\.of` gives no target for the tag 'minimums' — give each of the variant's tags \(minimums, orders, pricing, print, restock, rota, rotaCost, rounds, split, workshop, yard\) a target/;
+        const of = /DecisionQueue\.decisions: `options\.change\.of` gives no target for the tag 'cover' — give each of the variant's tags \(cover, orders, pricing, print, ready, rota, rotaCost, stock, trial, workshop, yard\) a target/;
         // Declared up to the change role, whose targets this test gives none of.
         assert.throws(() => opsCases((base) => base), of);
         assert.throws(() => opsCases((base) => ({ ...base, options: { ...base.options, label: (_o: O, key: ExprType<StringType>) => key,

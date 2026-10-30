@@ -4,30 +4,29 @@
  */
 /**
  * How the decision queue's example apps' models write what they propose
- * (#1447): an option, its optional parts left out, and each change a patch of
- * the record it lands in — the warehouse rota's duties, the print shop's jobs,
- * the workshop's maintenance, the kiln yard's bins or the shop's work orders —
- * built with East's own diff of the rows it touches, as a model diffs them.
- * The ops queue's cases (`ops.ts`) and the previews gallery's (`previews.ts`)
- * are written with them.
+ * (#1447): an option's optional parts, left out, and each change a patch of
+ * the record it lands in — the warehouse rota's duties and its cover targets,
+ * the print shop's jobs, the workshop's maintenance, the kiln yard's bins or
+ * the shop's work orders — built with East's own diff of the rows it touches,
+ * as a model diffs them. The ops queue's cases (`ops.ts`) and the previews
+ * gallery's (`previews.ts`) are written with them, each with an option of its
+ * own type.
  */
 import { DictType, SortedMap, SortedSet, StringType, compareFor, diffFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { KilnBin, yardArrivals } from "../allocation/kiln-yard.js";
 import { CalendarService, calendarServices } from "../calendar/calendar.examples.js";
 import { PrintJob } from "../plan/plan-events.examples.js";
-import { WarehouseDuty, warehouseDuties } from "../roster/warehouse.js";
+import { WarehouseCover, WarehouseDuty, warehouseCover, warehouseDuties } from "../roster/warehouse.js";
 import { OptimiseWorkOrder, optimiseWorkOrderRows } from "../sheet/optimise.examples.js";
-import type { OpsOption } from "./ops.js";
 
 /** Keys in East's order of strings. */
 export const byString = compareFor(StringType);
 
-/** An option of the app's, its optional parts left out. */
-export function option(row: Pick<ValueTypeOf<typeof OpsOption>, "label" | "title" | "summary" | "detail" | "value" | "change">
-    & Partial<ValueTypeOf<typeof OpsOption>>): ValueTypeOf<typeof OpsOption> {
+/** An option's optional parts, left out: no note, confidence, question, warning or refusal, nothing knocked on and nothing guessed. */
+export function optionDefaults() {
     return {
         note: none, confidence: none, question: none, warn: none, refused: none,
-        knockOn: new SortedSet<string>([], byString), guesses: new SortedMap<string, number>([], byString), forecast: [], ...row,
+        knockOn: new SortedSet<string>([], byString), guesses: new SortedMap<string, number>([], byString),
     };
 }
 
@@ -50,6 +49,21 @@ export function dutiesPatch(changes: readonly (readonly [string, DutyRow | undef
 /** The duties' patch giving each duty named to the person given, its every other field as the rota holds it. */
 export function dutiesTo(changes: readonly (readonly [string, string])[]) {
     return dutiesPatch(changes.map(([key, person]) => [key, { ...warehouseDuties.get(key)!, who: variant("staff", person) }] as const));
+}
+/** The duties' patch ending each duty named the hours given after its start, its every other field as the rota holds it. */
+export function dutiesFor(changes: readonly (readonly [string, number])[]) {
+    return dutiesPatch(changes.map(([key, hours]) => {
+        const row = warehouseDuties.get(key)!;
+        return [key, { ...row, end: new Date(row.start.getTime() + hours * 3_600_000) }] as const;
+    }));
+}
+
+/** The cover targets' patch, as a model diffs the rows it touches. */
+const diffCover = diffFor(DictType(StringType, WarehouseCover));
+/** The cover targets' patch setting the heads one slot's target needs, its every other field as the rota holds it: the patch of that row alone. */
+export function coverPatch(key: string, heads: bigint) {
+    const row = warehouseCover.get(key)!;
+    return diffCover(new SortedMap([[key, row]], byString), new SortedMap([[key, { ...row, heads }]], byString));
 }
 
 /** A print job of the shop's. */

@@ -18,8 +18,9 @@
  *
  * Measured at the page's widths — 1440, 1024, 768, 390 and 360, where the
  * showcase's own chrome takes its share — and in a 294px parent, in both
- * themes, over each builder's example and each optimiser example. One test an
- * area (#1397): its examples share a workspace, which the page makes once.
+ * themes, over each builder's example, each optimiser example and the
+ * DecisionQueue's. One test an area (#1397): its examples share a workspace,
+ * which the page makes once.
  *
  * The eye of the Roster's and the Allocation's optimiser examples, whose View
  * bundles the period's controls on a phone, is a button in the row at 390 and
@@ -47,6 +48,7 @@ const AREAS: readonly { readonly name: string; readonly routes: readonly string[
     { name: "Studio", routes: ["e3/studio/studio/studioBuilder"] },
     { name: "Query", routes: ["e3/query/query/queryBuilder"] },
     { name: "Schematic", routes: ["e3/schematic/schematic/schematicDataCentre"] },
+    { name: "DecisionQueue", routes: ["e3/decision/decision/decisionQueueOps"] },
 ];
 
 /** The page's widths, widest first. */

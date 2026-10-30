@@ -10,22 +10,86 @@
  * changed fields, its mix and its groups, the zones and the projection — and a
  * Plan crop for each of its other marks: a breach, a knock-on, a row two cases
  * share and a change the record has moved under; its lock is on the Plan's
- * crop, the confirmed job the moved one overlapped. The cases are the example
- * app's (`ops.ts`), their changes patches of the records it holds beside them
- * (`changes.ts`, `supply.ts`) — the warehouse rota's duties, the print works'
- * jobs, the workshop's maintenance, the kiln yard's bins, the shop's work
- * orders, the price list, the stock orders, the stores' stock, the
+ * crop, the confirmed job the moved one overlapped. The cases are a record of
+ * the gallery's own, its option a variant of every kind of decision it shows,
+ * their changes patches of the records the example app holds (`ops.ts`) and
+ * beside it (`changes.ts`, `supply.ts`) — the warehouse rota's duties, the
+ * print works' jobs, the workshop's maintenance, the kiln yard's bins, the
+ * shop's work orders, the price list, the stock orders, the stores' stock, the
  * catalogue's minimums and the service rounds' areas — on Tuesday 20 October
  * 2026 at 09:14, the example's `now`; the rota's week and the kiln yard's days
  * are their records' own. Every name and figure is generated.
  */
-import { DictType, SortedMap, SortedSet, StringType, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import {
+    ArrayType, BooleanType, DateTimeType, DictType, FloatType, NullType, OptionType, PatchType, SetType, SortedMap, SortedSet, StringType, StructType,
+    VariantType, none, some, variant, type ValueTypeOf,
+} from "@elaraai/east";
 import e3 from "@elaraai/e3";
-import { calendarServices } from "../calendar/calendar.examples.js";
-import { planPrintJobs } from "../plan/plan-events.examples.js";
-import { binPatch, byString, dutiesTo, jobsPatch, ld2235Bin, option, ordersPatch, servicesPatch } from "./changes.js";
-import { OpsCase, OpsVerdict, pricesPatch } from "./ops.js";
-import { boundaryAreas, c5NoOrder, c5Order1500, c5Order2000, minimumsPatch, roundsPatch, stockOrderPatch, stockSplitPatch } from "./supply.js";
+import { KilnBin } from "../allocation/kiln-yard.js";
+import { CalendarService, calendarServices } from "../calendar/calendar.examples.js";
+import { PrintJob, planPrintJobs } from "../plan/plan-events.examples.js";
+import { WarehouseDuty } from "../roster/warehouse.js";
+import { OptimiseWorkOrder } from "../sheet/optimise.examples.js";
+import { binPatch, byString, dutiesTo, jobsPatch, ld2235Bin, optionDefaults, ordersPatch, servicesPatch } from "./changes.js";
+import { ListPrice, OpsVerdict, pricesPatch } from "./ops.js";
+import {
+    CatalogueItem, ForecastPoint, ServiceArea, StockOrder, StoreStock, boundaryAreas, c5NoOrder, c5Order1500, c5Order2000, minimumsPatch, roundsPatch,
+    stockOrderPatch, stockSplitPatch,
+} from "./supply.js";
+
+/** What a gallery option changes: its tag is the kind of decision, its value a patch of the record that kind changes. */
+export const PreviewChange = VariantType({
+    rota: PatchType(DictType(StringType, WarehouseDuty)),        // cover: the warehouse rota's duties, as the Roster draws them
+    rotaCost: PatchType(DictType(StringType, WarehouseDuty)),    // pay: the same duties, a change read by what it costs
+    print: PatchType(DictType(StringType, PrintJob)),            // the print shop's jobs, as the Plan draws them
+    workshop: PatchType(DictType(StringType, CalendarService)),  // the workshop's machine maintenance, as the Calendar draws it
+    yard: PatchType(DictType(StringType, KilnBin)),              // the kiln yard's bins, as the Allocation draws them
+    orders: PatchType(DictType(StringType, OptimiseWorkOrder)),  // the shop's work orders, as the Sheet draws them
+    pricing: PatchType(DictType(StringType, ListPrice)),         // the price list, which no builder draws
+    restock: PatchType(DictType(StringType, StockOrder)),        // the stock orders, read by each option's own forecast
+    split: PatchType(DictType(StringType, StoreStock)),          // one item's stock across the stores, read as a mix
+    minimums: PatchType(DictType(StringType, CatalogueItem)),    // the catalogue's minimum stock, a rule across its ranges
+    rounds: PatchType(DictType(StringType, ServiceArea)),        // the service rounds' areas, each in a round
+});
+
+/** One way to decide a gallery case: the app's own words for it, what it is worth, the stock it leaves and its change. */
+export const PreviewOption = StructType({
+    label: StringType,
+    title: StringType,
+    summary: StringType,
+    detail: StringType,
+    note: OptionType(StringType),
+    value: FloatType,
+    confidence: OptionType(FloatType),
+    question: OptionType(StringType),
+    warn: OptionType(StringType),
+    refused: OptionType(StringType),
+    knockOn: SetType(StringType),                    // rows of the target moved because of the change, not by it
+    guesses: DictType(StringType, FloatType),        // the changed rows the model is unsure of, by key
+    forecast: ArrayType(ForecastPoint),              // the stock on hand the option leaves, by week: what a projection draws
+    change: PreviewChange,
+});
+
+/** A case of the gallery's. */
+export const PreviewCase = StructType({
+    area: StringType,                  // the app's own field, which the rail narrows by; the queue maps none
+    scope: StringType,
+    due: OptionType(DateTimeType),
+    routine: BooleanType,
+    unit: StringType,
+    figure: VariantType({ money: NullType, count: NullType, percent: NullType }),  // what its figures are: money, a count — the orders' — or a share
+    model: StringType,
+    why: StringType,
+    ifWrong: OptionType(FloatType),
+    recommended: StringType,           // the key of the option the card opens on
+    options: DictType(StringType, PreviewOption),  // keyed by the model's rank, which orders them
+});
+
+/** An option of the gallery's, its optional parts left out: no forecast among them. */
+function option(row: Pick<ValueTypeOf<typeof PreviewOption>, "label" | "title" | "summary" | "detail" | "value" | "change">
+    & Partial<ValueTypeOf<typeof PreviewOption>>): ValueTypeOf<typeof PreviewOption> {
+    return { ...optionDefaults(), forecast: [], ...row };
+}
 
 /** The print works' jobs, as the works' record holds them. */
 const printJobs = planPrintJobs.default!;
@@ -49,7 +113,7 @@ const tue11 = new Date("2027-05-11T14:15:00Z");
  * record's changed fields, its mix and its groups, the zones and the projection — due this week; and the Plan's other
  * marks, a case each.
  */
-export const previewCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new SortedMap<string, ValueTypeOf<typeof OpsCase>>([
+export const previewCaseRows: SortedMap<string, ValueTypeOf<typeof PreviewCase>> = new SortedMap<string, ValueTypeOf<typeof PreviewCase>>([
     // The Roster's crop: three of one person's early shifts to another, which the card asks about.
     ["rota-garnet", {
         area: "rota", scope: "Dispatch · W10", due: some(new Date("2026-10-20T07:14:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
@@ -291,7 +355,7 @@ export const previewCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = n
 ], byString);
 
 /** The gallery's cases, the app's record of them, keyed by case. */
-export const previewCases = e3.record("preview_cases", DictType(StringType, OpsCase), {
+export const previewCases = e3.record("preview_cases", DictType(StringType, PreviewCase), {
     initial: previewCaseRows,
 });
 
