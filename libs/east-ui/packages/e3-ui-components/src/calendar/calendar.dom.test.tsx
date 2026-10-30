@@ -13,6 +13,7 @@ import { Calendar, Record } from "@elaraai/e3-ui";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
 import { act, calendarHarness, card, event, settle, slot, width } from "./harness.test-utils.js";
+import { conflictCards } from "../e3-web-mount.test-utils.js";
 const h = calendarHarness();
 const history = (c: HTMLElement, name: string) => within(slot(c, "toolbar")).getByRole("button", { name });
 async function press(node: Element) { await act(async () => { fireEvent.click(node); }); await settle(); }
@@ -296,10 +297,13 @@ describe("Calendar explicit action forms", () => {
         // The jobs' draft is carried over to the record as the other session left it: nothing is out of date, the deletion
         // stands until it is chosen, and Save is off.
         await waitFor(() => {
-            expect(container.querySelector("[data-session-banner]")).toBeNull();
+            expect([...container.querySelectorAll("[data-session-banner]")].map((b) => b.getAttribute("data-session-banner"))).toEqual(["conflicts"]);
             expect(slot(container, "toolbar").textContent).not.toContain(editingMessages.historyStatus({ status: "carrying" }));
         });
         expect(history(container, editingMessages.apply()).hasAttribute("disabled")).toBe(true);
+        const [conflict, ...more] = await conflictCards(container);
+        expect(more).toEqual([]);
+        expect([conflict!.item, conflict!.yours]).toEqual(["job1", "Yours, Removed"]);
         expect((await jobs()).get("job1")!.customer).toBe("Changed elsewhere");
         expect((await h.read(ex.calendarServices)).has("service1")).toBe(false);
         expect(event(container, "job", "job1")).toBeNull();

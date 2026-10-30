@@ -32,7 +32,7 @@ import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { AllocationComponent } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useFormatters,
-    useLanding, useLandingStyles, usePersistedState, useSliceReactivity, useTrackedEvaluation, type HistoryAction,
+    useLanding, useLandingStyles, usePersistedState, useSliceReactivity, useTrackedEvaluation, type EditIssue, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, formatDatePattern, keptRead } from "@elaraai/east-ui-components/internal";
 import { useOptimise } from "../shared/func/use-optimise.js";
@@ -504,7 +504,19 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     // whose read failed, its geometry and the failure said once in its first row in view (CL11) — never "Allocation
     // unavailable" over the board.
     const read = useMemo(() => periodRead({ current, error: data.error, name: dayWords, retry: retryDay }), [current, data.error, dayWords, retryDay]);
-    const toolbar = useAllocationToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, onAction, onPickerWeeks: setPickerWeeks,
+    /** A session's issue's place: a bin by its arrival and its slot, a day's row by its key. */
+    const where = (kind: string) => (issue: { entry: string }) => {
+        if (kind === PERIODS) return issue.entry;
+        const bin = plan.bins.get(issue.entry) ?? held.bins.get(issue.entry);
+        return bin === undefined ? issue.entry : `${binCode(context, bin)} · ${value.lanes.find(l => l.key === bin.lane)?.label ?? bin.lane} ${formatDatePattern("HH:mm", bin.at)}`;
+    };
+    // A conflict's item in the history bar's popover, named as its session's banners name its issues.
+    const historyWhere = (issue: EditIssue) => {
+        const key = history?.sourceOf(issue);
+        const part = key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key));
+        return part === undefined ? issue.entry : where(part.kind)(issue);
+    };
+    const toolbar = useAllocationToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, where: historyWhere, onAction, onPickerWeeks: setPickerWeeks,
         status: value.periods.type === "some" ? statusText(heldPeriod) : undefined, unread: !current, publishing, picker: data.picker,
         optimise: optimiseParts.toolbarItem, optimiseEntry: optimiseParts.entry, locked, issuesFlash: landing.lit && optimised !== undefined,
         focus: focus === undefined ? undefined : { resource: context.resources.get(focus)!, load: loads.get(focus)!, hidden: resourcesShown.keys.type === "some" && !resourcesShown.keys.value.has(focus) },
@@ -515,12 +527,6 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     // book one where the day takes edits — never before its read lands, and never as the narrowing's empty state.
     const empty = current && plan.bins.size === 0 && !notStarted
         ? { message: `No bins on ${dayWords}`, hint: commands.canEdit() ? `Drag ${a(nouns.arrival)} onto ${a(nouns.lane)} hour` : undefined } : undefined;
-    /** A session's issue's place: a bin by its arrival and its slot, a day's row by its key. */
-    const where = (kind: string) => (issue: { entry: string }) => {
-        if (kind === PERIODS) return issue.entry;
-        const bin = plan.bins.get(issue.entry) ?? held.bins.get(issue.entry);
-        return bin === undefined ? issue.entry : `${binCode(context, bin)} · ${value.lanes.find(l => l.key === bin.lane)?.label ?? bin.lane} ${formatDatePattern("HH:mm", bin.at)}`;
-    };
     const sessionName = (kind: string) => kind === PERIODS ? "Days" : value.bin.kind.name;
     // Cold load (#1398, CL5): no day read yet, nor a narrowing's first membership — the frame's skeleton covers it, at the
     // board's own row pitch. After it nothing covers: a day step, a narrowing or a new revision leave the frame live.

@@ -1,0 +1,378 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+/**
+ * The conflicts button and its popover — where a person chooses, for each part
+ * of a draft another write changed differently, which value stands (the
+ * session's drafts carried over, `merge.ts`). The button is first among the
+ * history bar's buttons, in both of the bar's forms — it is what turns Save
+ * back on — while a conflict waits: the not-equal icon and how many wait, in
+ * the warn tone. It never opens by itself. Its popover holds a card for each
+ * conflict: the item, named as the collection names its issues, with Go to,
+ * which goes to it as an issue's click does; the part's label; Yours and
+ * Theirs, a radio group whose choice applies at once as one step of the
+ * history, which Undo takes back; and what both began from. Keep all mine and
+ * Use all theirs choose every one, chosen or not, in one step. Once every one
+ * is chosen, each card folds to a line saying how, which opens it again, and
+ * the button leaves as the popover closes. A host's banner opens it with its
+ * Choose ({@link useConflictsOpener}).
+ *
+ * @packageDocumentation
+ */
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentPropsWithRef, type Ref } from "react";
+import { Box, Button, chakra, Portal, Tooltip, VisuallyHidden, useRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faCheck, faNotEqual } from "@fortawesome/free-solid-svg-icons";
+import { SliceEditPopover } from "../slice/edit/index.js";
+import { useSlotStyles } from "../theme/slot-styles.js";
+import { conflictViewOf, type ConflictView } from "./conflict-view.js";
+import { EditHistory } from "./history.js";
+import type { ConflictPoint } from "./merge.js";
+import type { EditingWords } from "./messages.js";
+import type { ConflictChoice, EditIssue, EditSession, EntryConflicts, SettledConflict } from "./session.js";
+
+/** Below this width the frame a history bar sits in is narrow: Go to closes the popover, which would cover the item. */
+const NARROW_PX = 480;
+
+/** The most a count shows: past it, `99+`. */
+const MOST_COUNTED = 99;
+
+// ── A banner's Choose ───────────────────────────────────────────────────
+
+/** For each session a history bar holds, what opens that bar's conflicts. */
+const openers = new WeakMap<object, () => void>();
+const openerListeners = new Set<() => void>();
+let openerSerial = 0;
+const openersMoved = (): void => {
+    openerSerial++;
+    for (const listener of openerListeners) listener();
+};
+const subscribeOpeners = (listener: () => void): (() => void) => {
+    openerListeners.add(listener);
+    return () => { openerListeners.delete(listener); };
+};
+const openerSnapshot = (): number => openerSerial;
+
+/**
+ * What opens the conflicts of the history bar holding a session — a banner's
+ * Choose — while a bar holds it.
+ *
+ * @param session - The session
+ * @returns The opener, or `undefined` while no history bar holds the session
+ */
+export function useConflictsOpener(session: object): (() => void) | undefined {
+    useSyncExternalStore(subscribeOpeners, openerSnapshot, openerSnapshot);
+    return openers.get(session);
+}
+
+/** The sessions a bar holds: its one, or each its history steps through. */
+function heldSessions<W>(held: EditSession<W> | EditHistory<W>): (readonly [string, EditSession<W>])[] {
+    if (!(held instanceof EditHistory)) return [["", held]];
+    return held.keys.flatMap((key) => {
+        const session = held.session(key);
+        return session === undefined ? [] : [[key, session] as const];
+    });
+}
+
+// ── The cards ───────────────────────────────────────────────────────────
+
+/** One conflict, as the popover lists it. */
+interface Card {
+    /** Its session's key, its entry and its path: what it is known by while the popover is open. */
+    readonly key: string;
+    /** The conflict as an issue of its entry: what Go to goes to, and what names its item. */
+    readonly issue: EditIssue;
+    /** Its item: the entry, as the collection names it, then the steps down to the part's label. */
+    readonly item: string;
+    /** It, in words. */
+    readonly view: ConflictView;
+    /** How it is chosen; `undefined` while it waits. */
+    readonly choice: ConflictChoice | undefined;
+    /** Where the newer value came from, as the source said it when it refused a Save; `undefined` where it said nothing. */
+    readonly said: string | undefined;
+    /** Choose it — one step of the history. */
+    readonly settle: (choice: ConflictChoice) => boolean;
+}
+
+/**
+ * Every conflict a bar's session or history holds, waiting or chosen, each as
+ * a card: each session's in turn, its waiting ones first.
+ *
+ * @param held - The bar's session, or its history
+ * @param words - The words
+ * @param where - How the collection names an issue's place
+ * @returns The cards
+ */
+function cardsOf<W>(held: EditSession<W> | EditHistory<W>, words: EditingWords, where: ((issue: EditIssue) => string) | undefined): Card[] {
+    const cards: Card[] = [];
+    const history = held instanceof EditHistory ? held : undefined;
+    for (const [sessionKey, session] of heldSessions(held)) {
+        const card = (id: string, key: unknown, point: ConflictPoint, values: EntryConflicts | SettledConflict, choice: ConflictChoice | undefined): Card => {
+            const view = conflictViewOf(session.draftType, {
+                id, key, keyType: session.keyType, at: point.at, was: values.was, draft: values.draft, source: values.source,
+            }, words);
+            const issue = session.conflictIssue(id, point);
+            const named = where?.(issue);
+            return {
+                key: `${sessionKey}\u0000${id}\u0000${point.path}`,
+                issue,
+                item: [named === undefined || named.length === 0 ? view.name : named, ...view.path].join(" / "),
+                view,
+                choice,
+                said: values.said,
+                settle: (to) => (history !== undefined ? history.settleConflict(sessionKey, id, point.path, to) : session.settle(id, point.path, to)),
+            };
+        };
+        for (const entry of session.conflicts.values()) for (const point of entry.points) cards.push(card(entry.id, entry.key, point, entry, undefined));
+        for (const settled of session.settled) cards.push(card(settled.id, settled.key, settled.point, settled, settled.choice));
+    }
+    return cards;
+}
+
+/** A ref given a node, whichever kind it is. */
+function assign<T>(ref: Ref<T> | undefined, node: T | null): void {
+    if (typeof ref === "function") ref(node);
+    else if (ref !== null && ref !== undefined) ref.current = node;
+}
+
+/** Props of the button: what it says, and the popover's trigger props, which it takes as its own. */
+type ConflictsButtonProps = {
+    /** Its tooltip. */
+    tip: string;
+    /** Its accessible name. */
+    label: string;
+    /** How many wait, as it shows them; `undefined` once none does. */
+    count: string | undefined;
+    /** Its styles: the icon button's, then the bar's slot. */
+    chrome: (SystemStyleObject | undefined)[];
+    /** The count's styles. */
+    countChrome: SystemStyleObject | undefined;
+    /** Where the bar keeps the button, beside the popover's own ref. */
+    anchor: { current: HTMLButtonElement | null };
+} & Omit<ComponentPropsWithRef<"button">, "children" | "color">;
+
+/** The button: the popover's trigger, and a tooltip's — the popover's props land on it last, so the toolbar reads its state. */
+function ConflictsButton({ tip, label, count, chrome, countChrome, anchor, ref, ...trigger }: ConflictsButtonProps) {
+    return (
+        <Tooltip.Root openDelay={250}>
+            <Tooltip.Trigger asChild>
+                <chakra.button type="button" {...trigger} css={chrome} aria-label={label} data-conflicts="" data-settled={count === undefined ? "" : undefined}
+                    ref={(node: HTMLButtonElement | null) => { anchor.current = node; assign(ref, node); }}>
+                    <FontAwesomeIcon icon={faNotEqual} />
+                    {count !== undefined && <Box as="span" css={countChrome} aria-hidden>{count}</Box>}
+                </chakra.button>
+            </Tooltip.Trigger>
+            <Portal><Tooltip.Positioner><Tooltip.Content>{tip}</Tooltip.Content></Tooltip.Positioner></Portal>
+        </Tooltip.Root>
+    );
+}
+
+/**
+ * Props of {@link ConflictsControl}.
+ *
+ * @typeParam W - The collection's projection of an entry
+ */
+export interface ConflictsControlProps<W> {
+    /** The bar's session, or the history it steps through. */
+    session: EditSession<W> | EditHistory<W>;
+    /** The collection's words. */
+    words: EditingWords;
+    /** Go to an issue — the collection shows where it is: a conflict's Go to. */
+    onIssue: (issue: EditIssue) => void;
+    /** Where an issue is, in the collection's words — a conflict's item; its entry's key in words by default. */
+    where?: ((issue: EditIssue) => string) | undefined;
+    /** An issue's text as the collection shows it — what the source said of a conflict's entry; as written by default. */
+    issueText?: ((message: string) => string) | undefined;
+    /** Locked while a run of the app's optimiser is out: it opens, and its choices are off. */
+    locked: boolean;
+}
+
+/**
+ * The conflicts button and its popover — see the module docs. It follows the
+ * session itself, so it stays current wherever the host draws it.
+ *
+ * @typeParam W - The collection's projection of an entry
+ * @param props - The session, the collection's words, and how it goes to and names an issue
+ * @returns The button while a conflict waits, or while its popover is open; else nothing
+ */
+export function ConflictsControl<W>({ session, words, onIssue, where, issueText, locked }: ConflictsControlProps<W>) {
+    const serial = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
+    const { m } = words;
+    const bar = useSlotStyles("editHistory");
+    const styles = useSlotStyles("editConflicts");
+    const iconRecipe = useRecipe({ key: "iconButton" });
+    const iconStyles = useMemo(() => iconRecipe({ size: "sm", variant: "outline" }), [iconRecipe]);
+    const [open, setOpen] = useState(false);
+    const [opener] = useState(() => () => setOpen(true));
+    const anchor = useRef<HTMLButtonElement | null>(null);
+    const bodyId = useId();
+
+    // A banner's Choose opens this bar's popover, for each session it holds.
+    const ours = useRef(new Set<object>());
+    useEffect(() => {
+        const now = new Set<object>(heldSessions(session).map(([, held]) => held));
+        let moved = false;
+        for (const held of ours.current) {
+            if (now.has(held)) continue;
+            if (Object.is(openers.get(held), opener)) openers.delete(held);
+            ours.current.delete(held);
+            moved = true;
+        }
+        for (const held of now) {
+            if (Object.is(openers.get(held), opener)) continue;
+            openers.set(held, opener);
+            ours.current.add(held);
+            moved = true;
+        }
+        if (moved) openersMoved();
+    }, [session, serial, opener]);
+    useEffect(() => {
+        const held = ours.current;
+        return () => {
+            for (const session of held) if (Object.is(openers.get(session), opener)) openers.delete(session);
+            held.clear();
+            openersMoved();
+        };
+    }, [opener]);
+
+    const waiting = session.unsettled;
+    const chosen = session.settled.length;
+    const shown = waiting > 0 || (open && chosen > 0);
+    // Nothing left to choose, and nothing chosen to show: it closes.
+    useEffect(() => { if (!shown && open) setOpen(false); }, [shown, open]);
+
+    // The cards, read while it is open: each keeps its place, and one new to it goes last.
+    const order = useRef(new Map<string, number>());
+    const cards = useMemo(() => {
+        if (!open) {
+            order.current = new Map();
+            return [];
+        }
+        const seen = order.current;
+        const all = cardsOf(session, words, where);
+        for (const card of all) if (!seen.has(card.key)) seen.set(card.key, seen.size);
+        return all.sort((a, b) => seen.get(a.key)! - seen.get(b.key)!);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the session is mutable: its serial says it moved
+    }, [open, session, serial, words, where]);
+    const done = cards.length > 0 && cards.every((card) => card.choice !== undefined);
+    // The lines a person opened again, once every one was chosen.
+    const [reopened, setReopened] = useState<ReadonlySet<string>>(() => new Set());
+    const off = locked || session.carrying;
+
+    // A card that leaves while it holds the focus hands it to the card now in its place.
+    const focused = useRef<{ key: string; index: number } | undefined>(undefined);
+    useLayoutEffect(() => {
+        const was = focused.current;
+        if (was === undefined || cards.some((card) => card.key === was.key)) return;
+        focused.current = undefined;
+        const active = document.activeElement;
+        if (active !== null && active !== document.body) return;
+        const next = cards[Math.min(was.index, cards.length - 1)];
+        if (next === undefined) return;
+        document.getElementById(bodyId)?.querySelector<HTMLElement>(`[data-conflict-seq="${order.current.get(next.key)}"] :is(input, button)`)?.focus();
+    }, [cards, bodyId]);
+
+    const n = cards.length;
+    const count = waiting > MOST_COUNTED ? `${words.number(MOST_COUNTED)}+` : words.number(waiting);
+    const tip = waiting > 0 ? m.conflictsTip({ n: waiting, count: words.number(waiting) }) : m.conflictsSettled({ n: chosen, count: words.number(chosen) });
+    const close = () => { setOpen(false); setReopened(new Set()); };
+    const goTo = (card: Card) => {
+        onIssue(card.issue);
+        // In a narrow frame the popover would cover the item: it closes, and the button stays. A frame not laid out has no width.
+        const frame = anchor.current?.closest<HTMLElement>("[data-toolbar]") ?? anchor.current?.parentElement;
+        const width = frame?.getBoundingClientRect().width ?? 0;
+        if (width > 0 && width < NARROW_PX) close();
+    };
+    // Where the newer value came from — what the source said, else that it changed — then what both began from.
+    const sourceOf = (card: Card): string => (card.said === undefined ? m.conflictChangedSince() : issueText?.(card.said) ?? card.said);
+    const contextOf = (card: Card): string => [sourceOf(card), ...(card.view.was === undefined ? [] : [m.conflictWas({ value: card.view.was })])].join(" · ");
+    const choiceRow = (card: Card, seq: number, choice: ConflictChoice) => {
+        const checked = card.choice === choice;
+        const name = choice === "draft" ? m.conflictYours() : m.conflictTheirs();
+        const value = choice === "draft" ? card.view.yours : card.view.theirs;
+        // Theirs reads with where it came from and what both began from, as the line under it shows them.
+        const said = choice === "draft" ? [name, value] : [name, value, contextOf(card)];
+        return (
+            <chakra.label css={styles.choice} data-checked={checked ? "" : undefined} data-disabled={off ? "" : undefined} data-choice={choice}>
+                <chakra.input type="radio" css={styles.radio} name={`${bodyId}-${seq}`} value={choice} checked={checked} disabled={off}
+                    aria-label={said.join(", ")} onChange={() => { if (!off) card.settle(choice); }} />
+                <Box as="span" css={styles.choiceName}>{name}</Box>
+                <Box as="span" css={styles.choiceValue}>{value}</Box>
+            </chakra.label>
+        );
+    };
+    const head = (card: Card, itemId?: string) => (
+        <Box css={styles.head}>
+            <Box as="span" css={styles.mark} data-chosen={card.choice === undefined ? undefined : ""} aria-hidden>
+                {card.choice !== undefined && <FontAwesomeIcon icon={faCheck} />}
+            </Box>
+            <Box as="span" id={itemId} css={styles.item} data-conflict-item="">{card.item}</Box>
+            <chakra.button type="button" css={styles.goTo} onClick={() => goTo(card)}>{m.conflictGoTo()}</chakra.button>
+        </Box>
+    );
+    const cardOf = (card: Card, index: number) => {
+        const seq = order.current.get(card.key)!;
+        const track = { onFocus: () => { focused.current = { key: card.key, index }; } };
+        const label = card.view.label;
+        if (done && !reopened.has(card.key)) {
+            const how = card.choice === "source" ? m.conflictTaken({ value: card.view.theirs }) : m.conflictKept({ value: card.view.yours });
+            return (
+                <Box key={card.key} css={styles.card} data-conflict-card="" data-conflict-seq={seq} {...track}>
+                    {head(card)}
+                    <chakra.button type="button" css={styles.line} onClick={() => setReopened((was) => new Set([...was, card.key]))}>
+                        {[...(label.length === 0 ? [] : [label.join(", ")]), how].join(" · ")}
+                    </chakra.button>
+                </Box>
+            );
+        }
+        const labelId = `${bodyId}-${seq}-label`;
+        const itemId = `${bodyId}-${seq}-item`;
+        return (
+            <Box key={card.key} css={styles.card} data-conflict-card="" data-conflict-seq={seq} data-waiting={card.choice === undefined ? "" : undefined} {...track}>
+                {head(card, itemId)}
+                {label.length > 0 && <Box id={labelId} css={styles.label}>{label.join(" · ")}</Box>}
+                <Box role="radiogroup" aria-labelledby={label.length > 0 ? `${itemId} ${labelId}` : itemId} css={styles.choices}>
+                    {choiceRow(card, seq, "draft")}
+                    {choiceRow(card, seq, "source")}
+                </Box>
+                <Box css={styles.context} aria-hidden>
+                    {sourceOf(card)}
+                    {card.view.was !== undefined && <>{" · "}<Box as="span" css={styles.was}>{m.conflictWas({ value: card.view.was })}</Box></>}
+                </Box>
+            </Box>
+        );
+    };
+    return (
+        <>
+            {/* Said as conflicts appear, from a region there before them. */}
+            <VisuallyHidden aria-live="polite" data-conflicts-said="">{waiting > 0 ? m.conflictsAppeared({ n: waiting, count: words.number(waiting) }) : ""}</VisuallyHidden>
+            {shown && (
+                <SliceEditPopover open={open} onOpenChange={(next) => (next ? setOpen(true) : close())} label={m.conflictsHead({ n, count: words.number(n) })} size="lg" flush
+                    initialFocusEl={() => {
+                        // The first conflict still waiting, else the first card.
+                        const at = document.getElementById(bodyId);
+                        return at?.querySelector<HTMLElement>("[data-waiting] input") ?? at?.querySelector<HTMLElement>("[data-conflict-card] button") ?? null;
+                    }}
+                    trigger={
+                        <ConflictsButton tip={tip} label={waiting > 0 ? m.conflicts({ n: waiting, count: words.number(waiting) }) : tip}
+                            count={waiting > 0 ? count : undefined} chrome={[iconStyles, bar.conflicts]} countChrome={bar.conflictsCount} anchor={anchor} />
+                    }
+                    footActions={<>
+                        <Button size="xs" variant="outline" disabled={off} onClick={() => { if (!off) session.settleAll("draft"); }}>{m.conflictsKeepAll()}</Button>
+                        <Button size="xs" variant="outline" disabled={off} onClick={() => { if (!off) session.settleAll("source"); }}>{m.conflictsTakeAll()}</Button>
+                    </>}>
+                    <Box id={bodyId} data-conflicts-body="">
+                        {done
+                            ? <Box css={styles.intro} data-done=""><FontAwesomeIcon icon={faCheck} />{m.conflictsSettled({ n, count: words.number(n) })}</Box>
+                            : <Box css={styles.intro}>{m.conflictsIntro()}</Box>}
+                        {locked ? <Box css={styles.notice}>{m.conflictsLocked()}</Box>
+                            : session.carrying ? <Box css={styles.notice}>{m.historyStatus({ status: "carrying" })}</Box> : null}
+                        {cards.map(cardOf)}
+                    </Box>
+                </SliceEditPopover>
+            )}
+        </>
+    );
+}

@@ -7,7 +7,9 @@
  * The editing session's history bar (#879) — Undo, Redo, Discard and Apply
  * over the current checked batch, its status line and issues — shared by every
  * editable collection, in its collection's words, on the `editHistory` slot
- * recipe.
+ * recipe. While a part of a draft another write changed differently waits to
+ * be chosen, the conflicts button leads its buttons, and Apply waits for it
+ * (`conflicts.tsx`).
  *
  * @packageDocumentation
  */
@@ -18,6 +20,7 @@ import { faArrowRotateLeft, faArrowRotateRight, faCheck, faRotate, faTriangleExc
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import type { EditHistory } from "./history.js";
 import type { EditIssue, EditSession } from "./session.js";
+import { ConflictsControl } from "./conflicts.js";
 import { sessionErrorText, type EditingWords } from "./messages.js";
 
 /** A history bar action. */
@@ -37,14 +40,29 @@ export interface HistoryBarProps<W> {
     words: EditingWords;
     /** An open editor is committed before the requested history action. */
     editing: boolean;
-    /** Go to an issue — the collection shows where it is. */
+    /** Go to an issue — the collection shows where it is: an issue's, or a conflict's (`EditSession.conflictIssue`). */
     onIssue: (issue: EditIssue) => void;
+    /**
+     * Where an issue is, in the collection's words — its row (`J-0002`,
+     * `row 4`), as its banners name it ({@link SessionBanners}): what the
+     * conflicts popover names a conflict's item by. Its entry's key in words
+     * by default.
+     */
+    where?: ((issue: EditIssue) => string) | undefined;
+    /**
+     * An issue's text as the collection shows it — its own issues read back
+     * in its words, as its banners read them ({@link SessionBanners}): what
+     * the conflicts popover shows the source's words for a conflict's entry
+     * in. As written by default.
+     */
+    issueText?: ((message: string) => string) | undefined;
     /** Run an action — the collection first commits what it has open. */
     onAction: (action: HistoryAction) => void;
     /**
      * Undo, Redo, Discard and Apply alone — the form a toolbar short of room
      * folds the bar to ({@link historyToolbarItem}). The status line and the
-     * issues button go; an error still shows.
+     * issues button go; an error still shows, and the conflicts button stays:
+     * it is what turns Apply back on.
      */
     buttonsOnly?: boolean | undefined;
     /**
@@ -57,14 +75,14 @@ export interface HistoryBarProps<W> {
      * Locked while a run of the app's optimiser is out (#1409, R2): Undo,
      * Redo, Discard and Save are `aria-disabled` and run nothing, their size,
      * their place and the focus kept — never `disabled`, which would drop the
-     * focus. `false` by default.
+     * focus; the conflicts popover opens, its choices off. `false` by default.
      */
     locked?: boolean | undefined;
 }
 
 /** Keep an accessible name and a hover/focus tooltip when the control has no text. */
 function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onClick }: {
-    label: string; tip?: string; icon: IconDefinition; disabled: boolean; locked: boolean;
+    label: string; tip?: string | undefined; icon: IconDefinition; disabled: boolean; locked: boolean;
     styles: Styles; onClick: () => void;
 }) {
     const iconRecipe = useRecipe({ key: "iconButton" });
@@ -91,7 +109,7 @@ function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onC
  * @param props - The session, the collection's words, and its callbacks
  * @returns The bar
  */
-export function HistoryBar<W>({ session, words, editing, onAction, onIssue, buttonsOnly = false, showError = true, locked = false }: HistoryBarProps<W>) {
+export function HistoryBar<W>({ session, words, editing, onAction, onIssue, where, issueText, buttonsOnly = false, showError = true, locked = false }: HistoryBarProps<W>) {
     const recipe = useSlotRecipe({ key: "editHistory" });
     const styles = useMemo(() => recipe({}) as unknown as Styles, [recipe]);
     const { m } = words;
@@ -105,6 +123,7 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, butt
         : status !== "idle" ? m.historyStatus({ status })
         : undefined;
     const n = issues.length;
+    const unsettled = session.unsettled;
     return <Box data-slot="history" data-history-form={buttonsOnly ? "buttons" : "full"} data-history-locked={locked ? "" : undefined} css={styles.root}>
         <Box css={styles.actions}>
             {!buttonsOnly && message !== undefined && <Text role="status" aria-live="polite" css={styles.status}>{message}</Text>}
@@ -113,11 +132,13 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, butt
                     tip={m.issuesTip({ n, count: words.number(n) })} locked={false}
                     icon={faTriangleExclamation} disabled={n === 0} onClick={() => { if (issues[0]) onIssue(issues[0]); }} />
             </Box>}
+            <ConflictsControl session={session} words={words} onIssue={onIssue} where={where} issueText={issueText} locked={locked} />
             <HistoryButton styles={styles} label={m.undo()} tip={m.undoTip()} icon={faArrowRotateLeft} disabled={!session.canUndo && !commitEditor} locked={locked} onClick={() => onAction("undo")} />
             <HistoryButton styles={styles} label={m.redo()} tip={m.redoTip()} icon={faArrowRotateRight} disabled={!session.canRedo} locked={locked} onClick={() => onAction("redo")} />
             <HistoryButton styles={styles} label={m.discard()} tip={m.discardTip()} icon={faXmark} disabled={!session.canDiscard || (pending === 0 && !commitEditor)} locked={locked} onClick={() => onAction("discard")} />
             {status === "reconciling" ? <HistoryButton styles={styles} label={m.retryRefresh()} icon={faRotate} disabled={false} locked={locked} onClick={() => onAction("refresh")} />
                 : <HistoryButton styles={styles} label={status === "unknown" ? m.retryRequest() : m.apply()}
+                    tip={status !== "unknown" && unsettled > 0 ? m.applySettleFirst({ n: unsettled, count: words.number(unsettled) }) : undefined}
                     icon={status === "unknown" ? faRotate : faCheck} disabled={status !== "unknown" && !session.canApply && !commitEditor} locked={locked} onClick={() => onAction("apply")} />}
         </Box>
         {showError && session.error !== undefined && <Text css={styles.error} role="alert">{sessionErrorText(session.error, words)}</Text>}

@@ -24,7 +24,7 @@
  *
  * @packageDocumentation
  */
-import { ArrayType, BlobType, ConflictError, DictType, East, EastTypeType, OptionType, StringType, StructType, applyFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, parseFor, some, toEastTypeValue, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
+import { ArrayType, BlobType, ConflictError, DictType, East, EastTypeType, OptionType, StringType, StructType, applyFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, parseFor, some, toEastTypeValue, variant, type EastType, type PatchPath, type ValueTypeOf, type option } from "@elaraai/east";
 import {
     applyEditing, EditingAppliedTypeFor, EditingApplyResultType, EditingBaseTypeFor, EditingChangeSetTypeFor,
     EditingChangeTypeFor, EditingPlacementType, EditingIssueType, EditingOriginType, EditingPatchEventTypeWith,
@@ -313,6 +313,23 @@ function draftOf(version: EntryVersion<unknown> | undefined): option<unknown> {
 }
 
 /**
+ * A conflict's place, as an issue's: its entry, the group's child row it is
+ * in, and the field it is in — the first of its steps there.
+ *
+ * @param id - The entry
+ * @param at - The conflict's steps from the entry
+ * @param children - A group entry's child field
+ * @returns The issue, saying the entry's part changed both ways
+ */
+function issueAt(id: string, at: PatchPath, children: string | undefined): EditIssue {
+    const [first, second] = at;
+    const inRow = children !== undefined && first?.kind === "field" && stringEqual(first.name, children) && second?.kind === "index";
+    const row: option<bigint> = inRow ? some(second.index) : none;
+    const step = at[inRow ? 2 : 0];
+    return { entry: id, row, field: step?.kind === "field" ? some(step.name) : none, message: SESSION_TEXT.conflict };
+}
+
+/**
  * How a keyed source's entry is named (#880): a String key is its own id, any
  * other key its `.east` printing, read back here.
  *
@@ -431,6 +448,8 @@ export class EditSession<W> {
     private readonly merger: EntryMerger;
     /** Each conflict settled since the drafts were last carried over, by entry and path. */
     private settledPoints = new Map<string, SettledConflict>();
+    /** Each conflict's issue, by entry and path ({@link EditSession.conflictIssue}). */
+    private readonly conflictIssues = new Map<string, EditIssue>();
     /** What the source said of each entry a Save it refused for a conflict named, kept for the conflicts carried over from it. */
     private said = new Map<string, string>();
     /** The conflicts as last read, at the session's version: the same object while it does not move. */
@@ -628,6 +647,44 @@ export class EditSession<W> {
     get entryType(): EastType { return this.binding.entryType; }
     /** A keyed source's key type; `undefined` for an Array source. */
     get keyType(): EastType | undefined { return this.binding.keyType; }
+    /** The entry's draft schema: what a conflict's values are read with. */
+    get draftType(): EastType { return this.binding.draftType; }
+
+    /**
+     * A conflict — open, or settled since the drafts were last carried over —
+     * as an issue of its entry, at the child row and the field it is in: what
+     * a collection goes to and names as it does its own issues. The same
+     * object for the same conflict until the drafts are carried over again,
+     * so a history finds the session it is of by it ({@link EditSession.holds}).
+     *
+     * @param id - The entry
+     * @param point - The conflict
+     * @returns Its issue
+     */
+    conflictIssue(id: string, point: ConflictPoint): EditIssue {
+        const key = settledKey(id, point.path);
+        const held = this.conflictIssues.get(key);
+        if (held !== undefined) return held;
+        const issue = issueAt(id, point.at, this.binding.children);
+        this.conflictIssues.set(key, issue);
+        return issue;
+    }
+
+    /**
+     * Whether an issue is this session's — one of its issues, of its drafts'
+     * readiness, or a conflict's — by the issue itself, the very object the
+     * session holds.
+     *
+     * @param issue - The issue
+     * @returns Whether the session holds it
+     */
+    holds(issue: EditIssue): boolean {
+        if (this.issues.some((held) => Object.is(held, issue))) return true;
+        const readiness = this.readiness;
+        if (readiness.type !== "ready" && readiness.value.some((held) => Object.is(held, issue))) return true;
+        for (const held of this.conflictIssues.values()) if (Object.is(held, issue)) return true;
+        return false;
+    }
 
     /**
      * The drafts, as a preview of the Save reads them (#1437): the revision of
@@ -899,8 +956,8 @@ export class EditSession<W> {
         return true;
     }
 
-    /** The conflicts settled, and what the source said of them, forgotten: the drafts are carried over afresh, or gone. */
-    private forgetConflicts(): void { this.settledPoints.clear(); this.said = new Map(); }
+    /** The conflicts settled, what the source said of them, and their issues, forgotten: the drafts are carried over afresh, or gone. */
+    private forgetConflicts(): void { this.settledPoints.clear(); this.said = new Map(); this.conflictIssues.clear(); }
 
     /** Settled conflicts, set or dropped for each key given. */
     private setSettled(settled: ReadonlyMap<string, SettledConflict | undefined>): void {

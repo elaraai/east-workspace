@@ -1238,13 +1238,6 @@ export function usePlanCanvas({
         history.act(action);
     }, [history, locked, acted]);
     const edits = editing.enabled || kinds.length > 0;
-    // The history item's props, made again only as the history moves — its version moves with every change of it or
-    // of its sessions — or as its words and actions do, never as a window lands: the frame's toolbar is handed the
-    // same history item, and draws and measures nothing again for it (#1398, CL9).
-    const historyProps = useMemo(
-        () => (edits ? { session: history, words, editing: false, onAction: onHistory, onIssue, locked } : undefined),
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- the history is mutable: its version says it moved
-        [edits, history, historyVersion, words, onHistory, onIssue, locked]);
     // Each session's banners: `data`'s naming no source, each kind's naming its kind, its issues by its events' titles —
     // each event read as a gesture reads it, where the canvas reads its rows, else by its key (#1199).
     const readEvent = eventEditing.read;
@@ -1271,6 +1264,23 @@ export function usePlanCanvas({
         }
         return out;
     }, [editing.enabled, editing.historyKey, editing.session, where, kindSessions, kinds, readEvent, history]);
+    // A conflict's item in the history bar's popover, named as its session's banners name its issues — by this
+    // render's rows, read as the popover draws, so a window landing makes the history item no new props (CL9).
+    const namingNow = useRef({ sessions, where });
+    namingNow.current = { sessions, where };
+    const historyWhere = useCallback((issue: EditIssue) => {
+        const key = history.sourceOf(issue);
+        const naming = namingNow.current;
+        const held = key === undefined ? undefined : naming.sessions.find((s) => stringEqual(s.key, key));
+        return (held?.where ?? naming.where)(issue);
+    }, [history]);
+    // The history item's props, made again only as the history moves — its version moves with every change of it or
+    // of its sessions — or as its words and actions do, never as a window lands: the frame's toolbar is handed the
+    // same history item, and draws and measures nothing again for it (#1398, CL9).
+    const historyProps = useMemo(
+        () => (edits ? { session: history, words, editing: false, onAction: onHistory, onIssue, where: historyWhere, locked } : undefined),
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the history is mutable: its version says it moved
+        [edits, history, historyVersion, words, onHistory, onIssue, historyWhere, locked]);
 
     // ── The treegrid (#819) ───────────────────────────────────────────────
     // Every item's place in the grid — the pinned rows first, a run not read

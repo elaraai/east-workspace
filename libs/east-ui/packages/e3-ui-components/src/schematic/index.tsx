@@ -647,8 +647,16 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         const part = key === undefined ? undefined : sessions.find((held) => stringEqual(held.key, key));
         if (part !== undefined) reveal(entityId({ kind: recordSlot(part.kind), key: issue.entry }));
     }, [history, sessions, reveal]);
+    // A conflict's item in the history bar's popover, named as its session's banners name its issues — by the names this
+    // render draws, read as the popover draws.
+    const namesNow = useRef<ReadonlyMap<string, string>>(new Map());
+    const where = useCallback((issue: EditIssue) => {
+        const key = history.sourceOf(issue);
+        const part = key === undefined ? undefined : sessions.find((held) => stringEqual(held.key, key));
+        return (part === undefined ? undefined : namesNow.current.get(entityId({ kind: recordSlot(part.kind), key: issue.entry }))) ?? issue.entry;
+    }, [history, sessions]);
     const historyItem = editing.edits
-        ? historyToolbarItem({ session: history, words: editingWords, editing: false, showError: false, onIssue, onAction })
+        ? historyToolbarItem({ session: history, words: editingWords, editing: false, showError: false, onIssue, where, onAction })
         : undefined;
     const items = useSchematicToolbarItems({
         styles, words, chrome, nouns, tools, held, links: narrow ? NO_LINK_CHOICES : linkChoices, onTools: pickTools, find,
@@ -804,6 +812,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // and a session's banners: an item's or a zone's label, a link's ends, a net's label or its ends; never a minted key. An
     // unsaved change the drawing leaves out is named so too, as its draft has it.
     const names = useMemo(() => entityNames(withWaiting(inspectorDrawn, waiting), words), [inspectorDrawn, waiting, words]);
+    namesNow.current = names;
     // The zones a point lands in, smallest first, as the Index files an item: what a drop's words name.
     const hosts = useMemo(() => hostZones(shownZones), [shownZones]);
     // A kind takes a drop while its session takes an edit and nothing the canvas draws is retained (#1398, CL8).

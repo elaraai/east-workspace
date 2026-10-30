@@ -41,6 +41,7 @@ import { carrySaid, keyOn } from "../plan-move.test-utils.js";
 import { boundFrame } from "../../sheet/frame.test-utils.js";
 import { offering } from "../../shared/schedule/keys.test-utils.js";
 import { act, el, elementKey, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import { conflictCards } from "../../e3-web-mount.test-utils.js";
 
 const h = planHarness({ "plan/plan-events": ex, "plan/plan": rowDrop });
 // A select scrolls its open listbox to the chosen option; jsdom does not scroll.
@@ -564,7 +565,7 @@ describe("Save per kind (PB45–PB48)", () => {
         expect(field(container, "customer").hasAttribute("data-dirty")).toBe(false);
     });
 
-    test("a kind whose record moved since carries its drafts over: the customer both changed waits to be chosen, the draft's standing — and the other kinds commit (PB46)", async () => {
+    test("a kind whose record moved since carries its drafts over: the customer both changed waits in the conflicts, named by the event and who changed the record last — and the other kinds commit (PB46)", async () => {
         const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         const deployed = await commits(ex.planPrintStops.name);
@@ -578,11 +579,17 @@ describe("Save per kind (PB45–PB48)", () => {
             fireEvent.mouseDown(historyButton(container, SAVE), { button: 0 });
             fireEvent.click(historyButton(container, SAVE));
         }, (jobs) => jobWith(jobs, "J-1001", { customer: "Alder & Finch Group" }));
-        // The job's draft is carried over to the jobs as the other planner left them: nothing is out of date.
+        // The job's draft is carried over to the jobs as the other planner left them: nothing is out of date, and the
+        // customer both changed waits to be chosen — named as the Plan names the event, with who changed the record last.
         await waitFor(() => {
-            expect(banners(container)).toEqual([]);
+            expect(banners(container).map((b) => b.kind)).toEqual(["conflicts"]);
             expect(statusLine(container)).toBeUndefined();
         });
+        expect(banners(container)[0]!.text).toContain(titled("Print job", editingMessages.bannerConflicts({ n: 1, count: "1" })));
+        const [card, ...more] = await conflictCards(container);
+        expect(more).toEqual([]);
+        expect([card!.item, card!.yours]).toEqual(["Spring catalogue", "Yours, Alder & Finch Ltd"]);
+        expect(card!.theirs).toBe("Theirs, Alder & Finch Group, Changed since this edit began — last changed by another session · was Alder & Finch");
         // The stop committed; the job did not, and its draft stands over the other planner's, waiting to be chosen.
         expect(await commits(ex.planPrintStops.name)).toEqual(["patch", ...deployed]);
         expect((await readStops()).get("S-01")!.kind.type).toBe("service");

@@ -30,7 +30,7 @@ import { StringType, equalFor, none, some, variant } from "@elaraai/east";
 import { RosterComponent, RosterContextType } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useDataStable,
-    useFormatters, useLanding, useLandingStyles, usePersistedState, useTrackedEvaluation, type HistoryAction,
+    useFormatters, useLanding, useLandingStyles, usePersistedState, useTrackedEvaluation, type EditIssue, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, keptRead } from "@elaraai/east-ui-components/internal";
 import { useOptimise } from "../shared/func/use-optimise.js";
@@ -354,7 +354,19 @@ function RosterFrame(props: FrameProps) {
         const on = active.closest(`[${attribute}]`)?.getAttribute(attribute);
         if (on !== null && on !== undefined && keyEqual(on, key)) board.focus({ preventScroll: true });
     };
-    const toolbar = useRosterToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, onAction, onPickerDates: setPickerDates, narrow,
+    /** A session's issue's place: a duty by whose it is, a week's or a target's row as it stands. */
+    const where = (kind: string) => (issue: { entry: string }) => {
+        if (kind !== source.duty.kind.key) return issue.entry;
+        const a = week.assignments.get(issue.entry) ?? held.assignments.get(issue.entry);
+        return a === undefined ? issue.entry : assignmentName(value, a);
+    };
+    // A conflict's item in the history bar's popover, named as its session's banners name its issues.
+    const historyWhere = (issue: EditIssue) => {
+        const key = history?.sourceOf(issue);
+        const part = key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key));
+        return part === undefined ? issue.entry : where(part.kind)(issue);
+    };
+    const toolbar = useRosterToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, where: historyWhere, onAction, onPickerDates: setPickerDates, narrow,
         optimise: optimiseParts.toolbarItem, optimiseEntry: optimiseParts.entry, locked, issuesFlash: landing.lit && optimised !== undefined,
         selectedWeek: pickedWeek === undefined ? undefined : new Date(pickedWeek.start),
         status: source.periods.type === "some" ? statusText(heldPeriod) : undefined, unread: !current, publishing, picker: data.picker,
@@ -364,12 +376,6 @@ function RosterFrame(props: FrameProps) {
     // A week not started, said of the week in view: a month shows its weeks as they are.
     const notStarted = current && span.period !== "month" && week.assignments.size === 0 && (source.periods.type === "none" || !started(period));
     const dutyName = source.duty.kind.name.toLocaleLowerCase(format.locale);
-    /** A session's issue's place: a duty by whose it is, a week's or a target's row as it stands. */
-    const where = (kind: string) => (issue: { entry: string }) => {
-        if (kind !== source.duty.kind.key) return issue.entry;
-        const a = week.assignments.get(issue.entry) ?? held.assignments.get(issue.entry);
-        return a === undefined ? issue.entry : assignmentName(value, a);
-    };
     const sessionName = (kind: string) => kind === PERIODS ? (source.periods.type === "some" && source.periods.value.every.type === "day" ? "Days" : "Weeks")
         : kind === TARGETS ? "Targets" : source.duty.kind.name;
     // Cold load (#1398, CL5): no week read yet, nor the people's or the activities' first narrowing — the frame's

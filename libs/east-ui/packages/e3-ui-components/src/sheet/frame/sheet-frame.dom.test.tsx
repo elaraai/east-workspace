@@ -24,6 +24,7 @@ import { Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { editingMessages, formatters } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import { act, sheetHarness, settle, slot, tabs } from "./harness.test-utils.js";
+import { conflictCards } from "../../e3-web-mount.test-utils.js";
 import { keptName } from "@elaraai/east-ui-components/internal";
 
 const h = sheetHarness();
@@ -75,10 +76,10 @@ async function typeTask(container: HTMLElement, row: number, task: string) {
     await settle();
 }
 
-/** The drafts carried over to the record as another write left it: no banner, and the history item checking nothing. */
-async function carriedOver(container: HTMLElement): Promise<void> {
+/** The drafts carried over to the record as another write left it: the banners given, and the history item checking nothing. */
+async function carriedOver(container: HTMLElement, expected: readonly string[]): Promise<void> {
     await waitFor(() => {
-        expect(banners(container)).toEqual([]);
+        expect(banners(container)).toEqual(expected);
         expect(slot(container, "toolbar")!.textContent).not.toContain(editingMessages.historyStatus({ status: "carrying" }));
     });
 }
@@ -139,24 +140,35 @@ test("the toolbar is the frame's one row, the sheet's items in §7.1's order; th
     expect(slot(container, "toolbar")!.contains(document.activeElement)).toBe(true);
 });
 
-test("a Save another session's write beat carries the draft over to the row as it stands: the task both changed waits to be chosen, the draft's standing, and Discard takes the row as it is (SB23)", async () => {
+test("a Save another session's write beat carries the draft over to the row as it stands: the task both changed waits in the conflicts, saying who changed it last, and kept, it saves (SB23)", async () => {
     const { container, getByRole } = await h.mount(ex.sheetBasic);
     await typeTask(container, 0, "Panel cutting, maple");
     expect(banners(container)).toEqual([]);
     // Another session moves the job just as Save goes: the Save's patch reaches e3 after its write.
     await h.race(JOBS, () => press(getByRole("button", { name: "Save" })), (jobs) => withTask(jobs, "J-0001", "Panel cutting, walnut"));
-    await carriedOver(container);
+    await carriedOver(container, ["conflicts"]);
     // Nothing goes out of date: the draft's task stands where both changed it, and Save waits for it to be chosen.
+    expect(slot(container, "banners")!.textContent).toContain(editingMessages.bannerConflicts({ n: 1, count: "1" }));
     expect(container.querySelector('[data-slot="row"] [data-key="task"]')!.textContent).toBe("Panel cutting, maple");
     expect((getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     expect((await readJobs()).get("J-0001")!.task).toBe("Panel cutting, walnut");
     // The history item says nothing under its buttons: the toolbar keeps one row.
     expect(slot(container, "toolbar")!.querySelector('[role="alert"]')).toBeNull();
 
-    press(getByRole("button", { name: "Discard" }));
-    await settle();
+    // The banner's Choose opens the conflict: the job, each side's task, who changed the record last, and what both began from.
+    await act(async () => { press(slot(container, "banners")!.querySelector('[data-banner-action="choose"]')!); });
+    const [card, ...more] = await conflictCards(container);
+    expect(more).toEqual([]);
+    expect([card!.item, card!.yours, card!.theirs]).toEqual([
+        "J-0001", "Yours, Panel cutting, maple",
+        "Theirs, Panel cutting, walnut, Changed since this edit began — last changed by another session · was Panel cutting",
+    ]);
+    // Kept, the draft's task saves over the newer one.
+    await act(async () => { fireEvent.click(card!.radio("draft")); });
     expect(banners(container)).toEqual([]);
-    expect(container.querySelector('[data-slot="row"] [data-key="task"]')!.textContent).toBe("Panel cutting, walnut");
+    await act(async () => { press(getByRole("button", { name: "Save" })); });
+    await settle();
+    expect((await readJobs()).get("J-0001")!.task).toBe("Panel cutting, maple");
 });
 
 test("a record read a window at a time carries a Save's drafts over to the rows another write moved — each read by its key at the record's new revision, never the record whole (#1199, SB23)", async () => {
@@ -168,8 +180,9 @@ test("a record read a window at a time carries a Save's drafts over to the rows 
     // Another session moves the first job just as Save goes; the second it leaves as its edit began.
     const asked = h.requests("find", JOBS_DATASET).length;
     await h.race(JOBS, () => press(getByRole("button", { name: "Save" })), (jobs) => withTask(jobs, "J-0001", "Panel cutting, walnut"));
-    await carriedOver(container);
+    await carriedOver(container, ["conflicts"]);
     // The first job's task, which both changed, waits to be chosen; the second's draft is carried over beside it.
+    expect((await conflictCards(container)).map((card) => card.item)).toEqual(["J-0001"]);
     expect([...container.querySelectorAll('[data-slot="row"] [data-key="task"]')].slice(0, 2).map((cell) => cell.textContent))
         .toEqual(["Panel cutting, maple", "Edge banding, both edges"]);
     expect((getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);

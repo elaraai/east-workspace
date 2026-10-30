@@ -7,7 +7,8 @@
  * The editing session's banners (#1184) — what the history bar says under its
  * buttons, for a host that leaves that line to its banners: a builder's
  * frame, whose toolbar keeps one row (`historyToolbarItem({ showError: false
- * })`). In the order a builder lists them: an Apply's conflicts, naming each
+ * })`). In the order a builder lists them: changes that conflict with newer
+ * ones, whose Choose opens the history bar's conflicts; an Apply's conflicts, naming each
  * issue's place; an Apply the source refused, with its reasons; a write with
  * no answer, with Retry; an Apply whose result could not be read back, with
  * Retry; and drafts the source moved under, with Discard. Each follows the
@@ -22,6 +23,7 @@ import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { BannerView } from "../feedback/banner/index.js";
 import type { HistoryAction } from "./HistoryBar.js";
 import type { EditIssue, EditSession } from "./session.js";
+import { useConflictsOpener } from "./conflicts.js";
 import { sessionErrorText, type EditingWords } from "./messages.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -70,6 +72,7 @@ export interface SessionBannersProps<W> {
  */
 export function SessionBanners<W>({ session, words, onAction, where, issueText, name }: SessionBannersProps<W>) {
     useSyncExternalStore(session.subscribe, session.getSnapshot);
+    const choose = useConflictsOpener(session);
     const recipe = useSlotRecipe({ key: "editHistory" });
     const styles = useMemo(() => recipe({}) as unknown as Styles, [recipe]);
     const { m } = words;
@@ -94,8 +97,16 @@ export function SessionBanners<W>({ session, words, onAction, where, issueText, 
         <Button size="xs" variant="outline" data-banner-action={run} onClick={() => onAction(run)}>{label}</Button>
     );
     const errorText = error === undefined ? undefined : sessionErrorText(error, words);
+    const unsettled = session.unsettled;
     return (
         <>
+            {unsettled > 0 && (
+                <Box data-session-banner="conflicts">
+                    <BannerView status="warning" title={titled(m.bannerConflicts({ n: unsettled, count: words.number(unsettled) }))}
+                        actions={choose === undefined ? undefined
+                            : <Button size="xs" variant="outline" data-banner-action="choose" onClick={choose}>{m.conflictsChoose()}</Button>} />
+                </Box>
+            )}
             {status === "conflict" && (
                 <Box data-session-banner="conflict">
                     <BannerView status="warning" title={titled(m.bannerConflict({ n: session.issues.length, count: words.number(session.issues.length) }))}

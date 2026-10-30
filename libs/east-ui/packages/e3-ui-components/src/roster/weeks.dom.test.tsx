@@ -20,14 +20,15 @@ import {
     act, assignment, at, card, history, narrow, NEXT, open, press, rosterHarness, searched, settle, slot, START, warehouseRoster, weekDuties, width,
     type Choice,
 } from "./harness.test-utils.js";
+import { conflictCards } from "../e3-web-mount.test-utils.js";
 import { DAY } from "./model.js";
 import { resetKept } from "@elaraai/east-ui-components/internal";
 const h = rosterHarness();
 async function weekKey(c: HTMLElement, key: "[" | "]") { await act(async () => { fireEvent.keyDown(slot(c, "main"), { key }); }); await settle(); }
-/** A draft carried over to the duties as another session left them: no banner, and the history item checking nothing. */
+/** A draft carried over to the duties as another session left them: the conflicts banner alone, and the history item checking nothing. */
 async function carriedOver(c: HTMLElement) {
     await waitFor(() => {
-        expect(c.querySelector("[data-session-banner]"), slot(c, "banners").textContent ?? "").toBeNull();
+        expect([...c.querySelectorAll("[data-session-banner]")].map((b) => b.getAttribute("data-session-banner")), slot(c, "banners").textContent ?? "").toEqual(["conflicts"]);
         expect(slot(c, "toolbar").textContent).not.toContain(editingMessages.historyStatus({ status: "carrying" }));
     });
 }
@@ -137,6 +138,7 @@ describe("Roster week lifecycle", () => {
         await carriedOver(container);
         expect(history(container, editingMessages.apply()).hasAttribute("disabled")).toBe(true);
         expect(assignment(container, "s37").hasAttribute("data-removed")).toBe(true);
+        expect((await conflictCards(container)).map((card) => [card.item, card.yours])).toEqual([["C. Clover", "Yours, Removed"]]);
         await press(history(container, editingMessages.discard()));
         expect(assignment(container, "s37").hasAttribute("data-removed")).toBe(false);
         // Its own times differ from its shift's now: the chip says them.
@@ -154,6 +156,10 @@ describe("Roster week lifecycle", () => {
         expect(history(container, editingMessages.apply()).hasAttribute("disabled")).toBe(true);
         expect(assignment(container, "s37").hasAttribute("data-removed")).toBe(true);
         expect((await h.read(ex.rosterDuties)).get("s37")!.start).toEqual(at("2028-03-09T05:00:00"));
+        // The duty's conflict, with who changed the record last.
+        const [card] = await conflictCards(container);
+        expect([card!.item, card!.yours]).toEqual(["C. Clover", "Yours, Removed"]);
+        expect(card!.theirs).toContain("last changed by another session");
     });
     test("a lost Publish response stays unconfirmed and retry uses the same request identity", async () => {
         const { container } = await h.mount(ex.rosterWarehouse);

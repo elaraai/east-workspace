@@ -58,6 +58,72 @@ export interface EditingMessages {
     apply: () => string;
     /** A source that saved a batch without its committed revision. */
     applyNoRevision: () => string;
+    /** Save's tooltip while conflicts wait to be chosen — `Choose 2 conflicts to save`. */
+    applySettleFirst: (p: { n: number; count: string }) => string;
+    /** The conflicts button — `2 conflicts`. */
+    conflicts: (p: { n: number; count: string }) => string;
+    /** Its tooltip. */
+    conflictsTip: (p: { n: number; count: string }) => string;
+    /** The conflicts popover's head — `Conflicts · 2`. */
+    conflictsHead: (p: { n: number; count: string }) => string;
+    /** Its first words: what happened, and what to do. */
+    conflictsIntro: () => string;
+    /** Every conflict chosen — `All 2 conflicts chosen. Save is on.` */
+    conflictsSettled: (p: { n: number; count: string }) => string;
+    /** Said as conflicts appear, to a screen reader. */
+    conflictsAppeared: (p: { n: number; count: string }) => string;
+    /** Keep every one's draft value. */
+    conflictsKeepAll: () => string;
+    /** Take every one's newer value. */
+    conflictsTakeAll: () => string;
+    /** The draft's side. */
+    conflictYours: () => string;
+    /** The newer side. */
+    conflictTheirs: () => string;
+    /** What both began from — `was 442`. */
+    conflictWas: (p: { value: string }) => string;
+    /** Where the data names no one who changed it. */
+    conflictChangedSince: () => string;
+    /** Go to the entry. */
+    conflictGoTo: () => string;
+    /** A conflict, as the issue a collection goes to. */
+    issueConflict: () => string;
+    /** The banner while conflicts wait — `2 of your changes conflict with newer changes`. */
+    bannerConflicts: (p: { n: number; count: string }) => string;
+    /** The banner's action: open the conflicts. */
+    conflictsChoose: () => string;
+    /** Why the choices are off while an optimiser run is out. */
+    conflictsLocked: () => string;
+    /** A conflict settled for the draft's value — `kept yours: 500`. */
+    conflictKept: (p: { value: string }) => string;
+    /** A conflict settled for the newer value — `used theirs: 450`. */
+    conflictTaken: (p: { value: string }) => string;
+    /** An entry removed. */
+    conflictRemoved: () => string;
+    /** A value cleared. */
+    conflictCleared: () => string;
+    /** Empty text. */
+    conflictEmpty: () => string;
+    /** Nothing. */
+    conflictNone: () => string;
+    /** A flag set. */
+    conflictYes: () => string;
+    /** A flag not set. */
+    conflictNo: () => string;
+    /** A list's item, counting from one — `Item 3`. */
+    conflictItem: (p: { n: number; count: string }) => string;
+    /** A list's size — `12 items`. */
+    conflictItems: (p: { n: number; count: string }) => string;
+    /** A set's or a map's size — `12 entries`. */
+    conflictEntries: (p: { n: number; count: string }) => string;
+    /** A series of numbers' size — `48 numbers`. */
+    conflictNumbers: (p: { n: number; count: string }) => string;
+    /** A grid's size — `12 × 4 grid`. */
+    conflictGrid: (p: { rows: string; cols: string }) => string;
+    /** A tree. */
+    conflictTree: () => string;
+    /** A file — `File · 2,400 bytes`. */
+    conflictFile: (p: { size: string }) => string;
     /** A field whose text could not be read. */
     issueInvalid: (p: { value: string }) => string;
     /** A draft field with no value. */
@@ -111,6 +177,39 @@ export const editingMessages: EditingMessages = {
     retryRequest: () => "Retry request",
     apply: () => "Save",
     applyNoRevision: () => "The source saved the batch without its committed revision; recover this request before continuing",
+    applySettleFirst: ({ n, count }) => `Choose ${count} ${plural(n, "conflict", "conflicts")} to save`,
+    conflicts: ({ n, count }) => `${count} ${plural(n, "conflict", "conflicts")}`,
+    conflictsTip: ({ n, count }) => `${count} ${plural(n, "conflict", "conflicts")} · Choose which changes to keep`,
+    conflictsHead: ({ count }) => `Conflicts · ${count}`,
+    conflictsIntro: () => "Someone else changed these while you were editing. Choose which version to keep. Save is off until every one is chosen.",
+    conflictsSettled: ({ n, count }) => (n === 1 ? "The conflict is chosen. Save is on." : `All ${count} conflicts chosen. Save is on.`),
+    conflictsAppeared: ({ n, count }) => `${count} of your ${plural(n, "changes conflicts", "changes conflict")} with newer changes. Save is off until you choose.`,
+    conflictsKeepAll: () => "Keep all mine",
+    conflictsTakeAll: () => "Use all theirs",
+    conflictYours: () => "Yours",
+    conflictTheirs: () => "Theirs",
+    conflictWas: ({ value }) => `was ${value}`,
+    conflictChangedSince: () => "Changed since you started editing",
+    conflictGoTo: () => "Go to",
+    issueConflict: () => "Someone else changed this too — choose which version to keep",
+    bannerConflicts: ({ n, count }) => `${count} of your ${plural(n, "changes conflicts", "changes conflict")} with newer changes`,
+    conflictsChoose: () => "Choose",
+    conflictsLocked: () => "An optimiser run is in progress. Choose once it finishes.",
+    conflictKept: ({ value }) => `kept yours: ${value}`,
+    conflictTaken: ({ value }) => `used theirs: ${value}`,
+    conflictRemoved: () => "Removed",
+    conflictCleared: () => "Cleared",
+    conflictEmpty: () => "Empty",
+    conflictNone: () => "None",
+    conflictYes: () => "Yes",
+    conflictNo: () => "No",
+    conflictItem: ({ count }) => `Item ${count}`,
+    conflictItems: ({ n, count }) => `${count} ${plural(n, "item", "items")}`,
+    conflictEntries: ({ n, count }) => `${count} ${plural(n, "entry", "entries")}`,
+    conflictNumbers: ({ n, count }) => `${count} ${plural(n, "number", "numbers")}`,
+    conflictGrid: ({ rows, cols }) => `${rows} × ${cols} grid`,
+    conflictTree: () => "Tree",
+    conflictFile: ({ size }) => `File · ${size} bytes`,
     issueInvalid: ({ value }) => `Invalid input: ${value}`,
     issueRequired: () => "A value is required",
     issueChanged: () => "Changed since this edit began",
@@ -150,6 +249,7 @@ export const SESSION_TEXT = {
     noRevision: editingMessages.applyNoRevision(),
     changed: editingMessages.issueChanged(),
     sourceChanged: editingMessages.issueSourceChanged(),
+    conflict: editingMessages.issueConflict(),
 } as const;
 
 /**

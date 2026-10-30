@@ -30,7 +30,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCalendarDay, faChartGantt, faLink, faTable, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { SortedMap } from "@elaraai/east";
 import {
-    ChipMenu, OPTIMISE_RANK, historyToolbarItem, useKeySearchToolbarItem, type HistoryAction, type KeySearchSource, type ToolbarItem,
+    ChipMenu, OPTIMISE_RANK, historyToolbarItem, useKeySearchToolbarItem, type EditIssue, type HistoryAction, type KeySearchSource, type ToolbarItem,
 } from "@elaraai/east-ui-components";
 import { HOST_RANK, PlaceholderShape, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { SEARCH_BOX_RANK } from "../shared/schedule/search-rank.js";
@@ -110,6 +110,8 @@ interface ToolbarArgs extends AllocationWindow {
     picker: SortedMap<Date, Day["status"]>;
     issues: readonly Issue[];
     onIssues: () => void;
+    /** Where an issue of the history's is, in the board's words — its banners' — what the history item's conflicts name their items by. */
+    where?: ((issue: EditIssue) => string) | undefined;
     onAction: (action: HistoryAction) => void;
     onPickerWeeks: (weeks: readonly Date[]) => void;
     /** The focus (A13): its resource, its load, and whether the narrowing hides its row. */
@@ -239,7 +241,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         // The Elara eye (#1409), immediately before the history item, whose actions a run out locks (R2): in the row at every
         // width the ladder and the rail's caret leave it room, and else the View's entry, never out of the toolbar.
         eye === undefined ? args.optimise : { ...eye.item, forms: [...eye.item.forms, null], rank: OPTIMISE_RANK, bundle: EYE_INTO_VIEW },
-        showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onAction: args.onAction, locked: args.locked === true }),
+        showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, where: args.where, onAction: args.onAction, locked: args.locked === true }),
         // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026), its slot held while the day can't publish.
         heldPublish && { key: "allocation.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" disabled={!canPublish} onClick={() => commands.publish()}>Publish</Button>, null] },
     ];

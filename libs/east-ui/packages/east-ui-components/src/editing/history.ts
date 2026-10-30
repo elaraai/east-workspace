@@ -224,17 +224,13 @@ export class EditHistory<W> {
 
     /**
      * The session an issue is of, by the issue itself — the very object a
-     * session's issues or readiness hold.
+     * session's issues, its readiness or its conflicts hold ({@link EditSession.holds}).
      *
      * @param issue - One of the history's issues
      * @returns The session's key, or `undefined` for an issue none of them holds
      */
     sourceOf(issue: EditIssue): string | undefined {
-        for (const [key, session] of this.sessions) {
-            if (session.issues.some((held) => Object.is(held, issue))) return key;
-            const readiness = session.readiness;
-            if (readiness.type !== "ready" && readiness.value.some((held) => Object.is(held, issue))) return key;
-        }
+        for (const [key, session] of this.sessions) if (session.holds(issue)) return key;
         return undefined;
     }
 

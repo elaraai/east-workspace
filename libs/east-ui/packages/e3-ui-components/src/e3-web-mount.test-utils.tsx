@@ -533,3 +533,35 @@ export async function toolbarAtFloor(): Promise<void> {
  * @returns The slot's element
  */
 export const slot = (container: HTMLElement, name: string) => container.querySelector<HTMLElement>(`[data-builder-frame] [data-frame-slot="${name}"]`)!;
+
+/** A card of the history bar's conflicts popover, as a person reads it: the item, each choice as it is read out, and the choices. */
+export interface ConflictCard {
+    /** The item, as the builder names it. */
+    readonly item: string | null;
+    /** The draft's choice, as it is read out — `Yours, 500`. */
+    readonly yours: string | null;
+    /** The newer value's, with where it came from and what both began from. */
+    readonly theirs: string | null;
+    /** A choice's radio. */
+    readonly radio: (choice: "draft" | "source") => HTMLInputElement;
+}
+
+/**
+ * The cards of the history bar's conflicts popover — opened from its button
+ * first, unless it is open already (a banner's Choose opens it).
+ *
+ * @param container - The builder's container, whose toolbar holds the button
+ * @returns Each card, in the popover's order
+ */
+export async function conflictCards(container: HTMLElement): Promise<ConflictCard[]> {
+    if (document.querySelector("[data-conflict-card]") === null) {
+        await act(async () => { container.querySelector<HTMLElement>("[data-conflicts]")!.click(); });
+    }
+    await waitFor(() => { if (document.querySelector("[data-conflict-card]") === null) throw new Error("the conflicts popover shows no card"); });
+    return [...document.querySelectorAll<HTMLElement>("[data-conflict-card]")].map((card) => ({
+        item: card.querySelector("[data-conflict-item]")?.textContent ?? null,
+        yours: card.querySelector("[data-choice=draft] input")?.getAttribute("aria-label") ?? null,
+        theirs: card.querySelector("[data-choice=source] input")?.getAttribute("aria-label") ?? null,
+        radio: (choice) => card.querySelector<HTMLInputElement>(`[data-choice=${choice}] input`)!,
+    }));
+}

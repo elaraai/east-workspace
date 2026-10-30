@@ -22,6 +22,7 @@ import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import {
     START, act, assignment, at, cell, drop, history, libraryCard, narrow, open, press, rosterHarness, settle, slot, warehouseRoster, weekDuties, width, type Choice,
 } from "./harness.test-utils.js";
+import { conflictCards } from "../e3-web-mount.test-utils.js";
 import { setRosterPayProbe } from "./model.js";
 import { offering } from "../shared/schedule/keys.test-utils.js";
 
@@ -129,7 +130,7 @@ describe("one history over the Roster's records (#1369)", () => {
         expect(main.queryAllByRole("button", { name: /assign|request/i })).toEqual([]);
     });
 
-    test("B9 — two sessions' edits of different duties of one week both commit; the same duty, removed here and noted there, waits in the second to be chosen", async () => {
+    test("B9 — two sessions' edits of different duties of one week both commit; the same duty, removed here and noted there, waits in the second's conflicts, named by whose it is", async () => {
         const { container: c } = await h.mount(ex.rosterWarehouse);
         await press(within(assignment(c, "s37")).getByRole("button", { name: "Remove C. Clover" }));
         // Another session notes D. Bracken's Thursday between this Save's read and its commit: another duty, both commit.
@@ -145,10 +146,14 @@ describe("one history over the Roster's records (#1369)", () => {
         await h.race(ex.rosterDuties, () => { fireEvent.click(history(c, editingMessages.apply())); },
             now => { now.set("s10", { ...now.get("s10")!, note: "covering for Tuesday" }); return now; });
         await waitFor(() => {
-            expect(c.querySelector("[data-session-banner]"), slot(c, "banners").textContent ?? "").toBeNull();
+            expect([...c.querySelectorAll("[data-session-banner]")].map((b) => b.getAttribute("data-session-banner")), slot(c, "banners").textContent ?? "").toEqual(["conflicts"]);
             expect(slot(c, "toolbar").textContent).not.toContain(editingMessages.historyStatus({ status: "carrying" }));
         });
         expect(history(c, editingMessages.apply()).hasAttribute("disabled")).toBe(true);
+        // Named as the Roster names a duty: whose it is.
+        const [card, ...more] = await conflictCards(c);
+        expect(more).toEqual([]);
+        expect([card!.item, card!.yours]).toEqual(["R. Birch", "Yours, Removed"]);
         expect(assignment(c, "s10").hasAttribute("data-removed")).toBe(true);
         expect((await h.read(ex.rosterDuties)).get("s10")!.note).toBe("covering for Tuesday");
     });
