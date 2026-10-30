@@ -1692,6 +1692,10 @@ def is_type_equal(
     Returns:
         True if types are structurally equal, False otherwise
     """
+    # One object is one type: the constructors intern, so a build compares
+    # the same object far more often than two copies (#1459).
+    if t1 is t2:
+        return True
     if r1 is None:
         r1 = t1
     if r2 is None:
@@ -1812,6 +1816,8 @@ def is_subtype(t1: EastType, t2: EastType) -> bool:
     Returns:
         True if t1 is a subtype of t2, False otherwise
     """
+    if t1 is t2:
+        return True
     # Handle Recursive types, mirroring the TS reference (isSubtypeValueImpl):
     # wrappers are transparent on either side; refs compare by scope id.
     if is_recursive_type(t1) and t1.value.type == "wrapper":

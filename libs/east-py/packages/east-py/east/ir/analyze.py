@@ -113,8 +113,9 @@ class _Scope:
 
 
 class _Analyzer:
-    def __init__(self, platforms: Any, source_map: Any) -> None:
+    def __init__(self, platforms: Any, source_map: Any, trusted: Any = None) -> None:
         self.source_map = source_map
+        self.trusted: dict[int, Any] = trusted if trusted is not None else {}
         self.platforms: dict[str, Any] | None = None
         if platforms is not None:
             self.platforms = {}
@@ -278,6 +279,11 @@ class _Analyzer:
     def _function(self, node, p, scope, kind):
         if p["type"].type != kind:
             self.fail(f"Expected {kind} type, got {_print(p['type'])}", node)
+        if id(node) in self.trusted and len(p["captures"]) == 0:
+            # A function another build made and analyzed, embedded whole: it
+            # closes over nothing, so its body is valid wherever it lands, and
+            # only its boundary — its type and empty captures — is this build's.
+            return p["type"]
         fn_scope = _Scope(None)
         for cap in p["captures"]:
             c = cap.value
@@ -732,13 +738,15 @@ def _platform_signature(platform: Any, type_params: list) -> tuple[list, EastTyp
     return list(inputs), output
 
 
-def analyze_ir(ir: Any, platforms: Any = None, *, source_map: Any = None) -> None:
+def analyze_ir(ir: Any, platforms: Any = None, *, source_map: Any = None,
+               trusted: dict[int, Any] | None = None) -> None:
     """Validate an IR value the way the TypeScript compiler's ``analyzeIR``
     does, raising :class:`IRAnalysisError` on the first rule broken.
 
     Args:
         ir: The IR value (an ``IRType`` variant — a Function node, or the
-            ``Block[Let…, Function]`` root an earlier python build wrote).
+            ``Block[Let…, Function]`` root an earlier python build wrote), in
+            its final form or the lazy one a build makes before it finalizes.
         platforms: The platform implementations the program will compile
             against (``PlatformFunction`` entries); when given, every
             ``Platform`` node is checked against its implementation's
@@ -747,9 +755,12 @@ def analyze_ir(ir: Any, platforms: Any = None, *, source_map: Any = None) -> Non
             program compiled later with ``East.compile``).
         source_map: The IR's source map, so a failure names the python
             ``file:line:column`` of the offending node after its loc_id.
+        trusted: Function nodes, by ``id`` (each kept alive beside it), that
+            a build embedded from a function another build analyzed (#1459):
+            a closed one's body is not walked again.
 
     Raises:
         IRAnalysisError: With the TypeScript analyzer's message for the rule
             that failed.
     """
-    _Analyzer(platforms, source_map).visit(ir, _Scope(None), None)
+    _Analyzer(platforms, source_map, trusted).visit(ir, _Scope(None), None)

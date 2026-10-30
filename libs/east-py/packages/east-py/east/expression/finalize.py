@@ -46,15 +46,17 @@ def _free_vars(node: Any, bound: frozenset, out: dict) -> None:
     """
     from east.types.values import is_east_struct, is_east_variant
 
-    if isinstance(node, (list, EastArray)):
-        for x in node:
-            _free_vars(x, bound, out)
-        return
-    if is_east_struct(node):
-        for _f, v in node.items():
-            _free_vars(v, bound, out)
-        return
     if not is_east_variant(node):
+        # An array of nodes — a python list in the lazy tree, an EastArray in
+        # the final one — or a struct holding them. Variants are asked first:
+        # they are most of a tree, and EastArray's isinstance is an ABC's, a
+        # python-level call per node (#1459).
+        if isinstance(node, (list, EastArray)):
+            for x in node:
+                _free_vars(x, bound, out)
+        elif is_east_struct(node):
+            for _f, v in node.items():
+                _free_vars(v, bound, out)
         return
     kind = node.type
     p = node.value
@@ -309,7 +311,13 @@ def _arrayify_tree(top):
         memo[i] = (result, node)
         return result
 
-    return rewrite(top)
+    try:
+        return rewrite(top)
+    finally:
+        # `rewrite` refers to itself, so the closure is a cycle, alive until
+        # the cyclic collector's next pass — and with it the memo, every node
+        # the pass saw: emptied here, they are freed now (#1459).
+        memo.clear()
 
 
 def _rehome_ir(node, from_map, to_map):
@@ -351,7 +359,10 @@ def _rehome_ir(node, from_map, to_map):
         memo[i] = (result, n)
         return result
 
-    return rewrite(node)
+    try:
+        return rewrite(node)
+    finally:
+        memo.clear()  # freed now, not by the cyclic collector (see _arrayify_tree)
 
 
 def _rename_apart(node):
@@ -448,11 +459,38 @@ def _rename_apart(node):
         memo[key] = (result, n, env)
         return result
 
-    with naming.embedded_scope():
-        return rename(node, {})
+    try:
+        with naming.embedded_scope():
+            return rename(node, {})
+    finally:
+        memo.clear()  # freed now, not by the cyclic collector (see _arrayify_tree)
 
 
 # ─── Tracing + compilation ──────────────────────────────────────────────────
+
+
+def _function_node(
+    param_types: list[EastType],
+    params: list,
+    body: Expression,
+    is_async: bool = False,
+    out: EastType | None = None,
+) -> Any:
+    """The function's top-level Function node over exactly the body the
+    trace built, with no captures — a build's constants are literals in the
+    body, where it reads them — still LAZY (python lists, see
+    :func:`_listify`), as a build analyzes it before it finalizes it.
+    ``is_async`` builds the AsyncFunction node/type instead
+    (East.asyncFunction). ``out`` is the DECLARED output type — the function
+    type's output even when the body diverges (a ``Never``-typed body that
+    always returns); it defaults to the body's type."""
+    from east.expression.nodes import _k_async_function
+    from east.types.types import AsyncFunctionType
+
+    make_type = AsyncFunctionType if is_async else FunctionType
+    make_node = _k_async_function if is_async else _k_function
+    fn_type = make_type(list(param_types), out if out is not None else body.east_type)
+    return make_node(fn_type, [], params, body.ir)
 
 
 def _function_ir(
@@ -462,18 +500,7 @@ def _function_ir(
     is_async: bool = False,
     out: EastType | None = None,
 ) -> Any:
-    """The function's top-level IR value: a Function node over exactly the
-    body the trace built, with no captures — a build's constants are literals
-    in the body, where it reads them. Finalization converts the lazy tree to
-    real East arrays; nothing else is rewritten. ``is_async`` builds the
-    AsyncFunction node/type instead (East.asyncFunction). ``out`` is the
-    DECLARED output type — the function type's output even when the body
-    diverges (a ``Never``-typed body that always returns); it defaults to the
-    body's type."""
-    from east.expression.nodes import _k_async_function
-    from east.types.types import AsyncFunctionType
-
-    make_type = AsyncFunctionType if is_async else FunctionType
-    make_node = _k_async_function if is_async else _k_function
-    fn_type = make_type(list(param_types), out if out is not None else body.east_type)
-    return _arrayify_tree(make_node(fn_type, [], params, body.ir))
+    """The function's top-level IR value: :func:`_function_node`, finalized —
+    every lazy list converted to its real East array; nothing else is
+    rewritten."""
+    return _arrayify_tree(_function_node(param_types, params, body, is_async=is_async, out=out))
