@@ -19,18 +19,24 @@
  * row as edited.
  */
 
-import { expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SortedMap, StringType, compareFor, equalFor, some, variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/decision/decision";
 import { e3Harness, settle } from "../e3-web-mount.test-utils.js";
+import { layOutList } from "./list.test-utils.js";
 import { decisionQueueMessages as m } from "./messages.js";
 import { action, card, chipLine, head, heads, history, measure, press, preview, previewRow, previewRows, sheetCells } from "./preview.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "decision/decision": ex }, { main: "data-decision-main" });
+
+// The list laid out, its frame tall enough that every card mounts.
+let restoreFrame: () => void = () => {};
+beforeEach(() => { restoreFrame = layOutList(12_000); });
+afterEach(() => restoreFrame());
 
 const dutiesEqual = equalFor(ex.rosterDuties.type);
 const servicesEqual = equalFor(ex.calendarServices.type);
@@ -39,9 +45,9 @@ const ordersEqual = equalFor(ex.optimiseWorkOrders.type);
 const pricesEqual = equalFor(ex.listPrices.type);
 const byString = compareFor(StringType);
 
-/** The days the orders case gives the ready orders. */
-const MON_13 = new Date("2028-03-13T00:00:00Z");
-const TUE_14 = new Date("2028-03-14T00:00:00Z");
+/** The days the orders case gives the ready orders: Monday and Tuesday next week. */
+const MON_16 = new Date("2026-03-16T00:00:00Z");
+const TUE_17 = new Date("2026-03-17T00:00:00Z");
 /** Saturday's early slot the workshop case moves Press 1's maintenance to. */
 const SAT_06 = new Date("2026-10-03T06:00:00Z");
 const SAT_08 = new Date("2026-10-03T08:00:00Z");
@@ -65,7 +71,9 @@ const keep = (row: HTMLElement) => [...row.querySelectorAll<HTMLElement>('[data-
 /** Mounts the full queue, and waits until its cards show and the open one's preview has drawn its rows. */
 async function open() {
     const ui = await h.mount(ex.decisionQueueOps);
-    await waitFor(() => expect(heads(ui.container)).toEqual(["rota-tansy", "print-j3007", "yard-ld2235", "workshop-press1", "orders-ready", "price-coast"]));
+    await waitFor(() => expect(heads(ui.container)).toEqual([
+        "rota-tansy", "print-j3007", "yard-ld2235", "stock-c5", "workshop-press1", "orders-ready", "trial-cure", "price-coast", "rota-overtime",
+    ]));
     await waitFor(() => expect(previewRows(preview(ui.container, "rota-tansy"))).not.toEqual([]));
     return ui;
 }
@@ -246,8 +254,8 @@ test("the orders case's work orders in the Sheet's row form: WO-1007's status ed
     await applyAndSave(container, "orders-ready");
     expect(mutated()).toEqual([ex.opsVerdicts.name, ex.optimiseWorkOrders.name].sort());
     expect(ordersEqual(await h.read(ex.optimiseWorkOrders), new SortedMap([...orders,
-        ["WO-1005", { ...orders.get("WO-1005")!, status: "Scheduled", due: some(MON_13) }],
-        ["WO-1007", { ...orders.get("WO-1007")!, status: "On hold", due: some(TUE_14) }],
+        ["WO-1005", { ...orders.get("WO-1005")!, status: "Scheduled", due: some(MON_16) }],
+        ["WO-1007", { ...orders.get("WO-1007")!, status: "On hold", due: some(TUE_17) }],
     ], byString))).toBe(true);
 });
 

@@ -41,7 +41,7 @@ const verdictsEqual = equalFor(ex.proposalVerdicts.type);
 const compareTime = compareFor(DateTimeType);
 
 /** The day the proposal schedules WO-1005 for. */
-const MON_13 = new Date("2028-03-13T00:00:00Z");
+const MON_16 = new Date("2026-03-16T00:00:00Z");
 
 /** The cases whose cards the list draws, in its order. */
 const heads = (container: HTMLElement) => [...container.querySelectorAll("[data-decision-head]")].map(el => el.getAttribute("data-decision-head"));
@@ -123,11 +123,11 @@ test("the proposals, read whole, laid out by when each is due: Due today and Thi
     const today = within(head(container, "prop-wo1005"));
     expect(today.getByText("Sheet · Workshop orders")).toBeDefined();
     expect(today.getByText("by 17:00").getAttribute("data-tone")).toBe("today");
-    expect(head(container, "prop-wo1005").textContent).toContain("Schedule WO-1005 for Mon 13 Mar");
-    for (const words of [m.chip({ modified: false }), "WO-1005 · due Mon 13 Mar", "+1", "orders"]) expect(today.getByText(words)).toBeDefined();
+    expect(head(container, "prop-wo1005").textContent).toContain("Schedule WO-1005 for Mon 16 Mar");
+    for (const words of [m.chip({ modified: false }), "WO-1005 · due Mon 16 Mar", "+1", "orders"]) expect(today.getByText(words)).toBeDefined();
     const week = within(head(container, "prop-north"));
     expect(week.getByText("Pricing · Regional list prices")).toBeDefined();
-    expect(week.getByText("by Fri 10").hasAttribute("data-tone")).toBe(false);
+    expect(week.getByText("by Fri 13").hasAttribute("data-tone")).toBe(false);
     expect(head(container, "prop-north").textContent).toContain("Raise the North list price to $11.50");
     for (const words of ["North $11.20 → $11.50", "+4,300", "uplift / mo"]) expect(week.getByText(words)).toBeDefined();
     // The open card: the change's sentence, the figures — its one option, no If wrong, no confidence — and Why's line.
@@ -170,7 +170,7 @@ test("Apply is one step over the verdict and the order it schedules: the card be
     const left = receipt(container, "prop-wo1005")!;
     expect(left).not.toBeNull();
     expect(within(left).getByText(m.verdict({ verdict: "applied" }))).toBeDefined();
-    expect(within(left).getByText("Schedule WO-1005 for Mon 13 Mar")).toBeDefined();
+    expect(within(left).getByText("Schedule WO-1005 for Mon 16 Mar")).toBeDefined();
     expect(card(container, "prop-wo1005")).toBeNull();
     expect(waiting(container)).toBe("1");
     expect(container.ownerDocument.activeElement).toBe(head(container, "prop-north"));
@@ -201,9 +201,9 @@ test("Save writes the verdict and the scheduled order through their doors, a req
     await press(history(container, editingMessages.apply()));
     expect(mutated()).toEqual(["optimise_work_orders", "proposal_verdicts"]);
     await savedVerdict("prop-wo1005", "applied", from, new Date());
-    // The order as the proposal leaves it — Scheduled, due Mon 13 Mar — and every other as it was.
+    // The order as the proposal leaves it — Scheduled, due Mon 16 Mar — and every other as it was.
     expect(ordersEqual(await h.read(ex.optimiseWorkOrders),
-        new Map([...orders, ["WO-1005", { ...orders.get("WO-1005")!, status: "Scheduled", due: some(MON_13) }]]))).toBe(true);
+        new Map([...orders, ["WO-1005", { ...orders.get("WO-1005")!, status: "Scheduled", due: some(MON_16) }]]))).toBe(true);
     expect(unsaved(container)).toBe(false);
     unmount();
     const again = await h.mount(ex.decisionQueueMinimal);
@@ -319,13 +319,13 @@ test("Modify edits the price the change leaves through the record's form: the ch
 test("a Save another session overtakes with a verdict on the same case is the verdicts' conflict, in their banner naming the case; the order's commit stands (R29)", async () => {
     const { container } = await open();
     await press(await applyOf(container, "prop-wo1005"));
-    const theirs = verdictOf("deferred", new Date("2028-03-08T14:00:00Z"));
+    const theirs = verdictOf("deferred", new Date("2026-03-10T12:00:00Z"));
     await h.race(ex.proposalVerdicts, () => { fireEvent.click(history(container, editingMessages.apply())); },
         now => new Map([...now, ["prop-wo1005", theirs]]));
     const conflict = slot(container, "banners").querySelector('[data-session-banner="conflict"]');
     expect(conflict, slot(container, "banners").textContent ?? "").not.toBeNull();
     expect(conflict!.textContent).toContain(m.verdictsSession());
-    expect(conflict!.textContent).toContain("Schedule WO-1005 for Mon 13 Mar");
+    expect(conflict!.textContent).toContain("Schedule WO-1005 for Mon 16 Mar");
     expect(unsaved(container)).toBe(true);
     // The other session's verdict stands, and the order's commit.
     expect(verdictEqual((await h.read(ex.proposalVerdicts)).get("prop-wo1005")!, theirs)).toBe(true);
