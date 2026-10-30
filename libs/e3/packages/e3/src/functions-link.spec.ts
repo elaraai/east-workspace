@@ -422,6 +422,60 @@ describe('export_ resolves an imported workspace package itself (#652)', () => {
       }
     });
 
+  it('a task that runs pure IR captures no python environment, and keeps its hash across python edits that leave the function it embeds where it was written; a line moved above that function makes it another program (#738)',
+    { skip: hasTools ? false : 'uv and east-py on PATH' }, async () => {
+      const triple = East.importFunction('pricing', 'triple', FunctionType([IntegerType], IntegerType));
+      const n = input('n', IntegerType, variant('value', 4n));
+      const pkg = package_('importer', '1.0.0',
+        task('on_c', [n], East.function([IntegerType], IntegerType, ($, x) => triple(x).add(1n)),
+          { runner: { runtime: 'east-c', platforms: ['east-c-std'] } }),
+        task('on_py', [n], East.function([IntegerType], IntegerType, ($, x) => triple(x).add(1n)),
+          { runner: { runtime: 'east-py', platforms: ['east-py-std'] } }));
+      /** Each task's object hash in the bundle exported to `zip`, each checked to name no environment. */
+      const hashesOf = async (zip: string): Promise<Record<string, string>> => {
+        await inWorkspace(() => export_(pkg, path.join(ws, zip)));
+        const entries = await readZip(path.join(ws, zip));
+        const object = (hash: string) => new Uint8Array(entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`)!);
+        const ref = [...entries.keys()].find((key) => key.startsWith('packages/'))!;
+        const tasks = decodePackageObject(object(decodeBeast2For(StringType)(entries.get(ref)!))).tasks;
+        const hashes: Record<string, string> = {};
+        for (const name of ['on_c', 'on_py']) {
+          assert.strictEqual(decodeTaskObject(object(tasks.get(name)!)).environment.type, 'none', `${name} captures no environment`);
+          hashes[name] = tasks.get(name)!;
+        }
+        return hashes;
+      };
+      const base = await hashesOf('base.zip');
+      const source = path.join(ws, 'packages', 'pricing', 'src', 'pricing', '__init__.py');
+      const other = path.join(ws, 'packages', 'discount', 'src', 'discount', '__init__.py');
+      const [sourceText, otherText] = [fs.readFileSync(source, 'utf-8'), fs.readFileSync(other, 'utf-8')];
+      try {
+        // `triple` stays where it was written: another function grows, the module ends later, another package changes
+        const kept: Array<[string, string, string]> = [
+          [source, sourceText.replace('    b.do(my_log(s))\n', '    b.do(my_log(s))\n    b.do(my_log(s))\n'), 'another-function.zip'],
+          [source, `${sourceText}\n# the end of the module\n`, 'module-end.zip'],
+          [other, `${otherText}\n# another package\n`, 'another-package.zip'],
+        ];
+        for (const [file, text, zip] of kept) {
+          assert.notStrictEqual(text, file === source ? sourceText : otherText, `${zip}: the edit changes the file`);
+          fs.writeFileSync(file, text);
+          try {
+            assert.deepStrictEqual(await hashesOf(zip), base, zip);
+          } finally {
+            fs.writeFileSync(file, file === source ? sourceText : otherText);
+          }
+        }
+        // A comment above it moves its line, which its errors, a caught error's stack and its closures name
+        fs.writeFileSync(source, `# a comment above\n${sourceText}`);
+        const moved = await hashesOf('moved.zip');
+        assert.notStrictEqual(moved['on_c'], base['on_c']);
+        assert.notStrictEqual(moved['on_py'], base['on_py']);
+      } finally {
+        fs.writeFileSync(source, sourceText);
+        fs.writeFileSync(other, otherText);
+      }
+    });
+
   it('the functions and packages an IR imports, and the python providers a runner implies', () => {
     const both = East.function([IntegerType], IntegerType, ($, x) => { $(sh(East.print(x))); return dbl(x); });
     assert.deepStrictEqual(importedPackages(both.toIR().ir), ['pricing']);

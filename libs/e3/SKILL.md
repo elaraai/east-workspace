@@ -335,7 +335,8 @@ const shout = e3.task('shout', [greet.output],
 - **An East function written in python, or in another node package**:
   `East.importFunction(pkg, name, FunctionType(...))` in the body. `e3.export`
   resolves it and embeds its IR, so the task is pure IR on any runner, its
-  locations kept so an error or a profile names the function's own lines. A uv
+  locations kept so an error or a profile names the function's own lines (so
+  moving them re-runs the task: **Caching**, below). A uv
   workspace member is found by name in `uv.lock`, and its root module's
   `east_functions` dict is exported with `east-py export-functions` (from the
   project's `.venv`, else `EAST_PY` or PATH); an npm member is found by its
@@ -1071,7 +1072,14 @@ not had, in place; one a newer e3 upgraded is refused, naming that release.
 environment — and its inputs' hashes, so a task re-runs only when one of those
 changes (`--force` bypasses the cache, and `--force-task <task>` for the tasks
 it names: a task whose code e3 cannot see changed, such as a platform
-function's, or one reading data from outside e3). A change to an input re-runs its
+function's, or one reading data from outside e3). A task's program holds the
+source locations of its body and of every function it embeds, an imported
+python or node function's too, since its errors, a caught error's `stack` and
+the closures it returns name them: an edit that moves one of those lines — a
+comment or an import added above a function — re-runs the task. One that leaves
+them where they were — another function, the end of a module, another package —
+re-runs only the tasks whose environment it is in, their runner's `{ custom }`
+packages. A change to an input re-runs its
 consumers, even during a run. A split task is cached a unit at a time: each piece
 and each merge is its own execution, and pieces are cut by content, so an append
 or an insertion re-runs only the pieces it reaches and the merges above them.

@@ -1035,8 +1035,9 @@ e3 dataset get . dev.mytask
 ### Caching
 
 Tasks are cached by content hash. A task only re-runs when:
-- Its East function IR changes
+- Its program changes: its East function's IR, or a line it was written at. The program carries the source locations of its body and of every function it embeds, an imported python or node function's too, since its errors, a caught error's stack and the closures it returns name them — so moving one of those lines, as a comment or an import added above a function does, re-runs the task, and an edit that leaves them where they were, in another function, at the end of a module or in another package, does not
 - Its runner changes — its runtime, its platforms, or how it reads its inputs (`decode`)
+- Its environment changes: the code of a `{ custom }` platform package its runner names, or of a local package that one depends on
 - Any of its input values change
 
 Changing one task doesn't invalidate unrelated tasks. A stream task split over
