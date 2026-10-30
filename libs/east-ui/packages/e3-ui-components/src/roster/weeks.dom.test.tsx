@@ -21,6 +21,7 @@ import {
     type Choice,
 } from "./harness.test-utils.js";
 import { DAY } from "./model.js";
+import { resetKept } from "@elaraai/east-ui-components/internal";
 const h = rosterHarness();
 async function weekKey(c: HTMLElement, key: "[" | "]") { await act(async () => { fireEvent.keyDown(slot(c, "main"), { key }); }); await settle(); }
 /** The weeks' record, as the request log names its dataset. */
@@ -252,6 +253,7 @@ describe("the week is the page's own (#1398)", () => {
         expect(localStorage.getItem(key), "nothing written back over it").toBe(theirs);
         // A reload — a page of its own — opens on the view kept last.
         unmount();
+        resetKept();
         const reloaded = await open(ex.rosterWarehouse);
         expect(anchorOf(reloaded.container)).toBe(String(view.date + 21 * DAY));
     });

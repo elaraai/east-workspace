@@ -19,7 +19,7 @@ import userEvent from "@testing-library/user-event";
 import { DateTimeType, decodeBeast2For, equalFor, none, printFor, variant } from "@elaraai/east";
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore, editingMessages } from "@elaraai/east-ui-components";
-import { getStore } from "@elaraai/east-ui-components/internal";
+import { getStore, resetKept } from "@elaraai/east-ui-components/internal";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { issueSummary } from "./toolbar.js";
@@ -363,6 +363,7 @@ describe("the day is the page's own (#1398)", () => {
         expect(localStorage.getItem(kept), "nothing written back over it").toBe(theirs);
         // A reload — a page of its own — opens on the view kept last.
         unmount();
+        resetKept();
         StateRuntime.initializeStore(new UIStore());
         const reloaded = await h.mount(ex.allocationKilnYard);
         expect(shownDay(reloaded.container)).toBe(view.date + 3 * DAY_MS);
