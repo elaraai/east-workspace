@@ -354,7 +354,12 @@ kept under the canvas's storage key as its folds are
 (`persisted.ts`, #813), and a remount draws it from its first frame while the
 axis still allows it (`restoredWindow`), else the axis's stated window. A
 record's resolution
-only re-buckets, and the brush commits once a gesture, with no histogram. The
+only re-buckets — the window a source holds is its narrowing — and the brush
+commits once a gesture, with no histogram. A canvas holding its own window
+zooms with it (#1438, `zoomedWindow`): as many buckets of the new resolution
+as it showed of the old, about the same middle, inside the span of what its
+series read where it reads a nested series index (`PlanWindowHold.span`), so
+the year shows the works' ten years. The
 Plan reads its event kinds' rows, counts and backlog, the selected events and
 what its eye's request waits on in components of their own
 (`PlanEventsReader`, `PlanKindsReader`, `PlanSelectionReader`,
@@ -878,7 +883,11 @@ essential actions accessible without hover and retain shared touch targets.
 ### Styling must agree in the browser
 
 Put static appearance in slot recipes and select states with attributes.
-Inline values are for computed geometry only. Reuse the app's named text styles
+Inline values are for computed geometry only, written through `style` (or a
+CSS variable set there), never a Chakra style prop, which mints a CSS class
+for each value that the page never removes (east-ui-components' CLAUDE.md ›
+Visual style, #1440); the lint rule `east-ui/inline-places` refuses a style
+prop given a number worked out as the component renders. Reuse the app's named text styles
 and existing recipe parts for toolbar, column headings, axis labels, rows,
 cards, inspector, library and footer. Verify every role: font family, size,
 weight, line height, tracking, case and tabular numerals. Merely loading the
@@ -1319,6 +1328,205 @@ write-back to settle between keystrokes, following its existing tests. Also
 exercise real decimal typing in Chromium through Save/remount. Distinguish a
 refreshed record's stale-draft banner from a conflict returned by a write that
 races with Save; both retain the draft and protect the newer stored value.
+
+### A record's drafts in what e3 keeps (#1437)
+
+One shared part previews each drafted row's Save in the page
+(`shared/records/drafts.ts`, `useRecordDrafts` over `RecordDrafts`), for any
+builder with a record's editing session and its indexed binding. For each row
+the session holds a draft of (`EditSession.drafts`: the revision the drafts
+began from, and each entry's original and draft, the same objects while they
+hold) it previews what e3 will change in each index if the Save commits now:
+
+- **The row as e3 holds it.** At the revision the drafts began from, the
+  session's own original; at a later one, read by key at that revision, every
+  drafted row in one request (the binding's `rowsAll`), each `reading` until
+  it lands.
+- **The row as the Save would leave it.** The draft's change, the original
+  against the draft, applied to it as e3 applies the Save's patch. One that
+  does not apply — another session changed the same value — is `stale`, and
+  previews nothing; the session's banner says the source changed.
+- **What it changes.** Each index's maintenance the binding carries (each
+  nested series and summary index it lists, `maintenance`), run on the two
+  rows and the row's patch: e3's own function, the one its commit runs
+  (`indexMaintenance`), so the ops — an entry's `insert`, `update` or
+  `delete`, a summary's `add` — are what e3 will write.
+
+The part changes no read. A reader of the record's entries lays each previewed
+row's ops over what it holds: an `insert` or `update` replaces an entry, a
+`delete` drops it, an `add` moves a total (one whose count reaches nothing
+goes, as e3 drops it). What rows show, their order, and the rail's counts and
+summary stay as saved: a draft that takes a row out of a narrowing leaves it in
+view until Save, and the Save's notice says it left. The part runs only on the
+drafted rows, never over the record, and runs a row again only when its draft
+moves, a row lands or the revision moves. Nothing of it is stored: once a Save
+commits and reads back, the session's drafts retire and e3's entries are the
+previewed ones. Its tests hold every preview to what e3 keeps after the Save
+(`drafts.test.ts`, on e3).
+
+### A Plan's paged rows read a cell at a time (#1438)
+
+A Plan over a record's rows paged beside their nested series index carries a
+seam on its root (`nested`: the index, the binding's id, its tiles, what each
+series reads, and the window function). `plan/root/nested.ts` reads it in a
+component of its own beside the event kinds' reader, and the canvas draws each
+window through the seam with what it read:
+
+- **What it reads.** The canvas's rows in view and 25 either side, in blocks
+  of fifty of its rows; below 480px, every row the narrow layout's cards draw
+  — its group cards, a page of its Rows tab or its measures, whatever the
+  desktop folds — all in view (`PlanNarrow`'s `onShown`). For each row, each collection its series read, one
+  range a level its items are filed at; a parent whose row derives its numbers
+  (a heat or table aggregate, a group's strip) its subtotals, one range at the
+  resolution's level; a span parent rolling up bands its subtree's items, one
+  range a level, which e3's fill puts back in the descendants that hold them.
+  Every part of a run not held is counted in one request and read in one
+  more; each run's tiles are held at the revision, so a pan reads only the
+  tiles it adds. A batch in flight is asked again until it lands, never asked
+  beside a new one.
+- **The cap.** Past 10,000 items of a collection in the cells wanted, its rows
+  shade from their totals at the summary tile where it divides the bucket, or
+  are hatched with the reader's notice.
+- **What it hands on.** The cells, encoded as the binding's fill takes them;
+  the shading; each parent's subtotals by row key, which `derivePlan` draws in
+  place of its children's, unfolded; a version the canvas's paged source names
+  in its revision. Beside them (`onWaiting`), while a read is in flight, the
+  rows waiting on it — each row with a run not held, as a pan, a zoom, a
+  scroll or a commit asks — which wash as a paged kind's unread rows do (the
+  plot busy, #1398 CL2, a card's body too) until their cells land: never a
+  blank plot that fills.
+- **The span.** The collections every series of the canvas reads, shown or
+  not (`usePlanNestedSpan`, #1440): their months across the record's rows,
+  each with the items and values touching it, as e3 keeps them in the index's
+  span (`<index>_span`, which the binding reads as a summary index, never
+  listed) — one search a collection, an exact match on its place, and one read
+  of their entries, ascending, each collection's kept apart; the span is the
+  first month any touches to the end of the last, and the months' counts are
+  the shown series' collections' alone. Switching a series asks nothing, and
+  with every series off the strip still spans the data, its bars empty.
+  Reported apart (`onSpan`, a `PlanNestedSpanRead`); the horizon spans it
+  beside the window shown where no source holds the window, a zoom keeps the
+  window inside it, its row held while it is first read, and a read again
+  holds the last until it lands.
+- **The horizon's bars** (`shell/horizon-density.ts`, #1438). Over the span,
+  `horizonDensity` buckets the months' counts in the finest of month, quarter
+  and year that keeps 4px a bucket on the strip (the band measures its track,
+  `data-plan-horizon-track`), from the period the horizon begins in to the one
+  it ends in, each clipped to it — a month the horizon clips counts whole, as
+  e3 keeps no finer count. The strip draws them (east-ui-components'
+  `BrushStrip`); the caption's meta line says the largest bucket and its
+  period (`max 1,559 items / mo`), or `no data`, and a bar's hover its period
+  and count. A horizon over record sources has no counts yet, and draws the
+  baseline alone, with no meta line.
+- **Finding the binding.** The seam names the binding by id; the indexed
+  runtime keeps each binding it built by id (`indexedBindingOf`).
+- **Drafting.** A gesture drafts each row it touches read whole by key
+  (`usePlanWholeRows`, the binding's `rowsAll`), never a window's lean row: a
+  row not held yet is read, every row asked meanwhile in one request, and the
+  gesture is drafted once it lands; meanwhile the row and every row above it
+  draw in flight (the unread wash, the plot busy: `usePlanEditing`'s
+  `inFlight`).
+- **Another planner's commit.** A source moving under the drafts reads every
+  drafted row whole at the new revision, in one request, and carries the
+  drafts over to it where each one's change still applies
+  (`EditSession.rebase`): another job of the same machine moved stands
+  beside the draft, and both Saves commit. The drafted job itself moved
+  leaves the session stale, the banner saying so and Save off. A draft that
+  emptied a collection is a whole replace to the session's apply, so it
+  stays stale where e3 would take the restated patch.
+- **Link ends.** While a links focus is open, a link of its family whose run a
+  row read lean does not hold — outside the cells read — has its row read
+  whole by its key, every such row in one request, and drawn whole in its lean
+  row's place (`usePlanNestedRoot`'s `readWhole`), so the link draws toward
+  where its run is. The rows stay whole while the focus lasts. A Save's entries are read back the same
+  way. Each drafted row's Save, previewed (#1437), is laid over the cells held,
+  so the moved item and every subtotal over it draw before Save.
+
+Tests: `plan/frame/plan-nested.dom.test.tsx`, on e3, over e3-ui's
+nested series fixtures (`@elaraai/e3-ui/fixtures/plan/plan-nested`: the
+machines, halls, assemblies and ledgers, on no page); the example's own,
+`planNestedAll` over the works, in `plan-nested-examples.dom.test.tsx` and
+`plan-works.dom.test.tsx`. jsdom mounts the rows the canvas lays out first, in
+its index's order; page by an index whose order puts the rows compared first,
+and scroll by the canvas's row geometry under `emulateWindowScroll`. A Plan
+pans and zooms only through its Slice, which holds the canvas's own window
+when no source holds one. A Plan in a bounded frame (one with a toolbar)
+mounts no row in jsdom until the frame is laid out: lay it out with the
+Sheet's `boundFrame` and `frameScrolls` (`sheet/frame.test-utils.ts`), and
+scroll it with the frame's `scrollTo` (`plan/frame/plan-works.dom.test.tsx`,
+whose stress run, `E3_UI_PERF=1`, times `planNestedAll` over the works at
+scale: `E3_WORKS_ROWS` of them over ten years, paged by rows and by time).
+The benchmark (`plan/frame/plan-nested-perf.dom.test.tsx`, `E3_UI_PERF=1`)
+writes its own machines through the harness — `E3_NESTED_MACHINES`, the first
+`E3_NESTED_HEAVY` each with `E3_NESTED_HEAVY_JOBS` more jobs — and times
+opening, a scroll, a zoom, a heavy machine's drag and its Save; e3-web holds
+the record in the test's process, so its sizes are what the test's heap holds.
+
+### A table cell too narrow for its value (#1269, #1438)
+
+A table cell draws its numerals whole or not at all (#1269: a wrapping line
+that drops numerals wider than the column out of sight, the hover saying
+them). Where it holds a value it cannot draw, it draws a dot in its place, in
+its numerals' ink (`tableCellDot`), so a value never leaves its cell looking
+empty at a zoom too dense for it: the row measures its plot beside its cells
+(`tableCellMeasure`, `useElementWidth`), and a cell compares its column's share
+of it with its numerals' width, the table's numerals being of one width. An
+unmeasured plot — jsdom's — draws the numerals. A dotted cell
+(`data-plan-dotted`) keeps its numerals, hidden: the tooltip reads a cell's
+label (`data-plan-label`) and says it while it is hidden, so the hover says
+the value. The dot sits at the cell's centre, off its wrapping line: a 9px
+column's padding leaves the line less room than the dot, which would wrap out
+of sight as the numerals do. Only a browser lays it out, so the showcase's
+`plan-geometry.spec.ts` holds the dot whole and centred in its cell down to
+its own width, and its hover saying the numerals.
+
+### Typing a number into a table cell (#1436, #1438)
+
+A table position its row says takes a typed number (`edits.values`, each
+`{ position, whole }`) takes one while the canvas's session takes a gesture
+(`PlanEditContextValue.typing`). The canvas holds one input in a store outside
+React (`plan/edit/typing.ts`); a table row (`rows/TableRow.tsx`) draws it only
+while it holds it, over the cell's column (`rows/CellInput.tsx`: the Sheet's
+number field, the Plan recipe's `tableCellInput` slots), or below 480px of
+main in a popover anchored to the cell.
+
+- **Which cells.** At the Plan's finest zoom, a bucket holding one of the
+  position's own values — written at that value's date, so it replaces it —
+  or none, written at the bucket's start; every bucket in the window draws a
+  cell then. At a coarser zoom each cell is a summary of the values beneath it
+  and takes none: its tooltip (`data-plan-note`, said by the overlay's label
+  tooltip) says to zoom to the finest, and a double click, Enter or a tap
+  below 480px zooms there about its period (`resolution.set`'s `about`; a
+  canvas holding its own window re-windows by `zoomedWindow`), focus landing
+  on the row's cell at the period's middle (`PlanTypingStore.focusOnZoom`,
+  `takeFocus`). The zooms are the slice's — its resolution segment's and the
+  one the axis opens at (`planZooms`) —, so a Plan without a slice types at
+  the one resolution it shows. A parent's position drawing its children's
+  subtotals takes none; a bucket folding several values takes none, its
+  tooltip naming the resolution they take one at and the Plan's zoom showing
+  them apart, where it has one.
+- **The look.** A cell taking a number wears a faint well inside its edges,
+  about a paper step of ink (`tableCellText`'s `::after`), the column's rule
+  around it and the row's wash through it, and an input's edge on hover; a
+  summary — a parent's subtotal, any cell at a coarser zoom — stays plain.
+- **Keys.** Enter, F2, a double click or a digit opens it (a tap below 480px).
+  Enter writes, focus going back to the cell, whose ring is the input's, drawn
+  inside it (`tableCellText`: a ring outside a cell as high as its row is cut
+  by the row); Esc cancels; a blur writes. Tab and Shift+Tab write and move
+  along the row; ↑ and ↓ write and move to the mounted rows above and below
+  that take a number at the bucket (found in the DOM: `data-typed`). The
+  number field's own stepping never sees them (a prevented key).
+- **The text** reads through the position's format (`readTyped`: a percent's
+  `82` or `82%` is `0.82`) in the Sheet's grammar; a whole position refuses a
+  fraction, in the Plan's words under the field.
+- **What it writes** is the session's `value` gesture (`typeValue` on the
+  editing hook), one step labelled `Set <row>, <bucket> to <value>`: over rows
+  read lean, the row is read whole first, and the preview moves every
+  subtotal above it.
+
+Tests: `plan/frame/plan-typing.dom.test.tsx`, on e3, over the ledgers; type
+with `fireEvent.input`, as the Sheet's tests do — the field takes no change
+event.
 
 ### Shared time navigation
 

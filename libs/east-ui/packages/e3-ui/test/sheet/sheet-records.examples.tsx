@@ -56,14 +56,20 @@ const generateWork = East.function([IntegerType], Work, ($, count) => {
 
 export const indexedWorkCount = e3.input("indexed_work_count", IntegerType, variant("value", 50000n));
 export const indexedWorkGenerated = e3.task("indexed_work_generated", [indexedWorkCount], generateWork);
-export const indexedWorkOrders = e3.record("indexed_work_orders", Work, East.compile(generateWork, [])(50000n));
-export const indexedWorkPatch = e3.mutation.patch(indexedWorkOrders);
-export const indexedWorkByStatusDue = e3.recordIndex("by_status_due", indexedWorkOrders, { on: ["status", "due"] });
-export const indexedWorkByDue = e3.recordIndex("by_due", indexedWorkOrders, { on: ["due"] });
-export const indexedWorkByJob = e3.recordIndex("by_job", indexedWorkOrders, { on: ["job"] });
-export const indexedWorkByQuantity = e3.recordIndex("by_quantity", indexedWorkOrders, { on: ["quantity"] });
-export const indexedWorkByUrgent = e3.recordIndex("by_urgent", indexedWorkOrders, { on: ["urgent"] });
-export const indexedWorkByTag = e3.recordIndex("by_tag", indexedWorkOrders, { on: ["tags"] });
+export const indexedWorkOrders = e3.record("indexed_work_orders", Work, {
+    initial: () => East.compile(generateWork, [])(50000n),
+    indexes: (index) => ({
+        by_status_due: index.on(["status", "due"]),
+        by_due: index.on(["due"]),
+        by_job: index.on(["job"]),
+        by_quantity: index.on(["quantity"]),
+        by_urgent: index.on(["urgent"]),
+        by_tag: index.on(["tags"]),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 
 /**
  * The lens's benchmark record (#1349): a row of a million, in one of ten
@@ -73,21 +79,27 @@ export const indexedWorkByTag = e3.recordIndex("by_tag", indexedWorkOrders, { on
  * rows flagged, and the three groups that hold three in ten.
  */
 export const LensBenchRow = StructType({ group: IntegerType, flag: BooleanType });
-export const lensBenchRows = e3.record("lens_bench_rows", DictType(StringType, LensBenchRow), new Map());
-export const lensBenchPatch = e3.mutation.patch(lensBenchRows);
-export const lensBenchByGroup = e3.recordIndex("lens_bench_by_group", lensBenchRows, { on: ["group"] });
-export const lensBenchByFlag = e3.recordIndex("lens_bench_by_flag", lensBenchRows, { on: ["flag"] });
+export const lensBenchRows = e3.record("lens_bench_rows", DictType(StringType, LensBenchRow), {
+    initial: new Map(),
+    indexes: (index) => ({
+        lens_bench_by_group: index.on(["group"]),
+        lens_bench_by_flag: index.on(["flag"]),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 
 export const sheetRecordIndexes = example({
-    keywords: ["Sheet", "Slice.bindRecords", "rows", "Data.bindPaged", "Record", "Record.onApply", "recordIndex", "lens", "saved views", "RecordView", "paging", "primary key", "filter"],
+    keywords: ["Sheet", "Slice.bindRecords", "rows", "Data.bindPaged", "Record", "Record.onApply", "indexes", "lens", "saved views", "RecordView", "paging", "primary key", "filter"],
     description: "50,000 work orders in the record's order, the rail's rows source narrowing them through maintained record indexes and the sheet drawing the narrowing over them as the lens, a filtered spreadsheet: only the rows it keeps, one after another, each at its row number. Choose Ready and Scheduled together, then a Due range: e3 places their rows from the indexes alone, and the sheet reads only the segments near the view. Save retains original keys and hidden drafts; saved tabs retain every source's narrowing.",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{($) => {
-            const record = $.let(Record.bind(indexedWorkOrders, [indexedWorkPatch]));
+            const record = $.let(Record.bind(indexedWorkOrders));
             // One rail over the work orders: its `rows` source narrows them, and the sheet draws the narrowing over the record's rows.
             const slice = $.let(Slice.bindRecords("ex.sheetRecordIndexes", {
                 rows: {
-                    source: Data.bindPaged(indexedWorkOrders, { indexes: [indexedWorkByStatusDue, indexedWorkByDue, indexedWorkByJob, indexedWorkByQuantity, indexedWorkByUrgent, indexedWorkByTag] }),
+                    source: Data.bindPaged(indexedWorkOrders, { indexes: ["by_status_due", "by_due", "by_job", "by_quantity", "by_urgent", "by_tag"] }),
                     fields: { status: { label: "Status", hints: ["Ready", "Scheduled", "Done"] }, due: { label: "Due" }, job: { label: "Job" }, quantity: { label: "Quantity" }, urgent: { label: "Urgent" }, tags: { label: "Tag", hints: ["Production", "Dispatch"] } },
                     range: "due", search: ["job"], initial: { status: ["Ready"] },
                 },
@@ -108,11 +120,11 @@ export const sheetRecordIndexesMobile = example({
     description: "The same indexed work orders and their lens in a phone-width frame, with the rail's shared Slice controls on the toolbar's responsive ladder.",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{($) => {
-            const record = $.let(Record.bind(indexedWorkOrders, [indexedWorkPatch]));
+            const record = $.let(Record.bind(indexedWorkOrders));
             // One rail over the work orders: its `rows` source narrows them, and the sheet draws the narrowing over the record's rows.
             const slice = $.let(Slice.bindRecords("ex.sheetRecordIndexesMobile", {
                 rows: {
-                    source: Data.bindPaged(indexedWorkOrders, { indexes: [indexedWorkByStatusDue, indexedWorkByDue, indexedWorkByJob, indexedWorkByQuantity, indexedWorkByUrgent, indexedWorkByTag] }),
+                    source: Data.bindPaged(indexedWorkOrders, { indexes: ["by_status_due", "by_due", "by_job", "by_quantity", "by_urgent", "by_tag"] }),
                     fields: { status: { label: "Status", hints: ["Ready", "Scheduled", "Done"] }, due: { label: "Due" }, job: { label: "Job" }, quantity: { label: "Quantity" }, urgent: { label: "Urgent" }, tags: { label: "Tag", hints: ["Production", "Dispatch"] } },
                     range: "due", search: ["job"], initial: { status: ["Ready"] },
                 },

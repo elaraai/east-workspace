@@ -730,6 +730,15 @@ describe("Slice.Rail — the legend is an explicit affordance, never implicit (#
 });
 
 describe("Slice.Rail brush — formatted axis + count histogram, rich by default (#190)", () => {
+    // The track laid out 320px wide, which the strip measures before it draws its bars on whole pixels (#1438).
+    beforeEach(() => {
+        const was = HTMLElement.prototype.getBoundingClientRect;
+        vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+            if (!this.hasAttribute("data-brush-track")) return was.call(this);
+            return { left: 0, top: 0, right: 320, bottom: 28, width: 320, height: 28, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
+        });
+    });
+    afterEach(() => { vi.restoreAllMocks(); });
     const brushInitial = {
         range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
         breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
@@ -838,9 +847,10 @@ describe("Slice.Rail brush — slide + edge-resize the applied window (#192)", (
 
     test("dragging the window body slides it — width preserved exactly", () => {
         const { container, track, appliedRange } = mount("brush.slide");
-        // The applied window renders as the spec vocabulary: excluded-region
-        // masks either side plus the two visible edge handles.
-        expect(container.querySelectorAll("[data-brush-mask]").length).toBe(2);
+        // The applied window renders as the horizon brush's vocabulary (#1438):
+        // its band, nothing masking outside it, and a handle on each edge.
+        expect(container.querySelectorAll("[data-brush-band]").length).toBe(1);
+        expect(container.querySelectorAll("[data-brush-mask]").length).toBe(0);
         expect(container.querySelectorAll("[data-brush-handle]").length).toBe(2);
 
         fireEvent.pointerDown(track, { clientX: 300, pointerId: 1, buttons: 1 }); // inside 200..400

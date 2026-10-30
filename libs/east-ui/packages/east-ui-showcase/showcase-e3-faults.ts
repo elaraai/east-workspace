@@ -40,6 +40,31 @@ export const FAULTS_FLAG = "__showcaseE3Faults";
 export const FAULTS_CONTROLS = "showcaseE3Faults";
 
 /**
+ * The page's address asking every read of its e3 to wait (`?slow=<ms>`,
+ * #1438): a person sees what a builder draws while a read is in flight — its
+ * washes and its loading line — which an e3 in the page answers too soon to
+ * see. It installs the hook as a spec does.
+ */
+export const SLOW_PARAM = "slow";
+
+/** The reads a builder makes of its e3, which an address's slowing takes. */
+const BUILDER_READS: readonly FaultKind[] = ["page", "find", "rows", "runs", "place", "within", "read"];
+
+/**
+ * How long the page's address asks every read of its e3 to wait, in ms: a
+ * whole number of them, at most thirty seconds (`?slow=600`).
+ *
+ * @param search - The address's query, as `location.search` holds it
+ * @returns The wait; `undefined` where the address asks none
+ */
+export function slowFromAddress(search: string): number | undefined {
+    const text = new URLSearchParams(search).get(SLOW_PARAM);
+    if (text === null || !/^[0-9]+$/.test(text)) return undefined;
+    const ms = Number(text);
+    return ms > 0 ? Math.min(ms, 30_000) : undefined;
+}
+
+/**
  * What a request asks e3, as the hook names it: a builder's reads — a page, a
  * key search, rows or runs by key, a narrowing's placement or membership — a
  * read of a dataset whole, a write, a dataset's status, a record's mutation,
@@ -192,7 +217,8 @@ function failureResponse(failure: Exclude<FaultFailure, "network">, method: stri
 
 /**
  * The page's e3, its `fetch` going through the hook — when a spec asked for
- * it before the page loaded ({@link FAULTS_FLAG}); else the e3 as it is.
+ * it before the page loaded ({@link FAULTS_FLAG}), or the page's address asks
+ * its reads to wait ({@link SLOW_PARAM}); else the e3 as it is.
  *
  * @param e3 - The e3 the page started
  * @param repo - The repository its areas' workspaces are in, which a spec's own mutation names
@@ -200,7 +226,8 @@ function failureResponse(failure: Exclude<FaultFailure, "network">, method: stri
  */
 export function withFaults(e3: WebE3, repo: string): WebE3 {
     const scope = globalThis as unknown as Record<string, unknown>;
-    if (scope[FAULTS_FLAG] !== true) return e3;
+    const slowed = typeof location === "undefined" ? undefined : slowFromAddress(location.search);
+    if (scope[FAULTS_FLAG] !== true && slowed === undefined) return e3;
     const rules: Rule[] = [];
     const log: Logged[] = [];
     let ids = 0;
@@ -229,6 +256,7 @@ export function withFaults(e3: WebE3, repo: string): WebE3 {
         },
     };
     scope[FAULTS_CONTROLS] = controls;
+    if (slowed !== undefined) controls.slow({ kinds: BUILDER_READS }, slowed);
     const fetch: typeof globalThis.fetch = async (input, init) => {
         const request = new Request(input, init);
         const url = new URL(request.url);

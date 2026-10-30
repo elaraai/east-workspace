@@ -27,6 +27,7 @@ import assert from 'node:assert/strict';
 import {
   createTestContext,
   allApiTests,
+  workspaceBundleTests,
   type TestSetup,
   type TestContext,
 } from '@elaraai/e3-api-tests';
@@ -114,6 +115,9 @@ describe('API compliance against e3 in a page', { timeout: 900_000, concurrency:
   });
 
   allApiTests(setup);
+
+  // The bundle routes, which e3-web mounts: a page's bundles fit in a request
+  workspaceBundleTests(setup);
 
   // Last, once every test before it has cleaned up: a request whose refusal
   // what made it swallowed — a cleanup's — is named here.

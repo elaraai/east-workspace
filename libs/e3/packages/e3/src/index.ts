@@ -69,8 +69,6 @@ import type {
 import { input } from './input.js';
 import { record } from './record.js';
 import { mutation } from './mutation.js';
-import { migration } from './migration.js';
-import { recordIndex } from './record-index.js';
 import { task, customTask, streamTask, partition } from './task.js';
 import { output } from './output.js';
 import { function_ } from './function.js';
@@ -119,8 +117,6 @@ const e3 = {
   input,
   record,
   mutation,
-  migration,
-  recordIndex,
   task,
   customTask,
   streamTask,
@@ -134,13 +130,17 @@ const e3 = {
 export default e3;
 
 // Also export individual functions for tree-shaking
-export { input, record, mutation, migration, recordIndex, task, customTask, streamTask, partition, output, function_, package_ as package, export_ as export };
+export { input, record, mutation, task, customTask, streamTask, partition, output, function_, package_ as package, export_ as export };
 export type { StreamTaskSpec } from './task.js';
-export type { MigrationConfig } from './migration.js';
 
 // Singleton tree definitions
 export { inputsTree } from './input.js';
 export { recordsTree } from './record.js';
+export type { RecordConfig } from './record.js';
+export type {
+  IndexBuilder, NestedBuilder, MutationBuilder, MigrationBuilder, IndexDraft, MutationDraft, MigrationDraft,
+  IndexesOf, MutationsOf, PlainIndexOptions, PartRunner,
+} from './record-builders.js';
 export { tasksTree } from './task.js';
 
 // Utility exports
@@ -155,10 +155,16 @@ export {
 } from './dataset-file.js';
 export { DatasetSourceType, type DatasetSource } from './input.js';
 export { addObject } from './export.js';
-export { indexBuildProgram, buildMutationProgram, migrationProgram, summaryMergeProgram, deltaTargets, indexEntryKeyType } from './record-programs.js';
+export { indexBuildProgram, buildMutationProgram, migrationProgram, summaryMergeProgram, deltaTargets, indexEntryKeyType, builtIndex, indexMaintenance } from './record-programs.js';
+export type { IndexMaintenance } from './record-programs.js';
 export type {
-  RecordIndexSpec, IntervalIndexSpec, AreaIndexSpec, AreaIndexOf, SeriesIndexSpec, SummaryIndexSpec, TimeTileOf,
-  IndexFunction, IndexKeyOf, IndexOn, ProjectionOf,
+  IntervalIndexSpec, AreaIndexSpec, AreaIndexOf, SeriesIndexSpec, SummaryIndexSpec, NestedSeriesIndexSpec, TimeTileOf,
+  IndexFunction, IndexKeyOf, SummaryKeyOf, NestedKeyOf, NestedValueOf, IndexOn, ProjectionOf,
 } from './record-index.js';
-export { RECORD_TILES, MAX_EVENT_TILES, TileShareType, tileStart, tileNext, tileShares, type RecordTile } from './record-tiles.js';
-export { TILE_FIELD } from './record-series.js';
+export type {
+  SeriesItems, SeriesValues, SeriesRows, SeriesRecursive, SeriesItemsOptions, SeriesValuesOptions, SeriesFoldLiteral, SeriesAggregateLiteral,
+  SeriesRollupInput, SeriesCollections, SeriesCollectionFor, SeriesTimes, ItemTimeField, DictField, ChildOf, PlacesOf, NestedOf, Misfit,
+} from './record-nested.js';
+export {
+  RECORD_TILES, MAX_EVENT_TILES, SHORTEST_MS, TileShareType, TileFilingType, tileStart, tileNext, tileShares, eventFilings, type RecordTile,
+} from './record-tiles.js';

@@ -13,6 +13,7 @@
  */
 
 import { scrollIntoView } from '../render/layout.js';
+import { sameInstant } from '../render/text.js';
 import {
     type Action,
     type CommandUi,
@@ -24,6 +25,11 @@ import {
     emptyTree,
     isLogTab,
 } from './actions.js';
+
+/** Whether two runs started at the same instant, or neither has started. */
+function sameStart(a: Date | null, b: Date | null): boolean {
+    return a === null || b === null ? a === b : sameInstant(a, b);
+}
 
 /** A nested record with one inner entry replaced. */
 function nested<T>(outer: Record<string, Record<string, T>>, key: string, inner: string, value: T): Record<string, Record<string, T>> {
@@ -305,7 +311,7 @@ export function reduce(state: TuiState, action: Action): TuiState {
                             state: action.state,
                             events: action.events,
                             startedAt: action.startedAt,
-                            settling: previous?.settling === true && !running && status !== 'stopping' && previous.startedAt === action.startedAt,
+                            settling: previous?.settling === true && !running && status !== 'stopping' && sameStart(previous.startedAt, action.startedAt),
                             // Stopping while this client's cancel waits for the run, or while
                             // the server says a run asked to stop has not yet stopped.
                             stopping: status === 'stopping' || (previous?.stopping === true && running),

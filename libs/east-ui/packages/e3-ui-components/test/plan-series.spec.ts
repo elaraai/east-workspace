@@ -64,8 +64,8 @@ const heldJobs = async () => (await h.read(ex.planWindowJobs)) as ReadonlyMap<st
 
 /** What the windows Plan's payload is built over: the indexes its `job` source lists, and how its kind and its presses are declared. */
 interface Declared {
-    /** The `job` source's indexes; the example's three unless given. */
-    readonly indexes?: readonly unknown[];
+    /** The `job` source's indexes, by name; the example's three unless given. */
+    readonly indexes?: readonly string[];
     /** The jobs' field the kind places them on: `press` unless given. */
     readonly resource?: "press" | "customer";
     /** The jobs' field the kind ends them at: `end` unless given. */
@@ -78,11 +78,11 @@ interface Declared {
 
 /** The windows example's Plan (`planWindows`), its payload declared in East over e3. */
 function seriesPayload($: BlockBuilder<typeof PlanPayloadType>, declared: Declared = {}): ExprType<typeof PlanPayloadType> {
-    const { indexes = [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth], resource = "press", end = "end", whole = false, loose = false } = declared;
+    const { indexes = ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"], resource = "press", end = "end", whole = false, loose = false } = declared;
     const presses = whole
         ? Schedule.resources($.let(Data.bind(ex.planWindowPresses)).read(), { name: "Presses", icon: "print", label: (p) => p.name })
         : Schedule.resources($.let(Data.bindPaged(ex.planWindowPresses)), { name: "Presses", icon: "print", label: (p) => p.name });
-    const jobs = $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.let(Record.bind(ex.planWindowJobs, ["patch"]));
     const entries = $.let(Data.bindPaged(ex.planWindowJobs));
     const job = { source: Data.bindPaged(ex.planWindowJobs, { indexes: indexes as never }), range: "start" };
     const sources = loose ? { job, loose: { source: Data.bindPaged(ex.planWindowJobs, { indexes: indexes as never }), range: "start" } } : { job };
@@ -182,7 +182,7 @@ describe("the seams of a kind read by its cells (#1039)", () => {
         // Read through the interval index under the unset start, never the window.
         const reads = jobReads();
         assert.ok(reads.length > 0);
-        assert.ok(reads.every((request) => (request.query.get("index") ?? undefined) === ex.planWindowJobsByTime.name), "through the interval index alone");
+        assert.ok(reads.every((request) => (request.query.get("index") ?? undefined) === "plan_window_jobs_by_time"), "through the interval index alone");
         assert.ok(reads.every((request) => request.kind !== "runs"), "no window of jobs is read");
     });
 
@@ -238,8 +238,8 @@ describe("the seams of a kind read by its cells (#1039)", () => {
 describe("a source's series and summary indexes, refused as the payload builds (#1039)", () => {
     const refused = (pattern: string, slot = "job") => new RegExp(`^.*Plan: events\\.${slot}'s source lists the ${pattern}`);
     /** The two indexes a refusal names, declared over the jobs' own fields: their press, their start and their end. */
-    const series = `e3\\.recordIndex\\.series\\(name, record, \\{ key: "press", from: "start", to: "end", tile: "week" \\}\\)`;
-    const summary = `e3\\.recordIndex\\.summary\\(name, record, \\{ key: "press", from: "start", to: "end", tile: "month" \\}\\)`;
+    const series = `index\\.series\\(\\{ key: "press", from: "start", to: "end", tile: "week" \\}\\)`;
+    const summary = `index\\.summary\\(\\{ key: "press", from: "start", to: "end", tile: "month" \\}\\)`;
     const paged = `, and the kind is placed on resources\\.presses, paged — a paged kind's events are read a cell at a time`;
 
     test("the example's three build", async () => {
@@ -247,19 +247,19 @@ describe("a source's series and summary indexes, refused as the payload builds (
     });
 
     test("a kind on the paged presses whose source lists its interval index alone: refused, naming the series and the summary index to declare", async () => {
-        await assert.rejects(payloadOf({ indexes: [ex.planWindowJobsByTime] }),
+        await assert.rejects(payloadOf({ indexes: ["plan_window_jobs_by_time"] }),
             new RegExp(`^.*Plan: events\\.job's source lists no series index and no summary index${paged}, and shaded past what the Plan draws: ` +
                 `declare ${series} and ${summary} over the same record and list them beside its interval index`));
     });
 
     test("a kind on the paged presses whose source lists a summary and no series index: refused, naming the series index to declare", async () => {
-        await assert.rejects(payloadOf({ indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressMonth] }),
+        await assert.rejects(payloadOf({ indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_month"] }),
             new RegExp(`^.*Plan: events\\.job's source lists the summary index "plan_window_jobs_by_press_month", and no series index${paged}, ` +
                 `through a series index: declare ${series} over the same record and list it beside the summary index`));
     });
 
     test("a series index with no summary beside it: its events draw while they fit, and nothing shades past that", async () => {
-        await assert.rejects(payloadOf({ indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek] }),
+        await assert.rejects(payloadOf({ indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week"] }),
             refused(`series index "plan_window_jobs_by_press_week", and no summary index — the Plan draws a series index's events while they fit, and its summary's shading past that: declare ${summary} over the same record and list it beside the series index`));
     });
 
@@ -278,7 +278,7 @@ describe("a source's series and summary indexes, refused as the payload builds (
     });
 
     test("two summaries of one tile over the same fields, each named", async () => {
-        await assert.rejects(payloadOf({ indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth, ex.planWindowJobsByPressMonthAgain] }),
+        await assert.rejects(payloadOf({ indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month", "plan_window_jobs_by_press_month_again"] }),
             refused(`summary indexes "plan_window_jobs_by_press_month" and "plan_window_jobs_by_press_month_again", each by the month over the same fields — list one`));
     });
 });

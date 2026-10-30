@@ -43,9 +43,9 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 import { PagedSourceType, PinnedSourceType, type SeekQueryType } from "@elaraai/east-ui";
-import { MAX_LANDED_SEARCHES } from "@elaraai/east-ui/internal";
+import { MAX_LANDED_SEARCHES, levelRuns } from "@elaraai/east-ui/internal";
 import { datasetGetStatus, type DatasetFindQuery } from "@elaraai/e3-api-client";
-import { datasetRowsType, indexWindowType, type TreePath } from "@elaraai/e3-types";
+import { RecordLevelType, datasetRowsType, indexWindowType, type TreePath } from "@elaraai/e3-types";
 import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
 import type { E3Request } from "../src/e3-web.test-utils.js";
 import {
@@ -1825,11 +1825,11 @@ describe("PagedRuntime — what a revision keeps of the searches batches answer 
     class HoldingRuntime extends PagedRuntime {
         held(source: PagedSource) { return this.holding(source); }
     }
-    /** The jobs, and their series index: each job under each week it touches and the press it is on. */
+    /** The jobs, and their series index: each job filed once by the press it is on, at the level its length fits (#1433). */
     const jobs = ex.indexedJobs;
     const JobsType = toEastTypeValue(jobs.type);
-    const SERIES: PagedSelector = { index: ex.jobsByPressWeek.name, join: false };
-    const SeriesWindowType = toEastTypeValue(indexWindowType(StringType, ex.jobsByPressWeek.keyType, ex.IndexedJob, ex.IndexedJob));
+    const SERIES: PagedSelector = { index: "jobs_by_press_week", join: false };
+    const SeriesWindowType = toEastTypeValue(indexWindowType(StringType, ex.indexedJobs.indexes.jobs_by_press_week.keyType, ex.IndexedJob, ex.IndexedJob));
     const printTile = printFor(DateTimeType);
     const printPress = printFor(OptionType(StringType));
     /** How many blocks the reader walks down: more than the windows the runtime retains. */
@@ -1842,12 +1842,23 @@ describe("PagedRuntime — what a revision keeps of the searches batches answer 
         assert.ok(series !== undefined && own !== undefined, "the runtime serves the handles it built");
         return { ...read, series, own };
     };
-    /** One block's cell searches, as the Plan's cells reader plans them (`tileCellQueries`): 50 presses × 15 weekly tiles, `[tile, press]` each. */
+    const printLevel = printFor(RecordLevelType);
+    /** The index's runs over the fifteen weeks from Monday 5 October 2026, a level each, as the Plan's cells reader reads them (`levelRuns`, #1433). */
+    const RUNS = levelRuns("week", new Date(Date.UTC(2026, 9, 5)), new Date(Date.UTC(2026, 9, 5) + 15 * 7 * 86_400_000));
+    /** One block's searches a run: its 50 presses'. */
+    const BLOCK_SEARCHES = 50 * RUNS.length;
+    /**
+     * One block's cell searches, as the Plan's cells reader plans them (`levelCellQueries`): 50 presses × the index's
+     * levels, a range a press a level, `[press, level, from]` to `[press, level, to]`.
+     */
     const blockQueries = (block: number): DatasetFindQuery[] => {
         const queries: DatasetFindQuery[] = [];
-        for (let week = 0; week < 15; week++) {
-            const tile = printTile(new Date(Date.UTC(2026, 9, 5) + week * 7 * 86_400_000));
-            for (let press = 0; press < 50; press++) queries.push({ fields: [tile, printPress(some(`P-${String(block * 50 + press).padStart(6, "0")}`))] });
+        for (const run of RUNS) {
+            const level = printLevel(variant(run.level, null));
+            for (let press = 0; press < 50; press++) {
+                const key = printPress(some(`P-${String(block * 50 + press).padStart(6, "0")}`));
+                queries.push({ from: [key, level, printTile(run.from)], to: [key, level, printTile(run.to)] });
+            }
         }
         return queries;
     };
@@ -1855,7 +1866,7 @@ describe("PagedRuntime — what a revision keeps of the searches batches answer 
     const walk = async (runtime: PagedRuntime, source: PagedSource) => {
         for (let block = 0; block < BLOCKS; block++) {
             const answers = await h.ready(() => runtime.seekAll(source, blockQueries(block)));
-            assert.equal(answers.length, 750, `block ${block}'s searches are answered`);
+            assert.equal(answers.length, BLOCK_SEARCHES, `block ${block}'s searches are answered`);
         }
         assert.equal(h.requests("find", "records.indexed_jobs").length, BLOCKS, "a block's searches are one request");
     };
@@ -1865,7 +1876,7 @@ describe("PagedRuntime — what a revision keeps of the searches batches answer 
         await walk(runtime, series);
         const { channels, versions, longestKey, searches } = runtime.held(series);
         assert.ok(channels <= MAX_RETAINED_WINDOWS && versions <= MAX_RETAINED_WINDOWS + 1,
-            `after the reader moved on from ${BLOCKS - 1} blocks (${BLOCKS * 750} searches landed) the runtime holds ${channels} channels, `
+            `after the reader moved on from ${BLOCKS - 1} blocks (${BLOCKS * BLOCK_SEARCHES} searches landed) the runtime holds ${channels} channels, `
             + `and ${versions} versions of channels`);
         assert.ok(longestKey < 256, `a batch's channel is named by its searches, not their text: its key is ${longestKey} characters`);
         assert.equal(searches, MAX_LANDED_SEARCHES, "the revision holds the last searches' bounds apart from a channel, as many as the record Slice keeps");
@@ -1883,8 +1894,8 @@ describe("PagedRuntime — what a revision keeps of the searches batches answer 
         // A single search of one, and a batch of some in another order: answered from what the first batch answered.
         const seek = handleOf(runtime, SeriesWindowType, jobs.path, "pinned", SERIES).seek;
         const query = block[3]!;
-        assert.ok(seek.type === "some" && "fields" in query);
-        assert.equal(seek.value(variant("fields", { values: query.fields, prefix: none })).type, "some", "a single search the batch answered");
+        assert.ok(seek.type === "some" && "from" in query && query.from !== undefined && query.to !== undefined);
+        assert.equal(seek.value(variant("range", { from: query.from, to: query.to })).type, "some", "a single search the batch answered");
         assert.equal(runtime.seekAll(series, [block[7]!, block[3]!]).type, "some", "a batch of searches it answered");
         assert.equal(h.requests("find", "records.indexed_jobs").length, 1, "nothing asked");
     });

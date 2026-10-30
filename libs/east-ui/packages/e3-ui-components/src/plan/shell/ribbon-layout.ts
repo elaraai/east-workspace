@@ -38,7 +38,7 @@
  * @packageDocumentation
  */
 
-import { rowKeyOf, type PlanBodyItem, type PlanLinkValue, type PlanRowIndex, type PlanRowValue } from "../model.js";
+import { rowKeyOf, type PlanBodyItem, type PlanLinkValue, type PlanRowValue } from "../model.js";
 import type { PlanBucket, PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
 import { PLAN_CELL_INSET, type PlanGeometry } from "../geometry.js";
@@ -191,14 +191,12 @@ export function linkedElement(row: PlanRowValue, key: string, scale: PlanScale):
  *
  * @param items - The body items, in order
  * @param heights - Each item's exact height (`usePlanBody`)
- * @param index - The row index (which rows nest children)
  * @param geometry - The canvas's geometry table
  * @returns The slots and the body's height
  */
 export function ribbonBody(
     items: readonly PlanBodyItem[],
     heights: readonly number[],
-    index: PlanRowIndex,
     geometry: Readonly<PlanGeometry>,
 ): RibbonBody {
     const slots = new Map<RowKey, RibbonSlot>();
@@ -207,12 +205,8 @@ export function ribbonBody(
     items.forEach((item, i) => {
         const h = heights[i] ?? 0;
         if (item.kind === "row") {
-            const v = item.row;
-            // A collapsed span parent draws its rollup band, not full bars —
-            // the rule `KindPlot` renders by.
-            const rolled = v.row.kind.type === "span" && v.collapsed
-                && (index.children.get(v.row.key)?.length ?? 0) > 0;
-            slots.set(v.row.key, { top: y, height: h, bar: rolled ? geometry.rollBar : geometry.bar });
+            // A row's runs ride the bar, a parent's folded or open — the rule `KindPlot` renders by.
+            slots.set(item.row.row.key, { top: y, height: h, bar: geometry.bar });
         } else if (item.kind === "band") {
             bands.set(`${item.band.block}:${item.band.at}`, y);
         }

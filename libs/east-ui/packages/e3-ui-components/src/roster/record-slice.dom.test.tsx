@@ -20,7 +20,7 @@ test("indexed staff visibility replaces atomically without narrowing coverage, a
     await waitFor(() => expect(assignment(container, "s37")).not.toBeNull());
     await settle();
     // The rail opens on Inbound: the staff are read through their group-then-name index.
-    expect(h.requests(undefined, STAFF).some(request => request.query.get("index") === ex.rosterStaffByTeam.name)).toBe(true);
+    expect(h.requests(undefined, STAFF).some(request => request.query.get("index") === "staff_by_team_name")).toBe(true);
     const marks = () => [...slot(container, "main").querySelectorAll('[role="img"][aria-label]')].map(el => el.getAttribute("aria-label"));
     await act(async () => { fireEvent.click(within(assignment(container, "s37")).getByRole("button", { name: "Remove C. Clover" })); });
     await settle();

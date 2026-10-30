@@ -11,7 +11,10 @@
  */
 
 import { expect, test } from "vitest";
-import { ArrayType, IntegerType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import {
+    ArrayType, DictType, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant,
+    type ValueTypeOf, type option,
+} from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
 import { liftDraft } from "./draft.js";
 import { editingMessages } from "./messages.js";
@@ -207,6 +210,58 @@ test("a move alone confirms at the revision it committed: its entry's value is n
     expect(session.status).toBe("reconciling");
     expect(session.reconcile(variant("revision", "r2"), () => some(a))).toBe(true);
     expect(session.status).toBe("idle");
+});
+
+// ── The drafts a preview of the Save reads (#1437) ───────────────────────────
+
+/** Whether an entry's version, as the source holds one, is the job given — `none` for an absent one. */
+const isJob = (version: option<unknown>, job: option<JobValue>) => equalFor(OptionType(Job))(version as option<JobValue>, job);
+
+test("lists each entry drafted away from its original, each as the source holds an entry, and the revision the drafts began from (#1437)", () => {
+    const session = keyed("r1");
+    expect(session.drafts.entries.size).toBe(0);
+    session.record([
+        { id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) },
+        { id: "J4", before: absentJob, after: job(spray) },
+        { id: "J2", before: job(band), after: absentJob },
+    ], "typed", "Edit jobs");
+    const { revision, entries } = session.drafts;
+    expect(revision).toBe("r1");
+    expect([...entries.keys()].sort()).toEqual(["J1", "J2", "J4"]);
+    const [updated, inserted, removed] = [entries.get("J1")!, entries.get("J4")!, entries.get("J2")!];
+    expect(updated.key).toBe("J1");
+    expect(isJob(updated.before, some(cut)) && isJob(updated.after, some({ ...cut, qty: 5n }))).toBe(true);
+    expect(isJob(inserted.before, none) && isJob(inserted.after, some(spray))).toBe(true);
+    expect(isJob(removed.before, some(band)) && isJob(removed.after, none)).toBe(true);
+    // Each version as the session holds it.
+    expect(updated.draft).toBe(session.entries.get("J1"));
+    expect(updated.original).toBe(session.originals.get("J1"));
+});
+
+test("keeps a drafted entry the same object while its original and its draft hold — another entry's gestures, an Undo and a Redo — and leaves out one undone to its original, discarded or saved (#1437)", async () => {
+    const session = keyed("r1");
+    session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    const drafts = session.drafts;
+    expect(session.drafts).toBe(drafts);
+    const J1 = drafts.entries.get("J1")!;
+    session.record([{ id: "J3", before: job(route), after: job({ ...route, qty: 2n }) }], "typed", "Set quantity");
+    expect(session.drafts).not.toBe(drafts);
+    expect(session.drafts.entries.get("J1")).toBe(J1);
+    session.undo();
+    expect([...session.drafts.entries.keys()]).toEqual(["J1"]);
+    session.undo();
+    expect(session.drafts.entries.size).toBe(0);
+    session.redo();
+    // The history keeps the versions it recorded: the same draft, the same view of it.
+    expect(session.drafts.entries.get("J1")).toBe(J1);
+    session.discard();
+    expect(session.drafts.entries.size).toBe(0);
+    session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 7n }) }], "typed", "Set quantity");
+    await session.apply();
+    expect(session.reconcile(variant("revision", "r2"), () => some({ ...cut, qty: 7n }))).toBe(true);
+    // Saved: the source holds the draft, at the revision the Save made.
+    expect(session.drafts.entries.size).toBe(0);
+    expect(session.drafts.revision).toBe("r2");
 });
 
 // ── Naming a Save's conflicts at a revision (#1199) ─────────────────────────
@@ -420,4 +475,51 @@ test("partial conflict naming restarts on a new revision and preserves every dra
     expect(session.nameConflicts(variant("revision", "r3"), id => id === "J1" ? some(cut) : undefined)).toBe(true);
     expect(session.issues).toEqual([said("J2")]);
     expect(session.pending).toBe(2);
+});
+
+// ── Drafts carried over a source that moved (#1438) ─────────────────────────
+
+const Bench = StructType({ name: StringType, jobs: DictType(StringType, IntegerType) });
+const BenchDraft = Editing.Types.Draft(Bench);
+type BenchValue = ValueTypeOf<typeof Bench>;
+/** A bench whose jobs are each one's hours. */
+const benchOf = (jobs: [string, bigint][]): BenchValue => ({ name: "Bench 1", jobs: new SortedMap(jobs, compareFor(StringType)) });
+const benchVersion = (value: BenchValue): EntryVersion<Bar> => ({ draft: liftDraft(BenchDraft, value), wire: { key: "B1", caption: "" }, place: keyOrder });
+const sameBenchDraft = equalFor(BenchDraft);
+/** A version's draft, as the session holds a bench's: its fields' drafts. */
+const benchDraftOf = (version: EntryVersion<Bar> | undefined) => version?.draft as ValueTypeOf<typeof BenchDraft>;
+/** A keyed session over the benches at revision r1, one job moved off bench B1 and drafted. */
+const movedOff = () => {
+    const session = new EditSession<Bar>({
+        sourceId: "benches", entryType: Bench, draftType: BenchDraft, keyType: StringType, auto: false,
+        apply: () => variant("applied", { revision: some("r3") }), patch: undefined, refresh: undefined,
+    });
+    session.observeBase(variant("revision", "r1"));
+    session.record([{ id: "B1", before: benchVersion(benchOf([["j1", 1n], ["j2", 2n]])), after: benchVersion(benchOf([["j2", 2n]])) }], "typed", "Move j1 off");
+    // Another write moves the source on.
+    session.observeBase(variant("revision", "r2"));
+    return session;
+};
+
+test("drafts carried over a source that moved, where each change still applies: another write's change of another job stands beside them (#1438)", () => {
+    const session = movedOff();
+    expect(session.stale).toBe(true);
+    // While the bench is read at the new revision, nothing moves.
+    expect(session.rebase(variant("revision", "r2"), () => undefined)).toBe("waiting");
+    expect(session.stale).toBe(true);
+    // Another write changed j2's hours: the move of j1 still applies.
+    const now = benchOf([["j1", 1n], ["j2", 5n]]);
+    expect(session.rebase(variant("revision", "r2"), () => some(now))).toBe("rebased");
+    expect([session.stale, session.writable, session.pending]).toEqual([false, true, 1]);
+    expect(sameBenchDraft(benchDraftOf(session.originals.get("B1")), benchDraftOf(benchVersion(now)))).toBe(true);
+    expect(sameBenchDraft(benchDraftOf(session.entries.get("B1")), benchDraftOf(benchVersion(benchOf([["j2", 5n]]))))).toBe(true);
+    // The history starts over at the drafts: an undo would take the bench back to its version at the old revision.
+    expect(session.canUndo).toBe(false);
+});
+
+test("drafts whose change no longer applies stay stale: another write changed the job they moved (#1438)", () => {
+    const session = movedOff();
+    expect(session.rebase(variant("revision", "r2"), () => some(benchOf([["j1", 3n], ["j2", 2n]])))).toBe("conflict");
+    expect([session.stale, session.writable]).toEqual([true, false]);
+    expect(sameBenchDraft(benchDraftOf(session.entries.get("B1")), benchDraftOf(benchVersion(benchOf([["j2", 2n]]))))).toBe(true);
 });

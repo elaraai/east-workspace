@@ -97,7 +97,7 @@ describe("the ribbon body (#818)", () => {
             rowItem(a), gapItem("gap-x"), rowItem(b),
             { kind: "band", band: { block: 0, at: "tail", from: 400, to: 999, px: 900 } },
         ];
-        const body = ribbonBody(items, [640, 32, 22, 42, 900], indexRows([a, b]), G);
+        const body = ribbonBody(items, [640, 32, 22, 42, 900], G);
         expect(body.slots.get(rowKey("a"))).toEqual({ top: 640, height: 32, bar: G.bar });
         expect(body.slots.get(rowKey("b"))).toEqual({ top: 640 + 32 + 22, height: 42, bar: G.bar });
         expect(body.height).toBe(640 + 32 + 22 + 42 + 900);
@@ -105,14 +105,13 @@ describe("the ribbon body (#818)", () => {
         expect(body.bands).toEqual(new Map([["0:head", 0], ["0:tail", 640 + 32 + 22 + 42]]));
     });
 
-    test("a collapsed span parent's runs ride its rollup bar; an open one's the full bar", () => {
+    test("a span parent's runs ride the full bar, folded or open: what it rolls up is its bands", () => {
         const p = spanRow("p");
         const c = spanRow("c", { parent: "p" });
-        const index = indexRows([p, c]);
-        expect(ribbonBody([rowItem(p, true)], [32], index, G).slots.get(rowKey("p"))!.bar).toBe(G.rollBar);
-        expect(ribbonBody([rowItem(p, false), rowItem(c)], [32, 32], index, G).slots.get(rowKey("p"))!.bar).toBe(G.bar);
+        expect(ribbonBody([rowItem(p, true)], [32], G).slots.get(rowKey("p"))!.bar).toBe(G.bar);
+        expect(ribbonBody([rowItem(p, false), rowItem(c)], [32, 32], G).slots.get(rowKey("p"))!.bar).toBe(G.bar);
         // Dense tightens the bar the table says.
-        expect(ribbonBody([rowItem(c)], [24], index, PLAN_GEOMETRY.dense).slots.get(rowKey("c"))!.bar).toBe(PLAN_GEOMETRY.dense.bar);
+        expect(ribbonBody([rowItem(c)], [24], PLAN_GEOMETRY.dense).slots.get(rowKey("c"))!.bar).toBe(PLAN_GEOMETRY.dense.bar);
     });
 });
 
@@ -120,10 +119,9 @@ describe("ribbon endpoints come from the model (#818)", () => {
     const a = spanRow("a");
     const b = spanRow("b");
     const c = spanRow("c", { sub: true });
-    const index = indexRows([a, b, c]);
     const items = [rowItem(a), gapItem("gap-x"), rowItem(b), rowItem(c)];
     const heights = [32, 22, 32, 42];
-    const body = ribbonBody(items, heights, index, G);
+    const body = ribbonBody(items, heights, G);
     const element = barsOf({
         "a|ra": [at("2026-06-29"), at("2026-07-13")],
         "b|rb": [at("2026-07-20"), at("2026-08-03")],
@@ -196,7 +194,7 @@ describe("ribbon endpoints come from the model (#818)", () => {
 
     test("the ribbons follow the heights — a band that goes moves every endpoint below it by exactly its height", () => {
         const before = layoutRibbons(input({ links: [link("a", "ra", "b", "rb")], body, element })).ribbons[0]!;
-        const collapsed = ribbonBody([rowItem(a), rowItem(b), rowItem(c)], [32, 32, 42], index, G);
+        const collapsed = ribbonBody([rowItem(a), rowItem(b), rowItem(c)], [32, 32, 42], G);
         const after = layoutRibbons(input({ links: [link("a", "ra", "b", "rb")], body: collapsed, element })).ribbons[0]!;
         expect(after.from).toEqual(before.from);
         expect(after.to.top).toBe(before.to.top - 22);
@@ -215,10 +213,9 @@ describe("ribbon endpoints come from the model (#818)", () => {
 describe("the view (#818)", () => {
     // Rows at 0–32, 200–232, 400–432, 600–632.
     const rows = ["r0", "r1", "r2", "r3"].map((k) => spanRow(k));
-    const index = indexRows(rows);
     const items = rows.flatMap((r, i) => (i === 0 ? [rowItem(r)] : [gapItem(`g${i}`), rowItem(r)]));
     const heights = items.map((it) => (it.kind === "gap" ? 168 : 32));
-    const body = ribbonBody(items, heights, index, G);
+    const body = ribbonBody(items, heights, G);
     const element = barsOf({
         "r0|x": [at("2026-06-29"), at("2026-07-06")],
         "r1|x": [at("2026-07-13"), at("2026-07-20")],
@@ -276,7 +273,7 @@ describe("the view (#818)", () => {
 
 describe("rows the body does not hold (#818)", () => {
     const a = spanRow("a");
-    const body = ribbonBody([rowItem(a)], [32], indexRows([a]), G);
+    const body = ribbonBody([rowItem(a)], [32], G);
     const element = barsOf({ "a|x": [at("2026-07-13"), at("2026-07-20")], "pin|y": [at("2026-06-29"), at("2026-07-06")] });
 
     test("a pinned row sits past the rows' top — the ribbon meets it with a stub pointing up at the header", () => {
@@ -298,7 +295,7 @@ describe("rows the body does not hold (#818)", () => {
         // 3,000px into it.
         const tall = ribbonBody(
             [rowItem(a), { kind: "band", band: { block: 0, at: "tail", from: 200, to: 9_999, px: 5_000 } }],
-            [32, 5_000], indexRows([a]), G);
+            [32, 5_000], G);
         const place = { y: 32 + 3_000 };
         const beyond = (key: string) => (key === rowKey("far") ? place : undefined);
         const dates = barsOf({ "a|x": [at("2026-07-13"), at("2026-07-20")], "far|y": [at("2026-07-27"), at("2026-08-03")] });
@@ -383,7 +380,7 @@ describe("where a link's end meets its row (#1192)", () => {
         const rows = [bars, chips, tiles, laned, marks];
         const heights = [32, 32, 32, 52, 32];
         const index = indexRows(rows);
-        const body = ribbonBody(rows.map((r) => rowItem(r)), heights, index, G);
+        const body = ribbonBody(rows.map((r) => rowItem(r)), heights, G);
         const element: RibbonLayoutInput["element"] = (row, key) => {
             const r = index.byKey.get(row);
             return r !== undefined ? linkedElement(r, key, scale) : undefined;
@@ -446,7 +443,7 @@ describe("where a link's end meets its row (#1192)", () => {
 
 describe("link weights and captions (`Plan links.html` §15, #1258)", () => {
     const rows = ["a", "b", "c", "d"].map((k) => spanRow(k));
-    const body = ribbonBody(rows.map((r) => rowItem(r)), [32, 32, 32, 32], indexRows(rows), G);
+    const body = ribbonBody(rows.map((r) => rowItem(r)), [32, 32, 32, 32], G);
     const element = barsOf({
         "a|x": [at("2026-06-29"), at("2026-07-06")],
         "b|x": [at("2026-07-27"), at("2026-08-03")],
@@ -479,7 +476,7 @@ describe("link weights and captions (`Plan links.html` §15, #1258)", () => {
     test("the largest is the family's, over every link the focus gathers — a link keeps its weight as others scroll away", () => {
         // A 96 t link between rows the view no longer shows still weighs the
         // family: the 24 t link in view stays 2.
-        const tall = ribbonBody(rows.map((r) => rowItem(r)), [32, 400, 32, 32], indexRows(rows), G);
+        const tall = ribbonBody(rows.map((r) => rowItem(r)), [32, 400, 32, 32], G);
         const { ribbons } = layoutRibbons(input({
             links: [link("c", "x", "d", "x", 96), link("a", "x", "b", "x", 24)], body: tall, element,
             viewport: { top: 0, bottom: 300 },

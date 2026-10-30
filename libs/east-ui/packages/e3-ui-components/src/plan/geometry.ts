@@ -89,7 +89,7 @@ export interface PlanGeometry {
      *  window it selected down to the plot's edges. The strip is the band
      *  less this. */
     lens: number;
-    /** The horizon brush's tallest histogram bar (the strip less its insets). */
+    /** The horizon brush's tallest histogram bar: the strip less the 4px over it (#1438). */
     brushBar: number;
     /** A narrow group card's strip body. */
     narrowStrip: number;
@@ -135,7 +135,7 @@ const DEFAULT: PlanGeometry = {
     laneCell: 22, laneGap: 2, lanePad: 3,
     bar: 20, rollBar: 12,
     tile: 16, chip: 18, weight: 20, segment: 20,
-    brush: 38, ruler: 28, footer: 28, lens: 6, brushBar: 23,
+    brush: 38, ruler: 28, footer: 28, lens: 6, brushBar: 28,
     narrowStrip: 24,
     failedBandMin: 64,
     markTriangle: 9,
@@ -153,14 +153,25 @@ export const PLAN_GEOMETRY: Readonly<Record<"default" | "dense", Readonly<PlanGe
     dense: { ...DEFAULT, row: 24, heatRow: 24, bar: 16 },
 };
 
+/** A coarse pointer's horizon band (#1438): a 44px strip under its lens, its bars up to 40. */
+const COARSE_BRUSH: Pick<PlanGeometry, "brush" | "brushBar"> = { brush: 50, brushBar: 40 };
+
+/** Each density's table on a coarse pointer, made once. */
+const COARSE_GEOMETRY: Readonly<Record<"default" | "dense", Readonly<PlanGeometry>>> = {
+    default: { ...PLAN_GEOMETRY.default, ...COARSE_BRUSH },
+    dense: { ...PLAN_GEOMETRY.dense, ...COARSE_BRUSH },
+};
+
 /**
- * A density's geometry.
+ * A density's geometry, on the pointer the canvas has.
  *
  * @param dense - Whether the canvas is dense (`density: compact`)
+ * @param coarse - Whether the pointer is coarse: the horizon band is taller (#1438)
  * @returns The table
  */
-export function planGeometry(dense: boolean): Readonly<PlanGeometry> {
-    return dense ? PLAN_GEOMETRY.dense : PLAN_GEOMETRY.default;
+export function planGeometry(dense: boolean, coarse = false): Readonly<PlanGeometry> {
+    const tables = coarse ? COARSE_GEOMETRY : PLAN_GEOMETRY;
+    return dense ? tables.dense : tables.default;
 }
 
 /**

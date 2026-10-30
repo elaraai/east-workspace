@@ -27,12 +27,13 @@
  * @packageDocumentation
  */
 
-import { StringType, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, none, printFor, type ValueTypeOf } from "@elaraai/east";
 import { SeekQueryType } from "@elaraai/east-ui";
 import { areaCells, type RecordSliceBindType, type RecordSliceCell, type RecordSliceEntry } from "@elaraai/east-ui/internal";
 import { SCHEMATIC_WINDOW_READ_ROWS, schematicWindowPlan, type SchematicAreaIndexes } from "@elaraai/e3-ui/internal";
 import {
-    pagedSearchTarget, pagedSearchWhere, recordSliceCellEntries, recordSliceCellRuns, recordSlicePage, recordSliceRevision, recordSliceWithin,
+    pagedSearchTarget, pagedSearchWhere, recordSliceCellEntries, recordSliceCellRuns, recordSliceOnPrinter, recordSlicePage, recordSliceRevision,
+    recordSliceWithin,
 } from "@elaraai/east-ui-components/internal";
 import { READING, type Reading } from "./area.js";
 import { drawnItem, type DrawnItem, type DrawnZone, type ItemRoles } from "./canvas/drawn.js";
@@ -140,7 +141,8 @@ export class SchematicIndexArea {
             const box = boxOf(zone);
             const plan = schematicWindowPlan(kind.areas, where, box);
             const index = plan.index.name;
-            const cells: RecordSliceCell[] = plan.prefixes.flatMap((prefix) => areaCells(prefix, box, plan.cell))
+            const printOn = recordSliceOnPrinter(kind.part, index);
+            const cells: RecordSliceCell[] = plan.prefixes.flatMap((prefix) => areaCells(prefix, box, plan.cell, printOn))
                 .map((place) => ({ id: printQuery(place.query), queries: [place.query] }));
             // Counted first, in one request: a zone holding more than a window reads lists none of the kind's items.
             const runs = recordSliceCellRuns(kind.part, index, cells);
@@ -187,9 +189,10 @@ export class SchematicIndexArea {
         if (target?.field === undefined) return { items: [], more: 0 };
         const within = pagedSearchWhere(target.field, where, query);
         if (within === null) return { items: [], more: 0 };
-        const count = kind.part.countWhere(within);
+        // A read of the search's narrowing alone, never a read by area (#1432).
+        const count = kind.part.countWhere({ where: within, area: none });
         if (count.type !== "some") return READING;
-        const page = recordSlicePage(kind.part, within, 0n, BigInt(INDEX_MATCHES));
+        const page = recordSlicePage(kind.part, { where: within, area: none }, 0n, BigInt(INDEX_MATCHES));
         if (page.type !== "some") return READING;
         const entries = page.value as RecordSliceEntry[];
         from.push(count.value, ...entries);

@@ -141,7 +141,7 @@ path.
 
 | Removed | Replacement | Example |
 |---|---|---|
-| `groupBy: [r => r.top, r => r.contract]` on span / heat / table | reshape first — `rows.groupToDicts(($, r) => r.top, ($, _r, k) => k)` — and nest: `children: Plan.children((g) => g, [series…])`; a recursive entry nests with `children: (r) => r.children`, to any depth. A parent declares `rollup` (span), `aggregate` (heat, default `"mean"`; table, default `"sum"`) and `format` as before, and derives exactly, since its whole subtree rides in its entry. A paged source is grouped in its dataflow. | `planTargetState`, `planMeasures` |
+| `groupBy: [r => r.top, r => r.contract]` on span / heat / table | reshape first — `rows.groupToDicts(($, r) => r.top, ($, _r, k) => k).map(($, members) => ({ members }))` — and nest by field: `children: Plan.children("members", [series…])`; a recursive entry nests with `children: "children"`, to any depth (fields since #1436). A parent declares `rollup` (span), `aggregate` (heat, default `"mean"`; table, default `"sum"`) and `format` as before, and derives exactly, since its whole subtree rides in its entry. A paged source is grouped in its dataflow. | `planTargetState`, `planMeasures` |
 | `Plan.series.group(R, { by, keyPrefix?, collapsed?, summaryAggregate? })` | `Plan.series.group(G, { key, title, label, children, summaryAggregate?, summary?, collapsed? })` over grouped entries — one strip PER ENTRY, its members the entry's children. The old form throws, naming this replacement. | `planTargetState` |
 | `Plan.series.group(R, chrome, children)` — a static group over series | `Plan.series.section(R, { key, title, collapsed?, meta?, value?, status?, summary?, summaryAggregate? }, [series…])` | `planTargetState` |
 | `keySuffix` (`"p03"` → `"p03/chart"`) and `keyPrefix` | `Plan.series.views(R, { key, title, match?, children?, collapsed? }, [series…])` — one row per member per entry, adjacent and in order; each row's id is its MEMBER's key and the entry's path, and a seek on the entry lands on its first view row | `planTargetState` |
@@ -400,7 +400,7 @@ history bar or the keyboard, and applied as one checked batch.
 |---|---|---|
 | `review={{ onApprove, onReject }}` | name the entry's `ApprovalStateType` field on the reviewed series — `review: { verdict: "approval" }` — and give the root `editing`. Approve / Reject draft the entry with the field set, and the row shows the field as its approval | `planReview` |
 | `review={{ onApproveAll, onRejectAll }}` | nothing more: Approve all / Reject all is one gesture over every row the canvas holds that takes a verdict — on a paged canvas the loaded rows, and the foot says how many | `planReview` |
-| `onDrag={fn(DragEvent)}` | `edit: { items, create }` on each series a card may land on (span / buckets / cards / events): `items` names the entry's `Array` field, and `create` builds the item from the `Plan.Types.Drop`, the entry and its key. `onPatch` observes the gesture; `onApply` / `onUpdate` commits it. `canDrop` vets it as before | `planRowDrop` |
+| `onDrag={fn(DragEvent)}` | `edit: { create }` on each series a card may land on (span / buckets / cards / events), its elements read with `Plan.items(field, …)`: `create` builds the item from the `Plan.Types.Drop`, the entry and its key, and it joins that field's `Dict` under the id the canvas mints (#1436; before it, `edit: { items, create }` named an `Array` field). `onPatch` observes the gesture; `onApply` / `onUpdate` commits it. `canDrop` vets it as before | `planRowDrop` |
 | a callback writing the verdict or the dropped item into `State` | `editing={{ onUpdate: handle.write }}` with `data={handle}` — the inline adapter applies each batch over the handle's latest `Dict` — or `onApply` for a host transaction | `planReview`, `planRowDrop` |
 | `approval: r => some(r.approval)` feeding the buttons of a verdict the canvas takes | `review: { verdict: "approval" }`; `approval` stays for a verdict the canvas only shows. Giving both fails the build | `planReview` |
 
@@ -478,6 +478,13 @@ checked batch as verdicts and drops.
 | `edit.create` | required | optional: a series may take moves and no cards |
 
 ### Authoring
+
+> Superseded by #1436 (Collections read by name, below): a series reads the
+> items its elements draw with `Plan.items(field, times, draw)`, from a `Dict`
+> keyed by the item's id, and declares `edit: true` (or `edit: { create }`).
+> The `items` / `key` / `start` / `end` form this section shows is removed;
+> what it says of keys and instant fields holds for the `Dict`'s ids and the
+> fields `times` names.
 
 A series whose elements move names, beside `items`, the item's key field and
 the instant fields a gesture writes:
@@ -686,6 +693,101 @@ by hand at module scope: an East struct of `Paged.Types.PinnedSource(C)` (or
 | `sheetPaged` | `dataBindPagedSheet` — 600 jobs an `e3.task` generates; its `onApply` over a paged source is `recordSheetApply` (e3-ui `bind/record/record`) |
 | `pagedSourceTrimmed`, `pagedSourceWindows` | none: they showed `Paged.of`'s own options. What they showed of the components — whole windows read through a trimmed source, walked, evicted and sought — stays covered by `paged-trim.dom.test.tsx` and e3's page tests |
 
+## Collections read by name (#1436)
+
+A row's collections are `Dict`s, and a series reads them by name. Things
+people drag — a press's jobs, a van's drops, a crew's shifts — are keyed by
+an id, their times fields of the item; values — a press's load, a line's
+output — are keyed by their instant; child rows are keyed by an id. A series
+names the field and draws each item or value, so the canvas knows which
+collection every element came from, and a gesture writes back into it by id.
+
+### The wire
+
+`PlanDropType` (`Plan.Types.Drop`) gains `id: String`: the key the canvas
+mints for a dropped card's item, unique among every element it holds.
+`PlanGestureType` (`Plan.Types.Gesture`) gains `value(PlanValueEditType)`: a
+number typed into a table cell, `{ row, position, at, value }`, `value`
+`none` when the cell is cleared. `PlanRowEditsType` (`Plan.Types.RowEdits`)
+gains `values: Array<Integer>`, the table positions whose values take typed
+numbers. A `Plan` value serialized before them does not decode against them;
+stored `UIComponentType` values re-emit.
+
+### Removals and their replacements
+
+| Removed | Replacement | Example |
+|---|---|---|
+| a collection as an `Array` of items carrying a key field (`jobs: Array<{ key, start, end, … }>`) | a `Dict` keyed by the item's id (`jobs: Dict<String, { start, end, … }>`); values a `Dict` keyed by their instant (`load: Dict<DateTime, Float>`); child rows a `Dict` keyed by an id | `planTargetState` |
+| `runs: (r) => r.jobs.map(($, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.ticket, state: j.state }))`, and likewise `decisions`, `events`, `chips`, `marks` | `runs: Plan.items("jobs", { from: "start", to: "end" }, (job, id, row) => ({ label: job.ticket, state: job.state }))`: `{ from, to }` for a run or a chip, `{ at }` for a decision, a tile or a mark; `draw` gives everything the element takes but its key and instants | `planTargetState` |
+| `cells: (r) => Plan.heatCells(r.load)`, and likewise `weightCells`, `segmentCells`, `tableCells` and a `tableSeries`' cells | `cells: Plan.heatCells(Plan.values("load", (pct, at, row) => ({ value: some(pct) })))` | `planTargetState`, `planMeasures` |
+| `layers: (r) => [Plan.layer(Chart.Line(points, { x, y }), { breach })]` over the row's own readings | `layers: [Plan.line(Plan.values("ontime", (pct) => ({ y: pct })), { breach })]`; `Plan.area`, `Plan.column`, `Plan.scatter` and `Plan.band` (`{ lo, hi }`) likewise, `Chart.ref*` beside them | `planMeasures` |
+| `ports: (r) => [Plan.port({ at, label })]`, `markers: (r) => r.markers` | `ports: Plan.values("ports", (port) => ({ label: some(port.label) }))`, `markers: Plan.values("alerts", (alert) => ({ message: alert.message }))` | `planTargetState` |
+| `children: (r) => r.children` | `children: "children"`: a `Dict` field of the row holding more of its own entries | `planMeasures` |
+| `Plan.children((r) => r.presses, [series…])`, `Plan.children((g) => g, [series…])` | `Plan.children("presses", [series…])`: a `Dict` field of child rows; a group's members are a field of its entry (`groupToDicts(…).map(($, members) => ({ members }))`) | `planTargetState` |
+| `edit: { items, key, start, end }`, `edit: { items, key, at }` (`PlanEditInput`, `PlanPointEditInput`) | `edit: true` beside `Plan.items(field, times, draw)` (`PlanItemsEdit`) | `planRowDrop` |
+| `edit: { items, create: (drop, entry, key) => ({ key: …, … }) }` | `edit: { create: (drop, entry, key) => ({ … }) }`: the item goes in under `drop.id`, which the canvas mints | `planRowDrop` |
+
+A function of the row stays for anything that reads no collection, and inline
+rows may still map a collection in one; `edit` needs the named read.
+
+### Behaviour that changed
+
+- **A dropped card's id is minted.** The item `create` builds joins the row's
+  collection under `drop.id`, unique among every element the canvas holds,
+  where it took whatever key `create` gave it.
+- **A table's values take typed numbers.** `edit: true` on
+  `Plan.series.table` (its `cells`) or on a `Plan.tableSeries` position, its
+  cells a `Plan.values` read drawing each value as stored (`value: some(v)`):
+  at the Plan's finest zoom, a number typed into a cell replaces the one value
+  its bucket holds, at that value's date, adds one at the bucket's start where
+  none is, and cleared deletes it; at a coarser zoom a cell is a summary and
+  takes none. Which cells take typing, and how, is the renderer's.
+- **Moves by id.** A move along a row writes the item's named times. A move to
+  another row takes the item out of the first row's collection under its id
+  and puts it in the second's under the same id. A move onto a row holding the
+  id is refused.
+- **A parent's `count`** counts the leaf rows beneath it that draw a value in
+  the bucket, a parent child adding its own count. It counted its children's
+  cells, so a grandparent counted its parents.
+- **A table row draws its own values per position**: its own cells where its
+  collection holds any for the row, its children's subtotal otherwise. A row
+  with values in one position and none in another draws both.
+- **Refusals at build**, each in words naming the field: `Plan.items` over a
+  collection keyed by an instant; `Plan.values` over one keyed by `String` off
+  an ordinal axis; a read of a field that is no `Dict`; a read outside a
+  series; `edit` beside elements given as a function, or over a read of
+  values; a tree's `children` naming a field of another type than the row's;
+  a table's `edit` beside cells given as a function, or over a draw giving
+  another number than each value.
+
+## A cell at a time (#1438)
+
+A Plan over a record's paged rows, beside their nested series index, reads
+the rows lean and each collection a cell at a time through the index: only
+the cells in view, at the resolution shown. Its root carries what it reads of
+the index, and the record's binding carries what the reader needs of e3.
+
+### The wire
+
+`PlanRootType` (`Plan.Types.Root`) gains `nested: Option<PlanNestedType>`:
+none, except over a record's rows paged beside their nested series index.
+`PlanNestedType` carries the index by name, the binding it is read through by
+its id (the record's, whatever a Slice narrows of it), the index's tile and
+summary tile, what each series reads of it (`PlanNestedUseType`: the
+collection's place, the levels its items are filed at, how its rows shade past
+the cap, how its parents read) and `rows`, the function that draws a window of
+lean rows filled with the cells read, the drafted rows in their places, and the
+rows' shading past the cap (`PlanNestedShadingType`).
+
+A record's indexed binding (`Data.bindPaged(record, { indexes })`, east-ui's
+`IndexedSourceType`) gains `maintenance` (#1437), each nested series and
+summary index's maintenance for one row, and `fill`, e3's fill of a page of
+lean rows with the items of a cell read. A record Slice's handle
+(`RecordSliceHandleType`) gains `source`, the binding it narrows.
+
+A `Plan` value serialized before them does not decode against them; stored
+`UIComponentType` values re-emit. No author changes a line.
+
 ## Extracted contracts (do this first when migrating imports)
 
 The shared audit vocabulary outlived the Planner and moved to `contracts/`:
@@ -743,12 +845,13 @@ domain id, never an index.
   series.
 - **axis.tier / striped / showToday**: resolution ≙ tier; `now` draws the
   divider (omit for none); striping is not part of the Plan language.
-- **Task move/resize drags**: Library `add` drops (snapped bucket instants)
-  are drafts of the editing session: the series declares
-  `edit: { items, create }` (#880). A run moves and resizes on the same
-  declaration once it names the item's key and instant fields
-  (`edit: { items, key, start, end }`, #825). `onTaskProgressChange` has no
-  equivalent.
+- **Task move/resize drags**: the tasks a row moves are a `Dict` of it, keyed
+  by the task's id and read with `Plan.items("tasks", { from: "start", to:
+  "end" }, draw)`; the series declares `edit: true`, and a run moves and
+  resizes (#825, #1436). Library `add` drops (snapped bucket instants) are
+  drafts of the editing session: `edit: { create }` builds the item, which
+  joins the row's tasks under the id the canvas mints (#880).
+  `onTaskProgressChange` has no equivalent.
 - **Review**: none (#1260). A Plan's changes are drafts its history item
   saves together; a sign-off an app keeps is a field of its own record.
 
@@ -758,8 +861,9 @@ domain id, never an index.
 Plan.series.buckets(Row, {
   key: "vans", title: "Vans", label: r => r.name,
   lanes: r => [{ key: "am", label: some("AM") }, { key: "pm", label: some("PM") }],
-  events: r => r.slots.map((_$, s) => Plan.event({ key: s.key, at: s.at, lane: some(s.lane), state: s.state })),
-  markers: r => r.markers,
+  // A van's slots by id, its markers by the instant each flags (#1436).
+  events: Plan.items("slots", { at: "at" }, (slot) => ({ lane: some(slot.lane), state: slot.state })),
+  markers: Plan.values("markers", (marker) => ({ message: marker.message })),
 })
 ```
 

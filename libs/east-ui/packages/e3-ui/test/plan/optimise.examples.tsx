@@ -14,7 +14,7 @@ import { DateTimeType, DictType, East, StringType, example, some, variant } from
 import e3 from "@elaraai/e3";
 import { Reactive, UIComponentType } from "@elaraai/east-ui";
 import { Func, Plan, Record, Schedule } from "@elaraai/e3-ui";
-import { PrintJob, PrintPress, planEventJobs, planEventJobsPatch, planPrintCustomers, planPrintPresses } from "./plan-events.examples.js";
+import { PrintJob, PrintPress, planEventJobs, planPrintCustomers, planPrintPresses } from "./plan-events.examples.js";
 
 /** The jobs' optimiser's request: the window's jobs and the backlog by key, the presses beside them. */
 export const PlanOptimiseRequest = Plan.Types.OptimiseRequest({ job: PrintJob }, { presses: PrintPress });
@@ -68,7 +68,7 @@ export const planOptimise = example({
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const presses = $.let(Record.bind(planPrintPresses, []));
-            const jobs = $.let(Record.bind(planEventJobs, [planEventJobsPatch]));
+            const jobs = $.let(Record.bind(planEventJobs));
             const customers = $.let(Record.bind(planPrintCustomers, []));
             const axis = $.let(Plan.axis({
                 window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },

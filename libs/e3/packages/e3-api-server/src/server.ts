@@ -18,6 +18,7 @@ import { configureFramePool } from '@elaraai/east';
 import { createRepositoriesRoutes, createSingleRepositoryRoutes } from './routes/repositories.js';
 import { createPackageRoutes } from './routes/packages.js';
 import { createWorkspaceRoutes } from './routes/workspaces.js';
+import { createWorkspaceBundleRoutes } from './routes/bundles.js';
 import { createDatasetRoutes } from './routes/datasets.js';
 import { createTaskRoutes } from './routes/tasks.js';
 import { createExecutionRoutes } from './routes/executions.js';
@@ -284,6 +285,7 @@ export async function createServer(config: ServerConfig): Promise<Server> {
 
   // Workspace routes: /api/repos/:repo/workspaces/*
   app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, getRepoPath, transferBackend, getRunner));
+  app.route('/api/repos/:repo/workspaces', createWorkspaceBundleRoutes(storage, getRepoPath));
 
   // Dataset transfer auth routes (init + commit) mount alongside dataset routes
   app.route('/api/repos/:repo/workspaces/:ws/datasets', dsTransfer.api);

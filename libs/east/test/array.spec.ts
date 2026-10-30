@@ -1211,6 +1211,49 @@ await describe("Array", (test) => {
     });
 
     // =========================================================================
+    // flattenTree tests
+    // =========================================================================
+
+    assert.examples(test, { arrayFlattenTree: ex.arrayFlattenTree });
+
+    test("flattenTree - every node once, under its path of indices, depth first with siblings in array order", $ => {
+        const tree = $.const([
+            { id: 5n, children: [{ id: 3n, children: [{ id: 9n, children: [] }] }, { id: 1n, children: [] }] },
+            { id: 2n, children: [] },
+        ], ArrayType(TreeNodeType));
+        $(assert.equal(tree.flattenTree((_$, node) => node.unwrap().children).map((_$, entry) => ({ path: entry.path, id: entry.node.unwrap().id })), [
+            { path: [0n], id: 5n }, { path: [0n, 0n], id: 3n }, { path: [0n, 0n, 0n], id: 9n }, { path: [0n, 1n], id: 1n }, { path: [1n], id: 2n },
+        ]));
+    });
+
+    test("flattenTree - children runs once per node, each before its descendants, siblings in array order", $ => {
+        const tree = $.const([
+            { id: 5n, children: [{ id: 3n, children: [{ id: 9n, children: [] }] }, { id: 1n, children: [] }] },
+            { id: 2n, children: [] },
+        ], ArrayType(TreeNodeType));
+        const calls = $.let([], ArrayType(StringType));
+        $(tree.flattenTree(($, node, i) => { $(calls.pushLast(Expr.str`${node.unwrap().id} at ${i}`)); return node.unwrap().children; }));
+        $(assert.equal(calls, ["5 at 0", "3 at 0", "9 at 0", "1 at 1", "2 at 1"]));
+    });
+
+    test("flattenTree - an empty array has no nodes", $ => {
+        const tree = $.const([], ArrayType(TreeNodeType));
+        $(assert.equal(tree.flattenTree((_$, node) => node.unwrap().children).size(), 0n));
+    });
+
+    // Each node's path is its own array, so a chain n deep holds n(n+1)/2 path
+    // elements: a thousand deep is half a million, where toTree's 10,000 would
+    // be fifty million.
+    test("flattenTree - a 1000-deep chain flattens, each node under its whole path", $ => {
+        const ids = $.const(East.Array.range(0n, 1000n));
+        const parentOf = $.const(East.function([IntegerType, IntegerType], OptionType(IntegerType), (_$, id) => East.equal(id, 0n).ifElse(() => none, () => some(id.subtract(1n)))));
+        const chain = $.let(ids.toTree(TreeNodeType, (_$, id) => id, parentOf, (_$, id, _i, children) => ({ id, children })));
+        const nodes = $.let(chain.flattenTree((_$, node) => node.unwrap().children));
+        $(assert.equal(nodes.size(), 1000n));
+        $(assert.equal(nodes.map((_$, entry) => entry.path.size()).sum(), 500500n));
+    });
+
+    // =========================================================================
     // encodeCsv tests
     // =========================================================================
 

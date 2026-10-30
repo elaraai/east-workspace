@@ -1468,6 +1468,43 @@ export class Translator {
     }, path);
   }
 
+  /**
+   * `recurse(.a.b[])`, `recurse(.[])` and `..` over a value whose `.a.b`, or
+   * the value itself, is a Dict or an Array of values of its own type: the
+   * value, then each value inside it along that path, depth first — East's
+   * `flattenTree`, which walks without recursion and without the general
+   * walk's stack of kinds. Emits nothing and gives false for any other shape,
+   * which the general walk takes.
+   *
+   * @param fields - The fields read before the `.[]`: none for `..` and `recurse(.[])`
+   * @param type - The walk's output type: its values are all of the input's type
+   */
+  flattenWalk($: Block, v: Expr, fields: readonly string[], type: EastType, path: string, emit: Emit): boolean {
+    const R = this.type(v);
+    if (!isTypeEqual(R, type)) return false;
+    let at: EastType = R;
+    for (const name of fields) {
+      const s = unwrap(at);
+      const next = s.type === "Struct" ? (s.fields as Record<string, EastType>)[name] : undefined;
+      if (next === undefined) return false;
+      at = next;
+    }
+    const C = unwrap(at);
+    if ((C.type !== "Array" && C.type !== "Dict") || !isTypeEqual(C.value as EastType, R)) return false;
+    const step = C.type === "Dict" ? C.key as EastType : IntegerType;
+    // The collection along the fields, of a value of the input's type.
+    const along = (x: Expr): Expr => this.open(fields.reduce((e, name) => this.field(e, name), x));
+    emit($, v);
+    if (this.ended($)) return true;
+    const children = this.bind($, along(v), "children");
+    const childrenOf = this.lambda([R, step], C, ["node", "step"], (_$f, node) => along(node), path);
+    const nodes = C.type === "Dict"
+      ? this.b("DictFlattenTree", [step, R], [children, childrenOf], ArrayType(StructType({ path: ArrayType(step), node: R })), path)
+      : this.b("ArrayFlattenTree", [R], [children, childrenOf], ArrayType(StructType({ path: ArrayType(IntegerType), node: R })), path);
+    this.forEach($, nodes, ($2, entry) => emit($2, this.field(entry, "node")), path, "entry");
+    return true;
+  }
+
   // ─── Construction ───────────────────────────────────────────────────────
 
   private genObject(node: Extract<JqNode, { type: "object" }>, path: string, $: Block, x: Value, env: Env, emit: Emit): void {

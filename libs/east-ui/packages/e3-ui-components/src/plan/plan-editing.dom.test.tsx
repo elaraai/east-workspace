@@ -47,7 +47,7 @@ const labels = (canvas: EditingCanvas) => canvas.patches.map((p) => p.label);
 /** The jobs each press draws, as the canvas draws them. */
 const jobs = (c: HTMLElement, presses: readonly string[] = ["p1", "p2", "p3"]) => presses.map((p) => jobsDrawn(c, p));
 /** A job another writer puts on a press — in the axis's second week. */
-const ELSEWHERE = { key: "job-9", at: variant("time", new Date("2026-07-06T00:00:00Z")) };
+const ELSEWHERE = { at: variant("time", new Date("2026-07-06T00:00:00Z")) };
 
 for (const arm of ["inline", "paged"] as const) {
     describe(`${arm}: every change is a draft (#880)`, () => {
@@ -65,7 +65,7 @@ for (const arm of ["inline", "paged"] as const) {
             expect(canvas.patches[0]!.draftChanges.map((d) => d.id)).toEqual(["p2"]);
             // A draft: nothing saved, the source as it was.
             expect(canvas.applies).toHaveLength(0);
-            expect((await canvas.stored()).get("p2")!.jobs).toEqual([]);
+            expect((await canvas.stored()).get("p2")!.jobs.size).toBe(0);
             expect(samePresses(await canvas.stored(), SEED)).toBe(true);
             expect(historyButton(canvas, "Save").disabled).toBe(false);
         });
@@ -140,8 +140,8 @@ for (const arm of ["inline", "paged"] as const) {
             expect(canvas.applies).toHaveLength(1);
             expect(await canvas.writes()).toBe(1);
             const stored = await canvas.stored();
-            expect(stored.get("p1")!.jobs.map((j) => j.key)).toEqual(["job-1"]);
-            expect(stored.get("p2")!.jobs.map((j) => j.key)).toEqual(["job-2"]);
+            expect([...stored.get("p1")!.jobs.keys()]).toEqual(["job-1"]);
+            expect([...stored.get("p2")!.jobs.keys()]).toEqual(["job-2"]);
             // Committed — but not read back yet: the drafts stand.
             expect(statusLine(canvas)).toBe("Saved — loading the confirmed revision…");
             expect(marks(c)).toEqual({ p1: "pending", p2: "pending" });
@@ -160,7 +160,7 @@ for (const arm of ["inline", "paged"] as const) {
             await dropJob(canvas, "job-1", "p1");
             expect(banner(c, "stale")).toBeNull();
             // Another writer puts a job on Press 2.
-            await canvas.move(new Map([...SEED, ["p2", { ...SEED.get("p2")!, jobs: [ELSEWHERE] }]]));
+            await canvas.move(new Map([...SEED, ["p2", { ...SEED.get("p2")!, jobs: new Map([["job-9", ELSEWHERE]]) }]]));
             expect(statusLine(canvas)).toBe("Source changed — review or discard these drafts");
             expect(banner(c, "stale")).not.toBeNull();
             expect(historyButton(canvas, "Save").disabled).toBe(true);

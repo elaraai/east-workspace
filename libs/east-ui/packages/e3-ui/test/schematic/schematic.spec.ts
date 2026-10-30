@@ -30,11 +30,7 @@ import {
     Data, DataBindHandleType, Record, RecordBindHandleType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType, Schematic as PublicSchematic,
 } from "@elaraai/e3-ui";
 import { Schematic, SchematicBoxFieldsType, SchematicPayloadType, buildSchematicLibrary, schematicKeys } from "@elaraai/e3-ui/internal";
-import e3 from "@elaraai/e3";
 import * as ex from "./schematic.examples.js";
-
-/** An index over the floor's racks' model: what the binding matrix's source reads them through, built and never run. */
-const floorRacksByModel = e3.recordIndex("schematic_floor_racks_by_model", ex.schematicFloorRacks, { on: ["model"] });
 
 describeEast("Schematic", (test) => {
     Assert.examples(test, {
@@ -340,7 +336,7 @@ describe("each role is a field of the app's row, named and checked (SC1)", () =>
 describe("a kind's binding follows its read: every other form is refused, naming the one to use (SC33)", () => {
     /** A slice whose `racks` source narrows the floor's racks. */
     const sliceOf = ($: BlockBuilder<UIComponentType>) => $.let(Slice.bindRecords("t.schematic", {
-        racks: { source: Data.bindPaged(ex.schematicFloorRacks, { indexes: [floorRacksByModel] }), fields: { model: { label: "Model", hints: ["42U · 8 kW", "48U · 12 kW"] } } },
+        racks: { source: Data.bindPaged(ex.schematicFloorRacks, { indexes: ["schematic_floor_racks_by_model"] }), fields: { model: { label: "Model", hints: ["42U · 8 kW", "48U · 12 kW"] } } },
     }));
     const whole = (bind: ($: BlockBuilder<UIComponentType>) => unknown, extra: object = {}) => built(($) => PublicSchematic({
         extent: { width: 20, height: 10 },
@@ -355,14 +351,14 @@ describe("a kind's binding follows its read: every other form is refused, naming
     });
 
     hostTest("read whole: Record.bind with its patch door, or Data.bind; Data.bindPaged has no whole read", () => {
-        assert.doesNotThrow(() => whole(($) => $.let(Record.bind(ex.schematicFloorRacks, [ex.schematicFloorRacksPatch]))));
+        assert.doesNotThrow(() => whole(($) => $.let(Record.bind(ex.schematicFloorRacks))));
         assert.doesNotThrow(() => whole(($) => $.let(Data.bind(ex.schematicFloorRacks))));
         assert.throws(() => whole(($) => $.let(Data.bindPaged(ex.schematicFloorRacks))),
             /Schematic\.items: "Rack": a paged binding has no whole read — read it through its source of the slice, slot "racks"/);
     });
 
     hostTest("read whole, `entries` is refused: the record is read from the binding", () => {
-        assert.throws(() => whole(($) => $.let(Record.bind(ex.schematicFloorRacks, [ex.schematicFloorRacksPatch])), { entries: Data.bindPaged(ex.schematicFloorRacks) }),
+        assert.throws(() => whole(($) => $.let(Record.bind(ex.schematicFloorRacks)), { entries: Data.bindPaged(ex.schematicFloorRacks) }),
             /`entries` reads the record by key beside its source of the slice — name one "racks", or leave `entries` out/);
         assert.throws(() => whole(($) => $.let(Data.bind(ex.schematicFloorRacks)), { entries: Data.bindPaged(ex.schematicFloorRacks) }),
             /`entries` reads an editable record by key — a kind bound Data\.bind is read whole: leave `entries` out/);
@@ -370,23 +366,23 @@ describe("a kind's binding follows its read: every other form is refused, naming
 
     hostTest("a record bound without its patch door is refused, naming the binding to use", () => {
         assert.throws(() => whole(($) => $.let(Record.bind(ex.schematicFloorRacks, []))),
-            /Schematic\.items: "Rack": `record` is bound without its patch door — Record\.bind\(record, \[e3\.mutation\.patch\(record\)\]\) to edit it/);
+            /Schematic\.items: "Rack": `record` is bound without its patch door — Record\.bind\(record\), its record declaring patch: mutation\.patch\(\) to edit it/);
         assert.throws(() => whole(($) => $.let(racksUnpatched())), /bound without its patch door/);
     });
 
     hostTest("through its source: Record.bind with `entries`, or Data.bindPaged; Data.bind, and Record.bind without `entries`, are refused", () => {
-        assert.doesNotThrow(() => through(($) => $.let(Record.bind(ex.schematicFloorRacks, [ex.schematicFloorRacksPatch])), { entries: Data.bindPaged(ex.schematicFloorRacks) }));
+        assert.doesNotThrow(() => through(($) => $.let(Record.bind(ex.schematicFloorRacks)), { entries: Data.bindPaged(ex.schematicFloorRacks) }));
         assert.doesNotThrow(() => through(($) => $.let(Data.bindPaged(ex.schematicFloorRacks))));
         assert.throws(() => through(($) => $.let(Data.bind(ex.schematicFloorRacks))),
             /Data\.bind\(record\) reads the record whole, which a source of the slice exists to avoid — bind it Data\.bindPaged\(record\) to read it through its source "racks"/);
-        assert.throws(() => through(($) => $.let(Record.bind(ex.schematicFloorRacks, [ex.schematicFloorRacksPatch]))),
+        assert.throws(() => through(($) => $.let(Record.bind(ex.schematicFloorRacks))),
             /the slice's source "racks" reads only its narrowing — .* give `entries: Data\.bindPaged\(record\)` beside it, the record's own entries/);
         assert.throws(() => through(($) => $.let(Data.bindPaged(ex.schematicFloorRacks)), { entries: Data.bindPaged(ex.schematicFloorRacks) }),
             /`entries` reads an editable record by key — a kind bound Data\.bindPaged reads by key through its own binding: leave `entries` out/);
     });
 
     hostTest("a paged read of the record's indexes is no binding of the kind's record: it is the kind's source of the slice", () => {
-        assert.throws(() => whole(($) => $.let(Data.bindPaged(ex.schematicFloorRacks, { indexes: [floorRacksByModel] }))),
+        assert.throws(() => whole(($) => $.let(Data.bindPaged(ex.schematicFloorRacks, { indexes: ["schematic_floor_racks_by_model"] }))),
             /Schematic\.items: "Rack": `record` is the app's record, bound — .* — and this paged read serves the record's indexes: bind its own entries, Data\.bindPaged\(record\), and name the indexed read as the kind's source of the slice/);
     });
 
@@ -404,21 +400,21 @@ describe("a kind's binding follows its read: every other form is refused, naming
         });
         assert.doesNotThrow(() => withDetails(false, ($) => $.let(Data.bind(ex.schematicFloorRacks))));
         assert.doesNotThrow(() => withDetails(true, ($) => $.let(Data.bindPaged(ex.schematicFloorRacks))));
-        assert.doesNotThrow(() => withDetails(true, ($) => $.let(Record.bind(ex.schematicFloorRacks, [ex.schematicFloorRacksPatch])), { entries: Data.bindPaged(ex.schematicFloorRacks) }));
+        assert.doesNotThrow(() => withDetails(true, ($) => $.let(Record.bind(ex.schematicFloorRacks)), { entries: Data.bindPaged(ex.schematicFloorRacks) }));
         assert.throws(() => withDetails(false, ($) => $.let(Data.bindPaged(ex.schematicFloorRacks))),
             /Schematic\.details of racks: beside a kind read whole, its details are read whole — bind them Data\.bind\(record\)/);
         assert.throws(() => withDetails(true, ($) => $.let(Data.bind(ex.schematicFloorRacks))),
             /Schematic\.details of racks: beside a kind read through its source, its details are read by key — bind them Data\.bindPaged\(record\)/);
-        assert.throws(() => withDetails(true, ($) => $.let(Record.bind(ex.schematicFloorRacks, [ex.schematicFloorRacksPatch]))),
+        assert.throws(() => withDetails(true, ($) => $.let(Record.bind(ex.schematicFloorRacks))),
             /beside a kind read through its source, its details are read by key — give `entries: Data\.bindPaged\(record\)` beside Record\.bind/);
-        assert.throws(() => withDetails(false, ($) => $.let(Record.bind(ex.schematicFloorRacks, [ex.schematicFloorRacksPatch])), { entries: Data.bindPaged(ex.schematicFloorRacks) }),
+        assert.throws(() => withDetails(false, ($) => $.let(Record.bind(ex.schematicFloorRacks)), { entries: Data.bindPaged(ex.schematicFloorRacks) }),
             /`entries` reads the details by key beside a kind read through its source — this kind is read whole/);
     });
 
     hostTest("a kind's record holds its entities by String key, each a struct", () => {
         const byNumber = recordHandle(DictType(FloatType, Rack), new Map(), "racks");
         assert.throws(() => whole(($) => $.let(byNumber())), /a Schematic kind's record holds its entities by String key, each a struct — and this one holds \.Dict/);
-        assert.throws(() => whole(() => "racks"), /`record` is the app's record, bound — Record\.bind\(record, \[e3\.mutation\.patch\(record\)\]\) to edit it, or Data\.bind\(record\) or Data\.bindPaged\(record\) to read it only/);
+        assert.throws(() => whole(() => "racks"), /`record` is the app's record, bound — Record\.bind\(record\), its record declaring patch: mutation\.patch\(\) to edit it, or Data\.bind\(record\) or Data\.bindPaged\(record\) to read it only/);
     });
 });
 
@@ -518,7 +514,7 @@ describe("each prop §2 removes is refused at build, naming the form that replac
         }), /Schematic: `slice` takes \{ slice \} — slice=\{\{ slice: Slice\.bindRecords\(key, \{ … \}\), affordances\?, persist\? \}\}/);
         assert.throws(() => built(($) => {
             const slice = $.let(Slice.bindRecords("t.brush", {
-                racks: { source: Data.bindPaged(ex.schematicFloorRacks, { indexes: [floorRacksByModel] }), fields: { model: { label: "Model", hints: ["42U · 8 kW", "48U · 12 kW"] } } },
+                racks: { source: Data.bindPaged(ex.schematicFloorRacks, { indexes: ["schematic_floor_racks_by_model"] }), fields: { model: { label: "Model", hints: ["42U · 8 kW", "48U · 12 kW"] } } },
             }));
             return floor($, { slice: { slice, affordances: ["brush"] } });
         }), /a 2D canvas has no continuous axis to brush along/);
@@ -527,7 +523,7 @@ describe("each prop §2 removes is refused at build, naming the form that replac
     hostTest("a source no kind, templates list or tab names is refused", () => {
         assert.throws(() => built(($) => {
             const slice = $.let(Slice.bindRecords("t.stray", {
-                cages: { source: Data.bindPaged(ex.schematicFloorRacks, { indexes: [floorRacksByModel] }), fields: { model: { label: "Model", hints: ["42U · 8 kW", "48U · 12 kW"] } } },
+                cages: { source: Data.bindPaged(ex.schematicFloorRacks, { indexes: ["schematic_floor_racks_by_model"] }), fields: { model: { label: "Model", hints: ["42U · 8 kW", "48U · 12 kW"] } } },
             }));
             return floor($, { slice: { slice } });
         }), /Schematic: `slice` narrows its kinds, each by its slot, and the templates lists and tabs that name a source — its source 'cages' is none of them; name the sources `racks`/);
@@ -535,7 +531,7 @@ describe("each prop §2 removes is refused at build, naming the form that replac
 
     hostTest("templates naming no source of the slice are refused, naming the change", () => {
         assert.throws(() => built(($) => {
-            const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+            const racks = $.let(Record.bind(ex.schematicRacks));
             const templates = $.let(Data.bind(ex.schematicRackTemplates));
             return PublicSchematic({
                 extent: { width: 20, height: 10 },

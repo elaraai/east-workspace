@@ -391,14 +391,17 @@ async function settled<T>(what: string, promise: Promise<T>, ms = 30_000): Promi
   }
 }
 
+/** An East function, of any signature, as a call is given its program. */
+type Program = { toIR(): EastIR<EastType[], EastType> | AsyncEastIR<EastType[], EastType> };
+
 /** A program's IR bundle, as a call is given it. */
-function ir(fn: { toIR(): EastIR<any[], any> | AsyncEastIR<any[], any> }): Uint8Array {
+function ir(fn: Program): Uint8Array {
   return encodeEastIR(fn.toIR());
 }
 
 /** A detached call of a program over values, on a runner, under limits. */
 function call(
-  fn: { toIR(): EastIR<any[], any> | AsyncEastIR<any[], any> },
+  fn: Program,
   args: DetachedSpec['args'],
   runner: RunnerValue = PLATFORM_FREE,
   limits: Partial<DetachedSpec['limits']> = {},

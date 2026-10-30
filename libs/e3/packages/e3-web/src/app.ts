@@ -28,6 +28,7 @@ import {
   createTaskRoutes,
   createTransferRoutes,
   createWorkspaceFunctionRoutes,
+  createWorkspaceBundleRoutes,
   createWorkspaceRecordRoutes,
   createWorkspaceRoutes,
   type Identity,
@@ -164,6 +165,7 @@ export function createWebApp(seams: WebAppSeams): WebApp {
 
   // Workspaces, and their deploys and exports as jobs.
   app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, repositoryOf, transfer, getRunner));
+  app.route('/api/repos/:repo/workspaces', createWorkspaceBundleRoutes(storage, repositoryOf));
 
   // Datasets, and their uploads.
   const datasetTransfer = createTransferRoutes(storage, repositoryOf, transfer, {

@@ -44,6 +44,19 @@ await workspaceDeploy(repoPath, 'dev', 'my-pkg@1.0.0');
 const status = await workspaceStatus(storage, new LocalTaskRunner(repoPath), repoPath, 'dev');
 ```
 
+A workspace's bundle is the workspace as it is, in one stream of beast2: its
+package, every dataset's ref, the executions its tasks' outputs come from, and
+every object those reach. Another repository, in any store, makes the workspace
+from it under a name no workspace there has.
+
+```typescript
+import { workspaceBundleExport, workspaceBundleImport } from '@elaraai/e3-core';
+
+// Written to a WHATWG stream, and made from one, or from chunks
+await workspaceBundleExport(storage, repoPath, 'dev', writable);
+await workspaceBundleImport(otherStorage, otherRepo, 'dev', readable);
+```
+
 ### Datasets
 
 ```typescript

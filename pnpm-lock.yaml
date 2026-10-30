@@ -55,6 +55,9 @@ importers:
         specifier: workspace:*
         version: link:../east
     devDependencies:
+      '@elaraai/eslint-plugin-east':
+        specifier: workspace:*
+        version: link:../eslint-plugin-east
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15

@@ -183,18 +183,23 @@ export function libraryColumns(): SheetLibraryTab {
  * import e3 from "@elaraai/e3";
  *
  * export const SheetJob = StructType({ task: StringType, start: OptionType(DateTimeType), qty: OptionType(FloatType) });
- * export const sheetJobs = e3.record("sheet_jobs", DictType(StringType, SheetJob), new Map([
- *     ["J-0001", { task: "Panel cutting", start: some(new Date("2026-10-12T00:00:00Z")), qty: some(48.0) }],
- *     ["J-0002", { task: "Edge banding", start: some(new Date("2026-10-13T00:00:00Z")), qty: some(120.0) }],
- *     ["J-0003", { task: "CNC routing", start: none, qty: some(48.0) }],
- *     ["J-0004", { task: "Spray finish", start: none, qty: none }],
- * ]));
- * export const sheetJobsPatch = e3.mutation.patch(sheetJobs);
+ * export const sheetJobs = e3.record("sheet_jobs", DictType(StringType, SheetJob), {
+ *     initial: new Map([
+ *         ["J-0001", { task: "Panel cutting", start: some(new Date("2026-10-12T00:00:00Z")), qty: some(48.0) }],
+ *         ["J-0002", { task: "Edge banding", start: some(new Date("2026-10-13T00:00:00Z")), qty: some(120.0) }],
+ *         ["J-0003", { task: "CNC routing", start: none, qty: some(48.0) }],
+ *         ["J-0004", { task: "Spray finish", start: none, qty: none }],
+ *     ]),
+ *     mutations: (mutation) => ({
+ *         // The jobs' patch door — every Save commits through it.
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  * export const LibraryTask = StructType({ name: StringType, stage: StringType });
  *
  * const sheet = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         const jobs = $.let(Record.bind(sheetJobs, [sheetJobsPatch]));
+ *         const jobs = $.let(Record.bind(sheetJobs));
  *         const tasks = $.let([
  *             { name: "Panel cutting", stage: "Cutting" },
  *             { name: "Edge banding",  stage: "Cutting" },

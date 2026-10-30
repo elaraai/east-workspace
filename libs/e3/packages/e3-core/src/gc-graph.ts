@@ -13,8 +13,8 @@
  * classified from its head. Both reach storage only through its interfaces.
  */
 
-import { decodeBeast2, readBeast2Type, toEastTypeValue, type EastType, type EastTypeValue } from '@elaraai/east';
-import { COLLECTION_MANIFEST_KIND, CollectionManifestType, EnvironmentSpecType, FunctionObjectType, MigrationObjectType, MutationObjectType, PackageObjectType, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordObjectType, RecordStateType, TASK_OBJECT_KIND, TaskObjectType, UNIT_PLAN_KIND, UnitPlanType, environmentSpecObjectHashes, type CollectionManifest, type EnvironmentSpec, type FunctionObject, type MigrationObject, type MutationObject, type PackageObject, type RecordCommit, type RecordIndexObject, type RecordObject, type RecordState, type TaskObject, type UnitPlan } from '@elaraai/e3-types';
+import { decodeBeast2, readBeast2Type, toEastTypeValue, type EastType, type EastTypeValue, type ValueTypeOf } from '@elaraai/east';
+import { COLLECTION_MANIFEST_KIND, CollectionManifestType, EnvironmentSpecType, FunctionObjectType, MigrationObjectType, MutationObjectType, PackageObjectType, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordObjectType, RecordStateType, TASK_OBJECT_KIND, TaskObjectType, UNIT_PLAN_KIND, UnitPlanType, environmentSpecObjectHashes, type DataRef, type EnvironmentSpec, type FunctionObject, type MigrationObject, type MutationObject, type PackageObject, type RecordCommit, type RecordIndexObject, type RecordObject } from '@elaraai/e3-types';
 import { OBJECT_CONCURRENCY, TOUCH_BATCH, eachAtMost } from './concurrency.js';
 import { GcReadError, ObjectNotFoundError } from './errors.js';
 import type { StorageBackend } from './storage/interfaces.js';
@@ -332,9 +332,9 @@ function namesOf(type: EastType): readonly string[] {
  * order: how an object without a kind tag is recognised, by its current shape
  * alone.
  */
-function isStructOf(type: any, fields: readonly string[]): boolean {
+function isStructOf(type: EastTypeValue, fields: readonly string[]): boolean {
   if (type.type !== 'Struct') return false;
-  const names = (type.value as { name: string }[]).map((f) => f.name);
+  const names = type.value.map((f) => f.name);
   return names.length === fields.length && names.every((name, i) => name === fields[i]);
 }
 
@@ -349,9 +349,9 @@ const ENVIRONMENT_SPEC_CASES = namesOf(EnvironmentSpecType);
 
 /** Whether a decoded type is an EnvironmentSpec: a variant of exactly its
  *  cases, in order. */
-function isEnvironmentSpecShape(type: any): boolean {
-  if (type?.type !== 'Variant' || !Array.isArray(type.value)) return false;
-  const names = (type.value as { name: string }[]).map((c) => c.name);
+function isEnvironmentSpecShape(type: EastTypeValue): boolean {
+  if (type.type !== 'Variant') return false;
+  const names = type.value.map((c) => c.name);
   return names.length === ENVIRONMENT_SPEC_CASES.length && names.every((name, i) => name === ENVIRONMENT_SPEC_CASES[i]);
 }
 
@@ -361,7 +361,21 @@ interface TaggedKind {
    *  so its names begin with these. */
   readonly fields: readonly string[];
   /** The objects a value of the kind names, and how each is treated. */
-  readonly children: (value: any) => { hash: string; kind: GcChildKind }[];
+  readonly children: (value: unknown) => { hash: string; kind: GcChildKind }[];
+}
+
+/**
+ * A tagged kind, from its type and what a value of it names.
+ *
+ * @param type - The kind's type, whose field names a value's begin with
+ * @param children - What a value of the kind names
+ * @returns The kind
+ */
+function taggedKind<T extends EastType>(type: T, children: (value: ValueTypeOf<T>) => { hash: string; kind: GcChildKind }[]): TaggedKind {
+  // The mark gives a kind only a value decoded under a type whose fields begin
+  // with the kind's and whose `kind` is its tag: a value of the kind, for every
+  // field this build knows.
+  return { fields: namesOf(type), children: (value) => children(value as ValueTypeOf<T>) };
 }
 
 /**
@@ -378,20 +392,15 @@ interface TaggedKind {
  * unmarked, and the next sweep deletes it.
  */
 const TAGGED_KINDS: ReadonlyMap<string, TaggedKind> = new Map<string, TaggedKind>([
-  [COLLECTION_MANIFEST_KIND, {
-    fields: namesOf(CollectionManifestType),
-    children: (manifest: CollectionManifest) => [
+  [COLLECTION_MANIFEST_KIND, taggedKind(CollectionManifestType, (manifest) => [
       // The header bytes every segment is written under — what makes a splice
       // possible, and the one object an empty collection still names.
       { hash: manifest.header, kind: 'leaf' },
       // Level 0 entries are segment objects; above it they are child
       // manifests, which name objects of their own.
       ...manifest.entries.map((entry): { hash: string; kind: GcChildKind } => ({ hash: entry.hash, kind: manifest.level === 0n ? 'leaf' : 'node' })),
-    ],
-  }],
-  [RECORD_STATE_KIND, {
-    fields: namesOf(RecordStateType),
-    children: (state: RecordState) => [
+    ])],
+  [RECORD_STATE_KIND, taggedKind(RecordStateType, (state) => [
       { hash: state.primary, kind: 'value' },
       // The declaration an index was built under must outlive the package
       // that declared it: a state read at an older commit names it.
@@ -399,11 +408,8 @@ const TAGGED_KINDS: ReadonlyMap<string, TaggedKind> = new Map<string, TaggedKind
         { hash: entry.manifest, kind: 'value' },
         { hash: entry.index, kind: 'node' },
       ]),
-    ],
-  }],
-  [TASK_OBJECT_KIND, {
-    fields: namesOf(TaskObjectType),
-    children: (task: TaskObject) => {
+    ])],
+  [TASK_OBJECT_KIND, taggedKind(TaskObjectType, (task) => {
       // The program or the command IR, and what the output folds with: every
       // one an IR blob or a value, which name nothing.
       const children: { hash: string; kind: GcChildKind }[] = [
@@ -420,11 +426,8 @@ const TAGGED_KINDS: ReadonlyMap<string, TaggedKind> = new Map<string, TaggedKind
         children.push({ hash: task.environment.value, kind: 'node' }); // walk the spec's blobs
       }
       return children;
-    },
-  }],
-  [UNIT_PLAN_KIND, {
-    fields: namesOf(UnitPlanType),
-    children: (plan: UnitPlan) => {
+    })],
+  [UNIT_PLAN_KIND, taggedKind(UnitPlanType, (plan) => {
       // The task, whose program the units run. A piece's inputs and a merge's
       // parts are dataset values, which may be manifests naming segment
       // objects; a merge's key range is a small value that names nothing. The
@@ -443,8 +446,7 @@ const TAGGED_KINDS: ReadonlyMap<string, TaggedKind> = new Map<string, TaggedKind
         }
       }
       return children;
-    },
-  }],
+    })],
 ]);
 
 /**
@@ -455,9 +457,9 @@ const TAGGED_KINDS: ReadonlyMap<string, TaggedKind> = new Map<string, TaggedKind
  * @param type - The object's root type
  * @returns The tag, or `null` when the type is no tagged kind's
  */
-function taggedKindOf(type: any): string | null {
+function taggedKindOf(type: EastTypeValue): string | null {
   if (type.type !== 'Struct') return null;
-  const names = (type.value as { name: string }[]).map(f => f.name);
+  const names = type.value.map(f => f.name);
   for (const [tag, kind] of TAGGED_KINDS) {
     if (kind.fields.length <= names.length && kind.fields.every((name, i) => name === names[i])) return tag;
   }
@@ -467,10 +469,9 @@ function taggedKindOf(type: any): string | null {
 /**
  * Check if a field type is a DataRef (Variant with cases: unassigned, null, value, tree).
  */
-function isDataRefFieldType(fieldType: any): boolean {
+function isDataRefFieldType(fieldType: EastTypeValue): boolean {
   if (fieldType.type !== 'Variant') return false;
-  const cases = fieldType.value as { name: string; type: any }[];
-  const names = new Set(cases.map(c => c.name));
+  const names = new Set(fieldType.value.map(c => c.name));
   return names.has('tree') && names.has('value') && names.has('unassigned') && names.has('null');
 }
 
@@ -478,18 +479,16 @@ function isDataRefFieldType(fieldType: any): boolean {
  * Check if a decoded EastTypeValue represents a TreeObject.
  * A tree is a Struct where every field is a DataRef variant.
  */
-function isTreeObjectShape(type: any): boolean {
+function isTreeObjectShape(type: EastTypeValue): boolean {
   if (type.type !== 'Struct') return false;
-  const fields = type.value as { name: string; type: any }[];
-  return fields.length > 0 && fields.every(f => isDataRefFieldType(f.type));
+  return type.value.length > 0 && type.value.every(f => isDataRefFieldType(f.type));
 }
 
 /**
  * Whether an object of this type names other objects, so the mark must read
  * it whole: every shape {@link extractChildren} traverses.
  */
-function isStructuralShape(type: EastTypeValue): boolean {
-  const t = type as any;
+function isStructuralShape(t: EastTypeValue): boolean {
   return taggedKindOf(t) !== null || isStructOf(t, PACKAGE_OBJECT_FIELDS) || isStructOf(t, FUNCTION_OBJECT_FIELDS)
     || isStructOf(t, RECORD_OBJECT_FIELDS) || isStructOf(t, MUTATION_OBJECT_FIELDS) || isEnvironmentSpecShape(t)
     || isStructOf(t, RECORD_COMMIT_FIELDS) || isTreeObjectShape(t) || isStructOf(t, RECORD_INDEX_OBJECT_FIELDS)
@@ -502,10 +501,9 @@ function isStructuralShape(type: EastTypeValue): boolean {
  * marked, read, or both.
  */
 function extractChildren(
-  type: unknown,
+  t: EastTypeValue,
   value: unknown
 ): { hash: string; kind: GcChildKind }[] {
-  const t = type as any;
   const children: { hash: string; kind: GcChildKind }[] = [];
 
   // A kind-tagged object dispatches on its tag. A struct of a tagged kind's
@@ -574,7 +572,10 @@ function extractChildren(
 
   if (isStructOf(t, MUTATION_OBJECT_FIELDS)) {
     const mut = value as MutationObject;
-    children.push({ hash: mut.bodyIr, kind: 'leaf' }, { hash: mut.programIr, kind: 'leaf' }); // IR is a leaf
+    children.push({ hash: mut.bodyIr, kind: 'leaf' }); // IR is a leaf
+    // A record with no delta addressed by key runs its reducer whole, and its
+    // mutations name no program.
+    if (mut.programIr !== '') children.push({ hash: mut.programIr, kind: 'leaf' });
     return children;
   }
 
@@ -613,12 +614,13 @@ function extractChildren(
   }
 
   if (isTreeObjectShape(t)) {
-    const tree = value as Record<string, { type: string; value: any }>;
+    // Every field a DataRef, as the shape says.
+    const tree = value as Record<string, DataRef>;
     for (const ref of Object.values(tree)) {
       if (ref.type === 'tree') {
-        children.push({ hash: ref.value as string, kind: 'node' }); // subtree needs traversal
+        children.push({ hash: ref.value, kind: 'node' }); // subtree needs traversal
       } else if (ref.type === 'value') {
-        children.push({ hash: ref.value as string, kind: 'value' }); // may be a manifest
+        children.push({ hash: ref.value, kind: 'value' }); // may be a manifest
       }
       // 'unassigned' and 'null': no hash to follow
     }

@@ -7,6 +7,7 @@ export { createRepositoriesRoutes, createSingleRepositoryRoutes } from './reposi
 export { createRepositoryRoutes } from './repository.js';
 export { createPackageRoutes } from './packages.js';
 export { createWorkspaceRoutes } from './workspaces.js';
+export { createWorkspaceBundleRoutes } from './bundles.js';
 export { createDatasetRoutes, type DatasetRouteOptions } from './datasets.js';
 export { createTaskRoutes } from './tasks.js';
 export { createExecutionRoutes, type DataflowSeams, type RunnerBudget } from './executions.js';

@@ -83,7 +83,8 @@ const W39 = new Date("2026-09-21T00:00:00Z");
 const WEEK = 7 * 86_400_000;
 const Job = StructType({ key: StringType, start: DateTimeType, end: DateTimeType });
 const Press = StructType({ hall: StringType, jobs: ArrayType(Job) });
-const Hall = DictType(StringType, Press);
+/** A hall: its presses, by id — the field its strip steps down to (#1436). */
+const Hall = StructType({ presses: DictType(StringType, Press) });
 const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -108,7 +109,7 @@ const KEY = "plan.824.ui";
  *  presses — the state bound at {@link KEY}, seeded with Hall 3 folded. */
 const program = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.const(PRESSES, DictType(StringType, Press));
-    const halls = $.let(presses.groupToDicts((_$2, p) => p.hall, (_$2, _p, k) => k));
+    const halls = $.let(presses.groupToDicts((_$2, p) => p.hall, (_$2, _p, k) => k).map((_$2, g) => ({ presses: g })));
     const onTime = $.const(ON_TIME, ArrayType(MeasureRow));
     const ui = $.let(State.bind([Plan.Types.UiState], KEY, Plan.uiState({ collapsed: [Plan.ref("halls", "Hall 3")] })));
     return Plan({
@@ -124,7 +125,7 @@ const program = East.function([], UIComponentType, (_$) => Reactive.Root(East.fu
             Plan.series.group(Hall, {
                 key: "halls", title: "Halls",
                 label: (_g, hall) => hall,
-                children: Plan.children((g) => g, [
+                children: Plan.children("presses", [
                     Plan.series.span(Press, {
                         key: "presses", title: "Presses",
                         label: (_p, k) => k, id: true,

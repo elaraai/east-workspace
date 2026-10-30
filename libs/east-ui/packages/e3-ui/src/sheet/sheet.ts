@@ -61,7 +61,7 @@ import {
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { RowSourceType, UIComponentType, type UIElement } from "@elaraai/east-ui";
 import {
-    EastUI, PinnedSourceType, RecordSliceWhereType, isRecordSlices,
+    EastUI, PinnedSourceType, RecordSliceReadType, isRecordSlices,
     type DataRowType, type FieldHints, type PagedSource, type RecordSlicesChromeOptions,
 } from "@elaraai/east-ui/internal";
 import { SheetRootType, type SheetEntryOf, type SheetLinesField, type SheetLineOf } from "./types.js";
@@ -194,7 +194,7 @@ export const SheetComponent = EastUI.component("Sheet", SheetPayloadType, { opti
 
 /**
  * A record bound with its patch mutation, as the sheet reads it — what
- * `Record.bind(record, [e3.mutation.patch(record)])` returns for a `Dict`.
+ * `Record.bind(record), its record declaring patch: mutation.patch()` returns for a `Dict`.
  *
  * @typeParam K - The record's key type
  * @typeParam V - The record's entry type
@@ -440,13 +440,15 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
     }
     return Expr.block(($) => {
         const bound = sources.bind($);
+        // The bridge's functions, each bound once here for every wire function the sheet builds to refer to.
+        const hold = <T extends EastType>(value: ExprType<T>): ExprType<T> => $.const(value) as ExprType<T>;
         const narrowed = East.value(new Map(Object.entries(bound.keys)) as never, NarrowedType) as ExprType<typeof NarrowedType>;
         const parts = { templates: checked, library, sources: sources.names, narrowed, fields, groupFields, inspector, optimise, name, newRow: sheet.newRow, newGroup: sheet.newGroup };
         if (pagesRows) {
             // The rows source's record, every row in its own order (#1349) — the renderer draws the source's narrowing
             // over them as the lens — and its record's identity, which names the session over them.
             const part = bound.parts["rows"] as unknown as RecordRowsPart;
-            const built = createSheetBuild(recordRowsOf(part), columns, { ...sheet, ...viewOptions }, { sourceId: part.sourceId, slice: sources.chrome });
+            const built = createSheetBuild(recordRowsOf(part), columns, { ...sheet, ...viewOptions }, { sourceId: part.sourceId, slice: sources.chrome, hold });
             return payloadOf(built, {
                 ...parts, id: sheet.id as string | undefined,
                 history: East.value(none, OptionType(SheetHistoryType)),
@@ -454,7 +456,7 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
             });
         }
         if (record === undefined) {
-            const built = createSheetBuild(data, columns, { ...sheet, ...viewOptions }, { slice: sources.chrome });
+            const built = createSheetBuild(data, columns, { ...sheet, ...viewOptions }, { slice: sources.chrome, hold });
             return payloadOf(built, {
                 ...parts, id: sheet.id as string | undefined,
                 history: East.value(none, OptionType(SheetHistoryType)),
@@ -471,7 +473,7 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
             ...rows.options,
             ...viewOptions,
             ...(readOnly === undefined ? {} : { readOnly }),
-        }, { ...rows.internal, slice: sources.chrome });
+        }, { ...rows.internal, slice: sources.chrome, hold });
         const history = (record as { history: ExprType<SheetHistoryType> }).history;
         return payloadOf(built, {
             ...parts, id: rows.options.id,
@@ -485,7 +487,7 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
 type RecordRowsPart = ExprType<StructType<{
     sourceId: StringType;
     total: FunctionType<[], OptionType<IntegerType>>;
-    pageWhere: FunctionType<[typeof RecordSliceWhereType, IntegerType, IntegerType], OptionType<EastType>>;
+    pageWhere: FunctionType<[typeof RecordSliceReadType, IntegerType, IntegerType], OptionType<EastType>>;
     data: StructType<{
         id: StringType;
         revision: FunctionType<[], OptionType<StringType>>;
@@ -510,7 +512,7 @@ function recordRowsOf(part: RecordRowsPart): ExprType<StructType> {
     const collection = (pageType.cases as Record<string, EastType>)["some"]!;
     const page = East.function([IntegerType, IntegerType], OptionType(collection), ($, offset, limit) => {
         const read = $.const(part.pageWhere);
-        return read(East.value(new Map(), RecordSliceWhereType), offset, limit);
+        return read(East.value({ where: new Map(), area: none }, RecordSliceReadType), offset, limit);
     });
     return East.value({
         id: part.data.id, page, total: part.total, seek: none, revision: part.data.revision, refresh: part.data.refresh,

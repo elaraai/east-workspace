@@ -222,7 +222,7 @@ describe("Calendar explicit action forms", () => {
     });
     test("an explicit placement displays canDrop's refusal and records no draft", async () => {
         const guarded = { fn: East.function([], UIComponentType, _$ => Reactive.Root(East.function([], UIComponentType, $ => {
-            const jobs = $.let(Record.bind(ex.calendarJobs, [ex.calendarJobsPatch]));
+            const jobs = $.let(Record.bind(ex.calendarJobs, ["patch"]));
             return Calendar({ view: { period: "day", date: new Date("2026-10-01T00:00:00Z") },
                 events: { job: Calendar.events(jobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end" }) },
                 canDrop: East.function([Calendar.Types.Candidate], OptionType(StringType), () => some("Closed for maintenance")),

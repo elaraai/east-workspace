@@ -11,6 +11,8 @@ import { initialState, recordView, taskView, type TuiState, type View } from './
 const size = { columns: 120, rows: 36 };
 const start = (): TuiState => initialState(size, './demo');
 const dashboard: View = { kind: 'dashboard', ws: 'main', list: { sel: 0, top: 0 } };
+/** When the run the execution specs follow started. */
+const RUN_START = new Date(1_700_000_000_000);
 
 describe('reducer: views and history', () => {
     test('push records the previous view, pop restores it, pop at the root is a no-op', () => {
@@ -210,25 +212,25 @@ describe('reducer: data', () => {
     test('execution flags settle when the poll shows the run and clear stopping when it stops', () => {
         let s = reduce(start(), { type: 'data/executionFlag', ws: 'main', settling: true });
         assert.equal(s.data.execution['main']?.settling, true);
-        const running = { status: { type: 'running', value: null }, startedAt: 't1', completedAt: { type: 'none', value: null }, summary: { type: 'none', value: null }, events: [], nextSeq: 0n } as never;
-        s = reduce(s, { type: 'data/execution', ws: 'main', state: running, events: [], startedAt: 't1' });
+        const running = { status: { type: 'running', value: null }, startedAt: RUN_START, completedAt: { type: 'none', value: null }, summary: { type: 'none', value: null }, events: [], nextSeq: 0n } as never;
+        s = reduce(s, { type: 'data/execution', ws: 'main', state: running, events: [], startedAt: RUN_START });
         assert.equal(s.data.execution['main']?.settling, false);
         s = reduce(s, { type: 'data/executionFlag', ws: 'main', stopping: true });
         assert.equal(s.data.execution['main']?.stopping, true);
         const aborted = { ...(running as object), status: { type: 'aborted', value: null } } as never;
-        s = reduce(s, { type: 'data/execution', ws: 'main', state: aborted, events: [], startedAt: 't1' });
+        s = reduce(s, { type: 'data/execution', ws: 'main', state: aborted, events: [], startedAt: RUN_START });
         assert.equal(s.data.execution['main']?.stopping, false);
     });
 
     test('a run the server says is stopping is stopping until it has stopped, whoever cancelled it', () => {
-        const running = { status: { type: 'running', value: null }, startedAt: 't1', completedAt: { type: 'none', value: null }, summary: { type: 'none', value: null }, events: [], nextSeq: 0n } as never;
-        let s = reduce(start(), { type: 'data/execution', ws: 'main', state: running, events: [], startedAt: 't1' });
+        const running = { status: { type: 'running', value: null }, startedAt: RUN_START, completedAt: { type: 'none', value: null }, summary: { type: 'none', value: null }, events: [], nextSeq: 0n } as never;
+        let s = reduce(start(), { type: 'data/execution', ws: 'main', state: running, events: [], startedAt: RUN_START });
         assert.equal(s.data.execution['main']?.stopping, false);
         const stopping = { ...(running as object), status: { type: 'stopping', value: null } } as never;
-        s = reduce(s, { type: 'data/execution', ws: 'main', state: stopping, events: [], startedAt: 't1' });
+        s = reduce(s, { type: 'data/execution', ws: 'main', state: stopping, events: [], startedAt: RUN_START });
         assert.equal(s.data.execution['main']?.stopping, true);
         const aborted = { ...(running as object), status: { type: 'aborted', value: null } } as never;
-        s = reduce(s, { type: 'data/execution', ws: 'main', state: aborted, events: [], startedAt: 't1' });
+        s = reduce(s, { type: 'data/execution', ws: 'main', state: aborted, events: [], startedAt: RUN_START });
         assert.equal(s.data.execution['main']?.stopping, false);
     });
 

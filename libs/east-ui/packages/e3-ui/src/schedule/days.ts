@@ -5,7 +5,7 @@
 
 /**
  * The keys a large record's day index files an event under (#1218,
- * `Calendar Spec.md` §3.4): East functions an `e3.recordIndex`'s `keys`
+ * `Calendar Spec.md` §3.4): East functions a record's `index.keys(fn)`
  * calls, so a builder reads the days in view, and the backlog, through the
  * index instead of the whole record.
  *

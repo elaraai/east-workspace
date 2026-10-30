@@ -1459,6 +1459,29 @@ done:
 }
 
 /* ================================================================== */
+/* ArrayFlattenTree (arr, children_fn) -> Array<{path, node}> (#1434)  */
+/* ================================================================== */
+
+/* Every node of the tree whose roots are the array's elements, with its path
+ * of indices, depth first (east_tree_flatten). children_fn takes (element,
+ * index). */
+static EastValue *array_flatten_tree_children(void *ctx, EastValue *node, EastValue *step)
+{
+    EastValue *call_args[] = {node, step};
+    return call_fn(ctx, call_args, 2);
+}
+
+static EastValue *array_flatten_tree_impl(EastValue **args, size_t n)
+{
+    (void)n;
+    EastValue *arr = args[0];
+    arr->iter_lock++;
+    EastValue *result = east_tree_flatten(arr, array_flatten_tree_children, args[1]);
+    arr->iter_lock--;
+    return result;
+}
+
+/* ================================================================== */
 /* ArrayEncodeCsv                                                     */
 /* ================================================================== */
 
@@ -1787,6 +1810,12 @@ static BuiltinImpl array_to_tree_factory(EastType **tp, size_t ntp)
     s_array_tree_node_type = ntp > 2 ? tp[2] : NULL;
     return array_to_tree_impl;
 }
+static BuiltinImpl array_flatten_tree_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return array_flatten_tree_impl;
+}
 static BuiltinImpl array_encode_csv_factory(EastType **tp, size_t ntp)
 {
     csv_encode_struct_type_ctx = (ntp > 0) ? tp[0] : NULL;
@@ -1845,5 +1874,6 @@ void east_register_array_builtins(BuiltinRegistry *reg)
     builtin_registry_register(reg, "ArrayFlattenToDict", array_flatten_to_dict_factory);
     builtin_registry_register(reg, "ArrayGroupFold", array_group_fold_factory);
     builtin_registry_register(reg, "ArrayToTree", array_to_tree_factory);
+    builtin_registry_register(reg, "ArrayFlattenTree", array_flatten_tree_factory);
     builtin_registry_register(reg, "ArrayEncodeCsv", array_encode_csv_factory);
 }

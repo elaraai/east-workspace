@@ -186,7 +186,7 @@ export function ForestPlot({ rows, min, max, unit, height, rowHelp }: ForestPlot
     const zf = frac(0);
     const ticks = (zf > 0.12 && zf < 0.88) ? [min, 0, max] : [min, max];
     return (
-        <Box ref={ref} width="100%" height={`${hPx}px`}>
+        <Box ref={ref} width="100%" style={{ height: `${hPx}px` }}>
             {w > 0 && (
                 <svg width={w} height={hPx} style={{ display: 'block' }}>
                     <Group left={padL} top={padT}>
@@ -285,7 +285,7 @@ export function AreaRange({ lo, mid, hi, xTicks = [], xTickWords = false, yTicks
     const yfmt = (v: number) => (yFormat === 'percent' ? words.percent(v / 100) : signed(v, words));
     const yLabels = [yfmt(yHiN), yfmt((yHiN + yLoN) / 2), yfmt(yLoN)];
     return (
-        <Box ref={ref} width="100%" height={`${hPx}px`}>
+        <Box ref={ref} width="100%" style={{ height: `${hPx}px` }}>
             {w > 0 && (
                 <svg width={w} height={hPx} style={{ display: 'block' }}>
                     <Group left={padL} top={padT}>
@@ -382,7 +382,7 @@ export function OverlapHistogram({ treated, control, domain = [0, 1], supportLab
     // Bar centre on the propensity axis for bin i (covers [i, i+1]/bins of the span).
     const cx = (i: number) => x(domain[0] + ((i + 0.5) / bins) * span);
     return (
-        <Box ref={ref} width="100%" height={`${hPx}px`}>
+        <Box ref={ref} width="100%" style={{ height: `${hPx}px` }}>
             {w > 0 && (
                 <svg width={w} height={hPx} style={{ display: 'block' }}>
                     <Group left={padL} top={padT}>

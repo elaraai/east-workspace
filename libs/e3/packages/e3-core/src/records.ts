@@ -17,7 +17,7 @@
  */
 
 import {
-  variant, some, none, ArrayType, BlobType, DateTimeType, NullType, PatchType, SortedMap, compareFor, decodeBeast2, encodeBeast2For,
+  variant, some, none, isVariant, ArrayType, BlobType, DateTimeType, NullType, PatchType, SortedMap, compareFor, decodeBeast2, encodeBeast2For,
   decodeBeast2For, fromEastTypeValue, isTypeValueStructurallyEqual, parseFor, printFor, printTypeValueSummary, readBeast2Type,
   toEastTypeValue, type EastType, type EastTypeValue,
 } from '@elaraai/east';
@@ -935,26 +935,25 @@ async function patchDelta(
   if (manifest === null) return null;
   // The state's own type, not the package's: a patch applies to what is
   // stored, and a manifest carries the type it was written under.
-  const primaryType = fromEastTypeValue(manifest.type as EastTypeValue) as unknown as EastType;
-  const collection = primaryType as unknown as { type: string; key: EastType };
-  if (collection.type !== 'Dict' && collection.type !== 'Set') return null;
-  let patch: { type: string; value: unknown };
+  const primaryType = fromEastTypeValue(manifest.type);
+  if (primaryType.type !== 'Dict' && primaryType.type !== 'Set') return null;
+  const keyType: EastType = primaryType.key;
+  let patch: unknown;
   try {
-    patch = decodeBeast2For(PatchType(primaryType))(patchBytes) as { type: string; value: unknown };
+    patch = decodeBeast2For(PatchType(manifest.type))(patchBytes);
   } catch {
     return null; // not a patch of this state — let the program refuse it by name
   }
-  if (patch.type !== 'patch') return null;
+  if (!isVariant(patch) || patch.type !== 'patch') return null;
+  // The `patch` arm: each touched key's op.
+  const patched: SortedMap<unknown, unknown> = patch.value;
 
-  const deltaTargets: DeltaTarget[] = [{ name: 'primary', keyType: collection.key, collectionType: primaryType }];
+  const deltaTargets: DeltaTarget[] = [{ name: 'primary', keyType, collectionType: primaryType }];
   const deltaType = mutationDeltaType(deltaTargets);
-  const deltaKeyType = (deltaType as unknown as { key: EastType }).key;
-  const entries = new SortedMap<unknown, unknown>(
-    undefined, compareFor(toEastTypeValue(deltaKeyType)) as (a: unknown, b: unknown) => -1 | 0 | 1);
+  const entries = new SortedMap<unknown, unknown>(undefined, compareFor(toEastTypeValue(deltaType.key)));
   // One target's ops, in the order its keys take in the delta
-  const ops = new SortedMap<unknown, unknown>(
-    undefined, compareFor(toEastTypeValue(collection.key)) as (a: unknown, b: unknown) => -1 | 0 | 1);
-  for (const [key, op] of patch.value as Iterable<[unknown, unknown]>) {
+  const ops = new SortedMap<unknown, unknown>(undefined, compareFor(toEastTypeValue(keyType)));
+  for (const [key, op] of patched) {
     entries.set(variant('primary', key), variant('primary', op));
     ops.set(key, op);
   }
@@ -1505,11 +1504,10 @@ export async function resolveRecordIndex(
   // state written under an older declaration therefore decodes under the type
   // it was written with, which is the same reason a blob carries its own type
   // section.
-  const primaryType = fromEastTypeValue(primaryManifest.type as EastTypeValue) as unknown as
-    { type: string; key: EastType; value: EastType };
+  const primaryType = fromEastTypeValue(primaryManifest.type);
   if (primaryType.type !== 'Dict') return null;
-  const indexKeyType = fromEastTypeValue(indexObj.keyType as EastTypeValue) as unknown as EastType;
-  const projectionType = fromEastTypeValue(indexObj.valueType as EastTypeValue) as unknown as EastType;
+  const indexKeyType = fromEastTypeValue(indexObj.keyType);
+  const projectionType = fromEastTypeValue(indexObj.valueType);
   // A summary's entry stands for every row of its key, so its `k` is Null
   // (#1039): it names no row a read could join.
   const summary = indexObj.form.type === 'summary';

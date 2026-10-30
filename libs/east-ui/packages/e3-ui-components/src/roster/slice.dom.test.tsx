@@ -25,7 +25,7 @@ const group = printFor(OptionType(StringType));
 /** Each read of an index's rows — a page, or several runs in one (#1351) — by the index's name. */
 const indexPages = () => [...h.requests("page"), ...h.requests("runs")].flatMap(request => { const index = request.query.get("index"); return index === null ? [] : [index]; });
 /** The pages read through an index of the staff's or the activities'. */
-const narrowingPages = () => indexPages().filter(index => index !== ex.rosterDutiesByTime.name);
+const narrowingPages = () => indexPages().filter(index => index !== "roster_duties_by_time");
 
 test("a people narrowing read while the week stands in keeps the week's rows, retained — stale, aria-disabled, never inert — until it lands (#1398, CL5, CL8)", async () => {
     const { container, store } = await open(ex.rosterWarehouse);
@@ -34,7 +34,7 @@ test("a people narrowing read while the week stands in keeps the week's rows, re
     const before = duties();
     expect(before).toBeGreaterThan(1);
     // The staff index's reads held on their way to e3: the people's new membership is in flight.
-    const held = h.e3.hold(request => request.query.get("index") === ex.rosterStaffByName.name);
+    const held = h.e3.hold(request => request.query.get("index") === "roster_staff_by_name");
     await narrow(store, "rosterWarehouse", "people", new Map<string, Choice>([["name", variant("prefix", "C. Clo")]]));
     expect([main().hasAttribute("data-roster-stale"), main().getAttribute("aria-disabled"), main().hasAttribute("inert")]).toEqual([true, "true", false]);
     // The week stands in, whole: every duty as it was, never a cover — and a duty still selects.
@@ -56,7 +56,7 @@ test("an activities narrowing read keeps the week's duties retained (#1398, CL8)
     const duty = () => assignment(container, "s37");
     const remove = () => within(duty()).getByRole("button", { name: "Remove C. Clover" });
     // The activities index's reads held on their way to e3: the activities' new membership is in flight.
-    const held = h.e3.hold(request => request.query.get("index") === ex.rosterActivitiesByGroup.name);
+    const held = h.e3.hold(request => request.query.get("index") === "roster_activities_by_group");
     await narrow(store, "rosterWarehouse", "activities", new Map<string, Choice>([["group", variant("values", [group(some("picking"))])]]));
     expect([main().hasAttribute("data-roster-stale"), main().getAttribute("aria-disabled"), main().hasAttribute("inert")]).toEqual([true, "true", false]);
     // Readable and focusable, and selectable.
@@ -84,7 +84,7 @@ test("an external write to the people source narrows the board by original keys 
     const { container, store } = await open(ex.rosterWarehouse);
     // Nothing chosen of the staff or the activities: neither reads an index page.
     expect(narrowingPages()).toEqual([]);
-    expect(indexPages()).toContain(ex.rosterDutiesByTime.name);
+    expect(indexPages()).toContain("roster_duties_by_time");
     const total = [...slot(container, "main").querySelectorAll('[role="img"][aria-label]')].map(e => e.getAttribute("aria-label"));
     await narrow(store, "rosterWarehouse", "people", new Map<string, Choice>([["name", variant("prefix", "C. Clo")]]));
     expect(assignment(container, "s37")).not.toBeNull();
@@ -101,5 +101,5 @@ test("an external write to the people source narrows the board by original keys 
     const held = duties.filter(duty => byDate(duty.start, to) < 0 && byDate(duty.end, from) > 0).length;
     expect(summary.querySelector('[data-record-slice-source="duty"]')?.textContent).toBe(`${held} of ${duties.length} duty events`);
     expect(narrowingPages().length).toBeGreaterThan(0);
-    expect(narrowingPages().every(index => index === ex.rosterStaffByName.name)).toBe(true);
+    expect(narrowingPages().every(index => index === "roster_staff_by_name")).toBe(true);
 });

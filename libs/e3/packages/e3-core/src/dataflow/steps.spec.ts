@@ -37,7 +37,7 @@ import * as root from '../index.js';
 import * as portable from '../portable.js';
 import type { DataflowExecutionState, TaskState, Mutable } from './types.js';
 import type { DataflowGraph } from '../dataflow.js';
-import { createTestRepo, removeTestRepo } from '../test-helpers.js';
+import { createTestRepo, removeTestRepo, writableStrings } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import { workspaceDeploy } from '../workspaces.js';
 import { workspaceSetDataset } from '../trees.js';
@@ -591,13 +591,7 @@ describe('stepDetectInputChanges', () => {
   }
 
   it('uses cached structure when provided', async () => {
-    const structure: Structure = {
-      type: 'struct',
-      value: new Map([
-        ['input', { type: 'value', value: { type: StringType, writable: true } }],
-        ['output', { type: 'value', value: { type: StringType, writable: true } }],
-      ]),
-    } as unknown as Structure;
+    const structure = writableStrings(['input', 'output']);
 
     const inputPath: TreePath = [variant('field', 'input')];
     const outputPath: TreePath = [variant('field', 'output')];

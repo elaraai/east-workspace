@@ -20,6 +20,9 @@ npm install @elaraai/e3-types
   - `ExecutionEventType` - Execution progress events
   - `DataflowExecutionStateType` - Full execution state
 - **Runner** - Runner configuration
+- **Workspace bundle** - `WorkspaceBundleType`: a workspace as it is, in one
+  stream — its head (`WorkspaceBundleHeadType`: package, dataset refs,
+  executions), then its objects, each whole or in pieces
 
 
 ## Claude Code plugin

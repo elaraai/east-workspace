@@ -529,3 +529,70 @@ Each wire changed under this rule, with the kind it is.
   re-exported, and the dataflow computes each UI task's output again under the
   new type. A UI task's output is not stored state, so no repository upgrade
   step ships with it.
+- **e3-ui's `Plan` reads its rows' collections by name, and a table's values
+  take typed numbers (#1436)** — package-borne. `Plan.Types.Drop` gains `id`,
+  after its other fields: the new item's id, which the renderer mints as the
+  card lands and the series puts the item into its collection under.
+  `Plan.Types.Gesture` gains the case `value` (`Plan.Types.ValueEdit`: the
+  row, the table position, the bucket's start and the number typed, or `none`
+  for a cleared cell), which sorts after `drop` and `move`, so their tags are
+  kept. `Plan.Types.RowEdits` gains `values`, after `move`: the table
+  positions whose values take a typed number. Each travels in the `Plan`
+  extension's payload — a drop, a row's edits, and each editable series'
+  write, which takes the gesture — so a UI value encoded under either type
+  does not decode under the other: packages are re-exported, and the
+  dataflow computes each UI task's output again under the new type. A UI
+  task's output is not stored state, so no repository upgrade step ships with
+  it.
+- **e3's generated index keys nest the row's fields under `on`, e3's parts
+  beside them (#1432)** — package-borne. An interval index's key is
+  `{ on, node, at }`, an area index's `{ on, area }`, and a series or a
+  summary index's `{ on, tile, key }`: `on` the declaration's leading fields at
+  their key types, a struct with no fields when it lists none, where today's
+  keys held them flat beside `__interval`, `__area` and `__tile`. No name is
+  reserved, so `e3.recordIndex.area` no longer refuses a row field named
+  `__area`, nor `.series` and `.summary` one named `__tile`. A definition's
+  `on` is the leading fields alone. Each such index a package declares changes
+  type, so it is rebuilt as the package is deployed, as any changed index is;
+  an index is derived from its record, so no repository upgrade step ships.
+- **east-ui's record Slice reads by area beside the narrowing, and a binding's
+  index metadata names each index's kind (#1432)** — package-borne, and an
+  application's saved views change type with it. `RecordSliceChoiceType` loses
+  `window`: a read by area gives its clause apart, `RecordSliceAreaType`
+  (`window` or `unplaced`), in `RecordSliceReadType` (`{ where, area }`), which
+  `pageWhere`, `countWhere` and the scan take; the rail's state, its presets
+  and `contains` keep the narrowing alone. `RecordSliceIndexType.fields` holds
+  an index's row fields alone — a generated index's `on` — and the binding's
+  metadata (`IndexedSourceType`'s `indexes`) gives each index as
+  `{ fields, kind }`, `kind` its one case, `plain` or a generated kind's
+  marker. A UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. A narrowing is a `Dict` of choices, read at
+  exactly the type it was written with, so one kept or saved under the earlier
+  type does not decode, and resets. A UI task's output is not stored state, so
+  no repository upgrade step ships with it.
+- **e3's series and summary indexes put the key first, and a series index
+  files each event once, at the level its length fits (#1433)** —
+  package-borne. A series index's key is `{ on, key, level, tile }`: each
+  event filed once, at the finest level from its declared tile up to the year
+  whose shortest tile holds its length, under that level's tile holding its
+  start, or, past a year, under each year it touches — where it was filed
+  under every tile it touched, `{ on, tile, key }`. `level` is e3-types'
+  `RecordLevelType`. A summary index's key is `{ on, key, tile }`, its totals
+  as they were. Each such index a package declares changes type, so it is
+  rebuilt as the package is deployed, as any changed index is; an index is
+  derived from its record, so no repository upgrade step ships.
+- **e3 gains the nested form of the series index, and the record's other
+  indexes carry its lean rows beside it (#1434)** — package-borne.
+  `e3.recordIndex.series(name, record, { collections, tile, summary? })`
+  builds an index object as every index's is: its key function a row's
+  entries, `(K, V) → Dict<IK, P>`, as a summary's gives its contributions; its
+  key e3-types' `NestedEntryKeyType`, `{ collection, row, path, run, level,
+  tile, item }`; its value `NestedEntryType`. Beside it, each of the record's
+  other indexes that carries nothing or the row carries the row without the
+  listed collections instead, so it changes type. And every index's and
+  mutation's program is generated anew — rows read a field at a time, and
+  built, through East's builders for names held as values — so each index a
+  package declares is rebuilt as the package is deployed, as any changed index
+  is, and a deploy builds the nested index its state lacks. An index is
+  derived from its record, so no repository upgrade step ships.

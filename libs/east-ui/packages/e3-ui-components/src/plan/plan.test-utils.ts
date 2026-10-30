@@ -155,7 +155,7 @@ const blocksOfRows = new WeakMap<readonly unknown[], PlanWireBlock[]>();
 
 /** The gestures a row takes when its series declares none (#880, #825) — the
  *  IR's own default (`planRow`), which a hand-built row omits. */
-export const NO_EDITS = { drop: false, move: none } as const;
+export const NO_EDITS = { drop: false, move: none, values: [] as bigint[] };
 
 /**
  * A test's rows as the canvas the IR carries (#823) — ONE paged block of them,
@@ -213,4 +213,16 @@ export function blocksSource(src: unknown): PlanPagedSourceValue {
 export function testKeyOf(key: RowKey): string {
     const id = rowIdOfKey(key);
     return id !== undefined ? id.value.path.join("/") : key;
+}
+
+/**
+ * The canvas's tab stop, which its keys go to (#819): the rows' treegrid while
+ * no mounted row holds it, else the row that does — never a stop of the
+ * header's, such as the horizon brush's handles and window (#1438).
+ *
+ * @param container - What the Plan is mounted in
+ * @returns The element the canvas's keys go to
+ */
+export function keySurface(container: ParentNode): HTMLElement {
+    return container.querySelector<HTMLElement>('[role="treegrid"][tabindex="0"], [role="treegrid"] [tabindex="0"]')!;
 }

@@ -37,7 +37,10 @@ export {
     bindPagedPinnedPlatformFn,
     DataPagedPrimitives,
 } from './bind/data.js';
-export { bindIndexedPagedPlatformFn, DataIndexedPrimitives, type BindPagedIndexesOptions, type IndexedPagedValue } from './bind/data-indexed.js';
+export {
+    bindIndexedPagedPlatformFn, DataIndexedPrimitives, NestedPartType,
+    type BindPagedIndexesOptions, type CollectionMarker, type IndexedPagedValue, type NestedMarker, type NestedPart,
+} from './bind/data-indexed.js';
 export {
     Func,
     FuncStatusType,
@@ -63,6 +66,7 @@ export {
 } from './bind/record.js';
 export { DataManifestType, type DataManifest } from './utils/manifest.js';
 export { deriveManifest, deriveUiAccess, UiAccessType, type UiAccess } from './utils/derive.js';
+export { orderedRowSource } from './utils/ordered-source.js';
 // A builder's narrowing (#1340): the one check of its `slice` every builder's tag makes, of a tab's `source`, and of a templates list's.
 export { recordSources, sliceSourceNames, tabSource, templatesSource, type RecordSources, type RecordSourcesSpec } from './utils/record-sources.js';
 // The `optimise` binding's check every builder's tag makes (#1409): `Func.bind` of a function from the builder's request to its answer.
@@ -239,7 +243,7 @@ export {
     type PlanHeatCellsOptions,
     type PlanEditingConfig,
     type PlanBindHandle,
-    type PlanEditInput,
+    type PlanItemsEdit,
     type PlanRowsInput,
     type PlanRowsValue,
     type PlanSeriesArm,
@@ -261,6 +265,50 @@ export {
     type PlanGroupSeriesConfig,
     type PlanSectionSeriesConfig,
     type PlanViewsSeriesConfig,
+    type PlanEditOf,
+    type PlanSpanReads,
+    type PlanHeatReads,
+    type PlanTableReads,
+    type PlanChildrenReads,
+    PlanReadsBrand,
+    PlanUseBrand,
+    type PlanCollectionField,
+    type PlanItemsField,
+    type PlanValuesField,
+    type PlanChildField,
+    type PlanTreeField,
+    type PlanCollectionItem,
+    type PlanCollectionKey,
+    type PlanItemTimeField,
+    type PlanItemTimes,
+    type PlanKindOfTimes,
+    type PlanKindOfKey,
+    type PlanItems,
+    type PlanValues,
+    type PlanItemsInput,
+    type PlanValuesInput,
+    type PlanValuesUse,
+    type PlanValuesEdit,
+    type PlanRunLook,
+    type PlanDecisionLook,
+    type PlanPortLook,
+    type PlanBucketEventLook,
+    type PlanCellMarkerLook,
+    type PlanChipLook,
+    type PlanEventMarkLook,
+    type PlanHeatCellLook,
+    type PlanWeightCellLook,
+    type PlanSegmentCellLook,
+    type PlanTableCellLook,
+    type PlanChartPointLook,
+    type PlanChartBandLook,
+    type PlanNestedItemsOf,
+    type PlanNestedIndexOf,
+    type PlanNestedCollection,
+    type PlanNestedCollections,
+    type PlanRowsNestedOf,
+    type PlanNestedRefusals,
+    type PlanNestedChecked,
 } from './plan/index.js';
 // The resources' rows a Plan of event kinds draws over a window (#1192): the
 // `blocks` seam its payload carries, made inside the payload's assembly, and
@@ -272,6 +320,14 @@ export {
     createEventBlocks, createEventPaged, eventDrawsOf, PlanEventDraftsType, PlanEventPagedType, PlanEventPlacedType, PlanEventReadsType,
     PlanEventShadeType, PlanEventShadingType, PlanEventShownType,
 } from './plan/event-rows.js';
+// What a Plan over paged rows reads of their nested series index (#1438): the
+// seam on its root, what each series reads of the index, and the rows'
+// shading past the cap.
+export { PlanNestedShadingType, PlanNestedType, PlanNestedUseType } from './plan/nested-read.js';
+// A Save's patch over rows read beside their nested series index, restated by key (#1438), and the index a binding's
+// nested part declares.
+export { planNestedRestatement } from './plan/nested-patch.js';
+export { nestedPartOf, planNestedIndex } from './plan/nested-checks.js';
 // The Plan's library pane on the wire (#1195): its tabs, an author's tab's
 // cards, the Series tab's lines and what hiding each hides, and the ids a
 // viewer's hidden set holds.

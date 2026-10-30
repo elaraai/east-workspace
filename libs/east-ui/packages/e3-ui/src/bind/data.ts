@@ -27,13 +27,15 @@ import {
     type EastType,
     type ExprType,
 } from '@elaraai/east';
-import { TreePathType, DatasetStatusType, indexWindowType } from '@elaraai/e3-types';
+import { TreePathType, DatasetStatusType, indexWindowType, type TreePath } from '@elaraai/e3-types';
 // The row-source contract is east-ui's (#567): a paged handle IS its
 // `PinnedSourceType` — the same fields, in the same order, at the same types —
 // so Plan / Table / Sheet recognise it by its East type without either package
 // importing the other's data layer. Paged data is bound: this is its producer.
 import { SeekQueryType, SeekRangeType } from '@elaraai/east-ui';
 import type { DatasetDef, RecordDef, RecordIndexDef, TaskDef } from '@elaraai/e3';
+// The browser-safe entry: the components' runtime imports this module (#99).
+import { builtIndex } from '@elaraai/e3/browser';
 import { bindDataIndexed, type BindPagedIndexesOptions, type FieldIndexes, type IndexedPagedValue } from './data-indexed.js';
 
 // ============================================================================
@@ -392,18 +394,42 @@ export type IndexWindowType<T extends EastType, IK extends EastType, P extends E
         ? ArrayType<StructType<{ ik: IK; key: K; value: P; row: OptionType<V> }>>
         : never;
 
+/**
+ * A record's index names, as its declaration carries them.
+ *
+ * @typeParam R - The record
+ */
+export type IndexNameOf<R> = R extends { readonly indexes: infer I } ? keyof I & string : never;
+
+/**
+ * The indexes a list of a record's index names names, in its order: each the
+ * declaration the record holds under the name.
+ *
+ * @typeParam R - The record
+ * @typeParam N - The names
+ */
+export type IndexesNamed<R, N extends readonly string[]> = R extends { readonly indexes: infer I }
+    ? { readonly [K in keyof N]: N[K] extends keyof I ? I[N[K]] : never }
+    : never;
+
+/** The window a record's index serves, by the index's name: its key and what its entries carry, from its declaration. */
+type IndexWindowOf<R extends { readonly type: EastType; readonly indexes: object }, N> =
+    R['indexes'] extends infer I ? N extends keyof I
+        ? I[N] extends RecordIndexDef<string, EastType, infer IK, infer P> ? IndexWindowType<R['type'], IK, P> : never
+        : never : never;
+
 /** Reading a record through one of its secondary indexes. */
-export interface BindPagedIndexOptions<T extends EastType, IK extends EastType, P extends EastType> {
+export interface BindPagedIndexOptions<N extends string> {
     /**
-     * The index to read through, as the `e3.recordIndex` declaration.
+     * The index to read through, by the name the record declares it under.
      *
      * @remarks
-     * The declaration rather than the name: the window's type — the index key
-     * and the covering projection — comes from it, so a component binding an
-     * index gets the row shape it will actually render, checked at compile
-     * time. Only the NAME travels in the IR.
+     * The window's type — the index key and the covering projection — comes
+     * from the declaration the record holds under the name, so a component
+     * binding an index gets the row shape it will actually render, checked at
+     * compile time. Only the name travels in the IR.
      */
-    index: RecordIndexDef<string, T, IK, P>;
+    index: N;
     /**
      * Read each entry's row from the record too.
      *
@@ -565,6 +591,19 @@ export const DataPagedPrimitives = {
  * whole: it is declared in the UI task's manifest under `pages`, and follows
  * its dataset by content hash alone, which is the point of binding it paged.
  *
+ * A record bound with its indexes, by the names it declares them under —
+ * `Data.bindPaged(record, { indexes: ["by_status", "by_due"] })` — pages its
+ * rows in each index's order (#1378, #1432). Beside a record's nested series
+ * index (`index.nested({ collections, tile, summary })` among its indexes,
+ * #1434), e3 builds each of its other indexes to carry the
+ * row without the collections the nested index declares, and a binding lists
+ * the nested index with them (#1435): it pages those lean rows, never joining
+ * a row whole (`join: true` is refused, and so is an index carrying a value of
+ * its own, which is bound apart), reads a row whole by its key, and carries
+ * how each collection is declared — what it holds, its times and its rollups
+ * — in its type, for a Plan's series to be held to. The nested index's own
+ * entries are items, totals and subtotals, read a cell at a time, never paged.
+ *
  * @example
  * ```ts
  * import { ArrayType, DictType, East, StringType, variant } from "@elaraai/east";
@@ -591,27 +630,32 @@ export const DataPagedPrimitives = {
  * });
  * ```
  */
-function bindDataPaged<T extends EastType, const I extends FieldIndexes<T>>(
-    record: RecordDef<T>,
-    options: BindPagedIndexesOptions<T, I>,
-): IndexedPagedValue<T, I>;
+function bindDataPaged<R extends RecordDef<EastType, TreePath, object, object>, const N extends readonly IndexNameOf<R>[]>(
+    record: R,
+    options: BindPagedIndexesOptions<N>,
+): IndexedPagedValue<R['type'], Extract<IndexesNamed<R, N>, FieldIndexes<R['type']>>>;
 function bindDataPaged<T extends EastType>(
     dataset: DatasetDef<T> | TaskDef<T>,
 ): PagedValue<T>;
-function bindDataPaged<T extends EastType, IK extends EastType, P extends EastType>(
-    record: RecordDef<T>,
-    options: BindPagedIndexOptions<T, IK, P>,
-): PagedValue<IndexWindowType<T, IK, P>>;
+function bindDataPaged<R extends RecordDef<EastType, TreePath, object, object>, const N extends IndexNameOf<R>>(
+    record: R,
+    options: BindPagedIndexOptions<N>,
+): PagedValue<IndexWindowOf<R, N>>;
 // The implementation's return is erased: an index window's TS type is a
 // conditional over the record's Dict, which TypeScript cannot resolve against
 // an unbound `T`. The overloads above carry the precise types.
 function bindDataPaged(
     dataset: DatasetDef<EastType> | TaskDef<EastType>,
-    options?: BindPagedIndexOptions<EastType, EastType, EastType> | BindPagedIndexesOptions<EastType, FieldIndexes<EastType>>,
+    options?: BindPagedIndexOptions<string> | BindPagedIndexesOptions<readonly string[]>,
 ): any {
     if (options !== undefined && "indexes" in options) {
         if (!("recordKind" in dataset) || dataset.recordKind !== "record") throw new Error("Data.bindPaged with indexes requires an e3.record");
-        return bindDataIndexed(dataset as RecordDef<EastType>, options);
+        const rec = dataset as RecordDef<EastType>;
+        if (!Array.isArray(options.indexes)) throw new Error(`Data.bindPaged: indexes lists the names of record '${rec.name}''s indexes — ${indexNames(rec)}`);
+        return bindDataIndexed(rec, {
+            indexes: options.indexes.map((name) => indexNamed(rec, name)),
+            ...(options.join !== undefined && { join: options.join }),
+        });
     }
     // A TaskDef binds its output dataset; a DatasetDef binds itself.
     const def = dataset.kind === 'task' ? dataset.output : dataset;
@@ -619,8 +663,8 @@ function bindDataPaged(
     // construction — `deriveManifest` reads it back as a single literal
     // `Value` IR node, which `East.value(...)` forces.
     const sourceValue = East.value(def.path, TreePathType);
-    const index = options?.index;
-    if (index === undefined) {
+    const indexName = options?.index;
+    if (indexName === undefined) {
         return bindPagedPinnedPlatformFn(
             [def.type], sourceValue, East.value(none, OptionType(StringType)), East.value(false, BooleanType),
         ) as unknown as PagedValue<EastType>;
@@ -637,12 +681,48 @@ function bindDataPaged(
             `Data.bindPaged: an index reads a Dict record; this one holds ${record.type}`,
         );
     }
+    if (!("recordKind" in dataset) || dataset.recordKind !== "record") throw new Error("Data.bindPaged with an index requires an e3.record");
+    const rec = dataset as RecordDef<EastType>;
+    const index = indexNamed(rec, indexName);
+    // Beside a record's nested series index, e3 builds its other indexes to carry each row without its collections
+    // (#1434): a window of one is read through a binding listing the nested index too, and the nested index's own
+    // entries a cell at a time (#1435).
+    const nested = Object.values(rec.indexes).find((declared) => declared.nested !== undefined);
+    if (nested !== undefined && index.nested !== undefined) {
+        throw new Error(`Data.bindPaged: '${index.name}' is a nested series index, whose entries are items, totals and subtotals: a reader reads its ` +
+            `cells — list it in Data.bindPaged(${rec.name}, { indexes })`);
+    }
+    if (nested !== undefined && builtIndex(rec, index) !== index) {
+        throw new Error(`Data.bindPaged: record '${rec.name}' has a nested series index, '${nested.name}', and '${index.name}' carries each row ` +
+            `without the collections it declares — bind them together: Data.bindPaged(${rec.name}, { indexes: ["${index.name}", "${nested.name}"] })`);
+    }
     return bindPagedPinnedPlatformFn(
         [indexWindowType(record.key, index.keyType, index.valueType, record.value)],
         sourceValue,
         East.value(some(index.name), OptionType(StringType)),
         East.value(options?.join === true, BooleanType),
     ) as unknown as PagedValue<EastType>;
+}
+
+/** A record's index names, for a refusal: each quoted, or none. */
+function indexNames(rec: RecordDef<EastType>): string {
+    const names = Object.keys(rec.indexes);
+    return names.length === 0 ? "it declares none" : `it declares ${names.map((name) => `'${name}'`).join(", ")}`;
+}
+
+/**
+ * A record's index by the name it declares it under.
+ *
+ * @param rec - The record
+ * @param name - The index's name
+ * @returns The record's declaration of it
+ * @throws {Error} Naming the record and its indexes, for a name it does not declare, or an index given as other than a name
+ */
+function indexNamed(rec: RecordDef<EastType>, name: unknown): RecordIndexDef {
+    if (typeof name !== "string") throw new Error(`Data.bindPaged: an index is given by its name, as record '${rec.name}' declares it — ${indexNames(rec)}`);
+    const index = (rec.indexes as Readonly<Record<string, RecordIndexDef | undefined>>)[name];
+    if (index === undefined) throw new Error(`Data.bindPaged: record '${rec.name}' declares no index '${name}' — ${indexNames(rec)}`);
+    return index;
 }
 
 /**

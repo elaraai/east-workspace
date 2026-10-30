@@ -18,12 +18,13 @@ import * as fs from 'node:fs';
 import * as nodePath from 'node:path';
 import { createHash } from 'node:crypto';
 import yazl from 'yazl';
-import { variant, some, none, BlobType, StringType, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, decodeFunctionManifest, linkImports, type FunctionManifest, type LinkedImport } from '@elaraai/east';
+import { variant, some, none, BlobType, StringType, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, linkImports, type EastType, type FunctionManifest, type LinkedImport } from '@elaraai/east';
 import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MigrationObject, MutationObject, RecordIndexObject, RecordObject, TaskObject, TaskOutputKind } from '@elaraai/e3-types';
-import { E3_RELEASE, PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, MigrationObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob } from '@elaraai/e3-types';
-import { buildMutationProgram, hasKeyedDelta, indexBuildProgram, migrationProgram, summaryMergeProgram } from './record-programs.js';
+import { E3_RELEASE, PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, MigrationObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob, pathToString } from '@elaraai/e3-types';
+import { buildMutationProgram, builtIndex, hasKeyedDelta, indexBuildProgram, migrationProgram, summaryMergeProgram, summed } from './record-programs.js';
 import { readDatasetFileHeader } from './dataset-file.js';
-import type { PackageDef, PackageItem } from './types.js';
+import type { AsyncIRBundle, IRBundle, PackageDef, PackageItem } from './types.js';
+import { bundleOf } from './record-guards.js';
 import { runnerProvides, runnerToVariant, type Runner } from './runner.js';
 import { captureEnvironment, captureAutoEnvironment, type CaptureEvent } from './environment-capture.js';
 import { importedFunctions, resolveFunctionManifests, type ImportReference, type ResolveEvent } from './functions-resolve.js';
@@ -61,9 +62,9 @@ export interface ExportOptions {
   /** Progress callback — receives one event per captured environment member and per resolved import package. */
   onEvent?: (event: ExportEvent) => void;
   /**
-   * Function manifests (#628) built elsewhere — paths to files written by
-   * `east-py export-functions` / `east-node export-functions`, or decoded
-   * values — for packages that are not members of this workspace (a
+   * Function manifests (#628) built elsewhere — what `east-py
+   * export-functions` / `east-node export-functions` write, decoded
+   * (`decodeFunctionManifest`) — for packages that are not members of this workspace (a
    * published package, another repo). A package this workspace holds needs
    * none: every `East.importFunction` naming a member of the governing uv or
    * npm workspace is exported from that member itself at export time (#652 —
@@ -73,11 +74,11 @@ export interface ExportOptions {
    * exact type equality and embedded as pure IR; its platform dependencies
    * must be provided by the consuming task's runner (see `runnerProvides`).
    */
-  functions?: Array<string | FunctionManifest>;
+  functions?: readonly FunctionManifest[];
 }
 
 // Named export_ to avoid conflict with reserved word
-export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>, outputPath: string, options?: ExportOptions): Promise<void> {
+export async function export_<D extends Record<string, unknown>>(pkg: PackageDef<D>, outputPath: string, options?: ExportOptions): Promise<void> {
   const onCapture = options?.onEvent === undefined
     ? undefined
     : (e: CaptureEvent) => options.onEvent!({ kind: 'capture', ...e });
@@ -93,10 +94,9 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
   // writes. Each owner links against the manifests exported for ITS
   // runner, whose packages must provide what the embedded functions'
   // platform calls need.
-  const explicit: FunctionManifest[] = (options?.functions ?? []).map((m) =>
-    typeof m === 'string' ? decodeFunctionManifest(new Uint8Array(fs.readFileSync(m))) : m);
+  const explicit = options?.functions ?? [];
   const references: ImportReference[] = [];
-  const refer = (bundle: EastIR<any, any> | AsyncEastIR<any, any>, owner: string, runner: Runner | undefined): void => {
+  const refer = (bundle: IRBundle | AsyncIRBundle, owner: string, runner: Runner | undefined): void => {
     for (const [name, functions] of importedFunctions(bundle.ir)) references.push({ package: name, functions: [...functions], owner, runner });
   };
   for (const item of pkg.contents) {
@@ -113,19 +113,23 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
     }
     for (const [iname, idef] of Object.entries(rdef.indexes)) {
       const owner = `index "${rname}.${iname}"`;
-      refer(idef.keyFn.toIR() as EastIR<any, any>, owner, idef.runner);
-      if (idef.valueFn !== undefined) refer(idef.valueFn.toIR() as EastIR<any, any>, owner, idef.runner);
+      refer(bundleOf(idef.keyFn), owner, idef.runner);
+      if (idef.valueFn !== undefined) refer(bundleOf(idef.valueFn), owner, idef.runner);
     }
     for (const step of rdef.migrations) refer(step.body, `migration "${rname}.${step.name}"`, step.runner);
   }
   const manifests = resolveFunctionManifests(references, explicit, process.cwd(), options?.onEvent === undefined
     ? undefined
     : (e: ResolveEvent) => options.onEvent!({ kind: 'functions', ...e }));
-  const link = <B extends EastIR<any, any> | AsyncEastIR<any, any>>(bundle: B, owner: string, runner: Runner | undefined): B => {
+  const link = (bundle: IRBundle | AsyncIRBundle, owner: string, runner: Runner | undefined): IRBundle | AsyncIRBundle => {
     const { ir, imports, sourceMap } = linkImports(bundle, manifests.forOwner(runner));
     if (imports.length === 0) return bundle;
     checkImportPlatforms(imports, runner, owner);
-    const linked = (bundle instanceof EastIR ? new EastIR<any, any>(ir as any) : new AsyncEastIR<any, any>(ir as any)) as B;
+    // The linked function, sync or async as its bundle was.
+    let linked: IRBundle | AsyncIRBundle;
+    if (ir.type === 'Function') linked = new EastIR<EastType[], EastType>(ir);
+    else if (ir.type === 'AsyncFunction') linked = new AsyncEastIR<EastType[], EastType>(ir);
+    else throw new Error(`${owner}: linking its imports gave no function`);
     // The importer's map with the embedded functions' locations added, so a
     // task's error trace and profile name the exporter's source (#1271).
     linked.source_map = sourceMap;
@@ -193,12 +197,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       // Trees are accumulated in the structure map
 
       // Get parent structure
-      const parentPath = item.path.slice(0, -1).map(segment => {
-        if (segment.type !== 'field') {
-          throw new Error(`Unsupported tree path segment type in path ${item.path}: ${segment.type}`);
-        }
-        return `.${printIdentifier(segment.value)}`;
-      }).join('');
+      const parentPath = pathToString(item.path.slice(0, -1));
 
       const parentStructure = structures.get(parentPath);
       if (!parentStructure || parentStructure.type !== 'struct') {
@@ -206,11 +205,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       }
 
       // Add this tree as a child struct in the structure
-      const segment = item.path[item.path.length - 1];
-      if (segment.type !== 'field') {
-        throw new Error(`Unsupported tree path segment type in path ${item.path}: ${segment.type}`);
-      }
-      const name = segment.value;
+      const name = item.path[item.path.length - 1].value;
       const path = `${parentPath}.${printIdentifier(name)}`;
       const childStructure: Structure = variant('struct', new SortedMap());
       parentStructure.value.set(name, childStructure);
@@ -221,31 +216,17 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       // package object
 
       // Get parent structure
-      const parentPath = item.path.slice(0, -1).map(segment => {
-        if (segment.type !== 'field') {
-          throw new Error(`Unsupported tree path segment type in path ${item.path}: ${segment.type}`);
-        }
-        return `.${printIdentifier(segment.value)}`;
-      }).join('');
+      const parentPath = pathToString(item.path.slice(0, -1));
 
       const parentStructure = structures.get(parentPath);
       if (!parentStructure || parentStructure.type !== 'struct') {
         throw new Error(`Missing or invalid parent structure at path: ${parentPath}`);
       }
 
-      const segment = item.path[item.path.length - 1];
-      if (segment.type !== 'field') {
-        throw new Error(`Unsupported tree path segment type in path ${item.path}: ${segment.type}`);
-      }
-      const name = segment.value;
+      const name = item.path[item.path.length - 1].value;
 
       // Build the ref path from tree path segments (e.g., "inputs/greeting")
-      const refPath = item.path.map(seg => {
-        if (seg.type !== 'field') {
-          throw new Error(`Unsupported path segment type: ${seg.type}`);
-        }
-        return seg.value;
-      }).join('/');
+      const refPath = item.path.map(seg => seg.value).join('/');
 
       // An input's initial value comes from its SOURCE variant; `default` is
       // the internal inline-value channel (record()'s initial state), which
@@ -294,7 +275,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       // functions the output kind folds with are objects of their own, each
       // linked against the task's runner, and the task object names them.
       const owner = `task "${item.name}"`;
-      const irObject = (bundle: EastIR<any, any> | AsyncEastIR<any, any>): string =>
+      const irObject = (bundle: IRBundle | AsyncIRBundle): string =>
         addObject(zipfile, Buffer.from(encodeEastIR(link(bundle, owner, item.runner))));
 
       let outputKind: TaskOutputKind;
@@ -371,12 +352,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
   const migrationEncoder = encodeBeast2For(MigrationObjectType);
   const recordEncoder = encodeBeast2For(RecordObjectType);
   for (const [rname, rdef] of Object.entries(pkg.records)) {
-    const recordRefPath = rdef.path.map(seg => {
-      if (seg.type !== 'field') {
-        throw new Error(`Unsupported path segment type: ${seg.type}`);
-      }
-      return seg.value;
-    }).join('/');
+    const recordRefPath = rdef.path.map(seg => seg.value).join('/');
 
     // A mutation ships its author body AND the program built from it: the
     // program is what runs, and it emits the delta the engine applies. A
@@ -409,11 +385,14 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
 
     // An index ships its declared functions AND the program built from them:
     // what runs is the program, and it is linked and encoded like any body.
+    // Each as it is built: beside a nested series index, the lean row where it
+    // carries none or the row (#1434).
     const indexes = new SortedMap<string, string>(); // name -> RecordIndexObject hash
-    for (const [iname, idef] of Object.entries(rdef.indexes)) {
+    for (const [iname, declared] of Object.entries(rdef.indexes)) {
+      const idef = builtIndex(rdef, declared);
       const owner = `index "${rname}.${iname}"`;
       const irHash = (expr: { toIR(): unknown }): string =>
-        addObject(zipfile, Buffer.from(encodeEastIR(link(expr.toIR() as EastIR<any, any> | AsyncEastIR<any, any>, owner, idef.runner))));
+        addObject(zipfile, Buffer.from(encodeEastIR(link(bundleOf(expr), owner, idef.runner))));
       const indexObject: RecordIndexObject = {
         keyIr: irHash(idef.keyFn),
         multi: idef.multi,
@@ -424,7 +403,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
           encodeEastIR(link(indexBuildProgram(idef.record.type, idef), owner, idef.runner)))),
         runner: runnerToVariant(idef.runner),
         // A summary's build sums its pieces' totals by the merge it names (#1039).
-        form: idef.summary === undefined
+        form: !summed(idef)
           ? variant('entries', null)
           : variant('summary', { mergeIr: addObject(zipfile, Buffer.from(encodeEastIR(link(summaryMergeProgram(idef), owner, idef.runner)))) }),
       };
@@ -437,7 +416,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
     const migrations: RecordObject['migrations'] = [];
     for (const step of rdef.migrations) {
       const owner = `migration "${rname}.${step.name}"`;
-      const irObject = (bundle: EastIR<any, any>): string =>
+      const irObject = (bundle: IRBundle): string =>
         addObject(zipfile, Buffer.from(encodeEastIR(link(bundle, owner, step.runner))));
       const migrationObject: MigrationObject = {
         form: variant(step.form, null),

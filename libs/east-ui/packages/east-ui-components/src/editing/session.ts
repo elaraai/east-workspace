@@ -21,7 +21,7 @@ import {
     applyEditing, EditingAppliedTypeFor, EditingApplyResultType, EditingBaseTypeFor, EditingChangeSetTypeFor,
     EditingChangeTypeFor, EditingPlacementType, EditingIssueType, EditingOriginType, EditingPatchEventTypeWith,
 } from "@elaraai/east-ui/internal";
-import { normalizeDraft, type BatchReadiness } from "./draft.js";
+import { liftDraft, normalizeDraft, type BatchReadiness } from "./draft.js";
 import { SESSION_TEXT } from "./messages.js";
 
 // The runtime schemas remain exact. The TS algorithm treats domain payloads
@@ -68,6 +68,47 @@ export interface EntryUpdate<W> {
     before: EntryVersion<W>;
     /** Its version after it. */
     after: EntryVersion<W>;
+}
+
+/**
+ * An entry drafted away from its original (#1437): both versions as the
+ * session holds them — the same objects until a gesture, an Undo, a Redo, a
+ * Discard or a confirmed Save replaces one — and each as the source holds an
+ * entry.
+ *
+ * @typeParam W - The collection's projection of an entry
+ */
+export interface DraftedEntry<W> {
+    /** The entry's id. */
+    readonly id: string;
+    /** A keyed source's key, read from the id; `undefined` for an Array source's entry. */
+    readonly key: unknown;
+    /** The entry as the source held it when its first change was drafted. */
+    readonly original: EntryVersion<W>;
+    /** The entry as drafted. */
+    readonly draft: EntryVersion<W>;
+    /** The original as the source holds an entry: `none` where it was absent. */
+    readonly before: option<unknown>;
+    /** The draft as the Save would leave the entry: `none` where the draft removes it. */
+    readonly after: option<unknown>;
+}
+
+/**
+ * A session's drafts, as a preview of its Save reads them (#1437).
+ *
+ * @typeParam W - The collection's projection of an entry
+ */
+export interface SessionDrafts<W> {
+    /**
+     * The source's revision the drafts began from, where the source names its
+     * revisions; `undefined` for an inline source, and before a first gesture.
+     */
+    readonly revision: string | undefined;
+    /**
+     * Each entry drafted away from its original, by its id. A draft not yet
+     * complete is no change a Save sends, so it is none of them.
+     */
+    readonly entries: ReadonlyMap<string, DraftedEntry<W>>;
 }
 
 interface History<W> {
@@ -294,6 +335,10 @@ export class EditSession<W> {
     private conflicted: Conflicted | undefined;
     /** Why the confirmation read last failed, while it is the error shown (#853). */
     private confirmReason: string | undefined;
+    /** Each drafted entry's view, by its original and its draft: the same object while both hold (#1437). */
+    private draftedViews = new WeakMap<EntryVersion<W>, WeakMap<EntryVersion<W>, DraftedEntry<W>>>();
+    /** The drafts as last read, at the session's version and base: the same object while neither moves (#1437). */
+    private draftsCache: { readonly serial: number; readonly base: Base | undefined; readonly value: SessionDrafts<W> } | undefined;
     /**
      * The readiness last derived, and by which author checks (#859). It is
      * read on every render and every gesture, and derived only when something
@@ -440,6 +485,47 @@ export class EditSession<W> {
     get entries(): ReadonlyMap<string, EntryVersion<W>> { return this.current; }
     /** The same entries as the source last acknowledged them. */
     get originals(): ReadonlyMap<string, EntryVersion<W>> { return this.baseline; }
+    /** The source's entry schema. */
+    get entryType(): EastType { return this.binding.entryType; }
+    /** A keyed source's key type; `undefined` for an Array source. */
+    get keyType(): EastType | undefined { return this.binding.keyType; }
+
+    /**
+     * The drafts, as a preview of the Save reads them (#1437): the revision of
+     * the source they began from, and each entry drafted away from its
+     * original — its original and its draft, the same objects while they
+     * hold, and each as the source holds an entry. What a page previews a
+     * drafted entry's Save from, applying the entry's change to the entry as
+     * the source holds it at the revision it reads.
+     *
+     * @returns The drafts: the same object while the session and its base do not move
+     */
+    get drafts(): SessionDrafts<W> {
+        const cached = this.draftsCache;
+        // The base the session holds, the same object until it observes or confirms another.
+        if (cached !== undefined && cached.serial === this.serial && Object.is(cached.base, this.base)) return cached.value;
+        const entries = new Map<string, DraftedEntry<W>>();
+        for (const [id, draft] of this.current) {
+            const original = this.baseline.get(id) ?? ABSENT;
+            const after = this.domain(id, draft);
+            // A draft not yet complete sends nothing, and neither does one its original equals.
+            if (draft.draft !== undefined && after === undefined) continue;
+            const before = this.domain(id, original);
+            const [was, is] = [before === undefined ? none : some(before), after === undefined ? none : some(after)];
+            if (this.domainEqual(was, is)) continue;
+            let byDraft = this.draftedViews.get(original);
+            if (byDraft === undefined) { byDraft = new WeakMap(); this.draftedViews.set(original, byDraft); }
+            let view = byDraft.get(draft);
+            if (view === undefined) {
+                view = { id, key: this.keyOf?.(id), original, draft, before: was, after: is };
+                byDraft.set(draft, view);
+            }
+            entries.set(id, view);
+        }
+        const value: SessionDrafts<W> = { revision: this.base?.type === "revision" ? this.base.value : undefined, entries };
+        this.draftsCache = { serial: this.serial, base: this.base, value };
+        return value;
+    }
 
     /**
      * The inline source with every draft applied — the collection Apply would
@@ -479,6 +565,54 @@ export class EditSession<W> {
             this.stale = true;
         }
         this.changed();
+    }
+
+    /**
+     * Carries the drafts over to the base the source moved to, where each
+     * drafted entry's change still applies to the entry as the source holds it
+     * there (#1438). A source whose entries are read whole by key — a Plan's
+     * rows beside their nested series index — keeps another write's change of
+     * what no draft changed beside the drafts, and a Save sends only what the
+     * drafts changed. An entry's change that does not apply, because another
+     * write changed what it changed, leaves the session stale, as a source
+     * moving under pending drafts always does. The history starts over at the
+     * drafts: an undo would take an entry back to its version at the old base.
+     *
+     * @param base - The base the source moved to
+     * @param now - Each entry the session holds, as the source holds it at that base: `none` for one it does not hold,
+     *   `undefined` while it is read
+     * @returns `"rebased"`; `"conflict"` while a change does not apply (the session stays stale), or nothing moved
+     *   under the drafts; `"waiting"` while an entry is read
+     */
+    rebase(base: Base, now: (id: string) => option<unknown> | undefined): "rebased" | "conflict" | "waiting" {
+        if (!this.stale || this.locked) return "conflict";
+        const carried = new Map<string, { before: EntryVersion<W>; after: EntryVersion<W> }>();
+        for (const [id, after] of this.current) {
+            const before = this.baseline.get(id) ?? ABSENT;
+            const at = now(id);
+            if (at === undefined) return "waiting";
+            let applied: option<unknown>;
+            try {
+                applied = this.domainApply(at, this.domainDiff(this.optionOf(id, before), this.optionOf(id, after))) as option<unknown>;
+            } catch (error) {
+                if (error instanceof ConflictError) return "conflict";
+                throw error;
+            }
+            const version = (held: option<unknown>, as: EntryVersion<W>): EntryVersion<W> => (held.type === "some"
+                ? { draft: liftDraft(this.binding.draftType, held.value), wire: as.wire, place: as.place }
+                : ABSENT);
+            carried.set(id, { before: version(at, before), after: version(applied, after) });
+        }
+        this.base = this.cloneBase(base);
+        this.baseline.clear(); this.current.clear();
+        for (const [id, { before, after }] of carried) {
+            this.baseline.set(id, before);
+            this.current.set(id, after);
+        }
+        this.history = []; this.cursor = 0; this.stale = false;
+        this.draftsChanged();
+        this.changed();
+        return "rebased";
     }
 
     private clone(version: EntryVersion<W>): EntryVersion<W> {

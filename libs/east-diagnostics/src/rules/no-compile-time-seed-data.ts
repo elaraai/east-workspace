@@ -178,8 +178,8 @@ function inlineSeed(sourceArg: ts.Expression, ctx: RuleContext): ts.Expression |
 // snapshot into the deployed program. Real/bulk data belongs outside the package:
 // a `variant('file', path)` source (adopted by hash at deploy), a `BlobType` input
 // parsed with `blob.decodeCsv(...)` inside an `e3.task`, a platform
-// `FileSystem.readFile` in a task, or `e3.record(...)` + `e3.mutation` for set-once
-// root state.
+// `FileSystem.readFile` in a task, or an `e3.record(...)` with its mutations for
+// set-once root state.
 export const noCompileTimeSeedData: EastRule = {
   name: NAME,
   code: CODE,
@@ -223,7 +223,7 @@ export const noCompileTimeSeedData: EastRule = {
     fire(
       ctx,
       seedArg,
-      `Host-computed data passed as the \`e3.input("${name}", …)\` seed bakes a build-time snapshot into the deployed program — ${reason}. An inline \`variant('value', …)\` seed must be a small AUTHORED CONSTANT (a literal, an empty/literal Map/Set/array/struct, or an East value \`variant\`/\`some\`/\`none\`/\`East.value\`), or the source omitted. Keep real/bulk data out of the package: deliver it as a beast2 file and declare \`variant('file', path)\` (adopted by hash at deploy), put the bytes in a \`BlobType\` input and parse with \`blob.decodeCsv(...)\` inside an \`e3.task\`, read files in a task via a platform \`FileSystem.readFile\`, or use \`e3.record(...)\` + \`e3.mutation\` for set-once root state.`,
+      `Host-computed data passed as the \`e3.input("${name}", …)\` seed bakes a build-time snapshot into the deployed program — ${reason}. An inline \`variant('value', …)\` seed must be a small AUTHORED CONSTANT (a literal, an empty/literal Map/Set/array/struct, or an East value \`variant\`/\`some\`/\`none\`/\`East.value\`), or the source omitted. Keep real/bulk data out of the package: deliver it as a beast2 file and declare \`variant('file', path)\` (adopted by hash at deploy), put the bytes in a \`BlobType\` input and parse with \`blob.decodeCsv(...)\` inside an \`e3.task\`, read files in a task via a platform \`FileSystem.readFile\`, or declare an \`e3.record(...)\` with its mutations for set-once root state.`,
     );
   },
 };

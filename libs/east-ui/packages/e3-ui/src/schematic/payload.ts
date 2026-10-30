@@ -245,17 +245,17 @@ type SchematicAnyProps = { [K in keyof SchematicProps]?: unknown } & Record<stri
 function rowsRefusal(prop: string): string {
     const sort = prop.startsWith("item") ? "items" : prop.startsWith("zone") ? "zones" : prop.startsWith("link") ? "links" : "nets";
     const example = {
-        items: "items={{ racks: Schematic.items(Record.bind(racks, [e3.mutation.patch(racks)]), { name, icon, x, y, label }) }}",
+        items: "items={{ racks: Schematic.items(Record.bind(racks), { name, icon, x, y, label }) }}",
         zones: "zones={{ halls: Schematic.zones(Data.bind(halls), { name, icon, x, y, width, height, label }) }}",
-        links: "links={{ fibre: Schematic.links(Record.bind(fibres, [e3.mutation.patch(fibres)]), { name, icon, from: { field, of }, to: { field, of } }) }}",
-        nets: "nets={{ feeds: Schematic.nets(Record.bind(feeds, [e3.mutation.patch(feeds)]), { name, icon, sources: { field, of }, destinations: { field, of } }) }}",
+        links: "links={{ fibre: Schematic.links(Record.bind(fibres), { name, icon, from: { field, of }, to: { field, of } }) }}",
+        nets: "nets={{ feeds: Schematic.nets(Record.bind(feeds), { name, icon, sources: { field, of }, destinations: { field, of } }) }}",
     }[sort];
     return `Schematic: rows and their mappers are gone — an app's rows are its records, each kind's fields mapped to its roles: ${example}`;
 }
 
 /** The refusal of a callback for an edit: the editing session's gestures replace them (§2, §7). */
 const SESSION = "every gesture is a transaction of the Schematic's editing session, and Save writes each record through its patch door — " +
-    "bind a kind with Record.bind(record, [e3.mutation.patch(record)]) to edit it";
+    "bind a kind with Record.bind(record), its record declaring patch: mutation.patch() to edit it";
 
 /** The refusal of the slice's effect props: `narrowed` replaces them (§2, §10.3). */
 const NARROWED = "how a narrowed-out row draws is `narrowed` — narrowed=\"dim\", or narrowed={{ show: \"dim\", opacity, desaturate, dot, emphasis, frame, fit }}";

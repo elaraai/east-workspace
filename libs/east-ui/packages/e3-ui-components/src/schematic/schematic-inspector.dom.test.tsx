@@ -280,7 +280,7 @@ test("a kind's own Details shows in place of its form, and its update is one ste
 
 /** The data centre's racks beside their loads bound read only, read whole, with the inspector. */
 const readOnlyLoads = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+    const racks = $.let(Record.bind(ex.schematicRacks, ["patch"]));
     const loads = $.let(Data.bind(ex.schematicRackLoads));
     return Schematic({
         id: "readOnlyLoads",
@@ -297,7 +297,7 @@ const readOnlyLoads = { fn: East.function([], UIComponentType, (_$) => Reactive.
 
 /** The same, in a Schematic read only. */
 const readOnlyFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+    const racks = $.let(Record.bind(ex.schematicRacks, ["patch"]));
     const loads = $.let(Data.bind(ex.schematicRackLoads));
     return Schematic({
         id: "readOnlyFloor",
@@ -547,7 +547,7 @@ test("Issues lists the drawing's issues — an item outside the extent, a footpr
 
 /** The data centre's racks, a rack let to no one held back by the app's own check, with the inspector. */
 const checkedRacks = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+    const racks = $.let(Record.bind(ex.schematicRacks, ["patch"]));
     // A rack is let to someone: one whose owner is emptied holds Save, its field named.
     const owned = $.const(East.function([ex.DcRack, StringType], Editing.Types.Readiness, ($2, rack, _key) => {
         $2.if(rack.owner.equal(""), ($3) => {
@@ -583,9 +583,9 @@ test("the app's check refusing a drafted row blocks in Issues, naming its field,
 
 /** The floor's racks beside fibre runs whose patch door refuses every change, with the inspector. */
 const frozenFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+    const racks = $.let(Record.bind(ex.schematicRacks, ["patch"]));
     const frames = $.let(Data.bind(ex.schematicFrames));
-    const fibre = $.let(Record.bind(ex.schematicFrozenFibre, [ex.schematicFrozenFibrePatch]));
+    const fibre = $.let(Record.bind(ex.schematicFrozenFibre, ["patch"]));
     const ends = { field: "from", of: { rack: "racks", frame: "network" } } as const;
     return Schematic({
         id: "frozen",

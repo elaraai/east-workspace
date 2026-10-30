@@ -18,10 +18,8 @@ import { customTask, partition, streamTask, task } from './task.js';
 import { output } from './output.js';
 import { function_ } from './function.js';
 import { input } from './input.js';
-import { migration } from './migration.js';
 import { mutation } from './mutation.js';
 import { record } from './record.js';
-import { recordIndex } from './record-index.js';
 
 describe('addObject', () => {
   it('returns correct SHA256 hash for empty buffer', () => {
@@ -122,7 +120,7 @@ describe('export_', () => {
   });
 
   it('exports empty package', async () => {
-    const pkg = package_('empty-pkg', '1.0.0') as any;
+    const pkg = package_('empty-pkg', '1.0.0');
     const zipPath = path.join(tempDir, 'empty.zip');
 
     await export_(pkg, zipPath);
@@ -212,9 +210,12 @@ describe('export_', () => {
     assert.strictEqual(pkg.data.refs.get('records/customers')?.type, 'unassigned', 'no value travels in the package');
     assert.strictEqual(pkg.sources.size, 0, 'and no file is named');
     assert.ok(pkg.records.has('customers'), 'the record is declared');
-    const records = (pkg.data.structure.value as Map<string, any>).get('records');
-    const leaf = (records.value as Map<string, any>).get('customers');
-    assert.strictEqual(leaf.type, 'value');
+    const structure = pkg.data.structure;
+    assert.ok(structure.type === 'struct');
+    const records = structure.value.get('records');
+    assert.ok(records?.type === 'struct');
+    const leaf = records.value.get('customers');
+    assert.ok(leaf?.type === 'value');
     assert.strictEqual(leaf.value.writable, false);
   });
 
@@ -251,22 +252,29 @@ describe('export_', () => {
     const RowV1 = StructType({ line: StringType });
     const Row = StructType({ line: StringType, qty: IntegerType });
     const Rows = DictType(StringType, Row);
-    const orders = record('orders', Rows, new Map());
-    const approve = mutation.reduce('approve', orders, East.function([Rows, StringType], Rows, (_$, state, _id) => state));
-    const drop = mutation.edit('drop', orders,
-      East.function([Rows, StringType, mutation.editType(Rows)], NullType, ($, _state, id, edit) => {
-        $(edit.delete(id));
-      }));
-    const byQty = recordIndex('by_qty', orders, {
-      key: East.function([StringType, Row], IntegerType, (_$, _id, row) => row.qty),
-      value: East.function([StringType, Row], StringType, (_$, _id, row) => row.line),
+    // The edit body's last parameter, typed by the record.
+    const Edit = mutation.editType(Rows);
+    const orders = record('orders', Rows, {
+      initial: new Map(),
+      indexes: (index) => ({
+        by_qty: index.key(East.function([StringType, Row], IntegerType, (_$, _id, row) => row.qty), {
+          value: East.function([StringType, Row], StringType, (_$, _id, row) => row.line),
+        }),
+      }),
+      mutations: (mutation) => ({
+        approve: mutation.reduce(East.function([Rows, StringType], Rows, (_$, state, _id) => state)),
+        drop: mutation.edit(East.function([Rows, StringType, Edit], NullType, ($, _state, id, edit) => {
+          $(edit.delete(id));
+        })),
+        patch: mutation.patch(),
+      }),
+      migrations: (migration) => [
+        migration.rows('add_qty', East.function([StringType, RowV1], Row, (_$, _id, old) => ({ line: old.line, qty: 0n }))),
+        migration.rekey('rekeyed',
+          East.function([StringType, Row], StructType({ key: StringType, value: Row }), (_$, id, row) => ({ key: id, value: row }))),
+      ],
     });
-    const addQty = migration.rows('add_qty', orders,
-      East.function([StringType, RowV1], Row, (_$, _id, old) => ({ line: old.line, qty: 0n })));
-    const rekeyed = migration.rekey('rekeyed', orders,
-      East.function([StringType, Row], StructType({ key: StringType, value: Row }), (_$, id, row) => ({ key: id, value: row })),
-      { after: addQty });
-    const pkg = package_('programs', '1.0.0', orders, approve, drop, mutation.patch(orders), byQty, rekeyed);
+    const pkg = package_('programs', '1.0.0', orders);
 
     const zipPath1 = path.join(tempDir, 'programs1.zip');
     const zipPath2 = path.join(tempDir, 'programs2.zip');
@@ -614,8 +622,8 @@ describe('the typed task object', () => {
     assert.deepStrictEqual(shoutObject.output, { path: shout.output.path, kind: variant('value', null) });
     assert.deepStrictEqual(shoutObject.role, variant('data', null));
     assert.deepStrictEqual(shoutObject.runner, variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }));
-    assert.strictEqual(shoutObject.body.type, 'east');
-    const program = decodeEastIR(object((shoutObject.body.value as { program: string }).program));
+    assert.ok(shoutObject.body.type === 'east');
+    const program = decodeEastIR(object(shoutObject.body.value.program));
     assert.strictEqual(program.compile([])('hi'), 'HI');
 
     // The task's subtree holds its output and nothing else.

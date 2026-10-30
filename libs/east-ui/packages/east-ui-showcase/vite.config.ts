@@ -23,16 +23,17 @@ export default defineConfig(({ command }) => {
         e3TestDir: path.resolve(__dirname, '../e3-ui/test'),
         rootDir: __dirname,
       }),
-      /* The showcase's e3 packages (#849, #1397): an area's — the e3 examples
-       * of one category — holding what its examples read, exported with the
-       * real SDK by e3-ui's examples' package step
-       * (`@elaraai/e3-ui/examples-package`, #1375) — each served at
-       * `/e3-showcase-<area>.zip` by the dev server, and emitted by the build
-       * named by its content (`assets/e3-showcase-<area>-<hash>.zip`), the
-       * bundle carrying their URLs (`virtual:e3-showcase-packages`) — which
-       * the e3 the page runs (`showcase-e3.ts`) deploys into the area's
-       * workspace the first time one of its examples shows. The page deploys
-       * each once, so an e3-ui change reaches it through the zips built again
+      /* The showcase's workspace bundles (#849, #1397): an area's — the e3
+       * examples of one category — is its workspace as an e3 in node made it:
+       * the package e3-ui's examples' package step exports with the real SDK
+       * (`@elaraai/e3-ui/examples-package`, #1375), holding what its examples
+       * read, deployed and its dataflow run once. Each is served at
+       * `/e3-showcase-<area>.beast2` by the dev server, and emitted by the
+       * build named by its content (`assets/e3-showcase-<area>-<hash>.beast2`),
+       * the page's code carrying their URLs (`virtual:e3-showcase-bundles`);
+       * the e3 the page runs (`showcase-e3.ts`) makes the area's workspace
+       * from it the first time one of its examples shows. The page makes each
+       * once, so an e3-ui change reaches it through the bundles made again
        * and a reload: the plugin reloads the page when e3-ui's `dist/` or
        * `test/` changes (an example module reloads rather than updating in
        * place). The React renderer (`e3-ui-components`) keeps Fast Refresh. */
@@ -155,7 +156,7 @@ export default defineConfig(({ command }) => {
       rollupOptions: {
         external: (id: string) => id.startsWith('node:'),
         /* A member read off a namespace import that its module does not
-         * export — `e3.recordIndex` against a shim that lacks it — is only a
+         * export — a member of `e3` against a shim that lacks it — is only a
          * warning to Rollup, which compiles the read to `undefined`: the
          * bundle builds and the whole showcase then fails to load. Fail the
          * build instead, naming the binding and its importer. */

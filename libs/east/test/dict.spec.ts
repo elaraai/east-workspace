@@ -319,6 +319,7 @@ await describe("Dict", (test) => {
         dictMap: ex.dictMap,
         dictFilter: ex.dictFilter,
         dictFilterMap: ex.dictFilterMap,
+        dictFilterMapRetype: ex.dictFilterMapRetype,
         dictReduce: ex.dictReduce,
         dictScan: ex.dictScan,
         dictSum: ex.dictSum,
@@ -370,6 +371,12 @@ await describe("Dict", (test) => {
         $(assert.equal(
             East.value(new Map([[1n, "a"], [2n, "b"], [3n, "c"], [4n, "d"]])).filterMap(($, value, key) => East.equal(key.remainder(2n), 1n).ifElse(_$ => some(str`${key}:${value}`), _$ => none)),
             new Map([[1n, "1:a"], [3n, "3:c"]])
+        ))
+
+        // filterMap to another value type: a Dict of what the function keeps
+        $(assert.equal(
+            East.value(new Map([["a", 1n], ["b", 2n], ["c", 3n], ["d", 4n]])).filterMap((_$, value) => East.equal(value.remainder(2n), 0n).ifElse(_$ => some(value.toFloat()), _$ => none)),
+            new Map([["b", 2.0], ["d", 4.0]])
         ))
 
         // reduce
@@ -786,6 +793,59 @@ await describe("Dict", (test) => {
         // x -> y -> x, with w below the cycle: w sorts first, but the message names x, the first key ON the cycle
         const parents = $.const(new Map([["w", "x"], ["x", "y"], ["y", "x"]]), DictType(StringType, StringType));
         $(assert.throws(parents.toTree(IntegerType, (_$, parent) => some(parent), (_$, _parent, _id, children) => children.sum().add(1n)), /^toTree: cycle through key "x"$/));
+    });
+
+    assert.examples(test, {
+        dictFlattenTree: ex.dictFlattenTree,
+        dictFlattenTreeRollup: ex.dictFlattenTreeRollup,
+    });
+
+    const DictPartType = RecursiveType(self => StructType({ name: StringType, parts: DictType(StringType, self) }));
+
+    /** b holds y and x, which holds z; a holds none — each written out of key order. */
+    const outOfOrder = () => new Map([
+        ["b", {
+            name: "B", parts: new Map([
+                ["y", { name: "BY", parts: new Map() }],
+                ["x", { name: "BX", parts: new Map([["z", { name: "BXZ", parts: new Map() }]]) }],
+            ]),
+        }],
+        ["a", { name: "A", parts: new Map() }],
+    ]);
+
+    test("flattenTree - every node once, under its path of keys, depth first with siblings in key order", $ => {
+        const parts = $.const(outOfOrder(), DictType(StringType, DictPartType));
+        const nodes = $.let(parts.flattenTree((_$, part) => part.unwrap().parts));
+        $(assert.equal(nodes.map((_$, entry) => Expr.str`${entry.path.stringJoin("/")}=${entry.node.unwrap().name}`), ["a=A", "b=B", "b/x=BX", "b/x/z=BXZ", "b/y=BY"]));
+    });
+
+    test("flattenTree - children runs once per node, each before its descendants, siblings in key order", $ => {
+        const parts = $.const(outOfOrder(), DictType(StringType, DictPartType));
+        const calls = $.let([], ArrayType(StringType));
+        $(parts.flattenTree(($, part, key) => { $(calls.pushLast(key)); return part.unwrap().parts; }));
+        $(assert.equal(calls, ["a", "b", "x", "z", "y"]));
+    });
+
+    test("flattenTree - an empty dict has no nodes, and leaves only their own", $ => {
+        const empty = $.const(new Map(), DictType(StringType, DictPartType));
+        $(assert.equal(empty.flattenTree((_$, part) => part.unwrap().parts).size(), 0n));
+        const leaves = $.const(new Map([["a", { name: "A", parts: new Map() }], ["b", { name: "B", parts: new Map() }]]), DictType(StringType, DictPartType));
+        $(assert.equal(leaves.flattenTree((_$, part) => part.unwrap().parts).map((_$, entry) => ({ path: entry.path, name: entry.node.unwrap().name })), [{ path: ["a"], name: "A" }, { path: ["b"], name: "B" }]));
+    });
+
+    test("flattenTree - a node's children may be computed rather than held: a countdown unfolds", $ => {
+        const roots = $.const(new Map([["a", 2n], ["b", 0n]]), DictType(StringType, IntegerType));
+        $(assert.equal(roots.flattenTree(($, n, key) => {
+            const children = $.let(new Map(), DictType(StringType, IntegerType));
+            $.if(East.greater(n, 0n), $ => { $(children.insert(Expr.str`${key}'`, n.subtract(1n))); });
+            return children;
+        }), [{ path: ["a"], node: 2n }, { path: ["a", "a'"], node: 1n }, { path: ["a", "a'", "a''"], node: 0n }, { path: ["b"], node: 0n }]));
+    });
+
+    test("flattenTree - children as an East function", $ => {
+        const children = $.const(East.function([DictPartType, StringType], DictType(StringType, DictPartType), (_$, part) => part.unwrap().parts));
+        const parts = $.const(outOfOrder(), DictType(StringType, DictPartType));
+        $(assert.equal(parts.flattenTree(children).size(), 5n));
     });
 
     test("Equality method aliases", $ => {

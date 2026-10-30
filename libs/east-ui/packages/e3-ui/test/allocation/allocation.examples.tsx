@@ -16,52 +16,98 @@ import {
 // writes, each through its patch door; and what it reads — its kilns, its loads and its bays.
 
 /** The bins, every day's, each the yard's own row. */
-export const kilnBins = e3.record("kiln_bins", DictType(StringType, KilnBin), yardBinRows);
-export const kilnBinsPatch = e3.mutation.patch(kilnBins);
-/** The bins by their time: what the board's slice reads a day of them through, its navigation writing the range. */
-export const kilnBinsByTime = e3.recordIndex.interval("kiln_bins_by_time", kilnBins, { from: "at", to: "at" });
+export const kilnBins = e3.record("kiln_bins", DictType(StringType, KilnBin), {
+    initial: yardBinRows,
+    indexes: (index) => ({
+        // The bins by their time: what the board's slice reads a day of them through, its navigation writing the range.
+        kiln_bins_by_time: index.interval({ from: "at", to: "at" }),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 /** The days of the yard's plan, what the board publishes: Tue 4 May issued, Tue 11 and Wed 12 drafts. */
-export const yardDays = e3.record("yard_days", DictType(DateTimeType, YardDay), yardDayRows);
-export const yardDaysPatch = e3.mutation.patch(yardDays);
+export const yardDays = e3.record("yard_days", DictType(DateTimeType, YardDay), {
+    initial: yardDayRows,
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 /** The same bins, locked for the day: their door, a checked one, refuses every change, naming why — what a Save over it is answered. */
-export const kilnLockedBins = e3.record("kiln_locked_bins", DictType(StringType, KilnBin), yardBinRows);
-export const kilnLockedBinsByTime = e3.recordIndex.interval("kiln_locked_bins_by_time", kilnLockedBins, { from: "at", to: "at" });
-export const kilnLockedBinsPatch = e3.mutation.reduce("patch", kilnLockedBins,
-    East.function([DictType(StringType, KilnBin), PatchType(DictType(StringType, KilnBin))], DictType(StringType, KilnBin), ($, bins, _patch) => {
-        $.error("the yard's bins are locked for the day");
-        return bins;
-    }));
+export const kilnLockedBins = e3.record("kiln_locked_bins", DictType(StringType, KilnBin), {
+    initial: yardBinRows,
+    indexes: (index) => ({
+        kiln_locked_bins_by_time: index.interval({ from: "at", to: "at" }),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.reduce(East.function([DictType(StringType, KilnBin), PatchType(DictType(StringType, KilnBin))], DictType(StringType, KilnBin), ($, bins, _patch) => {
+            $.error("the yard's bins are locked for the day");
+            return bins;
+        })),
+    }),
+});
 /** The same days, locked: the site office issues them, and their door refuses every change, naming why. */
-export const yardLockedDays = e3.record("yard_locked_days", DictType(DateTimeType, YardDay), yardDayRows);
-export const yardLockedDaysPatch = e3.mutation.reduce("patch", yardLockedDays,
-    East.function([DictType(DateTimeType, YardDay), PatchType(DictType(DateTimeType, YardDay))], DictType(DateTimeType, YardDay), ($, days, _patch) => {
-        $.error("the site office issues the yard's days");
-        return days;
-    }));
+export const yardLockedDays = e3.record("yard_locked_days", DictType(DateTimeType, YardDay), {
+    initial: yardDayRows,
+    mutations: (mutation) => ({
+        patch: mutation.reduce(East.function([DictType(DateTimeType, YardDay), PatchType(DictType(DateTimeType, YardDay))], DictType(DateTimeType, YardDay), ($, days, _patch) => {
+            $.error("the site office issues the yard's days");
+            return days;
+        })),
+    }),
+});
 /** Two years of the yard's bins, for the board read a day at a time through its slice. */
-export const kilnBinHistory = e3.record("kiln_bin_history", DictType(StringType, KilnBin), yardBinHistoryRows);
-export const kilnBinHistoryPatch = e3.mutation.patch(kilnBinHistory);
-export const kilnBinHistoryByTime = e3.recordIndex.interval("kiln_bin_history_by_time", kilnBinHistory, { from: "at", to: "at" });
+export const kilnBinHistory = e3.record("kiln_bin_history", DictType(StringType, KilnBin), {
+    initial: yardBinHistoryRows,
+    indexes: (index) => ({
+        kiln_bin_history_by_time: index.interval({ from: "at", to: "at" }),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 /** The days of those two years, read by key. */
-export const yardDayHistory = e3.record("yard_day_history", DictType(DateTimeType, YardDay), yardDayHistoryRows);
-export const yardDayHistoryPatch = e3.mutation.patch(yardDayHistory);
+export const yardDayHistory = e3.record("yard_day_history", DictType(DateTimeType, YardDay), {
+    initial: yardDayHistoryRows,
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 // The kilns, indexed by group for the narrowing; and by group then max, so a group and a range of max combine, and by name, for a search.
-export const kilns = e3.record("kilns", DictType(StringType, Kiln), yardKilns);
-export const kilnsByGroup = e3.recordIndex("kilns_by_group", kilns, { on: ["group"] });
-export const kilnsByGroupMax = e3.recordIndex("kilns_by_group_max", kilns, { on: ["group", "max"] });
-export const kilnsByName = e3.recordIndex("kilns_by_name", kilns, { on: ["name"] });
-// The kilns' patch door: another session's edit of the yard's kilns, as the renderer's tests on e3 commit it (#1376).
-export const kilnsPatch = e3.mutation.patch(kilns);
+export const kilns = e3.record("kilns", DictType(StringType, Kiln), {
+    initial: yardKilns,
+    indexes: (index) => ({
+        kilns_by_group: index.on(["group"]),
+        kilns_by_group_max: index.on(["group", "max"]),
+        kilns_by_name: index.on(["name"]),
+    }),
+    mutations: (mutation) => ({
+        // The kilns' patch door: another session's edit of the yard's kilns, as the renderer's tests on e3 commit it (#1376).
+        patch: mutation.patch(),
+    }),
+});
 // Every load the day may book: booked or not, the board tells them apart by its bins; indexed by spec for the narrowing.
-export const arrivals = e3.record("arrivals", DictType(StringType, TimberLoad), yardArrivals);
-export const arrivalsBySpec = e3.recordIndex("arrivals_by_spec", arrivals, { on: ["spec"] });
+export const arrivals = e3.record("arrivals", DictType(StringType, TimberLoad), {
+    initial: yardArrivals,
+    indexes: (index) => ({
+        arrivals_by_spec: index.on(["spec"]),
+    }),
+});
 // The unloading bays, by key: each takes one bin an hour, at its offset past the hour; indexed by area, and by cover, for the narrowing.
-export const yardBays = e3.record("yard_bays", DictType(StringType, Bay), yardBayRows);
-export const yardBaysByArea = e3.recordIndex("yard_bays_by_area", yardBays, { on: ["area"] });
-export const yardBaysByCover = e3.recordIndex("yard_bays_by_cover", yardBays, { on: ["cover"] });
+export const yardBays = e3.record("yard_bays", DictType(StringType, Bay), {
+    initial: yardBayRows,
+    indexes: (index) => ({
+        yard_bays_by_area: index.on(["area"]),
+        yard_bays_by_cover: index.on(["cover"]),
+    }),
+});
 // The smallest board's own bins (§6.5): the board's roles alone.
-export const minimalBins = e3.record("kiln_minimal_bins", DictType(StringType, MinimalBin), yardMinimalBinRows);
-export const minimalBinsPatch = e3.mutation.patch(minimalBins);
+export const minimalBins = e3.record("kiln_minimal_bins", DictType(StringType, MinimalBin), {
+    initial: yardMinimalBinRows,
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 
 /** The yard's fit's body: the built-in rules, then a greedy look-ahead over the day's other loads. */
 export const yardFitBody = East.function([Allocation.Types.FitRequest(KilnBin)], Allocation.Types.FitResult, ($, req) => {
@@ -99,7 +145,7 @@ export const allocationMinimal = example({
     description: "The smallest board over the app's own records: bins with only the board's roles — their bay, time, load, m³, split across kilns and drying time — the bays, the kilns and the day's loads, and the yard's fit on e3. No library, no inspector and no Publish; every gesture is still a draft until Save.",
     keywords: ["Allocation", "Schedule.events", "Schedule.resources", "Allocation.arrivals", "Record.bind", "Func.bind", "e3.function", "fit", "minimal", "BuilderFrame", "Save"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const bins = $.let(Record.bind(minimalBins, [minimalBinsPatch]));
+        const bins = $.let(Record.bind(minimalBins));
         const loads = $.let(Data.bind(arrivals));
         const yard = $.let(Data.bind(kilns));
         const bays = $.let(Data.bind(yardBays));
@@ -124,17 +170,17 @@ export const allocationKilnYard = example({
     keywords: ["Allocation", "Schedule.events", "Schedule.resources", "Schedule.periods", "Allocation.arrivals", "Slice.bindRecords", "Data.bindPaged", "Func.bind", "fit", "check", "columns", "links", "Publish", "Library", "narrowing"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         // What the board writes: the bins and the days of the plan, each through its patch door.
-        const bins = $.let(Record.bind(kilnBins, [kilnBinsPatch]));
+        const bins = $.let(Record.bind(kilnBins));
         const entries = $.let(Data.bindPaged(kilnBins));
-        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: [kilnBinsByTime] }));
-        const days = $.let(Record.bind(yardDays, [yardDaysPatch]));
+        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: ["kiln_bins_by_time"] }));
+        const days = $.let(Record.bind(yardDays));
         // Every bay, kiln and load is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
         const loads = $.let(Data.bind(arrivals));
         const bays = $.let(Data.bind(yardBays));
-        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea, yardBaysByCover] }));
-        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroupMax, kilnsByName] }));
-        const loadIndex = $.let(Data.bindPaged(arrivals, { indexes: [arrivalsBySpec] }));
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: ["yard_bays_by_area", "yard_bays_by_cover"] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: ["kilns_by_group_max", "kilns_by_name"] }));
+        const loadIndex = $.let(Data.bindPaged(arrivals, { indexes: ["arrivals_by_spec"] }));
         const slice = $.let(Slice.bindRecords("ex.allocationKilnYard", {
             // The day's bins: the board's navigation writes the range; no chip picks the day.
             bin: { source: byTime, range: "at" },
@@ -204,17 +250,17 @@ export const allocationTable = example({
     description: "The kiln yard as a Table: one row per bay slot and one per extra bin of a batch, in four foldable time bands, narrowed by the bays' area or cover, the kilns' group, max or name, and the loads' spec; the same drafts, library and inspector as the Timeline.",
     keywords: ["Allocation", "Table", "Schedule.events", "Schedule.resources", "Schedule.periods", "Allocation.arrivals", "Func.bind", "columns", "Chooser", "Slice.bindRecords"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const bins = $.let(Record.bind(kilnBins, [kilnBinsPatch]));
+        const bins = $.let(Record.bind(kilnBins));
         const entries = $.let(Data.bindPaged(kilnBins));
-        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: [kilnBinsByTime] }));
-        const days = $.let(Record.bind(yardDays, [yardDaysPatch]));
+        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: ["kiln_bins_by_time"] }));
+        const days = $.let(Record.bind(yardDays));
         // Every bay, kiln and load is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
         const loads = $.let(Data.bind(arrivals));
         const bays = $.let(Data.bind(yardBays));
-        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea, yardBaysByCover] }));
-        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroupMax, kilnsByName] }));
-        const loadIndex = $.let(Data.bindPaged(arrivals, { indexes: [arrivalsBySpec] }));
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: ["yard_bays_by_area", "yard_bays_by_cover"] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: ["kilns_by_group_max", "kilns_by_name"] }));
+        const loadIndex = $.let(Data.bindPaged(arrivals, { indexes: ["arrivals_by_spec"] }));
         const slice = $.let(Slice.bindRecords("ex.allocationTable", {
             bin: { source: byTime, range: "at" },
             bays: { source: bayIndex, icon: { prefix: "fas", name: "warehouse" },
@@ -267,16 +313,16 @@ export const allocationLabels = example({
     description: "The kiln yard in its own words: labels={{ lane: \"Bay\", arrival: { one: \"Delivery\", other: \"Deliveries\" }, resource: \"Kiln\", quantity: \"Vol\" }} names the board's lanes, arrivals, resources and quantity everywhere it writes them — the Table's heads, the Chooser, the placeholders, the drag captions, the banners and the narrowing's summary — and table={{ bands }} sets the Table's time bands to the yard's shifts.",
     keywords: ["Allocation", "labels", "nouns", "arrival", "Table", "bands", "Schedule.events", "Allocation.arrivals", "Func.bind"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const bins = $.let(Record.bind(kilnBins, [kilnBinsPatch]));
+        const bins = $.let(Record.bind(kilnBins));
         const entries = $.let(Data.bindPaged(kilnBins));
-        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: [kilnBinsByTime] }));
-        const days = $.let(Record.bind(yardDays, [yardDaysPatch]));
+        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: ["kiln_bins_by_time"] }));
+        const days = $.let(Record.bind(yardDays));
         // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
         const loads = $.let(Data.bind(arrivals));
         const bays = $.let(Data.bind(yardBays));
-        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
-        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: ["yard_bays_by_area"] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: ["kilns_by_group"] }));
         const slice = $.let(Slice.bindRecords("ex.allocationLabels", {
             bin: { source: byTime, range: "at" },
             bays: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
@@ -327,16 +373,16 @@ export const allocationPublished = example({
     description: "A published day, Tue 4 May, its status the yard's own day issued: read-only under its banner; navigation, the narrowing, the focus, links and the inspector still work.",
     keywords: ["Allocation", "Schedule.periods", "Publish", "published", "readOnly", "Record.bind"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const bins = $.let(Record.bind(kilnBins, [kilnBinsPatch]));
+        const bins = $.let(Record.bind(kilnBins));
         const entries = $.let(Data.bindPaged(kilnBins));
-        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: [kilnBinsByTime] }));
-        const days = $.let(Record.bind(yardDays, [yardDaysPatch]));
+        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: ["kiln_bins_by_time"] }));
+        const days = $.let(Record.bind(yardDays));
         // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
         const loads = $.let(Data.bind(arrivals));
         const bays = $.let(Data.bind(yardBays));
-        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
-        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: ["yard_bays_by_area"] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: ["kilns_by_group"] }));
         const slice = $.let(Slice.bindRecords("ex.allocationPublished", {
             bin: { source: byTime, range: "at" },
             bays: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
@@ -385,15 +431,15 @@ export const allocationNoPublish = example({
     description: "The kiln yard with no `periods`: no status chip and no Publish; Save writes the day's bins as drafts.",
     keywords: ["Allocation", "periods", "publish", "Save", "Schedule.events", "Record.bind"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const bins = $.let(Record.bind(kilnBins, [kilnBinsPatch]));
+        const bins = $.let(Record.bind(kilnBins));
         const entries = $.let(Data.bindPaged(kilnBins));
-        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: [kilnBinsByTime] }));
+        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: ["kiln_bins_by_time"] }));
         // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
         const loads = $.let(Data.bind(arrivals));
         const bays = $.let(Data.bind(yardBays));
-        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
-        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: ["yard_bays_by_area"] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: ["kilns_by_group"] }));
         const slice = $.let(Slice.bindRecords("ex.allocationNoPublish", {
             bin: { source: byTime, range: "at" },
             bays: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
@@ -441,16 +487,16 @@ export const allocationSplit = example({
     description: "Loads split across kilns on Wed 12 May: each bin's parts on their kilns, one load with 4 m³ unallocated and its Partly allocated issue, and a link to each part.",
     keywords: ["Allocation", "split", "parts", "unallocated", "Find a fit", "links", "Schedule.events"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const bins = $.let(Record.bind(kilnBins, [kilnBinsPatch]));
+        const bins = $.let(Record.bind(kilnBins));
         const entries = $.let(Data.bindPaged(kilnBins));
-        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: [kilnBinsByTime] }));
-        const days = $.let(Record.bind(yardDays, [yardDaysPatch]));
+        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: ["kiln_bins_by_time"] }));
+        const days = $.let(Record.bind(yardDays));
         // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
         const loads = $.let(Data.bind(arrivals));
         const bays = $.let(Data.bind(yardBays));
-        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
-        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: ["yard_bays_by_area"] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: ["kilns_by_group"] }));
         const slice = $.let(Slice.bindRecords("ex.allocationSplit", {
             bin: { source: byTime, range: "at" },
             bays: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
@@ -497,20 +543,20 @@ export const allocationSplit = example({
 
 export const allocationWindowed = example({
     description: "Two years of bins read a day at a time through the slice's bin source — an interval index over their times, its range the board's own navigation — and the plan's days by key: only the active day and the open picker's month are requested, never a record whole.",
-    keywords: ["Allocation", "Schedule.events", "Schedule.periods", "Slice.bindRecords", "Data.bindPaged", "recordIndex", "interval", "history", "entries", "BuilderFrame", "Save", "Publish"], inputs: [],
+    keywords: ["Allocation", "Schedule.events", "Schedule.periods", "Slice.bindRecords", "Data.bindPaged", "indexes", "interval", "history", "entries", "BuilderFrame", "Save", "Publish"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const bins = $.let(Record.bind(kilnBinHistory, [kilnBinHistoryPatch]));
+        const bins = $.let(Record.bind(kilnBinHistory));
         const entries = $.let(Data.bindPaged(kilnBinHistory));
-        const byTime = $.let(Data.bindPaged(kilnBinHistory, { indexes: [kilnBinHistoryByTime] }));
+        const byTime = $.let(Data.bindPaged(kilnBinHistory, { indexes: ["kiln_bin_history_by_time"] }));
         // The days of the plan read by key: the day, and the open picker's month.
-        const days = $.let(Record.bind(yardDayHistory, [yardDayHistoryPatch]));
+        const days = $.let(Record.bind(yardDayHistory));
         const dayEntries = $.let(Data.bindPaged(yardDayHistory));
         // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
         const loads = $.let(Data.bind(arrivals));
         const bays = $.let(Data.bind(yardBays));
-        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
-        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: ["yard_bays_by_area"] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: ["kilns_by_group"] }));
         const slice = $.let(Slice.bindRecords("ex.allocationWindowed", {
             // The day's bins: the board's navigation writes the range.
             bin: { source: byTime, range: "at" },
@@ -560,16 +606,16 @@ export const allocationMobile = example({
     description: "The kiln yard in a 390px container: a card per kiln (or per slot in the Table) with Book, Reserve, Allocate, Unlink and Back to Arrivals in anchored popovers; no drag source or target.",
     keywords: ["Allocation", "mobile", "narrow", "cards", "Schedule.events", "Record.bind"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const bins = $.let(Record.bind(kilnBins, [kilnBinsPatch]));
+        const bins = $.let(Record.bind(kilnBins));
         const entries = $.let(Data.bindPaged(kilnBins));
-        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: [kilnBinsByTime] }));
-        const days = $.let(Record.bind(yardDays, [yardDaysPatch]));
+        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: ["kiln_bins_by_time"] }));
+        const days = $.let(Record.bind(yardDays));
         // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
         const loads = $.let(Data.bind(arrivals));
         const bays = $.let(Data.bind(yardBays));
-        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
-        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: ["yard_bays_by_area"] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: ["kilns_by_group"] }));
         const slice = $.let(Slice.bindRecords("ex.allocationMobile", {
             bin: { source: byTime, range: "at" },
             bays: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
@@ -618,16 +664,16 @@ export const allocationCustomBin = example({
     description: "The bin kind's own inspector: the yard's typed bin form — its m³ and its loading instruction, each change the bin written back whole — in place of the built-in quantity field and the row's other fields.",
     keywords: ["Allocation", "Schedule.events", "inspector", "bin", "Field", "typed form"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const bins = $.let(Record.bind(kilnBins, [kilnBinsPatch]));
+        const bins = $.let(Record.bind(kilnBins));
         const entries = $.let(Data.bindPaged(kilnBins));
-        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: [kilnBinsByTime] }));
-        const days = $.let(Record.bind(yardDays, [yardDaysPatch]));
+        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: ["kiln_bins_by_time"] }));
+        const days = $.let(Record.bind(yardDays));
         // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
         const loads = $.let(Data.bind(arrivals));
         const bays = $.let(Data.bind(yardBays));
-        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
-        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: ["yard_bays_by_area"] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: ["kilns_by_group"] }));
         const slice = $.let(Slice.bindRecords("ex.allocationCustomBin", {
             bin: { source: byTime, range: "at" },
             bays: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
@@ -687,16 +733,16 @@ export const allocationFitRule = example({
     description: "The ready-made fit with one yard rule over it, as an e3.function: a bulk kiln takes no load under 20 m³, so LD-2235 (8 m³) fits K-305 alone.",
     keywords: ["Allocation", "fit", "e3.function", "Func.bind", "Allocation.fit", "Allocation.answer", "rule"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const bins = $.let(Record.bind(kilnBins, [kilnBinsPatch]));
+        const bins = $.let(Record.bind(kilnBins));
         const entries = $.let(Data.bindPaged(kilnBins));
-        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: [kilnBinsByTime] }));
-        const days = $.let(Record.bind(yardDays, [yardDaysPatch]));
+        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: ["kiln_bins_by_time"] }));
+        const days = $.let(Record.bind(yardDays));
         // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
         const loads = $.let(Data.bind(arrivals));
         const bays = $.let(Data.bind(yardBays));
-        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
-        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: ["yard_bays_by_area"] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: ["kilns_by_group"] }));
         const slice = $.let(Slice.bindRecords("ex.allocationFitRule", {
             bin: { source: byTime, range: "at" },
             bays: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },

@@ -78,7 +78,7 @@ const COUNTED = new Map<string, Job>([
 /** A Plan of the presses and their jobs, with a backlog — given no `library` and no `inspector`, so no pane. */
 const bareJobs = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
-    const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+    const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     return Plan({
         axis,
@@ -107,7 +107,7 @@ function canvasOf(n: number, style?: { height?: string; maxHeight?: string }): P
         rows: variant("inline", oneBlock(rows as never)),
         links: [],
         axis: variant("time", { window: some({ min: FIRST, max: LAST }), resolution: variant("week", null), resolutions: [], now: none, format: none }),
-        grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, pick: none, slice: none, footer: [],
+        grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, pick: none, slice: none, nested: none, footer: [],
         id: none, sources: [], editing: none, canDrop: none, onSelect: none, onElementClick: none, onGroupToggle: none, onGrainChange: none, ui: none,
         style: style !== undefined
             ? some({

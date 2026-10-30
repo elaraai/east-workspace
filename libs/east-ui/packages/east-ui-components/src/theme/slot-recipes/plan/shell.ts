@@ -28,7 +28,7 @@ import { planElementFocus, planRowFocus } from "./focus.js";
 /** The slots this part styles. */
 export const shellSlots = [
     "root", "frame", "body", "header", "brushTrack", "brushRow",
-    "brushCaption", "brushPending", "horizonLens", "ruler", "rulerTrack", "rulerRow", "rulerTick", "rulerLabel", "footer", "footerItem", "focusBar",
+    "brushCaption", "brushMeta", "brushPending", "horizonLens", "ruler", "rulerTrack", "rulerRow", "rulerTick", "rulerLabel", "footer", "footerItem", "focusBar",
     "focusBack", "focusCaption", "diagnostic", "rowDiagnostic", "partError", "diagnostics",
     "diagnosticChip", "chipIcon", "runBand", "runRow", "runGutter", "runPlot", "windowRetry",
     "cursorLine", "cursorChip", "elementOverlay", "libraryPane", "libraryPending",
@@ -70,15 +70,32 @@ export const shellBase = {
     },
     // The gutter caption of a header band — the ruler's, the horizon's — in
     // the header row's one style (#949): mono 10 / 600, uppercase, label ink.
+    // The horizon's meta line sits 4 below it (#1438).
     brushCaption: {
         ...timeHeaderText,
         display: "flex",
-        alignItems: "center",
+        flexDirection: "column",
+        justifyContent: "center",
+        alignItems: "flex-start",
+        gap: "4px",
         padding: "0 12px",
         borderRightWidth: "1px",
         borderRightColor: "border.subtle",
         whiteSpace: "nowrap",
         overflow: "hidden",
+    },
+    // The horizon's meta line (#1438): its largest bucket and the period its
+    // bars count by, `max 1,559 items / mo` — mono 10 / 500 in the subtle ink —
+    // or, with nothing in the horizon, `no data` in italic 400.
+    brushMeta: {
+        fontFamily: "mono",
+        fontSize: "10px",
+        fontWeight: "medium",
+        letterSpacing: "normal",
+        textTransform: "none",
+        lineHeight: "1",
+        color: "fg.subtle",
+        "&[data-empty]": { fontStyle: "italic", fontWeight: "normal" },
     },
     // The horizon's track while its sources' span is read (#1398, CL1): the
     // Skeleton's static fill in the strip's place, inset as the strip's bars

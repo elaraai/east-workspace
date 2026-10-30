@@ -26,40 +26,96 @@ export {
 // its staff and agencies, and its shift times, teams, positions and activities.
 
 /** The duties, both weeks', each the warehouse's own row. */
-export const rosterDuties = e3.record("roster_duties", DictType(StringType, WarehouseDuty), warehouseDuties);
-export const rosterDutiesPatch = e3.mutation.patch(rosterDuties);
-/** The duties by their times: what the Roster's slice reads a week of them through, its navigation writing the range. */
-export const rosterDutiesByTime = e3.recordIndex.interval("roster_duties_by_time", rosterDuties, { from: "start", to: "end" });
+export const rosterDuties = e3.record("roster_duties", DictType(StringType, WarehouseDuty), {
+    initial: warehouseDuties,
+    indexes: (index) => ({
+        // The duties by their times: what the Roster's slice reads a week of them through, its navigation writing the range.
+        roster_duties_by_time: index.interval({ from: "start", to: "end" }),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 /** The weeks of the rota: the one before issued, this one open. */
-export const rosterWeeks = e3.record("roster_rota_weeks", DictType(DateTimeType, WarehouseWeek), warehouseWeeks);
-export const rosterWeeksPatch = e3.mutation.patch(rosterWeeks);
+export const rosterWeeks = e3.record("roster_rota_weeks", DictType(DateTimeType, WarehouseWeek), {
+    initial: warehouseWeeks,
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 /** The cover targets, a row per slot: the week before's, this week's and the forecast's for the week after. */
-export const rosterCover = e3.record("roster_cover", DictType(StringType, WarehouseCover), warehouseCover);
-export const rosterCoverPatch = e3.mutation.patch(rosterCover);
+export const rosterCover = e3.record("roster_cover", DictType(StringType, WarehouseCover), {
+    initial: warehouseCover,
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 /** The suggestions: someone for a slot, and why. */
-export const rosterSuggestions = e3.record("roster_suggestions", DictType(StringType, WarehouseSuggestion), warehouseSuggestions);
+export const rosterSuggestions = e3.record("roster_suggestions", DictType(StringType, WarehouseSuggestion), {
+    initial: warehouseSuggestions,
+    mutations: (mutation) => ({
+        // The suggestions' patch door: another session's edit of them.
+        patch: mutation.patch(),
+    }),
+});
 /** The pay rates, an hour, by the warehouse's own pay codes. */
-export const rosterPayRates = e3.record("roster_pay_rates", DictType(StringType, FloatType), warehousePayRates);
-export const rosterStaff = e3.record("roster_staff", DictType(StringType, WarehousePerson), warehousePeople);
-export const rosterAgencies = e3.record("roster_agencies", DictType(StringType, WarehouseAgency), warehouseAgencies);
-export const rosterShiftTimes = e3.record("roster_shift_times", DictType(StringType, WarehouseShift), warehouseShifts);
-export const rosterTeams = e3.record("roster_teams", DictType(StringType, WarehouseTeam), warehouseTeams);
-export const rosterPositions = e3.record("roster_positions", DictType(StringType, WarehousePosition), warehousePositions);
+export const rosterPayRates = e3.record("roster_pay_rates", DictType(StringType, FloatType), { initial: warehousePayRates });
+export const rosterStaff = e3.record("roster_staff", DictType(StringType, WarehousePerson), {
+    initial: warehousePeople,
+    indexes: (index) => ({
+        // The rail's fields, each on an index of its own: the staff by group then name, position, trainer, agency, skill and name, the activities by group.
+        roster_staff_by_team_name: index.on(["team", "name"]),
+        roster_staff_by_position: index.on(["position"]),
+        roster_staff_by_trainer: index.on(["trainer"]),
+        roster_staff_by_agency: index.on(["agency"]),
+        roster_staff_by_skill: index.on(["skills"]),
+        roster_staff_by_name: index.on(["name"]),
+    }),
+    mutations: (mutation) => ({
+        // What the renderer's tests on e3 write and ask beside the examples (#1376): another session's edits of the
+        // reference data, a roster the warehouse has locked, and another app's fit over the same staff.
+        // The staff's patch door: another session's edit of the staff.
+        patch: mutation.patch(),
+    }),
+});
+export const rosterAgencies = e3.record("roster_agencies", DictType(StringType, WarehouseAgency), { initial: warehouseAgencies });
+export const rosterShiftTimes = e3.record("roster_shift_times", DictType(StringType, WarehouseShift), {
+    initial: warehouseShifts,
+    mutations: (mutation) => ({
+        // The shift times' patch door: another session's edit of them.
+        patch: mutation.patch(),
+    }),
+});
+export const rosterTeams = e3.record("roster_teams", DictType(StringType, WarehouseTeam), {
+    initial: warehouseTeams,
+    mutations: (mutation) => ({
+        // The teams' patch door: another session's edit of them.
+        patch: mutation.patch(),
+    }),
+});
+export const rosterPositions = e3.record("roster_positions", DictType(StringType, WarehousePosition), {
+    initial: warehousePositions,
+    mutations: (mutation) => ({
+        // The positions' patch door: another session's edit of them.
+        patch: mutation.patch(),
+    }),
+});
 /** Every activity by its key: each group's skills, and the duty of none (#1342). */
-export const rosterActivities = e3.record("roster_activities", DictType(StringType, WarehouseActivity), warehouseActivities);
+export const rosterActivities = e3.record("roster_activities", DictType(StringType, WarehouseActivity), {
+    initial: warehouseActivities,
+    indexes: (index) => ({
+        roster_activities_by_group: index.on(["group"]),
+    }),
+});
 /** The week patterns (#1406): the thirteen a planner drops on a person's week, the warehouse's own record. */
-export const rosterPatterns = e3.record("roster_week_patterns", DictType(StringType, WarehousePattern), warehousePatterns);
-/** The week patterns' patch door: another session's edit of them. */
-export const rosterPatternsPatch = e3.mutation.patch(rosterPatterns);
+export const rosterPatterns = e3.record("roster_week_patterns", DictType(StringType, WarehousePattern), {
+    initial: warehousePatterns,
+    mutations: (mutation) => ({
+        // The week patterns' patch door: another session's edit of them.
+        patch: mutation.patch(),
+    }),
+});
 
-// The rail's fields, each on an index of its own: the staff by group then name, position, trainer, agency, skill and name, the activities by group.
-export const rosterStaffByTeamName = e3.recordIndex("roster_staff_by_team_name", rosterStaff, { on: ["team", "name"] });
-export const rosterStaffByPosition = e3.recordIndex("roster_staff_by_position", rosterStaff, { on: ["position"] });
-export const rosterStaffByTrainer = e3.recordIndex("roster_staff_by_trainer", rosterStaff, { on: ["trainer"] });
-export const rosterStaffByAgency = e3.recordIndex("roster_staff_by_agency", rosterStaff, { on: ["agency"] });
-export const rosterStaffBySkill = e3.recordIndex("roster_staff_by_skill", rosterStaff, { on: ["skills"] });
-export const rosterStaffByName = e3.recordIndex("roster_staff_by_name", rosterStaff, { on: ["name"] });
-export const rosterActivitiesByGroup = e3.recordIndex("roster_activities_by_group", rosterActivities, { on: ["group"] });
 
 /** The warehouse's fit's body: the ready-made rule, then a greedy order — the people off that day with the most spare contract hours first, whatever their group. */
 export const rosterStaffFitBody = East.function([Roster.Types.FitRequest(WarehouseDuty)], Roster.Types.FitResult, ($, req) => {
@@ -78,30 +134,22 @@ export const rosterStaffFitBody = East.function([Roster.Types.FitRequest(Warehou
 // The warehouse's fit, on e3: who fits a Find fix's need on its slot.
 export const rosterStaffFit = e3.function("roster_staff_fit", rosterStaffFitBody);
 
-// What the renderer's tests on e3 write and ask beside the examples (#1376): another session's edits of the
-// reference data, a roster the warehouse has locked, and another app's fit over the same staff.
-
-/** The staff's patch door: another session's edit of the staff. */
-export const rosterStaffPatch = e3.mutation.patch(rosterStaff);
-/** The shift times' patch door: another session's edit of them. */
-export const rosterShiftTimesPatch = e3.mutation.patch(rosterShiftTimes);
-/** The teams' patch door: another session's edit of them. */
-export const rosterTeamsPatch = e3.mutation.patch(rosterTeams);
-/** The positions' patch door: another session's edit of them. */
-export const rosterPositionsPatch = e3.mutation.patch(rosterPositions);
-/** The suggestions' patch door: another session's edit of them. */
-export const rosterSuggestionsPatch = e3.mutation.patch(rosterSuggestions);
 
 /** The duties of a roster the warehouse has locked: the warehouse's own duties, which no Save changes. */
-export const rosterLockedDuties = e3.record("roster_locked_duties", DictType(StringType, WarehouseDuty), warehouseDuties);
-/** The locked duties by their times: what a roster over them reads a week of them through. */
-export const rosterLockedDutiesByTime = e3.recordIndex.interval("roster_locked_duties_by_time", rosterLockedDuties, { from: "start", to: "end" });
-/** The locked roster's door, a checked one: it refuses every change, naming why — what a Save over it is answered. */
-export const rosterLockedDutiesPatch = e3.mutation.reduce("patch", rosterLockedDuties,
-    East.function([DictType(StringType, WarehouseDuty), PatchType(DictType(StringType, WarehouseDuty))], DictType(StringType, WarehouseDuty), ($, duties, _patch) => {
-        $.error("the roster is locked for the week");
-        return duties;
-    }));
+export const rosterLockedDuties = e3.record("roster_locked_duties", DictType(StringType, WarehouseDuty), {
+    initial: warehouseDuties,
+    indexes: (index) => ({
+        // The locked duties by their times: what a roster over them reads a week of them through.
+        roster_locked_duties_by_time: index.interval({ from: "start", to: "end" }),
+    }),
+    mutations: (mutation) => ({
+        // The locked roster's door, a checked one: it refuses every change, naming why — what a Save over it is answered.
+        patch: mutation.reduce(East.function([DictType(StringType, WarehouseDuty), PatchType(DictType(StringType, WarehouseDuty))], DictType(StringType, WarehouseDuty), ($, duties, _patch) => {
+            $.error("the roster is locked for the week");
+            return duties;
+        })),
+    }),
+});
 
 /**
  * Another app's fit over the same staff: the warehouse's order — the most spare contract hours first, whatever
@@ -132,16 +180,16 @@ export const rosterWarehouse = example({
     keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Roster.shifts", "Roster.groups", "Roster.positions", "Roster.activities", "Roster.proposals", "pay", "check", "Slice", "Slice.bindRecords", "Data.bindPaged", "Func.bind", "e3.function", "fit", "Find", "BuilderFrame", "Save", "Publish", "FieldForm"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         // What the Roster writes: the duties, the weeks of the rota and the cover targets, each through its patch door.
-        const rota = $.let(Record.bind(rosterDuties, [rosterDutiesPatch]));
+        const rota = $.let(Record.bind(rosterDuties));
         const entries = $.let(Data.bindPaged(rosterDuties));
-        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: [rosterDutiesByTime] }));
-        const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));
-        const cover = $.let(Record.bind(rosterCover, [rosterCoverPatch]));
+        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] }));
+        const weeks = $.let(Record.bind(rosterWeeks));
+        const cover = $.let(Record.bind(rosterCover));
         // Every person and activity is the calculation scope; the narrowing only chooses which show (#1342).
         const people = $.let(Data.bind(rosterStaff));
         const acts = $.let(Data.bind(rosterActivities));
-        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
-        const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
+        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: ["roster_staff_by_team_name", "roster_staff_by_position", "roster_staff_by_trainer", "roster_staff_by_agency", "roster_staff_by_skill", "roster_staff_by_name"] }));
+        const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: ["roster_activities_by_group"] }));
         const slice = $.let(Slice.bindRecords("ex.rosterWarehouse", {
             // The week's duties: the Roster's navigation writes the range; no chip picks the week.
             duty: { source: byTime, range: "start" },
@@ -246,16 +294,16 @@ export const rosterMobile = example({
     inputs: [], description: "The warehouse roster in a phone-width container: explicit Assign, Move, Edit, Remove, Restore, Request, Accept, Reject and target actions over the warehouse's own records. The same session survives resizing; mobile cards register no drag sources or targets.",
     keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "mobile", "Save", "Publish", "FieldForm"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const rota = $.let(Record.bind(rosterDuties, [rosterDutiesPatch]));
+        const rota = $.let(Record.bind(rosterDuties));
         const entries = $.let(Data.bindPaged(rosterDuties));
-        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: [rosterDutiesByTime] }));
-        const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));
-        const cover = $.let(Record.bind(rosterCover, [rosterCoverPatch]));
+        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] }));
+        const weeks = $.let(Record.bind(rosterWeeks));
+        const cover = $.let(Record.bind(rosterCover));
         // Every person and activity is the calculation scope; the narrowing only chooses which show (#1342).
         const people = $.let(Data.bind(rosterStaff));
         const acts = $.let(Data.bind(rosterActivities));
-        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
-        const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
+        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: ["roster_staff_by_team_name", "roster_staff_by_position", "roster_staff_by_trainer", "roster_staff_by_agency", "roster_staff_by_skill", "roster_staff_by_name"] }));
+        const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: ["roster_activities_by_group"] }));
         const slice = $.let(Slice.bindRecords("ex.rosterMobile", {
             duty: { source: byTime, range: "start" },
             people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
@@ -302,16 +350,16 @@ export const rosterPeople = example({
     inputs: [], description: "The People layout by week over the same records (#1406): a row per person under their group's band, a tile per duty in each day cell in the shift's colour token — its hours only where a duty's own times differ (tileTimes=\"different\") — the week's hours and a meter in the name cell, `+ Assign` on an off day opening a menu of the home group's shifts, and the warehouse's week patterns in a Patterns tab, each dropped on a person's week as one undo step; the agency's requests their own row.",
     keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Roster.shifts", "color", "ColorToken", "Roster.patterns", "Roster.library.patterns", "tileTimes", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "people", "week", "Save", "Publish", "FieldForm"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const rota = $.let(Record.bind(rosterDuties, [rosterDutiesPatch]));
+        const rota = $.let(Record.bind(rosterDuties));
         const entries = $.let(Data.bindPaged(rosterDuties));
-        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: [rosterDutiesByTime] }));
-        const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));
-        const cover = $.let(Record.bind(rosterCover, [rosterCoverPatch]));
+        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] }));
+        const weeks = $.let(Record.bind(rosterWeeks));
+        const cover = $.let(Record.bind(rosterCover));
         // Every person and activity is the calculation scope; the narrowing only chooses which show (#1342).
         const people = $.let(Data.bind(rosterStaff));
         const acts = $.let(Data.bind(rosterActivities));
-        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
-        const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
+        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: ["roster_staff_by_team_name", "roster_staff_by_position", "roster_staff_by_trainer", "roster_staff_by_agency", "roster_staff_by_skill", "roster_staff_by_name"] }));
+        const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: ["roster_activities_by_group"] }));
         const slice = $.let(Slice.bindRecords("ex.rosterPeople", {
             duty: { source: byTime, range: "start" },
             people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
@@ -363,15 +411,15 @@ export const rosterPeopleMonth = example({
     inputs: [], description: "The People layout by month (#1406): a column per week touching the month, four to six, each cell seven marks in the shifts' colours lettered where a day is wide enough; a column's header opens its week, a cell's click selects the person-week the inspector's Details then read, and a pattern dropped on a cell replaces that week as one undo step. Week · Month in the Period segment; ‹ › step a month.",
     keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.shifts", "color", "ColorToken", "Roster.patterns", "Roster.library.patterns", "letters", "month", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "people", "Save", "Publish"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const rota = $.let(Record.bind(rosterDuties, [rosterDutiesPatch]));
+        const rota = $.let(Record.bind(rosterDuties));
         const entries = $.let(Data.bindPaged(rosterDuties));
-        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: [rosterDutiesByTime] }));
-        const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));
-        const cover = $.let(Record.bind(rosterCover, [rosterCoverPatch]));
+        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] }));
+        const weeks = $.let(Record.bind(rosterWeeks));
+        const cover = $.let(Record.bind(rosterCover));
         const people = $.let(Data.bind(rosterStaff));
         const acts = $.let(Data.bind(rosterActivities));
-        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
-        const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
+        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: ["roster_staff_by_team_name", "roster_staff_by_position", "roster_staff_by_trainer", "roster_staff_by_agency", "roster_staff_by_skill", "roster_staff_by_name"] }));
+        const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: ["roster_activities_by_group"] }));
         const slice = $.let(Slice.bindRecords("ex.rosterPeopleMonth", {
             duty: { source: byTime, range: "start" },
             people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
@@ -418,16 +466,16 @@ export const rosterWeek = example({
     inputs: [], description: "Seven days of group-by-shift coverage over the warehouse's own records, opening any day for detailed staffing.",
     keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "week", "Save", "Publish", "FieldForm"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const rota = $.let(Record.bind(rosterDuties, [rosterDutiesPatch]));
+        const rota = $.let(Record.bind(rosterDuties));
         const entries = $.let(Data.bindPaged(rosterDuties));
-        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: [rosterDutiesByTime] }));
-        const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));
-        const cover = $.let(Record.bind(rosterCover, [rosterCoverPatch]));
+        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] }));
+        const weeks = $.let(Record.bind(rosterWeeks));
+        const cover = $.let(Record.bind(rosterCover));
         // Every person and activity is the calculation scope; the narrowing only chooses which show (#1342).
         const people = $.let(Data.bind(rosterStaff));
         const acts = $.let(Data.bind(rosterActivities));
-        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
-        const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
+        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: ["roster_staff_by_team_name", "roster_staff_by_position", "roster_staff_by_trainer", "roster_staff_by_agency", "roster_staff_by_skill", "roster_staff_by_name"] }));
+        const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: ["roster_activities_by_group"] }));
         const slice = $.let(Slice.bindRecords("ex.rosterWeek", {
             duty: { source: byTime, range: "start" },
             people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
@@ -472,15 +520,15 @@ export const rosterWeek = example({
 
 export const rosterWindowed = example({
     inputs: [], description: "The duties read a week at a time through the slice's duty source — an interval index over their times, its range the Roster's own navigation — and the rota's weeks by key: only the week, the week before it (Copy's source) and the open picker's month are requested, never a record whole.",
-    keywords: ["Roster", "Schedule.events", "Schedule.periods", "Slice.bindRecords", "Data.bindPaged", "recordIndex", "interval", "history", "BuilderFrame", "Save", "Publish"],
+    keywords: ["Roster", "Schedule.events", "Schedule.periods", "Slice.bindRecords", "Data.bindPaged", "indexes", "interval", "history", "BuilderFrame", "Save", "Publish"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const rota = $.let(Record.bind(rosterDuties, [rosterDutiesPatch]));
+        const rota = $.let(Record.bind(rosterDuties));
         const entries = $.let(Data.bindPaged(rosterDuties));
-        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: [rosterDutiesByTime] }));
+        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] }));
         // The weeks of the rota read by key: the week, the week before it and the open picker's month.
-        const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));
+        const weeks = $.let(Record.bind(rosterWeeks));
         const weekEntries = $.let(Data.bindPaged(rosterWeeks));
-        const cover = $.let(Record.bind(rosterCover, [rosterCoverPatch]));
+        const cover = $.let(Record.bind(rosterCover));
         const people = $.let(Data.bind(rosterStaff));
         const acts = $.let(Data.bind(rosterActivities));
         // One source: the week's duties, its range the Roster's navigation.
@@ -530,29 +578,39 @@ export const MinimalWorker = StructType({ name: StringType, team: StringType });
 export const MinimalShiftTime = StructType({ name: StringType, code: StringType, starts: Schedule.Types.Clock, hours: FloatType, order: IntegerType });
 /** One of its teams: a name. */
 export const MinimalTeam = StructType({ name: StringType });
-export const minimalDuties = e3.record("rota_minimal_duties", DictType(StringType, MinimalDuty), new Map([
-    ["d-1", { person: "w-01", start: new Date("2028-03-06T06:00:00Z"), end: new Date("2028-03-06T14:00:00Z"), shift: "early", team: "inbound" }],
-    ["d-2", { person: "w-02", start: new Date("2028-03-06T14:00:00Z"), end: new Date("2028-03-06T22:00:00Z"), shift: "late", team: "dispatch" }],
-    ["d-3", { person: "w-01", start: new Date("2028-03-07T05:30:00Z"), end: new Date("2028-03-07T14:00:00Z"), shift: "early", team: "inbound" }],
-]));
-export const minimalDutiesPatch = e3.mutation.patch(minimalDuties);
-export const minimalWorkers = e3.record("rota_minimal_workers", DictType(StringType, MinimalWorker), new Map([
-    ["w-01", { name: "Ada Brook", team: "inbound" }],
-    ["w-02", { name: "Tom Vale", team: "dispatch" }],
-]));
-export const minimalShiftTimes = e3.record("rota_minimal_shift_times", DictType(StringType, MinimalShiftTime), new Map([
-    ["early", { name: "Early", code: "E", starts: { hour: 6n, minute: 0n }, hours: 8.0, order: 1n }],
-    ["late", { name: "Late", code: "L", starts: { hour: 14n, minute: 0n }, hours: 8.0, order: 2n }],
-]));
-export const minimalTeams = e3.record("rota_minimal_teams", DictType(StringType, MinimalTeam), new Map([
-    ["inbound", { name: "Inbound" }], ["dispatch", { name: "Dispatch" }],
-]));
+export const minimalDuties = e3.record("rota_minimal_duties", DictType(StringType, MinimalDuty), {
+    initial: new Map([
+        ["d-1", { person: "w-01", start: new Date("2028-03-06T06:00:00Z"), end: new Date("2028-03-06T14:00:00Z"), shift: "early", team: "inbound" }],
+        ["d-2", { person: "w-02", start: new Date("2028-03-06T14:00:00Z"), end: new Date("2028-03-06T22:00:00Z"), shift: "late", team: "dispatch" }],
+        ["d-3", { person: "w-01", start: new Date("2028-03-07T05:30:00Z"), end: new Date("2028-03-07T14:00:00Z"), shift: "early", team: "inbound" }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+export const minimalWorkers = e3.record("rota_minimal_workers", DictType(StringType, MinimalWorker), {
+    initial: new Map([
+        ["w-01", { name: "Ada Brook", team: "inbound" }],
+        ["w-02", { name: "Tom Vale", team: "dispatch" }],
+    ]),
+});
+export const minimalShiftTimes = e3.record("rota_minimal_shift_times", DictType(StringType, MinimalShiftTime), {
+    initial: new Map([
+        ["early", { name: "Early", code: "E", starts: { hour: 6n, minute: 0n }, hours: 8.0, order: 1n }],
+        ["late", { name: "Late", code: "L", starts: { hour: 14n, minute: 0n }, hours: 8.0, order: 2n }],
+    ]),
+});
+export const minimalTeams = e3.record("rota_minimal_teams", DictType(StringType, MinimalTeam), {
+    initial: new Map([
+        ["inbound", { name: "Inbound" }], ["dispatch", { name: "Dispatch" }],
+    ]),
+});
 
 export const rosterMinimal = example({
     inputs: [], description: "The smallest roster over the app's own records: duties with their times, shift and team; staff; shift times; teams. No library or inspector pane, and no Publish; explicit assignment actions still use the shared session.",
     keywords: ["Roster", "Schedule.events", "Schedule.resources", "Roster.shifts", "Roster.groups", "Record.bind", "minimal"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const rota = $.let(Record.bind(minimalDuties, [minimalDutiesPatch]));
+        const rota = $.let(Record.bind(minimalDuties));
         const staff = $.let(Data.bind(minimalWorkers));
         const times = $.let(Data.bind(minimalShiftTimes));
         const groups = $.let(Data.bind(minimalTeams));
@@ -573,16 +631,16 @@ export const rosterPublished = example({
     inputs: [], description: "The week before, published, is read-only: navigation, staff filtering, coverage and inspection remain available.",
     keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "published", "read-only", "Publish"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const rota = $.let(Record.bind(rosterDuties, [rosterDutiesPatch]));
+        const rota = $.let(Record.bind(rosterDuties));
         const entries = $.let(Data.bindPaged(rosterDuties));
-        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: [rosterDutiesByTime] }));
-        const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));
-        const cover = $.let(Record.bind(rosterCover, [rosterCoverPatch]));
+        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] }));
+        const weeks = $.let(Record.bind(rosterWeeks));
+        const cover = $.let(Record.bind(rosterCover));
         // Every person and activity is the calculation scope; the narrowing only chooses which show (#1342).
         const people = $.let(Data.bind(rosterStaff));
         const acts = $.let(Data.bind(rosterActivities));
-        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
-        const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
+        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: ["roster_staff_by_team_name", "roster_staff_by_position", "roster_staff_by_trainer", "roster_staff_by_agency", "roster_staff_by_skill", "roster_staff_by_name"] }));
+        const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: ["roster_activities_by_group"] }));
         const slice = $.let(Slice.bindRecords("ex.rosterPublished", {
             duty: { source: byTime, range: "start" },
             people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
@@ -629,16 +687,16 @@ export const rosterCustomInspector = example({
     inputs: [], description: "The duty kind's own inspector and the targets' own form replace the built-in fields while preserving the shared headers, coverage, actions and undo history.",
     keywords: ["Roster", "Schedule.events", "inspector", "Roster.targets", "Schedule.resources", "Schedule.periods", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "Save", "Publish", "FieldForm"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const rota = $.let(Record.bind(rosterDuties, [rosterDutiesPatch]));
+        const rota = $.let(Record.bind(rosterDuties));
         const entries = $.let(Data.bindPaged(rosterDuties));
-        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: [rosterDutiesByTime] }));
-        const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));
-        const cover = $.let(Record.bind(rosterCover, [rosterCoverPatch]));
+        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] }));
+        const weeks = $.let(Record.bind(rosterWeeks));
+        const cover = $.let(Record.bind(rosterCover));
         // Every person and activity is the calculation scope; the narrowing only chooses which show (#1342).
         const people = $.let(Data.bind(rosterStaff));
         const acts = $.let(Data.bind(rosterActivities));
-        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
-        const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
+        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: ["roster_staff_by_team_name", "roster_staff_by_position", "roster_staff_by_trainer", "roster_staff_by_agency", "roster_staff_by_skill", "roster_staff_by_name"] }));
+        const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: ["roster_activities_by_group"] }));
         const slice = $.let(Slice.bindRecords("ex.rosterCustomInspector", {
             duty: { source: byTime, range: "start" },
             people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],

@@ -5,7 +5,7 @@
 
 /**
  * A record read by area (#1385): a window over a floor's racks, read through
- * an area index (`e3.recordIndex.area`) as its searches in one request
+ * an area index (`index.area`) as its searches in one request
  * (`findKeys`) and the runs they select (the runs form), from the index alone —
  * each entry carries its rack's row whole, so nothing is joined.
  *
@@ -74,7 +74,7 @@ type HallAreaEntry = ValueTypeOf<typeof HallAreaWindowType>[number];
 
 /** A viewport, in world units: its minimum and maximum corners. */
 interface View { minX: number; minY: number; maxX: number; maxY: number }
-/** A window's search as the `__area` keys it holds: one exact key, or a half-open range of them. */
+/** A window's search as the `area` codes it holds: one exact code, or a half-open range of them. */
 type Span = { exact: bigint } | { from: bigint; to: bigint };
 
 const encodeInt = encodeBeast2For(IntegerType);
@@ -97,7 +97,7 @@ const FINEST = 28;
 const HALF = RACK_CELL * 2 ** 27;
 
 /**
- * The `__area` a rack is filed under, by the rule its keys are filed by: the
+ * The `area` code a rack is filed under, by the rule its keys are filed by: the
  * deepest level whose cell is at least twice its box's larger side; the cell
  * of that level holding its centre; that cell's Morton code at the finest
  * level (x in the even bits, y in the odd) times 32, plus the level. −1 with no
@@ -166,11 +166,22 @@ function windowSpans(view: View): Span[] {
   return spans;
 }
 
+/**
+ * An index's leading values, as a window's searches name them (#1432): its
+ * key's `on` printed whole for an exact search, which addresses the key's own
+ * fields; its leaves for a range, which bounds the key flattened.
+ */
+interface Leading { readonly on: string; readonly leaves: readonly string[] }
+/** `racks_by_area`'s: led by no field, its `on` holds none. */
+const UNLED: Leading = { on: printFor(RackAreaKeyType.fields.on)({}), leaves: [] };
+/** `racks_by_hall_area`'s, for a hall. */
+const ledBy = (hall: string): Leading => ({ on: printFor(RackHallAreaKeyType.fields.on)({ hall }), leaves: [printString(hall)] });
+
 /** The searches of a window's spans, after the index's leading values. */
-function searchesOf(spans: readonly Span[], prefix: readonly string[]): DatasetKeySearch[] {
+function searchesOf(spans: readonly Span[], leading: Leading): DatasetKeySearch[] {
   return spans.map((span) => 'exact' in span
-    ? { fields: [...prefix, printInteger(span.exact)] }
-    : { from: [...prefix, printInteger(span.from)], to: [...prefix, printInteger(span.to)] });
+    ? { fields: [leading.on, printInteger(span.exact)] }
+    : { from: [...leading.leaves, printInteger(span.from)], to: [...leading.leaves, printInteger(span.to)] });
 }
 
 /** Whether a span holds a key. */
@@ -276,7 +287,7 @@ export function areaRecordTests(setup: TestSetup<TestContext>): void {
       assert.ok(rack !== undefined, `${entry.key} is a rack the floor holds`);
       assert.ok(rackEqual(entry.value, rack), `${entry.key}'s entry carries its row whole`);
       assert.ok(unjoined(entry.row, none), `${entry.key} is read from the index alone, never joined`);
-      assert.ok(integerEqual(entry.ik.__area, keyOf(rack)), `${entry.key} is filed under the key its box gives`);
+      assert.ok(integerEqual(entry.ik.area, keyOf(rack)), `${entry.key} is filed under the key its box gives`);
     }
     const filed = [...racks].filter(([, rack]) => keep(rack) && spans.some((span) => holds(span, keyOf(rack))))
       .map(([key]) => key).sort(stringOrder);
@@ -296,13 +307,13 @@ export function areaRecordTests(setup: TestSetup<TestContext>): void {
       const base = [ctx.config.baseUrl, ctx.repoName, WS, racksPath] as const;
 
       // Each index as the record describes it: built, keyed by its leading
-      // fields and `__area`, and carrying the row whole.
+      // fields under `on` and its `area`, and carrying the row whole.
       const sig = await workspaceRecordDescribe(ctx.config.baseUrl, ctx.repoName, WS, 'racks', opts);
       assert.deepEqual(sig.indexes.map(({ name, multi, built }) => [name, multi, built]),
         [['racks_by_area', false, true], ['racks_by_hall_area', false, true]]);
       for (const [at, keyType, windowType] of [[0, RackAreaKeyType, AreaWindowType], [1, RackHallAreaKeyType, HallAreaWindowType]] as const) {
         const index = sig.indexes[at]!;
-        assert.ok(isTypeValueEqual(index.keyType, toEastTypeValue(keyType)), `${index.name}'s key is its leading fields, then __area`);
+        assert.ok(isTypeValueEqual(index.keyType, toEastTypeValue(keyType)), `${index.name}'s key is its leading fields under on, then its area`);
         assert.ok(isTypeValueEqual(index.valueType, toEastTypeValue(RackRowType)), `${index.name} carries the row whole`);
         assert.ok(isTypeEqual(windowType, indexWindowType(StringType, keyType, RackRowType, RackRowType)), `${index.name}'s window is e3-types' index window`);
         const page = await datasetGetPage(...base, { offset: 0, limit: 1, index: index.name, hash }, opts);
@@ -314,7 +325,7 @@ export function areaRecordTests(setup: TestSetup<TestContext>): void {
       for (const view of VIEWS) {
         const spans = windowSpans(view);
         assert.ok(spans.length <= 266, `a window is at most 266 searches, planned ${spans.length}`);
-        const entries = await readWindow(ctx, 'racks_by_area', decodeAreaWindow, searchesOf(spans, []), hash);
+        const entries = await readWindow(ctx, 'racks_by_area', decodeAreaWindow, searchesOf(spans, UNLED), hash);
         reads.push(assertWindow(entries, racks, spans, () => true, view).length);
       }
       const placed = [...racks.values()].filter((rack) => rack.x.type === 'some').length;
@@ -328,8 +339,8 @@ export function areaRecordTests(setup: TestSetup<TestContext>): void {
       const view = VIEWS[0]!;
       const spans = windowSpans(view);
       for (const hall of ['H0', 'H1', 'H2']) {
-        const entries = await readWindow(ctx, 'racks_by_hall_area', decodeHallAreaWindow, searchesOf(spans, [printString(hall)]), hash);
-        assert.ok(entries.every((entry) => stringEqual(entry.ik.hall, hall)), `hall ${hall}'s searches read only its own entries`);
+        const entries = await readWindow(ctx, 'racks_by_hall_area', decodeHallAreaWindow, searchesOf(spans, ledBy(hall)), hash);
+        assert.ok(entries.every((entry) => stringEqual(entry.ik.on.hall, hall)), `hall ${hall}'s searches read only its own entries`);
         const keys = assertWindow(entries, racks, spans, (rack) => stringEqual(rack.hall, hall), view);
         assert.ok(keys.length > 0, `hall ${hall} has racks in the window`);
       }
@@ -340,9 +351,9 @@ export function areaRecordTests(setup: TestSetup<TestContext>): void {
       const unplaced = [...racks].filter(([, rack]) => rack.x.type === 'none').map(([key]) => key).sort(stringOrder);
       assert.equal(unplaced.length, Math.ceil(Number(RACKS) / 11), 'every eleventh rack is not yet placed');
       const spans: Span[] = [{ exact: -1n }];
-      const all = await readWindow(ctx, 'racks_by_area', decodeAreaWindow, searchesOf(spans, []), hash);
+      const all = await readWindow(ctx, 'racks_by_area', decodeAreaWindow, searchesOf(spans, UNLED), hash);
       assert.deepEqual(assertWindow(all, racks, spans, () => true, undefined), unplaced);
-      const inHall = await readWindow(ctx, 'racks_by_hall_area', decodeHallAreaWindow, searchesOf(spans, [printString('H2')]), hash);
+      const inHall = await readWindow(ctx, 'racks_by_hall_area', decodeHallAreaWindow, searchesOf(spans, ledBy('H2')), hash);
       assert.deepEqual(assertWindow(inHall, racks, spans, (rack) => stringEqual(rack.hall, 'H2'), undefined),
         unplaced.filter((key) => stringEqual(racks.get(key)!.hall, 'H2')));
     });
@@ -351,7 +362,7 @@ export function areaRecordTests(setup: TestSetup<TestContext>): void {
       const { ctx, hash, racks } = await withRacks(t);
       const opts = await ctx.opts();
       const view = VIEWS[0]!;
-      const before = await readWindow(ctx, 'racks_by_area', decodeAreaWindow, searchesOf(windowSpans(view), []), hash);
+      const before = await readWindow(ctx, 'racks_by_area', decodeAreaWindow, searchesOf(windowSpans(view), UNLED), hash);
       const moved = before.find((entry) => meets(entry.value, view))?.key;
       assert.ok(moved !== undefined, 'a rack stands in the window');
       // Another session moves it across the floor, through the record's patch door.
@@ -365,17 +376,17 @@ export function areaRecordTests(setup: TestSetup<TestContext>): void {
       const now = await racksOf(ctx);
       assert.ok(rackEqual(now.get(moved)!, next.get(moved)!), 'the floor holds the rack where it was moved to');
 
-      const after = await readWindow(ctx, 'racks_by_area', decodeAreaWindow, searchesOf(windowSpans(view), []), movedHash);
+      const after = await readWindow(ctx, 'racks_by_area', decodeAreaWindow, searchesOf(windowSpans(view), UNLED), movedHash);
       assert.ok(!after.some((entry) => stringEqual(entry.key, moved)), 'the moved rack has left the window');
       assertWindow(after, now, windowSpans(view), () => true, view);
       const there: View = { minX: 24, minY: 279, maxX: 27, maxY: 281 };
-      const arrived = await readWindow(ctx, 'racks_by_area', decodeAreaWindow, searchesOf(windowSpans(there), []), movedHash);
+      const arrived = await readWindow(ctx, 'racks_by_area', decodeAreaWindow, searchesOf(windowSpans(there), UNLED), movedHash);
       assert.ok(arrived.some((entry) => stringEqual(entry.key, moved)), 'it is read in the window it moved into');
       assertWindow(arrived, now, windowSpans(there), () => true, there);
 
       const base = [ctx.config.baseUrl, ctx.repoName, WS, racksPath] as const;
       for (const read of [
-        () => datasetFindKeys(...base, { queries: searchesOf(windowSpans(view), []), index: 'racks_by_area', hash }, opts),
+        () => datasetFindKeys(...base, { queries: searchesOf(windowSpans(view), UNLED), index: 'racks_by_area', hash }, opts),
         () => datasetGetRuns(...base, { runs: [[0, 1]], hash, index: 'racks_by_area' }, opts),
       ]) {
         await assert.rejects(read, (err: unknown) => {

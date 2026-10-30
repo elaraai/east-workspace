@@ -68,10 +68,10 @@ export function platformTests(setup: TestSetup<TestContext>): void {
       const status = await compiled(ctx.config.baseUrl, ctx.repoName, (await ctx.opts()).token!);
 
       // Verify results
-      assert.ok(typeof status.path === 'string' && status.path.length > 0, 'path should be a non-empty string');
-      assert.ok(typeof status.objectCount === 'bigint');
-      assert.ok(typeof status.packageCount === 'bigint');
-      assert.ok(typeof status.workspaceCount === 'bigint');
+      assert.ok(status.path.length > 0, 'path should be a non-empty string');
+      assert.ok(status.objectCount >= 0n);
+      assert.ok(status.packageCount >= 0n);
+      assert.ok(status.workspaceCount >= 0n);
     });
 
     it('workspaceList platform function compiles and runs', async (t) => {

@@ -4,7 +4,7 @@
  */
 
 import { useCallback } from "react";
-import type { ValueTypeOf } from "@elaraai/east";
+import { none, type ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import type { SheetSavedView } from "./values.js";
@@ -28,7 +28,8 @@ export function useRecordViewCounts(rows: ValueTypeOf<RecordSliceBindType> | und
         const total = rows.total();
         for (const view of views) {
             try {
-                const count = rows.countWhere(view.narrowing.get("rows")?.where ?? new Map());
+                // A saved view's narrowing, read alone: never a read by area (#1432).
+                const count = rows.countWhere({ where: view.narrowing.get("rows")?.where ?? new Map(), area: none });
                 counts.set(view.id, { count: count.type === "some" ? Number(count.value) : undefined });
             } catch (error) {
                 counts.set(view.id, { count: undefined, error: error instanceof Error ? error.message : String(error) });

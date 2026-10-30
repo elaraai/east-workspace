@@ -28,7 +28,8 @@ import {
 } from './types.js';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
 import {
-  get, getConditional, post, del, fetchWithAuth, fetchWithProgress, retryingRefusal, ApiError, type RequestOptions,
+  get, getConditional, post, del, decodeResponse, fetchWithAuth, fetchWithProgress, parseErrorBody, retryingRefusal, ApiError,
+  type RequestOptions,
 } from './http.js';
 import { JOB_POLL_MAX_MS, JOB_POLL_MIN_MS, pollExport } from './packages.js';
 
@@ -101,6 +102,57 @@ export async function workspaceCopy(url: string, repo: string, from: string, to:
     WorkspaceInfoType,
     options
   );
+}
+
+/**
+ * A workspace as it is, as a bundle (`WorkspaceBundleType`): its package,
+ * every dataset's ref, the executions its tasks' outputs come from, and every
+ * object those reach — what {@link workspaceBundleImport} makes the workspace
+ * from again, in another repository or another e3.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param name - Workspace name
+ * @param options - Request options including auth token
+ * @returns The bundle's bytes
+ * @throws {ApiError} On application-level errors: a workspace that does not
+ *   exist, has no package deployed, or is held by a deploy or a removal
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function workspaceBundle(url: string, repo: string, name: string, options: RequestOptions): Promise<Uint8Array> {
+  const response = await fetchWithAuth(`${url}/api/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(name)}/bundle`, {
+    method: 'GET',
+    headers: { 'Accept': BEAST2_CONTENT_TYPE },
+  }, options);
+  if (!response.ok) throw parseErrorBody(await response.text(), `http_${response.status}`);
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+/**
+ * Makes a workspace from a bundle ({@link workspaceBundle}): the workspace the
+ * bundle was written from, as it was, under a name no workspace of the
+ * repository has. Its tasks' outputs read up to date by the executions the
+ * bundle carries, and it names no run of its own.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param name - The workspace to make: a name no workspace has
+ * @param bundle - The bundle's bytes
+ * @param options - Request options including auth token
+ * @returns The workspace made
+ * @throws {ApiError} On application-level errors: `workspace_exists`;
+ *   `package_exists` when the repository holds the bundle's package's name and
+ *   version as another package; `bundle_invalid` for bytes that are no bundle,
+ *   are cut short, or leave out an object the repository does not hold
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function workspaceBundleImport(url: string, repo: string, name: string, bundle: Uint8Array, options: RequestOptions): Promise<WorkspaceInfo> {
+  const response = await fetchWithAuth(`${url}/api/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(name)}/bundle`, {
+    method: 'POST',
+    headers: { 'Content-Type': BEAST2_CONTENT_TYPE, 'Accept': BEAST2_CONTENT_TYPE },
+    body: bundle,
+  }, options);
+  return decodeResponse(response, WorkspaceInfoType);
 }
 
 /**

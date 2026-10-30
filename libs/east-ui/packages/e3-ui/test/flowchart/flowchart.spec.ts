@@ -448,15 +448,21 @@ describe("the payload (FB6)", () => {
         assert.deepEqual(PublicFlowchart.library.flows(), { kind: "flows" });
     });
 
-    hostTest("an e3 record of flows binds with e3.mutation.patch; e3 gives a record of one flow none, so a record always holds flows by name", () => {
-        const flows = e3.record("flowchart_spec_flows", FlowsType, FLOWS);
-        const one = e3.record("flowchart_spec_one", FlowType, INBOUND_VALUE);
+    hostTest("an e3 record of flows declares mutation.patch; e3 refuses it to a record of one flow, so a record always holds flows by name", () => {
+        const flows = e3.record("flowchart_spec_flows", FlowsType, {
+            initial: FLOWS,
+            mutations: (mutation) => ({
+                patch: mutation.patch(),
+            }),
+        });
+        const one = e3.record("flowchart_spec_one", FlowType, { initial: INBOUND_VALUE });
         inBlock(($) => {
-            const payload = Flowchart.Payload({ record: $.let(Record.bind(flows, [e3.mutation.patch(flows)])) });
+            const payload = Flowchart.Payload({ record: $.let(Record.bind(flows)) });
             assert.ok(isTypeEqual(Expr.type(payload as unknown as Expr) as EastType, FlowchartPayloadType));
         });
         // The ruling's reason: e3 writes a patch by key.
-        assert.throws(() => e3.mutation.patch(one), /writes a delta addressed by key, so it needs a Dict or Set record/);
+        assert.throws(() => e3.record("flowchart_spec_one", FlowType, { initial: INBOUND_VALUE, mutations: (mutation) => ({ patch: mutation.patch() }) }),
+            /writes a delta addressed by key, so it needs a Dict or Set record/);
         assert.throws(() => inBlock(($) => Flowchart.Payload({ record: $.let(Record.bind(one, [])) })),
             /^Error: Flowchart: `record` holds flows by name, Flowchart\.Types\.Flows — e3's patch mutation writes only keyed records — and this record holds one flow/);
     });
@@ -771,9 +777,9 @@ const OWNER_CARDS = OWNERS.slice(0, 2).map((o) => ({
 
 /** A slice whose sources each page the step types through their kind, under each name given: what templates lists and tabs name. */
 const templatesSlice = (...names: string[]) => Slice.bindRecords("flowchart.spec.templates",
-    Object.fromEntries(names.map((name) => [name, { source: Data.bindPaged(ex.stepTemplates, { indexes: [ex.stepsByKind] }) }])) as never);
+    Object.fromEntries(names.map((name) => [name, { source: Data.bindPaged(ex.stepTemplates, { indexes: ["flowchart_steps_by_kind"] }) }])) as never);
 /** A slice whose `flows` source pages a record of flows through its lanes. */
-const flowsSlice = () => Slice.bindRecords("flowchart.spec.flows", { flows: { source: Data.bindPaged(ex.indexedFlows, { indexes: [ex.flowsByLane] }) } });
+const flowsSlice = () => Slice.bindRecords("flowchart.spec.flows", { flows: { source: Data.bindPaged(ex.indexedFlows, { indexes: ["lane"] }) } });
 
 describe("the library (#1248, FB25–FB29)", () => {
     hostTest("each tab on the wire, in the order `library` lists it: the Flows tab, then each data tab's cards from its own rows — a templates record's by its keys, an author's Array — each with what its drop sets and the source it follows (#1346)", () => {
@@ -914,8 +920,8 @@ describe("the library (#1248, FB25–FB29)", () => {
             /^Error: Flowchart: templates are records now — bind them in Slice\.bindRecords and name the source, Flowchart\.library\.transitions\(rows, \{ …, source: "transitionTemplates" \}\)/);
         // `flows` narrows the flows, and each list is a record of its own: its own source.
         assert.throws(build(($) => ({ record: $.let(flowsRecord()), slice: { slice: Slice.bindRecords("flowchart.spec.both", {
-            flows: { source: Data.bindPaged(ex.indexedFlows, { indexes: [ex.flowsByLane] }) },
-            steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: [ex.stepsByKind] }) },
+            flows: { source: Data.bindPaged(ex.indexedFlows, { indexes: ["lane"] }) },
+            steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: ["flowchart_steps_by_kind"] }) },
         }) }, library: [stepsTab(steps($), "flows")] })),
             /^Error: Flowchart: Flowchart\.library\.states\(\) names the source 'flows', which narrows the flows — each templates list is a record of its own, and its own source of the slice$/);
         assert.throws(build(($) => ({ record: $.let(flowsRecord()), slice: { slice: templatesSlice("steps") },
@@ -967,8 +973,8 @@ describe("the narrowing (#1346)", () => {
             assert.ok(isTypeEqual(typeOf(Flowchart.Payload({ record: flows, slice: { slice: flowsSlice() }, library: [Flowchart.library.flows()] })), FlowchartPayloadType));
             // The flows and a templates list, one rail.
             const both = Slice.bindRecords("flowchart.spec.both", {
-                flows: { source: Data.bindPaged(ex.indexedFlows, { indexes: [ex.flowsByLane] }), fields: { lane: { label: "Lane" } } },
-                steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: [ex.stepsByKind] }) },
+                flows: { source: Data.bindPaged(ex.indexedFlows, { indexes: ["lane"] }), fields: { lane: { label: "Lane" } } },
+                steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: ["flowchart_steps_by_kind"] }) },
             });
             assert.ok(isTypeEqual(typeOf(Flowchart.Payload({ record: flows, slice: { slice: both, affordances: ["fields", "search", "summary"] },
                 library: [Flowchart.library.flows(), stepsTab(steps.read())] })), FlowchartPayloadType));
@@ -1010,11 +1016,11 @@ describe("refused when the surface is built (§4.4, FB5)", () => {
         ["a record of another type", ($) => ({ record: $.let(jobsRecord()) }),
             /^Error: Flowchart: `record` holds flows by name, Flowchart\.Types\.Flows — declare it with that type — and this record holds \.Dict/],
         ["a record not bound with its patch mutation", ($) => ({ record: $.let(unpatchedFlows()) }),
-            /^Error: Flowchart: `record` is an e3 record bound with its patch mutation — Record\.bind\(record, \[e3\.mutation\.patch\(record\)\]\), and this binding has no `patch`$/],
+            /^Error: Flowchart: `record` is an e3 record bound with its patch mutation — Record\.bind\(record\), its record declaring patch: mutation\.patch\(\), and this binding has no `patch`$/],
         ["a record whose `patch` takes another patch than the record's", ($) => ({ record: $.let(wrongDoorFlows()) }),
-            /^Error: Flowchart: `record` is an e3 record bound with its patch mutation — Record\.bind\(record, \[e3\.mutation\.patch\(record\)\]\), and this binding has a `patch` that takes another patch than the record's$/],
+            /^Error: Flowchart: `record` is an e3 record bound with its patch mutation — Record\.bind\(record\), its record declaring patch: mutation\.patch\(\), and this binding has a `patch` that takes another patch than the record's$/],
         ["a `record` that is no bound record", (_$) => ({ record: FLOWS }),
-            /^Error: Flowchart: `record` is an e3 record bound with its patch mutation — Record\.bind\(record, \[e3\.mutation\.patch\(record\)\]\)$/],
+            /^Error: Flowchart: `record` is an e3 record bound with its patch mutation — Record\.bind\(record\), its record declaring patch: mutation\.patch\(\)$/],
         ["`data` of neither flow type", ($) => ({ data: $.const([{ code: "ARV" }]) }),
             /^Error: Flowchart: `data` is Flowchart\.Types\.Flows, flows by name, or Flowchart\.Types\.Flow, one flow — a value, an expression or a bind handle of either; Flowchart\.over builds one flow from an app's tables — and this is \.Array/],
         ["a `data` value of neither flow type", (_$) => ({ data: [{ code: "ARV" }] }),
@@ -1077,15 +1083,15 @@ describe("refused when the surface is built (§4.4, FB5)", () => {
             /^Error: Flowchart: `slice` takes \{ slice \} — /],
         ["`Slice.bind` as the narrowing (#1340, ruling 1)", ($) => ({ record: $.let(flowsRecord()), slice: { slice: depotSlice($) } }),
             /^Error: Flowchart: `slice` is Slice\.bindRecords\(key, \{ flows \}\) — name each source after what it narrows; Slice\.bind and Slice\.bindRecord are not taken$/],
-        ["a single `Slice.bindRecord` as the narrowing (#1340, ruling 1)", ($) => ({ record: $.let(flowsRecord()), slice: { slice: Slice.bindRecord("flowchart.spec.single", Data.bindPaged(ex.indexedFlows, { indexes: [ex.flowsByLane] })) } }),
+        ["a single `Slice.bindRecord` as the narrowing (#1340, ruling 1)", ($) => ({ record: $.let(flowsRecord()), slice: { slice: Slice.bindRecord("flowchart.spec.single", Data.bindPaged(ex.indexedFlows, { indexes: ["lane"] })) } }),
             /^Error: Flowchart: `slice` is Slice\.bindRecords\(key, \{ flows \}\) — name each source after what it narrows; Slice\.bind and Slice\.bindRecord are not taken$/],
         ["a source nothing names (#1346)", ($) => ({ record: $.let(flowsRecord()), slice: { slice: templatesSlice("jobs") } }),
             /^Error: Flowchart: `slice` narrows its flows, and the templates lists and tabs that name a source — its source 'jobs' is none of them; name the sources `flows`$/],
         ["a `flows` source over the host's flows, which nothing narrows (#1346)", (_$) => ({ data: FLOWS, slice: { slice: flowsSlice() } }),
-            /^Error: Flowchart: `slice`'s `flows` source pages a record of flows, and these flows are the host's, which nothing narrows — bind the record as record=\{Record\.bind\(record, \[e3\.mutation\.patch\(record\)\]\)\}, or leave `flows` out of the slice$/],
+            /^Error: Flowchart: `slice`'s `flows` source pages a record of flows, and these flows are the host's, which nothing narrows — bind the record as record=\{Record\.bind\(record\), its record declaring patch: mutation\.patch\(\)\}, or leave `flows` out of the slice$/],
         ["a `flows` source over the host's one flow (#1346)", (_$) => ({ data: INBOUND_VALUE, slice: { slice: flowsSlice() } }),
             /^Error: Flowchart: `slice`'s `flows` source pages a record of flows, and these flows are the host's, which nothing narrows/],
-        ["a `flows` source over a record of another type (#1346)", ($) => ({ record: $.let(flowsRecord()), slice: { slice: Slice.bindRecords("flowchart.spec.steps", { flows: { source: Data.bindPaged(ex.stepTemplates, { indexes: [ex.stepsByKind] }) } }) } }),
+        ["a `flows` source over a record of another type (#1346)", ($) => ({ record: $.let(flowsRecord()), slice: { slice: Slice.bindRecords("flowchart.spec.steps", { flows: { source: Data.bindPaged(ex.stepTemplates, { indexes: ["flowchart_steps_by_kind"] }) } }) } }),
             /^Error: Flowchart: `slice`'s `flows` source pages a record of flows by name, Flowchart\.Types\.Flows, its rows joined — Data\.bindPaged\(record, \{ indexes \}\) over the record `record` binds — and this one pages /],
         ["\"brush\" among the slice's affordances (#1346)", ($) => ({ record: $.let(flowsRecord()), slice: { slice: flowsSlice(), affordances: ["fields", "brush"] } }),
             /^Error: Flowchart: `slice`'s affordances list "brush", and a flowchart has no continuous axis to brush along — mount fields, search, presets or summary$/],
@@ -1164,8 +1170,8 @@ hostTest("the tag's forms type each arm's props — a prop another arm takes fai
             const slice = $.let(depotSlice($));
             // The narrowing (#1346): one Slice.bindRecords — the flows, and the templates' record.
             const narrowing = $.let(Slice.bindRecords("flowchart.spec.forms", {
-                flows: { source: Data.bindPaged(ex.indexedFlows, { indexes: [ex.flowsByLane] }) },
-                steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: [ex.stepsByKind] }) },
+                flows: { source: Data.bindPaged(ex.indexedFlows, { indexes: ["lane"] }) },
+                steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: ["flowchart_steps_by_kind"] }) },
             }));
             const applyFlows = $.const(East.asyncFunction([StringType, PatchType(FlowsType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })));
             const applyFlow = $.const(East.asyncFunction([StringType, PatchType(FlowType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })));

@@ -5,7 +5,7 @@
 
 /** Shared primary-identity adapter for builders over secondary index windows. */
 import { ArrayType, DictType, East, FunctionType, IntegerType, OptionType, StringType, StructType,
-    type EastType, type ExprType, none, some } from "@elaraai/east";
+    isTypeEqual, type EastType, type ExprType, none, some } from "@elaraai/east";
 import { buildPagedWindow, LiveSourceType, PinnedSourceType, PagedSourceType, type IndexedEntryType, type PagedSource, type ResolvedRowSource } from "@elaraai/east-ui/internal";
 
 /** A window with primary identities in a separately declared index order. */
@@ -30,10 +30,19 @@ export function orderedRowSource(source: Extract<ResolvedRowSource, { kind: "ord
     const collection = DictType(key, row);
     const entries = source.collectionType as ArrayType<StructType>;
     const idOf = East.function([key], StringType, (_$, value) => key.type === "String" ? value as ExprType<StringType> : East.print(value));
-    const valueOf = East.function([entry], row, (_$, value) => (value.row as ExprType<OptionType<EastType>>).match({
-        some: (_$2, data) => data,
-        none: () => East.error(`${component} needs joined rows; use Data.bindPaged with join: true`),
-    }));
+    const unjoined = `${component} needs joined rows; use Data.bindPaged with join: true`;
+    // Beside a nested series index, an index's entries carry the lean row as their projection (#1435): with no joined
+    // row, an entry's value is its row.
+    const projection = entry.fields.value?.type === "Variant" ? entry.fields.value.cases.some : undefined;
+    const valueOf = projection !== undefined && isTypeEqual(projection, row)
+        ? East.function([entry], row, (_$, value) => (value.row as ExprType<OptionType<EastType>>).match({
+            some: (_$2, data) => data,
+            none: () => (value.value as ExprType<OptionType<EastType>>).match({ some: (_$2, data) => data, none: () => East.error(unjoined) }),
+        }))
+        : East.function([entry], row, (_$, value) => (value.row as ExprType<OptionType<EastType>>).match({
+            some: (_$2, data) => data,
+            none: () => East.error(unjoined),
+        }));
     const rows = East.function([entries], collection, (_$, values) => values.toDict((_$2, value) => value.key!, (_$2, value) => valueOf(value)));
     const keys = East.function([entries], ArrayType(StringType), (_$, values) => values.map((_$2, value) => idOf(value.key!)));
     const window = buildPagedWindow(source) as ExprType<FunctionType<[IntegerType, IntegerType], OptionType<typeof entries>>>;

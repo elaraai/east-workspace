@@ -45,7 +45,7 @@ interface Base {
  */
 function payload(change: (base: Base) => Partial<RosterProps> | Readonly<Record<string, unknown>> = () => ({})): void {
     East.function([], RosterPayloadType, ($) => {
-        const rota = $.let(Record.bind(ex.rosterDuties, [ex.rosterDutiesPatch]));
+        const rota = $.let(Record.bind(ex.rosterDuties));
         const staff = $.let(Data.bind(ex.rosterStaff));
         const firms = $.let(Data.bind(ex.rosterAgencies));
         const times = $.let(Data.bind(ex.rosterShiftTimes));
@@ -141,7 +141,7 @@ describe("the duties, the people and what they take", () => {
 
     test("a duty kind whose resource names no people is refused", () => {
         // The smallest roster's duties, each a person's by a key — here named a key of the agencies.
-        assert.throws(() => payload(() => ({ events: { duty: Schedule.events(Record.bind(ex.minimalDuties, [ex.minimalDutiesPatch]), {
+        assert.throws(() => payload(() => ({ events: { duty: Schedule.events(Record.bind(ex.minimalDuties), {
             name: "Duty", icon: "user-clock", start: "start", end: "end", resource: { field: "person", of: "agencies" }, shift: "shift", group: "team",
         }) } })), /Roster: events\.duty's resource names no `people` — a duty is rostered to one of the people, resource: \{ field, of: "people" \}/);
     });
@@ -193,8 +193,8 @@ describe("the app's pay, check and fit, over the duties' row type", () => {
 });
 
 describe("the narrowing and the library", () => {
-    const staffSource = () => Data.bindPaged(ex.rosterStaff, { indexes: [ex.rosterStaffByTeamName, ex.rosterStaffByName] });
-    const dutySource = () => Data.bindPaged(ex.rosterDuties, { indexes: [ex.rosterDutiesByTime] });
+    const staffSource = () => Data.bindPaged(ex.rosterStaff, { indexes: ["roster_staff_by_team_name", "roster_staff_by_name"] });
+    const dutySource = () => Data.bindPaged(ex.rosterDuties, { indexes: ["roster_duties_by_time"] });
 
     test("the narrowing is Slice.bindRecords over the duties, the targets, the people and the activities: Slice.bind and a source of another name are refused", () => {
         assert.throws(() => payload(() => ({ slice: { slice: Slice.bind("spec.local", [{ name: "A. Alder" }], { fields: { name: { label: "Name" } } }) } as never })),
@@ -255,14 +255,14 @@ describe("Roster.targets", () => {
     test("refuses a role naming a field of another type, two roles naming one field, and a record not keyed by String", () => {
         const targets = (config: object, record: unknown = ex.rosterCover) => payload(() => {
             const def = record as typeof ex.rosterCover;
-            return { targets: Roster.targets(Record.bind(def, [e3.mutation.patch(def)]) as never, config as never) };
+            return { targets: Roster.targets(Record.bind(def, ["patch"]) as never, config as never) };
         });
         const roles = { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" };
         assert.doesNotThrow(() => targets(roles));
         assert.throws(() => targets({ ...roles, positions: "team" }), /Roster\.targets: `positions` names an Integer field, the positions to fill — "team" holds \.String/);
         assert.throws(() => targets({ ...roles, day: "nope" }), /Roster\.targets: `day` names "nope", a field the row does not have/);
         assert.throws(() => targets({ ...roles, group: "shift" }), /Roster\.targets: `group` and `shift` both name "shift" — the Roster writes each of its roles into a field of its own/);
-        const byClock = e3.record("roster_spec_cover_by_day", DictType(Schedule.Types.Clock, Cover), new Map());
+        const byClock = e3.record("roster_spec_cover_by_day", DictType(Schedule.Types.Clock, Cover), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
         assert.throws(() => targets(roles, byClock), /Roster\.targets: a target is keyed by a String/);
         // Read by key beside the slice's `targets` source alone.
         assert.throws(() => targets({ ...roles, entries: Data.bindPaged(ex.rosterCover) }),

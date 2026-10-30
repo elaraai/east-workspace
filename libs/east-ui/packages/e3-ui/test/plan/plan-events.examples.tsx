@@ -15,9 +15,11 @@ import {
     NullType,
     OptionType,
     PatchType,
+    SortedMap,
     StringType,
     StructType,
     VariantType,
+    compareFor,
     example,
     none,
     some,
@@ -85,25 +87,34 @@ export const PrintShift = StructType({ title: StringType, start: DateTimeType, e
 export const PrintCustomer = StructType({ name: StringType, district: StringType, trade: StringType });
 
 /** The presses: three in each hall. A Plan never writes its resources. */
-export const planPrintPresses = e3.record("plan_print_presses", DictType(StringType, PrintPress), new Map([
-    ["a1", { name: "Press A1", hall: "Hall A", sheets_per_hour: 12000.0 }],
-    ["a2", { name: "Press A2", hall: "Hall A", sheets_per_hour: 10000.0 }],
-    ["a3", { name: "Press A3", hall: "Hall A", sheets_per_hour: 8000.0 }],
-    ["b1", { name: "Press B1", hall: "Hall B", sheets_per_hour: 15000.0 }],
-    ["b2", { name: "Press B2", hall: "Hall B", sheets_per_hour: 12000.0 }],
-    ["b3", { name: "Press B3", hall: "Hall B", sheets_per_hour: 6000.0 }],
-]));
+export const planPrintPresses = e3.record("plan_print_presses", DictType(StringType, PrintPress), {
+    initial: new Map([
+        ["a1", { name: "Press A1", hall: "Hall A", sheets_per_hour: 12000.0 }],
+        ["a2", { name: "Press A2", hall: "Hall A", sheets_per_hour: 10000.0 }],
+        ["a3", { name: "Press A3", hall: "Hall A", sheets_per_hour: 8000.0 }],
+        ["b1", { name: "Press B1", hall: "Hall B", sheets_per_hour: 15000.0 }],
+        ["b2", { name: "Press B2", hall: "Hall B", sheets_per_hour: 12000.0 }],
+        ["b3", { name: "Press B3", hall: "Hall B", sheets_per_hour: 6000.0 }],
+    ]),
+    indexes: (index) => ({
+        plan_print_presses_by_hall: index.on(["hall"]),
+    }),
+    mutations: (mutation) => ({
+        // The presses' patch door: the works edits its presses elsewhere, and a Plan reads them live.
+        patch: mutation.patch(),
+    }),
+});
 
-/** The presses' patch door: the works edits its presses elsewhere, and a Plan reads them live. */
-export const planPrintPressesPatch = e3.mutation.patch(planPrintPresses);
 
 /** The crews: two in each hall. */
-export const planPrintCrews = e3.record("plan_print_crews", DictType(StringType, PrintCrew), new Map([
-    ["c1", { name: "Crew 1", hall: "Hall A" }],
-    ["c2", { name: "Crew 2", hall: "Hall A" }],
-    ["c3", { name: "Crew 3", hall: "Hall B" }],
-    ["c4", { name: "Crew 4", hall: "Hall B" }],
-]));
+export const planPrintCrews = e3.record("plan_print_crews", DictType(StringType, PrintCrew), {
+    initial: new Map([
+        ["c1", { name: "Crew 1", hall: "Hall A" }],
+        ["c2", { name: "Crew 2", hall: "Hall A" }],
+        ["c3", { name: "Crew 3", hall: "Hall B" }],
+        ["c4", { name: "Crew 4", hall: "Hall B" }],
+    ]),
+});
 
 /**
  * The print jobs: actual before 14 October, in progress on it, confirmed,
@@ -111,128 +122,158 @@ export const planPrintCrews = e3.record("plan_print_crews", DictType(StringType,
  * and eight with no start waiting in the backlog, two due this week, two next
  * week, two later and two with no due date.
  */
-export const planPrintJobs = e3.record("plan_print_jobs", DictType(StringType, PrintJob), new Map([
-    ["J-1001", { title: "Spring catalogue", start: some(new Date("2026-10-05T06:00:00Z")), end: some(new Date("2026-10-05T14:00:00Z")), press: some("a1"), state: variant("actual", null), sheets: 96000.0, customer: "Alder & Finch", stock: variant("coated", null), due: some(new Date("2026-10-07T00:00:00Z")) }],
-    ["J-1002", { title: "Museum guide", start: some(new Date("2026-10-07T06:00:00Z")), end: some(new Date("2026-10-07T12:00:00Z")), press: some("a1"), state: variant("actual", null), sheets: 72000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
-    ["J-1003", { title: "Event posters", start: some(new Date("2026-10-14T07:00:00Z")), end: some(new Date("2026-10-14T12:00:00Z")), press: some("a1"), state: variant("in-progress", null), sheets: 60000.0, customer: "Granite Hall", stock: variant("uncoated", null), due: some(new Date("2026-10-15T00:00:00Z")) }],
-    ["J-1004", { title: "Course handbook", start: some(new Date("2026-10-19T06:00:00Z")), end: some(new Date("2026-10-19T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 144000.0, customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
-    ["J-1005", { title: "Menu cards", start: some(new Date("2026-10-27T06:00:00Z")), end: some(new Date("2026-10-27T08:00:00Z")), press: some("a1"), state: variant("proposed", variant("recommended", null)), sheets: 24000.0, customer: "Copperleaf Cafe", stock: variant("board", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
-    ["J-1006", { title: "Tour brochure", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T14:00:00Z")), press: some("a2"), state: variant("actual", null), sheets: 80000.0, customer: "Bluewater Tours", stock: variant("coated", null), due: some(new Date("2026-10-08T00:00:00Z")) }],
-    ["J-1007", { title: "Annual report", start: some(new Date("2026-10-14T06:00:00Z")), end: some(new Date("2026-10-14T12:00:00Z")), press: some("a2"), state: variant("in-progress", null), sheets: 60000.0, customer: "Harbour Arts Society", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
-    ["J-1008", { title: "Seed catalogue", start: some(new Date("2026-10-21T06:00:00Z")), end: some(new Date("2026-10-21T16:00:00Z")), press: some("a2"), state: variant("proposed", variant("added", null)), sheets: 100000.0, customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-24T00:00:00Z")) }],
-    ["J-1009", { title: "Season flyers", start: some(new Date("2026-10-28T06:00:00Z")), end: some(new Date("2026-10-28T09:00:00Z")), press: some("a2"), state: variant("estimated", null), sheets: 30000.0, customer: "Heathfield Theatre", stock: variant("uncoated", null), due: some(new Date("2026-10-31T00:00:00Z")) }],
-    ["J-1010", { title: "Club newsletter", start: some(new Date("2026-10-08T06:00:00Z")), end: some(new Date("2026-10-08T08:00:00Z")), press: some("a3"), state: variant("actual", null), sheets: 16000.0, customer: "Kestrel Cycling Club", stock: variant("uncoated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
-    ["J-1011", { title: "Stationery set", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-15T09:00:00Z")), press: some("a3"), state: variant("confirmed", null), sheets: 24000.0, customer: "Ivy Lane Studio", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
-    ["J-1012", { title: "Gift boxes", start: some(new Date("2026-10-22T06:00:00Z")), end: some(new Date("2026-10-22T12:00:00Z")), press: some("a3"), state: variant("proposed", variant("recommended", null)), sheets: 48000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-26T00:00:00Z")) }],
-    ["J-1013", { title: "Holiday catalogue", start: some(new Date("2026-10-05T06:00:00Z")), end: some(new Date("2026-10-05T22:00:00Z")), press: some("b1"), state: variant("actual", null), sheets: 240000.0, customer: "Larkspur Home", stock: variant("coated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
-    ["J-1014", { title: "Magazine run", start: some(new Date("2026-10-12T06:00:00Z")), end: some(new Date("2026-10-12T18:00:00Z")), press: some("b1"), state: variant("actual", null), sheets: 180000.0, customer: "Meridian Monthly", stock: variant("coated", null), due: some(new Date("2026-10-13T00:00:00Z")) }],
-    ["J-1015", { title: "Store flyers", start: some(new Date("2026-10-14T06:00:00Z")), end: some(new Date("2026-10-14T16:00:00Z")), press: some("b1"), state: variant("in-progress", null), sheets: 150000.0, customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
-    ["J-1016", { title: "Exhibition book", start: some(new Date("2026-10-26T06:00:00Z")), end: some(new Date("2026-10-26T12:00:00Z")), press: some("b1"), state: variant("estimated", null), sheets: 90000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
-    ["J-1017", { title: "Timetables", start: some(new Date("2026-10-09T06:00:00Z")), end: some(new Date("2026-10-09T10:00:00Z")), press: some("b2"), state: variant("actual", null), sheets: 48000.0, customer: "Bluewater Tours", stock: variant("uncoated", null), due: some(new Date("2026-10-12T00:00:00Z")) }],
-    ["J-1018", { title: "Market posters", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T12:00:00Z")), press: some("b2"), state: variant("confirmed", null), sheets: 72000.0, customer: "Orchard Street Market", stock: variant("coated", null), due: some(new Date("2026-10-22T00:00:00Z")) }],
-    ["J-1019", { title: "Loyalty cards", start: some(new Date("2026-10-20T10:00:00Z")), end: some(new Date("2026-10-20T13:00:00Z")), press: some("b2"), state: variant("proposed", variant("added", null)), sheets: 36000.0, customer: "Copperleaf Cafe", stock: variant("board", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
-    ["J-1020", { title: "Ticket books", start: some(new Date("2026-10-29T06:00:00Z")), end: some(new Date("2026-10-29T08:00:00Z")), press: some("b2"), state: variant("estimated", null), sheets: 24000.0, customer: "Heathfield Theatre", stock: variant("uncoated", null), due: some(new Date("2026-11-02T00:00:00Z")) }],
-    ["J-1021", { title: "Handbook covers", start: some(new Date("2026-10-16T06:00:00Z")), end: some(new Date("2026-10-16T08:00:00Z")), press: some("b3"), state: variant("confirmed", null), sheets: 12000.0, customer: "Elmway College", stock: variant("board", null), due: some(new Date("2026-10-19T00:00:00Z")) }],
-    ["J-1022", { title: "Box sleeves", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T09:00:00Z")), press: some("b3"), state: variant("proposed", variant("recommended", null)), sheets: 18000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-22T00:00:00Z")) }],
-    ["J-1023", { title: "Guide reprint", start: none, end: none, press: none, state: variant("estimated", null), sheets: 24000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
-    ["J-1024", { title: "Order forms", start: none, end: none, press: none, state: variant("proposed", variant("added", null)), sheets: 40000.0, customer: "Larkspur Home", stock: variant("uncoated", null), due: some(new Date("2026-10-17T00:00:00Z")) }],
-    ["J-1025", { title: "Winter brochure", start: none, end: none, press: none, state: variant("estimated", null), sheets: 64000.0, customer: "Bluewater Tours", stock: variant("coated", null), due: some(new Date("2026-10-21T00:00:00Z")) }],
-    ["J-1026", { title: "Wall calendars", start: none, end: none, press: none, state: variant("estimated", null), sheets: 50000.0, customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
-    ["J-1027", { title: "Prospectus", start: none, end: none, press: none, state: variant("estimated", null), sheets: 100000.0, customer: "Elmway College", stock: variant("coated", null), due: some(new Date("2026-11-06T00:00:00Z")) }],
-    ["J-1028", { title: "Price lists", start: none, end: none, press: none, state: variant("estimated", null), sheets: 16000.0, customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-11-13T00:00:00Z")) }],
-    ["J-1029", { title: "Spare covers", start: none, end: none, press: none, state: variant("estimated", null), sheets: 8000.0, customer: "Meridian Monthly", stock: variant("board", null), due: none }],
-    ["J-1030", { title: "Proof sheets", start: none, end: none, press: none, state: variant("estimated", null), sheets: 2000.0, customer: "Alder & Finch", stock: variant("uncoated", null), due: none }],
-]));
+export const planPrintJobs = e3.record("plan_print_jobs", DictType(StringType, PrintJob), {
+    initial: new Map([
+        ["J-1001", { title: "Spring catalogue", start: some(new Date("2026-10-05T06:00:00Z")), end: some(new Date("2026-10-05T14:00:00Z")), press: some("a1"), state: variant("actual", null), sheets: 96000.0, customer: "Alder & Finch", stock: variant("coated", null), due: some(new Date("2026-10-07T00:00:00Z")) }],
+        ["J-1002", { title: "Museum guide", start: some(new Date("2026-10-07T06:00:00Z")), end: some(new Date("2026-10-07T12:00:00Z")), press: some("a1"), state: variant("actual", null), sheets: 72000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
+        ["J-1003", { title: "Event posters", start: some(new Date("2026-10-14T07:00:00Z")), end: some(new Date("2026-10-14T12:00:00Z")), press: some("a1"), state: variant("in-progress", null), sheets: 60000.0, customer: "Granite Hall", stock: variant("uncoated", null), due: some(new Date("2026-10-15T00:00:00Z")) }],
+        ["J-1004", { title: "Course handbook", start: some(new Date("2026-10-19T06:00:00Z")), end: some(new Date("2026-10-19T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 144000.0, customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
+        ["J-1005", { title: "Menu cards", start: some(new Date("2026-10-27T06:00:00Z")), end: some(new Date("2026-10-27T08:00:00Z")), press: some("a1"), state: variant("proposed", variant("recommended", null)), sheets: 24000.0, customer: "Copperleaf Cafe", stock: variant("board", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
+        ["J-1006", { title: "Tour brochure", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T14:00:00Z")), press: some("a2"), state: variant("actual", null), sheets: 80000.0, customer: "Bluewater Tours", stock: variant("coated", null), due: some(new Date("2026-10-08T00:00:00Z")) }],
+        ["J-1007", { title: "Annual report", start: some(new Date("2026-10-14T06:00:00Z")), end: some(new Date("2026-10-14T12:00:00Z")), press: some("a2"), state: variant("in-progress", null), sheets: 60000.0, customer: "Harbour Arts Society", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+        ["J-1008", { title: "Seed catalogue", start: some(new Date("2026-10-21T06:00:00Z")), end: some(new Date("2026-10-21T16:00:00Z")), press: some("a2"), state: variant("proposed", variant("added", null)), sheets: 100000.0, customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-24T00:00:00Z")) }],
+        ["J-1009", { title: "Season flyers", start: some(new Date("2026-10-28T06:00:00Z")), end: some(new Date("2026-10-28T09:00:00Z")), press: some("a2"), state: variant("estimated", null), sheets: 30000.0, customer: "Heathfield Theatre", stock: variant("uncoated", null), due: some(new Date("2026-10-31T00:00:00Z")) }],
+        ["J-1010", { title: "Club newsletter", start: some(new Date("2026-10-08T06:00:00Z")), end: some(new Date("2026-10-08T08:00:00Z")), press: some("a3"), state: variant("actual", null), sheets: 16000.0, customer: "Kestrel Cycling Club", stock: variant("uncoated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
+        ["J-1011", { title: "Stationery set", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-15T09:00:00Z")), press: some("a3"), state: variant("confirmed", null), sheets: 24000.0, customer: "Ivy Lane Studio", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+        ["J-1012", { title: "Gift boxes", start: some(new Date("2026-10-22T06:00:00Z")), end: some(new Date("2026-10-22T12:00:00Z")), press: some("a3"), state: variant("proposed", variant("recommended", null)), sheets: 48000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-26T00:00:00Z")) }],
+        ["J-1013", { title: "Holiday catalogue", start: some(new Date("2026-10-05T06:00:00Z")), end: some(new Date("2026-10-05T22:00:00Z")), press: some("b1"), state: variant("actual", null), sheets: 240000.0, customer: "Larkspur Home", stock: variant("coated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
+        ["J-1014", { title: "Magazine run", start: some(new Date("2026-10-12T06:00:00Z")), end: some(new Date("2026-10-12T18:00:00Z")), press: some("b1"), state: variant("actual", null), sheets: 180000.0, customer: "Meridian Monthly", stock: variant("coated", null), due: some(new Date("2026-10-13T00:00:00Z")) }],
+        ["J-1015", { title: "Store flyers", start: some(new Date("2026-10-14T06:00:00Z")), end: some(new Date("2026-10-14T16:00:00Z")), press: some("b1"), state: variant("in-progress", null), sheets: 150000.0, customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+        ["J-1016", { title: "Exhibition book", start: some(new Date("2026-10-26T06:00:00Z")), end: some(new Date("2026-10-26T12:00:00Z")), press: some("b1"), state: variant("estimated", null), sheets: 90000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
+        ["J-1017", { title: "Timetables", start: some(new Date("2026-10-09T06:00:00Z")), end: some(new Date("2026-10-09T10:00:00Z")), press: some("b2"), state: variant("actual", null), sheets: 48000.0, customer: "Bluewater Tours", stock: variant("uncoated", null), due: some(new Date("2026-10-12T00:00:00Z")) }],
+        ["J-1018", { title: "Market posters", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T12:00:00Z")), press: some("b2"), state: variant("confirmed", null), sheets: 72000.0, customer: "Orchard Street Market", stock: variant("coated", null), due: some(new Date("2026-10-22T00:00:00Z")) }],
+        ["J-1019", { title: "Loyalty cards", start: some(new Date("2026-10-20T10:00:00Z")), end: some(new Date("2026-10-20T13:00:00Z")), press: some("b2"), state: variant("proposed", variant("added", null)), sheets: 36000.0, customer: "Copperleaf Cafe", stock: variant("board", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
+        ["J-1020", { title: "Ticket books", start: some(new Date("2026-10-29T06:00:00Z")), end: some(new Date("2026-10-29T08:00:00Z")), press: some("b2"), state: variant("estimated", null), sheets: 24000.0, customer: "Heathfield Theatre", stock: variant("uncoated", null), due: some(new Date("2026-11-02T00:00:00Z")) }],
+        ["J-1021", { title: "Handbook covers", start: some(new Date("2026-10-16T06:00:00Z")), end: some(new Date("2026-10-16T08:00:00Z")), press: some("b3"), state: variant("confirmed", null), sheets: 12000.0, customer: "Elmway College", stock: variant("board", null), due: some(new Date("2026-10-19T00:00:00Z")) }],
+        ["J-1022", { title: "Box sleeves", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T09:00:00Z")), press: some("b3"), state: variant("proposed", variant("recommended", null)), sheets: 18000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-22T00:00:00Z")) }],
+        ["J-1023", { title: "Guide reprint", start: none, end: none, press: none, state: variant("estimated", null), sheets: 24000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+        ["J-1024", { title: "Order forms", start: none, end: none, press: none, state: variant("proposed", variant("added", null)), sheets: 40000.0, customer: "Larkspur Home", stock: variant("uncoated", null), due: some(new Date("2026-10-17T00:00:00Z")) }],
+        ["J-1025", { title: "Winter brochure", start: none, end: none, press: none, state: variant("estimated", null), sheets: 64000.0, customer: "Bluewater Tours", stock: variant("coated", null), due: some(new Date("2026-10-21T00:00:00Z")) }],
+        ["J-1026", { title: "Wall calendars", start: none, end: none, press: none, state: variant("estimated", null), sheets: 50000.0, customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
+        ["J-1027", { title: "Prospectus", start: none, end: none, press: none, state: variant("estimated", null), sheets: 100000.0, customer: "Elmway College", stock: variant("coated", null), due: some(new Date("2026-11-06T00:00:00Z")) }],
+        ["J-1028", { title: "Price lists", start: none, end: none, press: none, state: variant("estimated", null), sheets: 16000.0, customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-11-13T00:00:00Z")) }],
+        ["J-1029", { title: "Spare covers", start: none, end: none, press: none, state: variant("estimated", null), sheets: 8000.0, customer: "Meridian Monthly", stock: variant("board", null), due: none }],
+        ["J-1030", { title: "Proof sheets", start: none, end: none, press: none, state: variant("estimated", null), sheets: 2000.0, customer: "Alder & Finch", stock: variant("uncoated", null), due: none }],
+    ]),
+    indexes: (index) => ({
+        // The rail narrows each record through its own indexes (#1344): the jobs and the shifts over their interval
+        // indexes — on their own, and after a job's stock — so a narrowing keeps every event overlapping the window once;
+        // the presses by hall, the customers by district, and each templates record by its group.
+        plan_print_jobs_by_time: index.interval({ from: "start", to: "end" }),
+        plan_print_jobs_by_stock_time: index.interval({ on: ["stock"], from: "start", to: "end" }),
+    }),
+    mutations: (mutation) => ({
+        // The jobs' patch door: every Save commits through it.
+        patch: mutation.patch(),
+    }),
+});
 
-/** The jobs' patch door: every Save commits through it. */
-export const planPrintJobsPatch = e3.mutation.patch(planPrintJobs);
 
 /** The stops: plate changes and services across the presses. */
-export const planPrintStops = e3.record("plan_print_stops", DictType(StringType, PrintStop), new Map([
-    ["S-01", { title: "Plate change", at: new Date("2026-10-07T12:00:00Z"), press: "a1", kind: variant("plate_change", null) }],
-    ["S-02", { title: "Service", at: new Date("2026-10-12T04:00:00Z"), press: "b1", kind: variant("service", null) }],
-    ["S-03", { title: "Plate change", at: new Date("2026-10-14T12:00:00Z"), press: "a2", kind: variant("plate_change", null) }],
-    ["S-04", { title: "Plate change", at: new Date("2026-10-19T18:00:00Z"), press: "a1", kind: variant("plate_change", null) }],
-    ["S-05", { title: "Service", at: new Date("2026-10-26T14:00:00Z"), press: "a3", kind: variant("service", null) }],
-    ["S-06", { title: "Plate change", at: new Date("2026-10-28T10:00:00Z"), press: "b2", kind: variant("plate_change", null) }],
-]));
+export const planPrintStops = e3.record("plan_print_stops", DictType(StringType, PrintStop), {
+    initial: new Map([
+        ["S-01", { title: "Plate change", at: new Date("2026-10-07T12:00:00Z"), press: "a1", kind: variant("plate_change", null) }],
+        ["S-02", { title: "Service", at: new Date("2026-10-12T04:00:00Z"), press: "b1", kind: variant("service", null) }],
+        ["S-03", { title: "Plate change", at: new Date("2026-10-14T12:00:00Z"), press: "a2", kind: variant("plate_change", null) }],
+        ["S-04", { title: "Plate change", at: new Date("2026-10-19T18:00:00Z"), press: "a1", kind: variant("plate_change", null) }],
+        ["S-05", { title: "Service", at: new Date("2026-10-26T14:00:00Z"), press: "a3", kind: variant("service", null) }],
+        ["S-06", { title: "Plate change", at: new Date("2026-10-28T10:00:00Z"), press: "b2", kind: variant("plate_change", null) }],
+    ]),
+    mutations: (mutation) => ({
+        // The stops' patch door.
+        patch: mutation.patch(),
+    }),
+});
 
-/** The stops' patch door. */
-export const planPrintStopsPatch = e3.mutation.patch(planPrintStops);
 
 /** The shifts: each crew's early and late shifts, confirmed for the first two weeks and proposed for the last two. */
-export const planPrintShifts = e3.record("plan_print_shifts", DictType(StringType, PrintShift), new Map([
-    ["SH-01", { title: "Early", start: new Date("2026-10-05T06:00:00Z"), end: new Date("2026-10-05T14:00:00Z"), crew: "c1", state: variant("confirmed", null) }],
-    ["SH-02", { title: "Early", start: new Date("2026-10-07T06:00:00Z"), end: new Date("2026-10-07T14:00:00Z"), crew: "c1", state: variant("confirmed", null) }],
-    ["SH-03", { title: "Late", start: new Date("2026-10-13T14:00:00Z"), end: new Date("2026-10-13T22:00:00Z"), crew: "c1", state: variant("confirmed", null) }],
-    ["SH-04", { title: "Late", start: new Date("2026-10-15T14:00:00Z"), end: new Date("2026-10-15T22:00:00Z"), crew: "c1", state: variant("confirmed", null) }],
-    ["SH-05", { title: "Early", start: new Date("2026-10-19T06:00:00Z"), end: new Date("2026-10-19T14:00:00Z"), crew: "c1", state: variant("proposed", variant("recommended", null)) }],
-    ["SH-06", { title: "Early", start: new Date("2026-10-26T06:00:00Z"), end: new Date("2026-10-26T14:00:00Z"), crew: "c1", state: variant("proposed", variant("recommended", null)) }],
-    ["SH-07", { title: "Late", start: new Date("2026-10-05T14:00:00Z"), end: new Date("2026-10-05T22:00:00Z"), crew: "c2", state: variant("confirmed", null) }],
-    ["SH-08", { title: "Late", start: new Date("2026-10-07T14:00:00Z"), end: new Date("2026-10-07T22:00:00Z"), crew: "c2", state: variant("confirmed", null) }],
-    ["SH-09", { title: "Early", start: new Date("2026-10-13T06:00:00Z"), end: new Date("2026-10-13T14:00:00Z"), crew: "c2", state: variant("confirmed", null) }],
-    ["SH-10", { title: "Early", start: new Date("2026-10-15T06:00:00Z"), end: new Date("2026-10-15T14:00:00Z"), crew: "c2", state: variant("confirmed", null) }],
-    ["SH-11", { title: "Late", start: new Date("2026-10-19T14:00:00Z"), end: new Date("2026-10-19T22:00:00Z"), crew: "c2", state: variant("proposed", variant("recommended", null)) }],
-    ["SH-12", { title: "Late", start: new Date("2026-10-26T14:00:00Z"), end: new Date("2026-10-26T22:00:00Z"), crew: "c2", state: variant("proposed", variant("recommended", null)) }],
-    ["SH-13", { title: "Early", start: new Date("2026-10-06T06:00:00Z"), end: new Date("2026-10-06T14:00:00Z"), crew: "c3", state: variant("confirmed", null) }],
-    ["SH-14", { title: "Early", start: new Date("2026-10-08T06:00:00Z"), end: new Date("2026-10-08T14:00:00Z"), crew: "c3", state: variant("confirmed", null) }],
-    ["SH-15", { title: "Late", start: new Date("2026-10-12T14:00:00Z"), end: new Date("2026-10-12T22:00:00Z"), crew: "c3", state: variant("confirmed", null) }],
-    ["SH-16", { title: "Late", start: new Date("2026-10-14T14:00:00Z"), end: new Date("2026-10-14T22:00:00Z"), crew: "c3", state: variant("confirmed", null) }],
-    ["SH-17", { title: "Early", start: new Date("2026-10-20T06:00:00Z"), end: new Date("2026-10-20T14:00:00Z"), crew: "c3", state: variant("proposed", variant("recommended", null)) }],
-    ["SH-18", { title: "Early", start: new Date("2026-10-27T06:00:00Z"), end: new Date("2026-10-27T14:00:00Z"), crew: "c3", state: variant("proposed", variant("added", null)) }],
-    ["SH-19", { title: "Late", start: new Date("2026-10-06T14:00:00Z"), end: new Date("2026-10-06T22:00:00Z"), crew: "c4", state: variant("confirmed", null) }],
-    ["SH-20", { title: "Late", start: new Date("2026-10-08T14:00:00Z"), end: new Date("2026-10-08T22:00:00Z"), crew: "c4", state: variant("confirmed", null) }],
-    ["SH-21", { title: "Early", start: new Date("2026-10-12T06:00:00Z"), end: new Date("2026-10-12T14:00:00Z"), crew: "c4", state: variant("confirmed", null) }],
-    ["SH-22", { title: "Early", start: new Date("2026-10-14T06:00:00Z"), end: new Date("2026-10-14T14:00:00Z"), crew: "c4", state: variant("confirmed", null) }],
-    ["SH-23", { title: "Late", start: new Date("2026-10-20T14:00:00Z"), end: new Date("2026-10-20T22:00:00Z"), crew: "c4", state: variant("proposed", variant("recommended", null)) }],
-    ["SH-24", { title: "Late", start: new Date("2026-10-27T14:00:00Z"), end: new Date("2026-10-27T22:00:00Z"), crew: "c4", state: variant("proposed", variant("added", null)) }],
-]));
+export const planPrintShifts = e3.record("plan_print_shifts", DictType(StringType, PrintShift), {
+    initial: new Map([
+        ["SH-01", { title: "Early", start: new Date("2026-10-05T06:00:00Z"), end: new Date("2026-10-05T14:00:00Z"), crew: "c1", state: variant("confirmed", null) }],
+        ["SH-02", { title: "Early", start: new Date("2026-10-07T06:00:00Z"), end: new Date("2026-10-07T14:00:00Z"), crew: "c1", state: variant("confirmed", null) }],
+        ["SH-03", { title: "Late", start: new Date("2026-10-13T14:00:00Z"), end: new Date("2026-10-13T22:00:00Z"), crew: "c1", state: variant("confirmed", null) }],
+        ["SH-04", { title: "Late", start: new Date("2026-10-15T14:00:00Z"), end: new Date("2026-10-15T22:00:00Z"), crew: "c1", state: variant("confirmed", null) }],
+        ["SH-05", { title: "Early", start: new Date("2026-10-19T06:00:00Z"), end: new Date("2026-10-19T14:00:00Z"), crew: "c1", state: variant("proposed", variant("recommended", null)) }],
+        ["SH-06", { title: "Early", start: new Date("2026-10-26T06:00:00Z"), end: new Date("2026-10-26T14:00:00Z"), crew: "c1", state: variant("proposed", variant("recommended", null)) }],
+        ["SH-07", { title: "Late", start: new Date("2026-10-05T14:00:00Z"), end: new Date("2026-10-05T22:00:00Z"), crew: "c2", state: variant("confirmed", null) }],
+        ["SH-08", { title: "Late", start: new Date("2026-10-07T14:00:00Z"), end: new Date("2026-10-07T22:00:00Z"), crew: "c2", state: variant("confirmed", null) }],
+        ["SH-09", { title: "Early", start: new Date("2026-10-13T06:00:00Z"), end: new Date("2026-10-13T14:00:00Z"), crew: "c2", state: variant("confirmed", null) }],
+        ["SH-10", { title: "Early", start: new Date("2026-10-15T06:00:00Z"), end: new Date("2026-10-15T14:00:00Z"), crew: "c2", state: variant("confirmed", null) }],
+        ["SH-11", { title: "Late", start: new Date("2026-10-19T14:00:00Z"), end: new Date("2026-10-19T22:00:00Z"), crew: "c2", state: variant("proposed", variant("recommended", null)) }],
+        ["SH-12", { title: "Late", start: new Date("2026-10-26T14:00:00Z"), end: new Date("2026-10-26T22:00:00Z"), crew: "c2", state: variant("proposed", variant("recommended", null)) }],
+        ["SH-13", { title: "Early", start: new Date("2026-10-06T06:00:00Z"), end: new Date("2026-10-06T14:00:00Z"), crew: "c3", state: variant("confirmed", null) }],
+        ["SH-14", { title: "Early", start: new Date("2026-10-08T06:00:00Z"), end: new Date("2026-10-08T14:00:00Z"), crew: "c3", state: variant("confirmed", null) }],
+        ["SH-15", { title: "Late", start: new Date("2026-10-12T14:00:00Z"), end: new Date("2026-10-12T22:00:00Z"), crew: "c3", state: variant("confirmed", null) }],
+        ["SH-16", { title: "Late", start: new Date("2026-10-14T14:00:00Z"), end: new Date("2026-10-14T22:00:00Z"), crew: "c3", state: variant("confirmed", null) }],
+        ["SH-17", { title: "Early", start: new Date("2026-10-20T06:00:00Z"), end: new Date("2026-10-20T14:00:00Z"), crew: "c3", state: variant("proposed", variant("recommended", null)) }],
+        ["SH-18", { title: "Early", start: new Date("2026-10-27T06:00:00Z"), end: new Date("2026-10-27T14:00:00Z"), crew: "c3", state: variant("proposed", variant("added", null)) }],
+        ["SH-19", { title: "Late", start: new Date("2026-10-06T14:00:00Z"), end: new Date("2026-10-06T22:00:00Z"), crew: "c4", state: variant("confirmed", null) }],
+        ["SH-20", { title: "Late", start: new Date("2026-10-08T14:00:00Z"), end: new Date("2026-10-08T22:00:00Z"), crew: "c4", state: variant("confirmed", null) }],
+        ["SH-21", { title: "Early", start: new Date("2026-10-12T06:00:00Z"), end: new Date("2026-10-12T14:00:00Z"), crew: "c4", state: variant("confirmed", null) }],
+        ["SH-22", { title: "Early", start: new Date("2026-10-14T06:00:00Z"), end: new Date("2026-10-14T14:00:00Z"), crew: "c4", state: variant("confirmed", null) }],
+        ["SH-23", { title: "Late", start: new Date("2026-10-20T14:00:00Z"), end: new Date("2026-10-20T22:00:00Z"), crew: "c4", state: variant("proposed", variant("recommended", null)) }],
+        ["SH-24", { title: "Late", start: new Date("2026-10-27T14:00:00Z"), end: new Date("2026-10-27T22:00:00Z"), crew: "c4", state: variant("proposed", variant("added", null)) }],
+    ]),
+    indexes: (index) => ({
+        plan_print_shifts_by_time: index.interval({ from: "start", to: "end" }),
+    }),
+    mutations: (mutation) => ({
+        // The shifts' patch door.
+        patch: mutation.patch(),
+    }),
+});
 
-/** The shifts' patch door. */
-export const planPrintShiftsPatch = e3.mutation.patch(planPrintShifts);
 
 /** A crew roster the works has locked for the week: Crew 1's two early shifts. */
-export const planLockedShifts = e3.record("plan_locked_shifts", DictType(StringType, PrintShift), new Map([
-    ["SH-01", { title: "Early", start: new Date("2026-10-05T06:00:00Z"), end: new Date("2026-10-05T14:00:00Z"), crew: "c1", state: variant("confirmed", null) }],
-    ["SH-02", { title: "Early", start: new Date("2026-10-07T06:00:00Z"), end: new Date("2026-10-07T14:00:00Z"), crew: "c1", state: variant("confirmed", null) }],
-]));
+export const planLockedShifts = e3.record("plan_locked_shifts", DictType(StringType, PrintShift), {
+    initial: new Map([
+        ["SH-01", { title: "Early", start: new Date("2026-10-05T06:00:00Z"), end: new Date("2026-10-05T14:00:00Z"), crew: "c1", state: variant("confirmed", null) }],
+        ["SH-02", { title: "Early", start: new Date("2026-10-07T06:00:00Z"), end: new Date("2026-10-07T14:00:00Z"), crew: "c1", state: variant("confirmed", null) }],
+    ]),
+    mutations: (mutation) => ({
+        // The locked roster's patch door, a checked one: it takes any change to a
+        // shift, and refuses one that takes a shift off the roster, naming why — what
+        // a Save that deletes one is answered.
+        patch: mutation.reduce(East.function([DictType(StringType, PrintShift), PatchType(DictType(StringType, PrintShift))], DictType(StringType, PrintShift), ($, roster, patch) => {
+            const next = $.let(East.applyPatch(roster, patch));
+            $.for(roster, ($2, _shift, key) => {
+                $2.if(next.has(key).not(), ($3) => { $3.error("the crew roster is locked for the week"); });
+            });
+            return next;
+        })),
+    }),
+});
 
-/**
- * The locked roster's patch door, a checked one: it takes any change to a
- * shift, and refuses one that takes a shift off the roster, naming why — what
- * a Save that deletes one is answered.
- */
-export const planLockedShiftsPatch = e3.mutation.reduce("patch", planLockedShifts,
-    East.function([DictType(StringType, PrintShift), PatchType(DictType(StringType, PrintShift))], DictType(StringType, PrintShift), ($, roster, patch) => {
-        const next = $.let(East.applyPatch(roster, patch));
-        $.for(roster, ($2, _shift, key) => {
-            $2.if(next.has(key).not(), ($3) => { $3.error("the crew roster is locked for the week"); });
-        });
-        return next;
-    }));
 
 /** The customers the jobs are printed for, by account, in three districts: what the print works' library lists. A Plan never writes them. */
-export const planPrintCustomers = e3.record("plan_print_customers", DictType(StringType, PrintCustomer), new Map([
-    ["alder-finch", { name: "Alder & Finch", district: "Old Town", trade: "Retail" }],
-    ["bluewater-tours", { name: "Bluewater Tours", district: "North Quay", trade: "Travel" }],
-    ["copperleaf-cafe", { name: "Copperleaf Cafe", district: "Old Town", trade: "Hospitality" }],
-    ["driftwood-museum", { name: "Driftwood Museum", district: "North Quay", trade: "Arts" }],
-    ["elmway-college", { name: "Elmway College", district: "Riverside", trade: "Education" }],
-    ["foxglove-gardens", { name: "Foxglove Gardens", district: "Riverside", trade: "Retail" }],
-    ["granite-hall", { name: "Granite Hall", district: "Old Town", trade: "Events" }],
-    ["harbour-arts", { name: "Harbour Arts Society", district: "North Quay", trade: "Arts" }],
-    ["heathfield", { name: "Heathfield Theatre", district: "Old Town", trade: "Arts" }],
-    ["ivy-lane", { name: "Ivy Lane Studio", district: "Riverside", trade: "Design" }],
-    ["juniper-toys", { name: "Juniper Toys", district: "Riverside", trade: "Retail" }],
-    ["kestrel-cycling", { name: "Kestrel Cycling Club", district: "Riverside", trade: "Sport" }],
-    ["larkspur-home", { name: "Larkspur Home", district: "Old Town", trade: "Retail" }],
-    ["meridian-monthly", { name: "Meridian Monthly", district: "North Quay", trade: "Publishing" }],
-    ["northwind", { name: "Northwind Outfitters", district: "North Quay", trade: "Retail" }],
-    ["orchard-market", { name: "Orchard Street Market", district: "Old Town", trade: "Markets" }],
-]));
+export const planPrintCustomers = e3.record("plan_print_customers", DictType(StringType, PrintCustomer), {
+    initial: new Map([
+        ["alder-finch", { name: "Alder & Finch", district: "Old Town", trade: "Retail" }],
+        ["bluewater-tours", { name: "Bluewater Tours", district: "North Quay", trade: "Travel" }],
+        ["copperleaf-cafe", { name: "Copperleaf Cafe", district: "Old Town", trade: "Hospitality" }],
+        ["driftwood-museum", { name: "Driftwood Museum", district: "North Quay", trade: "Arts" }],
+        ["elmway-college", { name: "Elmway College", district: "Riverside", trade: "Education" }],
+        ["foxglove-gardens", { name: "Foxglove Gardens", district: "Riverside", trade: "Retail" }],
+        ["granite-hall", { name: "Granite Hall", district: "Old Town", trade: "Events" }],
+        ["harbour-arts", { name: "Harbour Arts Society", district: "North Quay", trade: "Arts" }],
+        ["heathfield", { name: "Heathfield Theatre", district: "Old Town", trade: "Arts" }],
+        ["ivy-lane", { name: "Ivy Lane Studio", district: "Riverside", trade: "Design" }],
+        ["juniper-toys", { name: "Juniper Toys", district: "Riverside", trade: "Retail" }],
+        ["kestrel-cycling", { name: "Kestrel Cycling Club", district: "Riverside", trade: "Sport" }],
+        ["larkspur-home", { name: "Larkspur Home", district: "Old Town", trade: "Retail" }],
+        ["meridian-monthly", { name: "Meridian Monthly", district: "North Quay", trade: "Publishing" }],
+        ["northwind", { name: "Northwind Outfitters", district: "North Quay", trade: "Retail" }],
+        ["orchard-market", { name: "Orchard Street Market", district: "Old Town", trade: "Markets" }],
+    ]),
+    indexes: (index) => ({
+        plan_print_customers_by_district: index.on(["district"]),
+    }),
+    mutations: (mutation) => ({
+        // The customers' patch door: the works edits its customers elsewhere, and a Plan reads them live.
+        patch: mutation.patch(),
+    }),
+});
 
-/** The customers' patch door: the works edits its customers elsewhere, and a Plan reads them live. */
-export const planPrintCustomersPatch = e3.mutation.patch(planPrintCustomers);
 
 /**
  * Each press's utilisation (%): a reading a day from 5 October, as the
@@ -266,23 +307,27 @@ export const planPrintOutput = e3.input("plan_print_output", ArrayType(FloatType
  * yet; and three with no start waiting in the backlog, due this week, next
  * week and never.
  */
-export const planEventJobs = e3.record("plan_event_jobs", DictType(StringType, PrintJob), new Map([
-    ["J-3001", { title: "Spring catalogue", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T14:00:00Z")), press: some("a1"), state: variant("actual", null), sheets: 96000.0, customer: "Alder & Finch", stock: variant("coated", null), due: some(new Date("2026-10-08T00:00:00Z")) }],
-    ["J-3002", { title: "Course handbook", start: some(new Date("2026-10-19T06:00:00Z")), end: some(new Date("2026-10-19T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 144000.0, customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
-    ["J-3003", { title: "Annual report", start: some(new Date("2026-10-14T06:00:00Z")), end: some(new Date("2026-10-14T12:00:00Z")), press: some("a2"), state: variant("in-progress", null), sheets: 60000.0, customer: "Harbour Arts Society", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
-    ["J-3004", { title: "Club newsletter", start: some(new Date("2026-10-08T06:00:00Z")), end: some(new Date("2026-10-08T08:00:00Z")), press: some("a3"), state: variant("actual", null), sheets: 16000.0, customer: "Kestrel Cycling Club", stock: variant("uncoated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
-    ["J-3005", { title: "Store flyers", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-15T16:00:00Z")), press: some("b1"), state: variant("confirmed", null), sheets: 150000.0, customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
-    ["J-3006", { title: "Market posters", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T12:00:00Z")), press: some("b2"), state: variant("confirmed", null), sheets: 72000.0, customer: "Orchard Street Market", stock: variant("coated", null), due: some(new Date("2026-10-22T00:00:00Z")) }],
-    ["J-3007", { title: "Loyalty cards", start: some(new Date("2026-10-20T10:00:00Z")), end: some(new Date("2026-10-20T13:00:00Z")), press: some("b2"), state: variant("proposed", variant("added", null)), sheets: 36000.0, customer: "Copperleaf Cafe", stock: variant("board", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
-    ["J-3008", { title: "Gift boxes", start: some(new Date("2026-10-27T06:00:00Z")), end: some(new Date("2026-10-27T12:00:00Z")), press: some("b3"), state: variant("proposed", variant("recommended", null)), sheets: 48000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
-    ["J-3009", { title: "Ticket books", start: some(new Date("2026-10-22T06:00:00Z")), end: some(new Date("2026-10-22T09:00:00Z")), press: none, state: variant("proposed", variant("added", null)), sheets: 24000.0, customer: "Heathfield Theatre", stock: variant("uncoated", null), due: some(new Date("2026-10-26T00:00:00Z")) }],
-    ["J-3010", { title: "Guide reprint", start: none, end: none, press: none, state: variant("estimated", null), sheets: 24000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
-    ["J-3011", { title: "Wall calendars", start: none, end: none, press: none, state: variant("estimated", null), sheets: 50000.0, customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
-    ["J-3012", { title: "Spare covers", start: none, end: none, press: none, state: variant("estimated", null), sheets: 8000.0, customer: "Meridian Monthly", stock: variant("board", null), due: none }],
-]));
+export const planEventJobs = e3.record("plan_event_jobs", DictType(StringType, PrintJob), {
+    initial: new Map([
+        ["J-3001", { title: "Spring catalogue", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T14:00:00Z")), press: some("a1"), state: variant("actual", null), sheets: 96000.0, customer: "Alder & Finch", stock: variant("coated", null), due: some(new Date("2026-10-08T00:00:00Z")) }],
+        ["J-3002", { title: "Course handbook", start: some(new Date("2026-10-19T06:00:00Z")), end: some(new Date("2026-10-19T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 144000.0, customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
+        ["J-3003", { title: "Annual report", start: some(new Date("2026-10-14T06:00:00Z")), end: some(new Date("2026-10-14T12:00:00Z")), press: some("a2"), state: variant("in-progress", null), sheets: 60000.0, customer: "Harbour Arts Society", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+        ["J-3004", { title: "Club newsletter", start: some(new Date("2026-10-08T06:00:00Z")), end: some(new Date("2026-10-08T08:00:00Z")), press: some("a3"), state: variant("actual", null), sheets: 16000.0, customer: "Kestrel Cycling Club", stock: variant("uncoated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
+        ["J-3005", { title: "Store flyers", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-15T16:00:00Z")), press: some("b1"), state: variant("confirmed", null), sheets: 150000.0, customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+        ["J-3006", { title: "Market posters", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T12:00:00Z")), press: some("b2"), state: variant("confirmed", null), sheets: 72000.0, customer: "Orchard Street Market", stock: variant("coated", null), due: some(new Date("2026-10-22T00:00:00Z")) }],
+        ["J-3007", { title: "Loyalty cards", start: some(new Date("2026-10-20T10:00:00Z")), end: some(new Date("2026-10-20T13:00:00Z")), press: some("b2"), state: variant("proposed", variant("added", null)), sheets: 36000.0, customer: "Copperleaf Cafe", stock: variant("board", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
+        ["J-3008", { title: "Gift boxes", start: some(new Date("2026-10-27T06:00:00Z")), end: some(new Date("2026-10-27T12:00:00Z")), press: some("b3"), state: variant("proposed", variant("recommended", null)), sheets: 48000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
+        ["J-3009", { title: "Ticket books", start: some(new Date("2026-10-22T06:00:00Z")), end: some(new Date("2026-10-22T09:00:00Z")), press: none, state: variant("proposed", variant("added", null)), sheets: 24000.0, customer: "Heathfield Theatre", stock: variant("uncoated", null), due: some(new Date("2026-10-26T00:00:00Z")) }],
+        ["J-3010", { title: "Guide reprint", start: none, end: none, press: none, state: variant("estimated", null), sheets: 24000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+        ["J-3011", { title: "Wall calendars", start: none, end: none, press: none, state: variant("estimated", null), sheets: 50000.0, customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
+        ["J-3012", { title: "Spare covers", start: none, end: none, press: none, state: variant("estimated", null), sheets: 8000.0, customer: "Meridian Monthly", stock: variant("board", null), due: none }],
+    ]),
+    mutations: (mutation) => ({
+        // The smallest builder's jobs' patch door: its Save commits through it.
+        patch: mutation.patch(),
+    }),
+});
 
-/** The smallest builder's jobs' patch door: its Save commits through it. */
-export const planEventJobsPatch = e3.mutation.patch(planEventJobs);
 
 /**
  * The smallest builder (`Plan Builder Spec.md` §3.2): a row per press, each
@@ -303,14 +348,14 @@ export const planEvents = example({
         "Plan", "Schedule", "Schedule.resources", "Schedule.events", "Schedule.field", "event kinds", "events", "resources",
         "rows", "jobs", "presses", "bars", "state", "backlog", "duration", "due", "fields", "library", "Plan.library",
         "Plan.library.backlog", "Plan.library.tab", "customers", "drop", "Schedule.patch", "inspector", "overlaps",
-        "Unassigned", "id", "record", "Record.bind", "e3.record", "e3.mutation.patch", "patch", "smallest", "builder",
+        "Unassigned", "id", "record", "Record.bind", "e3.record", "mutation.patch", "patch", "smallest", "builder",
         "#1191", "#1195", "#1197", "#1198",
     ],
     description: "The smallest builder — the presses as its rows (`Schedule.resources`) and the print jobs as bars on them (`Schedule.events`), a record of its own bound with its patch mutation; its library the backlog and the customers, each card setting the customer of the job it is dropped on (`Schedule.patch`); its inspector a job's customer and stock; an overlap on Press B2, and a job on no press on the Unassigned row",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const presses = $.let(Record.bind(planPrintPresses, []));
-            const jobs = $.let(Record.bind(planEventJobs, [planEventJobsPatch]));
+            const jobs = $.let(Record.bind(planEventJobs));
             const customers = $.let(Record.bind(planPrintCustomers, []));
             const axis = $.let(Plan.axis({
                 window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
@@ -359,25 +404,35 @@ export const planEvents = example({
 // planEventLinks — every way a link draws, and rows over a dataset
 // ============================================================================
 
-/** A paper stock: its name, and its level in thousands of sheets, a reading a week from 5 October. */
-export const PrintStock = StructType({ name: StringType, weekly: ArrayType(FloatType) });
+/** A paper stock: its name, and its level in thousands of sheets, a reading a week keyed by its week (#1436). */
+export const PrintStock = StructType({ name: StringType, weekly: DictType(DateTimeType, FloatType) });
 
 /** Four jobs on the print works' presses — the covers and the sleeves on Press B3, and the handbooks and the boxes they go into on Press A1 — which the Plan's specs read as a second kind of job. */
-export const planLinkJobs = e3.record("plan_link_jobs", DictType(StringType, PrintJob), new Map([
-    ["J-2001", { title: "Handbook covers", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T08:00:00Z")), press: some("b3"), state: variant("confirmed", null), sheets: 12000.0, customer: "Elmway College", stock: variant("board", null), due: some(new Date("2026-10-07T00:00:00Z")) }],
-    ["J-2002", { title: "Course handbook", start: some(new Date("2026-10-13T06:00:00Z")), end: some(new Date("2026-10-13T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 144000.0, customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
-    ["J-2003", { title: "Box sleeves", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T09:00:00Z")), press: some("b3"), state: variant("proposed", variant("recommended", null)), sheets: 18000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-21T00:00:00Z")) }],
-    ["J-2004", { title: "Gift boxes", start: some(new Date("2026-10-27T06:00:00Z")), end: some(new Date("2026-10-27T12:00:00Z")), press: some("a1"), state: variant("proposed", variant("recommended", null)), sheets: 48000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
-]));
+export const planLinkJobs = e3.record("plan_link_jobs", DictType(StringType, PrintJob), {
+    initial: new Map([
+        ["J-2001", { title: "Handbook covers", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T08:00:00Z")), press: some("b3"), state: variant("confirmed", null), sheets: 12000.0, customer: "Elmway College", stock: variant("board", null), due: some(new Date("2026-10-07T00:00:00Z")) }],
+        ["J-2002", { title: "Course handbook", start: some(new Date("2026-10-13T06:00:00Z")), end: some(new Date("2026-10-13T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 144000.0, customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+        ["J-2003", { title: "Box sleeves", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T09:00:00Z")), press: some("b3"), state: variant("proposed", variant("recommended", null)), sheets: 18000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-21T00:00:00Z")) }],
+        ["J-2004", { title: "Gift boxes", start: some(new Date("2026-10-27T06:00:00Z")), end: some(new Date("2026-10-27T12:00:00Z")), press: some("a1"), state: variant("proposed", variant("recommended", null)), sheets: 48000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
+    ]),
+    mutations: (mutation) => ({
+        // The linked jobs' patch door.
+        patch: mutation.patch(),
+    }),
+});
 
-/** The linked jobs' patch door. */
-export const planLinkJobsPatch = e3.mutation.patch(planLinkJobs);
 
 /** The paper in stock. */
 export const planLinkStock = e3.input("plan_link_stock", DictType(StringType, PrintStock), variant("value", new Map([
-    ["board", { name: "Board", weekly: [40.0, 22.0, 31.0, 18.0] }],
-    ["coated", { name: "Coated", weekly: [520.0, 410.0, 460.0, 380.0] }],
-    ["uncoated", { name: "Uncoated", weekly: [300.0, 260.0, 280.0, 240.0] }],
+    ["board", { name: "Board", weekly: new SortedMap([
+        [new Date("2026-10-05T00:00:00Z"), 40.0], [new Date("2026-10-12T00:00:00Z"), 22.0], [new Date("2026-10-19T00:00:00Z"), 31.0], [new Date("2026-10-26T00:00:00Z"), 18.0],
+    ], compareFor(DateTimeType)) }],
+    ["coated", { name: "Coated", weekly: new SortedMap([
+        [new Date("2026-10-05T00:00:00Z"), 520.0], [new Date("2026-10-12T00:00:00Z"), 410.0], [new Date("2026-10-19T00:00:00Z"), 460.0], [new Date("2026-10-26T00:00:00Z"), 380.0],
+    ], compareFor(DateTimeType)) }],
+    ["uncoated", { name: "Uncoated", weekly: new SortedMap([
+        [new Date("2026-10-05T00:00:00Z"), 300.0], [new Date("2026-10-12T00:00:00Z"), 260.0], [new Date("2026-10-19T00:00:00Z"), 280.0], [new Date("2026-10-26T00:00:00Z"), 240.0],
+    ], compareFor(DateTimeType)) }],
 ])));
 
 /** A work centre a job passes through on its way out: the platesetter, the bindery's folder and binder, the dispatch bay. */
@@ -393,28 +448,38 @@ export const PrintBinding = StructType({ title: StringType, start: DateTimeType,
 export const PrintDelivery = StructType({ title: StringType, at: DateTimeType, bay: StringType });
 
 /** The platesetter. A Plan never writes its resources. */
-export const planLinkSetters = e3.record("plan_link_setters", DictType(StringType, PrintCentre), new Map([
-    ["ps", { name: "Platesetter" }],
-]));
+export const planLinkSetters = e3.record("plan_link_setters", DictType(StringType, PrintCentre), {
+    initial: new Map([
+        ["ps", { name: "Platesetter" }],
+    ]),
+});
 
 /** The bindery's two lines. */
-export const planLinkLines = e3.record("plan_link_lines", DictType(StringType, PrintCentre), new Map([
-    ["fold", { name: "Folder" }],
-    ["bind", { name: "Binder" }],
-]));
+export const planLinkLines = e3.record("plan_link_lines", DictType(StringType, PrintCentre), {
+    initial: new Map([
+        ["fold", { name: "Folder" }],
+        ["bind", { name: "Binder" }],
+    ]),
+});
 
 /** The dispatch bay. */
-export const planLinkBays = e3.record("plan_link_bays", DictType(StringType, PrintCentre), new Map([
-    ["bay", { name: "Dispatch bay" }],
-]));
+export const planLinkBays = e3.record("plan_link_bays", DictType(StringType, PrintCentre), {
+    initial: new Map([
+        ["bay", { name: "Dispatch bay" }],
+    ]),
+});
 
 /** The plates for the catalogue covers, made on the window's first day. */
-export const planLinkPlates = e3.record("plan_link_plates", DictType(StringType, PrintPlates), new Map([
-    ["P-01", { title: "Catalogue plates", at: new Date("2026-10-05T12:00:00Z"), setter: "ps" }],
-]));
+export const planLinkPlates = e3.record("plan_link_plates", DictType(StringType, PrintPlates), {
+    initial: new Map([
+        ["P-01", { title: "Catalogue plates", at: new Date("2026-10-05T12:00:00Z"), setter: "ps" }],
+    ]),
+    mutations: (mutation) => ({
+        // The plates' patch door.
+        patch: mutation.patch(),
+    }),
+});
 
-/** The plates' patch door. */
-export const planLinkPlatesPatch = e3.mutation.patch(planLinkPlates);
 
 /**
  * The jobs the links join, on the six presses. Each link's jobs sit where its
@@ -422,54 +487,66 @@ export const planLinkPlatesPatch = e3.mutation.patch(planLinkPlates);
  * running in from before the window; one that ends before it starts, and one
  * that starts after it ends; two jobs back to back on one press.
  */
-export const planLinkCaseJobs = e3.record("plan_link_case_jobs", DictType(StringType, PrintJob), new Map([
-    ["J-2001", { title: "Catalogue covers", start: some(new Date("2026-10-08T06:00:00Z")), end: some(new Date("2026-10-08T08:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 12000.0, customer: "Larkspur Home", stock: variant("board", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
-    ["J-2002", { title: "Shop posters", start: some(new Date("2026-10-10T06:00:00Z")), end: some(new Date("2026-10-11T06:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 24000.0, customer: "Orchard Street Market", stock: variant("uncoated", null), due: some(new Date("2026-10-20T00:00:00Z")) }],
-    ["J-2003", { title: "Catalogue inserts", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-17T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 96000.0, customer: "Larkspur Home", stock: variant("coated", null), due: some(new Date("2026-10-19T00:00:00Z")) }],
-    ["J-2004", { title: "Price lists", start: some(new Date("2026-10-07T12:00:00Z")), end: some(new Date("2026-10-08T18:00:00Z")), press: some("a2"), state: variant("confirmed", null), sheets: 16000.0, customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
-    ["J-2005", { title: "Menu cards", start: some(new Date("2026-10-11T06:00:00Z")), end: some(new Date("2026-10-11T18:00:00Z")), press: some("a2"), state: variant("confirmed", null), sheets: 30000.0, customer: "Copperleaf Cafe", stock: variant("board", null), due: some(new Date("2026-10-13T00:00:00Z")) }],
-    ["J-2006", { title: "Gift tags", start: some(new Date("2026-10-25T06:00:00Z")), end: some(new Date("2026-10-25T18:00:00Z")), press: some("a2"), state: variant("proposed", variant("recommended", null)), sheets: 20000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-28T00:00:00Z")) }],
-    ["J-2007", { title: "Gift boxes", start: some(new Date("2026-10-27T06:00:00Z")), end: some(new Date("2026-10-27T14:00:00Z")), press: some("a2"), state: variant("proposed", variant("recommended", null)), sheets: 48000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
-    ["J-2008", { title: "Proof run", start: some(new Date("2026-10-02T06:00:00Z")), end: some(new Date("2026-10-05T18:00:00Z")), press: some("a3"), state: variant("actual", null), sheets: 16000.0, customer: "Meridian Monthly", stock: variant("coated", null), due: some(new Date("2026-10-06T00:00:00Z")) }],
-    ["J-2009", { title: "Annual report", start: some(new Date("2026-10-19T18:00:00Z")), end: some(new Date("2026-10-21T06:00:00Z")), press: some("a3"), state: variant("confirmed", null), sheets: 48000.0, customer: "Harbour Arts Society", stock: variant("coated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
-    ["J-2010", { title: "Desk calendars", start: some(new Date("2026-10-28T06:00:00Z")), end: some(new Date("2026-10-29T06:00:00Z")), press: some("a3"), state: variant("proposed", variant("added", null)), sheets: 36000.0, customer: "Foxglove Gardens", stock: variant("board", null), due: some(new Date("2026-11-02T00:00:00Z")) }],
-    ["J-2011", { title: "Calendar pads", start: some(new Date("2026-10-29T06:00:00Z")), end: some(new Date("2026-10-30T18:00:00Z")), press: some("a3"), state: variant("proposed", variant("added", null)), sheets: 72000.0, customer: "Foxglove Gardens", stock: variant("uncoated", null), due: some(new Date("2026-11-02T00:00:00Z")) }],
-    ["J-2012", { title: "Proof sheets", start: some(new Date("2026-09-28T06:00:00Z")), end: some(new Date("2026-09-30T18:00:00Z")), press: some("b1"), state: variant("actual", null), sheets: 8000.0, customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-01T00:00:00Z")) }],
-    ["J-2013", { title: "Catalogue", start: some(new Date("2026-10-12T06:00:00Z")), end: some(new Date("2026-10-13T18:00:00Z")), press: some("b1"), state: variant("confirmed", null), sheets: 144000.0, customer: "Larkspur Home", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
-    ["J-2014", { title: "Seed catalogue", start: some(new Date("2026-10-22T06:00:00Z")), end: some(new Date("2026-10-23T12:00:00Z")), press: some("b1"), state: variant("confirmed", null), sheets: 100000.0, customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-26T00:00:00Z")) }],
-    ["J-2015", { title: "Night run", start: some(new Date("2026-10-05T00:00:00Z")), end: some(new Date("2026-10-05T08:00:00Z")), press: some("b2"), state: variant("actual", null), sheets: 16000.0, customer: "Meridian Monthly", stock: variant("coated", null), due: some(new Date("2026-10-06T00:00:00Z")) }],
-    ["J-2016", { title: "Store flyers", start: some(new Date("2026-10-16T06:00:00Z")), end: some(new Date("2026-10-16T20:00:00Z")), press: some("b2"), state: variant("confirmed", null), sheets: 96000.0, customer: "Larkspur Home", stock: variant("uncoated", null), due: some(new Date("2026-10-19T00:00:00Z")) }],
-    ["J-2017", { title: "Seed packets", start: some(new Date("2026-10-23T06:00:00Z")), end: some(new Date("2026-10-24T06:00:00Z")), press: some("b2"), state: variant("confirmed", null), sheets: 72000.0, customer: "Foxglove Gardens", stock: variant("board", null), due: some(new Date("2026-10-27T00:00:00Z")) }],
-    ["J-2018", { title: "Exhibition book", start: some(new Date("2026-10-26T06:00:00Z")), end: some(new Date("2026-10-27T18:00:00Z")), press: some("b2"), state: variant("proposed", variant("recommended", null)), sheets: 54000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
-    ["J-2019", { title: "Ticket books", start: some(new Date("2026-10-29T06:00:00Z")), end: some(new Date("2026-10-30T06:00:00Z")), press: some("b2"), state: variant("estimated", null), sheets: 60000.0, customer: "Heathfield Theatre", stock: variant("uncoated", null), due: some(new Date("2026-11-02T00:00:00Z")) }],
-    ["J-2020", { title: "Card stock", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T14:00:00Z")), press: some("b3"), state: variant("actual", null), sheets: 30000.0, customer: "Copperleaf Cafe", stock: variant("board", null), due: some(new Date("2026-10-08T00:00:00Z")) }],
-    ["J-2021", { title: "Book sections", start: some(new Date("2026-10-11T06:00:00Z")), end: some(new Date("2026-10-12T12:00:00Z")), press: some("b3"), state: variant("confirmed", null), sheets: 84000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-14T00:00:00Z")) }],
-    ["J-2022", { title: "Report covers", start: some(new Date("2026-10-19T06:00:00Z")), end: some(new Date("2026-10-20T18:00:00Z")), press: some("b3"), state: variant("confirmed", null), sheets: 48000.0, customer: "Harbour Arts Society", stock: variant("board", null), due: some(new Date("2026-10-21T00:00:00Z")) }],
-    ["J-2023", { title: "Spring brochure", start: some(new Date("2026-11-03T06:00:00Z")), end: some(new Date("2026-11-04T18:00:00Z")), press: some("b3"), state: variant("estimated", null), sheets: 60000.0, customer: "Heathfield Theatre", stock: variant("coated", null), due: some(new Date("2026-11-09T00:00:00Z")) }],
-]));
+export const planLinkCaseJobs = e3.record("plan_link_case_jobs", DictType(StringType, PrintJob), {
+    initial: new Map([
+        ["J-2001", { title: "Catalogue covers", start: some(new Date("2026-10-08T06:00:00Z")), end: some(new Date("2026-10-08T08:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 12000.0, customer: "Larkspur Home", stock: variant("board", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
+        ["J-2002", { title: "Shop posters", start: some(new Date("2026-10-10T06:00:00Z")), end: some(new Date("2026-10-11T06:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 24000.0, customer: "Orchard Street Market", stock: variant("uncoated", null), due: some(new Date("2026-10-20T00:00:00Z")) }],
+        ["J-2003", { title: "Catalogue inserts", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-17T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 96000.0, customer: "Larkspur Home", stock: variant("coated", null), due: some(new Date("2026-10-19T00:00:00Z")) }],
+        ["J-2004", { title: "Price lists", start: some(new Date("2026-10-07T12:00:00Z")), end: some(new Date("2026-10-08T18:00:00Z")), press: some("a2"), state: variant("confirmed", null), sheets: 16000.0, customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
+        ["J-2005", { title: "Menu cards", start: some(new Date("2026-10-11T06:00:00Z")), end: some(new Date("2026-10-11T18:00:00Z")), press: some("a2"), state: variant("confirmed", null), sheets: 30000.0, customer: "Copperleaf Cafe", stock: variant("board", null), due: some(new Date("2026-10-13T00:00:00Z")) }],
+        ["J-2006", { title: "Gift tags", start: some(new Date("2026-10-25T06:00:00Z")), end: some(new Date("2026-10-25T18:00:00Z")), press: some("a2"), state: variant("proposed", variant("recommended", null)), sheets: 20000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-28T00:00:00Z")) }],
+        ["J-2007", { title: "Gift boxes", start: some(new Date("2026-10-27T06:00:00Z")), end: some(new Date("2026-10-27T14:00:00Z")), press: some("a2"), state: variant("proposed", variant("recommended", null)), sheets: 48000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
+        ["J-2008", { title: "Proof run", start: some(new Date("2026-10-02T06:00:00Z")), end: some(new Date("2026-10-05T18:00:00Z")), press: some("a3"), state: variant("actual", null), sheets: 16000.0, customer: "Meridian Monthly", stock: variant("coated", null), due: some(new Date("2026-10-06T00:00:00Z")) }],
+        ["J-2009", { title: "Annual report", start: some(new Date("2026-10-19T18:00:00Z")), end: some(new Date("2026-10-21T06:00:00Z")), press: some("a3"), state: variant("confirmed", null), sheets: 48000.0, customer: "Harbour Arts Society", stock: variant("coated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
+        ["J-2010", { title: "Desk calendars", start: some(new Date("2026-10-28T06:00:00Z")), end: some(new Date("2026-10-29T06:00:00Z")), press: some("a3"), state: variant("proposed", variant("added", null)), sheets: 36000.0, customer: "Foxglove Gardens", stock: variant("board", null), due: some(new Date("2026-11-02T00:00:00Z")) }],
+        ["J-2011", { title: "Calendar pads", start: some(new Date("2026-10-29T06:00:00Z")), end: some(new Date("2026-10-30T18:00:00Z")), press: some("a3"), state: variant("proposed", variant("added", null)), sheets: 72000.0, customer: "Foxglove Gardens", stock: variant("uncoated", null), due: some(new Date("2026-11-02T00:00:00Z")) }],
+        ["J-2012", { title: "Proof sheets", start: some(new Date("2026-09-28T06:00:00Z")), end: some(new Date("2026-09-30T18:00:00Z")), press: some("b1"), state: variant("actual", null), sheets: 8000.0, customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-01T00:00:00Z")) }],
+        ["J-2013", { title: "Catalogue", start: some(new Date("2026-10-12T06:00:00Z")), end: some(new Date("2026-10-13T18:00:00Z")), press: some("b1"), state: variant("confirmed", null), sheets: 144000.0, customer: "Larkspur Home", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+        ["J-2014", { title: "Seed catalogue", start: some(new Date("2026-10-22T06:00:00Z")), end: some(new Date("2026-10-23T12:00:00Z")), press: some("b1"), state: variant("confirmed", null), sheets: 100000.0, customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-26T00:00:00Z")) }],
+        ["J-2015", { title: "Night run", start: some(new Date("2026-10-05T00:00:00Z")), end: some(new Date("2026-10-05T08:00:00Z")), press: some("b2"), state: variant("actual", null), sheets: 16000.0, customer: "Meridian Monthly", stock: variant("coated", null), due: some(new Date("2026-10-06T00:00:00Z")) }],
+        ["J-2016", { title: "Store flyers", start: some(new Date("2026-10-16T06:00:00Z")), end: some(new Date("2026-10-16T20:00:00Z")), press: some("b2"), state: variant("confirmed", null), sheets: 96000.0, customer: "Larkspur Home", stock: variant("uncoated", null), due: some(new Date("2026-10-19T00:00:00Z")) }],
+        ["J-2017", { title: "Seed packets", start: some(new Date("2026-10-23T06:00:00Z")), end: some(new Date("2026-10-24T06:00:00Z")), press: some("b2"), state: variant("confirmed", null), sheets: 72000.0, customer: "Foxglove Gardens", stock: variant("board", null), due: some(new Date("2026-10-27T00:00:00Z")) }],
+        ["J-2018", { title: "Exhibition book", start: some(new Date("2026-10-26T06:00:00Z")), end: some(new Date("2026-10-27T18:00:00Z")), press: some("b2"), state: variant("proposed", variant("recommended", null)), sheets: 54000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
+        ["J-2019", { title: "Ticket books", start: some(new Date("2026-10-29T06:00:00Z")), end: some(new Date("2026-10-30T06:00:00Z")), press: some("b2"), state: variant("estimated", null), sheets: 60000.0, customer: "Heathfield Theatre", stock: variant("uncoated", null), due: some(new Date("2026-11-02T00:00:00Z")) }],
+        ["J-2020", { title: "Card stock", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T14:00:00Z")), press: some("b3"), state: variant("actual", null), sheets: 30000.0, customer: "Copperleaf Cafe", stock: variant("board", null), due: some(new Date("2026-10-08T00:00:00Z")) }],
+        ["J-2021", { title: "Book sections", start: some(new Date("2026-10-11T06:00:00Z")), end: some(new Date("2026-10-12T12:00:00Z")), press: some("b3"), state: variant("confirmed", null), sheets: 84000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-14T00:00:00Z")) }],
+        ["J-2022", { title: "Report covers", start: some(new Date("2026-10-19T06:00:00Z")), end: some(new Date("2026-10-20T18:00:00Z")), press: some("b3"), state: variant("confirmed", null), sheets: 48000.0, customer: "Harbour Arts Society", stock: variant("board", null), due: some(new Date("2026-10-21T00:00:00Z")) }],
+        ["J-2023", { title: "Spring brochure", start: some(new Date("2026-11-03T06:00:00Z")), end: some(new Date("2026-11-04T18:00:00Z")), press: some("b3"), state: variant("estimated", null), sheets: 60000.0, customer: "Heathfield Theatre", stock: variant("coated", null), due: some(new Date("2026-11-09T00:00:00Z")) }],
+    ]),
+    mutations: (mutation) => ({
+        // The jobs' patch door.
+        patch: mutation.patch(),
+    }),
+});
 
-/** The jobs' patch door. */
-export const planLinkCaseJobsPatch = e3.mutation.patch(planLinkCaseJobs);
 
 /** The bindery's jobs: two foldings of the book's sections, and two bindings. */
-export const planLinkBindings = e3.record("plan_link_bindings", DictType(StringType, PrintBinding), new Map([
-    ["B-01", { title: "Fold sections", start: new Date("2026-10-15T06:00:00Z"), end: new Date("2026-10-16T06:00:00Z"), line: "fold", state: variant("confirmed", null) }],
-    ["B-02", { title: "Fold sections", start: new Date("2026-10-17T06:00:00Z"), end: new Date("2026-10-18T06:00:00Z"), line: "fold", state: variant("confirmed", null) }],
-    ["B-03", { title: "Bind books", start: new Date("2026-10-20T18:00:00Z"), end: new Date("2026-10-21T18:00:00Z"), line: "bind", state: variant("confirmed", null) }],
-    ["B-04", { title: "Bind exhibition book", start: new Date("2026-10-25T06:00:00Z"), end: new Date("2026-10-26T06:00:00Z"), line: "bind", state: variant("proposed", variant("recommended", null)) }],
-]));
+export const planLinkBindings = e3.record("plan_link_bindings", DictType(StringType, PrintBinding), {
+    initial: new Map([
+        ["B-01", { title: "Fold sections", start: new Date("2026-10-15T06:00:00Z"), end: new Date("2026-10-16T06:00:00Z"), line: "fold", state: variant("confirmed", null) }],
+        ["B-02", { title: "Fold sections", start: new Date("2026-10-17T06:00:00Z"), end: new Date("2026-10-18T06:00:00Z"), line: "fold", state: variant("confirmed", null) }],
+        ["B-03", { title: "Bind books", start: new Date("2026-10-20T18:00:00Z"), end: new Date("2026-10-21T18:00:00Z"), line: "bind", state: variant("confirmed", null) }],
+        ["B-04", { title: "Bind exhibition book", start: new Date("2026-10-25T06:00:00Z"), end: new Date("2026-10-26T06:00:00Z"), line: "bind", state: variant("proposed", variant("recommended", null)) }],
+    ]),
+    mutations: (mutation) => ({
+        // The bindery's patch door.
+        patch: mutation.patch(),
+    }),
+});
 
-/** The bindery's patch door. */
-export const planLinkBindingsPatch = e3.mutation.patch(planLinkBindings);
 
 /** The deliveries: the shop posters in the third week, the bound books in the fourth. */
-export const planLinkDeliveries = e3.record("plan_link_deliveries", DictType(StringType, PrintDelivery), new Map([
-    ["D-01", { title: "Books", at: new Date("2026-10-28T10:00:00Z"), bay: "bay" }],
-    ["D-02", { title: "Posters", at: new Date("2026-10-20T10:00:00Z"), bay: "bay" }],
-]));
+export const planLinkDeliveries = e3.record("plan_link_deliveries", DictType(StringType, PrintDelivery), {
+    initial: new Map([
+        ["D-01", { title: "Books", at: new Date("2026-10-28T10:00:00Z"), bay: "bay" }],
+        ["D-02", { title: "Posters", at: new Date("2026-10-20T10:00:00Z"), bay: "bay" }],
+    ]),
+    mutations: (mutation) => ({
+        // The deliveries' patch door.
+        patch: mutation.patch(),
+    }),
+});
 
-/** The deliveries' patch door. */
-export const planLinkDeliveriesPatch = e3.mutation.patch(planLinkDeliveries);
 
 // ============================================================================
 // Jobs of the Plan's specs' own: a kind in lanes, and a resource by its case
@@ -486,40 +563,52 @@ export const PrintLaneJob = StructType({
 });
 
 /** Three lane jobs in the first week: two on Press A1 in its AM and PM lanes, one late; one late on Press A2. */
-export const planRowsLaneJobs = e3.record("plan_rows_lane_jobs", DictType(StringType, PrintLaneJob), new Map([
-    ["L-1", { title: "Proofs", start: new Date("2026-10-06T06:00:00Z"), end: new Date("2026-10-06T08:00:00Z"), press: some("a1"), lane: "pm", status: variant("fine", null) }],
-    ["L-2", { title: "Plates", start: new Date("2026-10-06T09:00:00Z"), end: new Date("2026-10-06T10:00:00Z"), press: some("a1"), lane: "am", status: variant("late", null) }],
-    ["L-3", { title: "Wash-up", start: new Date("2026-10-07T06:00:00Z"), end: new Date("2026-10-07T07:00:00Z"), press: some("a2"), lane: "am", status: variant("late", null) }],
-]));
+export const planRowsLaneJobs = e3.record("plan_rows_lane_jobs", DictType(StringType, PrintLaneJob), {
+    initial: new Map([
+        ["L-1", { title: "Proofs", start: new Date("2026-10-06T06:00:00Z"), end: new Date("2026-10-06T08:00:00Z"), press: some("a1"), lane: "pm", status: variant("fine", null) }],
+        ["L-2", { title: "Plates", start: new Date("2026-10-06T09:00:00Z"), end: new Date("2026-10-06T10:00:00Z"), press: some("a1"), lane: "am", status: variant("late", null) }],
+        ["L-3", { title: "Wash-up", start: new Date("2026-10-07T06:00:00Z"), end: new Date("2026-10-07T07:00:00Z"), press: some("a2"), lane: "am", status: variant("late", null) }],
+    ]),
+    mutations: (mutation) => ({
+        // The lane jobs' patch door.
+        patch: mutation.patch(),
+    }),
+});
 
-/** The lane jobs' patch door. */
-export const planRowsLaneJobsPatch = e3.mutation.patch(planRowsLaneJobs);
 
 /** A job on a press or in a bay — a resource field whose case names the kind. */
 export const PrintOnJob = StructType({ title: StringType, start: DateTimeType, end: DateTimeType, on: VariantType({ press: StringType, bay: StringType }) });
 
 /** One job on Press A1, and one in Bay A1: two kinds of resource with the same key. */
-export const planRowsOnJobs = e3.record("plan_rows_on_jobs", DictType(StringType, PrintOnJob), new Map([
-    ["O-1", { title: "On the press", start: new Date("2026-10-06T06:00:00Z"), end: new Date("2026-10-06T08:00:00Z"), on: variant("press", "a1") }],
-    ["O-2", { title: "In the bay", start: new Date("2026-10-06T09:00:00Z"), end: new Date("2026-10-06T10:00:00Z"), on: variant("bay", "a1") }],
-]));
+export const planRowsOnJobs = e3.record("plan_rows_on_jobs", DictType(StringType, PrintOnJob), {
+    initial: new Map([
+        ["O-1", { title: "On the press", start: new Date("2026-10-06T06:00:00Z"), end: new Date("2026-10-06T08:00:00Z"), on: variant("press", "a1") }],
+        ["O-2", { title: "In the bay", start: new Date("2026-10-06T09:00:00Z"), end: new Date("2026-10-06T10:00:00Z"), on: variant("bay", "a1") }],
+    ]),
+    mutations: (mutation) => ({
+        // The press-or-bay jobs' patch door.
+        patch: mutation.patch(),
+    }),
+});
 
-/** The press-or-bay jobs' patch door. */
-export const planRowsOnJobsPatch = e3.mutation.patch(planRowsOnJobs);
 
 // ============================================================================
 // The print works' finishing and dispatch records (#1200)
 // ============================================================================
 
 /** The parent of the shared folder and binder, held in a record like every other resource. */
-export const planPrintBindery = e3.record("plan_print_bindery", DictType(StringType, PrintCentre), new Map([
-    ["bindery", { name: "Bindery" }],
-]));
+export const planPrintBindery = e3.record("plan_print_bindery", DictType(StringType, PrintCentre), {
+    initial: new Map([
+        ["bindery", { name: "Bindery" }],
+    ]),
+});
 
 /** The vans a delivery can move onto from the dispatch bay. */
-export const planPrintVans = e3.record("plan_print_vans", DictType(StringType, PrintCentre), new Map([
-    ["van1", { name: "Van 1" }], ["van2", { name: "Van 2" }],
-]));
+export const planPrintVans = e3.record("plan_print_vans", DictType(StringType, PrintCentre), {
+    initial: new Map([
+        ["van1", { name: "Van 1" }], ["van2", { name: "Van 2" }],
+    ]),
+});
 
 /** A delivery's own status, separate from the schedule's lifecycle. */
 export const PrintDispatchStatus = VariantType({ queued: NullType, ready: NullType, dispatched: NullType });
@@ -532,33 +621,45 @@ export const PrintDispatch = StructType({
 });
 
 /** The print works' own plate orders, timed before its existing jobs. */
-export const planPrintPlates = e3.record("plan_print_plates", DictType(StringType, PrintPlates), new Map([
-    ["P-101", { title: "Handbook plates", at: new Date("2026-10-16T14:00:00Z"), setter: "ps" }],
-    ["P-102", { title: "Poster plates", at: new Date("2026-10-13T14:00:00Z"), setter: "ps" }],
-]));
+export const planPrintPlates = e3.record("plan_print_plates", DictType(StringType, PrintPlates), {
+    initial: new Map([
+        ["P-101", { title: "Handbook plates", at: new Date("2026-10-16T14:00:00Z"), setter: "ps" }],
+        ["P-102", { title: "Poster plates", at: new Date("2026-10-13T14:00:00Z"), setter: "ps" }],
+    ]),
+    mutations: (mutation) => ({
+        // The print works' plates commit through their own patch door.
+        patch: mutation.patch(),
+    }),
+});
 
-/** The print works' plates commit through their own patch door. */
-export const planPrintPlatesPatch = e3.mutation.patch(planPrintPlates);
 
 /** Two foldings run in parallel, followed by binding, after the handbook leaves Press A1. */
-export const planPrintBindings = e3.record("plan_print_bindings", DictType(StringType, PrintBinding), new Map([
-    ["B-101", { title: "Fold handbook sections", start: new Date("2026-10-20T06:00:00Z"), end: new Date("2026-10-20T14:00:00Z"), line: "fold", state: variant("confirmed", null) }],
-    ["B-102", { title: "Fold handbook inserts", start: new Date("2026-10-20T10:00:00Z"), end: new Date("2026-10-20T16:00:00Z"), line: "fold", state: variant("confirmed", null) }],
-    ["B-103", { title: "Bind handbooks", start: new Date("2026-10-21T06:00:00Z"), end: new Date("2026-10-21T14:00:00Z"), line: "bind", state: variant("confirmed", null) }],
-]));
+export const planPrintBindings = e3.record("plan_print_bindings", DictType(StringType, PrintBinding), {
+    initial: new Map([
+        ["B-101", { title: "Fold handbook sections", start: new Date("2026-10-20T06:00:00Z"), end: new Date("2026-10-20T14:00:00Z"), line: "fold", state: variant("confirmed", null) }],
+        ["B-102", { title: "Fold handbook inserts", start: new Date("2026-10-20T10:00:00Z"), end: new Date("2026-10-20T16:00:00Z"), line: "fold", state: variant("confirmed", null) }],
+        ["B-103", { title: "Bind handbooks", start: new Date("2026-10-21T06:00:00Z"), end: new Date("2026-10-21T14:00:00Z"), line: "bind", state: variant("confirmed", null) }],
+    ]),
+    mutations: (mutation) => ({
+        // The print works' bindery jobs commit through their own patch door.
+        patch: mutation.patch(),
+    }),
+});
 
-/** The print works' bindery jobs commit through their own patch door. */
-export const planPrintBindingsPatch = e3.mutation.patch(planPrintBindings);
 
 /** Deliveries occupy AM/PM lanes and carry each of the dispatch statuses. */
-export const planPrintDeliveries = e3.record("plan_print_deliveries", DictType(StringType, PrintDispatch), new Map([
-    ["D-101", { title: "Handbooks", at: new Date("2026-10-22T10:00:00Z"), location: variant("bay", "bay"), lane: "AM", status: variant("queued", null), pallets: 3.0 }],
-    ["D-102", { title: "Event posters", at: new Date("2026-10-15T14:00:00Z"), location: variant("van", "van1"), lane: "PM", status: variant("ready", null), pallets: 2.0 }],
-    ["D-103", { title: "Museum guides", at: new Date("2026-10-09T10:00:00Z"), location: variant("van", "van2"), lane: "AM", status: variant("dispatched", null), pallets: 1.0 }],
-]));
+export const planPrintDeliveries = e3.record("plan_print_deliveries", DictType(StringType, PrintDispatch), {
+    initial: new Map([
+        ["D-101", { title: "Handbooks", at: new Date("2026-10-22T10:00:00Z"), location: variant("bay", "bay"), lane: "AM", status: variant("queued", null), pallets: 3.0 }],
+        ["D-102", { title: "Event posters", at: new Date("2026-10-15T14:00:00Z"), location: variant("van", "van1"), lane: "PM", status: variant("ready", null), pallets: 2.0 }],
+        ["D-103", { title: "Museum guides", at: new Date("2026-10-09T10:00:00Z"), location: variant("van", "van2"), lane: "AM", status: variant("dispatched", null), pallets: 1.0 }],
+    ]),
+    mutations: (mutation) => ({
+        // The print works' deliveries commit through their own patch door.
+        patch: mutation.patch(),
+    }),
+});
 
-/** The print works' deliveries commit through their own patch door. */
-export const planPrintDeliveriesPatch = e3.mutation.patch(planPrintDeliveries);
 
 // ============================================================================
 // The print works' templates, each a record of its own (#1344)
@@ -589,55 +690,71 @@ export const PrintDeliveryTemplate = StructType({
 });
 
 /** The job templates. A Plan never writes them: the library lists them, and a drop creates a job from one. */
-export const planPrintJobTemplates = e3.record("plan_print_job_templates", DictType(StringType, PrintJobTemplate), new Map([
-    ["board", { name: "Board run", group: "Jobs", hours: 8.0, values: { title: "Board run", state: variant("proposed", variant("added", null)), sheets: 24000.0, customer: "", stock: variant("board", null), due: none } }],
-    ["brochure", { name: "Brochure run", group: "Jobs", hours: 6.0, values: { title: "Brochure run", state: variant("proposed", variant("added", null)), sheets: 40000.0, customer: "", stock: variant("coated", null), due: none } }],
-    ["catalogue", { name: "Catalogue run", group: "Jobs", hours: 12.0, values: { title: "Catalogue run", state: variant("proposed", variant("added", null)), sheets: 96000.0, customer: "", stock: variant("coated", null), due: none } }],
-    ["poster", { name: "Poster run", group: "Jobs", hours: 4.0, values: { title: "Poster run", state: variant("proposed", variant("added", null)), sheets: 20000.0, customer: "", stock: variant("uncoated", null), due: none } }],
-]));
+export const planPrintJobTemplates = e3.record("plan_print_job_templates", DictType(StringType, PrintJobTemplate), {
+    initial: new Map([
+        ["board", { name: "Board run", group: "Jobs", hours: 8.0, values: { title: "Board run", state: variant("proposed", variant("added", null)), sheets: 24000.0, customer: "", stock: variant("board", null), due: none } }],
+        ["brochure", { name: "Brochure run", group: "Jobs", hours: 6.0, values: { title: "Brochure run", state: variant("proposed", variant("added", null)), sheets: 40000.0, customer: "", stock: variant("coated", null), due: none } }],
+        ["catalogue", { name: "Catalogue run", group: "Jobs", hours: 12.0, values: { title: "Catalogue run", state: variant("proposed", variant("added", null)), sheets: 96000.0, customer: "", stock: variant("coated", null), due: none } }],
+        ["poster", { name: "Poster run", group: "Jobs", hours: 4.0, values: { title: "Poster run", state: variant("proposed", variant("added", null)), sheets: 20000.0, customer: "", stock: variant("uncoated", null), due: none } }],
+    ]),
+    indexes: (index) => ({
+        plan_print_job_templates_by_group: index.on(["group"]),
+    }),
+});
 
 /** The stop templates. */
-export const planPrintStopTemplates = e3.record("plan_print_stop_templates", DictType(StringType, PrintStopTemplate), new Map([
-    ["plates", { name: "Plate change", group: "Stops", values: { title: "Plate change", kind: variant("plate_change", null) } }],
-    ["service", { name: "Service", group: "Stops", values: { title: "Service", kind: variant("service", null) } }],
-]));
+export const planPrintStopTemplates = e3.record("plan_print_stop_templates", DictType(StringType, PrintStopTemplate), {
+    initial: new Map([
+        ["plates", { name: "Plate change", group: "Stops", values: { title: "Plate change", kind: variant("plate_change", null) } }],
+        ["service", { name: "Service", group: "Stops", values: { title: "Service", kind: variant("service", null) } }],
+    ]),
+    indexes: (index) => ({
+        plan_print_stop_templates_by_group: index.on(["group"]),
+    }),
+});
 
 /** The shift templates: early, late and night. */
-export const planPrintShiftTemplates = e3.record("plan_print_shift_templates", DictType(StringType, PrintShiftTemplate), new Map([
-    ["early", { name: "Early shift", group: "Shifts", hour: 6n, values: { title: "Early", state: variant("confirmed", null) } }],
-    ["late", { name: "Late shift", group: "Shifts", hour: 14n, values: { title: "Late", state: variant("confirmed", null) } }],
-    ["night", { name: "Night shift", group: "Shifts", hour: 22n, values: { title: "Night", state: variant("proposed", variant("added", null)) } }],
-]));
+export const planPrintShiftTemplates = e3.record("plan_print_shift_templates", DictType(StringType, PrintShiftTemplate), {
+    initial: new Map([
+        ["early", { name: "Early shift", group: "Shifts", hour: 6n, values: { title: "Early", state: variant("confirmed", null) } }],
+        ["late", { name: "Late shift", group: "Shifts", hour: 14n, values: { title: "Late", state: variant("confirmed", null) } }],
+        ["night", { name: "Night shift", group: "Shifts", hour: 22n, values: { title: "Night", state: variant("proposed", variant("added", null)) } }],
+    ]),
+    indexes: (index) => ({
+        plan_print_shift_templates_by_group: index.on(["group"]),
+    }),
+});
 
 /** The plates templates. */
-export const planPrintPlatesTemplates = e3.record("plan_print_plates_templates", DictType(StringType, PrintPlatesTemplate), new Map([
-    ["plates", { name: "Job plates", group: "Plate room", values: { title: "Job plates" } }],
-]));
+export const planPrintPlatesTemplates = e3.record("plan_print_plates_templates", DictType(StringType, PrintPlatesTemplate), {
+    initial: new Map([
+        ["plates", { name: "Job plates", group: "Plate room", values: { title: "Job plates" } }],
+    ]),
+    indexes: (index) => ({
+        plan_print_plates_templates_by_group: index.on(["group"]),
+    }),
+});
 
 /** The bindery templates. */
-export const planPrintBindingTemplates = e3.record("plan_print_binding_templates", DictType(StringType, PrintBindingTemplate), new Map([
-    ["fold", { name: "Fold sections", group: "Bindery", hours: 8.0, values: { title: "Fold sections", state: variant("confirmed", null) } }],
-]));
+export const planPrintBindingTemplates = e3.record("plan_print_binding_templates", DictType(StringType, PrintBindingTemplate), {
+    initial: new Map([
+        ["fold", { name: "Fold sections", group: "Bindery", hours: 8.0, values: { title: "Fold sections", state: variant("confirmed", null) } }],
+    ]),
+    indexes: (index) => ({
+        plan_print_binding_templates_by_group: index.on(["group"]),
+    }),
+});
 
 /** The delivery templates. */
-export const planPrintDeliveryTemplates = e3.record("plan_print_delivery_templates", DictType(StringType, PrintDeliveryTemplate), new Map([
-    ["delivery", { name: "Morning delivery", group: "Dispatch", hour: 10n, values: { title: "Delivery", lane: "AM", status: variant("queued", null), pallets: 1.0 } }],
-]));
+export const planPrintDeliveryTemplates = e3.record("plan_print_delivery_templates", DictType(StringType, PrintDeliveryTemplate), {
+    initial: new Map([
+        ["delivery", { name: "Morning delivery", group: "Dispatch", hour: 10n, values: { title: "Delivery", lane: "AM", status: variant("queued", null), pallets: 1.0 } }],
+    ]),
+    indexes: (index) => ({
+        plan_print_delivery_templates_by_group: index.on(["group"]),
+    }),
+});
 
-// The rail narrows each record through its own indexes (#1344): the jobs and the shifts over their interval
-// indexes — on their own, and after a job's stock — so a narrowing keeps every event overlapping the window once;
-// the presses by hall, the customers by district, and each templates record by its group.
-export const planPrintJobsByTime = e3.recordIndex.interval("plan_print_jobs_by_time", planPrintJobs, { from: "start", to: "end" });
-export const planPrintJobsByStockTime = e3.recordIndex.interval("plan_print_jobs_by_stock_time", planPrintJobs, { on: ["stock"], from: "start", to: "end" });
-export const planPrintShiftsByTime = e3.recordIndex.interval("plan_print_shifts_by_time", planPrintShifts, { from: "start", to: "end" });
-export const planPrintPressesByHall = e3.recordIndex("plan_print_presses_by_hall", planPrintPresses, { on: ["hall"] });
-export const planPrintCustomersByDistrict = e3.recordIndex("plan_print_customers_by_district", planPrintCustomers, { on: ["district"] });
-export const planPrintJobTemplatesByGroup = e3.recordIndex("plan_print_job_templates_by_group", planPrintJobTemplates, { on: ["group"] });
-export const planPrintStopTemplatesByGroup = e3.recordIndex("plan_print_stop_templates_by_group", planPrintStopTemplates, { on: ["group"] });
-export const planPrintShiftTemplatesByGroup = e3.recordIndex("plan_print_shift_templates_by_group", planPrintShiftTemplates, { on: ["group"] });
-export const planPrintPlatesTemplatesByGroup = e3.recordIndex("plan_print_plates_templates_by_group", planPrintPlatesTemplates, { on: ["group"] });
-export const planPrintBindingTemplatesByGroup = e3.recordIndex("plan_print_binding_templates_by_group", planPrintBindingTemplates, { on: ["group"] });
-export const planPrintDeliveryTemplatesByGroup = e3.recordIndex("plan_print_delivery_templates_by_group", planPrintDeliveryTemplates, { on: ["group"] });
 
 // ============================================================================
 // planPrintWorks — the print works (§3.3)
@@ -677,7 +794,7 @@ export const planPrintWorks = example({
         "Plan.library", "customers", "Schedule.patch", "inspector", "selection", "kind's own inspector", "update",
         "Record.bind", "Data.bind", "e3.record", "e3.input", "#1191", "#1195", "#1197", "#1200", "parent", "rollup", "collapsed", "meta", "value",
         "buckets", "lane", "status", "ready", "overlaps", "allow", "canDrop", "Schedule.Types.Candidate",
-        "variant resource", "bay", "van", "Slice", "Slice.bindRecords", "sources", "Data.bindPaged", "recordIndex", "interval",
+        "variant resource", "bay", "van", "Slice", "Slice.bindRecords", "sources", "Data.bindPaged", "indexes", "interval",
         "window", "range", "brush", "resolution", "Schedule.templates", "templates record", "Plan.eventRef", "Plan.over", "#1344",
     ],
     description: "The print works from plates to dispatch — jobs, stops and shifts on grouped presses and crews, nested bindery resources, deliveries in AM/PM lanes on a bay or a van, status and readiness, links between event kinds, utilisation and paper stock; one Slice.bindRecords rail — the jobs and the shifts through their interval indexes, their range the one window, the presses, the customers and each kind's templates record — and the shared library, inspector and Save session",
@@ -688,9 +805,9 @@ export const planPrintWorks = example({
             // pages alone.
             const presses = $.let(Data.bind(planPrintPresses));
             const crews = $.let(Record.bind(planPrintCrews, []));
-            const jobs = $.let(Record.bind(planPrintJobs, [planPrintJobsPatch]));
-            const stops = $.let(Record.bind(planPrintStops, [planPrintStopsPatch]));
-            const shifts = $.let(Record.bind(planPrintShifts, [planPrintShiftsPatch]));
+            const jobs = $.let(Record.bind(planPrintJobs));
+            const stops = $.let(Record.bind(planPrintStops));
+            const shifts = $.let(Record.bind(planPrintShifts));
             const customers = $.let(Data.bind(planPrintCustomers));
             const jobTemplates = $.let(Data.bind(planPrintJobTemplates));
             const stopTemplates = $.let(Data.bind(planPrintStopTemplates));
@@ -702,25 +819,25 @@ export const planPrintWorks = example({
             // indexes, their range the one window the toolbar's dates, the resolution and the brush write; the
             // presses, the customers and each templates record by its fields.
             const slice = $.let(Slice.bindRecords("ex.planPrintWorks", {
-                job: { source: Data.bindPaged(planPrintJobs, { indexes: [planPrintJobsByTime, planPrintJobsByStockTime] }), icon: { prefix: "fas", name: "file-lines" },
+                job: { source: Data.bindPaged(planPrintJobs, { indexes: ["plan_print_jobs_by_time", "plan_print_jobs_by_stock_time"] }), icon: { prefix: "fas", name: "file-lines" },
                     fields: { stock: { label: "Stock" }, start: { label: "Dates" } }, range: "start" },
-                shift: { source: Data.bindPaged(planPrintShifts, { indexes: [planPrintShiftsByTime] }), icon: { prefix: "fas", name: "user-clock" },
+                shift: { source: Data.bindPaged(planPrintShifts, { indexes: ["plan_print_shifts_by_time"] }), icon: { prefix: "fas", name: "user-clock" },
                     fields: { start: { label: "Dates" } }, range: "start" },
-                presses: { source: Data.bindPaged(planPrintPresses, { indexes: [planPrintPressesByHall] }), icon: { prefix: "fas", name: "print" },
+                presses: { source: Data.bindPaged(planPrintPresses, { indexes: ["plan_print_presses_by_hall"] }), icon: { prefix: "fas", name: "print" },
                     fields: { hall: { label: "Hall", hints: ["Hall A", "Hall B"] } } },
-                customers: { source: Data.bindPaged(planPrintCustomers, { indexes: [planPrintCustomersByDistrict] }), icon: { prefix: "fas", name: "building" },
+                customers: { source: Data.bindPaged(planPrintCustomers, { indexes: ["plan_print_customers_by_district"] }), icon: { prefix: "fas", name: "building" },
                     fields: { district: { label: "District", hints: ["North Quay", "Old Town", "Riverside"] } } },
-                jobTemplates: { source: Data.bindPaged(planPrintJobTemplates, { indexes: [planPrintJobTemplatesByGroup] }), icon: { prefix: "fas", name: "layer-group" },
+                jobTemplates: { source: Data.bindPaged(planPrintJobTemplates, { indexes: ["plan_print_job_templates_by_group"] }), icon: { prefix: "fas", name: "layer-group" },
                     fields: { group: { label: "Job templates", hints: ["Jobs"] } } },
-                stopTemplates: { source: Data.bindPaged(planPrintStopTemplates, { indexes: [planPrintStopTemplatesByGroup] }), icon: { prefix: "fas", name: "layer-group" },
+                stopTemplates: { source: Data.bindPaged(planPrintStopTemplates, { indexes: ["plan_print_stop_templates_by_group"] }), icon: { prefix: "fas", name: "layer-group" },
                     fields: { group: { label: "Stop templates", hints: ["Stops"] } } },
-                shiftTemplates: { source: Data.bindPaged(planPrintShiftTemplates, { indexes: [planPrintShiftTemplatesByGroup] }), icon: { prefix: "fas", name: "layer-group" },
+                shiftTemplates: { source: Data.bindPaged(planPrintShiftTemplates, { indexes: ["plan_print_shift_templates_by_group"] }), icon: { prefix: "fas", name: "layer-group" },
                     fields: { group: { label: "Shift templates", hints: ["Shifts"] } } },
-                platesTemplates: { source: Data.bindPaged(planPrintPlatesTemplates, { indexes: [planPrintPlatesTemplatesByGroup] }), icon: { prefix: "fas", name: "layer-group" },
+                platesTemplates: { source: Data.bindPaged(planPrintPlatesTemplates, { indexes: ["plan_print_plates_templates_by_group"] }), icon: { prefix: "fas", name: "layer-group" },
                     fields: { group: { label: "Plates templates", hints: ["Plate room"] } } },
-                bindingTemplates: { source: Data.bindPaged(planPrintBindingTemplates, { indexes: [planPrintBindingTemplatesByGroup] }), icon: { prefix: "fas", name: "layer-group" },
+                bindingTemplates: { source: Data.bindPaged(planPrintBindingTemplates, { indexes: ["plan_print_binding_templates_by_group"] }), icon: { prefix: "fas", name: "layer-group" },
                     fields: { group: { label: "Bindery templates", hints: ["Bindery"] } } },
-                deliveryTemplates: { source: Data.bindPaged(planPrintDeliveryTemplates, { indexes: [planPrintDeliveryTemplatesByGroup] }), icon: { prefix: "fas", name: "layer-group" },
+                deliveryTemplates: { source: Data.bindPaged(planPrintDeliveryTemplates, { indexes: ["plan_print_delivery_templates_by_group"] }), icon: { prefix: "fas", name: "layer-group" },
                     fields: { group: { label: "Delivery templates", hints: ["Dispatch"] } } },
             }));
             // A kind narrowed through its source reads one event by its key through the record's own entries.
@@ -731,9 +848,9 @@ export const planPrintWorks = example({
             const bindery = $.let(Record.bind(planPrintBindery, []));
             const bays = $.let(Record.bind(planLinkBays, []));
             const vans = $.let(Record.bind(planPrintVans, []));
-            const plates = $.let(Record.bind(planPrintPlates, [planPrintPlatesPatch]));
-            const bindings = $.let(Record.bind(planPrintBindings, [planPrintBindingsPatch]));
-            const deliveries = $.let(Record.bind(planPrintDeliveries, [planPrintDeliveriesPatch]));
+            const plates = $.let(Record.bind(planPrintPlates));
+            const bindings = $.let(Record.bind(planPrintBindings));
+            const deliveries = $.let(Record.bind(planPrintDeliveries));
             const stock = $.let(Data.bind(planLinkStock));
             const lineRows = $.const(lines.read().union(bindery.read(), (_$2, line) => line));
             const util = $.let(Data.bind(planPrintUtilisation));
@@ -755,9 +872,6 @@ export const planPrintWorks = example({
                 window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
                 resolution: "day", resolutions: ["week", "day"], now: new Date("2026-10-14T09:00:00Z"),
             }));
-            const StockWeek = StructType({ at: DateTimeType, value: OptionType(FloatType) });
-            const weekly = $.const(East.function([ArrayType(FloatType)], ArrayType(StockWeek), (_$2, readings) =>
-                East.Array.generate(readings.size(), StockWeek, (_$3, i) => ({ at: first.addWeeks(i), value: some(readings.get(i)) }))));
             const canDrop = $.const(East.function([Schedule.Types.Candidate], OptionType(StringType), ($2, candidate) => {
                 const reason = $2.let(none, OptionType(StringType));
                 $2.match(candidate.resource, { some: ($3, resource) => {
@@ -890,7 +1004,7 @@ export const planPrintWorks = example({
                         }),
                         Plan.over(stock, [Plan.series.table(PrintStock, {
                             key: "stock", title: "Paper stock", label: s => s.name,
-                            cells: s => Plan.tableCells(weekly(s.weekly)), format: Format.Number({ maximumFractionDigits: 0n }),
+                            cells: Plan.tableCells(Plan.values("weekly", (level) => ({ value: level }))), format: Format.Number({ maximumFractionDigits: 0n }),
                         })]),
                     ]}
                     links={[
@@ -977,16 +1091,11 @@ export const planEventLinks = example({
             const presses = $.let(Record.bind(planPrintPresses, []));
             const lines = $.let(Record.bind(planLinkLines, []));
             const bays = $.let(Record.bind(planLinkBays, []));
-            const plates = $.let(Record.bind(planLinkPlates, [planLinkPlatesPatch]));
-            const jobs = $.let(Record.bind(planLinkCaseJobs, [planLinkCaseJobsPatch]));
-            const bindings = $.let(Record.bind(planLinkBindings, [planLinkBindingsPatch]));
-            const deliveries = $.let(Record.bind(planLinkDeliveries, [planLinkDeliveriesPatch]));
+            const plates = $.let(Record.bind(planLinkPlates));
+            const jobs = $.let(Record.bind(planLinkCaseJobs));
+            const bindings = $.let(Record.bind(planLinkBindings));
+            const deliveries = $.let(Record.bind(planLinkDeliveries));
             const stock = $.let(Data.bind(planLinkStock));
-            // The window's first Monday: each stock reading runs from it, a week apiece.
-            const first = $.const(new Date("2026-10-05T00:00:00Z"), DateTimeType);
-            const StockWeek = StructType({ at: DateTimeType, value: OptionType(FloatType) });
-            const weekly = $.const(East.function([ArrayType(FloatType)], ArrayType(StockWeek), (_$2, readings) =>
-                East.Array.generate(readings.size(), StockWeek, (_$3, i) => ({ at: first.addWeeks(i), value: some(readings.get(i)) }))));
             const axis = $.let(Plan.axis({
                 window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
                 resolution: "week", now: new Date("2026-10-14T09:00:00Z"),
@@ -1028,7 +1137,7 @@ export const planEventLinks = example({
                         Plan.over(stock, [
                             Plan.series.table(PrintStock, {
                                 key: "stock", title: "Paper stock", label: s => s.name,
-                                cells: s => Plan.tableCells(weekly(s.weekly)),
+                                cells: Plan.tableCells(Plan.values("weekly", (level) => ({ value: level }))),
                                 format: Format.Number({ maximumFractionDigits: 0n }),
                             }),
                         ]),

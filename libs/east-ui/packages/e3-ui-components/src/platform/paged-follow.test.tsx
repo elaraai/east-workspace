@@ -81,7 +81,7 @@ function rowOf(key: string, label: string): ValueTypeOf<typeof Plan.Types.Row> {
             decisions: [], ports: [], rollup: none,
         }),
         collapsed: false, pinned: false, height: none, status: none, expand: none,
-        edits: { drop: false, move: none },
+        edits: { drop: false, move: none, values: [] },
     } as unknown as ValueTypeOf<typeof Plan.Types.Row>;
 }
 
@@ -117,7 +117,7 @@ function planOver(handle: Record<string, unknown>): PlanRootValue {
             resolutions: [], now: none, format: none,
         }),
         grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, pick: none,
-        slice: none, footer: [], id: none, sources: [], editing: none, canDrop: none,
+        slice: none, nested: none, footer: [], id: none, sources: [], editing: none, canDrop: none,
         onSelect: none, onElementClick: none,
         onGroupToggle: none, onGrainChange: none, ui: none, style: none,
     } as unknown as PlanRootValue;

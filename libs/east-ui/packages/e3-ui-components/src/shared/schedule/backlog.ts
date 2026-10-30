@@ -88,8 +88,9 @@ export function useBacklogNarrowing<P extends BacklogPart>(eventParts: readonly 
         let hidden = 0n;
         for (const { kind, part } of narrowing) {
             const start = kind.schedule.start;
-            const all = part.countWhere(backlogWhole(start));
-            const shown = part.countWhere(backlogWhere(part.read().where, start));
+            // Each a read of a narrowing alone, never a read by area (#1432).
+            const all = part.countWhere({ where: backlogWhole(start), area: none });
+            const shown = part.countWhere({ where: backlogWhere(part.read().where, start), area: none });
             if (all.type === "none" || shown.type === "none") return none;
             hidden += all.value - shown.value;
         }

@@ -32,7 +32,7 @@ import type { DataflowEvent, DeployProgress, LockStatus, RecordCommitInfo, Works
 import type { WorkspaceState } from '@elaraai/e3-types';
 import type { Glyphs } from '../../render/glyphs.js';
 import { breakpoint, columnPlan, scrollIntoView, type Breakpoint, type ColumnSpec } from '../../render/layout.js';
-import { agoShort, formatDuration, formatInt, formatSize, hashShort, padEnd, padStart, timeAgo } from '../../render/text.js';
+import { agoShort, compareInstants, formatDuration, formatInt, formatSize, hashShort, padEnd, padStart, timeAgo } from '../../render/text.js';
 import type { Tone } from '../../render/theme.js';
 import type { DataState, ExecutionData, NavOp, TuiState } from '../../state/actions.js';
 import { layoutOf, registerListModel } from '../../model/index.js';
@@ -85,7 +85,7 @@ export function dashboardCtx(state: TuiState, ctx: RenderCtx): DashboardCtx {
 }
 
 /** `12s` / `1m` / `3h` — an event's age without the `ago`. */
-function ageBare(then: string, now: number): string {
+function ageBare(then: Date, now: number): string {
     const ago = timeAgo(then, now);
     return ago === 'just now' ? '0s' : ago.replace(/ ago$/, '');
 }
@@ -359,7 +359,7 @@ export interface FeedRow {
     cell: StatusCell;
     task: string;
     place: string;
-    timestamp: string;
+    timestamp: Date;
     running: boolean;
     logs: boolean;
 }
@@ -411,7 +411,7 @@ export function liveRows(execution: ExecutionData, latest: readonly DataflowEven
             logs: false,
         });
     }
-    return rows.sort((a, c) => Date.parse(a.timestamp) - Date.parse(c.timestamp));
+    return rows.sort((a, c) => compareInstants(a.timestamp, c.timestamp));
 }
 
 /** A task's row: the cells that follow from the data, and what the `SIZE · LAST RUN` cell is stamped from per frame. */

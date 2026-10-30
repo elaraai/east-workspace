@@ -154,10 +154,32 @@ never its hours — the hours those of the kinds read — and names it, one line
 for all it does not count. A kind hidden in the Series tab is in none of the
 footer's or the inspector's figures, and nothing says so.
 
+A `rows` source (or `data`) listing a nested series index (#1438) is read a
+cell at a time: its rows lean, each series reading its collections by name
+(`Plan.items`, `Plan.values`, `Plan.children` over a field), and the canvas
+reading the collections of the rows in view through the index. The root
+carries what it reads as its `nested` seam (`src/plan/nested-read.ts`: the
+index, the binding by its id, the tiles, each series' place, levels, shade and
+parents, and the function that fills a window's lean rows with the cells read,
+through e3's own fill); a parent's subtotals and bands come from e3, never its
+children's cells. A drafted row is read whole; Save restates each listed
+collection's change by key (`src/plan/nested-patch.ts`). The Plan's
+`plan-nested` example (#1439, `planNestedAll` in
+`test/plan/plan-nested.examples.tsx`, on the Plan's page) shows them on e3
+over the works: every series kind over ten years — span, heat, table and
+group shown, chart, events, cards and buckets switched off to start — sparse
+and spread evenly, its series picked from the library, a crew's hours typed
+into. The records
+the tests read besides — the machines (five collections, the cap), the halls
+(strips by their members' mean), the assemblies (bands filed under parents)
+and the ledgers (subtotals by two rollups, typed readings) — are fixtures
+(`test/plan/plan-nested.fixtures.ts`, exported as `@elaraai/e3-ui/fixtures/*`),
+on no page of the showcase.
+
 The Schematic (#1386) takes `slice={{ slice: Slice.bindRecords(key, { … })
 }}`. Each of its kinds — `Schematic.items`, `zones`, `links` and `nets`, keyed
 by its slot — is bound as it is read. Read whole, an editable kind binds
-`Record.bind(record, [e3.mutation.patch(record)])` and a read-only one
+`Record.bind(record)` and a read-only one
 `Data.bind(record)`. A source of the slice named after the kind's slot reads
 it complete through that source instead, the kind giving `entries:
 Data.bindPaged(record)` beside its `Record.bind`, or bound
@@ -204,16 +226,17 @@ A builder takes neither `Slice.bind` nor a single `Slice.bindRecord`; east-ui's
 own collections — a Table, a Library, a Deck — keep their own Slice
 (`Slice.bind(key, rows, { … })` over rows held whole, read through
 `Slice.rows(slice)`). An indexed record narrows a builder as a source of its
-one `Slice.bindRecords`: declare `e3.recordIndex(name, record, { on: [fields...]
-})` and bind `Data.bindPaged(record, { indexes })`. Never turn the loaded page
+one `Slice.bindRecords`: declare `index.on([fields...])` among the record's
+indexes and bind `Data.bindPaged(record, { indexes: [names...] })`. Never turn the loaded page
 into another local Slice or implement a browser predicate. Typed controls and
 supported combinations come from declared indexes.
 
 The Calendar's `slice` (#1343) is one `Slice.bindRecords`, a
 source named after each event kind's slot, each resource kind's slot, and each
 source a templates list or a tab names. An event kind's source reads its record
-through an interval index, for example `e3.recordIndex.interval("by_status_time",
-events, { on: ["status"], from: "start", to: "end" })`, with `range: "start"`,
+through an interval index, for example `by_status_time: index.interval({ on:
+["status"], from: "start", to: "end" })` among the record's indexes, with
+`range: "start"`,
 and the kind gives `Data.bindPaged(events)` as its `entries`; a kind
 takes no `slice`, `filter`, `window` or `backlogWindow` beside its source. The
 Calendar's navigation writes its window into every event source's range, and
@@ -327,10 +350,10 @@ Save leaving a filter and draft retention in one real e3 workflow per device.
 
 Each kind is one of the app's records, keyed by String, its fields mapped to
 the Schematic's roles (#1386), and the tag refuses any other binding, naming
-the one to use: editable `Record.bind(record, [e3.mutation.patch(record)])`,
+the one to use: editable `Record.bind(record)`,
 read only `Data.bind(record)`, and beside a kind read through its source of
 the one `Slice.bindRecords`, `entries: Data.bindPaged(record)`. A kind whose
-source lists an area index (`e3.recordIndex.area` over the kind's own box —
+source lists an area index (`index.area` over the kind's own box —
 its `x`, `y`, `width` and `height`, `at: "centre"`) is read by area (#1393), a
 window at a time from the index alone: list one led by no field, which a
 window reads through whatever the rail chooses, and ones led by the rail's
@@ -416,7 +439,7 @@ a few characters per line. Preserve the shared destination/refusal caption.
 A builder stores nothing in a shape of its own (#1365, `Builder Interfaces
 Spec.md`). The Roster writes the app's duties, the weeks of its rota and its
 cover targets — each an `e3.record` of the app's, bound with
-`Record.bind(record, [e3.mutation.patch(record)])` — and reads its staff,
+`Record.bind(record)` — and reads its staff,
 agencies, shift times, teams, positions, activities and suggestions with
 `Data.bind(record)`, as it reads inputs and task outputs; the binding name does
 not change the source's storage kind. The tag declares them through Schedule's

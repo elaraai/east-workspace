@@ -190,22 +190,23 @@ function tipOf(el: Element): { key: string; text: string } | undefined {
  * while the page draws it hidden — too narrow for a letter and the ellipsis:
  * not displayed, or, in a tile or a cell, moved off its line below it — or
  * ellipsized; read as the hover lands. A table cell's numerals are its label
- * together, said one after another.
+ * together, said one after another. A table cell with a note — one folding
+ * several values of a position that takes typing (#1438) — says it always,
+ * after its numerals where it draws them cut.
  *
  * @param el - A bar, a chip, a tile, a rollup band or a cell ({@link PLAN_LABELLED_SELECTOR})
- * @returns Its identity and its label's text, or `undefined` while the label shows whole
+ * @returns Its identity and its label's text, or `undefined` while the label shows whole and the element has no note
  */
 function labelTipOf(el: Element): { key: string; text: string } | undefined {
     const label = el.querySelector<HTMLElement>(":scope > [data-plan-label]");
     const parts = label === null ? [] : [...label.children].map((part) => (part.textContent ?? "").trim()).filter((t) => t !== "");
     const text = parts.length > 0 ? parts.join(" · ") : label?.textContent?.trim() ?? "";
-    if (label === null || text === "") return undefined;
-    // A label moved off its element's line lies wholly below it — below the
-    // inside of its border, where the element clips.
-    const drawn = label.getBoundingClientRect();
-    const inside = el.getBoundingClientRect().bottom - (Number.parseFloat(getComputedStyle(el).borderBottomWidth) || 0);
-    const offLine = drawn.height > 0 && drawn.top >= inside - 0.5;
-    if (getComputedStyle(label).display !== "none" && !offLine && label.scrollWidth <= label.clientWidth) return undefined;
+    // A table cell folding several values of a position that takes typing says where they take one (#1438), its
+    // numerals before it where it draws them cut.
+    const note = el.getAttribute("data-plan-note");
+    if (note === null && (label === null || text === "")) return undefined;
+    const cut = label !== null && text !== "" && labelCut(el, label);
+    if (note === null && !cut) return undefined;
     const holder = el.closest("[data-plan-row],[data-plan-card]");
     const row = holder?.getAttribute("data-plan-row") ?? holder?.getAttribute("data-plan-card");
     if (row === null || row === undefined) return undefined;
@@ -213,7 +214,21 @@ function labelTipOf(el: Element): { key: string; text: string } | undefined {
     const cell = el.getAttribute("data-cell");
     const id = el.getAttribute("data-run") ?? el.getAttribute("data-chip") ?? el.getAttribute("data-event")
         ?? (cell !== null ? `cell${cell}` : `band${[...(el.parentElement?.querySelectorAll(":scope > [data-plan-band]") ?? [])].indexOf(el)}`);
-    return { key: `${row}|label|${id}`, text };
+    return { key: `${row}|label|${id}`, text: note === null ? text : cut ? `${text} — ${note}` : note };
+}
+
+/**
+ * Whether an element draws its label cut: hidden — too narrow for a letter
+ * and the ellipsis: not displayed, or, in a tile or a cell, moved off its line
+ * below it — or ellipsized.
+ */
+function labelCut(el: Element, label: HTMLElement): boolean {
+    // A label moved off its element's line lies wholly below it — below the
+    // inside of its border, where the element clips.
+    const drawn = label.getBoundingClientRect();
+    const inside = el.getBoundingClientRect().bottom - (Number.parseFloat(getComputedStyle(el).borderBottomWidth) || 0);
+    const offLine = drawn.height > 0 && drawn.top >= inside - 0.5;
+    return getComputedStyle(label).display === "none" || offLine || label.scrollWidth > label.clientWidth;
 }
 
 /**

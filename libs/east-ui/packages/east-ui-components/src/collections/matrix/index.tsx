@@ -538,7 +538,7 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
     }, [setPersistedState]);
 
     const headerNode = (
-            <Box css={base.header} data-slot="header" display="grid" gridTemplateColumns={outerCols} minWidth={outerMinWidth} height={`${headerH}px`}>
+            <Box css={base.header} data-slot="header" display="grid" style={{ gridTemplateColumns: outerCols, minWidth: outerMinWidth, height: `${headerH}px` }}>
                 <Box css={stickyLeftHeader} display="flex" width="100%" style={effectiveSizeVars}>
                     {headerCells.map((header) => (
                         <Box
@@ -557,7 +557,7 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
                         </Box>
                     ))}
                 </Box>
-                <Box display="grid" gridTemplateColumns={rightCols}>
+                <Box display="grid" style={{ gridTemplateColumns: rightCols }}>
                     {cols.map((c, ci) => (
                         <Box
                             key={c.key}
@@ -590,8 +590,7 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
                             css={base.row}
                             position="relative"
                             display="grid"
-                            gridTemplateColumns={outerCols}
-                            minWidth={outerMinWidth}
+                            style={{ gridTemplateColumns: outerCols, minWidth: outerMinWidth }}
                             data-row-key={row.key}
                             data-depth={nested ? t.depth : undefined}
                             data-parent={t.parent ? "" : undefined}
@@ -647,7 +646,7 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
                                 })}
                             </Box>
                             {/* Right pane — the cell grid. */}
-                            <Box display="grid" gridTemplateColumns={rightCols}>
+                            <Box display="grid" style={{ gridTemplateColumns: rightCols }}>
                                 {cols.map((c, ci) => {
                                     const cell = row.cells.get(c.key);
                                     const orientation: Orientation = cell

@@ -168,7 +168,7 @@ export function flowchartHarness(): FlowchartHarness {
         commits: async () => (await h.history(ex.depotFlows)).commits.map((commit) => commit.mutation),
         mountRecord: (props: object | (($: BlockBuilder<UIComponentType>) => object) = { library: [Flowchart.library.flows()] }, options: MountOptions = {}) => {
             const flowchart = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-                const flows = $.let(Record.bind(ex.depotFlows, [ex.depotFlowsPatch]));
+                const flows = $.let(Record.bind(ex.depotFlows, ["patch"]));
                 return Flowchart({ record: flows, ...(typeof props === "function" ? props($) : props) });
             }))) };
             return mountOver(flowchart, { drag: options.drag === true, storageKey: options.storageKey ?? "flowchart-record" });

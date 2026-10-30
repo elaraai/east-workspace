@@ -47,7 +47,7 @@ import { appendAll } from "./reductions.js";
 export { forEachInstant, axisKindMismatches, type PlanAxisMismatch } from "./row-instants.js";
 export {
     tableRollupSeries, deriveBands, deriveHeatCells, deriveTableCells, deriveTableSeries, derivePlan, stableDerived,
-    type DerivedBand, type HeatScale, type PlanRowDiagnostic, type PlanDerived,
+    type DerivedBand, type HeatScale, type PlanRowDiagnostic, type PlanDerived, type PlanParentSubtotal, type PlanParentSubtotals,
 } from "./derive.js";
 export {
     linkedRowKeys, bodyItemKey, rowItemKey, placeFailures, firstDiagnosticItem, elideForFocus, deriveLinkFamily,

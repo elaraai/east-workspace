@@ -314,6 +314,8 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 | GET | `/api/repos/:repo/workspaces` | List all workspaces |
 | POST | `/api/repos/:repo/workspaces` | Create workspace |
 | POST | `/api/repos/:repo/workspaces/:ws/copy` | Copy the workspace to the one the body names (`to`), made or replaced whole: it becomes this workspace as it is now. Answers the target as the list gives it |
+| GET | `/api/repos/:repo/workspaces/:ws/bundle` | The workspace as a bundle, streamed: its package, every dataset's ref, the executions its tasks' outputs come from, and every object those reach |
+| POST | `/api/repos/:repo/workspaces/:ws/bundle` | Make the workspace from the bundle the body holds, under a name no workspace has. Answers it as the list gives it |
 | GET | `/api/repos/:repo/workspaces/:ws` | Get workspace info |
 | GET | `/api/repos/:repo/workspaces/:ws/status` | Get workspace status (datasets, tasks, summary). With `?path=` (repeated, each a dataset's keypath, `.inputs.x`), only those datasets and the tasks producing them, each as the whole status gives it: a path that names no dataset is left out, and one that is no keypath is refused 400 `bad_request`. The answer carries an `ETag`; a request whose `If-None-Match` names it is answered `304 Not Modified` with no body, nothing of the workspace read but its revision |
 | POST | `/api/repos/:repo/workspaces/:ws/deploy` | Start deploying a package to the workspace, as a job: answers the job's id |
@@ -364,6 +366,24 @@ refs and its runs. The copy holds the workspace copied shared, so a run in it
 goes on, and the target exclusively, as a deploy does: a copy onto a workspace a
 dataflow runs in, or that something else holds, is refused `workspace_locked`,
 and a copy onto itself `invalid_name`.
+
+A bundle is a workspace written out as it is, in one stream of beast2
+(`WorkspaceBundleType`): what a copy makes within a repository, a bundle makes
+in another repository or another e3, whatever its store, and the workspace made
+reads as up to date as the one written, with no run. Its routes are a factory of
+their own, `createWorkspaceBundleRoutes`, since each streams its bundle within
+its request: the local server mounts them, and so does e3-web, and a host whose
+requests are capped in time or size mounts them only where its workspaces'
+bundles fit. The export holds the workspace shared, as a copy holds its source,
+and answers its refusals as JSON before the bundle begins
+(`workspace_not_found`, `workspace_not_deployed`, `workspace_locked`); a
+failure once it has begun ends the stream short, which a reader refuses. The
+import holds the name as a deploy holds a workspace, and writes the workspace's
+record last: a name a workspace has is refused `workspace_exists`; a package of
+the bundle's name and version that is another package, `package_exists`; and
+bytes that are no bundle, a bundle cut short, a ref of a dataset its package
+does not declare, or an object left out that the repository does not hold,
+`bundle_invalid`. None of them makes a workspace.
 
 ### Datasets
 

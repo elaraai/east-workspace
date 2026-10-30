@@ -276,6 +276,9 @@ set_tests_properties(hashmap_churn PROPERTIES TIMEOUT 60)
 add_executable(test_type_to_value_interning tests/test_type_to_value_interning.c)
 target_link_libraries(test_type_to_value_interning east-c)
 add_test(NAME type_to_value_interning COMMAND test_type_to_value_interning)
+add_executable(test_type_to_value_recursive_scope tests/test_type_to_value_recursive_scope.c)
+target_link_libraries(test_type_to_value_recursive_scope east-c)
+add_test(NAME type_to_value_recursive_scope COMMAND test_type_to_value_recursive_scope)
 
 # Value representation gate (issue #423): a node is sized by its kind, short
 # strings live inside it, `none` is shared per VariantType, and struct field

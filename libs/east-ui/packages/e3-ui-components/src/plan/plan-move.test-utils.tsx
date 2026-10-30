@@ -6,8 +6,8 @@
 /**
  * The Plan's moves under test (#825) — ONE canvas, built by the e3-ui
  * factory and COMPILED over a `State.bind` handle written through the
- * `onUpdate` adapter, whose presses hold four lists, each a series that
- * declares a move's fields:
+ * `onUpdate` adapter, whose presses hold four collections, each a Dict keyed
+ * by an item's id and read by name (#1436), each a series that takes moves:
  *
  * - `jobs` — runs (a span series) of the `Job` item type;
  * - `backlog` — more runs of the SAME item type, on another series;
@@ -44,11 +44,12 @@ export const W = (n: number): Date => new Date(Date.UTC(2026, 5, 29 + 7 * (n - 2
 /** A day after a Monday. */
 export const D = (n: number, day: number): Date => new Date(W(n).getTime() + day * 86_400_000);
 
-export const Job = StructType({ key: StringType, label: StringType, start: DateTimeType, end: DateTimeType });
-export const Shift = StructType({ key: StringType, label: StringType, from: DateTimeType, to: DateTimeType });
-export const Slot = StructType({ key: StringType, label: StringType, at: DateTimeType });
+export const Job = StructType({ label: StringType, start: DateTimeType, end: DateTimeType });
+export const Shift = StructType({ label: StringType, from: DateTimeType, to: DateTimeType });
+export const Slot = StructType({ label: StringType, at: DateTimeType });
 export const Press = StructType({
-    label: StringType, jobs: ArrayType(Job), backlog: ArrayType(Job), shifts: ArrayType(Shift), slots: ArrayType(Slot),
+    label: StringType, jobs: DictType(StringType, Job), backlog: DictType(StringType, Job),
+    shifts: DictType(StringType, Shift), slots: DictType(StringType, Slot),
 });
 export const Presses = DictType(StringType, Press);
 export type PressValue = ValueTypeOf<typeof Press>;
@@ -58,12 +59,12 @@ export type JobValue = ValueTypeOf<typeof Job>;
 export const SEED: Map<string, PressValue> = new Map([
     ["m1", {
         label: "M1",
-        jobs: [{ key: "j1", label: "J1", start: W(28), end: W(30) }],
-        backlog: [],
-        shifts: [{ key: "s1", label: "S1", from: W(27), to: W(29) }],
-        slots: [{ key: "t1", label: "T1", at: W(29) }],
+        jobs: new Map([["j1", { label: "J1", start: W(28), end: W(30) }]]),
+        backlog: new Map(),
+        shifts: new Map([["s1", { label: "S1", from: W(27), to: W(29) }]]),
+        slots: new Map([["t1", { label: "T1", at: W(29) }]]),
     }],
-    ["m2", { label: "M2", jobs: [], backlog: [], shifts: [], slots: [] }],
+    ["m2", { label: "M2", jobs: new Map(), backlog: new Map(), shifts: new Map(), slots: new Map() }],
 ]);
 
 /** The canvas's drop-target id. */
@@ -75,23 +76,23 @@ export type SeriesKey = (typeof SERIES_KEYS)[number];
 const SERIES = [
     Plan.series.span(Press, {
         key: "jobs", title: "Jobs", label: (m) => m.label,
-        runs: (m) => m.jobs.map((_$, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.label, state: "confirmed" })),
-        edit: { items: "jobs", key: "key", start: "start", end: "end" },
+        runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.label, state: "confirmed" })),
+        edit: true,
     }),
     Plan.series.span(Press, {
         key: "backlog", title: "Backlog", label: (m) => m.label,
-        runs: (m) => m.backlog.map((_$, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.label, state: "confirmed" })),
-        edit: { items: "backlog", key: "key", start: "start", end: "end" },
+        runs: Plan.items("backlog", { from: "start", to: "end" }, (job) => ({ label: job.label, state: "confirmed" })),
+        edit: true,
     }),
     Plan.series.cards(Press, {
         key: "shifts", title: "Shifts", label: (m) => m.label,
-        chips: (m) => m.shifts.map((_$, s) => Plan.chip({ key: s.key, from: s.from, to: s.to, label: s.label, state: "confirmed" })),
-        edit: { items: "shifts", key: "key", start: "from", end: "to" },
+        chips: Plan.items("shifts", { from: "from", to: "to" }, (shift) => ({ label: shift.label, state: "confirmed" })),
+        edit: true,
     }),
     Plan.series.buckets(Press, {
         key: "slots", title: "Slots", label: (m) => m.label,
-        events: (m) => m.slots.map((_$, t) => Plan.event({ key: t.key, at: t.at, label: t.label, state: "confirmed" })),
-        edit: { items: "slots", key: "key", at: "at" },
+        events: Plan.items("slots", { at: "at" }, (slot) => ({ label: slot.label, state: "confirmed" })),
+        edit: true,
     }),
 ];
 

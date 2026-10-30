@@ -83,10 +83,10 @@ const PRESSES = pathText(ex.planWindowPresses.output.path as TreePath);
 const HALL_PRESSES = pathText(ex.planSeriesPresses.path as TreePath);
 const JOBS = pathText(ex.planWindowJobs.path as TreePath);
 /** The jobs' interval index, their series index and their summary, and the presses' hall index. */
-const BY_TIME = ex.planWindowJobsByTime;
-const SERIES = ex.planWindowJobsByPressWeek;
-const SUMMARY = ex.planWindowJobsByPressMonth;
-const BY_HALL = ex.planSeriesPressesByHall;
+const BY_TIME = ex.planWindowJobs.indexes.plan_window_jobs_by_time;
+const SERIES = ex.planWindowJobs.indexes.plan_window_jobs_by_press_week;
+const SUMMARY = ex.planWindowJobs.indexes.plan_window_jobs_by_press_month;
+const BY_HALL = ex.planSeriesPresses.indexes.plan_series_presses_by_hall;
 
 /** What a dataset was asked from the `since`-th request on: each read's kind, the index it reads through — the record's own entries when none — and a page's window. */
 const askedOf = (dataset: string, since = 0) => h.requests().slice(since).filter((request) => request.dataset === dataset && request.kind !== "dataset-status")
@@ -107,13 +107,16 @@ const windowReads = (since = 0) => h.requests().slice(since).filter((request: E3
 
 const parsePress = parseFor(OptionType(StringType));
 const parseTile = parseFor(DateTimeType);
-/** Each search of the jobs' series index from the `since`-th request on: the press it names — its last field — and the week — the field before. */
+/**
+ * Each search of the jobs' series index from the `since`-th request on: a range a press a level (#1433), from
+ * `[press, level, tile]` — the press it names and the tile it starts at.
+ */
 function cellSearches(since = 0): { press: string | undefined; tile: number | undefined }[] {
     return h.requests().slice(since).filter((request) => request.dataset === JOBS && request.kind === "find" && request.query.get("index") === SERIES.name)
         .flatMap((request) => request.searches.flatMap((search) => {
-            if (!("fields" in search)) return [];
-            const press = parsePress(search.fields.at(-1) ?? "");
-            const tile = parseTile(search.fields.at(-2) ?? "");
+            if (!("from" in search) || search.from === undefined) return [];
+            const press = parsePress(search.from.at(-3) ?? "");
+            const tile = parseTile(search.from.at(-1) ?? "");
             return [{ press: press.success && press.value.type === "some" ? press.value.value : undefined, tile: tile.success ? tile.value.getTime() : undefined }];
         }));
 }
@@ -264,7 +267,7 @@ describe("a Calendar over 2,000 presses paged, the jobs on them read a cell at a
         for (const job of ["W-0001", "W-0002", "W-0003", "W-0004"]) expect(jobEvent(c, job), job).not.toBeNull();
     });
 
-    test("a scroll down reads the presses' windows and the cells it brings into view alone; a scroll on to the window's end re-centres and reads the weeks it brings in alone", async () => {
+    test("a scroll down reads the presses' windows and the cells it brings into view alone; a scroll on to the window's end re-centres and reads the tiles it brings in alone", async () => {
         const { container: c } = await h.mount(cw.calendarWindows, { storageKey: "windows-scroll" });
         await settle();
         // Down to Press 1201, the first of the second window, held already: the window after it read ahead, and the blocks
@@ -283,16 +286,16 @@ describe("a Calendar over 2,000 presses paged, the jobs on them read a cell at a
         expect(askedOf(PRESSES, since)).toEqual([]);
         expect(searchedPresses(since)).toEqual(pressesFrom(300, 399));
         expect(pressRows(c)).toContain("Press 1333");
-        // Along the timeline to its window's end: it re-centres four weeks on, and reads the weeks it brings in alone.
+        // Along the timeline to its window's end: it re-centres four weeks on, and reads the tiles it brings in alone.
         const was = windowOf(timelineOf(c));
         since = h.requests().length;
         await scrollTimeline(c, { left: timelineOf(c).scrollWidth - VIEW_WIDTH - 100 });
         await waitFor(() => expect(windowOf(timelineOf(c)).from.getTime()).toBe(was.from.getTime() + 28 * DAY));
         await settle();
-        const weeks = [...new Set(cellSearches(since).flatMap(({ tile }) => (tile === undefined ? [] : [tile])))];
-        expect(weeks.length).toBeGreaterThan(0);
-        // The weeks read were the window's last week and the one after it before: none of them is read again.
-        expect(weeks.every((tile) => tile >= was.to.getTime() + 7 * DAY), weeks.map((tile) => new Date(tile).toISOString()).join(", ")).toBe(true);
+        const tiles = [...new Set(cellSearches(since).flatMap(({ tile }) => (tile === undefined ? [] : [tile])))];
+        expect(tiles.length).toBeGreaterThan(0);
+        // Each level's tiles were read before through the one after the tile after the window's last: none is read again.
+        expect(tiles.every((tile) => tile >= was.to.getTime() + 7 * DAY), tiles.map((tile) => new Date(tile).toISOString()).join(", ")).toBe(true);
         expect(searchedPresses(since)).toEqual(pressesFrom(300, 399));
     });
 });
@@ -758,12 +761,12 @@ describe("Search Records over the presses narrowed by hall (#1398)", () => {
  */
 const windowsTemplates = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Data.bindPaged(ex.planWindowPresses));
-    const jobs = $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.let(Record.bind(ex.planWindowJobs, ["patch"]));
     const entries = $.let(Data.bindPaged(ex.planWindowJobs));
     const jobTemplates = $.let(Data.bind(pe.planPrintJobTemplates));
     const slice = $.let(Slice.bindRecords("test.calendarWindowsTemplates", {
-        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [BY_TIME, SERIES, SUMMARY] }), range: "start" },
-        jobTemplates: { source: Data.bindPaged(pe.planPrintJobTemplates, { indexes: [pe.planPrintJobTemplatesByGroup] }) },
+        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }), range: "start" },
+        jobTemplates: { source: Data.bindPaged(pe.planPrintJobTemplates, { indexes: ["plan_print_job_templates_by_group"] }) },
     }));
     return Calendar({
         id: "windowsTemplates", inspector: true, slice: { slice },

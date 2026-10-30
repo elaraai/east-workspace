@@ -16,7 +16,7 @@ import {
 } from "@elaraai/east-ui/internal";
 import { TreePathType } from "@elaraai/e3-types";
 import { Data, bindPagedPlatformFn } from "@elaraai/e3-ui";
-import e3, { tileNext as e3TileNext, tileStart as e3TileStart } from "@elaraai/e3";
+import e3, { builtIndex, indexMaintenance, tileNext as e3TileNext, tileStart as e3TileStart } from "@elaraai/e3";
 import * as ex from "./data.examples.js";
 
 describeEast("Data", (test) => {
@@ -169,7 +169,7 @@ describe("Data.bindPaged and the row-source contract", () => {
     });
 
     hostTest("a read through an index is an ordered window, pinned to the record's state", () => {
-        const resolved = resolveRowSource(Data.bindPaged(ex.workOrders, { index: ex.workQueue }), "Table");
+        const resolved = resolveRowSource(Data.bindPaged(ex.workOrders, { index: "by_status" }), "Table");
         assert.equal(resolved.kind, "ordered");
         if (resolved.kind !== "ordered") return;
         assert.equal(resolved.pinned, true);
@@ -184,60 +184,103 @@ describe("Data.bindPaged and the row-source contract", () => {
     });
 });
 
+// A record declared whole is bound by the names it declares its indexes under:
+// each name typed by the record, and looked up in its declaration.
+describe("Data.bindPaged takes a record's indexes by their names", () => {
+    const Order = StructType({ status: StringType, due: IntegerType });
+    const orders = e3.record("named_orders", DictType(StringType, Order), {
+        initial: new Map(),
+        indexes: (index) => ({ by_status: index.on(["status"]), by_due: index.on(["due"]) }),
+    });
+
+    hostTest("lists the indexes named, in their order, as the record declares them", () => {
+        const handle = Expr.type(Data.bindPaged(orders, { indexes: ["by_due", "by_status"] }) as unknown as Expr) as StructType;
+        assert.deepEqual(Object.keys((handle.fields.indexes as StructType).fields), ["by_due", "by_status"]);
+        const window = Expr.type(Data.bindPaged(orders, { index: "by_due" }) as unknown as Expr) as StructType;
+        assert.equal(window.type, "Struct", "an index's window is bound by its name too");
+    });
+
+    hostTest("refuses a name the record does not declare, naming those it does", () => {
+        // @ts-expect-error 'by_owner' is not one of the orders' indexes
+        assert.throws(() => Data.bindPaged(orders, { indexes: ["by_status", "by_owner"] }),
+            /^Error: Data\.bindPaged: record 'named_orders' declares no index 'by_owner' — it declares 'by_status', 'by_due'$/);
+        // @ts-expect-error nor is 'by_owner' an index to read a window through
+        assert.throws(() => Data.bindPaged(orders, { index: "by_owner" }),
+            /^Error: Data\.bindPaged: record 'named_orders' declares no index 'by_owner' — it declares 'by_status', 'by_due'$/);
+        // @ts-expect-error an index is given by its name, not its declaration
+        assert.throws(() => Data.bindPaged(orders, { indexes: [orders.indexes.by_status] }),
+            /^Error: Data\.bindPaged: an index is given by its name, as record 'named_orders' declares it — it declares 'by_status', 'by_due'$/);
+    });
+});
+
 // What a record Slice cannot read is refused as the record is bound with its
 // indexes, naming the fix, before anything is deployed: these records are the
 // refusals' own.
 describe("Data.bindPaged over indexes refuses what a Slice cannot read", () => {
     const Person = StructType({ name: StringType, skills: SetType(StringType) });
-    const people = e3.record("refused_people", DictType(StringType, Person), new Map());
-    const byName = e3.recordIndex("by_name", people, { on: ["name"] });
-    const bySkill = e3.recordIndex("by_skill", people, { on: ["skills"] });
+    const people = e3.record("refused_people", DictType(StringType, Person), {
+        initial: new Map(),
+        indexes: (index) => ({
+            by_name: index.on(["name"]),
+            by_skill: index.on(["skills"]),
+            // A computed scalar key: a field by its index's name.
+            computed_name: index.key(East.function([StringType, Person], StringType, (_$, _key, person) => person.name)),
+        }),
+    });
     const Step = StructType({ lane: StringType, owner: OptionType(StringType) });
     const Flow = StructType({ description: StringType, states: ArrayType(Step) });
-    const flows = e3.record("refused_flows", DictType(StringType, Flow), new Map());
-    const byLane = e3.recordIndex("lane", flows, {
-        keys: East.function([StringType, Flow], SetType(StructType({ lane: StringType })),
-            (_$, _id, flow) => flow.states.toSet((_$2, state) => ({ lane: state.lane }))),
+    const flows = e3.record("refused_flows", DictType(StringType, Flow), {
+        initial: new Map(),
+        indexes: (index) => ({
+            lane: index.keys(East.function([StringType, Flow], SetType(StructType({ lane: StringType })),
+                (_$, _id, flow) => flow.states.toSet((_$2, state) => ({ lane: state.lane })))),
+            // A computed key naming no field.
+            empty: index.key(East.function([StringType, Flow], StructType({}), () => ({}))),
+            // A fan-out naming two fields.
+            compound: index.keys(East.function([StringType, Flow], SetType(StructType({ lane: StringType, owner: OptionType(StringType) })),
+                (_$, _id, flow) => flow.states.toSet((_$2, state) => ({ lane: state.lane, owner: state.owner })))),
+            // A computed field named after the record's field of another type.
+            wrong: index.key(East.function([StringType, Flow], StructType({ description: IntegerType }),
+                (_$, _id, flow) => ({ description: flow.states.size() }))),
+        }),
     });
 
     hostTest("its indexes are listed, each once", () => {
         assert.throws(() => Data.bindPaged(people, { indexes: [] }), /at least one/);
-        assert.throws(() => Data.bindPaged(people, { indexes: [byName, byName] }), /repeated index/);
+        assert.throws(() => Data.bindPaged(people, { indexes: ["by_name", "by_name"] }), /repeated index/);
     });
 
     hostTest("a read of the indexes alone needs one without Set fields, so its unfiltered view has one entry a row", () => {
-        assert.throws(() => Data.bindPaged(people, { indexes: [bySkill], join: false }), /without Set fields/);
-        assert.throws(() => Data.bindPaged(flows, { indexes: [byLane], join: false }), /without Set fields/);
+        assert.throws(() => Data.bindPaged(people, { indexes: ["by_skill"], join: false }), /without Set fields/);
+        assert.throws(() => Data.bindPaged(flows, { indexes: ["lane"], join: false }), /without Set fields/);
     });
 
     hostTest("a computed key names its fields: one with none is refused, and a fan-out names exactly one", () => {
-        const empty = e3.recordIndex("empty", flows, { key: East.function([StringType, Flow], StructType({}), () => ({})) });
-        assert.throws(() => Data.bindPaged(flows, { indexes: [empty] }), /at least one key field/);
-        const compound = e3.recordIndex("compound", flows, {
-            keys: East.function([StringType, Flow], SetType(StructType({ lane: StringType, owner: OptionType(StringType) })),
-                (_$, _id, flow) => flow.states.toSet((_$2, state) => ({ lane: state.lane, owner: state.owner }))),
-        });
-        assert.throws(() => Data.bindPaged(flows, { indexes: [compound] }), /cannot duplicate records/);
+        assert.throws(() => Data.bindPaged(flows, { indexes: ["empty"] }), /at least one key field/);
+        assert.throws(() => Data.bindPaged(flows, { indexes: ["compound"] }), /cannot duplicate records/);
     });
 
     hostTest("a computed field named after a record's field of another type is refused by the Slice", () => {
-        const wrong = e3.recordIndex("wrong", flows, { key: East.function([StringType, Flow], StructType({ description: IntegerType }),
-            (_$, _id, flow) => ({ description: flow.states.size() })) });
-        assert.throws(() => bindRecord("wrong", Data.bindPaged(flows, { indexes: [wrong] })), /inconsistent types/);
+        assert.throws(() => bindRecord("wrong", Data.bindPaged(flows, { indexes: ["wrong"] })), /inconsistent types/);
     });
 
     hostTest("a computed scalar key is a field by its index's name, which a Slice searches", () => {
-        const computed = e3.recordIndex("computed_name", people, { key: East.function([StringType, Person], StringType, (_$, _key, person) => person.name) });
-        assert.doesNotThrow(() => bindRecord("computed", Data.bindPaged(people, { indexes: [computed] }), { search: "computed_name" }));
+        assert.doesNotThrow(() => bindRecord("computed", Data.bindPaged(people, { indexes: ["computed_name"] }), { search: "computed_name" }));
     });
 });
 
 /** A binding's East type. */
 const typeOf = (source: unknown) => Expr.type(source as ExprType<StructType>) as StructType;
-/** The struct the binding marks a generated field of an index with, by its field names. */
-const markerOf = (source: unknown, index: string, field: string) => {
+/**
+ * An index's metadata in a binding's type (#1432): the row fields it is led
+ * by, its kind's one case, and the names of that case's marker — none for a
+ * plain index.
+ */
+const metadataOf = (source: unknown, index: string) => {
     const indexes = typeOf(source).fields.indexes as StructType;
-    return Object.keys(((indexes.fields[index] as StructType).fields[field] as StructType).fields);
+    const entry = (indexes.fields[index] as StructType).fields as Record<string, StructType | VariantType>;
+    const [kind, marker] = Object.entries((entry.kind as VariantType).cases)[0]!;
+    return { fields: Object.keys((entry.fields as StructType).fields), kind, marker: marker!.type === "Struct" ? Object.keys(marker!.fields) : null };
 };
 /** The projection a binding's entries carry: the `some` of their `value`. */
 const projectionOf = (source: unknown) => {
@@ -246,74 +289,119 @@ const projectionOf = (source: unknown) => {
     return (entry.fields.value as VariantType).cases.some!;
 };
 
-// An area index (#1385) carries its rows and marks its `__area` with its box,
-// which a record Slice reads back: these records are the binding's own.
+// An area index (#1385) carries its rows and names its kind with its box,
+// which a record Slice reads back (#1432): these records are the binding's own.
 describe("Data.bindPaged over an area index", () => {
     const Rack = StructType({ hall: StringType, title: StringType, x: OptionType(FloatType), y: OptionType(FloatType), w: FloatType, h: FloatType });
-    const racks = e3.record("area_racks", DictType(StringType, Rack), new Map());
-    const byArea = e3.recordIndex.area("by_area", racks, { x: "x", y: "y", width: "w", height: "h", at: "centre", cell: 0.01 });
-    const byHallArea = e3.recordIndex.area("by_hall_area", racks, { on: ["hall"], x: "x", y: "y", cell: 4 });
-    const byHall = e3.recordIndex("by_hall", racks, { on: ["hall"] });
-    const byTitle = e3.recordIndex("by_title", racks, { on: ["title"], value: East.function([StringType, Rack], StringType, (_$, _key, rack) => rack.title) });
+    const racks = e3.record("area_racks", DictType(StringType, Rack), {
+        initial: new Map(),
+        indexes: (index) => ({
+            by_area: index.area({ x: "x", y: "y", width: "w", height: "h", at: "centre", cell: 0.01 }),
+            by_hall_area: index.area({ on: ["hall"], x: "x", y: "y", cell: 4 }),
+            by_hall: index.on(["hall"]),
+            by_title: index.on(["title"], { value: East.function([StringType, Rack], StringType, (_$, _key, rack) => rack.title) }),
+        }),
+    });
 
-    hostTest("marks `__area` with its box's fields, by role, its centre and its cell's power of two", () => {
-        const source = Data.bindPaged(racks, { indexes: [byArea, byHallArea] });
-        assert.deepEqual(markerOf(source, "by_area", "__area"), ["x=x", "y=y", "width=w", "height=h", "__centre", "cell=0.0078125"]);
-        assert.deepEqual(markerOf(source, "by_hall_area", "__area"), ["x=x", "y=y", "cell=4.0"], "a point by its corner: no width, height or centre");
-        assert.deepEqual(readAreaMarker(markerOf(source, "by_area", "__area")), { x: "x", y: "y", width: "w", height: "h", centre: true, cell: 2 ** -7 });
+    hostTest("names its kind `area`, marked with its box's fields by role, its centre and its cell's power of two; its fields are its leading fields alone (#1432)", () => {
+        const source = Data.bindPaged(racks, { indexes: ["by_area", "by_hall_area", "by_hall"] });
+        assert.deepEqual(metadataOf(source, "by_area"),
+            { fields: [], kind: "area", marker: ["x=x", "y=y", "width=w", "height=h", "__centre", "cell=0.0078125"] });
+        assert.deepEqual(metadataOf(source, "by_hall_area"), { fields: ["hall"], kind: "area", marker: ["x=x", "y=y", "cell=4.0"] },
+            "a point by its corner: no width, height or centre");
+        assert.deepEqual(metadataOf(source, "by_hall"), { fields: ["hall"], kind: "plain", marker: null });
+        assert.deepEqual(readAreaMarker(metadataOf(source, "by_area").marker!), { x: "x", y: "y", width: "w", height: "h", centre: true, cell: 2 ** -7 });
     });
 
     hostTest("its entries carry the whole row: alone, the binding's projection is the row; beside an index that carries nothing, Null (D29)", () => {
-        assert.ok(isTypeEqual(projectionOf(Data.bindPaged(racks, { indexes: [byArea, byHallArea] })), Rack));
-        assert.ok(isTypeEqual(projectionOf(Data.bindPaged(racks, { indexes: [byArea, byHall] })), NullType));
+        assert.ok(isTypeEqual(projectionOf(Data.bindPaged(racks, { indexes: ["by_area", "by_hall_area"] })), Rack));
+        assert.ok(isTypeEqual(projectionOf(Data.bindPaged(racks, { indexes: ["by_area", "by_hall"] })), NullType));
     });
 
     hostTest("beside an index that carries another projection, it is refused, naming that index", () => {
-        assert.throws(() => Data.bindPaged(racks, { indexes: [byArea, byTitle] }),
+        assert.throws(() => Data.bindPaged(racks, { indexes: ["by_area", "by_title"] }),
             /'by_title' carries \.String beside indexes that carry another projection — the indexes a binding lists carry one projection, or each the whole row, as an area or a series index does, or nothing/);
     });
 
-    hostTest("a record Slice over it offers the leading fields, never `__area`, which a read by area gives its window", () => {
-        const source = Data.bindPaged(racks, { indexes: [byArea, byHallArea, byHall] });
+    hostTest("a record Slice over it offers the leading fields; a row's fields named `area` or `__area` are fields like any other (#1432)", () => {
+        const source = Data.bindPaged(racks, { indexes: ["by_area", "by_hall_area", "by_hall"] });
         assert.doesNotThrow(() => bindRecord("racks", source, { fields: { hall: { label: "Hall", hints: ["A", "B"] } } }));
-        // @ts-expect-error `__area` is no field of the rail
-        assert.throws(() => bindRecord("racks", source, { fields: { __area: {} } }), /'__area' is an area index's window/);
+        // e3's parts are its kind's, never a field's name: a row may name a field anything, and an area index be led by it.
+        const Named = StructType({ area: StringType, __area: StringType, x: OptionType(FloatType), y: OptionType(FloatType) });
+        const named = e3.record("named_racks", DictType(StringType, Named), {
+            initial: new Map(),
+            indexes: (index) => ({
+                by_named_area: index.area({ on: ["area", "__area"], x: "x", y: "y", cell: 1 }),
+                by_place: index.area({ x: "x", y: "y", cell: 1 }),
+            }),
+        });
+        const bound = Data.bindPaged(named, { indexes: ["by_place", "by_named_area"] });
+        assert.deepEqual(metadataOf(bound, "by_named_area"), { fields: ["area", "__area"], kind: "area", marker: ["x=x", "y=y", "cell=1.0"] });
+        assert.doesNotThrow(() => bindRecord("named", bound, { fields: { area: { hints: ["A"] }, __area: { hints: ["B"] } } }));
     });
 });
 
-// A series and a summary index (#1039) mark their `__tile` with how they file
-// a record's events, which a record Slice reads back; a series index carries
-// its rows, and a summary index its totals: these records are the binding's own.
+// A series and a summary index (#1039) name their kind with how they file a
+// record's events, which a record Slice reads back (#1432); a series index
+// carries its rows, and a summary index its totals: these records are the
+// binding's own.
 describe("Data.bindPaged over a series and a summary index", () => {
     const Job = StructType({ press: StringType, state: StringType, start: DateTimeType, end: OptionType(DateTimeType) });
-    const jobs = e3.record("series_jobs", DictType(StringType, Job), new Map());
-    const byTime = e3.recordIndex.interval("by_time", jobs, { from: "start", to: "end" });
-    const byState = e3.recordIndex("by_state", jobs, { on: ["state"] });
-    const byPressWeek = e3.recordIndex.series("by_press_week", jobs, { key: "press", from: "start", to: "end", tile: "week" });
-    const byStatePressWeek = e3.recordIndex.series("by_state_press_week", jobs, { on: ["state"], key: "press", from: "start", to: "end", tile: "week" });
-    const byPressMonth = e3.recordIndex.summary("by_press_month", jobs, { key: "press", from: "start", to: "end", tile: "month" });
+    const jobs = e3.record("series_jobs", DictType(StringType, Job), {
+        initial: new Map(),
+        indexes: (index) => ({
+            by_time: index.interval({ from: "start", to: "end" }),
+            by_state: index.on(["state"]),
+            by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }),
+            by_state_press_week: index.series({ on: ["state"], key: "press", from: "start", to: "end", tile: "week" }),
+            by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
+        }),
+    });
 
-    hostTest("marks `__tile` with its key, its times and its tile by role, and a summary's as a summary's", () => {
-        const source = Data.bindPaged(jobs, { indexes: [byTime, byPressWeek, byStatePressWeek, byPressMonth] });
-        assert.deepEqual(markerOf(source, "by_press_week", "__tile"), ["key=press", "from=start", "to=end", "tile=week"]);
-        assert.deepEqual(markerOf(source, "by_state_press_week", "__tile"), ["key=press", "from=start", "to=end", "tile=week"], "after its leading fields");
-        assert.deepEqual(markerOf(source, "by_press_month", "__tile"), ["key=press", "from=start", "to=end", "tile=month", "__summary"]);
-        assert.deepEqual(readTileMarker(markerOf(source, "by_press_month", "__tile")), { key: "press", from: "start", to: "end", tile: "month", summary: true });
+    hostTest("names its kind `series` or `summary`, marked with its key, its times and its tile by role; an interval's `interval`, with its start and end (#1432)", () => {
+        const source = Data.bindPaged(jobs, { indexes: ["by_time", "by_press_week", "by_state_press_week", "by_press_month"] });
+        assert.deepEqual(metadataOf(source, "by_press_week"), { fields: [], kind: "series", marker: ["key=press", "from=start", "to=end", "tile=week"] });
+        assert.deepEqual(metadataOf(source, "by_state_press_week"), { fields: ["state"], kind: "series", marker: ["key=press", "from=start", "to=end", "tile=week"] },
+            "its leading fields its own");
+        assert.deepEqual(metadataOf(source, "by_press_month"),
+            { fields: [], kind: "summary", marker: ["key=press", "from=start", "to=end", "tile=month", "__summary"] });
+        assert.deepEqual(readTileMarker(metadataOf(source, "by_press_month").marker!), { key: "press", from: "start", to: "end", tile: "month", summary: true });
+        assert.deepEqual(metadataOf(source, "by_time"), { fields: [], kind: "interval", marker: ["from=start", "to=end"] }, "its start a field of the rail, by its role");
     });
 
     hostTest("a series index's entries carry the whole row, and a summary index's totals are its own (D29)", () => {
-        assert.ok(isTypeEqual(projectionOf(Data.bindPaged(jobs, { indexes: [byPressWeek, byPressMonth] })), Job), "a series beside a summary: the row");
-        assert.ok(isTypeEqual(projectionOf(Data.bindPaged(jobs, { indexes: [byTime, byPressWeek, byPressMonth] })), NullType),
+        assert.ok(isTypeEqual(projectionOf(Data.bindPaged(jobs, { indexes: ["by_press_week", "by_press_month"] })), Job), "a series beside a summary: the row");
+        assert.ok(isTypeEqual(projectionOf(Data.bindPaged(jobs, { indexes: ["by_time", "by_press_week", "by_press_month"] })), NullType),
             "beside an index that carries nothing: Null");
     });
 
-    hostTest("a record Slice over it offers no field of a series or a summary index's, and never `__tile`", () => {
-        const source = Data.bindPaged(jobs, { indexes: [byTime, byState, byPressWeek, byStatePressWeek, byPressMonth] });
+    hostTest("carries a summary index's maintenance for one row, typed as e3's own, and none where it lists no nested or summary index (#1437)", () => {
+        const maintenance = typeOf(Data.bindPaged(jobs, { indexes: ["by_press_week", "by_press_month"] })).fields.maintenance as VariantType;
+        const carried = (maintenance.cases.some as StructType).fields;
+        assert.deepEqual(Object.keys(carried), ["by_press_month"], "the summary's; a series index read as saved");
+        const own = indexMaintenance(jobs, builtIndex(jobs, jobs.indexes.by_press_month));
+        assert.ok(isTypeEqual(carried.by_press_month!, Expr.type(own as unknown as ExprType<StructType>)), "typed as e3's own");
+        assert.ok(isTypeEqual(typeOf(Data.bindPaged(jobs, { indexes: ["by_time", "by_state"] })).fields.maintenance!, OptionType(StructType({}))),
+            "neither listed: none");
+    });
+
+    hostTest("a record Slice over it offers no field of a series or a summary index's; a row's fields named `tile` or `__tile` are fields like any other (#1432)", () => {
+        const source = Data.bindPaged(jobs, { indexes: ["by_time", "by_state", "by_press_week", "by_state_press_week", "by_press_month"] });
         assert.doesNotThrow(() => bindRecord("jobs", source, { fields: { state: { hints: ["late"] }, start: {} }, range: "start" }));
         // @ts-expect-error a series index offers no field: `press` is no field of the rail
         assert.throws(() => bindRecord("jobs", source, { fields: { press: {} } }), /narrowing by 'press' needs an index on it/);
-        // @ts-expect-error `__tile` is no field of the rail
-        assert.throws(() => bindRecord("jobs", source, { fields: { __tile: {} } }), /'__tile' is a series or a summary index's tile/);
+        // e3's parts are its kind's, never a field's name: a series index is led by `tile` and `__tile`, plain indexes offer them.
+        const Named = StructType({ press: StringType, start: DateTimeType, end: OptionType(DateTimeType), tile: StringType, __tile: StringType });
+        const named = e3.record("named_jobs", DictType(StringType, Named), {
+            initial: new Map(),
+            indexes: (index) => ({
+                by_named_week: index.series({ on: ["tile", "__tile"], key: "press", from: "start", to: "end", tile: "week" }),
+                by_tile: index.on(["tile", "__tile"]),
+            }),
+        });
+        const bound = Data.bindPaged(named, { indexes: ["by_tile", "by_named_week"] });
+        assert.deepEqual(metadataOf(bound, "by_named_week"), { fields: ["tile", "__tile"], kind: "series", marker: ["key=press", "from=start", "to=end", "tile=week"] });
+        assert.doesNotThrow(() => bindRecord("named", bound, { fields: { tile: { hints: ["T"] }, __tile: { hints: ["U"] } } }));
     });
 });
 
@@ -339,13 +427,14 @@ describe("the client's tiles are e3's", () => {
             early.setUTCFullYear(year, month, 17);
             instants.push(early);
         }
+        const theirStart = East.compile(e3TileStart, []);
+        const theirNext = East.compile(e3TileNext, []);
         for (const tile of RECORD_TILES) {
-            const theirStart = East.compile(e3TileStart(tile), []) as (at: Date) => Date;
-            const theirNext = East.compile(e3TileNext(tile), []) as (start: Date) => Date;
+            const level = variant(tile, null);
             for (const at of instants) {
-                const start = theirStart(at);
+                const start = theirStart(level, at);
                 assert.ok(sameInstant(tileStart(tile, at), start), `${tile} of ${print(at)}: ${print(tileStart(tile, at))}, and e3's ${print(start)}`);
-                assert.ok(sameInstant(tileNext(tile, start), theirNext(start)), `the ${tile} after ${print(start)}`);
+                assert.ok(sameInstant(tileNext(tile, start), theirNext(level, start)), `the ${tile} after ${print(start)}`);
             }
         }
     });

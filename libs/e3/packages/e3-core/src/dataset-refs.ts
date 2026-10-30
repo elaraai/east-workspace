@@ -277,9 +277,14 @@ async function buildTreeFromRefs(
 // =============================================================================
 
 /**
- * Collect all leaf (value) keypaths from a structure.
+ * Collect all leaf (value) keypaths from a structure: every dataset a
+ * workspace the structure is deployed to holds a ref for.
+ *
+ * @param structure - The structure
+ * @param prefix - The keypath of the structure's root: none for a package's
+ * @returns Each leaf's keypath (`.inputs.sales`)
  */
-function collectLeafPaths(structure: Structure, prefix: string = ''): string[] {
+export function collectLeafPaths(structure: Structure, prefix: string = ''): string[] {
   const paths: string[] = [];
 
   if (structure.type === 'value') {

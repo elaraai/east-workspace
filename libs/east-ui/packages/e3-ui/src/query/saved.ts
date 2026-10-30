@@ -70,10 +70,14 @@ export interface SavedQueryInput {
  * const orders = e3.input("orders", ArrayType(StructType({ id: IntegerType, total: FloatType })), variant("value", []));
  *
  * // The record ships with one query, checked against `orders` when the package builds.
- * export const queries = e3.record("queries", Query.Types.Saved, Query.value({ orders }, [
- *     { name: "Big orders", jq: ".orders | map(select(.total >= 1000))", savedAt: new Date("2026-10-01T09:00:00Z") },
- * ]));
- * export const queriesPatch = e3.mutation.patch(queries);
+ * export const queries = e3.record("queries", Query.Types.Saved, {
+ *     initial: Query.value({ orders }, [
+ *         { name: "Big orders", jq: ".orders | map(select(.total >= 1000))", savedAt: new Date("2026-10-01T09:00:00Z") },
+ *     ]),
+ *     mutations: (mutation) => ({
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  * ```
  */
 export function savedQueriesValue(

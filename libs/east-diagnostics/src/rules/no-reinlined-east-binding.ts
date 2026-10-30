@@ -4,7 +4,7 @@
  */
 import type * as ts from "typescript";
 import type { EastRule, RuleContext, TsModule } from "../types.js";
-import { isBlockBuilderType, isEastExprType } from "../east-type.js";
+import { isBlockBuilderType, isEastExprType, isEastFunctionExprType } from "../east-type.js";
 import { matchBlockBuilderCall } from "../block-builder.js";
 import { enclosingBlockScope, isEastFunctionCall } from "../block-scope.js";
 
@@ -38,7 +38,7 @@ export const REPEATING_METHODS: ReadonlySet<string> = new Set([
   "forEach", "reduce", "scan", "mapReduce", "groupReduce", "groupBy", "groupSize", "groupSum", "groupMean",
   "groupEvery", "groupSome", "groupMaximum", "groupMinimum", "groupToArrays", "groupToSets", "groupToDicts",
   "groupFindAll", "groupFindFirst", "groupFindMaximum", "groupFindMinimum", "toDict", "toSet", "toArray",
-  "toTree", "sort", "sortInPlace", "isSorted", "findFirst", "findAll", "findMaximum", "findMinimum",
+  "toTree", "flattenTree", "sort", "sortInPlace", "isSorted", "findFirst", "findAll", "findMaximum", "findMinimum",
   "findSortedFirst", "findSortedLast", "findSortedRange", "mergeAll", "unionInPlace", "mapRows", "some",
   "every", "sum", "mean", "maximum", "minimum", "getKeys", "generate",
 ]);
@@ -126,6 +126,12 @@ export const noReinlinedEastBinding: EastRule = {
     // Only Expr-typed bindings re-inline. Types (`StructType(...)`), plain JS
     // objects, callbacks held for a single handoff, etc. are fine.
     if (!isEastExprType(ctx.checker.getTypeAtLocation(init))) return;
+    // A function made outside every East block — `const f = East.function(…)`,
+    // or a function a helper or a conditional gives there — captures no East
+    // binding: read inside another function's body, it makes the same function
+    // again. Nothing is re-evaluated, and a function has no identity a program
+    // can observe. One function calling another is that read.
+    if (enclosingBlockScope(node, ctx) === undefined && isEastFunctionExprType(ctx.checker.getTypeAtLocation(init))) return;
 
     const declSymbol = ctx.checker.getSymbolAtLocation(node.name);
     if (declSymbol === undefined) return;

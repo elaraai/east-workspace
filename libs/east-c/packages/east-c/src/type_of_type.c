@@ -968,7 +968,13 @@ static EastValue *type_to_value_ctx(EastType *type, TVCtx *ctx)
 
     /* Memo lookup for non-recursive composite kinds (issue #83). Primitives
      * are cheap singletons and not worth caching; EAST_TYPE_RECURSIVE is
-     * handled above. A hit returns a shared value (retained for the caller). */
+     * handled above. A hit returns a shared value (retained for the caller).
+     * Only with no recursive wrapper in scope, as the TS reference caches only
+     * with no RecursiveType on its stack: a value made inside a wrapper may
+     * hold Recursive(ref) back-references, which name the wrapper only within
+     * it — served outside it (an interned Dict<String, P> both inside P and
+     * beside it), a ref would name no wrapper, and a collection manifest's
+     * normalized type would not decode. */
     bool memoizable = false;
     switch (type->kind) {
     case EAST_TYPE_ARRAY:
@@ -986,6 +992,7 @@ static EastValue *type_to_value_ctx(EastType *type, TVCtx *ctx)
     default:
         break;
     }
+    if (ctx->num_recs > 0) memoizable = false;
     if (memoizable) {
         EastValue *cached = tv_memo_lookup(ctx, type);
         if (cached) return cached;

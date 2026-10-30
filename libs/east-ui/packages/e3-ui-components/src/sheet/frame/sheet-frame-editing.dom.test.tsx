@@ -36,7 +36,7 @@ type Job = ValueTypeOf<typeof ex.SheetJob>;
 /** The jobs, saved as each gesture lands (SB31). */
 const autoJobs = {
     fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-        const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+        const jobs = $.let(Record.bind(ex.sheetJobs, ["patch"]));
         return Sheet({ record: jobs, columns: { task: Sheet.column.text(ex.SheetJob, { header: "Task" }) }, applyMode: "auto", name: "auto" });
     }))),
 };
@@ -44,7 +44,7 @@ const autoJobs = {
 /** The jobs, given both panes: a library of the columns, with its search, and the inspector. */
 const panedJobs = {
     fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-        const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+        const jobs = $.let(Record.bind(ex.sheetJobs, ["patch"]));
         return Sheet({ record: jobs, columns: { task: Sheet.column.text(ex.SheetJob, { header: "Task" }) },
             library: [Sheet.library.columns()], inspector: true, name: "panes" });
     }))),
@@ -53,7 +53,7 @@ const panedJobs = {
 /** The edge bander's jobs, whose patch door refuses jobs that band both edges: the bander is booked that week. */
 const bookedJobs = {
     fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-        const jobs = $.let(Record.bind(ex.sheetBookedJobs, [ex.sheetBookedJobsPatch]));
+        const jobs = $.let(Record.bind(ex.sheetBookedJobs, ["patch"]));
         return Sheet({ record: jobs, columns: { task: Sheet.column.text(ex.SheetJob, { header: "Task" }) }, name: "booked" });
     }))),
 };

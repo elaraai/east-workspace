@@ -101,7 +101,7 @@ import {
 import { createPagingDriver, type PlanPagingSnapshot, type PlanRowPlace } from "./paging.js";
 import { CANVAS_KEY_TYPE, createSeekDriver, firstAtOrAfter, type PlanSeekSnapshot } from "./seek.js";
 import { currentScale, runPlanEffects } from "./effects.js";
-import { planPart, planSlices, ROWS_SOURCE } from "../root/sources.js";
+import { planPart, planSlices, planWindowParts, ROWS_SOURCE } from "../root/sources.js";
 import type { PlanWindowHold } from "../root/window.js";
 import { announcementOf } from "../a11y.js";
 import { PLAN_WORDS, type PlanWords } from "../words.js";
@@ -736,10 +736,16 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
      *  and nothing is written that storage already holds. Bound or not: the window is the reader's place, as the
      *  scroll anchor is, never a toggle the host holds. */
     function persistWindow(): void {
-        const shown = options.windowHold?.last;
+        const hold = options.windowHold;
+        const shown = hold?.last;
         const kind = value?.axis.type;
-        if (shown === undefined || (kind !== "time" && kind !== "number")) return;
-        const next: PlanOwnWindow = { kind, min: shown[0], max: shown[1] };
+        if (hold === undefined || shown === undefined || (kind !== "time" && kind !== "number")) return;
+        // A source holding the window keeps it, and its zoom, in its own state.
+        if (planWindowParts(planSlices(value!), kind, hold.rows).length > 0) return;
+        // A time axis's zoom is kept with the window it shows (#1438), and is the one the hold falls back to.
+        const resolution = kind === "time" && value !== undefined ? currentScale(value, hold)?.resolution : undefined;
+        hold.resolution = resolution;
+        const next: PlanOwnWindow = { kind, min: shown[0], max: shown[1], ...(resolution !== undefined && { resolution }) };
         if (sameOwnWindow(persisted.window, next)) return;
         persisted = { ...persisted, window: next };
         options.persist?.(persisted);
@@ -1085,6 +1091,8 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 if (e.t === "resolution.set" && value !== undefined) {
                     const after = currentScale(value, options.windowHold)?.resolution;
                     if (after !== undefined && after !== resolutionBefore) say(words.m.announceResolution({ resolution: after }));
+                    // A zoom that left the canvas's own window where it was is kept with it all the same (#1438).
+                    persistWindow();
                 }
             });
         },

@@ -14,7 +14,7 @@ import { DateTimeType, DictType, East, StringType, example, some, variant } from
 import e3 from "@elaraai/e3";
 import { Box, Reactive, UIComponentType } from "@elaraai/east-ui";
 import { Calendar, Func, Record } from "@elaraai/e3-ui";
-import { CalendarJob, CalendarMachine, calendarJobs, calendarJobsPatch, calendarMachines } from "./calendar.examples.js";
+import { CalendarJob, CalendarMachine, calendarJobs, calendarMachines } from "./calendar.examples.js";
 
 /** The jobs' optimiser's request: the window's jobs and the backlog by key, the machines beside them. */
 export const CalendarOptimiseRequest = Calendar.Types.OptimiseRequest({ job: CalendarJob }, { machines: CalendarMachine });
@@ -67,7 +67,7 @@ export const calendarOptimise = example({
     keywords: ["Calendar", "optimise", "Optimise", "Elara", "OptimiseRequest", "OptimiseResult", "Func.bind", "e3.function", "backlog", "one edit", "Undo", "Record.bind", "Schedule.events", "Schedule.resources"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const machines = $.let(Record.bind(calendarMachines, []));
-        const jobs = $.let(Record.bind(calendarJobs, [calendarJobsPatch]));
+        const jobs = $.let(Record.bind(calendarJobs));
         // The app's optimiser: the eye calls it once per run over the window in view, and its answer is one edit.
         const optimise = $.let(Func.bind(scheduleBacklog));
         return <Box height="680px"><Calendar id="calendarOptimise" inspector view={{ period: "week", date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}

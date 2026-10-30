@@ -990,35 +990,43 @@ export type PlanGroupToggleEventType = typeof PlanGroupToggleEventType;
  * time axis's UTC instant, a number axis's bucket start, an ordinal axis's
  * value) — the same instant a `cell` element ref reports.
  *
+ * `id` is the new item's id (#1436): the renderer mints it as the card lands,
+ * unique among every id the canvas holds (`crypto.randomUUID()`, as a Roster's
+ * keys are), and the series puts the item into its collection under it.
+ *
  * @property from - The card — the library that declared it and its item key
  * @property row - The row it landed on
  * @property at - The start of the bucket it landed in
  * @property duplicate - Whether the drag was an alt-drag copy
+ * @property id - The new item's id, minted by the renderer
  */
 export const PlanDropType = StructType({
     from:      LibraryRefType,
     row:       PlanRowIdType,
     at:        PlanInstantType,
     duplicate: BooleanType,
+    id:        StringType,
 });
 export type PlanDropType = typeof PlanDropType;
 
 /**
  * A run, chip, tile or mark moved or resized (#825) — where its item goes and
- * the instants it takes there, which the series write into the fields they
- * declare (`edit: { key, start, end }`, or `at`).
+ * the instants it takes there, which the series writes into the time fields
+ * its elements' read names (`Plan.items(field, { from, to } | { at }, draw)`,
+ * #1436).
  *
  * @remarks
- * `key` is the element's key, which is its item's (`edit.key` names the item's
- * key field). A move along its own row, or a resize, has `to` equal to `from`,
- * and sets the item's instants where it is. A move to another row takes the
- * item out of the list it was in and puts it, with its new instants, into the
- * target row's list — even when the two rows come from different entries,
- * which is then one gesture over both. A point element (a tile, a mark) moves
- * to `start`, and `end` repeats it. A row's list keeps its keys unique, so a
- * move onto a row whose list already holds the key is refused.
+ * `key` is the element's key, which is its item's id in the collection. A move
+ * along its own row, or a resize, has `to` equal to `from`, and sets the
+ * item's instants where it is. A move to another row takes the item out of
+ * its row's collection under its id and puts it, with its new instants, into
+ * the target row's under the same id — even when the two rows come from
+ * different entries, which is then one gesture over both. A point element (a
+ * tile, a mark) moves to `start`, and `end` repeats it. A row's collection
+ * keeps its ids unique, so a move onto a row whose collection already holds
+ * the id is refused.
  *
- * @property key - The element's key — its item's key
+ * @property key - The element's key — its item's id
  * @property from - The row it was on
  * @property to - The row it goes to — `from` itself for a resize, or a move along its row
  * @property start - Its start after the gesture (a point element's instant)
@@ -1034,23 +1042,53 @@ export const PlanMoveType = StructType({
 export type PlanMoveType = typeof PlanMoveType;
 
 /**
+ * A number typed into a table row's cell (#1436) — the value its position's
+ * collection holds at the bucket's start, the collection's key: set where the
+ * collection holds one there, added where it holds none, deleted when the
+ * cell is cleared.
+ *
+ * @remarks
+ * A position takes typed numbers when its series declares `edit: true` over
+ * a values read — `Plan.series.table`'s `cells`, or a `Plan.tableSeries`
+ * position — which its rows say in {@link PlanRowEditsType}'s `values`. The
+ * number is the value stored: a `Float` collection's as it is, an `Option` of
+ * a `Float`'s as `some`, an `Integer` collection's when it is whole.
+ *
+ * @property row - The row it was typed on
+ * @property position - The position typed into: its index among the row's table series, `0` for its `cells`
+ * @property at - The bucket's start, on the axis arm — the key the value is written under
+ * @property value - The number typed, or `none` when the cell was cleared
+ */
+export const PlanValueEditType = StructType({
+    row:      PlanRowIdType,
+    position: IntegerType,
+    at:       PlanInstantType,
+    value:    OptionType(FloatType),
+});
+export type PlanValueEditType = typeof PlanValueEditType;
+
+/**
  * A gesture on the canvas — what one draft is made by (#880). A series writes
- * it into the entry its row came from, through the fields it declares: a drop
- * into its `edit.items`, a move into the item's instant fields (and, across
- * rows, into another row's list — #825).
+ * it into the entry its row came from, through the collection its elements'
+ * read names (#1436): a drop as a new item under its minted id, a move into
+ * the item's named times (and, across rows, into another row's collection —
+ * #825).
  *
  * @property drop - A library card dropped on a row
  * @property move - A run, chip, tile or mark moved or resized ({@link PlanMoveType}, #825)
+ * @property value - A number typed into a table cell, or the cell cleared ({@link PlanValueEditType}, #1436)
  */
 export const PlanGestureType = VariantType({
     drop:    PlanDropType,
     move:    PlanMoveType,
+    value:   PlanValueEditType,
 });
 export type PlanGestureType = typeof PlanGestureType;
 
 /**
- * How a row's elements move (#825) — present when its series declares the
- * instant fields a move writes (`edit: { key, start, end }`, or `at`).
+ * How a row's elements move (#825) — present when its series declares `edit`,
+ * its elements read with `Plan.items`, whose named times a move writes
+ * (#1436).
  *
  * @remarks
  * `items` is the East type of the row's items, as East prints it: a run, chip,
@@ -1069,17 +1107,33 @@ export const PlanMoveEditsType = StructType({
 export type PlanMoveEditsType = typeof PlanMoveEditsType;
 
 /**
+ * A table position that takes a typed number (#1436, #1438): which one, and
+ * whether its collection holds whole numbers, so the canvas's input refuses a
+ * fraction where the series would write nothing.
+ *
+ * @property position - Its index among the row's table series, `0` for its `cells`
+ * @property whole - Its collection holds Integers: it takes whole numbers only
+ */
+export const PlanTypedPositionType = StructType({
+    position: IntegerType,
+    whole:    BooleanType,
+});
+export type PlanTypedPositionType = typeof PlanTypedPositionType;
+
+/**
  * Which gestures a row takes (#880) — whether its series declares the fields
  * each one writes, so the canvas offers only what a draft can hold: a card
  * lands only on a `drop` row, and an element is picked up only on a `move`
  * row (#825).
  *
- * @property drop - Its series names where a dropped card lands and how it becomes an item (`edit.create`)
- * @property move - Its series names the item fields a move writes (`edit.key` and `start` / `end`, or `at`) — {@link PlanMoveEditsType}
+ * @property drop - Its series makes an item of a dropped card (`edit: { create }`)
+ * @property move - Its series moves its elements (`edit`, its elements read with `Plan.items`) — {@link PlanMoveEditsType}
+ * @property values - The table positions whose values take a typed number (`edit: true` over a values read, #1436) — {@link PlanTypedPositionType}; none for another kind
  */
 export const PlanRowEditsType = StructType({
     drop:    BooleanType,
     move:    OptionType(PlanMoveEditsType),
+    values:  ArrayType(PlanTypedPositionType),
 });
 export type PlanRowEditsType = typeof PlanRowEditsType;
 

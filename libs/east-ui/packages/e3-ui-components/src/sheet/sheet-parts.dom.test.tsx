@@ -61,10 +61,10 @@ const editable = East.compile(East.function([], SheetPayloadType, ($) => {
  * lens (#1349).
  */
 const narrowed = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const orders = $.let(Record.bind(ex.sheetWorkshopOrders, [ex.sheetWorkshopOrdersPatch]));
+    const orders = $.let(Record.bind(ex.sheetWorkshopOrders, ["patch"]));
     const views = $.let(State.bind([ArrayType(Sheet.Types.RecordView)], "sheet-parts-views", VIEWS));
     const slice = $.let(Slice.bindRecords("sheet_parts_dom", {
-        rows: { source: Data.bindPaged(ex.sheetWorkshopOrders, { indexes: [ex.sheetWorkshopOrdersByStatus] }), fields: { status: { label: "Status" } } },
+        rows: { source: Data.bindPaged(ex.sheetWorkshopOrders, { indexes: ["sheet_workshop_orders_by_status"] }), fields: { status: { label: "Status" } } },
     }));
     return Sheet({
         slice: { slice }, group: Sheet.group(ex.WorkshopOrder, "ops", { title: "name" }),

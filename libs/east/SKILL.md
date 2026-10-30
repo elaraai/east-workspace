@@ -120,7 +120,8 @@ Task → What do you need?
     │   │   ├─ Convert → .stringJoin(), .toSet(), .toDict(), .flattenToSet(), .flattenToDict(), .encodeCsv()
     │   │   ├─ Group → .groupReduce(), .groupSize(), .groupSum(), .groupMean(), .groupMinimum(), .groupMaximum(),
     │   │   │   .groupToArrays(), .groupToSets(), .groupToDicts(), .groupEvery(), .groupSome()
-    │   │   └─ Tree → .toTree(Node, key, parent, build) — flat parent-keyed rows to nested nodes (below)
+    │   │   └─ Tree → .toTree(Node, key, parent, build) — flat parent-keyed rows to nested nodes;
+    │   │       .flattenTree(children) — nested nodes back to { path, node } rows, depth first (below)
     │   ├─ Set
     │   │   ├─ Read and mutate → .size(), .has(), .insert(), .tryInsert(), .delete(), .tryDelete(), .clear(), .unionInPlace()
     │   │   ├─ Set ops → .copy(), .union(), .intersection(), .difference(), .symmetricDifference(), .isSubsetOf(),
@@ -129,6 +130,7 @@ Task → What do you need?
     │   │       reduce .reduce(), .scan(), .every(), .some(), .sum(), .mean();
     │   │       convert .toArray(), .toSet(), .toDict(), .flattenToArray(), .flattenToSet(), .flattenToDict(),
     │   │       .toTree(Node, parent, build) (an element / a key is its own key; Dict callbacks take (value, key));
+    │   │       Dict only: .flattenTree(children), the nodes back again (below);
     │   │       group .groupReduce(), .groupSize(), .groupSum(), .groupMean(), .groupToArrays(), .groupToSets(),
     │   │       .groupToDicts(), .groupEvery(), .groupSome()
     │   ├─ Dict → .size(), .has(), .get(), .tryGet(), .keys(), .getKeys(), .insert(), .insertOrUpdate(), .update(),
@@ -164,6 +166,9 @@ Task → What do you need?
     │   East.is() is identity for mutable collections — FROZEN ones (task inputs) compare by value
     ├─ Patches (East.*) → East.diff(before, after), East.applyPatch(value, patch),
     │   East.composePatch(first, second, type), East.invertPatch(patch, type)
+    ├─ Build East over types you are handed (a library, a generator) → East.field(v, name, T?), East.fields(v, names?),
+    │   East.struct(T, fields), East.withField(v, name, x), East.inCase(T, name, x), East.patchesFor(T): each name
+    │   checked as the program builds → "Names and types held as values"
     │
     ├─ Ask a question of a value in jq → East.jq(input, program, resultType), checked when the program
     │   builds → "Queries (typed jq)"
@@ -239,6 +244,42 @@ A variant is built with `variant()`, `some()` or `none` — never a
 `{ type, value }` literal, which lacks the marker the encoders read. Variants are
 encoded, compared and validated by case **name**.
 
+### Names and types held as values
+
+East names a struct's fields and a variant's cases where its code is written:
+`row.site`, `variant("load", x)`. Code that builds programs over types it is
+handed — a library generating a program for whatever record its caller
+declares — holds the names, and the types, as values. These build the same
+program pieces from them, and check each name against the type as the program
+is built: a name the type lacks fails there, naming the name and the type
+(`East.field: .Struct {name, site, status} has no field 'job'`). Nothing in the
+program differs from what the written form builds, so every runtime runs it.
+
+```typescript
+const Machine = StructType({ name: StringType, site: StringType, status: StringType });
+const Reading = VariantType({ load: FloatType, output: FloatType });
+
+const site = "site";                                       // a name a caller hands you
+const siteOf = East.function([Machine], StringType, ($, machine) =>
+    East.field(machine, site, StringType));                // typed by the type given, which is checked
+
+const stopped = East.function([Machine], Machine, ($, machine) =>
+    East.withField(machine, "status", "down"));            // the other fields as they are
+
+const Place = StructType({ site: StringType, name: StringType });
+const placeOf = East.function([Machine], Place, ($, machine) =>
+    East.struct(Place, East.fields(machine, ["site", "name"])));   // by name, or in the type's order
+
+const readingOf = (place: string) => East.function([FloatType], Reading, ($, x) =>
+    East.inCase(Reading, place, x));                       // a variant's case by name
+
+const { diff, apply, compose, invert } = East.patchesFor(Machine);   // East functions of a type held as a value
+```
+
+A recursive value is read, and rebuilt, through its node. `fields` and
+`withField` read the value once a field: give them a variable, not a
+computation. Code whose names are written keeps writing `row.site`.
+
 ### Error handling
 
 ```typescript
@@ -268,11 +309,37 @@ const nest = East.function([ArrayType(Row)], ArrayType(Node), ($, rows) =>
   ❗ `toTree: cycle through key <key>` — both before any `build`.
 - A non-recursive `Node` folds bottom-up: `IntegerType` with
   `children.sum().add(1n)` is each root's subtree size.
+
+`flattenTree` is the way back: every node of nested data, each with its path
+of keys (a Dict's) or indices (an Array's) from its root, depth first — each
+node before its descendants, siblings in key or array order. `children` names
+a node's children, of the collection's own type.
+
+```typescript
+const Part = RecursiveType(self => StructType({ name: StringType, cost: FloatType, parts: DictType(StringType, self) }));
+
+const flat = East.function([DictType(StringType, Part)], ArrayType(StructType({ path: ArrayType(StringType), name: StringType })), ($, parts) =>
+    parts.flattenTree(($, part) => part.unwrap().parts).map(($, e) => ({ path: e.path, name: e.node.unwrap().name })));
+// [{ path: ["pump"], … }, { path: ["pump", "motor"], … }, { path: ["pump", "motor", "rotor"], … }, { path: ["pump", "seal"], … }]
+
+// A rollup at every root: toTree over the paths, a node's parent its path less its last key
+const totals = East.function([DictType(StringType, Part)], ArrayType(FloatType), ($, parts) =>
+    parts.flattenTree(($, part) => part.unwrap().parts).toTree(FloatType,
+        ($, e) => e.path,
+        ($, e) => East.greater(e.path.size(), 1n).ifElse(() => some(e.path.slice(0n, e.path.size().subtract(1n))), () => none),
+        ($, e, _i, children) => children.sum().add(e.node.unwrap().cost)));
+```
+
+- The result is an Array of `{ path, node }`, not a Dict keyed by path: a Dict
+  key is immutable, and a path is an Array.
+- `children` runs once per node, in the result's order. The walk is iterative;
+  each path is an array of its own, so a chain n deep holds n(n+1)/2 path
+  elements.
 - **Recursion** — a function calling itself through a captured variable
   (`$.let(fn, FunctionType(...))`, then `$.assign(fn, East.function(...))`) —
   is for shallow depths, in the hundreds. Deeper, a call ❗
   `call stack exhausted: East calls nested too deeply`, a catchable error on
-  every runtime. Walk deep data with `$.while` or `toTree`, which is iterative;
+  every runtime. Walk deep data with `$.while`, `toTree` or `flattenTree`, which are iterative;
   the C and Python runtimes still bound a recursive VALUE's depth to tens of
   thousands of levels.
 

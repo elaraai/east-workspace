@@ -191,7 +191,7 @@ const StoryChromeRow = memo(function StoryChromeRow({ title, count, active, stic
                         position="absolute"
                         insetY="0"
                         left="0"
-                        width={`${count > 0 ? ((active + 1) / count) * 100 : 0}%`}
+                        style={{ width: `${count > 0 ? ((active + 1) / count) * 100 : 0}%` }}
                         background="colorPalette.solid"
                         colorPalette="brand"
                         transition="width 200ms ease-out"
@@ -292,7 +292,8 @@ const StoryStepBlock = memo(function StoryStepBlock({ step, index, total, state,
             paddingLeft="26px"
             display="flex"
             flexDirection="column"
-            minHeight={minHeight}
+            // Worked out from the scrollport's height, which a resize moves: inline, as a class would be minted for each.
+            style={{ minHeight }}
             boxSizing="border-box"
             opacity={state === "active" ? 1 : 0.45}
             transition="opacity 200ms ease-out"
@@ -621,7 +622,7 @@ export const EastChakraStory = memo(function EastChakraStory({ value, storageKey
         // stays unchromed per the spec — keyframes bring their own framing.
         <ChakraBox
             position="sticky"
-            top={layout === "stacked" ? `${title !== undefined ? chromePx : 0}px` : `${stageTop}px`}
+            style={{ top: layout === "stacked" ? `${title !== undefined ? chromePx : 0}px` : `${stageTop}px` }}
             paddingBottom="4"
             data-scope="story-stage"
             background={layout === "stacked" ? "bg.surface" : undefined}

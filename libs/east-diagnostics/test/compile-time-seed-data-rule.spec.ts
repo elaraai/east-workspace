@@ -121,7 +121,7 @@ test("silent: object literal spreading an authored-literal const", () => {
 
 // ── not-our-call / opaque seeds ────────────────────────────────────────────
 test("silent: a host-filled value handed to e3.record (not e3.input)", () => {
-  const body = `const m = new Map();\nfor (const k of ks) m.set(k, 0);\n` + `export const r = e3.record("x", DictType(StringType, IntegerType), m);\n`;
+  const body = `const m = new Map();\nfor (const k of ks) m.set(k, 0);\n` + `export const r = e3.record("x", DictType(StringType, IntegerType), { initial: m });\n`;
   assert.equal(rule(body).length, 0);
 });
 test("silent: a host-filled value handed to e3.task (not e3.input)", () => {

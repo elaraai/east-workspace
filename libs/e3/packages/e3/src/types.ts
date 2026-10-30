@@ -15,7 +15,17 @@
  */
 
 import type { ArrayType, AsyncEastIR, DictType, EastIR, EastType, FunctionType, NullType, SetType, ValueTypeOf, variant } from '@elaraai/east';
-import type { MigrationForm, MutationForm, TaskRole, TreePath } from '@elaraai/e3-types';
+
+/**
+ * A function's IR bundle, whatever its signature — what a definition keeps,
+ * and export links and encodes. Its inputs and output are its IR's: the type
+ * names none, so any function's bundle is one.
+ */
+export type IRBundle = EastIR<EastType[], EastType>;
+
+/** An async function's IR bundle, whatever its signature (see {@link IRBundle}). */
+export type AsyncIRBundle = AsyncEastIR<EastType[], EastType>;
+import type { MigrationForm, MutationForm, RecordNestedDecl, TaskRole, TreePath } from '@elaraai/e3-types';
 import type { DatasetSource } from './input.js';
 import type { Runner } from './runner.js';
 import type { EnvironmentDecl } from './environment.js';
@@ -137,9 +147,8 @@ export interface DictOutputDef<K extends EastType = EastType, V extends EastType
   /** `emit`'s type: `emit(k, v)`. */
   readonly emit: FunctionType<[K, V], NullType>;
   /** `(K, V, V) -> V`, folding the values of equal keys in input order. Absent
-   *  when a repeated key is an error. Typed loosely, as {@link FunctionDef.body}
-   *  is. */
-  readonly merge?: EastIR<any, any>;
+   *  when a repeated key is an error. */
+  readonly merge?: IRBundle;
 }
 
 /**
@@ -157,7 +166,7 @@ export interface FoldOutputDef<T extends EastType = EastType> {
   /** The value the fold starts from, an identity of {@link combine}. */
   readonly zero: ValueTypeOf<T>;
   /** `(T, T) -> T`, associative. */
-  readonly combine: EastIR<any, any>;
+  readonly combine: IRBundle;
 }
 
 /**
@@ -185,7 +194,7 @@ export interface TaskDef<TOutput extends EastType = EastType, Path extends TreeP
    * keeps its source map.
    */
   readonly body:
-    | { readonly kind: 'east'; readonly program: EastIR<any, any> | AsyncEastIR<any, any> }
+    | { readonly kind: 'east'; readonly program: IRBundle | AsyncIRBundle }
     | { readonly kind: 'command'; readonly command: EastIR<[string[], string], string[]> };
   /** The inputs, in the body's parameter order. A `streamTask`'s may include
    *  datasets its work can be split over. */
@@ -230,10 +239,8 @@ export interface FunctionDef<
   readonly kind: 'function';
   /** Function name (unique within the package) */
   readonly name: string;
-  // EastIR/AsyncEastIR constrain their first param to a MUTABLE any[]; a readonly
-  // generic is rejected (TS2344). Type the field loosely and cast fn.toIR(),
-  // exactly as a task's program is.
-  readonly body: EastIR<any, any> | AsyncEastIR<any, any>;
+  /** The function, as its IR bundle. */
+  readonly body: IRBundle | AsyncIRBundle;
   /** Positional parameter types (the East function's signature) */
   readonly inputTypes: Inputs;
   /** Return type */
@@ -260,16 +267,27 @@ export interface FunctionDef<
  * declared without one is unassigned until its first state is committed from
  * outside, which is then its genesis (see `record`).
  *
+ * A record is declared whole — `e3.record(name, type, { initial, indexes,
+ * mutations, migrations })` — and holds its indexes and its mutations by name,
+ * each typed as declared, and its migrations in the order they run.
+ *
  * @typeParam T - The East type of the record state
+ * @typeParam Path - Its path in the package's tree
+ * @typeParam I - Its indexes by name, as declared
+ * @typeParam M - Its mutations by name, as declared
  */
-export interface RecordDef<T extends EastType = EastType, Path extends TreePath = TreePath>
-  extends DatasetDef<T, Path> {
+export interface RecordDef<
+  T extends EastType = EastType,
+  Path extends TreePath = TreePath,
+  I extends object = Record<string, RecordIndexDef>,
+  M extends object = Record<string, MutationDef>,
+> extends DatasetDef<T, Path> {
   /** Discriminant distinguishing a record from a plain dataset. */
   readonly recordKind: 'record';
   /** Mutations that may write this record, by name. */
-  readonly mutations: Record<string, MutationDef>;
+  readonly mutations: M;
   /** Secondary indexes over this record, by name. */
-  readonly indexes: Record<string, RecordIndexDef>;
+  readonly indexes: I;
   /** Migrations of this record, in chain order: the steps a deploy runs over
    *  a workspace's state that has not applied them. */
   readonly migrations: readonly MigrationDef[];
@@ -286,7 +304,8 @@ export interface RecordDef<T extends EastType = EastType, Path extends TreePath 
  * `Dict<{ik, k}, P>` stored as a segment manifest exactly like the primary,
  * maintained inside the same commit, and read with the same paging machinery.
  *
- * Passed to `e3.package` like a mutation; it is collected onto its record.
+ * Declared in its record's `indexes`, by the `index` builder; the record
+ * carries it by its name.
  *
  * @typeParam Name - The index name (literal type)
  * @typeParam T - The owning record's state type
@@ -307,17 +326,21 @@ export interface RecordIndexDef<
   readonly name: Name;
   /** The record this index is over. */
   readonly record: RecordDef<T>;
-  /** Row fields in key order for a field index; undefined for a computed key.
-   *  Authoring metadata: the generated key function remains the stored contract. */
+  /** Row fields in key order for a field index — a generated index's leading
+   *  fields, its key's `on`, none when it lists none (#1432); undefined for a
+   *  computed key. Authoring metadata: the generated key function remains the
+   *  stored contract. */
   readonly on: On;
-  /** Interval endpoints for an overlap index. Its final logical field is
-   *  `from`; the generated key inserts an internal interval node before it.
-   *  Authoring metadata only: ordinary maintained index programs store it. */
+  /** Interval endpoints for an overlap index. Its key is `{ on, node, at }`:
+   *  the leading fields under `on`, the tree node an entry is filed at and the
+   *  instant it is ordered by (#1432). Authoring metadata only: ordinary
+   *  maintained index programs store it. */
   readonly interval?: { readonly from: string; readonly to: string } | undefined;
   /** The box an area index files rows by: its fields, whether `x`, `y` is its
    *  centre or its minimum corner, and the finest cell's side, a power of two.
-   *  Its final logical field is `__area`, the generated key. Authoring metadata
-   *  only: ordinary maintained index programs store it. */
+   *  Its key is `{ on, area }`, the cell's code beside the leading fields
+   *  (#1432). Authoring metadata only: ordinary maintained index programs
+   *  store it. */
   readonly area?: {
     readonly x: string;
     readonly y: string;
@@ -327,25 +350,62 @@ export interface RecordIndexDef<
     readonly cell: number;
   } | undefined;
   /** What a series index files a record's events by (#1039): the field naming
-   *  the key an event is on, its start and end fields, and the time tile. Its
-   *  key is `{ …on, __tile, <key> }`, an entry per tile an event touches,
+   *  the key an event is on, its start and end fields, and the time tile, its
+   *  finest level. Its key is `{ on, key, level, tile }`: each event filed
+   *  once, at the level its length fits, or once a year past a year (#1433),
    *  carrying the row. Authoring metadata only: ordinary maintained index
    *  programs store it. */
   readonly series?: { readonly key: string; readonly from: string; readonly to: string; readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year' } | undefined;
   /** What a summary index totals a record's events by (#1039): the same
-   *  fields and tile as a series index's. It holds, under each key, how many
-   *  rows touch its tile and the milliseconds of it they cover; its
-   *  {@link keyFn} is a row's contributions, `(K, V) -> Dict<IK, Totals>`, and
-   *  its value type `Totals`. */
+   *  fields and tile as a series index's. It holds, under each key and tile,
+   *  `{ on, key, tile }`, how many rows touch the tile and the milliseconds of
+   *  it they cover; its {@link keyFn} is a row's contributions,
+   *  `(K, V) -> Dict<IK, Totals>`, and its value type `Totals`. */
   readonly summary?: { readonly key: string; readonly from: string; readonly to: string; readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year' } | undefined;
+  /** A nested series index's span (#1438): the nested series index whose
+   *  collections it counts, and the tile it counts by. It holds, under each
+   *  collection's place and each tile its items or values touch, how many of
+   *  them touch it and the milliseconds of it its items cover — kept as a
+   *  summary's totals are, so a collection's first and last tile held are its
+   *  span, and its tiles' counts how much it holds in each. Its {@link keyFn} is a row's tiles,
+   *  `(K, V) -> Dict<{ collection, tile }, Totals>`, and its value type
+   *  `Totals`. Built beside its nested series index, never declared. */
+  readonly span?: { readonly of: string; readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year' } | undefined;
+  /** What a nested series index files (#1434): every collection the record's
+   *  rows nest, as written; its tile and summary tile; its declaration as an
+   *  East value, the field names as data, which the binding reads (#1435); the
+   *  lean row, `(K, V) -> V`, which the record's other indexes carry beside it
+   *  in place of none or the row (`builtIndex`); and a write's entries by its
+   *  patch, `(K, V, V, Patch) -> Variant<{ whole, changed: { before, after } }>`,
+   *  given the row before and after and the patch between them, which a write
+   *  maintains the index by where the patch can say what it touched. Its key
+   *  is e3-types' `NestedEntryKeyType`, its value `NestedEntryType`, and its
+   *  {@link keyFn} a row's entries, `(K, V) -> Dict<IK, P>`. */
+  readonly nested?: {
+    readonly collections: unknown;
+    readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year';
+    readonly summary: 'day' | 'week' | 'month' | 'quarter' | 'year' | undefined;
+    readonly declaration: RecordNestedDecl;
+    readonly lean: { toIR(): unknown };
+    readonly byPatch: { toIR(): unknown };
+    /** A lean row filled with entries read of it, `(K, V, Array<{ ik, value }>) → V` (#1438): what a reader of the index's cells draws a row with. */
+    readonly fill: { toIR(): unknown };
+    /** Its span (#1438): each collection's tiles across the record's rows, an index of the record's beside it ({@link span}). */
+    readonly span: RecordIndexDef;
+  } | undefined;
   /** `(K, V) -> IK`, or `(K, V) -> Set<IK>` when {@link multi} — or, for a
-   *  summary, `(K, V) -> Dict<IK, Totals>`. Kept as the expression so export
+   *  summary, `(K, V) -> Dict<IK, Totals>`, and for a nested series index a
+   *  row's entries, `(K, V) -> Dict<IK, P>`. Kept as the expression so export
    *  can compose it into the generated programs, which reach it through its IR
    *  alone — so no call signature is claimed here. */
   readonly keyFn: { toIR(): unknown };
   /** `(K, V) -> P`, the covering projection; absent when the index carries no
    *  value. */
   readonly valueFn?: { toIR(): unknown };
+  /** A summary's merge, `({ik, k}, Totals, Totals) -> Totals`: a build's
+   *  pieces hold the same keys, and a key's totals across them are their sum.
+   *  Absent for any other index. */
+  readonly mergeFn?: { toIR(): unknown };
   /** Declared with `keys` rather than `key`: one entry per element of the
    *  returned set, so a row naming five resources appears under five keys. */
   readonly multi: boolean;
@@ -363,8 +423,8 @@ export interface RecordIndexDef<
  *
  * A mutation is a pure East reducer `(State, ...Args) => State` that runs
  * server-side in a compare-and-swap retry loop. Its output type is the owning
- * record's type, so there is no separate return type. Passed to `e3.package`
- * like a function; it is collected onto its record.
+ * record's type, so there is no separate return type. Declared in its record's
+ * `mutations`, by the `mutation` builder; the record carries it by its name.
  *
  * @typeParam Name - The mutation name (literal type)
  * @typeParam T - The owning record's state type
@@ -384,10 +444,8 @@ export interface MutationDef<
   /** Which write form this is: a reducer over the whole state, a body writing
    *  through an `edit` capability, or a client-supplied patch. */
   readonly form: MutationForm;
-  // Typed loosely + cast like FunctionDef.body / a task's program (TS2344 on
-  // a readonly first generic param of EastIR).
   /** The author's body; absent for the `patch` form, which has none. */
-  readonly body?: EastIR<any, any> | AsyncEastIR<any, any>;
+  readonly body?: IRBundle | AsyncIRBundle;
   /** The EXTRA positional parameter types (the state type comes from the record). */
   readonly argTypes: Args;
   /** The body as an expression, kept beside its IR so export can compose it
@@ -403,8 +461,8 @@ export interface MutationDef<
  * A migration definition — one step of a record's migration chain, which a
  * deploy runs over a workspace's state that has not applied it.
  *
- * Passed to `e3.package` like a mutation; it is folded onto its record in
- * chain order, with the steps its `after` names.
+ * Declared in its record's `migrations`, by the `migration` builder, the list's
+ * order its chain; the record carries the chain.
  *
  * @typeParam Name - The migration name (literal type)
  * @typeParam T - The owning record's declared state type
@@ -429,16 +487,12 @@ export interface MigrationDef<
   readonly from: From;
   /** The record's type after it. */
   readonly to: To;
-  // Typed loosely + cast like FunctionDef.body (TS2344 on a readonly first
-  // generic param of EastIR).
   /** The author's function, as its IR bundle. */
-  readonly body: EastIR<any, any>;
+  readonly body: IRBundle;
   /** The function as an expression, kept beside its IR so export can compose
    *  it into the program a `rows` or `rekey` step runs, which reaches it
    *  through its IR alone — so no call signature is claimed here. */
   readonly fn: { toIR(): unknown };
-  /** The step before this one; absent for the chain's first. */
-  readonly after?: MigrationDef;
   /** Runtime the step runs on; defaults to DEFAULT_RUNNER. */
   readonly runner: Runner;
 }
@@ -451,7 +505,7 @@ export type PackageItem = DataTreeDef | DatasetDef | TaskDef;
 /**
  * Extracts the dataset definitions from a package item (such as an input dataset, or task output)
  */
-export type DatasetsOf<Item extends PackageItem | PackageDef<any>> =
+export type DatasetsOf<Item extends PackageItem | PackageDef<Record<string, unknown>>> =
   Item extends PackageDef<infer Ds> ? Ds :
   Item extends DatasetDef<infer T, infer P> ? DatasetAtPath<P, T> :
   Item extends TaskDef<infer T, infer P> ? DatasetAtPath<P, T> :
@@ -467,7 +521,7 @@ export type DatasetAtPath<Path extends TreePath, T extends EastType, FullPath ex
 
 /** Convert a union of types to their intersection (distributed conditional trick). */
 type UnionToIntersection<U> =
-  (U extends any ? (x: U) => void : never) extends (x: infer I) => void ? I : never;
+  (U extends unknown ? (x: U) => void : never) extends (x: infer I) => void ? I : never;
 
 /** Merge all Datasets from the listed package items.
  *
@@ -479,7 +533,7 @@ type UnionToIntersection<U> =
  * element type and `DatasetsOf` falls through to its non-tuple-path branch.
  * The empty-tuple case widens to `Record<string, unknown>`.
  */
-export type MergeDatasets<TItems extends (PackageItem | PackageDef<any>)[]> =
+export type MergeDatasets<TItems extends (PackageItem | PackageDef<Record<string, unknown>>)[]> =
   TItems extends readonly [] ? Record<string, unknown>
   : UnionToIntersection<DatasetsOf<TItems[number]>>;
 
@@ -502,7 +556,7 @@ export type MergeDatasets<TItems extends (PackageItem | PackageDef<any>)[]> =
  * const task = pkg.tasks.myTask;
  * ```
  */
-export interface PackageDef<Datasets extends Record<string, any>> {
+export interface PackageDef<Datasets extends Record<string, unknown>> {
   readonly kind: 'package';
   /** Package name */
   readonly name: string;

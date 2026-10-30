@@ -1,6 +1,7 @@
 import tseslint from '@typescript-eslint/eslint-plugin';
 import tsparser from '@typescript-eslint/parser';
 import headers from 'eslint-plugin-headers';
+import east, { hostValueRules } from '@elaraai/eslint-plugin-east';
 
 // BSL 1.1 packages: e3-core, e3-cli, e3-api-client, e3-api-server, e3-web
 const bslHeader = 'Copyright (c) 2025 Elara AI Pty Ltd\nLicensed under BSL 1.1. See LICENSE for details.';
@@ -9,6 +10,7 @@ const bslHeader = 'Copyright (c) 2025 Elara AI Pty Ltd\nLicensed under BSL 1.1. 
 const agplHeader = 'Copyright (c) 2025 Elara AI Pty Ltd\nDual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.';
 
 const bslPackages = ['e3-core', 'e3-cli', 'e3-api-client', 'e3-api-server', 'e3-rack', 'e3-web'];
+
 const agplPackages = ['e3', 'e3-types'];
 
 const baseRules = {
@@ -256,5 +258,30 @@ export default [
         content: bslHeader
       }]
     }
-  }
+  },
+  // East values through East, and no `any`, in every package's sources and
+  // specs (2026-10-27): East's own rules over host code that builds or reads
+  // East values — no variant built or cast by hand, none printed, parsed or
+  // compared as plain JS — as east-ui runs them.
+  {
+    files: ['packages/*/src/**/*.ts', 'test/*/src/**/*.ts'],
+    plugins: { east },
+    rules: {
+      'east/east-rules': ['error', { only: hostValueRules }],
+      '@typescript-eslint/no-explicit-any': 'error',
+    },
+  },
+  // The record code that generates East programs: every East rule. Logic is a
+  // typed East.function a program calls, never statements a TypeScript helper
+  // writes into another function's body; a loop over a declaration's fields,
+  // which a row names only at run time, is exempted where it is, with why.
+  {
+    files: ['packages/e3/src/record-*.ts'],
+    ignores: ['**/*.spec.ts'],
+    plugins: { east },
+    rules: {
+      // Options given whole: a severity alone would keep the host-value `only` above.
+      'east/east-rules': ['error', {}],
+    },
+  },
 ];

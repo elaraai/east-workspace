@@ -21,7 +21,7 @@ import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanRowId, PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
 import type { PlanElementRefValue } from "./context.js";
-import { blocksSource, oneBlock, rowId, rowSel, testKeyOf } from "./plan.test-utils.js";
+import { blocksSource, oneBlock, keySurface, rowId, rowSel, testKeyOf } from "./plan.test-utils.js";
 import { setBodyRowMountProbe } from "./rows/BodyRow.js";
 
 // A canvas persists its toggles under its storageKey (#813), and several tests
@@ -104,7 +104,7 @@ function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date |
         hover: opts?.hover !== undefined ? some(opts.hover) : none,
         expandRender: opts?.expandRender !== undefined ? some(opts.expandRender) : none,
         pick: opts?.pick !== undefined ? some(opts.pick) : none,
-        slice: opts?.slice ?? none,
+        slice: opts?.slice ?? none, nested: none,
         footer: opts?.footer ?? [],
         id: none, sources: [], editing: none, canDrop: none,
         onSelect: none,
@@ -216,7 +216,7 @@ describe("Plan links focus (R1)", () => {
         expect(container.querySelector(rowSel("x", "data-plan-rail"))).toBeNull();
 
         fireEvent.click(container.querySelector('[data-plan-control="links"]')!);
-        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "Escape" });
+        fireEvent.keyDown(keySurface(container), { key: "Escape" });
         expect(container.querySelector(rowSel("x", "data-plan-rail"))).toBeNull();
     });
 });
@@ -590,7 +590,7 @@ describe("Plan expand-in-place (R2)", () => {
             .map((el) => testKeyOf(el.getAttribute("data-plan-row")!));
         expect(order).toEqual(["h4p13", "h4p14"]);
 
-        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "Escape" });
+        fireEvent.keyDown(keySurface(container), { key: "Escape" });
         expect(container.querySelector("[data-plan-expandrender]")).toBeNull();
         expect(container.querySelector(rowSel("h4p13"))!.hasAttribute("data-expanded")).toBe(false);
         expect(container.querySelector(rowSel("h4p14"))!.hasAttribute("data-ctx")).toBe(false);

@@ -19,7 +19,7 @@
  * Measured at the page's widths — 1440, 1024, 768, 390 and 360, where the
  * showcase's own chrome takes its share — and in a 294px parent, in both
  * themes, over each builder's example and each optimiser example. One test an
- * area (#1397): its examples share a workspace, which the page deploys once.
+ * area (#1397): its examples share a workspace, which the page makes once.
  *
  * The eye of the Roster's and the Allocation's optimiser examples, whose View
  * bundles the period's controls on a phone, is a button in the row at 390 and

@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import {
   ArrayType, DictType, IntegerType, SetType, StringType, StructType,
-  East, SortedMap, SortedSet, compareFor, equalFor, some, variant,
+  East, SortedMap, SortedSet, compareFor, equalFor, parseFor, some, variant,
   type EastType,
 } from '@elaraai/east';
 import e3, { type TaskDef } from '@elaraai/e3';
@@ -344,9 +344,12 @@ describe('a task split into pieces', () => {
     // A failed piece's record holds its runner's peak, as a success's does.
     const failedLine = (await unitLines(taskHash, result)).find((line) => / failed task=/.test(line))!;
     const [, inputs, peak] = / inputs=(\w+) .* peak=(\d+)$/.exec(failedLine)!;
+    const parsed = parseFor(IntegerType)(peak!);
+    assert.ok(parsed.success, `the line's peak is an Integer: ${peak}`);
+    const peakBytes = parsed.value;
     const piece = await storage.refs.executionGetLatest(repo, taskHash, inputs!);
-    assert.deepEqual(piece?.type === 'failed' && piece.value.peakBytes, some(BigInt(peak!)));
-    assert.ok(recorded?.type === 'failed' && recorded.value.peakBytes.type === 'some' && recorded.value.peakBytes.value >= BigInt(peak!),
+    assert.deepEqual(piece?.type === 'failed' && piece.value.peakBytes, some(peakBytes));
+    assert.ok(recorded?.type === 'failed' && recorded.value.peakBytes.type === 'some' && recorded.value.peakBytes.value >= peakBytes,
       'the task\'s record holds the largest peak its units reached');
   });
 

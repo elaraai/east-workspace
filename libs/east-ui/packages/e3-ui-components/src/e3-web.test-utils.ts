@@ -850,7 +850,7 @@ export async function writeDataset<T extends EastType>(e3: TestE3, workspace: st
  *
  * @param e3 - e3 under test
  * @param workspace - The workspace
- * @param record - The record, which declares a patch mutation (`e3.mutation.patch`)
+ * @param record - The record, which declares a patch mutation (`mutation.patch()`)
  * @param next - Its new state
  * @param mutation - The patch mutation's name; `patch` unless given
  * @returns What e3 answered

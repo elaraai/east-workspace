@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { ArrayType, BooleanType, DateTimeType, DictType, East, EastTypeType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, VariantType, isTypeEqual, none, printFor, some, toEastTypeValue, variant } from "@elaraai/east";
+import { ArrayType, BooleanType, DateTimeType, DictType, East, EastTypeType, FloatType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType, StructType, VariantType, compareFor, isTypeEqual, none, printFor, some, toEastTypeValue, variant } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { CellRefType, Chart, Editing, Text } from "@elaraai/east-ui/internal";
 import { EventStateType, Format, Paged, StatusValueType, UIComponentType } from "@elaraai/east-ui";
@@ -334,9 +334,9 @@ describeEast("Plan", (test) => {
         $(Assert.equal(East.value("review" in Plan.Types.Root.fields), false));
         $(Assert.equal(East.value("onDrag" in Plan.Types.Root.fields), false));
         $(Assert.equal(East.value(isTypeEqual(Plan.Types.Root.fields.editing, OptionType(Plan.Types.Editing))), true));
-        // Every gesture reaches a row through the row's own flags: a drop and a move.
+        // Every gesture reaches a row through the row's own flags: a drop, a move and a typed number (#1436).
         $(Assert.equal(East.value(isTypeEqual(Plan.Types.Row.fields.edits, Plan.Types.RowEdits)), true));
-        $(Assert.equal(East.value(Object.keys(Plan.Types.RowEdits.fields)), ["drop", "move"]));
+        $(Assert.equal(East.value(Object.keys(Plan.Types.RowEdits.fields)), ["drop", "move", "values"]));
         $(Assert.equal(East.value("approval" in Plan.Types.Row.fields), false));
     });
 
@@ -359,49 +359,67 @@ describeEast("Plan", (test) => {
     // driven from the host in plan-editing.spec.ts
     // =========================================================================
 
-    test("every row says which gestures it takes: a card lands on a series that declares `edit.create`, and on no other (#880)", $ => {
-        const Row = StructType({ marks: ArrayType(Plan.Types.EventMark) });
-        const data = $.const(new Map([["a", { marks: [] }]]), DictType(StringType, Row));
+    test("every row says which gestures it takes: a series declaring `edit: { create }` takes cards and moves, `edit: true` moves only (#880, #1436)", $ => {
+        const Mark = StructType({ at: DateTimeType, label: OptionType(StringType) });
+        const Row = StructType({ marks: DictType(StringType, Mark) });
+        const data = $.const(new Map([["a", { marks: new Map() }]]), DictType(StringType, Row));
+        // A read is written where its series takes it: the series gives it its row type.
         const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data,
             series: [
-                Plan.series.events(Row, { key: "plain", title: "Plain", label: (_r, k) => k, marks: r => r.marks }),
                 Plan.series.events(Row, {
-                    key: "dropped", title: "Dropped", label: (_r, k) => k, marks: r => r.marks,
-                    edit: { items: "marks", create: (drop) => ({ key: drop.from.key, at: drop.at, kind: variant("milestone", null), icon: none, label: none }) },
+                    key: "plain", title: "Plain", label: (_r, k) => k,
+                    marks: Plan.items("marks", { at: "at" }, (mark) => ({ kind: "milestone", label: mark.label })),
+                }),
+                Plan.series.events(Row, {
+                    key: "dropped", title: "Dropped", label: (_r, k) => k,
+                    marks: Plan.items("marks", { at: "at" }, (mark) => ({ kind: "milestone", label: mark.label })),
+                    edit: { create: (drop) => ({ at: drop.at.unwrap("time"), label: none }) },
+                }),
+                Plan.series.events(Row, {
+                    key: "moved", title: "Moved", label: (_r, k) => k, edit: true,
+                    marks: Plan.items("marks", { at: "at" }, (mark) => ({ kind: "milestone", label: mark.label })),
                 }),
                 Plan.series.rows(Row, { key: "chrome", title: "Chrome" }, [Plan.events({ key: "ms", label: "MS" })]),
             ],
         }));
         const rows = $.let(p.rows.unwrap("inline").flatMap((_$, b) => b.rows));
-        $(Assert.equal(rows.get(0n).edits, { drop: false, move: none }));
-        $(Assert.equal(rows.get(1n).edits, { drop: true, move: none }));
+        const moves = some({ items: printFor(EastTypeType)(toEastTypeValue(Mark)), resize: false });
+        $(Assert.equal(rows.get(0n).edits, { drop: false, move: none, values: [] }));
+        $(Assert.equal(rows.get(1n).edits, { drop: true, move: moves, values: [] }));
+        $(Assert.equal(rows.get(2n).edits, { drop: false, move: moves, values: [] }));
         // A hand-built row belongs to no entry, so it takes no gesture either.
-        $(Assert.equal(rows.get(2n).edits, { drop: false, move: none }));
+        $(Assert.equal(rows.get(3n).edits, { drop: false, move: none, values: [] }));
     });
 
-    test("a series declaring a move's fields flags its rows with its item type, and whether its elements resize (#825)", $ => {
-        const Job = StructType({ key: StringType, start: DateTimeType, end: DateTimeType });
-        const Alloc = StructType({ key: StringType, at: DateTimeType });
-        const Row = StructType({ jobs: ArrayType(Job), shifts: ArrayType(Job), allocs: ArrayType(Alloc) });
-        const data = $.const(new Map([["a", { jobs: [], shifts: [], allocs: [] }]]), DictType(StringType, Row));
+    test("a series' edit flags its rows with the item type its read names, and whether its elements resize (#825, #1436)", $ => {
+        const Job = StructType({ start: DateTimeType, end: DateTimeType });
+        const Alloc = StructType({ at: DateTimeType });
+        const Row = StructType({ jobs: DictType(StringType, Job), shifts: DictType(StringType, Job), allocs: DictType(StringType, Alloc) });
+        const data = $.const(new Map([["a", { jobs: new Map(), shifts: new Map(), allocs: new Map() }]]), DictType(StringType, Row));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data,
             series: [
-                Plan.series.span(Row, { key: "jobs", title: "Jobs", label: (_r, k) => k, runs: _r => [],
-                    edit: { items: "jobs", key: "key", start: "start", end: "end" } }),
-                Plan.series.cards(Row, { key: "shifts", title: "Shifts", label: (_r, k) => k, chips: _r => [],
-                    edit: { items: "shifts", key: "key", start: "start", end: "end" } }),
-                Plan.series.buckets(Row, { key: "allocs", title: "Allocs", label: (_r, k) => k, events: _r => [],
-                    edit: { items: "allocs", key: "key", at: "at" } }),
+                Plan.series.span(Row, {
+                    key: "jobs", title: "Jobs", label: (_r, k) => k, edit: true,
+                    runs: Plan.items("jobs", { from: "start", to: "end" }, (_job, id) => ({ label: id, state: "confirmed" })),
+                }),
+                Plan.series.cards(Row, {
+                    key: "shifts", title: "Shifts", label: (_r, k) => k, edit: true,
+                    chips: Plan.items("shifts", { from: "start", to: "end" }, (_shift, id) => ({ label: id, state: "confirmed" })),
+                }),
+                Plan.series.buckets(Row, {
+                    key: "allocs", title: "Allocs", label: (_r, k) => k, edit: true,
+                    events: Plan.items("allocs", { at: "at" }, () => ({ state: "confirmed" })),
+                }),
             ],
         }));
         const rows = $.let(p.rows.unwrap("inline").flatMap((_$, b) => b.rows));
         // The item type as East prints it — no `create`, so no card lands.
         const jobs = printFor(EastTypeType)(toEastTypeValue(Job));
-        $(Assert.equal(rows.get(0n).edits, { drop: false, move: some({ items: jobs, resize: true }) }));
+        $(Assert.equal(rows.get(0n).edits, { drop: false, move: some({ items: jobs, resize: true }), values: [] }));
         // Two series over one item type say so alike: a job moves between their rows.
         $(Assert.equal(rows.get(1n).edits.move, some({ items: jobs, resize: true })));
         // A tile has one instant, and its items are another type.
@@ -410,54 +428,55 @@ describeEast("Plan", (test) => {
         $(Assert.equal(allocs.items, printFor(EastTypeType)(toEastTypeValue(Alloc))));
     });
 
-    test("a move's fields are checked at build — the key, both ends or one instant, and each field's type (#825)", $ => {
-        const Job = StructType({ key: StringType, code: IntegerType, start: DateTimeType, end: DateTimeType, notes: ArrayType(StringType) });
-        const Row = StructType({ jobs: ArrayType(Job), names: ArrayType(StringType) });
+    test("a read of items is checked at build — its times fields of its items, each an instant, two for a run and one for a tile (#1436)", $ => {
+        const Job = StructType({ code: IntegerType, start: DateTimeType, end: DateTimeType, notes: ArrayType(StringType) });
+        const Row = StructType({ jobs: DictType(StringType, Job), names: DictType(StringType, StringType) });
         const refusal = (build: () => unknown): string => {
             try { build(); return ""; } catch (e) { return e instanceof Error ? e.message : String(e); }
         };
-        const span = (edit: unknown) => refusal(() => Plan.series.span(Row, {
-            key: "s", title: "S", label: (_r, k) => k, runs: _r => [], edit: edit as never,
+        const runs = (field: string, times: object) => refusal(() => Plan.series.span(Row, {
+            key: "s", title: "S", label: (_r, k) => k,
+            runs: Plan.items(field as never, times as never, () => ({ label: "", state: "confirmed" })),
         }));
-        const buckets = (edit: unknown) => refusal(() => Plan.series.buckets(Row, {
-            key: "b", title: "B", label: (_r, k) => k, events: _r => [], edit: edit as never,
+        const tiles = (times: object) => refusal(() => Plan.series.buckets(Row, {
+            key: "b", title: "B", label: (_r, k) => k,
+            events: Plan.items("jobs", times as never, () => ({ state: "confirmed" })),
         }));
-        // Neither a dropped card's item nor a move's fields: nothing to write.
-        const empty = span({ items: "jobs" });
-        $(Assert.equal(East.value(empty.startsWith('Plan.series.span "s": `edit` declares neither `create`')), true));
-        // A run moves both its ends; a tile has one instant.
-        $(Assert.equal(East.value(span({ items: "jobs", key: "key", start: "start" }).includes("give `edit.start` and `edit.end` together")), true));
-        $(Assert.equal(East.value(span({ items: "jobs", key: "key", at: "start" }).includes("a span element has two ends")), true));
-        $(Assert.equal(East.value(buckets({ items: "jobs", key: "key", start: "start", end: "end" }).includes("a buckets element has one instant")), true));
-        // The key finds the element's item: required, and a String field.
-        $(Assert.equal(East.value(span({ items: "jobs", start: "start", end: "end" }).includes("name the item's String key field with `edit.key`")), true));
-        $(Assert.equal(East.value(span({ items: "jobs", key: "code", start: "start", end: "end" }).includes('`edit.key` names "code", which is not a String field')), true));
-        // An instant field holds an instant, is not the key, and the ends are two fields.
-        $(Assert.equal(East.value(span({ items: "jobs", key: "key", start: "notes", end: "end" }).includes('`edit.start` names "notes", which is not an instant field')), true));
-        $(Assert.equal(East.value(span({ items: "jobs", key: "key", start: "key", end: "end" }).includes('names the key field "key"')), true));
-        $(Assert.equal(East.value(span({ items: "jobs", key: "key", start: "start", end: "start" }).includes('both name "start"')), true));
-        // Items that are not structs have no fields to move.
-        $(Assert.equal(East.value(span({ items: "names", key: "key", start: "start", end: "end" }).includes("must be structs")), true));
+        $(Assert.equal(East.value(runs("jobs", { from: "begin", to: "end" })),
+            'Plan.items: "jobs" names its times by "begin", which is no field of its items — name a time field of the item'));
+        $(Assert.equal(East.value(runs("jobs", { from: "notes", to: "end" })),
+            'Plan.items: "jobs" names "notes", an Array field of its items, as a time — a time is a DateTime or an Option of one, a Float, an Integer, a String, or a Plan.Types.Instant'));
+        $(Assert.equal(East.value(runs("jobs", { from: "start", to: "start" })),
+            'Plan.items: "jobs" names "start" as both its from and its to — a run\'s start and end are two fields of its items'));
+        $(Assert.equal(East.value(runs("names", { from: "start", to: "end" })),
+            'Plan.items: "names" holds a String, not an item — things people drag are structs, their times fields of them: read values with Plan.values("names", draw)'));
+        $(Assert.equal(East.value(runs("jobs", { at: "start" })),
+            'Plan.series.span "s": its runs run from a start to an end — read them with Plan.items("jobs", { from, to }, draw)'));
+        $(Assert.equal(East.value(tiles({ from: "start", to: "end" })),
+            'Plan.series.buckets "b": its events sit at an instant — read them with Plan.items("jobs", { at }, draw)'));
         // The right fields build.
-        $(Assert.equal(East.value(span({ items: "jobs", key: "key", start: "start", end: "end" })), ""));
-        $(Assert.equal(East.value(buckets({ items: "jobs", key: "key", at: "start" })), ""));
+        $(Assert.equal(East.value(runs("jobs", { from: "start", to: "end" })), ""));
+        $(Assert.equal(East.value(tiles({ at: "start" })), ""));
     });
 
-    test("edit names fields of the entry — another field fails the build naming the series (#880)", $ => {
-        const Row = StructType({ jobs: ArrayType(StringType), note: StringType });
+    test("edit names nothing — what it writes is its elements' read; another declaration fails the build naming the series (#1436)", $ => {
+        const Job = StructType({ start: DateTimeType, end: DateTimeType });
+        const Row = StructType({ jobs: DictType(StringType, Job), note: StringType });
         const refusal = (build: () => unknown): string => {
             try { build(); return ""; } catch (e) { return e instanceof Error ? e.message : String(e); }
         };
-        const notList = refusal(() => Plan.series.span(Row, {
-            key: "c", title: "C", label: (_r, k) => k, runs: _r => [], edit: { items: "note" as never, create: () => "x" },
+        const old = refusal(() => Plan.series.span(Row, {
+            key: "c", title: "C", label: (_r, k) => k, edit: { items: "jobs", key: "key", start: "start", end: "end" } as never,
+            runs: Plan.items("jobs", { from: "start", to: "end" }, (_job, id) => ({ label: id, state: "confirmed" })),
         }));
-        $(Assert.equal(East.value(notList.includes('Plan.series.span "c": `edit.items` names "note", which is not an Array field')), true));
-        // An entry that is not a struct has no field to write.
-        const Group = DictType(StringType, Row);
-        const notStruct = refusal(() => (Plan.series.span as (...args: unknown[]) => unknown)(Group, {
-            key: "d", title: "D", label: () => "D", runs: () => [], edit: { items: "jobs", create: () => "x" },
+        $(Assert.equal(East.value(old),
+            'Plan.series.span "c": edit names nothing — its runs\' read names the collection and its times: give edit: true, or edit: { create } to take dropped cards too'));
+        // A read of a field the row lacks names the series.
+        const missing = refusal(() => Plan.series.span(Row, {
+            key: "d", title: "D", label: (_r, k) => k,
+            runs: Plan.items("crews" as never, { from: "start", to: "end" } as never, () => ({ label: "", state: "confirmed" })),
         }));
-        $(Assert.equal(East.value(notStruct.includes("its entries must be structs")), true));
+        $(Assert.equal(East.value(missing), 'Plan.series.span "d": Plan.items reads "crews", which is no field of its rows — name a Dict field of the row'));
     });
 
     test("a series given `review` or `approval` fails the build: a Plan approves and rejects nothing (#1260)", $ => {
@@ -476,51 +495,44 @@ describeEast("Plan", (test) => {
         $(Assert.equal(East.value(refusal("approval", () => none)), removed("approval")));
     });
 
-    test("a gesture below an entry is written back through a field — an editable series under a computed collection is refused (#880)", $ => {
-        const Press = StructType({ jobs: ArrayType(StringType), runs: IntegerType });
+    test("a gesture below an entry is written back through the field its children are named by — a step-down's and a tree's (#880, #1436)", $ => {
+        const Job = StructType({ start: DateTimeType, end: DateTimeType });
+        const Press = StructType({ jobs: DictType(StringType, Job), runs: IntegerType });
         const Hall = StructType({ presses: DictType(StringType, Press) });
         const refusal = (build: () => unknown): string => {
             try { build(); return ""; } catch (e) { return e instanceof Error ? e.message : String(e); }
         };
         const editable = () => Plan.series.span(Press, {
-            key: "presses", title: "Presses", label: (_m, k) => k, runs: _m => [], edit: { items: "jobs", create: () => "x" },
+            key: "presses", title: "Presses", label: (_m, k) => k, edit: true,
+            runs: Plan.items("jobs", { from: "start", to: "end" }, (_job, id) => ({ label: id, state: "confirmed" })),
         });
-        // A filtered collection is a copy: a card dropped into it would be lost.
-        const filtered = refusal(() => Plan.series.span(Hall, {
-            key: "halls", title: "Halls", label: (_h, k) => k, runs: _l => [],
-            children: Plan.children(h => h.presses.filter((_$, m) => m.runs.greater(0n)), [editable()]),
-        }));
-        $(Assert.equal(East.value(filtered.includes("`of` must read a field of the entry")), true));
-        // The field itself, or the entry itself, is written in place.
         $(Assert.equal(East.value(refusal(() => Plan.series.span(Hall, {
             key: "halls", title: "Halls", label: (_h, k) => k, runs: _l => [],
-            children: Plan.children(h => h.presses, [editable()]),
+            children: Plan.children("presses", [editable()]),
         }))), ""));
-        $(Assert.equal(East.value(refusal(() => Plan.series.group(DictType(StringType, Press), {
-            key: "groups", title: "Groups", label: (_g, k) => k,
-            children: Plan.children(g => g, [editable()]),
+        // A recursive series walks its own children, through the field it names.
+        const Tree = RecursiveType((self) => StructType({ jobs: DictType(StringType, Job), kids: DictType(StringType, self) }));
+        $(Assert.equal(East.value(refusal(() => Plan.series.span(Tree, {
+            key: "tree", title: "Tree", label: (_t, k) => k, children: "kids", edit: true,
+            runs: Plan.items("jobs", { from: "start", to: "end" }, (_job, id) => ({ label: id, state: "confirmed" })),
         }))), ""));
-        // A computed collection under series that take no gesture has nothing to write back.
-        $(Assert.equal(East.value(refusal(() => Plan.series.span(Hall, {
-            key: "halls", title: "Halls", label: (_h, k) => k, runs: _l => [],
-            children: Plan.children(h => h.presses.filter((_$, m) => m.runs.greater(0n)), [
-                Plan.series.span(Press, { key: "presses", title: "Presses", label: (_m, k) => k, runs: _m => [] }),
-            ]),
-        }))), ""));
-        // A recursive series walks its own children: they too must be a field.
-        const Tree = RecursiveType((self) => StructType({ jobs: ArrayType(StringType), live: BooleanType, kids: DictType(StringType, self) }));
-        const walked = refusal(() => Plan.series.span(Tree, {
-            key: "tree", title: "Tree", label: (_t, k) => k, runs: _t => [], edit: { items: "jobs", create: () => "x" },
-            children: t => t.kids.filter((_$, kid) => kid.unwrap().live),
-        }));
-        $(Assert.equal(East.value(walked.includes("`children` — which must read a field of the entry")), true));
+        // A step-down to a field holding no child rows is refused, in its words.
+        $(Assert.equal(East.value(refusal(() => Plan.series.span(Press, {
+            key: "p", title: "P", label: (_m, k) => k, runs: _m => [],
+            children: Plan.children("runs" as never, []),
+        }))), 'Plan.children: "runs" is an Integer — child rows are a Dict, keyed by an id'));
     });
 
     test("editing is checked at build — one apply, a live handle for onUpdate, an apply for auto, a revision for a paged apply, and every callback's signature (#880)", $ => {
-        const Row = StructType({ jobs: ArrayType(StringType) });
+        const Job = StructType({ start: DateTimeType, end: DateTimeType });
+        const Row = StructType({ jobs: DictType(StringType, Job) });
         const Rows = DictType(StringType, Row);
-        const data = $.const(new Map([["a", { jobs: [] }]]), Rows);
-        const series = [Plan.series.span(Row, { key: "rows", title: "Rows", label: (_r, k) => k, runs: _r => [], edit: { items: "jobs", create: () => "x" } })];
+        const data = $.const(new Map([["a", { jobs: new Map() }]]), Rows);
+        const series = [Plan.series.span(Row, {
+            key: "rows", title: "Rows", label: (_r, k) => k,
+            runs: Plan.items("jobs", { from: "start", to: "end" }, (_job, id) => ({ label: id, state: "confirmed" })),
+            edit: { create: (drop) => ({ start: drop.at.unwrap("time"), end: drop.at.unwrap("time") }) },
+        })];
         const axis = Plan.axis({ window: { min: W27, max: END }, resolution: "week" });
         type Config = Parameters<typeof Plan.Root>[0];
         const refusal = (editing: NonNullable<Config["editing"]>, source: Config["data"] = data): string => {
@@ -570,7 +582,7 @@ describeEast("Plan", (test) => {
         };
         const noop = East.function([], NullType, () => null);
         const drag = refusal({ onDrag: noop });
-        $(Assert.equal(East.value(drag.includes("`onDrag` is removed (#880)") && drag.includes("`edit: { items, create }`")), true));
+        $(Assert.equal(East.value(drag.includes("`onDrag` is removed (#880)") && drag.includes("`edit: { create }`")), true));
         const review = refusal({ review: { columnLabel: "Decision", onRerun: noop } });
         $(Assert.equal(East.value(review), "Plan: `review` is removed (#1260) — a Plan approves and rejects nothing: its changes are drafts of the " +
             "`editing` session, undone, redone, discarded or saved together"));
@@ -582,8 +594,8 @@ describeEast("Plan", (test) => {
         $(Assert.equal(East.value(isTypeEqual(event.fields.draftChanges, ArrayType(Editing.Types.Change(Editing.Types.DraftField(Row))))), true));
         $(Assert.equal(East.value(isTypeEqual(event.fields.domainChanges, OptionType(ArrayType(Editing.Types.Change(Row))))), true));
         $(Assert.equal(East.value(isTypeEqual(event.fields.origin, Editing.Types.Origin)), true));
-        // A gesture is a drop or a move (#1260: no verdict).
-        $(Assert.equal(East.value(Object.keys(Plan.Types.Gesture.cases)), ["drop", "move"]));
+        // A gesture is a drop, a move or a typed number (#1260: no verdict; #1436).
+        $(Assert.equal(East.value(Object.keys(Plan.Types.Gesture.cases)), ["drop", "move", "value"]));
         $(Assert.equal(East.value(isTypeEqual(Plan.Types.Drop.fields.row, Plan.Types.RowId)), true));
         $(Assert.equal(East.value(isTypeEqual(Plan.Types.Drop.fields.at, Plan.Types.Instant)), true));
         // A move or a resize (#825) names its element, the rows it leaves and
@@ -1157,17 +1169,18 @@ describeEast("Plan", (test) => {
         $(Assert.equal(East.value(both.includes("a collapsed strip shows one or the other")), true));
     });
 
-    test("series.group — one strip PER ENTRY, its members stepped down into from the entry", $ => {
-        // Grouping is a data step: the entries ARE the groups (`groupToDicts`),
-        // and each strip nests exactly what its entry holds.
+    test("series.group — one strip PER ENTRY, its members a Dict of the entry, stepped down into by field", $ => {
+        // Grouping is a data step: each entry holds its group's rows
+        // (`groupToDicts`, each group an entry), and each strip nests exactly
+        // what its entry holds.
         const Row = StructType({ hall: StringType, v: FloatType });
+        const Hall = StructType({ rows: DictType(StringType, Row) });
         const flat = $.const(new Map([
             ["a", { hall: "H1", v: 40.0 }],
             ["b", { hall: "H1", v: 60.0 }],
             ["c", { hall: "H2", v: 80.0 }],
         ]), DictType(StringType, Row));
-        const halls = $.let(flat.groupToDicts(($, r) => r.hall, ($, _r, k) => k));
-        const Hall = DictType(StringType, Row);
+        const halls = $.let(flat.groupToDicts(($, r) => r.hall, ($, _r, k) => k).map((_$, rows) => East.value({ rows }, Hall)));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data: halls,
@@ -1176,7 +1189,7 @@ describeEast("Plan", (test) => {
                     key: "halls", title: "Halls",
                     label: (_g, hall) => hall,
                     collapsed: true, summaryAggregate: "mean",
-                    children: Plan.children((g) => g, [
+                    children: Plan.children("rows", [
                         Plan.series.heat(Row, {
                             key: "load", title: "Load",
                             label: (_r, k) => k,
@@ -1201,45 +1214,48 @@ describeEast("Plan", (test) => {
     });
 
     test("a recursive table four deep — every level nests under its parent, which declares a subtotal (#822)", $ => {
-        // Arbitrary depth is data: a statement's accounts hold accounts. The
-        // entry arrives at every accessor as its NODE, so `a.name` reads the
-        // field directly at every depth.
+        // Arbitrary depth is data: a statement's accounts hold accounts, by
+        // id, and `children` names that field. The entry arrives at every
+        // accessor as its NODE, so `a.name` reads the field directly at every
+        // depth, and its values are read by name.
         const Account = RecursiveType((self) => StructType({
             name: StringType,
-            values: ArrayType(StructType({ at: DateTimeType, value: OptionType(FloatType) })),
-            children: ArrayType(self),
+            values: DictType(DateTimeType, OptionType(FloatType)),
+            children: DictType(StringType, self),
         }));
+        const account = (name: string, values: [Date, number][], children: [string, unknown][] = []) =>
+            ({ name, values: new SortedMap(values.map(([at, v]): [Date, unknown] => [at, some(v)]), compareFor(DateTimeType)), children: new Map(children) });
         const accounts = $.const(new Map([
-            ["pnl", { name: "P&L", values: [], children: [
-                { name: "Revenue", values: [], children: [
-                    { name: "Product", values: [], children: [
-                        { name: "Widgets", values: [{ at: W27, value: some(10.0) }], children: [] },
-                        { name: "Gadgets", values: [{ at: W27, value: some(5.0) }], children: [] },
-                    ] },
-                    { name: "Services", values: [{ at: W27, value: some(3.0) }], children: [] },
-                ] },
-                { name: "Costs", values: [{ at: W27, value: some(-7.0) }], children: [] },
-            ] }],
-        ]), DictType(StringType, Account));
+            ["pnl", account("P&L", [], [
+                ["a-revenue", account("Revenue", [], [
+                    ["a-product", account("Product", [], [
+                        ["a-widgets", account("Widgets", [[W27, 10.0]])],
+                        ["b-gadgets", account("Gadgets", [[W27, 5.0]])],
+                    ])],
+                    ["b-services", account("Services", [[W27, 3.0]])],
+                ])],
+                ["b-costs", account("Costs", [[W27, -7.0]])],
+            ])],
+        ]) as never, DictType(StringType, Account));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data: accounts,
             series: [Plan.series.table(Account, {
                 key: "accounts", title: "Accounts",
                 label: (a) => a.name,
-                cells: (a) => Plan.tableCells(a.values),
+                cells: Plan.tableCells(Plan.values("values", (v) => ({ value: v }))),
                 aggregate: "sum",
-                children: (a) => a.children,
+                children: "children",
             })],
         }));
         const rows = $.let(p.rows.unwrap("inline").flatMap((_$, b) => b.rows));
         // Pre-order to the fourth level: each parent, then its whole subtree.
         $(Assert.equal(rows.map((_$, r) => r.gutter.label),
             ["P&L", "Revenue", "Product", "Widgets", "Gadgets", "Services", "Costs"]));
-        // An Array child's path segment is its index, as text.
-        $(Assert.equal(rows.get(3n).id, Plan.ref("accounts", "pnl", "0", "0", "0")));
-        $(Assert.equal(rows.get(3n).parent.unwrap("some"), Plan.ref("accounts", "pnl", "0", "0")));
-        $(Assert.equal(rows.get(5n).parent.unwrap("some"), Plan.ref("accounts", "pnl", "0")));
+        // A child's path segment is its key.
+        $(Assert.equal(rows.get(3n).id, Plan.ref("accounts", "pnl", "a-revenue", "a-product", "a-widgets")));
+        $(Assert.equal(rows.get(3n).parent.unwrap("some"), Plan.ref("accounts", "pnl", "a-revenue", "a-product")));
+        $(Assert.equal(rows.get(5n).parent.unwrap("some"), Plan.ref("accounts", "pnl", "a-revenue")));
         $(Assert.equal(rows.get(6n).parent.unwrap("some"), Plan.ref("accounts", "pnl")));
         $(Assert.equal(rows.get(0n).parent.hasTag("none"), true));
         // Every parent declares the subtotal and carries no values of its own
@@ -1269,7 +1285,7 @@ describeEast("Plan", (test) => {
                 key: "presses", title: "Presses",
                 label: (_r, k) => k,
                 runs: (r, k) => [Plan.run({ key: k, start: r.start, end: r.end, label: k, state: variant("confirmed", null) })],
-                children: (r) => r.presses, rollup: "union",
+                children: "presses", rollup: "union",
             })],
         }));
         const rows = $.let(p.rows.unwrap("inline").flatMap((_$, b) => b.rows));
@@ -1286,15 +1302,15 @@ describeEast("Plan", (test) => {
     test("a step-down: a hall's presses as views and its crews as cards, each under a section header", $ => {
         // Hall → presses (views: jobs + load) and crews (cards), each child
         // collection under its own section — the ids name every level.
-        const Job = StructType({ key: StringType, start: DateTimeType, end: DateTimeType });
-        const Press = StructType({ jobs: ArrayType(Job), load: FloatType });
+        const Job = StructType({ start: DateTimeType, end: DateTimeType });
+        const Press = StructType({ jobs: DictType(StringType, Job), load: FloatType });
         const Crew = StructType({ hours: FloatType });
         const Hall = StructType({ presses: DictType(StringType, Press), crews: DictType(StringType, Crew) });
         const halls = $.const(new Map([
             ["H1", {
                 presses: new Map([
-                    ["p03", { jobs: [{ key: "b1", start: W27, end: W28 }], load: 40.0 }],
-                    ["p04", { jobs: [], load: 60.0 }],
+                    ["p03", { jobs: new Map([["b1", { start: W27, end: W28 }]]), load: 40.0 }],
+                    ["p04", { jobs: new Map(), load: 60.0 }],
                 ]),
                 crews: new Map([["crewA", { hours: 80.0 }]]),
             }],
@@ -1305,12 +1321,12 @@ describeEast("Plan", (test) => {
             series: [Plan.series.group(Hall, {
                 key: "halls", title: "Halls", label: (_h, k) => k,
                 children: [
-                    Plan.children((h) => h.presses, [
+                    Plan.children("presses", [
                         Plan.series.section(Press, { key: "press-block", title: "Presses" }, [
                             Plan.series.views(Press, { key: "presses", title: "Presses" }, [
                                 Plan.series.span(Press, {
                                     key: "press-jobs", title: "Jobs", label: (_m, k) => k,
-                                    runs: (m) => m.jobs.map((_$, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.key, state: "confirmed" })),
+                                    runs: Plan.items("jobs", { from: "start", to: "end" }, (_job, id) => ({ label: id, state: "confirmed" })),
                                 }),
                                 Plan.series.heat(Press, {
                                     key: "press-load", title: "Load", label: (_m, k) => k,
@@ -1319,7 +1335,7 @@ describeEast("Plan", (test) => {
                             ]),
                         ]),
                     ]),
-                    Plan.children((h) => h.crews, [
+                    Plan.children("crews", [
                         Plan.series.section(Crew, { key: "crew-block", title: "Crews" }, [
                             Plan.series.cards(Crew, { key: "crews", title: "Crews", label: (_c, k) => k, chips: _c => [] }),
                         ]),
@@ -1363,7 +1379,7 @@ describeEast("Plan", (test) => {
             data,
             series: [Plan.series.views(Row, {
                 key: "presses", title: "Presses",
-                children: Plan.children((r) => r.kids, [
+                children: Plan.children("kids", [
                     Plan.series.heat(Kid, { key: "parts", title: "Parts", label: (_k, key) => key, cells: _k => Plan.heatCells([]) }),
                 ]),
             }, [
@@ -1393,15 +1409,10 @@ describeEast("Plan", (test) => {
     });
 
     test("series.section heads its members at its parent's path; series.rows names its hand-built rows", $ => {
-        const ShiftRow = StructType({
-            key: StringType, from: DateTimeType, to: DateTimeType, hours: FloatType, state: EventStateType,
-        });
-        const OpsRow = StructType({
-            kind: VariantType({ crew: StructType({ shifts: ArrayType(ShiftRow) }) }),
-        });
+        const ShiftRow = StructType({ from: DateTimeType, to: DateTimeType, hours: FloatType, state: EventStateType });
+        const OpsRow = StructType({ kind: VariantType({ crew: NullType }), shifts: DictType(StringType, ShiftRow) });
         const ops = $.const(new Map([
-            ["crewA", { kind: variant("crew", { shifts: [
-                { key: "s1", from: W27, to: W29, hours: 80.0, state: variant("confirmed", null) }] }) }],
+            ["crewA", { kind: variant("crew", null), shifts: new Map([["s1", { from: W27, to: W29, hours: 80.0, state: variant("confirmed", null) }]]) }],
         ]), DictType(StringType, OpsRow));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
@@ -1413,13 +1424,9 @@ describeEast("Plan", (test) => {
                     Plan.series.cards(OpsRow, {
                         key: "crew-shifts", title: "Crew shifts",
                         label: (_r, k) => k,
-                        chips: r => r.kind.unwrap("crew").shifts.map(($, s) => {
-                            const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);
-                            return Plan.chip({
-                                key: s.key, from: s.from, to: s.to,
-                                label: East.str`${hrs}h`, state: s.state,
-                            });
-                        }),
+                        chips: Plan.items("shifts", { from: "from", to: "to" }, (shift) => ({
+                            label: East.str`${East.Float.printFixed(shift.hours, 0n)}h`, state: shift.state,
+                        })),
                     }),
                 ]),
             ],
@@ -1564,12 +1571,12 @@ describeEast("Plan", (test) => {
             // Children whose rows hold a chart: as many as the entry's parts, which the data decides.
             Plan.series.span(Row, {
                 key: "parts", title: "Parts", label: (_r, k) => k, runs: () => [],
-                children: Plan.children((r) => r.parts, [Plan.series.chart(Part, { key: "part-chart", title: "Part", label: (_p, k) => k, layers: () => [] })]),
+                children: Plan.children("parts", [Plan.series.chart(Part, { key: "part-chart", title: "Part", label: (_p, k) => k, layers: () => [] })]),
             }),
             // Children whose rows hold none: none.
             Plan.series.span(Row, {
                 key: "plain", title: "Plain", label: (_r, k) => k, runs: () => [],
-                children: Plan.children((r) => r.parts, [Plan.series.heat(Part, {
+                children: Plan.children("parts", [Plan.series.heat(Part, {
                     key: "part-heat", title: "Part heat", label: (_p, k) => k,
                     cells: (p) => Plan.heatCells([{ at: Plan.at.time(W27), value: some(p.v), label: none }]),
                 })]),
@@ -1643,12 +1650,12 @@ describeEast("Plan", (test) => {
         })();
         $(Assert.equal(East.value(nested.includes('two series share the key "marks"')), true));
         // …and across a step-down.
-        const Hall = DictType(StringType, Row);
+        const Hall = StructType({ rows: DictType(StringType, Row) });
         const stepped = (() => {
             try {
                 Plan.series.group(Hall, {
                     key: "rows", title: "Halls", label: (_g, k) => k,
-                    children: Plan.children((g) => g, [
+                    children: Plan.children("rows", [
                         Plan.series.events(Row, { key: "rows", title: "Rows", label: (_r, k) => k, marks: _r => [] }),
                     ]),
                 });
@@ -1742,22 +1749,20 @@ describeEast("Plan", (test) => {
     });
 
     test("series accessor channel: value/status/expand Options flow per row from raw fields", $ => {
-        const JobRow = StructType({
-            ticket: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
-        });
+        const JobRow = StructType({ start: DateTimeType, end: DateTimeType, state: EventStateType });
         const PressRow = StructType({
             rate: FloatType, warn: BooleanType,
             expand: OptionType(Plan.Types.Expand),
-            jobs: ArrayType(JobRow),
+            jobs: DictType(StringType, JobRow),
         });
         const data = $.const(new Map([
             // The expand declaration is a stored plain-data record (§3.2) —
             // presence is a per-row fact; no builders in the data.
             ["m1", { rate: 12.0, warn: true,
               expand: some({ height: some("152px"), axis: variant("keep", null) }),
-              jobs: [{ ticket: "J-1", start: W27, end: W28, state: variant("actual", null) }] }],
+              jobs: new Map([["J-1", { start: W27, end: W28, state: variant("actual", null) }]]) }],
             ["m2", { rate: 8.0, warn: false, expand: none,
-              jobs: [{ ticket: "J-2", start: W28, end: W29, state: variant("confirmed", null) }] }],
+              jobs: new Map([["J-2", { start: W28, end: W29, state: variant("confirmed", null) }]]) }],
         ]), DictType(StringType, PressRow));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
@@ -1770,10 +1775,7 @@ describeEast("Plan", (test) => {
                     () => East.value(some(variant("warning", null)), OptionType(StatusValueType)),
                     () => East.value(none, OptionType(StatusValueType))),
                 expand: r => r.expand,
-                runs: r => r.jobs.map((_$, j) => Plan.run({
-                    key: j.ticket, start: j.start, end: j.end,
-                    label: East.str`RUN · ${j.ticket}`, state: j.state,
-                })),
+                runs: Plan.items("jobs", { from: "start", to: "end" }, (job, ticket) => ({ label: East.str`RUN · ${ticket}`, state: job.state })),
             })],
         }));
         // Per-row presence + display, derived from the raw fields in the
@@ -1805,25 +1807,21 @@ describeEast("Plan", (test) => {
     // =========================================================================
 
     test("data+series: each series is a block, match filters, accessors derive from raw fields", $ => {
-        const JobRow = StructType({
-            ticket: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
-        });
-        const ShiftRow = StructType({
-            key: StringType, from: DateTimeType, to: DateTimeType, hours: FloatType, state: EventStateType,
-        });
+        const JobRow = StructType({ start: DateTimeType, end: DateTimeType, state: EventStateType });
+        const ShiftRow = StructType({ from: DateTimeType, to: DateTimeType, hours: FloatType, state: EventStateType });
+        // The kind picks a row's series; its collections are Dicts at its top, each read by name (#1436).
         const OpsRow = StructType({
-            kind: VariantType({
-                press: StructType({ jobs: ArrayType(JobRow) }),
-                crew:    StructType({ shifts: ArrayType(ShiftRow) }),
-            }),
+            kind: VariantType({ press: NullType, crew: NullType }),
+            jobs: DictType(StringType, JobRow),
+            shifts: DictType(StringType, ShiftRow),
         });
         const ops = $.const(new Map([
-            ["c1", { kind: variant("crew", { shifts: [
-                { key: "s1", from: W27, to: W29, hours: 80.0, state: variant("confirmed", null) }] }) }],
-            ["m1", { kind: variant("press", { jobs: [
-                { ticket: "J-1", start: W27, end: W29, state: variant("actual", null) }] }) }],
-            ["m2", { kind: variant("press", { jobs: [
-                { ticket: "J-2", start: W28, end: W30, state: variant("confirmed", null) }] }) }],
+            ["c1", { kind: variant("crew", null), jobs: new Map(),
+              shifts: new Map([["s1", { from: W27, to: W29, hours: 80.0, state: variant("confirmed", null) }]]) }],
+            ["m1", { kind: variant("press", null), shifts: new Map(),
+              jobs: new Map([["J-1", { start: W27, end: W29, state: variant("actual", null) }]]) }],
+            ["m2", { kind: variant("press", null), shifts: new Map(),
+              jobs: new Map([["J-2", { start: W28, end: W30, state: variant("confirmed", null) }]]) }],
         ]), DictType(StringType, OpsRow));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
@@ -1833,22 +1831,15 @@ describeEast("Plan", (test) => {
                     key: "presses", title: "Presses",
                     match: r => r.kind.hasTag("press"),
                     label: (_r, k) => k, id: true,
-                    runs: r => r.kind.unwrap("press").jobs.map((_$, j) => Plan.run({
-                        key: j.ticket, start: j.start, end: j.end,
-                        label: East.str`RUN · ${j.ticket}`, state: j.state,
-                    })),
+                    runs: Plan.items("jobs", { from: "start", to: "end" }, (job, ticket) => ({ label: East.str`RUN · ${ticket}`, state: job.state })),
                 }),
                 Plan.series.cards(OpsRow, {
                     key: "crews", title: "Crews",
                     match: r => r.kind.hasTag("crew"),
                     label: (_r, k) => k,
-                    chips: r => r.kind.unwrap("crew").shifts.map(($, s) => {
-                        const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);
-                        return Plan.chip({
-                            key: s.key, from: s.from, to: s.to,
-                            label: East.str`${hrs}h`, state: s.state,
-                        });
-                    }),
+                    chips: Plan.items("shifts", { from: "from", to: "to" }, (shift) => ({
+                        label: East.str`${East.Float.printFixed(shift.hours, 0n)}h`, state: shift.state,
+                    })),
                 }),
             ],
         }));
@@ -1864,25 +1855,17 @@ describeEast("Plan", (test) => {
     });
 
     test("a $.const-bound series expression applies via the East fold", $ => {
-        const JobRow = StructType({
-            ticket: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
-        });
-        const OpsRow = StructType({
-            kind: VariantType({ press: StructType({ jobs: ArrayType(JobRow) }) }),
-        });
+        const JobRow = StructType({ start: DateTimeType, end: DateTimeType, state: EventStateType });
+        const OpsRow = StructType({ kind: VariantType({ press: NullType }), jobs: DictType(StringType, JobRow) });
         const ops = $.const(new Map([
-            ["m1", { kind: variant("press", { jobs: [
-                { ticket: "J-1", start: W27, end: W29, state: variant("actual", null) }] }) }],
+            ["m1", { kind: variant("press", null), jobs: new Map([["J-1", { start: W27, end: W29, state: variant("actual", null) }]]) }],
         ]), DictType(StringType, OpsRow));
         // The series list is itself an East VALUE — typed by the constructor.
         const series = $.const([
             Plan.series.span(OpsRow, {
                 key: "presses", title: "Presses",
                 label: (_r, k) => k,
-                runs: r => r.kind.unwrap("press").jobs.map((_$, j) => Plan.run({
-                    key: j.ticket, start: j.start, end: j.end,
-                    label: East.str`RUN · ${j.ticket}`, state: j.state,
-                })),
+                runs: Plan.items("jobs", { from: "start", to: "end" }, (job, ticket) => ({ label: East.str`RUN · ${ticket}`, state: job.state })),
             }),
             Plan.series.rows(OpsRow, { key: "chrome", title: "Milestones" },
                 [Plan.events({ key: "ms", label: "MS" })]),
@@ -1917,10 +1900,10 @@ describeEast("Plan", (test) => {
         $(Assert.equal(section.unwrap("section").title, "Presses"));
         $(Assert.equal(section.unwrap("section").subtitle.unwrap("some"), "8 rs"));
         // One strip per entry is ONE library entry, with its own identity.
-        const Hall = DictType(StringType, Row);
+        const Hall = StructType({ rows: DictType(StringType, Row) });
         const halls = $.let(Plan.series.group(Hall, {
             key: "halls", title: "Halls", label: (_g, k) => k,
-            children: Plan.children((g) => g, [
+            children: Plan.children("rows", [
                 Plan.series.events(Row, { key: "marks", title: "Marks", label: (_r, k) => k, marks: _r => [] }),
             ]),
         }));
@@ -2042,16 +2025,11 @@ describeEast("Plan", (test) => {
     });
 
     test("a paged data handle derives the canvas-row source — page wraps the series, total passes through", $ => {
-        const JobRow = StructType({
-            ticket: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
-        });
-        const OpsRow = StructType({
-            kind: VariantType({ press: StructType({ jobs: ArrayType(JobRow) }) }),
-        });
+        const JobRow = StructType({ start: DateTimeType, end: DateTimeType, state: EventStateType });
+        const OpsRow = StructType({ kind: VariantType({ press: NullType }), jobs: DictType(StringType, JobRow) });
         const OpsSource = DictType(StringType, OpsRow);
         const ops = $.const(new Map([
-            ["m1", { kind: variant("press", { jobs: [
-                { ticket: "J-1", start: W27, end: W29, state: variant("actual", null) }] }) }],
+            ["m1", { kind: variant("press", null), jobs: new Map([["J-1", { start: W27, end: W29, state: variant("actual", null) }]]) }],
         ]), OpsSource);
         // A hermetic paged handle — pure East fns windowing the captured KEYED
         // collection, in the contract's shape without `revision` / `refresh`
@@ -2073,10 +2051,7 @@ describeEast("Plan", (test) => {
                 Plan.series.span(OpsRow, {
                     key: "presses", title: "Presses",
                     label: (_r, k) => k,
-                    runs: r => r.kind.unwrap("press").jobs.map((_$, j) => Plan.run({
-                        key: j.ticket, start: j.start, end: j.end,
-                        label: East.str`RUN · ${j.ticket}`, state: j.state,
-                    })),
+                    runs: Plan.items("jobs", { from: "start", to: "end" }, (job, ticket) => ({ label: East.str`RUN · ${ticket}`, state: job.state })),
                 }),
                 Plan.series.events(OpsRow, { key: "marks", title: "Marks", label: (_r, k) => k, marks: _r => [] }),
             ],

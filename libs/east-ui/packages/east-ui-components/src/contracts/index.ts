@@ -20,7 +20,7 @@
  *   plot gutter a stacking layout can impose on its axis/lane children.
  * - `adaptive` (#346): container-width + pointer-capability hooks — the
  *   responsive spine (`useContainerBreakpoint` / `useContainerBelow` /
- *   `useCoarsePointer` / `useHoverCapable`).
+ *   `useContainerWidth` / `useCoarsePointer` / `useHoverCapable`).
  *
  * Pure value resolvers (TextStyle, Elevation, Motion, Focus, Animation) live
  * under `../style/` — the split is: this folder owns contract enforcement
@@ -42,6 +42,6 @@ export {
 export { type PlotGutter, type PlotGutterProviderProps, PlotGutterProvider, usePlotGutter } from "./plot-gutter.js";
 export {
     type ContainerBreakpoint, type ContainerBreakpointThresholds,
-    useContainerBreakpoint, useContainerBelow,
+    useContainerBreakpoint, useContainerBelow, useContainerWidth,
     useCoarsePointer, useHoverCapable,
 } from "./adaptive.js";

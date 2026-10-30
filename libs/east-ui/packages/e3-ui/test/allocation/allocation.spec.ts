@@ -54,7 +54,7 @@ interface Base {
  */
 function payload(change: (base: Base) => Partial<Props> | Readonly<Record<string, unknown>> = () => ({})): void {
     East.function([], AllocationPayloadType, ($) => {
-        const bins = $.let(Record.bind(ex.kilnBins, [ex.kilnBinsPatch]));
+        const bins = $.let(Record.bind(ex.kilnBins));
         const loads = $.let(Data.bind(ex.arrivals));
         const yard = $.let(Data.bind(ex.kilns));
         const bays = $.let(Data.bind(ex.yardBays));
@@ -143,7 +143,7 @@ describe("the bins, the lanes and the resources", () => {
         assert.throws(() => payload((base) => ({ resources: { ...base.props.resources,
             kilns: Schedule.resources(Data.bindPaged(ex.kilns), { name: "Kilns", icon: "fire", label: k => k.name, min: k => k.min, max: k => k.max }) } })),
         /Allocation: resources\.kilns is read whole — fits, checks and totals read every one — so give the rows as a Dict/);
-        const numbered = e3.record("allocation_spec_numbered_kilns", DictType(IntegerType, Kiln), new Map());
+        const numbered = e3.record("allocation_spec_numbered_kilns", DictType(IntegerType, Kiln), { initial: new Map() });
         assert.throws(() => payload((base) => ({ resources: { ...base.props.resources,
             kilns: Schedule.resources(Data.bind(numbered).read(), { name: "Kilns", icon: "fire", label: k => k.name, min: k => k.min, max: k => k.max }) } })),
         /Allocation: events\.bin's parts hold String keys of resources\.kilns, which is keyed by \.Integer — key the resources by String/);
@@ -176,9 +176,14 @@ describe("the bins, the lanes and the resources", () => {
             bay: VariantType({ north: StringType, south: StringType }), at: DateTimeType, load: OptionType(StringType), m3: FloatType,
             kilns: DictType(StringType, FloatType), dryFor: TimeStepType,
         });
-        const cased = e3.record("allocation_spec_cased_bins", DictType(StringType, Cased), new Map());
+        const cased = e3.record("allocation_spec_cased_bins", DictType(StringType, Cased), {
+            initial: new Map(),
+            mutations: (mutation) => ({
+                patch: mutation.patch(),
+            }),
+        });
         assert.throws(() => payload((base) => ({
-            events: { bin: Schedule.events(Record.bind(cased, [e3.mutation.patch(cased)]), {
+            events: { bin: Schedule.events(Record.bind(cased), {
                 name: "Bin", icon: "box", at: "at", resource: { field: "bay", of: { north: "bays", south: "yards" } }, arrival: "load",
                 quantity: { field: "m3" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor",
             }) },
@@ -237,10 +242,10 @@ describe("the fit and the check, over the bins' row type", () => {
 });
 
 describe("the narrowing, the library and the columns", () => {
-    const binSource = () => Data.bindPaged(ex.kilnBins, { indexes: [ex.kilnBinsByTime] });
-    const baySource = () => Data.bindPaged(ex.yardBays, { indexes: [ex.yardBaysByArea] });
-    const kilnSource = () => Data.bindPaged(ex.kilns, { indexes: [ex.kilnsByGroup] });
-    const loadSource = () => Data.bindPaged(ex.arrivals, { indexes: [ex.arrivalsBySpec] });
+    const binSource = () => Data.bindPaged(ex.kilnBins, { indexes: ["kiln_bins_by_time"] });
+    const baySource = () => Data.bindPaged(ex.yardBays, { indexes: ["yard_bays_by_area"] });
+    const kilnSource = () => Data.bindPaged(ex.kilns, { indexes: ["kilns_by_group"] });
+    const loadSource = () => Data.bindPaged(ex.arrivals, { indexes: ["arrivals_by_spec"] });
     /** The bin kind given `entries`, read by key beside its source of the slice. */
     const withEntries = (base: Base) => ({ bin: Schedule.events(base.bins as never, {
         name: "Bin", icon: "box", entries: Data.bindPaged(ex.kilnBins), at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
@@ -274,8 +279,8 @@ describe("the narrowing, the library and the columns", () => {
 
     test("`periods` is Schedule.periods over the app's days, and a library tab one of the board's two", () => {
         assert.throws(() => payload(() => ({ periods: {} as never })),
-            /Allocation: `periods` is what the board publishes, the app's days — periods=\{Schedule\.periods\(Record\.bind\(days, \[daysPatch\]\), \{ every: "day", status \}\)\}/);
-        assert.doesNotThrow(() => payload(() => ({ periods: Schedule.periods(Record.bind(ex.yardDays, [ex.yardDaysPatch]), {
+            /Allocation: `periods` is what the board publishes, the app's days — periods=\{Schedule\.periods\(Record\.bind\(days\), \{ every: "day", status \}\)\}/);
+        assert.doesNotThrow(() => payload(() => ({ periods: Schedule.periods(Record.bind(ex.yardDays), {
             every: "day", status: { field: "state", draft: "draft", published: "issued" },
         }) })));
         assert.throws(() => payload(() => ({ library: [{ kind: "events" }] as never })),

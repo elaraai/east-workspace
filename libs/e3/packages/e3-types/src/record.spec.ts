@@ -194,7 +194,8 @@ describe('decodeRecordIndexObject', () => {
 });
 
 describe('mutationDeltaType', () => {
-  const ik = StructType({ __tile: DateTimeType, press: StringType });
+  // A summary index's key: its leading fields under `on`, then a tile and a key (#1432).
+  const ik = StructType({ on: StructType({}), tile: DateTimeType, key: StringType });
   const caseOf = (delta: EastType, part: 'key' | 'value', name: string): EastType =>
     ((delta as unknown as Record<'key' | 'value', { cases: Record<string, EastType> }>)[part]).cases[name]!;
 

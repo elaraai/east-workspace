@@ -51,7 +51,7 @@ export const WorkspaceNotDeployedErrorType = StructType({ workspace: StringType 
 export const WorkspaceExistsErrorType = StructType({ workspace: StringType });
 export const LockHolderType = StructType({
   pid: IntegerType,
-  acquiredAt: StringType,
+  acquiredAt: DateTimeType,
   bootId: OptionType(StringType),
   command: OptionType(StringType),
 });
@@ -65,6 +65,9 @@ export const PackageNotFoundErrorType = StructType({
 });
 export const PackageExistsErrorType = StructType({ packageName: StringType, version: StringType });
 export const PackageInvalidErrorType = StructType({ reason: StringType });
+/** A workspace bundle refused: it is not one, it is cut short, or it does not
+ *  hold every object its workspace names. */
+export const BundleInvalidErrorType = StructType({ reason: StringType });
 export const DatasetNotFoundErrorType = StructType({ workspace: StringType, path: StringType });
 export const TaskNotFoundErrorType = StructType({ task: StringType });
 export const ExecutionNotFoundErrorType = StructType({ task: StringType });
@@ -99,6 +102,7 @@ export const ErrorType = VariantType({
   package_not_found: PackageNotFoundErrorType,
   package_exists: PackageExistsErrorType,
   package_invalid: PackageInvalidErrorType,
+  bundle_invalid: BundleInvalidErrorType,
   dataset_not_found: DatasetNotFoundErrorType,
   task_not_found: TaskNotFoundErrorType,
   execution_not_found: ExecutionNotFoundErrorType,
@@ -591,32 +595,32 @@ export const TaskStatusWaitingType = StructType({ reason: StringType });
 export const TaskStatusInProgressType = StructType({
   /** Process ID of the running task */
   pid: OptionType(IntegerType),
-  /** ISO timestamp when execution started */
-  startedAt: OptionType(StringType),
+  /** When execution started */
+  startedAt: OptionType(DateTimeType),
 });
 
 /** Task exited with non-zero code. */
 export const TaskStatusFailedType = StructType({
   /** Process exit code */
   exitCode: IntegerType,
-  /** ISO timestamp when task completed */
-  completedAt: OptionType(StringType),
+  /** When the task completed */
+  completedAt: OptionType(DateTimeType),
 });
 
 /** Task encountered an internal error. */
 export const TaskStatusErrorType = StructType({
   /** Error message */
   message: StringType,
-  /** ISO timestamp when error occurred */
-  completedAt: OptionType(StringType),
+  /** When the error occurred */
+  completedAt: OptionType(DateTimeType),
 });
 
 /** Task was running but process is no longer alive. */
 export const TaskStatusStaleRunningType = StructType({
   /** Last known process ID */
   pid: OptionType(IntegerType),
-  /** ISO timestamp when execution started */
-  startedAt: OptionType(StringType),
+  /** When execution started */
+  startedAt: OptionType(DateTimeType),
 });
 
 /**
@@ -889,37 +893,37 @@ export const DataflowResultType = StructType({
 export const DataflowEventType = VariantType({
   start: StructType({
     task: StringType,
-    timestamp: StringType,
+    timestamp: DateTimeType,
   }),
   complete: StructType({
     task: StringType,
-    timestamp: StringType,
+    timestamp: DateTimeType,
     duration: FloatType,
     peakBytes: OptionType(IntegerType),
   }),
   cached: StructType({
     task: StringType,
-    timestamp: StringType,
+    timestamp: DateTimeType,
   }),
   failed: StructType({
     task: StringType,
-    timestamp: StringType,
+    timestamp: DateTimeType,
     duration: FloatType,
     exitCode: IntegerType,
   }),
   error: StructType({
     task: StringType,
-    timestamp: StringType,
+    timestamp: DateTimeType,
     message: StringType,
   }),
   input_unavailable: StructType({
     task: StringType,
-    timestamp: StringType,
+    timestamp: DateTimeType,
     reason: StringType,
   }),
   requeued: StructType({
     task: StringType,
-    timestamp: StringType,
+    timestamp: DateTimeType,
     unit: StageUnitType,
     reason: RequeueReasonType,
     peak: IntegerType,
@@ -1001,13 +1005,13 @@ export const DataflowBudgetType = StructType({
  * @property unit - The unit, for a split task's; `none` for a task run as one
  * @property needs - The memory, in bytes, it waits to reserve; 0 when it
  *   waits for a core alone
- * @property since - ISO timestamp when it began waiting
+ * @property since - When it began waiting
  */
 export const UnitWaitType = StructType({
   task: StringType,
   unit: OptionType(StageUnitType),
   needs: IntegerType,
-  since: StringType,
+  since: DateTimeType,
 });
 
 /**
@@ -1051,8 +1055,8 @@ export const SplitProgressType = StructType({
  *
  * @property runId - The run's id, a UUIDv7
  * @property status - Current execution status
- * @property startedAt - ISO timestamp when execution started
- * @property completedAt - ISO timestamp when execution finished (if done)
+ * @property startedAt - When execution started
+ * @property completedAt - When execution finished (if done)
  * @property summary - Execution summary (available when complete)
  * @property events - The run's task events past the poll's cursor, at most
  *   its limit, in the order they happened
@@ -1071,8 +1075,8 @@ export const SplitProgressType = StructType({
 export const ApiDataflowExecutionStateType = StructType({
   runId: StringType,
   status: ApiExecutionStatusType,
-  startedAt: StringType,
-  completedAt: OptionType(StringType),
+  startedAt: DateTimeType,
+  completedAt: OptionType(DateTimeType),
   summary: OptionType(DataflowExecutionSummaryType),
   events: ArrayType(DataflowEventType),
   nextSeq: IntegerType,
@@ -1118,8 +1122,8 @@ export const ExecutionHistoryStatusType = VariantType({
  *   before the last one's
  * @property inputHashes - Individual input object hashes
  * @property status - Execution outcome
- * @property startedAt - ISO timestamp when execution started
- * @property completedAt - ISO timestamp when execution finished (if done)
+ * @property startedAt - When execution started
+ * @property completedAt - When execution finished (if done)
  * @property duration - Execution duration in milliseconds (if done)
  * @property exitCode - Process exit code (if failed)
  * @property peakBytes - The highest peak resident memory, in bytes, a runner
@@ -1131,8 +1135,8 @@ export const ExecutionListItemType = StructType({
   executionId: StringType,
   inputHashes: ArrayType(StringType),
   status: ExecutionHistoryStatusType,
-  startedAt: StringType,
-  completedAt: OptionType(StringType),
+  startedAt: DateTimeType,
+  completedAt: OptionType(DateTimeType),
   duration: OptionType(IntegerType),
   exitCode: OptionType(IntegerType),
   peakBytes: OptionType(IntegerType),

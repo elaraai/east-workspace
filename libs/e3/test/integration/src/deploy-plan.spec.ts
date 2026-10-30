@@ -28,9 +28,11 @@ const SOURCE = [
   "import e3 from '@elaraai/e3';",
   "import { DictType, East, StringType, StructType } from '@elaraai/east';",
   'const Task = StructType({ title: StringType, owner: StringType });',
-  "const tasks = e3.record('tasks', DictType(StringType, Task), new Map());",
-  "const byOwner = e3.recordIndex('by_owner', tasks, { key: East.function([StringType, Task], StringType, ($, _id, task) => task.owner) });",
-  "export default e3.package('planned', '1.0.0', tasks, byOwner);",
+  "const tasks = e3.record('tasks', DictType(StringType, Task), {",
+  '  initial: new Map(),',
+  "  indexes: (index) => ({ by_owner: index.key(East.function([StringType, Task], StringType, ($, _id, task) => task.owner)) }),",
+  '});',
+  "export default e3.package('planned', '1.0.0', tasks);",
   '',
 ].join('\n');
 
@@ -58,12 +60,14 @@ describe('a deploy plan from a zip or a source', () => {
     mkdirSync(testDir, { recursive: true });
 
     const Task = StructType({ title: StringType, owner: StringType });
-    const tasks = e3.record('tasks', DictType(StringType, Task), new Map());
-    const byOwner = e3.recordIndex('by_owner', tasks, {
-      key: East.function([StringType, Task], StringType, ($, _id, task) => task.owner),
+    const tasks = e3.record('tasks', DictType(StringType, Task), {
+      initial: new Map(),
+      indexes: (index) => ({
+        by_owner: index.key(East.function([StringType, Task], StringType, ($, _id, task) => task.owner)),
+      }),
     });
     zip = join(testDir, 'planned.zip');
-    await e3.export(e3.package('planned', '1.0.0', tasks, byOwner), zip);
+    await e3.export(e3.package('planned', '1.0.0', tasks), zip);
 
     // The developer's project: the source, and the SAME @elaraai/e3 and
     // @elaraai/east the CLI loads (the bundled source is imported from its own

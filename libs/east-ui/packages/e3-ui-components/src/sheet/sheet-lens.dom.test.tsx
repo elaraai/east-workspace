@@ -51,7 +51,7 @@ type Where = ValueTypeOf<typeof RecordSliceWhereType>;
 const rail = East.compile(East.function([], RecordSlicesChromeType, ($) => $.return(recordSlicesChrome({
     slice: Slice.bindRecords("ex.sheetRecordIndexes", {
         rows: {
-            source: Data.bindPaged(ex.indexedWorkOrders, { indexes: [ex.indexedWorkByStatusDue, ex.indexedWorkByDue, ex.indexedWorkByJob, ex.indexedWorkByQuantity, ex.indexedWorkByUrgent, ex.indexedWorkByTag] }),
+            source: Data.bindPaged(ex.indexedWorkOrders, { indexes: ["by_status_due", "by_due", "by_job", "by_quantity", "by_urgent", "by_tag"] }),
             fields: { status: { label: "Status", hints: ["Ready", "Scheduled", "Done"] }, due: { label: "Due" }, job: { label: "Job" }, quantity: { label: "Quantity" }, urgent: { label: "Urgent" }, tags: { label: "Tag", hints: ["Production", "Dispatch"] } },
             range: "due", search: ["job"], initial: { status: ["Ready"] },
         },
@@ -215,7 +215,7 @@ test("the hit check: a segment whose rows disagree with where e3 placed the narr
 const flaggedRows = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const slice = $.let(Slice.bindRecords("test.lens.turns", {
         rows: {
-            source: Data.bindPaged(ex.lensBenchRows, { indexes: [ex.lensBenchByGroup, ex.lensBenchByFlag] }),
+            source: Data.bindPaged(ex.lensBenchRows, { indexes: ["lens_bench_by_group", "lens_bench_by_flag"] }),
             fields: { group: { label: "Group" }, flag: { label: "Flag" } }, initial: { flag: [true] },
         },
     }));

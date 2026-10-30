@@ -404,7 +404,7 @@ describe('setDataset (an upload, read as it arrives)', () => {
     for (const [layout, bytes] of layouts) {
       const response = await setDataset(storage, REPO, WS, rowsPath, pieces(bytes));
       const answer = decodeBeast2For(ResponseType(NullType))(new Uint8Array(await response.arrayBuffer()));
-      assert.equal(answer.type, 'success', `${layout}: ${JSON.stringify(answer.value)}`);
+      assert.equal(answer.type, 'success', `${layout}: ${printFor(ResponseType(NullType))(answer)}`);
       assert.equal(await rowsHash(storage), expected, layout);
     }
   });
@@ -431,8 +431,8 @@ describe('setDataset (an upload, read as it arrives)', () => {
     const oversized = await setDataset(storage, REPO, WS, rowsPath, [head.subarray(0, head.length - 5), frameHeader.subarray(0, at)]);
     const cap = decodeBeast2For(ResponseType(NullType))(new Uint8Array(await oversized.arrayBuffer()));
     assert.ok(cap.type === 'error' && cap.value.type === 'internal'
-      && /more than the 67108864 a collection is read in at once/.test((cap.value.value as { message: string }).message),
-      JSON.stringify(cap));
+      && /more than the 67108864 a collection is read in at once/.test(cap.value.value.message),
+      printFor(ResponseType(NullType))(cap));
 
     assert.equal(await rowsHash(storage), seeded, 'the dataset keeps its value');
     assert.equal(await storage.objects.count(REPO), objects, 'nothing was stored');
@@ -973,8 +973,8 @@ describe('getDatasetPage (index reads)', () => {
   });
 });
 
-/** A summary index's key (#1039): a week, then a press. */
-const PressWeekType = StructType({ __tile: IntegerType, press: StringType });
+/** A summary index's key (#1039): its leading fields under `on` — none here — then a week and a press (#1432). */
+const PressWeekType = StructType({ on: StructType({}), tile: IntegerType, key: StringType });
 /** Its entries' keys: each stands for every row of its key, so names none. */
 const PressWeekEntryType = StructType({ ik: PressWeekType, k: NullType });
 /** Its totals. */
@@ -995,7 +995,7 @@ describe('a summary index (#1039)', () => {
     const totals = new SortedMap<PressWeekEntry, Totals>(undefined, compareFor(PressWeekEntryType));
     for (let week = 0; week < weeks; week++) {
       for (let p = 0; p < presses; p++) {
-        totals.set({ ik: { __tile: BigInt(week), press: `P-${String(p).padStart(4, '0')}` }, k: null }, { count: BigInt(week + p + 1), ms: BigInt((week + p) * 1000) });
+        totals.set({ ik: { on: {}, tile: BigInt(week), key: `P-${String(p).padStart(4, '0')}` }, k: null }, { count: BigInt(week + p + 1), ms: BigInt((week + p) * 1000) });
       }
     }
     const manifest = await datasetWrite(storage, REPO, totals, indexCollectionType(NullType, PressWeekType, TotalsType));
@@ -1041,8 +1041,8 @@ describe('a summary index (#1039)', () => {
     const runs = await getDatasetRuns(storage, REPO, WS, plansPath, { runs: [[results[0]!.row, results[0]!.count]], hash: state, index: 'by_press_week' });
     assert.equal(runs.status, 200, await runs.clone().text());
     const block = decodeSummaryWindow(new Uint8Array(await runs.arrayBuffer()));
-    assert.deepEqual(block.map((entry) => entry.ik.press), Array.from({ length: 10 }, (_, i) => `P-${String(10 + i).padStart(4, '0')}`));
-    assert.ok(block.every((entry) => equalFor(IntegerType)(entry.ik.__tile, 3n)), 'all in week 3');
+    assert.deepEqual(block.map((entry) => entry.ik.key), Array.from({ length: 10 }, (_, i) => `P-${String(10 + i).padStart(4, '0')}`));
+    assert.ok(block.every((entry) => equalFor(IntegerType)(entry.ik.tile, 3n)), 'all in week 3');
   });
 
   it('refuses a joined read of it, a page or runs, naming it: its entries name no row to join', async () => {
@@ -1093,7 +1093,7 @@ describe('a summary index (#1039)', () => {
     await seedSummary(storage, 10, 4);
     const state = await stateOf(storage);
     const response = await withinDatasetRuns(storage, REPO, WS, plansPath,
-      { index: 'by_press_week', runs: [[0, 5]], keys: ['(ik=(__tile=0, press="P-0002"), k=null)'], hash: state });
+      { index: 'by_press_week', runs: [[0, 5]], keys: ['(ik=(on=(), tile=0, key="P-0002"), k=null)'], hash: state });
     const body = await response.clone().text();
     assert.equal(response.status, 400, `a membership read of a summary's entries is refused, never answered: got ${response.status} ${body}`);
     const refused = await refusalOf(response);

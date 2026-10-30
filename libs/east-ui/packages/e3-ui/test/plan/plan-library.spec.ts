@@ -20,7 +20,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
     ArrayType, DictType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType,
-    equalFor, isTypeEqual, none, some, variant,
+    equalFor, isTypeEqual, none, some, variant, walkIR,
     type BlockBuilder,
 } from "@elaraai/east";
 import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
@@ -46,7 +46,7 @@ function pressesOf($: BlockBuilder<never>) {
 
 /** The jobs over the presses, bound inside a block, their unscheduled ones in the backlog. */
 function jobsOf($: BlockBuilder<never>) {
-    const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+    const jobs = $.let(Record.bind(ex.planPrintJobs));
     return Schedule.events(jobs, {
         name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
         resource: { field: "press", of: "presses" },
@@ -82,6 +82,18 @@ describe("the Series tab (PB29)", () => {
             const data = $.const(new Map([["a", { v: 1.0 }]]), DictType(StringType, Row));
             return Plan.Payload({ axis: Plan.axis({ window: WINDOW, resolution: "day" }), data, series: [marks], library: [Plan.library.series()] });
         }), /^Plan: the library lists Plan\.library\.series\(\), and this Plan has nothing a viewer can hide — it lists event kinds, resource kinds and their measures, `rows`, and `data`'s series when they are picked \(`pick`\)$/);
+    });
+
+    test("a pick matches its series' kinds once: its id, title, subtitle and icon, read by each of its derivations, call one identity, where each wrote its match out again", () => {
+        const Row = StructType({ v: FloatType });
+        const marks = Plan.series.events(Row, { key: "marks", title: "Marks", label: (_r, k) => k, marks: () => [] });
+        const kinds = Object.keys(Plan.Types.Series(Row).cases);
+        const sameName = equalFor(StringType);
+        let matches = 0;
+        walkIR(East.function([], NullType, ($) => { $(Plan.pick("lib.pick", [marks])); }).toIR().ir, (node) => {
+            if (node.type === "Match" && kinds.every((kind) => node.value.cases.some((arm) => sameName(arm.case, kind)))) matches += 1;
+        });
+        assert.equal(matches, 1);
     });
 });
 
@@ -122,7 +134,7 @@ describe("the library's refusals (PB61, PB62)", () => {
             name: "Customers", label: (c) => c.name, drop: (c) => Schedule.patch(ex.PrintCustomer, { name: c.name }),
         })])), /^Plan: the "Customers" tab's `drop` returns a patch over no event kind's row type — build it with Schedule\.patch\(RowType, \{ … \}\) over the row type of the kind its cards land on \(job\)$/);
         assert.match(refusal(($) => {
-            const rush = $.let(Record.bind(ex.planLinkJobs, [ex.planLinkJobsPatch]));
+            const rush = $.let(Record.bind(ex.planLinkJobs));
             return Plan.Payload({
                 axis, resources: { presses: pressesOf($) },
                 events: {

@@ -56,10 +56,10 @@ function benchPlan(min: Date, max: Date, resolution: "day" | "month") {
     const key = `bench.series.${resolution}`;
     return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
-        const jobs = $.const(Record.bind(ex.planBenchJobs, [ex.planBenchJobsPatch]));
+        const jobs = $.const(Record.bind(ex.planBenchJobs, ["patch"]));
         const jobEntries = $.const(Data.bindPaged(ex.planBenchJobs));
         const slice = $.const(Slice.bindRecords(key, {
-            job: { source: Data.bindPaged(ex.planBenchJobs, { indexes: [ex.planBenchJobsByTime, ex.planBenchJobsByPressWeek, ex.planBenchJobsByPressMonth] }), range: "start" },
+            job: { source: Data.bindPaged(ex.planBenchJobs, { indexes: ["plan_bench_jobs_by_time", "plan_bench_jobs_by_press_week", "plan_bench_jobs_by_press_month"] }), range: "start" },
         }));
         return Plan({
             axis: Plan.axis({ window: { min, max }, resolution, resolutions: ["day", "week", "month"] }),

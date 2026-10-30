@@ -19,13 +19,13 @@ const rowsType = toEastTypeValue(ArrayType(StructType({ sku: StringType, units: 
 const forecastType = toEastTypeValue(DictType(StringType, StructType({ units: FloatType })));
 
 /** A task's status by its index: up-to-date, waiting, failed, ready, in-progress, in turn. */
-function statusOf(i: number, iso: (msAgo: number) => string): unknown {
+function statusOf(i: number, at: (msAgo: number) => Date): unknown {
     switch (i % 5) {
         case 0: return variant('up-to-date', { cached: i % 10 === 0 });
         case 1: return variant('waiting', { reason: `Waiting for task 'task_${i - 1}'` });
         case 2: return variant('failed', { exitCode: 2n, completedAt: none });
         case 3: return variant('ready', null);
-        default: return variant('in-progress', { pid: some(4242n), startedAt: some(iso(9_000)) });
+        default: return variant('in-progress', { pid: some(4242n), startedAt: some(at(9_000)) });
     }
 }
 
@@ -39,11 +39,11 @@ function statusOf(i: number, iso: (msAgo: number) => string): unknown {
  * @returns The actions, in dispatch order
  */
 export function dashboardFixture(tasks: number, inputs: number, now: number): Action[] {
-    const iso = (msAgo: number): string => new Date(now - msAgo).toISOString();
+    const at = (msAgo: number): Date => new Date(now - msAgo);
     const taskList = Array.from({ length: tasks }, (_, i) => ({
         name: `task_${i}`,
         hash: `hash-${i}`,
-        status: statusOf(i, iso),
+        status: statusOf(i, at),
         inputs: [`.inputs.in_${i % Math.max(1, inputs)}`, ...(i > 0 ? [`.tasks.task_${i - 1}.output`] : [])],
         output: `.tasks.task_${i}.output`,
         dependsOn: i > 0 ? [`task_${i - 1}`] : [],
@@ -77,15 +77,15 @@ export function dashboardFixture(tasks: number, inputs: number, now: number): Ac
     ];
     const events: unknown[] = [];
     taskList.forEach((t, i) => {
-        events.push(variant('start', { task: t.name, timestamp: iso(120_000 - i * 10) }));
-        if ((t.status as { type: string }).type === 'failed') events.push(variant('failed', { task: t.name, timestamp: iso(119_000 - i * 10), duration: 800, exitCode: 2n }));
-        else events.push(variant('complete', { task: t.name, timestamp: iso(119_000 - i * 10), duration: 3_100, peakBytes: t.peakBytes }));
+        events.push(variant('start', { task: t.name, timestamp: at(120_000 - i * 10) }));
+        if ((t.status as { type: string }).type === 'failed') events.push(variant('failed', { task: t.name, timestamp: at(119_000 - i * 10), duration: 800, exitCode: 2n }));
+        else events.push(variant('complete', { task: t.name, timestamp: at(119_000 - i * 10), duration: 3_100, peakBytes: t.peakBytes }));
     });
     const execution = {
         runId: 'run-1',
         status: variant('failed', null),
-        startedAt: iso(120_000),
-        completedAt: some(iso(81_600)),
+        startedAt: at(120_000),
+        completedAt: some(at(81_600)),
         summary: some({ executed: BigInt(tasks), cached: 1n, failed: count('failed'), skipped: 0n, waiting: 0n, duration: 38_400 }),
         events: [],
         nextSeq: BigInt(events.length),

@@ -252,7 +252,7 @@ function flowsPart(): Bind & { countWhere: ReturnType<typeof vi.fn<Bind["countWh
         if (where === null) throw new Error("Choose a preceding field");
         return write({ ...read(), where, preset: none });
     };
-    const countWhere = vi.fn<Bind["countWhere"]>((where) => some(BigInt(served(where).length)));
+    const countWhere = vi.fn<Bind["countWhere"]>((read) => some(BigInt(served(read.where).length)));
     const clearAll = () => write({ ...read(), where: new Map(), preset: none });
     return { key: KEY, config, sourceId: "depot_flows", read, write,
         choose: (id, values) => choose(id, values.length === 0 ? undefined : variant("values", values)),
@@ -324,7 +324,8 @@ describe("a paged palette's own search (#1340, ruling 11)", () => {
         const where = pageWhere.mock.lastCall![0];
         expect([...where.keys()]).toEqual(["name"]);
         expect(where.get("name")).toEqual(variant("prefix", "FLOW-1"));
-        expect(part.countWhere).toHaveBeenLastCalledWith(where);
+        // Counted as a read of that narrowing alone, never a read by area (#1432).
+        expect(part.countWhere).toHaveBeenLastCalledWith({ where, area: none });
         // The rail never moved: its state, its count.
         expect(getStore().read(KEY)).toBe(rail);
         expect(part.read().where.size).toBe(0);

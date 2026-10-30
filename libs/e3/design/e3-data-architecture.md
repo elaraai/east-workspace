@@ -52,7 +52,22 @@ The other documents in this directory record earlier designs. #956 lists those t
 
 ```ts
 e3.input(name, type, source?)
-e3.record(name, type, initial?)                  // with no initial value: unassigned until its first state is committed (§3.18)
+e3.record(name, type, { initial?, indexes?, mutations?, migrations? })   // declared whole, its parts by name, frozen with it; with no initial value: unassigned until its first state is committed (§3.18)
+  mutations: (mutation) => ({ name: … })
+    mutation.reduce(fn, config?)
+    mutation.edit(fn, config?)                   // e3.mutation.editType(recordType) is the type of its edit
+    mutation.patch(config?)
+  indexes: (index) => ({ name: … })
+    index.on([...fields], { value?, runner? }?)  // an order to page in; key(fn) and keys(fn) the same, computed
+    index.interval({ on?, from, to }, config?)                      // the events overlapping a time window; key { on, node, at }
+    index.area({ on?, x, y, width?, height?, at?, cell }, config?)  // the rows whose box meets a 2D window, carrying each row; key { on, area }
+    index.series({ on?, key, from, to, tile }, config?)    // the events on a block of keys over any span, each filed once at the level its length fits, carrying each row; key { on, key, level, tile }
+    index.summary({ on?, key, from, to, tile }, config?)   // under each key and tile, how many rows touch it and the time of it they cover; key { on, key, tile }
+    index.nested({ collections, tile, summary? }, config?) // every collection a record's rows nest, item by item, with totals and parents' subtotals; key { collection, row, path, run, level, tile, item }
+  migrations: (migration) => [ … ]               // the steps, in the order they run
+    migration.value(name, fn, config?)           // (Old) => New
+    migration.rows(name, fn, config?)            // a Dict's rows (K, V1) => V2, or an Array's elements (T1) => T2
+    migration.rekey(name, fn, config?)           // a Dict's (K1, V1) => { key, value }, or a Set's elements (T1) => T2
 e3.task(name, inputs, fn, config?)               // returns; inputs are datasets only; config: { runner?, environment?, role? }
 e3.streamTask(name, { inputs, output, runner?, environment? }, ($, ...inputs, emit) => void)
 e3.partition(dataset, { by? })                   // a streamTask input the work may be split over
@@ -62,20 +77,16 @@ e3.output.dict(K, V, { merge? })                 // merge: ($, key, a, b) => V
 e3.output.fold(T, { zero, combine })             // combine: ($, a, b) => T
 e3.customTask(name, inputs, outputType, command, config?)
 e3.function(name, fn, config?)
-e3.mutation.reduce(name, record, fn, config?)
-e3.mutation.edit(name, record, fn, config?)
-e3.mutation.patch(record, name?, config?)
-e3.mutation.editType(recordType)
-e3.recordIndex(name, record, spec, config?)      // spec: { on | key | keys, value? }, an order to page in
-e3.recordIndex.interval(name, record, { on?, from, to }, config?)                      // the events overlapping a time window
-e3.recordIndex.area(name, record, { on?, x, y, width?, height?, at?, cell }, config?)  // the rows whose box meets a 2D window, carrying each row
-e3.recordIndex.series(name, record, { on?, key, from, to, tile }, config?)    // the events on a block of keys over a span of time tiles, carrying each row
-e3.recordIndex.summary(name, record, { on?, key, from, to, tile }, config?)   // under each key and tile, how many rows touch it and the time of it they cover
-e3.migration.value(name, record, fn, config?)    // (Old) => New; config: { after?, runner? }
-e3.migration.rows(name, record, fn, config?)     // a Dict's rows (K, V1) => V2, or an Array's elements (T1) => T2
-e3.migration.rekey(name, record, fn, config?)    // a Dict's (K1, V1) => { key, value }, or a Set's elements (T1) => T2
-e3.package(name, version, ...items), e3.export(pkg, path)
+e3.package(name, version, ...items), e3.export(pkg, path)   // a record whole, with its parts
 ```
+
+A generated index's key nests the row's leading fields under `on` — a struct with no fields when it lists none — and puts e3's own parts beside it, so no row field's name is reserved (#1432). A range bounds the key flattened, the leading values one by one; a search of the key's own fields names `on` as one literal.
+
+A series index files each event once (#1433): at the finest level, from its `tile` up to the year, whose shortest tile — a day, a week, 28 days, 90 days, 365 days — holds the event's length, under that level's tile holding its start; past 365 days, under each year it touches, as many as 4,096 (`MAX_EVENT_TILES`, which bounds a summary's tiles an event is split over too). An event filed at a level ends within the tile after the one holding its start, so a reader reads a key over any span as one range a level, from two tiles before the span to one after it: a block of 50 keys is at most 250 searches, whatever the span. A summary keeps its totals a tile at a time, the key before the tile, so a key's totals over a span are one range.
+
+The nested form of the series index (#1434, `index.nested`) files what a record's rows nest. Its `collections` declares each nested field with a builder — `items({ from, to })` or `items({ at })` for things people drag, `values({ rollup? })` for a value per instant, `rows({ … })` for child rows, `recursive()` for more rows of the listing row's type — typed field by field from the record's type, and checked again at definition. Beast2 writes a nested collection inside its row with no length or index, and e3 never reads inside a segment, so the items are filed apart from their rows to be read apart from them. Each item is filed once, by the series' levels, under `{ collection, row, path, run, level, tile, item }`: the collection's place (field names from the row down) and the node's path (Dict keys from the row down) are held as e3-types' `RecordNestedPathType`, a list a key can hold. Each node's runs are contiguous: its `items`; where `summary` is declared, its `totals` a summary tile at a time; for a collection of values rolled up, every parent's `subtotals` by each rollup at each level from `tile` to the year, composed bottom-up as the Plan composes them (a node holding values folds its own, a parent aggregates its children's, in key order); for items rolled up, each item under every ancestor (`subtree`) and the ancestors' `subtreeTotals`. The index's key function gives a row's entries with their values, `(K, V) → Dict<IK, P>`, as a summary's gives its contributions; e3-core builds and maintains it through the programs the SDK generates, as every index.
+
+Beside a nested series index, the record's other indexes that carry nothing or the row carry its lean row — each listed collection empty, child rows kept with theirs empty — so a page of rows read without a join reads no nested item and no record segment (`builtIndex`, which export, the write programs and a UI's binding read every index through). The nested index is part of its record from its declaration, as every part is, so a binding of the record's other indexes knows to list it. A write maintains the nested index by its patch where the patch can say what it touched: the row's patch walked along the declaration, through each collection's and each child-rows collection's Dict patch, to the items it names, whose entries are compared with the totals of the summary tiles they touch and the subtotals of the tiles they touch at each level, which are all a value moves outside a recursive tree. A replace on the way — which a recursive type's patch always is, East patching a recursive type only whole — and an inserted or deleted row are compared whole. Both give one delta. Beside the nested series index the record keeps its span (#1438), an index of its own built with it and never declared (`<index>_span`): each row's contributions are the months each collection's items or values touch, keyed `{ collection, tile }`, with how many of them touch each and the milliseconds its items cover, summed across the rows by a summary's merge and maintained as a summary is, a month let go at a count of none — so a collection's first and last month held are its span, and its months' counts how much it holds in each: a Plan's horizon strip reads them as its bars.
 
 **`e3.task`** runs one unit. Its inputs are datasets: an input `e3.partition` marks is refused when the task is defined. Its inputs open lazily unless its runner decodes them whole (§3.5), and a collection the body returns is written through the Writer segment by segment. Once automatic parallelism is built (§3.9), a body whose shape allows it runs split without the author asking.
 
@@ -316,6 +327,7 @@ A driver passes the owner the task's own execution is recorded under. `taskExecu
   - The mutation API runs it outside the dataflow graph, and one that ran over the same state and arguments before is served from the execution cache.
   - The state reaches the runner as the primary's manifest, its segments linked, and the program reads it lazily. It emits the delta's entries as it computes them, in any order.
   - A stale write is a `$conflict` entry in the delta, keyed by what went stale, which sorts before every target.
+  - Each index's arm is the program's ops for the rows the write touches, each row's from one function (#1437, `indexMaintenance`): `(K, Option<V>, Option<V>, Option<RowPatch>) → Dict<EntryKey, Op>`, the row before and after, and its patch where an update sent one. Its ops are the index's own East patch ops — an entry gone a `delete`, one come an `insert`, one whose value changed an `update` by the value's patch — or a summary's `add`s, which the program sums over the rows. A binding carries the same function, so a page previews a drafted row's Save with what the commit runs.
   - The delta is applied over the touched segments inside the compare-and-swap loop, one target segment at a time: the apply holds that segment and its changes, and re-cuts through Recut. The Merger does not apply a delta, since a change can delete a row.
   - A summary's arm (#1039) carries what to add to each of its totals (`add { count, ms }`). The program reads the record, never the summary, so it sums the change the write's rows make under each key — what each touched row's old version took away and its new one gave — and emits none that is nothing. The apply adds each to the total held: a key the summary lacks is inserted, and one whose count reaches zero deleted. A change that would leave a total no rebuild sums — a count or time below zero, or time with no row — fails the write, naming the total and `e3 reindex` (`SummaryIntegrityError`); one that would carry a total past the largest Integer fails it too, naming a finer tile, since that total agrees with the record and a rebuild sums it, and refuses it, alike. Neither is a stale write, so nothing retries it.
   - A mutation's output is stored as segments and never read whole, so it has no result-size cap.
@@ -702,17 +714,19 @@ The dataflow routes (`createExecutionRoutes`) run, poll and cancel a run through
 
 A record's type can change across deploys. A package declares the migrations that carry a workspace's state from the type it holds to the type the package declares, and a deploy runs the ones the workspace has not applied.
 
-**Authoring.** The migration forms are a closed family, as the mutation forms are:
+**Authoring.** The migration forms are a closed family, as the mutation forms are. A record declares its chain in its declaration, the steps in the order they run:
 
 ```ts
-const m1 = e3.migration.value('add_shift', roster,
-  East.function([RosterV1Type], RosterV2Type, ($, old) => …));
-const m2 = e3.migration.rows('widen_row', plans,
-  East.function([PlanKeyType, RowV1Type], RowV2Type, ($, key, row) => …), { after: m1 });
-const m3 = e3.migration.rekey('by_site', plans,
-  East.function([PlanKeyType, RowV2Type], StructType({ key: SiteKeyType, value: RowV2Type }), ($, key, row) => …),
-  { after: m2 });
-const pkg = e3.package('planning', '3.0.0', roster, plans, m1, m2, m3, …);
+const plans = e3.record('plans', DictType(SiteKeyType, RowV3Type), {
+  initial: new Map(),
+  migrations: (migration) => [
+    migration.value('add_shift', East.function([PlansV1Type], PlansV2Type, ($, old) => …)),
+    migration.rows('widen_row', East.function([PlanKeyType, RowV2Type], RowV3Type, ($, key, row) => …)),
+    migration.rekey('by_site',
+      East.function([PlanKeyType, RowV3Type], StructType({ key: SiteKeyType, value: RowV3Type }), ($, key, row) => …)),
+  ],
+});
+const pkg = e3.package('planning', '3.0.0', plans, …);
 ```
 
 - `value`: `(Old) => New`, any record. It runs as one unit, whose runner opens the state lazily, so it costs what the body reads.
@@ -721,8 +735,7 @@ const pkg = e3.package('planning', '3.0.0', roster, plans, m1, m2, m3, …);
 - **The guards** are those of a mutation: the function is synchronous and calls no platform function, since a step runs again in every workspace that has not applied it, a piece at a time. The types are read off the function.
 - **Names.** A step's name is an identifier, unique on its record, and identifies the step once it is applied.
 - **The chain.**
-  - `after` links the chain: exactly one migration of a record has none, each `after` names a migration of the same record, and no two name the same one.
-  - `e3.package` takes a step's predecessors from its `after`, so passing the last step passes the chain.
+  - The steps run in the order the record lists them, and a package carries the chain with its record.
   - Each step's input type is its predecessor's output type, and the last step's output type is the record's declared type.
   - Each is an error at definition, naming the two steps or the two types that conflict.
 

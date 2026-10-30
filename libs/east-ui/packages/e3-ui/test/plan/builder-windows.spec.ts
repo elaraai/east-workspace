@@ -55,9 +55,9 @@ const PRESSES_PATH = pathText(ex.planWindowPresses.output.path);
 
 /** The jobs' kind as a Plan with no rail declares it: read by day, its backlog by its index. */
 function windowedJobs($: BlockBuilder<EastType>) {
-    const jobs = $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
-    const days = $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsByDay, join: true }));
-    const backlog = $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsUnscheduled, join: true }));
+    const jobs = $.let(Record.bind(ex.planWindowJobs));
+    const days = $.let(Data.bindPaged(ex.planWindowJobs, { index: "plan_window_jobs_by_day", join: true }));
+    const backlog = $.let(Data.bindPaged(ex.planWindowJobs, { index: "plan_window_jobs_unscheduled", join: true }));
     const entries = $.let(Data.bindPaged(ex.planWindowJobs));
     return Schedule.events(jobs, {
         name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -69,7 +69,7 @@ function windowedJobs($: BlockBuilder<EastType>) {
 
 /** The jobs' kind read whole: the record bound alone, no source of the slice and no window. */
 function wholeJobs($: BlockBuilder<EastType>) {
-    const jobs = $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.let(Record.bind(ex.planWindowJobs));
     return Schedule.events(jobs, {
         name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
         resource: { field: "press", of: "presses" }, state: "state",
@@ -79,7 +79,7 @@ function wholeJobs($: BlockBuilder<EastType>) {
 
 /** The jobs' kind as the windows example declares it: narrowed through its source of the slice, one job read by its key. */
 function railJobs($: BlockBuilder<EastType>) {
-    const jobs = $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.let(Record.bind(ex.planWindowJobs));
     const entries = $.let(Data.bindPaged(ex.planWindowJobs));
     return Schedule.events(jobs, {
         name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -91,7 +91,7 @@ function railJobs($: BlockBuilder<EastType>) {
 
 /** The windows example's rail: its `job` source over the jobs' interval index, their series index and their summary. */
 const jobSlice = () => Slice.bindRecords("spec.windows", {
-    job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth] }), range: "start" },
+    job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }), range: "start" },
 });
 
 // ============================================================================
@@ -109,7 +109,7 @@ describe("the windows' types and their refusals", () => {
         }
     }
     const kindWith = ($: BlockBuilder<NullType>, options: object) => {
-        const jobs = $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+        const jobs = $.let(Record.bind(ex.planWindowJobs));
         return Schedule.events(jobs as never, {
             name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", ...options,
         } as never);
@@ -118,8 +118,8 @@ describe("the windows' types and their refusals", () => {
     const entries = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planWindowJobs));
 
     test("a kind's window is an index window of its own record: its day index for `window`, its backlog index for `backlogWindow`", () => {
-        const days = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsByDay, join: true }));
-        const backlog = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsUnscheduled, join: true }));
+        const days = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planWindowJobs, { index: "plan_window_jobs_by_day", join: true }));
+        const backlog = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planWindowJobs, { index: "plan_window_jobs_unscheduled", join: true }));
         assert.equal(refusal(($) => kindWith($, { window: days($), backlogWindow: backlog($), entries: entries($) })), "");
         // The record whole is no index window.
         assert.match(refusal(($) => kindWith($, { window: $.let(Data.bindPaged(ex.planWindowJobs)), backlogWindow: backlog($) })),
@@ -129,26 +129,28 @@ describe("the windows' types and their refusals", () => {
         assert.match(refusal(($) => kindWith($, { window: days($), backlogWindow: days($) })), /`backlogWindow` reads the record through a backlog index keyed by Schedule\.unscheduled/);
         // Another record's day index serves another record's rows.
         const PlateSet = StructType({ title: StringType, at: DateTimeType, press: StringType });
-        const plates = e3.record("builder_windows_plates", DictType(StringType, PlateSet), new Map());
-        const platesByDay = e3.recordIndex("builder_windows_plates_by_day", plates, {
-            keys: East.function([StringType, PlateSet], SetType(DateTimeType), ($, _id, plate) => {
-                const daysOf = $.const(Schedule.days);
-                return daysOf(plate.at, plate.at);
+        const plates = e3.record("builder_windows_plates", DictType(StringType, PlateSet), {
+            initial: new Map(),
+            indexes: (index) => ({
+                builder_windows_plates_by_day: index.keys(East.function([StringType, PlateSet], SetType(DateTimeType), ($, _id, plate) => {
+                    const daysOf = $.const(Schedule.days);
+                    return daysOf(plate.at, plate.at);
+                })),
             }),
         });
-        assert.match(refusal(($) => kindWith($, { window: $.let(Data.bindPaged(plates, { index: platesByDay, join: true })), backlogWindow: backlog($) })),
+        assert.match(refusal(($) => kindWith($, { window: $.let(Data.bindPaged(plates, { index: "builder_windows_plates_by_day", join: true })), backlogWindow: backlog($) })),
             /`window` reads the record through a day index keyed by Schedule\.days — .* and this one serves /);
     });
 
     test("a kind read by day whose times are Options reads its backlog through its index too; plain times take no backlog window", () => {
-        const days = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsByDay, join: true }));
+        const days = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planWindowJobs, { index: "plan_window_jobs_by_day", join: true }));
         assert.match(refusal(($) => kindWith($, { window: days($) })),
             /^Schedule\.events: "Print job": `window` reads the days in view through a day index, so the record is never read whole — and this kind's times are Options, so it has a backlog: read it through `backlogWindow` beside it/);
     });
 
     test("a kind given `window` reads one event by its key through `entries`: refused without it, without a window, and over anything but the record's own entries", () => {
-        const days = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsByDay, join: true }));
-        const backlog = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsUnscheduled, join: true }));
+        const days = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planWindowJobs, { index: "plan_window_jobs_by_day", join: true }));
+        const backlog = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planWindowJobs, { index: "plan_window_jobs_unscheduled", join: true }));
         assert.match(refusal(($) => kindWith($, { window: days($), backlogWindow: backlog($) })),
             /^Schedule\.events: "Print job": an indexed kind reads only the window — and one event, the inspector's or its editing's, is read by its key: give `entries` beside it, Data\.bindPaged\(record\), the record's own entries$/);
         // Without a window, `entries` needs the kind's source of its builder's slice: refused as the kind is built without one (#1343).
@@ -160,7 +162,7 @@ describe("the windows' types and their refusals", () => {
         assert.match(refusal(($) => kindWith($, { window: days($), backlogWindow: backlog($), entries: $.let(Record.bind(ex.planWindowJobs, [])).read() })),
             /`entries` reads the record's own entries by key — .* and this one serves \.Dict.* whole$/);
         const PlateSet = StructType({ title: StringType, at: DateTimeType, press: StringType });
-        const plates = e3.record("builder_windows_entry_plates", DictType(StringType, PlateSet), new Map());
+        const plates = e3.record("builder_windows_entry_plates", DictType(StringType, PlateSet), { initial: new Map() });
         assert.match(refusal(($) => kindWith($, { window: days($), backlogWindow: backlog($), entries: $.let(Data.bindPaged(plates)) })),
             /`entries` reads the record's own entries by key — .* and this one serves \.Dict \(key=\.String, value=\.Struct \[\(name="title", type=\.String\), \(name="at", type=\.DateTime\), \(name="press", type=\.String\)\]\)$/);
     });
@@ -210,8 +212,8 @@ describe("the windows' types and their refusals", () => {
     test("an event kind on a paged resource kind is read a cell at a time through its source of the slice: read whole, through its day index, or beside another kind, it is refused at build, the refusal naming both indexes over the kind's own fields (#1039)", () => {
         const axis = Plan.axis({ window: { min: at("2026-10-05T00:00:00Z"), max: at("2026-10-19T00:00:00Z") }, resolution: "day" });
         const pressesOf = ($: BlockBuilder<NullType>) => Schedule.resources($.let(Data.bindPaged(ex.planWindowPresses)), { name: "Presses", icon: "print", label: (p) => p.name });
-        const declared = String.raw`e3\.recordIndex\.series\(name, record, \{ key: "press", from: "start", to: "end", tile: "week" \}\) and ` +
-            String.raw`e3\.recordIndex\.summary\(name, record, \{ key: "press", from: "start", to: "end", tile: "month" \}\) beside its interval index$`;
+        const declared = String.raw`index\.series\(\{ key: "press", from: "start", to: "end", tile: "week" \}\) and ` +
+            String.raw`index\.summary\(\{ key: "press", from: "start", to: "end", tile: "month" \}\) beside its interval index$`;
         const source = String.raw`a paged kind's events are read a cell at a time, through the kind's source of the slice: `;
         const named = String.raw`name a source after "job", Data\.bindPaged\(record, \{ indexes \}\), listing `;
         // Its record read whole: no source of the slice.
@@ -224,15 +226,19 @@ describe("the windows' types and their refusals", () => {
         // Beside a slice whose sources name others: the kind's own is missing.
         assert.match(refusal(($) => Plan.Payload({
             axis, resources: { presses: pressesOf($) }, events: { job: wholeJobs($ as never) },
-            slice: { slice: Slice.bindRecords("spec.windows.rows", { presses: { source: Data.bindPaged(ex.planSeriesPresses, { indexes: [ex.planSeriesPressesByHall] }) } }) },
+            slice: { slice: Slice.bindRecords("spec.windows.rows", { presses: { source: Data.bindPaged(ex.planSeriesPresses, { indexes: ["plan_series_presses_by_hall"] }) } }) },
         })), new RegExp(String.raw`^Plan: events\.job is placed on resources\.presses, paged, and its record is read whole — `));
         // Placed on the paged kind and on another, read whole: no series index serves the two.
         const Crew = StructType({ name: StringType });
         const Visit = StructType({ title: StringType, start: DateTimeType, end: DateTimeType, on: VariantType({ press: StringType, crew: StringType }) });
-        const visits = e3.record("builder_windows_visits", DictType(StringType, Visit), new Map());
-        const visitsPatch = e3.mutation.patch(visits);
+        const visits = e3.record("builder_windows_visits", DictType(StringType, Visit), {
+            initial: new Map(),
+            mutations: (mutation) => ({
+                patch: mutation.patch(),
+            }),
+        });
         assert.match(refusal(($) => {
-            const bound = $.let(Record.bind(visits, [visitsPatch]));
+            const bound = $.let(Record.bind(visits));
             const crews = $.const(new Map([["c1", { name: "Crew 1" }]]), DictType(StringType, Crew));
             return Plan.Payload({
                 axis,
@@ -292,7 +298,7 @@ describe("the windows example's manifest: what a ui() task preloads and polls wh
 
     test("a record bound alone with Record.bind is preloaded and polled, as it was", () => {
         const manifest = deriveManifest(East.function([], NullType, ($) => {
-            $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+            $.let(Record.bind(ex.planWindowJobs));
         }) as never);
         assert.deepEqual([manifest.records, manifest.paths.map(pathText), manifest.pages.map(pathText)], [[ex.planWindowJobs.name], [JOBS_PATH], []]);
     });

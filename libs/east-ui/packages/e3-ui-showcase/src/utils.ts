@@ -57,12 +57,12 @@ function isExample(x: unknown): x is ExampleLike {
 }
 
 /** The kinds of e3 definition a package carries, as the SDK tags them. */
-const DEFINITION_KINDS: ReadonlySet<string> = new Set(["dataset", "task", "function", "mutation", "recordIndex", "migration"]);
+const DEFINITION_KINDS: ReadonlySet<string> = new Set(["dataset", "task", "function"]);
 
 /**
- * The e3 definitions an examples barrel exports — its inputs, records and
- * their mutations and indexes, the tasks that generate rows, functions — in
- * export order, for `opts.extras`: the package then carries every dataset the
+ * The e3 definitions an examples barrel exports — its inputs, records (each
+ * declared whole, its indexes, mutations and migrations in it), the tasks that
+ * generate rows, functions — in export order, for `opts.extras`: the package then carries every dataset the
  * examples bind, with no hand list to drift from the barrel.
  *
  * @param examples - The barrel
@@ -77,7 +77,7 @@ export function definitionsOf(examples: Record<string, unknown>): unknown[] {
 /**
  * Turn an examples barrel into an array of `ui()` tasks. Task names come from
  * `opts.rename` if present, otherwise `toSnakeCase(camelName)`. Barrel entries
- * that are not an `example()` (e.g. `e3.input` re-exports, or a mutation) are
+ * that are not an `example()` (e.g. `e3.input` re-exports, or a record) are
  * skipped automatically so callers only pass them via `opts.extras`.
  */
 export function tasksFromExamples(

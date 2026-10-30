@@ -48,7 +48,7 @@ type Where = ValueTypeOf<typeof RecordSliceWhereType>;
 
 /** The racks as Find seeks them: through their source of the rail, by owner. */
 const racksProgram = East.function([], undefined, ($) => {
-    const racks = $.let(Data.bindPaged(ex.schematicRacks, { indexes: [ex.schematicRacksByOwner] }));
+    const racks = $.let(Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_owner"] }));
     return bindRecord("find.racks", racks, { fields: { owner: { label: "Owner" } } });
 });
 

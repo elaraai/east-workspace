@@ -1,6 +1,6 @@
 ---
 name: e3
-description: "East Execution Engine (e3) - durable, content-addressed dataflow for East programs. Use when: (1) authoring a package with @elaraai/e3 (e3.input, e3.task, e3.streamTask with e3.output and e3.partition for bounded memory and work split over an input, e3.customTask, e3.function, e3.package, e3.export, East.importFunction), (2) records - audited state written only through mutations (e3.record, e3.mutation.reduce/edit/patch, e3.recordIndex, e3.recordIndex.interval / e3.recordIndex.area for reads by a time window or a 2D window, and e3.recordIndex.series / e3.recordIndex.summary for a block of keys over a span of time tiles and their totals) and migrated between versions (e3.migration.value/rows/rekey), (3) the e3 CLI (repo, package, workspace, dataset, task, dataflow run, run, call, mutate, seed, history, reindex, compact, watch, convert, auth) and the cores and memory a run may use (-j, --memory), (4) driving e3 from code: @elaraai/e3-api-client against a server, @elaraai/e3-core on a local repository, e3-api-server, (5) caching, reactive re-runs and garbage collection, (6) delegating local task bodies to a rack: e3 rack enroll/policy, dataflow run --rack, watch --start --rack, optional e3-api-server --rack, (7) e3 in a browser, no server: @elaraai/e3-web (serveUnits, serveE3, createWebE3) and what a browser cannot do. UI tasks are e3-ui's ui()."
+description: "East Execution Engine (e3) - durable, content-addressed dataflow for East programs. Use when: (1) authoring a package with @elaraai/e3 (e3.input, e3.task, e3.streamTask with e3.output and e3.partition for bounded memory and work split over an input, e3.customTask, e3.function, e3.package, e3.export, East.importFunction), (2) records - audited state written only through mutations, declared whole in one e3.record(name, type, { initial, indexes, mutations, migrations }) call: mutation.reduce/edit/patch; index.on/key/keys, index.interval / index.area for reads by a time window or a 2D window, index.series / index.summary for a block of keys over a span of time tiles and their totals, and index.nested for what a record's rows nest — jobs, a value a day, child rows, trees — filed item by item, with totals and parents' subtotals; and migrated between versions (migration.value/rows/rekey, in order), (3) the e3 CLI (repo, package, workspace, dataset, task, dataflow run, run, call, mutate, seed, history, reindex, compact, watch, convert, auth) and the cores and memory a run may use (-j, --memory), (4) driving e3 from code: @elaraai/e3-api-client against a server, @elaraai/e3-core on a local repository, e3-api-server, (5) caching, reactive re-runs and garbage collection, (6) delegating local task bodies to a rack: e3 rack enroll/policy, dataflow run --rack, watch --start --rack, optional e3-api-server --rack, (7) e3 in a browser, no server: @elaraai/e3-web (serveUnits, serveE3, createWebE3) and what a browser cannot do. UI tasks are e3-ui's ui()."
 ---
 
 # East Execution Engine (e3)
@@ -66,10 +66,14 @@ What do you need?
 │   │   └─ Split over an input, in pieces → wrap that input: e3.partition(dataset, { by? })
 │   ├─ A shell command           → e3.customTask(name, [inputs], outputType, command)
 │   ├─ A named function (RPC)    → e3.function(name, fn, config?) — called by name, persists nothing
-│   ├─ Audited state             → e3.record + e3.mutation.reduce | edit | patch, e3.recordIndex
-│   │   ├─ Read by a time window or a 2D window → e3.recordIndex.interval | e3.recordIndex.area
-│   │   └─ Read a block of keys over time tiles, or their totals → e3.recordIndex.series | e3.recordIndex.summary
-│   ├─ A record's type changes   → e3.migration.value | rows | rekey(name, record, fn, { after? })
+│   ├─ Audited state             → e3.record(name, type, { initial?, indexes?, mutations?, migrations? }), declared whole
+│   │   ├─ Its writes            → mutations: (mutation) => ({ name: mutation.reduce | edit | patch })
+│   │   ├─ An order to page in   → indexes: (index) => ({ name: index.on([...fields]) | index.key(fn) | index.keys(fn) })
+│   │   ├─ Read by a time window or a 2D window → index.interval | index.area
+│   │   ├─ Read a block of keys over time tiles, or their totals → index.series | index.summary
+│   │   └─ Read what rows nest (jobs, a value a day, child rows, trees) a tile at a time, with totals and subtotals
+│   │       → index.nested({ collections, tile, summary? })
+│   ├─ A record's type changes   → migrations: (migration) => [migration.value | rows | rekey(name, fn), …], in order
 │   ├─ A UI task                 → ui(name, [inputs], fn) from @elaraai/e3-ui (the e3-ui skill)
 │   ├─ A function written in python or another node package → East.importFunction(pkg, name, FunctionType) in the body
 │   └─ Bundle and export         → e3.package(name, version, ...items); e3.export(pkg, zipPath)
@@ -513,15 +517,19 @@ await e3.export(e3.package('tools', '1.0.0', process, add), '/tmp/tools.zip');
 
 ### Records — audited state, written only through mutations
 
-`e3.record(name, type, initialValue?)` is a dataset at `.records.<name>` that
-tasks read and react to like any input, but that only its **mutations** write:
+`e3.record(name, type, { initial?, indexes?, mutations?, migrations? })` is a
+dataset at `.records.<name>` that tasks read and react to like any input, but
+that only its **mutations** write:
 a raw `dataset set` is refused. A mutation is pure, synchronous East — no async
 body and no platform call, since the compare-and-swap retry runs it again
 against fresher state — named by an identifier. Each commit records its parent,
 the state, the mutation, its arguments, the actor and the time. Deploy mints a
 `$init` commit from the initial value, and a redeploy keeps state and history.
-The record's version vector carries the commit hash, so even a mutation that
-leaves the state unchanged triggers downstream tasks.
+A large initial value is given as a function that makes it —
+`initial: () => East.compile(generate, [])(50_000n)` — called once, as the
+package is exported, never where the declaration is only read (a page binding
+the record). The record's version vector carries the commit hash, so even a
+mutation that leaves the state unchanged triggers downstream tasks.
 
 Declared with no initial value, a record is **unassigned** until its first
 state is committed — `e3 seed <repo> <record> <file.beast2> -w <ws>` from a
@@ -532,38 +540,54 @@ and a mutation on it is refused until then. So a record whose first state is
 data that arrives after the deploy — a customer list, a reference table —
 never runs its dependents on an empty value first.
 
+A record is **declared whole**: its type, its initial value and its parts, in
+one call, never added to after. Each part comes from a builder the call hands
+its declaration, typed by the record's type: `indexes` gets `index` and returns
+the indexes by name, `mutations` gets `mutation` and returns the mutations by
+name, and `migrations` gets `migration` and returns its steps in order. Each is
+checked where the record is declared, every refusal naming the record and the
+part, and the record carries each by its name — `plans.mutations.add_plan`,
+`plans.indexes.by_due` — which a package, a binding (`Record.bind(plans)`,
+`Data.bindPaged(plans, { indexes: ['by_due'] })`) and TypeScript all read.
+
 | Form | Body | Use it when |
 |---|---|---|
-| `e3.mutation.reduce(name, rec, fn)` | `(state, …args) => state`, over the whole state | the rule is over the whole state, or the record is small; any record type |
-| `e3.mutation.edit(name, rec, fn)` | `(state, …args, edit) => Null`: reads lazily, writes through `edit.set(k, v)`, `edit.delete(k)`, `edit.update(k, patch)` | server-side logic touches a few entries of a large Dict or Set record |
-| `e3.mutation.patch(rec, name = 'patch')` | none: the argument is a `PatchType(state)` | a view's save, or an integration sending diffs; on a record without indexes no program runs at all |
+| `mutation.reduce(fn)` | `(state, …args) => state`, over the whole state | the rule is over the whole state, or the record is small; any record type |
+| `mutation.edit(fn)` | `(state, …args, edit) => Null`: reads lazily, writes through `edit.set(k, v)`, `edit.delete(k)`, `edit.update(k, patch)` | server-side logic touches a few entries of a large Dict or Set record |
+| `mutation.patch()` | none: the argument is a `PatchType(state)` | a view's save, or an integration sending diffs; on a record without indexes no program runs at all |
 
 Every form commits a delta addressed by key, rewriting only the segments it
 touches (a `reduce` of a record that is not a Dict or Set writes it whole), and
 takes `{ runner? }`. In an `edit`, repeated edits of one key fold, a `set` of the
 value a row already holds changes nothing, and a `delete` or `update` of a key
 the record does not hold is a conflict naming the key: the caller's view of the
-record is stale. `e3.mutation.editType(recordType)` is the type of `edit`.
+record is stale. `e3.mutation.editType(recordType)` is the type of `edit`. A
+mutation is named by its key, an identifier; a part's functions are typed by the
+record's type, so name the type (`PlansType`) to write them, in the declaration
+or beside it.
 
 ```typescript
 const PlanType = StructType({
   title: StringType, owner: StringType, due: DateTimeType, resources: SetType(StringType),
 });
-const plans = e3.record('plans', DictType(StringType, PlanType), new Map());
+const PlansType = DictType(StringType, PlanType);
 
-const addPlan = e3.mutation.reduce('add_plan', plans,
-  East.function([plans.type, StringType, PlanType], plans.type, ($, state, id, plan) => {
-    const next = $.let(state.copy());          // the state is frozen: copy first
-    $(next.insert(id, plan));
-    return next;
-  }));
-
-const reschedule = e3.mutation.edit('reschedule', plans,
-  East.function([plans.type, StringType, DateTimeType, e3.mutation.editType(plans.type)], NullType,
-    ($, state, id, due, edit) => {
-      const plan = $.let(state.get(id));       // decodes one segment, not the record
-      $(edit.set(id, { title: plan.title, owner: plan.owner, due, resources: plan.resources }));
-    }));
+const plans = e3.record('plans', PlansType, {
+  initial: new Map(),
+  mutations: (mutation) => ({
+    add_plan: mutation.reduce(East.function([PlansType, StringType, PlanType], PlansType, ($, state, id, plan) => {
+      const next = $.let(state.copy());          // the state is frozen: copy first
+      $(next.insert(id, plan));
+      return next;
+    })),
+    reschedule: mutation.edit(East.function([PlansType, StringType, DateTimeType, e3.mutation.editType(PlansType)], NullType,
+      ($, state, id, due, edit) => {
+        const plan = $.let(state.get(id));       // decodes one segment, not the record
+        $(edit.set(id, { title: plan.title, owner: plan.owner, due, resources: plan.resources }));
+      })),
+    patch: mutation.patch(),                     // a view's save
+  }),
+});
 ```
 
 Costs count in segments: a Dict or Set record is cut by key and by each entry's
@@ -571,61 +595,82 @@ encoded size, so wide rows get segments of a few rows and a one-row edit stays
 cheap. A view reads every field of the rows it shows, so keep a bulky payload it
 does not display in a second record keyed the same way.
 
-#### Secondary indexes — `e3.recordIndex(name, record, { on | key | keys, value? })`
+#### Secondary indexes — `index.on([...fields])`, `index.key(fn)`, `index.keys(fn)`
 
 A second collection over a Dict record, in another sort order, maintained in the
-same commit, so a view by an attribute is a page rather than a scan. `on`
-names row fields in index order: one field uses its value as the key, several
-use a Struct in that order, and a Set field gives an entry per element. It
-also carries field metadata for `Data.bindPaged(record, { indexes })` and
-`Slice.bindRecord` (see **e3-ui**). `key` gives one computed entry per row;
-`keys` returns a Set, one entry per element (a row
-naming five resources appears five times, an empty set not at all); `value` is a
-projection a view renders without touching the record. The functions are pure
-and synchronous, since an index maintained commit by commit must equal its
-rebuild to the byte. The name is an identifier, never `primary` (the record's own
-order). Read through one with `index=<name>` on a page or key search; `e3
+same commit, so a view by an attribute is a page rather than a scan.
+`index.on([...])` names row fields in index order: one field uses its value as
+the key, several use a Struct in that order, and a Set field gives an entry per
+element. It also carries field metadata for `Data.bindPaged(record, { indexes })`
+and `Slice.bindRecord` (see **e3-ui**). `index.key(fn)` gives one computed entry
+per row; `index.keys(fn)` returns a Set, one entry per element (a row naming five
+resources appears five times, an empty set not at all); the `value` option of
+each is a projection a view renders without touching the record. The functions
+are pure and synchronous, since an index maintained commit by commit must equal
+its rebuild to the byte. Its name — its key in `indexes` — is an identifier,
+never `primary` (the record's own order). Read through one with `index=<name>` on a page or key search; `e3
 reindex` rebuilds. A deploy builds an index the package declares and the state
 lacks, drops one it no longer declares, and runs nothing for the rest; a build
 is a split task over the record.
 
 ```typescript
-const byDue = e3.recordIndex('by_due', plans, { on: ['due'] });
-const byOwnerDue = e3.recordIndex('by_owner_due', plans, { on: ['owner', 'due'] });
-const byOwner = e3.recordIndex('by_owner', plans, {
-  key:   East.function([StringType, PlanType], StringType, ($, _id, plan) => plan.owner),
-  value: East.function([StringType, PlanType], StringType, ($, _id, plan) => plan.title),
+const plans = e3.record('plans', PlansType, {
+  initial: new Map(),
+  indexes: (index) => ({
+    by_due: index.on(['due']),
+    by_owner_due: index.on(['owner', 'due']),
+    by_owner: index.key(East.function([StringType, PlanType], StringType, ($, _id, plan) => plan.owner), {
+      value: East.function([StringType, PlanType], StringType, ($, _id, plan) => plan.title),
+    }),
+    by_resource: index.keys(East.function([StringType, PlanType], SetType(StringType), ($, _id, plan) => plan.resources)),
+  }),
+  mutations: (mutation) => ({ /* add_plan, reschedule, patch — above */ }),
 });
-const byResource = e3.recordIndex('by_resource', plans, {
-  keys: East.function([StringType, PlanType], SetType(StringType), ($, _id, plan) => plan.resources),
-});
-const pkg = e3.package('planning', '1.0.0',
-  plans, addPlan, reschedule, e3.mutation.patch(plans), byDue, byOwnerDue, byOwner, byResource);
+const pkg = e3.package('planning', '1.0.0', plans);   // the record whole: its indexes and mutations with it
 ```
 
-#### Interval and area indexes — `e3.recordIndex.interval`, `e3.recordIndex.area`
+#### Interval and area indexes — `index.interval`, `index.area`
 
 These indexes answer more than an order — as do the series and summary indexes
-below — each with a constructor of its own whose keys the SDK generates;
-`e3.recordIndex` refuses an `interval` option, naming its constructor. Underneath each is an ordinary index — the same build,
+below — each with a builder method of its own whose keys the SDK generates.
+Underneath each is an ordinary index — the same build,
 mutation, storage, paging and `e3 reindex` — and the record Slice reads a
 window through either (see **e3-ui**). Their generated keys are query
 machinery: edits and sessions always target the record's primary key.
 
-**`e3.recordIndex.interval(name, record, { on?, from, to })`** keeps events
-visible while they overlap a selected time window. `from` and `to` are the
-row's DateTime or Option<DateTime> fields; optional `on` fields are exact
-leading choices:
+A generated key is a struct whose own fields are e3's: `on` holds the
+declaration's leading fields, by their names, at their key types (a Set field's
+element type) — a struct with no fields when it lists none — and the kind's own
+parts sit beside it. So no name is reserved: a row may name a field anything,
+`area`, `tile` and `__area` among them, and an index may be led by it.
+
+| Index | Key | e3's parts |
+|---|---|---|
+| interval | `{ on, node, at }` | the tree node an entry is filed at; the instant it is ordered by, at the `from` field's type |
+| area | `{ on, area }` | the cell's Morton code times 32 plus its level; −1 for a row not yet placed |
+| series | `{ on, key, level, tile }` | the value of the field `key` names; the level an event is filed at, and the start of that level's tile (#1433) |
+| summary | `{ on, key, tile }` | the value of the field `key` names; the tile's start |
+
+A definition's `on` is the leading fields alone; its kind's options say the
+rest (`events.indexes.by_time.interval`, `racks.indexes.racks_by_area.area`,
+`jobs.indexes.jobs_by_press_week.series`).
+
+**`index.interval({ on?, from, to })`** keeps events visible while they
+overlap a selected time window. `from` and `to` are the row's DateTime or
+Option<DateTime> fields; optional `on` fields are exact leading choices:
 
 ```typescript
-const byTime = e3.recordIndex.interval('by_time', events, { from: 'start', to: 'end' });
-const byStatusTime = e3.recordIndex.interval('by_status_time', events, {
-  on: ['status'], from: 'start', to: 'end',
+const events = e3.record('events', EventsType, {
+  initial: new Map(),
+  indexes: (index) => ({
+    by_time: index.interval({ from: 'start', to: 'end' }),
+    by_status_time: index.interval({ on: ['status'], from: 'start', to: 'end' }),
+  }),
 });
 ```
 
-It stores at most three entries per event per leading-field combination,
-independent of duration. The record Slice adapter resolves a half-open
+Its key is `{ on, node, at }`. It stores at most three entries per event per
+leading-field combination, independent of duration. The record Slice adapter resolves a half-open
 `[from, to)` window with at most 55 disjoint bounded queries per exact prefix;
 each matching original record occurs once, including events that started
 earlier or span the whole window. It never scans the record or guesses a
@@ -641,17 +686,18 @@ primary key. Calendar's `Calendar.events(binding, { slice, entries, … })`
 requires a matching interval declaration and the primary `entries` binding to
 confirm saves even after an edit leaves the selected window.
 
-**`e3.recordIndex.area(name, record, { on?, x, y, width?, height?, at?, cell })`**
-reads the rows whose box meets a 2D window — what a floor plan's viewport
-shows — the interval index's twin:
+**`index.area({ on?, x, y, width?, height?, at?, cell })`** reads the rows
+whose box meets a 2D window — what a floor plan's viewport shows — the interval
+index's twin:
 
 ```typescript
-// racks: Dict<String, { hall: String, x: Option<Float>, y: Option<Float>, w: Float, h: Float }>
-const racksByArea = e3.recordIndex.area('racks_by_area', racks, {
-  x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01,
-});
-const racksByHallArea = e3.recordIndex.area('racks_by_hall_area', racks, {
-  on: ['hall'], x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01,
+// RacksType: Dict<String, { hall: String, x: Option<Float>, y: Option<Float>, w: Float, h: Float }>
+const racks = e3.record('racks', RacksType, {
+  initial: new Map(),
+  indexes: (index) => ({
+    racks_by_area: index.area({ x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 }),
+    racks_by_hall_area: index.area({ on: ['hall'], x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 }),
+  }),
 });
 ```
 
@@ -665,14 +711,13 @@ const racksByHallArea = e3.recordIndex.area('racks_by_hall_area', racks, {
 
 Each option takes only the row's fields of its type, so a wrong one does not
 compile, and the definition checks them again, naming the option, the field and
-its type; a row field named `__area` is refused, the name being the key's. The
-domain is the square ±`cell`·2²⁷ world units around zero (±1,048 km at a 0.01
-cell, which rounds to 2⁻⁷), in 29 levels. Each row is filed once, under the
-deepest level whose cell is at least twice its box's larger side, in the cell
-holding its box's centre: the key `{ …on, __area: Integer }`. A row not yet
-placed files under `__area` −1, which the record Slice reads as the unplaced
-clause; one outside the domain, not finite, or larger than half of it files
-under the root, which every window reads. The index **carries its rows**: each
+its type. The domain is the square ±`cell`·2²⁷ world units around zero
+(±1,048 km at a 0.01 cell, which rounds to 2⁻⁷), in 29 levels. Each row is
+filed once, under the deepest level whose cell is at least twice its box's
+larger side, in the cell holding its box's centre: the key
+`{ on, area: Integer }`. A row not yet placed files under `area` −1, which the
+record Slice reads as the unplaced clause; one outside the domain, not finite,
+or larger than half of it files under the root, which every window reads. The index **carries its rows**: each
 entry's projection is the whole row, so a window reads the index alone and no
 record segment, and it takes no `value`. The record Slice reads a viewport,
 grown by an eighth of its larger side on each side, as at most 266 disjoint
@@ -680,37 +725,45 @@ searches per exact prefix, sent in one request, which together hold every row
 whose box meets it, each once — beside rows of the cells searched that it
 misses, which the reader draws or not.
 
-#### Series and summary indexes — `e3.recordIndex.series`, `e3.recordIndex.summary`
+#### Series and summary indexes — `index.series`, `index.summary`
 
 What a planning board reads: the events on a block of keys — a Plan's
 resources — over a span of time, and, zoomed out past what a screen can draw,
-how busy each key is. Both file a row's event by the key it is on and by each
-time tile it touches — `day`, `week` (ISO, from Monday), `month`, `quarter` or
-`year`, in UTC, half-open — their key `{ …on, __tile, <key> }`. The tile leads
-the key, so a block of keys in one tile is one contiguous range:
+how busy each key is. Both file a row's event by the key it is on and by time
+tiles — `day`, `week` (ISO, from Monday), `month`, `quarter` or `year`, in UTC,
+half-open — the key before the time, so a key's entries over any span are
+contiguous: a series index's `{ on, key, level, tile }`, a summary index's
+`{ on, key, tile }`.
 
 ```typescript
-// jobs: Dict<String, { press: String, start: Option<DateTime>, end: Option<DateTime>, … }>
-const jobsByPressWeek = e3.recordIndex.series('jobs_by_press_week', jobs, {
-  key: 'press', from: 'start', to: 'end', tile: 'week',
-});
-const jobsByPressMonth = e3.recordIndex.summary('jobs_by_press_month', jobs, {
-  key: 'press', from: 'start', to: 'end', tile: 'month',
+// JobsType: Dict<String, { press: String, start: Option<DateTime>, end: Option<DateTime>, … }>
+const jobs = e3.record('jobs', JobsType, {
+  initial: new Map(),
+  indexes: (index) => ({
+    jobs_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+    jobs_by_press_month: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'month' }),
+  }),
 });
 ```
 
 | Option | |
 |---|---|
 | `key` | the field naming what an event is on: any field but a Set |
-| `from`, `to` | the event's start and end: DateTime or Option<DateTime> fields. A row with no start is in no tile; no end, or one at or before the start, is an instant, in the one tile holding it |
-| `tile` | `day`, `week`, `month`, `quarter` or `year` |
-| `on` | exact leading fields, before the tile; a Set field fans out |
+| `from`, `to` | the event's start and end: DateTime or Option<DateTime> fields. A row with no start is filed nowhere; no end, or one at or before the start, is an instant |
+| `tile` | a series index's finest level, and a summary index's tile: `day`, `week`, `month`, `quarter` or `year` |
+| `on` | exact leading fields, before the key; a Set field fans out |
 
-**A series index** is an ordinary index whose keys the SDK generates, an entry
-per tile an event touches, and it **carries its rows**, as the area index does:
-a block of keys over a span of tiles reads the index alone, a search a tile, in
-one request. **A summary index** holds, under each key, `{ count, ms }`: how
-many rows touch its tile, and the milliseconds of it they cover — a row's shares
+**A series index** is an ordinary index whose keys the SDK generates, and it
+**carries its rows**, as the area index does. It files each event **once**, at
+the finest level from its `tile` up to the year whose shortest tile holds the
+event's length — a day, a week, 28 days, 90 days, 365 days — under that level's
+tile holding its start; an instant at `tile`; past 365 days, under each year it
+touches. An event filed at a level ends within the tile after the one holding
+its start, so a reader reads a block of keys over any span from the index alone
+as one range a key a level — that level's tiles from two before the span to one
+after it — in one request, whatever the span's width. **A summary index** holds,
+under each key and tile, `{ count, ms }`: how many rows touch the tile, and the
+milliseconds of it they cover — a row's shares
 add up to its length, and an instant's is none. Each entry stands for every row
 of its key and names none, so its window's `key` is Null, a read of it joins
 nothing, and a read that needs its rows — a joined read, a placement
@@ -725,25 +778,150 @@ count below zero, or time with no row — fails the write, naming the total and
 `e3 reindex`, which rebuilds it; a total past the largest Integer fails the
 write or the build, naming a finer tile.
 
-An event touching more than 4,096 tiles — eleven years of days — is refused
-where it is written, naming it, its span and the tile: declare a coarser tile.
-Each option takes only the row's fields of its type, as the area index's do,
-and the definition checks them again; a row field named `__tile` is refused, the
-name being the key's, and so are a `value` and an `on` field that is the key,
-the start or the end: the key follows the tile, and the tiles are cut by the
-start and the end.
+A series index files an event past a year under each year it touches, as many
+as 4,096: one touching more is refused where it is written, naming it and its
+span. A summary splits an event over its tiles, as many as 4,096 — eleven years
+of days — and one touching more is refused the same way, naming the tile:
+declare a coarser tile. Each option takes only the row's fields of its type, as
+the area index's do, and the definition checks them again; a `value` is
+refused, and so is an `on` field that is the key, the start or the end: the key
+follows the leading fields, and the tiles are cut by the start and the end.
+
+#### Nested series indexes — `index.nested`
+
+What a planning board reads when a record's rows nest what it draws: a
+machine's jobs and its load a day at a time, a hall's members, an assembly's
+parts to any depth. One declaration a record lists every collection its rows
+nest, each field with a builder saying what it holds. e3 files each item apart
+from its row — once, by its collection, its row, its node and its time — keeps
+each node's totals a summary tile at a time, and each parent's subtotals at
+every level; and the record's other indexes carry the rows without those
+collections, so a page of rows reads none of them and a window of items reads
+no row.
+
+```typescript
+// MachinesType: Dict<String, { name, site, status, jobs: Dict<String, Job>, load: Dict<DateTime, Float> }>
+const machines = e3.record('machines', MachinesType, {
+  initial: new Map(),
+  indexes: (index) => ({
+    machines_in_time: index.nested({
+      collections: {
+        jobs: index.nested.items({ from: 'start', to: 'end' }),  // things people drag: by id, their times fields
+        load: index.nested.values(),                              // a value per instant: keyed by the instant
+      },
+      tile: 'week',
+      summary: 'month',
+    }),
+    machines_by_site: index.on(['site']),                         // pages each machine without its jobs and load
+  }),
+});
+// Each member's load, and each hall's mean of its members', at every level from the day up.
+const halls = e3.record('halls', HallsType, {
+  indexes: (index) => ({
+    halls_in_time: index.nested({
+      collections: { members: index.nested.rows({ load: index.nested.values({ rollup: 'mean' }) }) },
+      tile: 'day',
+      summary: 'month',
+    }),
+  }),
+});
+// Parts to any depth, each part's jobs filed under every part above it too.
+const assemblies = e3.record('assemblies', AssembliesType, {
+  indexes: (index) => ({
+    assemblies_in_time: index.nested({
+      collections: {
+        parts: index.nested.rows({
+          jobs: index.nested.items({ from: 'start', to: 'end' }, { rollup: true }),
+          parts: index.nested.recursive(),
+        }),
+      },
+      tile: 'week',
+      summary: 'month',
+    }),
+  }),
+});
+```
+
+| Builder (`index.nested.…`) | A field holding |
+|---|---|
+| `items({ from, to })`, `items({ at })` | `Dict<String, Struct>`: things people drag, by id; their times are DateTime or Option<DateTime> fields — no start files an item nowhere, no end (or one at or before its start) makes it an instant. `{ rollup: true }` files each under every ancestor too |
+| `values({ rollup? })` | `Dict<DateTime, V>`: a value per instant. `rollup` keeps every parent's subtotals |
+| `rows({ … })` | `Dict<String, Struct>`: child rows, their own collections declared the same way |
+| `recursive()` | `Dict<String, Self>`: more rows like the one listing it, to any depth |
+
+TypeScript types `collections` field by field from the record's type alone: a
+misnamed time, or a builder on the wrong kind of field, is an error where it is
+written, and its message says what fits. The definition checks the same again,
+in words, for a declaration TypeScript could not see. A record has one nested
+series index, which takes no `on` and no `value`.
+
+**What it files.** Every entry is keyed `{ collection, row, path, run, level,
+tile, item }` (e3-types' `NestedEntryKeyType`): the collection's place, the
+field names from the row down (`members` then `load`); the row's key; the Dict
+keys from the row down to the node (`[]` for the row, `m-3` for a member); the
+run; the level and tile; and the item. A place and a path are held as a key
+holds a list, folded from the last: `.step (key="members", rest=.step
+(key="load", rest=.end))`. Each run of a node is one contiguous range a level:
+
+| Run | Holds |
+|---|---|
+| `items` | each item once, as a series index files an event — at the level its length fits, past a year under each year — carrying it (`.item .jobs (…)`); a value, and an `{ at }` item, at the declared tile alone |
+| `totals` | where `summary` is declared, each node's `{ count, ms, values }` a summary tile at a time; for a Float or Integer collection, `values` is the sum, the least, the greatest and the last there, taken in key order |
+| `subtotals(rollup)` | for `values({ rollup })`, every parent's subtotal by each rollup at each level from `tile` to the year, where a descendant's value touches the tile: a node holding values folds its own, a parent aggregates its children's, in key order |
+| `subtree`, `subtreeTotals` | for `items(…, { rollup: true })`, each item under every ancestor too, `.under (path, id)`, and each ancestor's totals of them |
+
+A rollup is `'sum'`, `'mean'` (a mean of means up the tree), `'min'`, `'max'`,
+`'count'` (the leaf rows beneath that hold a value), a fold and an aggregate
+named apart (`{ fold: 'last', aggregate: 'sum' }`, a balance), or several.
+
+**Reading.** A reader searches the index's leading fields — `[collection, row,
+path, run, level, tile]`, each as East prints it — as a range a row a level: a
+block of fifty machines' jobs over three weeks is fifty times four ranges in one
+`datasetFindKeys` request, and one `datasetGetRuns` read of the entries they
+select, each job carried whole; a parent's week subtotals are one range; a
+part's subtree is one range a level.
+
+**The lean rows.** Beside a nested series index, every other index of the
+record that carries nothing or the row carries the row without the listed
+collections — each listed collection empty, child rows kept with theirs empty —
+so a page of rows read without a join reads no nested item and no segment of
+the record's own. An index with a `value` of its own carries its own. A
+binding of the record's indexes lists the nested index by name beside any that
+carry the lean rows — `Data.bindPaged(machines, { indexes: ['machines_by_site',
+'machines_in_time'] })` (see **e3-ui**).
+
+**Its span.** Beside every nested series index e3 keeps its span, an index of
+the record's named `<index>_span` (e3-types' `nestedSpanName`), built with it
+and never declared: under each collection's place and each month its items or
+values touch (`NestedSpanKeyType`, `{ collection, tile }`), how many of them
+touch it and the milliseconds of it its items cover, summed across the rows as a
+summary index's totals are, and a month let go once nothing touches it. A
+collection's first and last month held are its span across the record — what a
+Plan's horizon covers for the series reading it — and its months' counts are
+how much it holds in each, which the horizon's strip draws as its bars (see
+**e3-ui**). Reading it is one search a collection, an exact match on its
+place, and one read of the first and last entry of each. An index the record
+declares under that name is refused.
+
+**Writes.** A row a write updates by a patch is maintained by the patch: e3
+walks it along the declaration — each collection's Dict patch, and each child
+rows' — and compares the entries of only the items it names, with the totals of
+the summary tiles they touch and the subtotals of the tiles they touch at each
+level. A replace on the way, which a recursive type's patch always is, and an
+inserted or deleted row are compared whole. Both ways give the same delta, and a maintained
+index is the one `e3 reindex` rebuilds, byte for byte.
 
 #### Migrations — how a record's type changes
 
 | Form | Function | Runs as |
 |---|---|---|
-| `e3.migration.value(name, rec, fn, { after? })` | `(Old) => New`, over any record | one unit; its runner opens the state lazily |
-| `e3.migration.rows(name, rec, fn, { after? })` | a Dict's rows, `(K, V1) => V2` with the keys kept, or an Array's elements, `(T1) => T2` | a task split over the state: a piece at a time, in parallel, each piece cached |
-| `e3.migration.rekey(name, rec, fn, { after? })` | a Dict's entries, `(K1, V1) => { key: K2, value: V2 }`, or a Set's elements, `(T1) => T2` | the same split task, its pieces merged by key: two Dict rows landing on one key fail the deploy, naming it; two Set elements are one |
+| `migration.value(name, fn)` | `(Old) => New`, over any record | one unit; its runner opens the state lazily |
+| `migration.rows(name, fn)` | a Dict's rows, `(K, V1) => V2` with the keys kept, or an Array's elements, `(T1) => T2` | a task split over the state: a piece at a time, in parallel, each piece cached |
+| `migration.rekey(name, fn)` | a Dict's entries, `(K1, V1) => { key: K2, value: V2 }`, or a Set's elements, `(T1) => T2` | the same split task, its pieces merged by key: two Dict rows landing on one key fail the deploy, naming it; two Set elements are one |
 
-A record's steps are one chain: each names the step before it with `after` (a
-step of the same record, leaving it as this step's input type), passing the last
-step passes the chain, and the last step leaves the record as its declared type.
+A record's steps are one chain: the list `migrations` returns, in order, each
+step taking the record as the step before it leaves it, and the last leaving it
+as its declared type — each checked where the record is declared.
 A step's name is an identifier, unique on the record, and a workspace records the
 steps it has applied by name — so moving a step's code, or re-exporting it with a
 newer e3, does not run it again, and an edit to an applied step's body is not
@@ -752,12 +930,14 @@ detected. The functions are pure, synchronous East.
 ```typescript
 const RowV1Type = StructType({ title: StringType });
 const RowV2Type = StructType({ title: StringType, owner: StringType });
-const plans = e3.record('plans', DictType(StringType, RowV2Type), new Map());
-
-const addOwner = e3.migration.rows('add_owner', plans,
-  East.function([StringType, RowV1Type], RowV2Type, ($, _id, row) => ({ title: row.title, owner: 'unassigned' })));
-// The next version adds its step after this one: e3.migration.value('…', plans, fn, { after: addOwner })
-const pkg = e3.package('planning', '2.0.0', plans, addOwner);
+const plans = e3.record('plans', DictType(StringType, RowV2Type), {
+  initial: new Map(),
+  migrations: (migration) => [
+    migration.rows('add_owner', East.function([StringType, RowV1Type], RowV2Type, ($, _id, row) => ({ title: row.title, owner: 'unassigned' }))),
+    // The next version adds its step here, after this one.
+  ],
+});
+const pkg = e3.package('planning', '2.0.0', plans);
 ```
 
 What a deploy does with each record, decided before it writes anything:
@@ -920,7 +1100,7 @@ naming the holder: its pid, boot id, command and when it took the lock.
 |---|---|
 | Repositories | `repoList(url, opts)`, `repoCreate(url, name, opts)`, `repoRemove(url, name, opts)`, `repoStatus(url, repo, opts)`, `repoRecord` (its release and upgrades), `repoGc(url, repo, gcRequest, opts)` — a job it polls; `repoGcStart` and `repoGcStatus` apart |
 | Packages | `packageList(url, repo, opts)`, `packageGet(url, repo, name, version, opts)`, `packageImport(url, repo, zipBytes, opts)`, `packageExport(url, repo, name, version, opts)` → zip bytes, `packageRemove` |
-| Workspaces | `workspaceList`, `workspaceCreate(url, repo, ws, opts)`, `workspaceCopy(url, repo, from, to, opts)` → the target, made or replaced whole, `workspaceGet`, `workspaceStatus(url, repo, ws, opts, { paths? })` — the whole workspace's, or the datasets named and the tasks producing them, `workspaceStatusSince(url, repo, ws, etag, opts, { paths? })` → `{ status, etag }`, or `null` while the status answered under `etag` is current (a poll sends the last answer's tag back; `null` asks in full), `workspaceLockStatus(url, repo, ws, opts)` → what holds the workspace and how far it says it has got (a deploy's files and records), or `null`, `workspaceRemove`, `workspaceDeploy(url, repo, ws, 'pkg@ver', opts, { schema?, inputs?, allowDropRecords?, plan?, onProgress? })` — a job it polls, whose progress while `deploying` is the deploy's own, answering what it did with each record, index and input, `workspaceExport(url, repo, ws, opts, { name?, version? })` → zip bytes. A poll's request takes `pollRequestOptions(opts)`: one attempt, its next poll being its retry |
+| Workspaces | `workspaceList`, `workspaceCreate(url, repo, ws, opts)`, `workspaceCopy(url, repo, from, to, opts)` → the target, made or replaced whole, `workspaceBundle(url, repo, ws, opts)` → the workspace as it is, as a bundle's bytes — its package, every dataset's ref, the executions its tasks' outputs come from, and every object those reach — and `workspaceBundleImport(url, repo, ws, bundle, opts)` → the workspace made from one under a name no workspace has, in another repository or another e3 (`workspace_exists`, `package_exists`, `bundle_invalid`), its tasks up to date with no run; a host mounts these routes where a bundle fits in a request: the local server, and e3-web, `workspaceGet`, `workspaceStatus(url, repo, ws, opts, { paths? })` — the whole workspace's, or the datasets named and the tasks producing them, `workspaceStatusSince(url, repo, ws, etag, opts, { paths? })` → `{ status, etag }`, or `null` while the status answered under `etag` is current (a poll sends the last answer's tag back; `null` asks in full), `workspaceLockStatus(url, repo, ws, opts)` → what holds the workspace and how far it says it has got (a deploy's files and records), or `null`, `workspaceRemove`, `workspaceDeploy(url, repo, ws, 'pkg@ver', opts, { schema?, inputs?, allowDropRecords?, plan?, onProgress? })` — a job it polls, whose progress while `deploying` is the deploy's own, answering what it did with each record, index and input, `workspaceExport(url, repo, ws, opts, { name?, version? })` → zip bytes. A poll's request takes `pollRequestOptions(opts)`: one attempt, its next poll being its retry |
 | Datasets | `datasetGet(url, repo, ws, path, opts)` → `{ data, hash, size }` (a collection downloads as its segments), `datasetGetStream`, `datasetGetPage(…, window, opts)`, `datasetFindKey(…, query, opts)`, and several reads in one request (at most `DATASET_BATCH_MAX`, 10,000, each at one content hash, in a body of at most 16 MiB: a larger one is refused 413, `payload_too_large`): `datasetFindKeys(…, { queries, index?, hash? }, opts)` — key searches, `datasetGetRows(…, { keys, hash? }, opts)` — a Dict's rows by `.east` key, each with its position — or `datasetGetRows(…, { keysOf: { path, index, runs, hash }, hash? }, opts)`, by the keys the entries of some runs of another record's index name, which the server reads from the index so none is sent (a drawing's details for its window's cells), a stale `keysOf.hash` thrown as `RunsHashMismatchError` naming the record's content — and `datasetGetRuns(…, { runs, hash, index?, join? }, opts)` — the entries of several runs as one window, a rows or runs answer holding the first `count` the page budget reaches (by runs, of `runEntries`); and where a narrowing's rows sit in a record, from its index alone: `datasetPlace(…, { index, runs, offset?, limit?, hash }, opts)` → `{ segments, placed, runEntries, totalElements, hash }` — how many of the runs' entries each record segment holds (`{ segment, offset, count, rows }`), for the first `placed` of a window from `offset` (the next window from `offset + placed`), and `datasetWithin(…, { index, runs, keys, hash }, opts)` → `{ within, hash }` — whether each index entry key (`(ik=…, k=…)`) lies in one of the runs, `datasetSet(url, repo, ws, path, beast2Bytes, opts)`, `datasetSetStream(url, repo, ws, path, { size, hash, slice }, opts, { onCommitProgress? })` — a file of any size, the server's commit saying how far it has taken it in, `datasetList`, `datasetListAt`, `datasetListRecursive`, `datasetListWithStatus`, `datasetGetStatus` |
 | Runs and tasks | `dataflowExecute(url, repo, ws, { force?, filter? }, opts, { pollInterval?, timeout? })` → the result (or `dataflowExecuteLaunch` and `dataflowExecutePoll`) — `force` is `true` or the names of the tasks to re-run, `filter` one task's exact name, `dataflowCancel` — with nothing running, `dataflow_error` ("No active execution for this workspace"), `dataflowGraph`, `dataflowBudget`, `taskList`, `taskGet`, `taskExecutionList(url, repo, ws, task, opts, { limit?, before? })` — a page of the task's runs, the latest first, each naming its `executionId`, the next page the runs `before` the last one's (100 a page unless `limit` says, 1,000 at most), `taskLogs(url, repo, ws, task, { stream?, offset?, limit?, execution? }, opts)` — a chunk of the log of the task's current execution, or of the one `execution` names (`{ inputsHash, executionId }`), the chunk naming its execution and whether it has `ended` |
 | Functions | `functionList`, `functionDescribe`, `functionCall(url, repo, pkg, version, fn, { args, runner, limits }, opts)` — each argument `variant('value', beast2Bytes)`; the function runs on its own runner for any caller (`runner: none`); a runner the call names is never `custom`, and loads a platform package the function's does not only for an elevated caller; `workspaceFunctionList`, `…Describe`, `…Call(url, repo, ws, fn, request, opts)` — where an argument may also be `variant('dataset', path)`, a dataset of the workspace pinned at its hash, which the result names (`inputs`); `oneShotExecute` — a reader runs a platform-free one (stock runner, `platforms: []`, no platform call), and its result names the datasets it read (`inputs`); `splitCall(url, repo, ws, { bodyIr, args, output, then, runner, limits }, opts, { onProgress? })` — a program over a dataset's pieces, as a job it polls, under the same rule (or `splitCallLaunch`, `splitCallStatus` and `splitCallExplain`) |
@@ -935,7 +1115,7 @@ takes a runner, `new LocalTaskRunner(repo)`.
 |---|---|
 | Repositories | `repoInit(path)`, `repoFind(startPath?)`, `repositoryOpen(storage, repo)` (checks the repository and applies the upgrades it owes), `repositoryUpgradeStep(storage, repo, { budgetMs, waitMs? })` → `{ owed }` — a host's job applies them so, a part per run under its time limit, each part taking a step up where the last stopped, `repoGc(storage, repo, { dryRun?, minAge?, keepRuns?, keepDays?, retention?, executionAlive? })` — holding the repository still, or, with `retention: { windowMs }`, beside running work: an object goes once unreachable for the window and not written or re-referenced since; given a runner's `executionAlive`, an attempt recorded running that cannot finish is recorded interrupted and pruned; `repoGcStep(storage, repo, step, { windowMs, pruneMs?, markMs?, concurrency?, executionAlive?, … })` runs that one step at a time, each returning the next (`GcStepType`), `pruneMs` and `markMs` bounding a prune step and a mark step for a host with a time limit |
 | Packages | `packageImport(storage, repo, zipPath)`, `packageExport(storage, repo, name, version, zipPath)`, `packageList`, `packageRemove` |
-| Workspaces | `workspaceCreate(storage, repo, ws)`, `workspaceCopy(storage, repo, from, to)`, `workspaceDeploy(storage, repo, ws, pkgName, pkgVersion, options?)` (`runner`: its migrations, index builds and intake units; `schema` and `inputs`: its policies; `onRecordPlan`, `onRecordIndex`, `onInputPlan`: what it decided; `sourceConcurrency`: the `file` sources taken in at once; `onSourceProgress`, `onDeployProgress`: how far it has got), `workspaceExport(storage, repo, ws, zipPath, name?, version?)`, `workspaceStatus(storage, runner, repo, ws)`, `workspaceStatusRevision(storage, repo, ws)` — a token that moves whenever the status might, which the API's `ETag` names, `workspaceLockStatus(storage, repo, ws)`, `workspaceListStates(storage, repo)` — every workspace with its state in one read of the store, `workspaceRemove(storage, repo, ws, { sweep? })` — the record and what a store removes at once go in one call, and the rest is swept in bounded batches unless `sweep: false` leaves them to `workspaceSweep(storage, repo, cursor?)`, which a host with a time limit runs from a job |
+| Workspaces | `workspaceCreate(storage, repo, ws)`, `workspaceCopy(storage, repo, from, to)`, `workspaceBundleExport(storage, repo, ws, writable, { have? })` — the workspace as a bundle to a WHATWG stream, leaving out the objects `have` says the receiving repository holds — and `workspaceBundleImport(storage, repo, ws, source)` — the workspace made from a bundle (a stream or chunks) under a name no workspace has, its objects stored as they come and its refs and record written once the repository holds everything they name, `workspaceDeploy(storage, repo, ws, pkgName, pkgVersion, options?)` (`runner`: its migrations, index builds and intake units; `schema` and `inputs`: its policies; `onRecordPlan`, `onRecordIndex`, `onInputPlan`: what it decided; `sourceConcurrency`: the `file` sources taken in at once; `onSourceProgress`, `onDeployProgress`: how far it has got), `workspaceExport(storage, repo, ws, zipPath, name?, version?)`, `workspaceStatus(storage, runner, repo, ws)`, `workspaceStatusRevision(storage, repo, ws)` — a token that moves whenever the status might, which the API's `ETag` names, `workspaceLockStatus(storage, repo, ws)`, `workspaceListStates(storage, repo)` — every workspace with its state in one read of the store, `workspaceRemove(storage, repo, ws, { sweep? })` — the record and what a store removes at once go in one call, and the rest is swept in bounded batches unless `sweep: false` leaves them to `workspaceSweep(storage, repo, cursor?)`, which a host with a time limit runs from a job |
 | Datasets | `workspaceGetDataset(storage, repo, ws, treePath)`, `workspaceSetDataset(storage, repo, ws, treePath, value, type)`, `datasetAdoptFile(storage, repo, ws, treePath, file, { runner, onProgress? })` → `{ hash, size, segments, rows, taken, runners? }`, `taken` being `known`, `carried` or `taken` (by the `runners` named); `deliveryAdoptStored(storage, repo, ws, { address, type }, sha256, { runner?, onProgress?, signal? })` — a delivery the store holds taken in as a stored value of the type, naming no dataset, for a record's first state |
 | Runs | `dataflowExecute(storage, repo, ws, options?)`; `LocalOrchestrator` to start, poll and cancel a run |
 | Records | `recordMutate(storage, runner, repo, ws, record, mutation, args, { actor })`, `recordHistory`, `recordDescribe`, `recordCompact`, `recordReindex`; `recordSystemCommit(storage, runner, repo, ws, record, { name, target, actor, args? })` — `$rollback` to a commit, `$restore` of a state at the record's migrations, and `$init` on a record declared with no initial value: its first state, from a stored value, with the whole chain applied |
@@ -1007,6 +1187,7 @@ package is served beside the standard ones:
 | `serveE3` option | Default | Effect |
 |---|---|---|
 | `units` | — | starts a unit worker: a Web Worker whose script calls `serveUnits()` |
+| `width` | the cores | the most units that run at once, and so the most unit workers, each with a heap of its own |
 | `persist` | `true` | `false` keeps repositories in memory, gone with the page |
 | `name` | `'e3'` | the storage's name: e3 workers of one name share their repositories, in one tab or several |
 | `identify` | none | each request's caller, `{ sub, email?, roles }`, from the request; a request to a repository whose caller it does not identify is answered 401. None: the page's one caller may do everything |

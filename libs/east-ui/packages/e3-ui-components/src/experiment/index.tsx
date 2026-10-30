@@ -531,7 +531,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
             {rows.map((r, i) => (
                 <Box key={i} css={bs.row}>
                     <Text css={bs.label} textStyle="mono.sm" color="fg.default" truncate>{r.label}</Text>
-                    <Box css={bs.track}><Box css={bs.fill} width={`${Math.round(r.frac * 100)}%`} bg={toneFill(r.tone)} /></Box>
+                    <Box css={bs.track}><Box css={bs.fill} style={{ width: `${Math.round(r.frac * 100)}%` }} bg={toneFill(r.tone)} /></Box>
                     <Text css={bs.value}>{r.value}</Text>
                 </Box>
             ))}
@@ -652,7 +652,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                                         <Text textStyle="caption" lineHeight="1.35" mt="px">{c.reason}</Text>
                                     </Box>
                                     <Box>
-                                        <Box css={bs.track}><Box css={bs.fill} width={`${Math.round(c.imbalance * 100)}%`} bg={toneFill(c.tone)} /></Box>
+                                        <Box css={bs.track}><Box css={bs.fill} style={{ width: `${Math.round(c.imbalance * 100)}%` }} bg={toneFill(c.tone)} /></Box>
                                         <Text textStyle="caption.eyebrow" fontSize="9px" textAlign="center" mt="1.5"><Help id="confounder_imbalance">{c.level}</Help></Text>
                                     </Box>
                                     {!readonly && (
@@ -1097,8 +1097,8 @@ function ValidatePanel({ vm, barList, words }: {
                 <Box css={meter.root} flex="1" minW="220px">
                     <Text css={meter.label}><Help id="validate_split">{vm.holdback ? 'Hold-back split' : 'Split'}</Help></Text>
                     <Box css={meter.track}>
-                        <Box css={meter.segment} flex={vm.primary.treatedShare} bg="brand.solid" />
-                        <Box css={meter.segment} flex={1 - vm.primary.treatedShare} bg="fg.faint" />
+                        <Box css={meter.segment} style={{ flex: vm.primary.treatedShare }} bg="brand.solid" />
+                        <Box css={meter.segment} style={{ flex: 1 - vm.primary.treatedShare }} bg="fg.faint" />
                     </Box>
                     <Box css={meter.keyRow} justifyContent="space-between">
                         <Box css={meter.keyItem}>

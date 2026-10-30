@@ -45,8 +45,8 @@ export function RecordSliceBrush({ slice }: { slice: ValueTypeOf<RecordSliceBind
         try { action(); setError(undefined); } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not apply this range"); }
     };
     return <Box css={frame.brushStack} data-record-slice-brush="">
-        <BrushStrip counts={undefined} window={window !== undefined && to > from ? { from, to } : undefined}
-            height={18} barHeight={9} onCommit={(lo, hi) => run(() => {
+        <BrushStrip window={window !== undefined && to > from ? { from, to } : undefined}
+            height={18} barHeight={14} valueText={(f) => label(at(f))} onCommit={(lo, hi) => run(() => {
                 const a = domain.kind === "float" ? at(lo) : Math.floor(at(lo));
                 const b = domain.kind === "float" ? at(hi) : Math.max(a + 1, Math.ceil(at(hi)));
                 setRecordSliceWindow(slice, a, b);

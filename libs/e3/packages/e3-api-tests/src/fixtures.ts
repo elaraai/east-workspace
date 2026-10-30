@@ -15,10 +15,11 @@ import { join } from 'node:path';
 
 import e3, { type PackageDef } from '@elaraai/e3';
 import {
-  ArrayType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, SetType, StringType, StructType, OptionType, East, variant,
-  some, none,
+  ArrayType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, RecursiveType, SetType, StringType, StructType, OptionType,
+  East, variant, some, none,
 } from '@elaraai/east';
 import { Console, Time } from '@elaraai/east-node-std';
+import { RecordLevelType } from '@elaraai/e3-types';
 
 /**
  * Create a simple compute package for testing.
@@ -165,23 +166,19 @@ export async function createRecordPackageZip(
 ): Promise<string> {
   mkdirSync(tempDir, { recursive: true });
 
-  const counter = e3.record('counter', IntegerType, 0n);
-  const increment = e3.mutation.reduce(
-    'increment',
-    counter,
-    East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))
-  );
-  const addPositive = e3.mutation.reduce(
-    'add_positive',
-    counter,
-    East.function([IntegerType, IntegerType], IntegerType, ($, state, by) =>
-      East.less(by, 1n).ifElse(
-        ($) => $.error('amount must be positive'),
-        ($) => state.add(by)
-      )
-    )
-  );
-  const pkg = e3.package(name, version, counter, increment, addPositive);
+  const counter = e3.record('counter', IntegerType, {
+    initial: 0n,
+    mutations: (mutation) => ({
+      increment: mutation.reduce(East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))),
+      add_positive: mutation.reduce(East.function([IntegerType, IntegerType], IntegerType, ($, state, by) =>
+        East.less(by, 1n).ifElse(
+          ($) => $.error('amount must be positive'),
+          ($) => state.add(by)
+        )
+      )),
+    }),
+  });
+  const pkg = e3.package(name, version, counter);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);
@@ -217,45 +214,50 @@ export async function createKeyedRecordPackageZip(
 ): Promise<string> {
   mkdirSync(tempDir, { recursive: true });
 
-  const plans = e3.record('plans', PlansType, new Map());
-  const seed = e3.mutation.reduce('seed', plans,
-    East.function([PlansType, IntegerType], PlansType, ($, _state, rows) => {
-      const out = $.let(new Map(), PlansType);
-      $.for(East.Array.range(0n, rows), ($, i) => {
-        const status = $.let('ok');
-        $.if(East.equal(i.remainder(3n), 0n), ($) => {
-          $.assign(status, 'late');
+  const plans = e3.record('plans', PlansType, {
+    initial: new Map(),
+    indexes: (index) => ({
+      by_status: index.key(East.function([StringType, PlanRowType], PlanStatusKeyType,
+        ($, _k, v) => ({ status: v.status, due: v.due })), { value: East.function([StringType, PlanRowType], StringType, ($, _k, v) => v.title) }),
+    }),
+    mutations: (mutation) => ({
+      seed: mutation.reduce(East.function([PlansType, IntegerType], PlansType, ($, _state, rows) => {
+        const out = $.let(new Map(), PlansType);
+        $.for(East.Array.range(0n, rows), ($, i) => {
+          const status = $.let('ok');
+          $.if(East.equal(i.remainder(3n), 0n), ($) => {
+            $.assign(status, 'late');
+          });
+          $(out.insert(East.str`p-${i}`, { status, due: i, title: East.str`Plan ${i}` }));
         });
-        $(out.insert(East.str`p-${i}`, { status, due: i, title: East.str`Plan ${i}` }));
-      });
-      return out;
-    }));
-  const retitle = e3.mutation.edit('retitle', plans,
-    East.function([PlansType, StringType, e3.mutation.editType(PlansType)], NullType, ($, state, key, edit) => {
-      const row = $.let(state.get(key));
-      $(edit.set(key, { status: row.status, due: row.due, title: 'RETITLED' }));
-    }));
-  const byStatus = e3.recordIndex('by_status', plans, {
-    key: East.function([StringType, PlanRowType], PlanStatusKeyType,
-      ($, _k, v) => ({ status: v.status, due: v.due })),
-    value: East.function([StringType, PlanRowType], StringType, ($, _k, v) => v.title),
+        return out;
+      })),
+      retitle: mutation.edit(East.function([PlansType, StringType, e3.mutation.editType(PlansType)], NullType, ($, state, key, edit) => {
+        const row = $.let(state.get(key));
+        $(edit.set(key, { status: row.status, due: row.due, title: 'RETITLED' }));
+      })),
+      patch: mutation.patch(),
+    }),
   });
   // Nullable String paths must support the same bounded prefix search as
   // String paths. This small companion record leaves the segmented plans
   // fixture's row type and index-count assertions unchanged.
   const Contact = StructType({ group: StringType, name: OptionType(StringType) });
-  const contacts = e3.record('contacts', DictType(StringType, Contact), new Map([
-    ['a', { group: 'east', name: none }],
-    ['b', { group: 'east', name: some('Ada') }],
-    ['c', { group: 'east', name: some('Adam') }],
-    ['d', { group: 'east', name: some('Bea') }],
-    ['e', { group: 'west', name: some('Ada') }],
-    ['f', { group: 'east', name: some('Élodie') }],
-  ]));
-  const byName = e3.recordIndex('by_name', contacts, { on: ['name'] });
-  const byGroupName = e3.recordIndex('by_group_name', contacts, { on: ['group', 'name'] });
-  const pkg = e3.package(name, version, plans, seed, retitle, e3.mutation.patch(plans), byStatus,
-    contacts, byName, byGroupName);
+  const contacts = e3.record('contacts', DictType(StringType, Contact), {
+    initial: new Map([
+      ['a', { group: 'east', name: none }],
+      ['b', { group: 'east', name: some('Ada') }],
+      ['c', { group: 'east', name: some('Adam') }],
+      ['d', { group: 'east', name: some('Bea') }],
+      ['e', { group: 'west', name: some('Ada') }],
+      ['f', { group: 'east', name: some('Élodie') }],
+    ]),
+    indexes: (index) => ({
+      by_name: index.on(['name']),
+      by_group_name: index.on(['group', 'name']),
+    }),
+  });
+  const pkg = e3.package(name, version, plans, contacts);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);
@@ -302,28 +304,36 @@ export async function createBatchReadsPackageZip(
 ): Promise<string> {
   mkdirSync(tempDir, { recursive: true });
 
-  const items = e3.record('items', ItemsType, new Map());
-  const seed = e3.mutation.reduce('seed', items,
-    East.function([ItemsType, IntegerType], ItemsType, ($, _state, rows) => {
-      const out = $.let(new Map(), ItemsType);
-      $.for(East.Array.range(0n, rows), ($, i) => {
-        $(out.insert(East.str`item-${i}`, { group: East.str`g${i.remainder(5n)}`, rank: i, label: East.str`Item ${i}` }));
-      });
-      return out;
-    }));
-  const byGroup = e3.recordIndex('by_group', items, { on: ['group', 'rank'] });
-  const notes = e3.record('item_notes', ItemNotesType, new Map());
-  const seedNotes = e3.mutation.reduce('seed_notes', notes,
-    East.function([ItemNotesType, IntegerType], ItemNotesType, ($, _state, rows) => {
-      const out = $.let(new Map(), ItemNotesType);
-      $.for(East.Array.range(0n, rows), ($, i) => {
-        $.if(East.equal(i.remainder(3n), 0n), ($) => {
-          $(out.insert(East.str`item-${i}`, { note: East.str`Note ${i}` }));
+  const items = e3.record('items', ItemsType, {
+    initial: new Map(),
+    indexes: (index) => ({
+      by_group: index.on(['group', 'rank']),
+    }),
+    mutations: (mutation) => ({
+      seed: mutation.reduce(East.function([ItemsType, IntegerType], ItemsType, ($, _state, rows) => {
+        const out = $.let(new Map(), ItemsType);
+        $.for(East.Array.range(0n, rows), ($, i) => {
+          $(out.insert(East.str`item-${i}`, { group: East.str`g${i.remainder(5n)}`, rank: i, label: East.str`Item ${i}` }));
         });
-      });
-      return out;
-    }));
-  const pkg = e3.package(name, version, items, seed, byGroup, notes, seedNotes);
+        return out;
+      })),
+    }),
+  });
+  const notes = e3.record('item_notes', ItemNotesType, {
+    initial: new Map(),
+    mutations: (mutation) => ({
+      seed_notes: mutation.reduce(East.function([ItemNotesType, IntegerType], ItemNotesType, ($, _state, rows) => {
+        const out = $.let(new Map(), ItemNotesType);
+        $.for(East.Array.range(0n, rows), ($, i) => {
+          $.if(East.equal(i.remainder(3n), 0n), ($) => {
+            $(out.insert(East.str`item-${i}`, { note: East.str`Note ${i}` }));
+          });
+        });
+        return out;
+      })),
+    }),
+  });
+  const pkg = e3.package(name, version, items, notes);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);
@@ -370,10 +380,10 @@ export const RackRowType = StructType({ hall: StringType, x: OptionType(FloatTyp
 export const RacksType = DictType(StringType, RackRowType);
 /** The finest cell of the area fixture's indexes: their declared 0.01, rounded down to a power of two. */
 export const RACK_CELL = 2 ** -7;
-/** The key of the area fixture's `racks_by_area`: a rack's cell and level, led by no field. */
-export const RackAreaKeyType = StructType({ __area: IntegerType });
-/** The key of its `racks_by_hall_area`: a rack's hall, then its cell and level. */
-export const RackHallAreaKeyType = StructType({ hall: StringType, __area: IntegerType });
+/** The key of the area fixture's `racks_by_area`: led by no field, its `on` holds none, then a rack's cell and level (#1432). */
+export const RackAreaKeyType = StructType({ on: StructType({}), area: IntegerType });
+/** The key of its `racks_by_hall_area`: a rack's hall under `on`, then its cell and level (#1432). */
+export const RackHallAreaKeyType = StructType({ on: StructType({ hall: StringType }), area: IntegerType });
 
 /**
  * Create a package whose record is read by area (#1385): a window over a
@@ -402,27 +412,33 @@ export async function createAreaRecordPackageZip(
 ): Promise<string> {
   mkdirSync(tempDir, { recursive: true });
 
-  const racks = e3.record('racks', RacksType, new Map());
-  const seed = e3.mutation.reduce('seed', racks,
-    East.function([RacksType, IntegerType], RacksType, ($, _state, count) => {
-      const out = $.let(new Map(), RacksType);
-      $.for(East.Array.range(0n, count), ($, i) => {
-        const hall = $.let(East.str`H${i.remainder(3n)}`);
-        const x = $.let(i.remainder(37n).toFloat().multiply(1.7).subtract(30.0).add(i.remainder(3n).toFloat().multiply(RACK_CELL)));
-        const y = $.let(i.divide(37n).toFloat().multiply(1.3).subtract(20.0));
-        const w = $.let(i.remainder(5n).toFloat().multiply(0.4).add(0.3));
-        const h = $.let(i.remainder(7n).toFloat().multiply(0.3).add(0.2));
-        $.if(East.equal(i.remainder(11n), 0n), ($) => {
-          $(out.insert(East.str`rack-${i}`, { hall, x: none, y: none, w, h }));
-        }).else(($) => {
-          $(out.insert(East.str`rack-${i}`, { hall, x: some(x), y: some(y), w, h }));
+  const racks = e3.record('racks', RacksType, {
+    initial: new Map(),
+    indexes: (index) => ({
+      racks_by_area: index.area({ x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 }),
+      racks_by_hall_area: index.area({ on: ['hall'], x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 }),
+    }),
+    mutations: (mutation) => ({
+      seed: mutation.reduce(East.function([RacksType, IntegerType], RacksType, ($, _state, count) => {
+        const out = $.let(new Map(), RacksType);
+        $.for(East.Array.range(0n, count), ($, i) => {
+          const hall = $.let(East.str`H${i.remainder(3n)}`);
+          const x = $.let(i.remainder(37n).toFloat().multiply(1.7).subtract(30.0).add(i.remainder(3n).toFloat().multiply(RACK_CELL)));
+          const y = $.let(i.divide(37n).toFloat().multiply(1.3).subtract(20.0));
+          const w = $.let(i.remainder(5n).toFloat().multiply(0.4).add(0.3));
+          const h = $.let(i.remainder(7n).toFloat().multiply(0.3).add(0.2));
+          $.if(East.equal(i.remainder(11n), 0n), ($) => {
+            $(out.insert(East.str`rack-${i}`, { hall, x: none, y: none, w, h }));
+          }).else(($) => {
+            $(out.insert(East.str`rack-${i}`, { hall, x: some(x), y: some(y), w, h }));
+          });
         });
-      });
-      return out;
-    }));
-  const byArea = e3.recordIndex.area('racks_by_area', racks, { x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 });
-  const byHallArea = e3.recordIndex.area('racks_by_hall_area', racks, { on: ['hall'], x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 });
-  const pkg = e3.package(name, version, racks, seed, e3.mutation.patch(racks), byArea, byHallArea);
+        return out;
+      })),
+      patch: mutation.patch(),
+    }),
+  });
+  const pkg = e3.package(name, version, racks);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);
@@ -470,39 +486,44 @@ export async function createPlaceRecordPackageZip(
 ): Promise<string> {
   mkdirSync(tempDir, { recursive: true });
 
-  const orders = e3.record('orders', OrdersType, new Map());
-  const seed = e3.mutation.reduce('seed', orders,
-    East.function([OrdersType, IntegerType], OrdersType, ($, _state, count) => {
-      const statuses = $.const(['open', 'late', 'done', 'held'], ArrayType(StringType));
-      const names = $.const(['Ash', 'Birch', 'Cedar', 'Fir'], ArrayType(StringType));
-      const from = $.const(ORDERS_FROM, DateTimeType);
-      const out = $.let(new Map(), OrdersType);
-      $.for(East.Array.range(0n, count), ($, i) => {
-        const tags = $.let(new Set<string>(), SetType(StringType));
-        $(tags.tryInsert(East.str`t${i.remainder(5n)}`));
-        $(tags.tryInsert(East.str`t${i.remainder(7n)}`));
-        const start = $.let(from.addHours(i.remainder(97n)));
-        const end = $.let(start.addHours(i.remainder(5n)));
-        $.if(East.equal(i.remainder(13n), 0n), ($) => {
-          $.assign(end, start.addDays(30n));
+  const orders = e3.record('orders', OrdersType, {
+    initial: new Map(),
+    indexes: (index) => ({
+      orders_by_status: index.on(['status']),
+      orders_by_name: index.on(['name']),
+      orders_by_due: index.on(['due']),
+      orders_by_tag: index.on(['tags']),
+      orders_by_time: index.interval({ from: 'start', to: 'end' }),
+    }),
+    mutations: (mutation) => ({
+      seed: mutation.reduce(East.function([OrdersType, IntegerType], OrdersType, ($, _state, count) => {
+        const statuses = $.const(['open', 'late', 'done', 'held'], ArrayType(StringType));
+        const names = $.const(['Ash', 'Birch', 'Cedar', 'Fir'], ArrayType(StringType));
+        const from = $.const(ORDERS_FROM, DateTimeType);
+        const out = $.let(new Map(), OrdersType);
+        $.for(East.Array.range(0n, count), ($, i) => {
+          const tags = $.let(new Set<string>(), SetType(StringType));
+          $(tags.tryInsert(East.str`t${i.remainder(5n)}`));
+          $(tags.tryInsert(East.str`t${i.remainder(7n)}`));
+          const start = $.let(from.addHours(i.remainder(97n)));
+          const end = $.let(start.addHours(i.remainder(5n)));
+          $.if(East.equal(i.remainder(13n), 0n), ($) => {
+            $.assign(end, start.addDays(30n));
+          });
+          $(out.insert(East.str`order-${i}`, {
+            status: statuses.get(i.remainder(4n)),
+            name: East.str`${names.get(i.divide(3n).remainder(4n))} ${i}`,
+            due: i.multiply(7919n).remainder(count),
+            tags,
+            start,
+            end,
+          }));
         });
-        $(out.insert(East.str`order-${i}`, {
-          status: statuses.get(i.remainder(4n)),
-          name: East.str`${names.get(i.divide(3n).remainder(4n))} ${i}`,
-          due: i.multiply(7919n).remainder(count),
-          tags,
-          start,
-          end,
-        }));
-      });
-      return out;
-    }));
-  const byStatus = e3.recordIndex('orders_by_status', orders, { on: ['status'] });
-  const byName = e3.recordIndex('orders_by_name', orders, { on: ['name'] });
-  const byDue = e3.recordIndex('orders_by_due', orders, { on: ['due'] });
-  const byTag = e3.recordIndex('orders_by_tag', orders, { on: ['tags'] });
-  const byTime = e3.recordIndex.interval('orders_by_time', orders, { from: 'start', to: 'end' });
-  const pkg = e3.package(name, version, orders, seed, byStatus, byName, byDue, byTag, byTime);
+        return out;
+      })),
+    }),
+  });
+  const pkg = e3.package(name, version, orders);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);
@@ -516,8 +537,14 @@ export const JOBS_FROM = new Date(Date.UTC(2026, 9, 5));
 export const JobRowType = StructType({ press: StringType, start: DateTimeType, end: DateTimeType, title: StringType });
 /** The series fixture's record: jobs by key. */
 export const JobsType = DictType(StringType, JobRowType);
-/** The key of the series fixture's two indexes: a week's start, then a press. */
-export const JobWeekPressKeyType = StructType({ __tile: DateTimeType, press: StringType });
+/**
+ * The key of the series fixture's series index (#1433): led by no field, its
+ * `on` holds none (#1432), then a press, the level a job is filed at and the
+ * start of that level's tile.
+ */
+export const JobPressLevelTileKeyType = StructType({ on: StructType({}), key: StringType, level: RecordLevelType, tile: DateTimeType });
+/** The key of the series fixture's summary index: its `on`, then a press and a week's start (#1433). */
+export const JobPressWeekKeyType = StructType({ on: StructType({}), key: StringType, tile: DateTimeType });
 
 /**
  * Create a package whose record is read in two dimensions (#1039): a block of
@@ -530,10 +557,12 @@ export const JobWeekPressKeyType = StructType({ __tile: DateTimeType, press: Str
  *   forty presses (`P-1001`…`P-1040`, by `i` mod 40), starting `i` × 7 mod 1,680
  *   hours after {@link JOBS_FROM} — over ten weeks — and running `i` mod 50 + 1
  *   hours, so many run into the next week
- * - Index: "jobs_by_press_week", each job under each week it touches and its
- *   press, carrying its row; and "jobs_by_press_week_totals", how many jobs
- *   touch each week on each press and the time of it they cover. Both are keyed
- *   {@link JobWeekPressKeyType}
+ * - Index: "jobs_by_press_week", each job under its press, filed once at the
+ *   level its length fits — a week, a month, a quarter or a year, from the
+ *   week up — or once a year past a year, carrying its row, keyed
+ *   {@link JobPressLevelTileKeyType}; and "jobs_by_press_week_totals", how many
+ *   jobs touch each week on each press and the time of it they cover, keyed
+ *   {@link JobPressWeekKeyType}
  *
  * @param tempDir - Directory to write the zip file
  * @param name - Package name
@@ -547,21 +576,117 @@ export async function createSeriesRecordPackageZip(
 ): Promise<string> {
   mkdirSync(tempDir, { recursive: true });
 
-  const jobs = e3.record('jobs', JobsType, new Map());
-  const seed = e3.mutation.reduce('seed', jobs,
-    East.function([JobsType, IntegerType], JobsType, ($, _state, count) => {
-      const from = $.const(JOBS_FROM, DateTimeType);
-      const out = $.let(new Map(), JobsType);
-      $.for(East.Array.range(0n, count), ($, i) => {
-        const start = $.let(from.addHours(i.multiply(7n).remainder(1_680n)));
-        const end = $.let(start.addHours(i.remainder(50n).add(1n)));
-        $(out.insert(East.str`job-${i}`, { press: East.str`P-${i.remainder(40n).add(1_001n)}`, start, end, title: East.str`Job ${i}` }));
-      });
-      return out;
-    }));
-  const byPressWeek = e3.recordIndex.series('jobs_by_press_week', jobs, { key: 'press', from: 'start', to: 'end', tile: 'week' });
-  const totals = e3.recordIndex.summary('jobs_by_press_week_totals', jobs, { key: 'press', from: 'start', to: 'end', tile: 'week' });
-  const pkg = e3.package(name, version, jobs, seed, e3.mutation.patch(jobs), byPressWeek, totals);
+  const jobs = e3.record('jobs', JobsType, {
+    initial: new Map(),
+    indexes: (index) => ({
+      jobs_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+      jobs_by_press_week_totals: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+    }),
+    mutations: (mutation) => ({
+      seed: mutation.reduce(East.function([JobsType, IntegerType], JobsType, ($, _state, count) => {
+        const from = $.const(JOBS_FROM, DateTimeType);
+        const out = $.let(new Map(), JobsType);
+        $.for(East.Array.range(0n, count), ($, i) => {
+          const start = $.let(from.addHours(i.multiply(7n).remainder(1_680n)));
+          const end = $.let(start.addHours(i.remainder(50n).add(1n)));
+          $(out.insert(East.str`job-${i}`, { press: East.str`P-${i.remainder(40n).add(1_001n)}`, start, end, title: East.str`Job ${i}` }));
+        });
+        return out;
+      })),
+      patch: mutation.patch(),
+    }),
+  });
+  const pkg = e3.package(name, version, jobs);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/** A job a nested record's rows hold (#1434): a product, from its start to its end. */
+export const NestedJobType = StructType({ product: StringType, start: DateTimeType, end: DateTimeType });
+/** A machine: where it stands, its jobs by id, and its load a day at a time. */
+export const MachineType = StructType({
+  name: StringType, site: StringType, status: StringType, jobs: DictType(StringType, NestedJobType), load: DictType(DateTimeType, FloatType),
+});
+/** The nested fixture's machines. */
+export const MachinesType = DictType(StringType, MachineType);
+/** A hall's member, its load a day at a time. */
+export const MemberType = StructType({ name: StringType, load: DictType(DateTimeType, FloatType) });
+/** A hall: where it stands, and its members by id. */
+export const HallType = StructType({ name: StringType, site: StringType, members: DictType(StringType, MemberType) });
+/** The nested fixture's halls. */
+export const HallsType = DictType(StringType, HallType);
+/** A part: its jobs, and more parts beneath it, to any depth. */
+export const PartType = RecursiveType((self) => StructType({ name: StringType, jobs: DictType(StringType, NestedJobType), parts: DictType(StringType, self) }));
+/** An assembly: its parts by id. */
+export const AssemblyType = StructType({ name: StringType, parts: DictType(StringType, PartType) });
+/** The nested fixture's assemblies. */
+export const AssembliesType = DictType(StringType, AssemblyType);
+
+/**
+ * Create a package of records whose rows nest what a series files (#1434).
+ *
+ * Creates a package with, each record empty and with its patch door:
+ * - Record "machines", and its nested series index "machines_in_time": each
+ *   machine's jobs, things people drag, and its load, a value a day, filed
+ *   from the week up and totalled a month at a time; beside it
+ *   "machines_by_site", which carries each machine without them
+ * - Record "halls", and "halls_in_time": each member's load, rolled up by its
+ *   mean, so each hall keeps its members' mean at every level from the day up
+ * - Record "assemblies", and "assemblies_in_time": each part's jobs, rolled
+ *   up, so each part files its subtree's jobs too
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createNestedSeriesPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const machines = e3.record('machines', MachinesType, {
+    initial: new Map(),
+    indexes: (index) => ({
+      machines_in_time: index.nested({
+        collections: { jobs: index.nested.items({ from: 'start', to: 'end' }), load: index.nested.values() }, tile: 'week', summary: 'month',
+      }),
+      machines_by_site: index.on(['site']),
+    }),
+    mutations: (mutation) => ({
+      patch: mutation.patch(),
+    }),
+  });
+  const halls = e3.record('halls', HallsType, {
+    initial: new Map(),
+    indexes: (index) => ({
+      halls_in_time: index.nested({
+        collections: { members: index.nested.rows({ load: index.nested.values({ rollup: 'mean' }) }) }, tile: 'day', summary: 'month',
+      }),
+    }),
+    mutations: (mutation) => ({
+      patch: mutation.patch(),
+    }),
+  });
+  const assemblies = e3.record('assemblies', AssembliesType, {
+    initial: new Map(),
+    indexes: (index) => ({
+      assemblies_in_time: index.nested({
+        collections: { parts: index.nested.rows({ jobs: index.nested.items({ from: 'start', to: 'end' }, { rollup: true }), parts: index.nested.recursive() }) },
+        tile: 'week',
+        summary: 'month',
+      }),
+    }),
+    mutations: (mutation) => ({
+      patch: mutation.patch(),
+    }),
+  });
+  const pkg = e3.package(name, version, machines, halls, assemblies);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);
@@ -608,23 +733,30 @@ export async function createMigrationPackageZip(
   const note = e3.input('note', StringType, variant('value', version));
   let pkg: PackageDef<Record<string, unknown>>;
   if (version === '1.0.0') {
-    const tasks = e3.record('tasks', TasksV1Type, new Map([['a', { title: 'A' }]]));
-    const add = e3.mutation.reduce('add', tasks,
-      East.function([TasksV1Type, StringType, StringType], TasksV1Type, ($, state, id, title) => {
-        const next = $.let(state.copy());
-        $(next.insert(id, { title }));
-        return next;
-      }));
-    pkg = e3.package(name, version, tasks, add);
+    const tasks = e3.record('tasks', TasksV1Type, {
+      initial: new Map([['a', { title: 'A' }]]),
+      mutations: (mutation) => ({
+        add: mutation.reduce(East.function([TasksV1Type, StringType, StringType], TasksV1Type, ($, state, id, title) => {
+          const next = $.let(state.copy());
+          $(next.insert(id, { title }));
+          return next;
+        })),
+      }),
+    });
+    pkg = e3.package(name, version, tasks);
   } else if (version === '4.0.0') {
     pkg = e3.package(name, version, note);
   } else {
-    const tasks = e3.record('tasks', TasksV2Type, new Map());
-    const addOwner = e3.migration.rows('add_owner', tasks,
-      East.function([StringType, TaskRowV1Type], TaskRowV2Type, ($, _id, row) => ({ title: row.title, owner: 'nobody' })));
-    if (version === '3.0.0') pkg = e3.package(name, version, tasks);
-    else if (version === '2.1.0') pkg = e3.package(name, version, tasks, addOwner, note);
-    else pkg = e3.package(name, version, tasks, addOwner);
+    // 3.0.0 declares the record's new type with no step from the old one: the deploy that finds the old state refuses it.
+    const tasks = version === '3.0.0'
+      ? e3.record('tasks', TasksV2Type, { initial: new Map() })
+      : e3.record('tasks', TasksV2Type, {
+        initial: new Map(),
+        migrations: (migration) => [
+          migration.rows('add_owner', East.function([StringType, TaskRowV1Type], TaskRowV2Type, ($, _id, row) => ({ title: row.title, owner: 'nobody' }))),
+        ],
+      });
+    pkg = version === '2.1.0' ? e3.package(name, version, tasks, note) : e3.package(name, version, tasks);
   }
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
@@ -662,25 +794,30 @@ export async function createPendingRecordPackageZip(
 
   let pkg: PackageDef<Record<string, unknown>>;
   if (version === '1.0.0') {
-    const customers = e3.record('customers', TasksV1Type, new Map([['a', { title: 'A' }]]));
-    const add = e3.mutation.reduce('add', customers,
-      East.function([TasksV1Type, StringType, StringType], TasksV1Type, ($, state, id, title) => {
-        const next = $.let(state.copy());
-        $(next.insert(id, { title }));
-        return next;
-      }));
+    const customers = e3.record('customers', TasksV1Type, {
+      initial: new Map([['a', { title: 'A' }]]),
+      mutations: (mutation) => ({
+        add: mutation.reduce(East.function([TasksV1Type, StringType, StringType], TasksV1Type, ($, state, id, title) => {
+          const next = $.let(state.copy());
+          $(next.insert(id, { title }));
+          return next;
+        })),
+      }),
+    });
     const count = e3.task('count', [customers], East.function([TasksV1Type], IntegerType, ($, rows) => rows.size()));
-    pkg = e3.package(name, version, customers, add, count);
+    pkg = e3.package(name, version, customers, count);
   } else {
-    const customers = e3.record('customers', TasksV2Type);
-    const add = e3.mutation.reduce('add', customers,
-      East.function([TasksV2Type, StringType, StringType], TasksV2Type, ($, state, id, title) => {
-        const next = $.let(state.copy());
-        $(next.insert(id, { title, owner: 'nobody' }));
-        return next;
-      }));
+    const customers = e3.record('customers', TasksV2Type, {
+      mutations: (mutation) => ({
+        add: mutation.reduce(East.function([TasksV2Type, StringType, StringType], TasksV2Type, ($, state, id, title) => {
+          const next = $.let(state.copy());
+          $(next.insert(id, { title, owner: 'nobody' }));
+          return next;
+        })),
+      }),
+    });
     const count = e3.task('count', [customers], East.function([TasksV2Type], IntegerType, ($, rows) => rows.size()));
-    pkg = e3.package(name, version, customers, add, count);
+    pkg = e3.package(name, version, customers, count);
   }
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);

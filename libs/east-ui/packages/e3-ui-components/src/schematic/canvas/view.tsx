@@ -752,7 +752,9 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                                 <Box
                                     as="svg"
                                     css={styles.scaleRuler}
-                                    {...{ width: len, height: 7, viewBox: `0 0 ${len} 7` }}
+                                    // Its size inline: the length follows the zoom, and a style prop would mint a class at each.
+                                    style={{ width: len, height: 7 }}
+                                    {...{ viewBox: `0 0 ${len} 7` }}
                                 >
                                     <path
                                         d={`M 0.5 0 V 6.5 H ${len - 0.5} V 0 ${quarter(1, 3)} ${quarter(2, 1.5)} ${quarter(3, 3)}`}

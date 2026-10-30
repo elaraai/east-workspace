@@ -16,7 +16,7 @@ import {
     ArrayType, BlobType, East, IntegerType, OptionType, StringType, StructType, FunctionType,
     isTypeEqual, none, printType, some, type ExprType,
 } from "@elaraai/east";
-import { buildRowSource, resolveRowSource, LiveSourceType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
+import { buildRowSource, resolveRowSource, LiveSourceType, RecordSliceReadType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { FlowchartFlowType } from "./types.js";
 
 /** A list entry retains the record's primary key even when sorted by an index. */
@@ -40,7 +40,7 @@ type FlowEntry = StructType<{ key: StringType; row: OptionType<FlowchartFlowType
 
 /** The `flows` source's part, as the flowchart reads it: a page of a narrowing, and a flow by its name. */
 type FlowsPart = ExprType<StructType<{
-    pageWhere: FunctionType<[typeof RecordSliceWhereType, IntegerType, IntegerType], OptionType<ArrayType<FlowEntry>>>;
+    pageWhere: FunctionType<[typeof RecordSliceReadType, IntegerType, IntegerType], OptionType<ArrayType<FlowEntry>>>;
     readEntry: typeof FlowchartReadEntryType;
 }>>;
 
@@ -68,7 +68,8 @@ export function flowchartWindow(part: ExprType<StructType>, rows: ExprType<Struc
     const search = East.function([RecordSliceWhereType, IntegerType, IntegerType], OptionType(ArrayType(FlowchartEntryType)), ($, where, offset, limit) => {
         const page = $.const((part as unknown as FlowsPart).pageWhere);
         const result = $.let(none, OptionType(ArrayType(FlowchartEntryType)));
-        const found = $.let(page(where, offset, limit));
+        // A read of the narrowing alone: the flows are never read by area (#1432).
+        const found = $.let(page(East.value({ where, area: none }, RecordSliceReadType), offset, limit));
         $.match(found, { some: ($2, held) => { $2.assign(result, some(entries(held))); } });
         return result;
     });

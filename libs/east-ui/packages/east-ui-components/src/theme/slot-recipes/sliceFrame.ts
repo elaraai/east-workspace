@@ -427,7 +427,7 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
             position: "absolute",
             top: "0",
             bottom: "0",
-            width: "10px",
+            width: "12px",
             transform: "translateX(-50%)",
             cursor: "ew-resize",
         },

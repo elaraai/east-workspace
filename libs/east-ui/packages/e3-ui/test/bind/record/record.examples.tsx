@@ -11,24 +11,25 @@ import e3 from "@elaraai/e3";
 // The package-side record + mutation definitions. `Record.bind` takes the
 // record def + its mutations — the state type, mutation names and arg types
 // all come from them, so the binding can never drift from the deployed record.
-export const counter = e3.record("counter", IntegerType, 0n);
-export const increment = e3.mutation.reduce("increment", counter,
-    East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)));
-export const reset = e3.mutation.reduce("reset", counter,
-    East.function([IntegerType], IntegerType, (_$, _state) => 0n));
-// What the record runtime's specs write beside them (#1378): a take off the
-// counter that refuses to leave it below zero, so a mutation fails as a
-// reducer's program does.
-export const take = e3.mutation.reduce("take", counter,
-    East.function([IntegerType, IntegerType], IntegerType, (_$, state, n) =>
-        East.less(state, n).ifElse(() => East.error("the counter holds fewer than that"), () => state.subtract(n))));
+export const counter = e3.record("counter", IntegerType, {
+    initial: 0n,
+    mutations: (mutation) => ({
+        increment: mutation.reduce(East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))),
+        reset: mutation.reduce(East.function([IntegerType], IntegerType, (_$, _state) => 0n)),
+        // What the record runtime's specs write beside them (#1378): a take off the
+        // counter that refuses to leave it below zero, so a mutation fails as a
+        // reducer's program does.
+        take: mutation.reduce(East.function([IntegerType, IntegerType], IntegerType, (_$, state, n) =>
+            East.less(state, n).ifElse(() => East.error("the counter holds fewer than that"), () => state.subtract(n)))),
+    }),
+});
 
 export const recordBindMutate = example({
     keywords: ["Record", "bind", "mutate", "Reactive", "Button", "read", "pending", "status", "system of record"],
     description: "Bind an e3.record + its mutations; buttons apply typed mutations, a stat shows the current state, and the mutate lifecycle status is rendered",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const r = $.let(Record.bind(counter, [increment, reset]));
+            const r = $.let(Record.bind(counter, ["increment", "reset"]));
             const status = $.let(r.mutate.status().getTag().upperCase());
             // Surface the failure detail so a failed mutation shows WHY, not just
             // that it failed.
@@ -70,7 +71,7 @@ export const recordBindStatus = example({
     description: "Render the mutation lifecycle (idle / running / committed / failed / cancelled) and any failure",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const r = $.let(Record.bind(counter, [increment]));
+            const r = $.let(Record.bind(counter, ["increment"]));
             const bump = $.const(East.function([], NullType, $ => { $(r.mutate.increment(1n)); }));
             const statusLine = $.let(r.mutate.status().getTag().upperCase());
             const detail = $.let(r.mutate.error().match({
@@ -92,30 +93,46 @@ export const recordBindStatus = example({
 // A keyed record a Sheet edits — each job's key is its id — and its patch
 // door, which every Save commits through.
 export const JobType = StructType({ task: StringType, qty: IntegerType });
-export const jobs = e3.record("jobs", DictType(StringType, JobType), new Map());
-export const jobsPatch = e3.mutation.patch(jobs);
+export const jobs = e3.record("jobs", DictType(StringType, JobType), {
+    initial: new Map(),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 
 // The records `Record.onApply`'s specs commit through beside the jobs (#1378),
 // each through its patch door: jobs whose index refuses a quantity below zero,
 // so a write fails as an index's program does; a page whose cells a layout
 // edits inside its one entry; and a week whose groups and loose tasks a Sheet
 // edits inside its entry.
-export const checkedJobs = e3.record("checked_jobs", DictType(StringType, JobType), new Map());
-export const checkedJobsPatch = e3.mutation.patch(checkedJobs);
-export const checkedJobsByQty = e3.recordIndex("checked_jobs_by_qty", checkedJobs, {
-    key: East.function([StringType, JobType], IntegerType, (_$, _id, job) =>
-        East.less(job.qty, 0n).ifElse(() => East.error("a job's quantity is never below zero"), () => job.qty)),
+export const checkedJobs = e3.record("checked_jobs", DictType(StringType, JobType), {
+    initial: new Map(),
+    indexes: (index) => ({
+        checked_jobs_by_qty: index.key(East.function([StringType, JobType], IntegerType, (_$, _id, job) =>
+            East.less(job.qty, 0n).ifElse(() => East.error("a job's quantity is never below zero"), () => job.qty))),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
 });
 export const CellType = StructType({ key: StringType, span: IntegerType });
 export const PageType = StructType({ title: StringType, cells: ArrayType(CellType) });
-export const layoutPages = e3.record("layout_pages", DictType(StringType, PageType), new Map());
-export const layoutPagesPatch = e3.mutation.patch(layoutPages);
+export const layoutPages = e3.record("layout_pages", DictType(StringType, PageType), {
+    initial: new Map(),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 export const WeekLineType = StructType({ id: StringType, task: StringType });
 export const WeekGroupType = StructType({ id: StringType, name: StringType, lines: ArrayType(WeekLineType) });
 export const WeekEntryType = Editing.Types.Entry(WeekGroupType, "lines");
 export const WeekType = StructType({ title: StringType, entries: ArrayType(WeekEntryType) });
-export const plannedWeeks = e3.record("planned_weeks", DictType(StringType, WeekType), new Map());
-export const plannedWeeksPatch = e3.mutation.patch(plannedWeeks);
+export const plannedWeeks = e3.record("planned_weeks", DictType(StringType, WeekType), {
+    initial: new Map(),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 
 export const recordSheetApply = example({
     keywords: ["Record", "onApply", "Sheet", "Save", "patch", "commit", "conflict", "discard", "bindPaged", "editing", "system of record"],
@@ -123,7 +140,7 @@ export const recordSheetApply = example({
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const rows = $.let(Data.bindPaged(jobs));
-            const record = $.let(Record.bind(jobs, [jobsPatch]));
+            const record = $.let(Record.bind(jobs));
             return (
                 <Box height="360px">
                     <Sheet
@@ -146,7 +163,7 @@ export const recordBindHistory = example({
     description: "Read the record's commit history (the audit trail) alongside its current value",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const r = $.let(Record.bind(counter, [increment]));
+            const r = $.let(Record.bind(counter, ["increment"]));
             const count = $.let(r.history().match({
                 some: (_$, commits) => commits.size(),
                 none: _$ => 0n,

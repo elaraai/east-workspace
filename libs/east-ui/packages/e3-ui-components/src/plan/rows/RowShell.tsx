@@ -67,8 +67,8 @@ export function GridSeparators({ styles }: { styles: Styles }) {
     if (uniform) {
         return (
             <Box css={styles.gridSep} data-plan-axisline data-plan-gridsep
-                left={`${scale.buckets[0]!.x1 * 100}%`}
                 style={{
+                    left: `${scale.buckets[0]!.x1 * 100}%`,
                     // One bucket width, in THIS element's own space: it spans
                     // n−1 buckets, so a tile is 1/(n−1) of it.
                     backgroundImage: `repeating-linear-gradient(to right, var(--chakra-colors-border-subtle) 0 1px, transparent 1px calc(100% / ${n - 1}))`,
@@ -78,7 +78,7 @@ export function GridSeparators({ styles }: { styles: Styles }) {
     return (
         <>
             {scale.buckets.slice(0, -1).map((b, i) => (
-                <Box key={i} css={styles.gridCol} data-plan-axisline left={`${b.x1 * 100}%`} />
+                <Box key={i} css={styles.gridCol} data-plan-axisline style={{ left: `${b.x1 * 100}%` }} />
             ))}
         </>
     );
@@ -465,8 +465,7 @@ export function RowShell({
         <Box
             ref={grid.ref}
             css={styles.row}
-            gridTemplateColumns={gridTemplate}
-            height={`${height}px`}
+            style={{ gridTemplateColumns: gridTemplate, height: `${height}px` }}
             role="row"
             aria-level={depth + 1}
             aria-selected={selected}
@@ -503,7 +502,7 @@ export function RowShell({
                 // How many controls its line ends in — a chart's ticks step
                 // left of them (#1258).
                 data-plan-controls={controls !== undefined && controls.length > 0 ? String(controls.length) : undefined}
-                paddingLeft={`${12 + depth * INDENT_PX}px`}
+                style={{ paddingLeft: `${12 + depth * INDENT_PX}px` }}
                 onClick={onCaretClick !== undefined && ctx !== true
                     ? (e: React.MouseEvent) => { e.stopPropagation(); onCaretClick(); }
                     : undefined}
@@ -630,9 +629,9 @@ export function RowShell({
                     drift to the middle), and the render takes the rest. */}
                 {expanded ? (
                     <>
-                        <Box css={styles.expandRowBand} height={`${band}px`}>{children}</Box>
+                        <Box css={styles.expandRowBand} style={{ height: `${band}px` }}>{children}</Box>
                         <Box css={styles.expandRenderBody} data-plan-expandrender
-                            top={`${band + 2}px`}>
+                            style={{ top: `${band + 2}px` }}>
                             {expandBody}
                         </Box>
                     </>

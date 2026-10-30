@@ -108,7 +108,7 @@ type TabName = "events" | "backlog" | "series" | "customers";
 function jobsPlan(tabs: readonly TabName[], id?: string, customerDrop = false) {
     return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const presses = $.let(Record.bind(ex.planPrintPresses, []));
-        const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+        const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
         const customers = $.let(Record.bind(ex.planPrintCustomers, []));
         const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day", now: new Date("2026-10-14T09:00:00Z") }));
         const library = tabs.map((tab) => (tab === "events" ? Plan.library.events() : tab === "backlog" ? Plan.library.backlog()
@@ -399,7 +399,7 @@ describe("the Series tab over a canvas whose series are picked (#590)", () => {
             }] as never)),
             links: [],
             axis: variant("time", { window: some({ min: FIRST, max: LAST }), resolution: variant("week", null), resolutions: [], now: none, format: none }),
-            grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, pick: pick === undefined ? none : some(pick), slice: none, footer: [],
+            grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, pick: pick === undefined ? none : some(pick), slice: none, nested: none, footer: [],
             id: none, sources: [], editing: none, canDrop: none, onSelect: none, onElementClick: none, onGroupToggle: none, onGrainChange: none, ui: none,
             style: none,
         } as unknown as PlanRootValue;
@@ -434,6 +434,36 @@ describe("the Series tab over a canvas whose series are picked (#590)", () => {
         expect(lines(container)).toEqual([
             ["Print job", false], ["Press jobs", true], ["Hall load", true], ["Crew shifts", true], ["Milestones", false],
         ]);
+    });
+
+    test("what the tab switches of the picked series is kept under the pick's key, and goes back into a new page's pick", async () => {
+        const first = renderPicked(fakePick(["c"]));
+        await settle();
+        await openTab(first.container, "Series");
+        await toggle(first.container, "Press jobs");
+        await toggle(first.container, "Crew shifts");
+        expect(localStorage.getItem("pick.test.plan.pick")).toBe(JSON.stringify(["a"]));
+        first.unmount();
+
+        // A reload: the pick as its program sets it, the browser's storage kept.
+        const pick = fakePick(["c"]);
+        renderPicked(pick).unmount();
+        expect(pick.state.read()).toEqual(["a"]);
+
+        // An id the pick no longer lists is dropped on the way back.
+        localStorage.setItem("pick.test.plan.pick", JSON.stringify(["b", "gone"]));
+        const renamed = fakePick(["c"]);
+        renderPicked(renamed).unmount();
+        expect(renamed.state.read()).toEqual(["b"]);
+        // Without the Series tab nothing drives the pick from here, so nothing goes back.
+        const untabbed = fakePick(["c"]);
+        renderPicked(untabbed, [] as unknown as PlanValue["library"]).unmount();
+        expect(untabbed.state.read()).toEqual(["c"]);
+        // A pick the tab never wrote opens as its program sets it.
+        localStorage.removeItem("pick.test.plan.pick");
+        const fresh = fakePick(["c"]);
+        renderPicked(fresh).unmount();
+        expect(fresh.state.read()).toEqual(["c"]);
     });
 
     test("an empty Series tab explains that there is nothing to hide", async () => {

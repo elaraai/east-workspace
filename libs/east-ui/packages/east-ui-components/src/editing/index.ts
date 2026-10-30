@@ -24,6 +24,8 @@ export {
     type EditIssue,
     type Placement,
     type Origin,
+    type DraftedEntry,
+    type SessionDrafts,
 } from "./session.js";
 export { EditHistory, type EditHistoryPart } from "./history.js";
 export {

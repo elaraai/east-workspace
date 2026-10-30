@@ -196,7 +196,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
     if (focusRole === "rail") {
         const railTone = v.row.status.type === "some" ? v.row.status.value.type : undefined;
         return (
-            <Box ref={grid.ref} css={styles.rail} gridTemplateColumns={gridTemplate} data-plan-rail={v.row.key}
+            <Box ref={grid.ref} css={styles.rail} style={{ gridTemplateColumns: gridTemplate }} data-plan-rail={v.row.key}
                 role="row" aria-level={v.depth + 1} aria-selected={selected}
                 tabIndex={grid.tabIndex} onFocus={grid.onFocus} data-plan-item={rowItemKey(v.row.key)}
                 // The recipe sizes the rail from the geometry variable; this

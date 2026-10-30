@@ -13,7 +13,7 @@
  * held in the data tree.
  */
 
-import type { AsyncFunctionExpr, BlockBuilder, CallableAsyncFunctionExpr, CallableFunctionExpr, EastType, ExprType, FunctionExpr } from '@elaraai/east';
+import type { AsyncFunctionExpr, AsyncFunctionType, BlockBuilder, CallableAsyncFunctionExpr, CallableFunctionExpr, EastType, ExprType, FunctionExpr, FunctionType } from '@elaraai/east';
 import { Expr, variant, ArrayType, StringType, NullType, East, EastIR, isTypeValueEqual, printType, toEastTypeValue } from '@elaraai/east';
 import type { TaskRole } from '@elaraai/e3-types';
 import type { DatasetDef, DataTreeDef, OutputDef, PartitionDef, TaskDef } from './types.js';
@@ -174,7 +174,7 @@ export function task<Name extends string, Inputs extends readonly DatasetDef[], 
 export function task(
   name: string,
   inputs: DatasetDef[],
-  fn: FunctionExpr<any, any> | AsyncFunctionExpr<any, any>,
+  fn: FunctionExpr<EastType[], EastType> | AsyncFunctionExpr<EastType[], EastType>,
   config?: { runner?: Runner, environment?: EnvironmentDecl, role?: TaskRole },
 ): TaskDef {
   if (config?.environment) validateEnvironmentDecl(config.environment, name);
@@ -188,7 +188,7 @@ export function task(
   }
 
   const taskTree = createTaskTree(name);
-  const output = createOutputDataset(name, taskTree, Expr.type(fn as Expr<any>).output as EastType);
+  const output = createOutputDataset(name, taskTree, Expr.type<FunctionType<EastType[], EastType> | AsyncFunctionType<EastType[], EastType>>(fn).output);
 
   const taskDef: TaskDef = {
     kind: 'task',
@@ -498,9 +498,12 @@ export function streamTask<
   const inputs = spec.inputs as readonly (DatasetDef | PartitionDef)[];
   checkPartitions(name, inputs.filter((i): i is PartitionDef => i.kind === 'partition'));
   const datasets = inputs.map((i) => (i.kind === 'partition' ? i.dataset : i));
+  // The inputs' types and the emit's, in the body's order.
   const parameters: EastType[] = [...datasets.map((d) => d.type), outputKind.emit];
 
-  const bodyFn = East.function(parameters, NullType, fn as any);
+  // East gives the body an expression of each of those types: the inputs', in
+  // the spec's order, and the emit's, as the body's signature names them.
+  const bodyFn = East.function(parameters, NullType, ($, ...args) => fn($, ...(args as [...InputExprs<Inputs>, ExprType<Output['emit']>])));
 
   const taskTree = createTaskTree(name);
   const output = createOutputDataset(name, taskTree, outputKind.type as EastType);

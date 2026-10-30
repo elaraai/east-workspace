@@ -105,7 +105,7 @@ describe("Query.value (#1138)", () => {
     });
 
     test("the queries declare a record of the saved queries' type", () => {
-        const queries = e3.record("queries", Query.Types.Saved, Query.value({ orders }, [{ name: "Count", jq: ".orders | length", savedAt: AT }]));
+        const queries = e3.record("queries", Query.Types.Saved, { initial: Query.value({ orders }, [{ name: "Count", jq: ".orders | length", savedAt: AT }]) });
         assert.deepEqual([...queries.default!.keys()], ["Count"]);
     });
 });

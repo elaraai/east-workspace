@@ -41,13 +41,13 @@ import {
     none,
     encodeBeast2For,
     decodeBeast2For,
-    equalFor,
+    isTypeValueStructurallyEqual,
     toEastTypeValue,
     type EastType,
     type EastTypeValue,
     type ValueTypeOf,
 } from "@elaraai/east";
-import { type PlatformFunction, EastTypeType } from "@elaraai/east/internal";
+import { type PlatformFunction } from "@elaraai/east/internal";
 import { recordBindPlatformFn, RecordBindPrimitives, type RecordErrorType, type RecordOutcomeType } from "@elaraai/e3-ui/internal";
 import {
     workspaceRecordDescribe,
@@ -158,8 +158,6 @@ function commitInfo(commit: RecordHistoryCommit): CommitInfo {
         delta: commit.delta,
     };
 }
-
-const eastTypeEqual = equalFor(EastTypeType) as (a: EastTypeValue, b: EastTypeValue) => boolean;
 
 /** A handle's signature, recovered from the instantiated handle type. */
 interface RecordHandleSignature {
@@ -365,8 +363,10 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
             const message = `no mutation "${mutation}" on record "${record}" in the deployed package`;
             return { kind: variant("invalid", { message }), message, stderr: "" };
         }
+        // The deployed signature is another build's: a recursive type's wrappers are numbered by the process that
+        // exported the package on one side and by this one on the other, naming one type — compared by its structure.
         const argsMatch = deployed.argTypes.length === argTypes.length
-            && deployed.argTypes.every((t, i) => eastTypeEqual(t as EastTypeValue, argTypes[i]!));
+            && deployed.argTypes.every((t, i) => isTypeValueStructurallyEqual(t as EastTypeValue, argTypes[i]!));
         if (!argsMatch) {
             const message = `signature mismatch for mutation "${mutation}": bound (${argTypes.length} args) disagrees with the deployed package`;
             return { kind: variant("invalid", { message }), message, stderr: "" };

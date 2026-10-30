@@ -105,7 +105,7 @@ beforeEach(async () => {
 const library = {
     fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const listed = $.let(components);
-        const record = $.let(Record.bind(ex.studioPages, [ex.studioPagesPatch]));
+        const record = $.let(Record.bind(ex.studioPages, ["patch"]));
         const told = $.let(State.bind([StringType], "library-test.told", "nothing"));
         const onOpen = $.const(East.function([StudioKeyType], NullType, ($2, key) => { $2(told.write(East.str`${key.project}/${key.page}`)); }));
         return Stack.VStack([

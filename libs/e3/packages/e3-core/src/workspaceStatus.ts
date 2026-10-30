@@ -60,10 +60,10 @@ export type TaskStatus =
   | { type: 'up-to-date'; cached: boolean }  // Output matches cached execution
   | { type: 'ready' }                         // Can run immediately (all inputs ready)
   | { type: 'waiting'; reason: string }       // Waiting on upstream tasks or unset inputs
-  | { type: 'in-progress'; pid?: number; startedAt?: string }  // Currently executing
-  | { type: 'failed'; exitCode: number; completedAt?: string }  // Last execution failed (non-zero exit)
-  | { type: 'error'; message: string; completedAt?: string }    // Last execution had internal error
-  | { type: 'stale-running'; pid?: number; startedAt?: string };  // Marked running, but can no longer finish
+  | { type: 'in-progress'; pid?: number; startedAt?: Date }  // Currently executing
+  | { type: 'failed'; exitCode: number; completedAt?: Date }  // Last execution failed (non-zero exit)
+  | { type: 'error'; message: string; completedAt?: Date }    // Last execution had internal error
+  | { type: 'stale-running'; pid?: number; startedAt?: Date };  // Marked running, but can no longer finish
 
 /**
  * Information about a dataset in the status report.
@@ -564,7 +564,7 @@ function statusOfLatest(
         status: {
           type: 'stale-running',
           pid: Number(execStatus.value.pid),
-          startedAt: execStatus.value.startedAt.toISOString(),
+          startedAt: execStatus.value.startedAt,
         },
       };
     }
@@ -575,7 +575,7 @@ function statusOfLatest(
         status: {
           type: 'failed',
           exitCode: Number(execStatus.value.exitCode),
-          completedAt: execStatus.value.completedAt.toISOString(),
+          completedAt: execStatus.value.completedAt,
         },
         ...(execStatus.value.peakBytes.type === 'some' && { peakBytes: Number(execStatus.value.peakBytes.value) }),
       };
@@ -587,7 +587,7 @@ function statusOfLatest(
         status: {
           type: 'error',
           message: execStatus.value.message,
-          completedAt: execStatus.value.completedAt.toISOString(),
+          completedAt: execStatus.value.completedAt,
         },
       };
     }
@@ -647,7 +647,7 @@ async function checkInProgress(
         return {
           type: 'in-progress',
           pid: Number(status.value.pid),
-          startedAt: status.value.startedAt.toISOString(),
+          startedAt: status.value.startedAt,
         };
       }
       // It can no longer finish: reported stale-running if it is the

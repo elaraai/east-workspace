@@ -28,7 +28,7 @@ import {
   DictType, FloatType, IntegerType, OptionType, PatchType, SetType, SortedMap, SortedSet, StringType, StructType,
   compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, some, type ValueTypeOf,
 } from '@elaraai/east';
-import e3 from '@elaraai/e3';
+import e3, { type PartRunner } from '@elaraai/e3';
 import { readDatasetWhole } from './dataset-open.js';
 import { recordMutate, recordReindex, readRecordState } from './records.js';
 import { packageImport } from './package-files.js';
@@ -65,8 +65,8 @@ const keyOrder = compareFor(StringType);
 const sameRack = equalFor(RackRow);
 const sameInteger = equalFor(IntegerType);
 
-/** A runner selection, as the SDK's constructors take one. */
-type RunnerConfig = Parameters<typeof e3.mutation.reduce>[3];
+/** A runner selection, as a record's builders take one. */
+type RunnerConfig = PartRunner;
 
 /**
  * The record, its patch door and its area indexes, on a runner: the box by its
@@ -75,21 +75,20 @@ type RunnerConfig = Parameters<typeof e3.mutation.reduce>[3];
  * fields that are never unplaced.
  */
 function declared(runner?: RunnerConfig) {
-  const racks = e3.record('racks', RacksType, new Map());
-  return {
-    racks,
-    patch: e3.mutation.patch(racks, 'patch', runner),
-    indexes: [
-      e3.recordIndex.area('racks_by_area', racks, { x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 }, runner),
-      e3.recordIndex.area('racks_by_hall_area', racks, { on: ['hall'], x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 }, runner),
-      e3.recordIndex.area('racks_by_tag_area', racks, { on: ['tags'], x: 'x', y: 'y', cell: 0.5 }, runner),
-      e3.recordIndex.area('racks_by_zone', racks, { x: 'zx', y: 'zy', width: 'w', height: 'h', cell: 0.25 }, runner),
-    ] as const,
-  };
+  return e3.record('racks', RacksType, {
+    initial: new Map(),
+    indexes: (index) => ({
+      racks_by_area: index.area({ x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 }, runner),
+      racks_by_hall_area: index.area({ on: ['hall'], x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 }, runner),
+      racks_by_tag_area: index.area({ on: ['tags'], x: 'x', y: 'y', cell: 0.5 }, runner),
+      racks_by_zone: index.area({ x: 'zx', y: 'zy', width: 'w', height: 'h', cell: 0.25 }, runner),
+    }),
+    mutations: (mutation) => ({ patch: mutation.patch(runner) }),
+  });
 }
 
 /** The index names, in declaration order. */
-const INDEXES = declared().indexes.map((index) => index.name);
+const INDEXES = Object.keys(declared().indexes);
 
 /** A seeded stream of numbers in [0, 1) (mulberry32): the same rows on every run. */
 function stream(seed: number): () => number {
@@ -213,8 +212,7 @@ describe('the area index on the real runners', () => {
     storage = new LocalStorage(dirname(repo));
     realRunner = new LocalTaskRunner(repo);
     for (const { ws, runner } of runtimes) {
-      const { racks, patch, indexes } = declared(runner);
-      const pkg = e3.package(`area-${ws}`, '1.0.0', racks, patch, ...indexes);
+      const pkg = e3.package(`area-${ws}`, '1.0.0', declared(runner));
       const zip = join(tempDir, `area-${ws}.zip`);
       await e3.export(pkg, zip);
       await packageImport(storage, repo, zip);
@@ -247,7 +245,7 @@ describe('the area index on the real runners', () => {
   /** Every entry of each index in a workspace, decoded by its declared types. */
   async function entries(ws: string) {
     const held = await state(ws);
-    return Promise.all(declared().indexes.map(async (index) => {
+    return Promise.all(Object.values(declared().indexes).map(async (index) => {
       const collection = DictType(StructType({ ik: index.keyType, k: StringType }), index.valueType);
       return { name: index.name, entries: decodeBeast2For(collection)(await readDatasetWhole(storage, repo, held.indexes[index.name]!)) };
     }));
@@ -266,7 +264,7 @@ describe('the area index on the real runners', () => {
           const written = rows.get(entry.k);
           assert.ok(written !== undefined && sameRack(row, written), `${ws}/${name}: ${entry.k}'s entry carries its row`);
           const unplaced = name !== 'racks_by_zone' && written.x.type === 'none';
-          assert.strictEqual(sameInteger(entry.ik.__area, -1n), unplaced, `${ws}/${name}: ${entry.k} is under -1 exactly when it has no place`);
+          assert.strictEqual(sameInteger(entry.ik.area, -1n), unplaced, `${ws}/${name}: ${entry.k} is under -1 exactly when it has no place`);
         }
       }
     }

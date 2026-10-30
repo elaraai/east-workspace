@@ -52,7 +52,7 @@ function planRow(key: string, kind: unknown = span(), parent?: string, series?: 
         gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
         collapsed: false, pinned: false, height: none, status: none, expand: none,
-        edits: { drop: false, move: none },
+        edits: { drop: false, move: none, values: [] },
     } as unknown as PlanWireRow;
 }
 
@@ -70,7 +70,7 @@ function root(rows: PlanWireRow[], opts: Partial<Record<string, unknown>> = {}):
             resolutions: [variant("week", null), variant("day", null)], now: none, format: none,
         }),
         grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, editing: none, pick: none,
-        slice: none, footer: [], id: none, sources: [], canDrop: none,
+        slice: none, nested: none, footer: [], id: none, sources: [], canDrop: none,
         onSelect: none, onElementClick: none, onGroupToggle: none, onGrainChange: none, ui: none, style: none,
         ...opts,
     } as unknown as PlanRootValue;
@@ -89,7 +89,7 @@ const nameOf = (id: PlanRowId) => id.value.path.join("/");
 async function windowSlice(key: string, source: "dated" | "rows" = "dated") {
     const rail = await bindRail(() => Slice.bindRecords(key, {
         [source]: {
-            source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
+            source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_at"] }),
             fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
         },
     }), []);
@@ -191,16 +191,17 @@ describe("the window a canvas holds itself (#1344)", () => {
         expect(s.state().where).toEqual(where);
     });
 
-    test("no source holding the window, the resolution is the slice's first source's: one write, of the resolution alone, the rows' narrowing standing", async () => {
+    test("no source holding the window, the resolution is the slice's first source's: one write, of the resolution alone, the rows' narrowing standing, and the canvas's own window zoomed", async () => {
         const { s, hold, c, moved } = await overRows("c1344-res");
         const where = s.state().where;
         c.dispatch({ t: "resolution.set", resolution: "day" });
         expect(s.writes()).toBe(1);
         expect(s.state().resolution).toEqual(some(variant("day", null)));
         expect(s.state().where).toEqual(where);
-        // A resolution moves no window: the hold stands.
-        expect(moved()).toBe(0);
-        expect(hold.last).toBeUndefined();
+        // The canvas's own window zooms with it (#1438): as many days as it showed weeks, twelve, about the same middle.
+        const middle = W27.getTime() + 6 * WEEK;
+        expect(moved()).toBe(1);
+        expect(hold.last).toEqual([middle - 6 * DAY, middle + 6 * DAY]);
         expect(c.getSnapshot().announce?.text).toBe("Resolution: day");
     });
 

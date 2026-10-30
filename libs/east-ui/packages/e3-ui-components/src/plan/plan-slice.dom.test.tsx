@@ -35,7 +35,7 @@ import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
 import { planWindowParts } from "./root/sources.js";
-import { blocksSource, oneBlock, rowId } from "./plan.test-utils.js";
+import { blocksSource, oneBlock, keySurface, rowId } from "./plan.test-utils.js";
 import { RAIL_MODULES, bindRail } from "./rail.test-utils.js";
 
 const h = e3Harness(RAIL_MODULES, { measure: false });
@@ -107,7 +107,7 @@ function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date |
         hover: opts?.hover !== undefined ? some(opts.hover) : none,
         expandRender: opts?.expandRender !== undefined ? some(opts.expandRender) : none,
         pick: opts?.pick !== undefined ? some(opts.pick) : none,
-        slice: opts?.slice ?? none,
+        slice: opts?.slice ?? none, nested: none,
         footer: opts?.footer ?? [],
         id: none, sources: [], editing: none, canDrop: none,
         onSelect: none,
@@ -141,7 +141,7 @@ describe("a record's resolution re-buckets the window (§3, #1344)", () => {
         // The dated rows' window, twelve weeks from W27 — the source holds it, and it alone.
         const rail = await bindRail(() => Slice.bindRecords("plan.zoom", {
             dated: {
-                source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
+                source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_at"] }),
                 fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
             },
         }), ["resolution"]);
@@ -174,7 +174,7 @@ const brushFixture = async (key: string, axis?: unknown) => {
     // WHOLE weeks: W27 to the end of W39, thirteen of them — the last row's week counts once.
     const rail = await bindRail(() => Slice.bindRecords(key, {
         dated: {
-            source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
+            source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_at"] }),
             fields: { at: { label: "At" } }, range: "at",
             initial: { at: { from: new Date("2026-07-13T00:00:00Z"), to: new Date("2026-08-10T00:00:00Z") } },
         },
@@ -302,7 +302,7 @@ describe("Plan chrome tracks the slice store (#611)", () => {
             ["r2", { at: W36, owner: "Team B", hall: "Hall 1" }],
         ]));
         const rail = await bindRail(() => Slice.bindRecords("plan.summary.chrome", {
-            dated: { source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }), label: "Dated rows", fields: { at: { label: "At" } }, range: "at" },
+            dated: { source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_at"] }), label: "Dated rows", fields: { at: { label: "At" } }, range: "at" },
         }), ["summary"]);
         const part = rail.part("dated");
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
@@ -328,7 +328,7 @@ describe("the canvas's rows never follow the dates (#1344)", () => {
         // meant nothing: the dates on screen never decide which rows are listed.
         const rail = await bindRail(() => Slice.bindRecords("plan.1344.rows", {
             rows: {
-                source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
+                source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_at"] }),
                 fields: { at: { label: "At" } }, range: "at",
                 initial: { at: { from: new Date("2026-07-13T00:00:00Z"), to: new Date("2026-08-10T00:00:00Z") } },
             },
@@ -366,7 +366,7 @@ describe("the canvas's rows never follow the dates (#1344)", () => {
         expect(ticks()).toHaveLength(10);
         untouched();
         // A pan, a week on.
-        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "]" });
+        fireEvent.keyDown(keySurface(container), { key: "]" });
         expect(ticks()[0]).toBe("W30");
         untouched();
         // A step of the date navigator, a week on again, its weeks kept.
@@ -389,7 +389,7 @@ describe("the canvas's rows never follow the dates (#1344)", () => {
 
     test("a source named among the canvas's rows' — `rows`, or a resource kind's — holds no window; every other source with a range of the axis's arm does", async () => {
         const dated = (fields: { at: { label: string } }) => ({
-            source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }), fields, range: "at" as const,
+            source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_at"] }), fields, range: "at" as const,
         });
         const rail = await bindRail(() => Slice.bindRecords("plan.1344.parts", {
             rows: dated({ at: { label: "At" } }), presses: dated({ at: { label: "Since" } }), deliveries: dated({ at: { label: "Delivered" } }),

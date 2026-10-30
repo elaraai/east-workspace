@@ -833,6 +833,15 @@ describe('gc', () => {
       assert.ok(reachable.has(PROGRAM), 'a real mutation must keep its program reachable');
     });
 
+    it('a MutationObject that names no program marks its body alone: no empty name is reachable', async () => {
+      const BODY = 'e'.repeat(64);
+      const root = 'reducer-only'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(MutationObjectType)({ bodyIr: BODY, argTypes: [], runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }), form: variant('reduce', null), programIr: '' })]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.deepStrictEqual([...reachable].sort(), [root, BODY].sort());
+    });
+
     it('a genuine RecordObject IS traversed: each migration, its function and a split step\'s program stay reachable', async () => {
       const VALUE_STEP = 'a-value-step'.padEnd(64, '0');
       const ROWS_STEP = 'a-rows-step'.padEnd(64, '0');

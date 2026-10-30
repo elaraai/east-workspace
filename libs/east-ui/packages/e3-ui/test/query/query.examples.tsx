@@ -295,83 +295,91 @@ export const historyTask = e3.task("order_history", [historyCount, accountCount]
  * data sources the builders bind when the package builds, and described where
  * the mock describes it; the rest describe themselves.
  */
-export const queries = e3.record("queries", Query.Types.Saved, Query.value({ orders, customers, forecast, model, bom }, [
-    {
-        name: "Top shipped orders, 2026",
-        jq: `.customers as $customers
-| .orders
-| map(select(.status.type == "shipped") | select(.total >= 100 and (.status.value.date | year) == 2026))
-| map(. + {name: $customers[.customer_id].name, region: $customers[.customer_id].region})
-| map({order: .id, customer: .name, region, total, shipped: .status.value.date})
-| sort_by(-.total)
-| .[:10]`,
-        savedAt: new Date("2026-10-01T09:00:00Z"),
-    },
-    {
-        name: "Revenue by region",
-        jq: `.customers as $customers
-| .orders
-| map(select(.status.type == "shipped") | select(.total >= 100 and (.status.value.date | year) == 2026))
-| map(. + {region: $customers[.customer_id].region})
-| group_by(.region)
-| map({region: .[0].region, revenue: map(.total) | add, orders: length})
-| sort_by(-.revenue)
-| .[:3]`,
-        description: "Top 3 regions by shipped revenue in 2026, from orders of $100 or more.",
-        savedAt: new Date("2026-09-29T09:00:00Z"),
-    },
-    {
-        name: "Shipped revenue by month",
-        jq: `.orders
-| map(select(.status.type == "shipped"))
-| map(. + {ship_month: .status.value.date | strftime("%Y-%m")})
-| group_by(.ship_month)
-| map({ship_month: .[0].ship_month, revenue: map(.total) | add, orders: length})
-| sort_by(.ship_month)`,
-        savedAt: new Date("2026-09-12T09:00:00Z"),
-    },
-    {
-        name: "Large orders with no discount",
-        jq: `.orders
-| map(select(.total >= 1000 and .discount == null))
-| map({id, customer_id, total, status})
-| sort_by(-.total)`,
-        savedAt: new Date("2026-09-03T09:00:00Z"),
-    },
-    {
-        name: "Units by SKU",
-        jq: `.orders
-| [.[] | . as $order | .lines[] | . + {order_id: $order.id}]
-| group_by(.sku)
-| map({sku: .[0].sku, units: map(.qty) | add, orders: map(.order_id) | unique | length})
-| sort_by(-.units)`,
-        savedAt: new Date("2026-08-28T09:00:00Z"),
-    },
-    {
-        name: "Pump parts cost",
-        jq: `.bom
-| [recurse(.children[]) | {cost, sku}]
-| {total_cost: map(.cost) | add, parts: length, dearest: map(.cost) | max}`,
-        description: "Total cost, part count and dearest part in the PUMP-A bill of materials.",
-        savedAt: new Date("2026-08-20T09:00:00Z"),
-    },
-    {
-        name: "Demand at $10–$12, NSW",
-        jq: `.model
-| [range(10.0; 12.0 + 0.5 / 2; 0.5) as $price | {price: $price, demand: call(.; {price: $price, region: "NSW"})}]`,
-        description: "Modelled demand in NSW at prices from $10 to $12, in $0.50 steps.",
-        savedAt: new Date("2026-08-14T09:00:00Z"),
-    },
-]));
+export const queries = e3.record("queries", Query.Types.Saved, {
+    initial: Query.value({ orders, customers, forecast, model, bom }, [
+        {
+            name: "Top shipped orders, 2026",
+            jq: `.customers as $customers
+    | .orders
+    | map(select(.status.type == "shipped") | select(.total >= 100 and (.status.value.date | year) == 2026))
+    | map(. + {name: $customers[.customer_id].name, region: $customers[.customer_id].region})
+    | map({order: .id, customer: .name, region, total, shipped: .status.value.date})
+    | sort_by(-.total)
+    | .[:10]`,
+            savedAt: new Date("2026-10-01T09:00:00Z"),
+        },
+        {
+            name: "Revenue by region",
+            jq: `.customers as $customers
+    | .orders
+    | map(select(.status.type == "shipped") | select(.total >= 100 and (.status.value.date | year) == 2026))
+    | map(. + {region: $customers[.customer_id].region})
+    | group_by(.region)
+    | map({region: .[0].region, revenue: map(.total) | add, orders: length})
+    | sort_by(-.revenue)
+    | .[:3]`,
+            description: "Top 3 regions by shipped revenue in 2026, from orders of $100 or more.",
+            savedAt: new Date("2026-09-29T09:00:00Z"),
+        },
+        {
+            name: "Shipped revenue by month",
+            jq: `.orders
+    | map(select(.status.type == "shipped"))
+    | map(. + {ship_month: .status.value.date | strftime("%Y-%m")})
+    | group_by(.ship_month)
+    | map({ship_month: .[0].ship_month, revenue: map(.total) | add, orders: length})
+    | sort_by(.ship_month)`,
+            savedAt: new Date("2026-09-12T09:00:00Z"),
+        },
+        {
+            name: "Large orders with no discount",
+            jq: `.orders
+    | map(select(.total >= 1000 and .discount == null))
+    | map({id, customer_id, total, status})
+    | sort_by(-.total)`,
+            savedAt: new Date("2026-09-03T09:00:00Z"),
+        },
+        {
+            name: "Units by SKU",
+            jq: `.orders
+    | [.[] | . as $order | .lines[] | . + {order_id: $order.id}]
+    | group_by(.sku)
+    | map({sku: .[0].sku, units: map(.qty) | add, orders: map(.order_id) | unique | length})
+    | sort_by(-.units)`,
+            savedAt: new Date("2026-08-28T09:00:00Z"),
+        },
+        {
+            name: "Pump parts cost",
+            jq: `.bom
+    | [recurse(.children[]) | {cost, sku}]
+    | {total_cost: map(.cost) | add, parts: length, dearest: map(.cost) | max}`,
+            description: "Total cost, part count and dearest part in the PUMP-A bill of materials.",
+            savedAt: new Date("2026-08-20T09:00:00Z"),
+        },
+        {
+            name: "Demand at $10–$12, NSW",
+            jq: `.model
+    | [range(10.0; 12.0 + 0.5 / 2; 0.5) as $price | {price: $price, demand: call(.; {price: $price, region: "NSW"})}]`,
+            description: "Modelled demand in NSW at prices from $10 to $12, in $0.50 steps.",
+            savedAt: new Date("2026-08-14T09:00:00Z"),
+        },
+    ]),
+    mutations: (mutation) => ({
+        // The record's one write.
+        patch: mutation.patch(),
+    }),
+});
 
-/** The record's one write. */
-export const queriesPatch = e3.mutation.patch(queries);
 
 /** A record no query has been saved to yet. */
-export const queriesEmpty = e3.record("queries_empty", Query.Types.Saved, new SortedMap([], compareFor(StringType)));
+export const queriesEmpty = e3.record("queries_empty", Query.Types.Saved, {
+    initial: new SortedMap([], compareFor(StringType)),
+    mutations: (mutation) => ({
+        // Its one write.
+        patch: mutation.patch(),
+    }),
+});
 
-/** Its one write. */
-export const queriesEmptyPatch = e3.mutation.patch(queriesEmpty);
 
 // ============================================================================
 // The builders
@@ -380,12 +388,12 @@ export const queriesEmptyPatch = e3.mutation.patch(queriesEmpty);
 export const queryBuilder = example({
     keywords: [
         "Query", "Query.Builder", "query builder", "jq", "steps", "saved queries", "run", "results", "Table", "Value tree", "Download", "CSV",
-        "Record.bind", "patch", "e3.record", "e3.mutation.patch", "Data.bind", "datasets", "one-shot",
+        "Record.bind", "patch", "e3.record", "mutation.patch", "Data.bind", "datasets", "one-shot",
     ],
     description: "The query builder over the shared fixture's datasets and the saved queries record, open on Top shipped orders, 2026: one toolbar — Visual · jq, Table · Tree, Download, the history item, Copy jq, Save… and Run — the pane's Query tab with its five steps and their counted shape lines, and the ten orders it gives as a Table beside it",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const saved = $.let(Record.bind(queries, [queriesPatch]));
+            const saved = $.let(Record.bind(queries));
             const orderRows = $.let(Data.bind(orders));
             const customerRows = $.let(Data.bind(customers));
             const weekly = $.let(Data.bind(forecast));
@@ -407,7 +415,7 @@ export const queryBuilderBom = example({
     description: "The same builder open on Pump parts cost: every part of the PUMP-A bill of materials, walked, then totalled — its cost, its part count and its dearest part, one value shown as a Value tree",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const saved = $.let(Record.bind(queries, [queriesPatch]));
+            const saved = $.let(Record.bind(queries));
             const orderRows = $.let(Data.bind(orders));
             const customerRows = $.let(Data.bind(customers));
             const weekly = $.let(Data.bind(forecast));
@@ -429,7 +437,7 @@ export const queryBuilderModel = example({
     description: "The same builder open on Demand at $10–$12, NSW: the demand model, an East function in the data, tried at each price from $10 to $12 in $0.50 steps, one row per price",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const saved = $.let(Record.bind(queries, [queriesPatch]));
+            const saved = $.let(Record.bind(queries));
             const orderRows = $.let(Data.bind(orders));
             const customerRows = $.let(Data.bind(customers));
             const weekly = $.let(Data.bind(forecast));
@@ -451,7 +459,7 @@ export const queryBuilderEmpty = example({
     description: "A builder over a record with no saved queries: a new query on orders, its Query tab asking for a first step, and nothing run yet",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const saved = $.let(Record.bind(queriesEmpty, [queriesEmptyPatch]));
+            const saved = $.let(Record.bind(queriesEmpty));
             const orderRows = $.let(Data.bind(orders));
             const customerRows = $.let(Data.bind(customers));
             return (
@@ -475,43 +483,47 @@ export const queryBuilderEmpty = example({
  * limits, keyed alike, cut at the same keys — each checked against the three
  * generated datasets, each a task's output, when the package builds.
  */
-export const historyQueries = e3.record("history_queries", Query.Types.Saved, Query.value({ order_history: historyTask, accounts: accountsTask, credit: creditTask }, [
-    {
-        name: "History revenue by month",
-        jq: `.order_history
-| map(select(.status.type == "shipped"))
-| map(. + {ship_month: .status.value.date | strftime("%Y-%m")})
-| group_by(.ship_month)
-| map({ship_month: .[0].ship_month, revenue: map(.total) | add, orders: length})`,
-        description: "Shipped revenue by month over the whole order history, run over its pieces.",
-        savedAt: new Date("2026-10-02T09:00:00Z"),
-    },
-    {
-        name: "History revenue by region",
-        jq: `.accounts as $accounts
-| .order_history
-| map(select(.status.type == "shipped"))
-| map(. + {region: $accounts[.customer_id].region})
-| group_by(.region)
-| map({region: .[0].region, revenue: map(.total) | add, orders: length})`,
-        description: "Shipped revenue by the region of the account that placed each order.",
-        savedAt: new Date("2026-10-02T10:00:00Z"),
-    },
-    {
-        name: "Credit by region",
-        jq: `.credit as $credit
-| .accounts
-| to_entries
-| map({region: .value.region, limit: ($credit[.key] // 0)})
-| group_by(.region)
-| map({region: .[0].region, limit: map(.limit) | add, accounts: length})`,
-        description: "Each region's accounts and their credit limits added up; an account with no limit counts as none.",
-        savedAt: new Date("2026-10-02T11:00:00Z"),
-    },
-]));
+export const historyQueries = e3.record("history_queries", Query.Types.Saved, {
+    initial: Query.value({ order_history: historyTask, accounts: accountsTask, credit: creditTask }, [
+        {
+            name: "History revenue by month",
+            jq: `.order_history
+    | map(select(.status.type == "shipped"))
+    | map(. + {ship_month: .status.value.date | strftime("%Y-%m")})
+    | group_by(.ship_month)
+    | map({ship_month: .[0].ship_month, revenue: map(.total) | add, orders: length})`,
+            description: "Shipped revenue by month over the whole order history, run over its pieces.",
+            savedAt: new Date("2026-10-02T09:00:00Z"),
+        },
+        {
+            name: "History revenue by region",
+            jq: `.accounts as $accounts
+    | .order_history
+    | map(select(.status.type == "shipped"))
+    | map(. + {region: $accounts[.customer_id].region})
+    | group_by(.region)
+    | map({region: .[0].region, revenue: map(.total) | add, orders: length})`,
+            description: "Shipped revenue by the region of the account that placed each order.",
+            savedAt: new Date("2026-10-02T10:00:00Z"),
+        },
+        {
+            name: "Credit by region",
+            jq: `.credit as $credit
+    | .accounts
+    | to_entries
+    | map({region: .value.region, limit: ($credit[.key] // 0)})
+    | group_by(.region)
+    | map({region: .[0].region, limit: map(.limit) | add, accounts: length})`,
+            description: "Each region's accounts and their credit limits added up; an account with no limit counts as none.",
+            savedAt: new Date("2026-10-02T11:00:00Z"),
+        },
+    ]),
+    mutations: (mutation) => ({
+        // Its one write.
+        patch: mutation.patch(),
+    }),
+});
 
-/** Its one write. */
-export const historyQueriesPatch = e3.mutation.patch(historyQueries);
 
 export const queryBuilderHistory = example({
     keywords: [
@@ -521,7 +533,7 @@ export const queryBuilderHistory = example({
     description: "The builder over data too large for one call — an order history of 36,000 orders, the 20,000 accounts that place them and their credit limits, which e3 tasks generate when the dataflow runs, each bound by window and never downloaded — open on History revenue by region: the history joined with the accounts, both large, so the run re-keys it as two split calls, which the results footer's plan read-out says. Its other saved queries run as a split call over the history's pieces, and as a join of two lookups keyed alike, cut at the same keys",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const saved = $.let(Record.bind(historyQueries, [historyQueriesPatch]));
+            const saved = $.let(Record.bind(historyQueries));
             const history = $.let(Data.bindPaged(historyTask));
             const accounts = $.let(Data.bindPaged(accountsTask));
             const credit = $.let(Data.bindPaged(creditTask));
@@ -548,7 +560,7 @@ export const queryLibrary = example({
     description: "The query library over the same record and data sources: one toolbar — the search, Sort, Grid · List and \"+ New query on orders\" — beside the data sources with their counts of saved queries and this viewer's recent runs; the seven saved queries as a gallery, each card a wireframe of its steps with its name, its description and what it gives, and \"Open in builder →\", which opens the query in the builder that shares its id",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const saved = $.let(Record.bind(queries, [queriesPatch]));
+            const saved = $.let(Record.bind(queries));
             const orderRows = $.let(Data.bind(orders));
             const customerRows = $.let(Data.bind(customers));
             const weekly = $.let(Data.bind(forecast));

@@ -13,13 +13,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, FloatType, IntegerType, compareFor, decodeBeast2For, encodeBeast2For, equalFor,
+    ArrayType, FloatType, IntegerType, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor,
     none, parseFor, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
-import { RecordSliceChoiceType, RecordSliceIndexType, RecordSliceWhereType } from "../../src/platform/slice/record-types.js";
+import { RecordSliceAreaType, RecordSliceIndexType, RecordSliceWhereType } from "../../src/platform/slice/record-types.js";
 import { planRecordSlice } from "../../src/platform/slice/record-plan.js";
+import { recordOnPrinter, recordOnPrinters } from "../../src/platform/slice/record-on.js";
 import {
-    AREA_FIELD, AREA_UNPLACED, MAX_AREA_RASTER, MAX_AREA_SEARCHES, areaCells, areaMarkerFields, areaQueries, areaRaster, readAreaMarker, type AreaWindow,
+    AREA_UNPLACED, MAX_AREA_RASTER, MAX_AREA_SEARCHES, areaCells, areaMarkerFields, areaQueries, areaRaster, readAreaMarker, type AreaWindow,
 } from "../../src/platform/slice/record-area.js";
 import { SeekQueryType } from "../../src/contracts/source.js";
 
@@ -29,7 +30,13 @@ type Choice = Where extends Map<string, infer C> ? C : never;
 const integerOf = parseFor(IntegerType);
 const sameKey = equalFor(IntegerType);
 const keyOrder = compareFor(IntegerType);
-const printWindow = printFor(RecordSliceChoiceType.cases.window);
+const printWindow = printFor(RecordSliceAreaType.cases.window);
+
+/** The `on` printers of an area index led by no field, and of one led by a hall (#1432). */
+const UNLED = recordOnPrinter(StructType({}));
+const BY_HALL = recordOnPrinter(StructType({ hall: StringType }));
+/** An index's printer, by the leading values a search names. */
+const printerOf = (prefix: readonly string[]) => prefix.length === 0 ? UNLED : BY_HALL;
 const printFloat = printFor(FloatType);
 
 /** A seeded stream of numbers in [0, 1) (mulberry32): the same cases on every run. */
@@ -94,12 +101,12 @@ function integer(text: string): bigint {
     return read.value;
 }
 
-/** How many of a plan's searches hold a key, after the leading values they all name. */
+/** How many of a plan's searches hold a key, after the leading values they all name: an exact search's as one `on`, a range's one by one (#1432). */
 function reads(queries: readonly Query[], prefix: readonly string[], key: bigint): number {
     let count = 0;
     for (const query of queries) {
         if (query.type === "fields") {
-            assert.deepEqual(query.value.values.slice(0, -1), prefix);
+            assert.deepEqual(query.value.values.slice(0, -1), [printerOf(prefix)(prefix)]);
             assert.equal(query.value.prefix.type, "none");
             if (sameKey(integer(query.value.values.at(-1)!), key)) count++;
         } else if (query.type === "range") {
@@ -136,13 +143,14 @@ function randomView(next: () => number, cell: number): AreaWindow {
 }
 
 /**
- * A plan's searches as the half-open spans of `__area` they hold, in key order,
- * after the leading values they all name; refused unless they are disjoint.
+ * A plan's searches as the half-open spans of `area` codes they hold, in key
+ * order, after the leading values they all name — an exact search's as one
+ * `on` (#1432); refused unless they are disjoint.
  */
 function spans(queries: readonly Query[], prefix: readonly string[]): [bigint, bigint][] {
     const held = queries.map((query): [bigint, bigint] => {
         if (query.type === "fields") {
-            assert.deepEqual(query.value.values.slice(0, -1), prefix);
+            assert.deepEqual(query.value.values.slice(0, -1), [printerOf(prefix)(prefix)]);
             const key = integer(query.value.values.at(-1)!);
             return [key, key + 1n];
         }
@@ -174,7 +182,7 @@ test("a window's searches hold every row whose box meets it, each once, within t
         for (let w = 0; w < 150; w++) {
             const view = randomView(next, cell);
             const prefix = w % 3 === 0 ? [] : ['"H1"'];
-            const queries = areaQueries(prefix, view, cell);
+            const queries = areaQueries(prefix, view, cell, printerOf(prefix));
             assert.ok(queries.length <= MAX_AREA_SEARCHES, `${queries.length} searches for ${printWindow(view)}`);
             const sorted = spans(queries, prefix);
             boxes.forEach((box, i) => {
@@ -187,7 +195,7 @@ test("a window's searches hold every row whose box meets it, each once, within t
 test("a window reads a coarser cell sharing its range's corner by its exact key, once, and an unplaced row never", () => {
     const cell = 1;
     const view = { minX: 10, minY: 10, maxX: 74, maxY: 74 };
-    const queries = areaQueries([], view, cell);
+    const queries = areaQueries([], view, cell, UNLED);
     // The window's level: an eighth of the window's larger side (80) is 10, so 16-unit cells, level 24.
     const ranges = queries.filter(query => query.type === "range");
     assert.ok(ranges.length > 0 && ranges.every(query => query.type === "range" && integer(query.value.from[0]!) % 32n === 24n));
@@ -211,11 +219,11 @@ test("the root is searched whatever the window: a row outside the domain, or not
     ]) {
         assert.equal(filed(box, cell), 0n);
         for (const view of [{ minX: 0, minY: 0, maxX: 1, maxY: 1 }, { minX: 5 * half, minY: 5 * half, maxX: 5 * half + 2, maxY: 5 * half + 1 }]) {
-            assert.equal(reads(areaQueries([], view, cell), [], 0n), 1);
+            assert.equal(reads(areaQueries([], view, cell, UNLED), [], 0n), 1);
         }
     }
     // A viewport wider than the domain plans its root alone, as a range over every placed row.
-    assert.deepEqual(areaQueries([], { minX: -4 * half, minY: -4 * half, maxX: 4 * half, maxY: 4 * half }, cell),
+    assert.deepEqual(areaQueries([], { minX: -4 * half, minY: -4 * half, maxX: 4 * half, maxY: 4 * half }, cell, UNLED),
         [variant("range", { from: ["0"], to: [`${4n ** 28n * 32n}`] })]);
 });
 
@@ -225,11 +233,11 @@ test("a window planned again plans the same searches for each cell it shares, so
     const text = (queries: readonly Query[]) => queries.map(query => print(query));
     const view = { minX: 3, minY: 4, maxX: 13, maxY: 9 };
     const panned = { minX: 4, minY: 4, maxX: 14, maxY: 9 };
-    const first = new Set(text(areaQueries([], view, cell)));
-    const second = text(areaQueries([], panned, cell));
+    const first = new Set(text(areaQueries([], view, cell, UNLED)));
+    const second = text(areaQueries([], panned, cell, UNLED));
     const shared = second.filter(query => first.has(query));
     assert.ok(shared.length > second.length / 2, `a pan of a tenth shares most cells: ${shared.length} of ${second.length}`);
-    assert.deepEqual(text(areaQueries([], view, cell)), [...first], "the same window plans the same searches, in key order");
+    assert.deepEqual(text(areaQueries([], view, cell, UNLED)), [...first], "the same window plans the same searches, in key order");
 });
 
 test("a window's searches are its cells, each where its search's key says — its level, its indices and its box — so a reader can weigh its count by how much of it a view holds", () => {
@@ -239,8 +247,8 @@ test("a window's searches are its cells, each where its search's key says — it
         for (let w = 0; w < 60; w++) {
             const view = randomView(next, cell);
             const prefix = w % 3 === 0 ? [] : ['"H1"'];
-            const cells = areaCells(prefix, view, cell);
-            assert.deepEqual(cells.map(c => c.query), areaQueries(prefix, view, cell), "the cells are the window's searches, in their order");
+            const cells = areaCells(prefix, view, cell, printerOf(prefix));
+            assert.deepEqual(cells.map(c => c.query), areaQueries(prefix, view, cell, printerOf(prefix)), "the cells are the window's searches, in their order");
             for (const c of cells) {
                 const size = cell * 2 ** (28 - c.level);
                 assert.deepEqual([c.side, c.minX, c.minY], [size, -half + c.ix * size, -half + c.iy * size], `the cell ${c.level}:${c.ix},${c.iy}'s box`);
@@ -255,11 +263,11 @@ test("a window's searches are its cells, each where its search's key says — it
 });
 
 test("a window that is not finite, is inverted, or reads an index whose cell is no power of two is refused", () => {
-    assert.throws(() => areaQueries([], { minX: Number.NaN, minY: 0, maxX: 1, maxY: 1 }, 1), /finite bounds/);
-    assert.throws(() => areaQueries([], { minX: 0, minY: 0, maxX: 1, maxY: Number.POSITIVE_INFINITY }, 1), /finite bounds/);
-    assert.throws(() => areaQueries([], { minX: 2, minY: 0, maxX: 1, maxY: 1 }, 1), /maximum is below its minimum/);
-    assert.throws(() => areaQueries([], { minX: 0, minY: 0, maxX: 1, maxY: 1 }, 0.01), /power of two/);
-    assert.throws(() => areaQueries([], { minX: 0, minY: 0, maxX: 1, maxY: 1 }, 0), /power of two/);
+    assert.throws(() => areaQueries([], { minX: Number.NaN, minY: 0, maxX: 1, maxY: 1 }, 1, UNLED), /finite bounds/);
+    assert.throws(() => areaQueries([], { minX: 0, minY: 0, maxX: 1, maxY: Number.POSITIVE_INFINITY }, 1, UNLED), /finite bounds/);
+    assert.throws(() => areaQueries([], { minX: 2, minY: 0, maxX: 1, maxY: 1 }, 1, UNLED), /maximum is below its minimum/);
+    assert.throws(() => areaQueries([], { minX: 0, minY: 0, maxX: 1, maxY: 1 }, 0.01, UNLED), /power of two/);
+    assert.throws(() => areaQueries([], { minX: 0, minY: 0, maxX: 1, maxY: 1 }, 0, UNLED), /power of two/);
 });
 
 /** Whether a row's box meets a box itself, with no margin: what a raster's coarser levels read. */
@@ -283,7 +291,7 @@ test("a raster counts each row filed at its level or finer once, in the cell hol
         for (let w = 0; w < 40; w++) {
             const view = randomView(next, cell);
             const prefix = w % 3 === 0 ? [] : ['"H1"'];
-            const raster = areaRaster(prefix, view, cell);
+            const raster = areaRaster(prefix, view, cell, printerOf(prefix));
             assert.ok(raster.cells.length <= MAX_AREA_RASTER, `${raster.cells.length} cells for ${printWindow(view)}`);
             assert.equal(raster.side, cell * 2 ** (28 - raster.level));
             const cellQueries = raster.cells.map(c => c.query);
@@ -343,22 +351,22 @@ test("a raster's level is the deepest whose cells are a sixty-fourth of its box'
     const cell = 1;
     const box = { minX: 0, minY: 0, maxX: 640, maxY: 400 };
     // A sixty-fourth of 640 is 10: 16-unit cells, level 24, 41 by 26 of them meeting the box.
-    const raster = areaRaster([], box, cell);
+    const raster = areaRaster([], box, cell, UNLED);
     assert.deepEqual([raster.level, raster.side, raster.cells.length], [24, 16, 41 * 26]);
     assert.ok(raster.cells.every(c => c.query.type === "range" && integer(c.query.value.from[0]!) % 32n === 24n));
     assert.deepEqual(raster.cells.slice(0, 2).map(c => [c.minX, c.minY]), [[0, 0], [16, 0]], "row by row, each cell's corner in world units");
     // A budget of 100 cells: 32-unit cells take 21 by 13, too many; 64-unit cells 11 by 7.
-    const coarser = areaRaster([], box, cell, 100);
+    const coarser = areaRaster([], box, cell, UNLED, 100);
     assert.deepEqual([coarser.level, coarser.side, coarser.cells.length], [22, 64, 77]);
     // Its coarser levels: the root, and every level down to the raster's, by exact key, each its own level's.
-    assert.ok(coarser.coarse.length > 0 && coarser.coarse.every(c => c.query.type === "fields" && integer(c.query.value.values[0]!) % 32n === BigInt(c.level)
-        && c.level < 22));
-    assert.ok(coarser.coarse.some(c => c.level === 0 && c.ix === 0 && c.iy === 0 && c.query.type === "fields" && sameKey(integer(c.query.value.values[0]!), 0n)),
+    assert.ok(coarser.coarse.length > 0 && coarser.coarse.every(c => c.query.type === "fields" && c.query.value.values[0] === UNLED([])
+        && integer(c.query.value.values[1]!) % 32n === BigInt(c.level) && c.level < 22));
+    assert.ok(coarser.coarse.some(c => c.level === 0 && c.ix === 0 && c.iy === 0 && c.query.type === "fields" && sameKey(integer(c.query.value.values[1]!), 0n)),
         "the root is read whatever the box");
     // A box wider than the domain: the domain's cells a sixty-fourth of the box wide, sixteen a side at level 4, and
     // its coarser levels' 85 cells by key, the root among them.
     const half = cell * 2 ** 27;
-    const domain = areaRaster([], { minX: -4 * half, minY: -4 * half, maxX: 4 * half, maxY: 4 * half }, cell);
+    const domain = areaRaster([], { minX: -4 * half, minY: -4 * half, maxX: 4 * half, maxY: 4 * half }, cell, UNLED);
     assert.deepEqual([domain.level, domain.side, domain.cells.length, domain.coarse.length], [4, 2 ** 24, 256, 1 + 4 + 16 + 64]);
     assert.deepEqual(domain.cells[0], {
         level: 4, ix: 0, iy: 0, minX: -half, minY: -half, side: 2 ** 24, query: variant("range", { from: ["4"], to: [`${4n ** 24n * 32n}`] }),
@@ -366,10 +374,10 @@ test("a raster's level is the deepest whose cells are a sixty-fourth of its box'
 });
 
 test("a raster's box that is not finite or is inverted, an index whose cell is no power of two, and a budget of no cell are refused", () => {
-    assert.throws(() => areaRaster([], { minX: Number.NaN, minY: 0, maxX: 1, maxY: 1 }, 1), /finite bounds/);
-    assert.throws(() => areaRaster([], { minX: 2, minY: 0, maxX: 1, maxY: 1 }, 1), /maximum below its minimum/);
-    assert.throws(() => areaRaster([], { minX: 0, minY: 0, maxX: 1, maxY: 1 }, 0.01), /power of two/);
-    assert.throws(() => areaRaster([], { minX: 0, minY: 0, maxX: 1, maxY: 1 }, 1, 0), /at least one cell/);
+    assert.throws(() => areaRaster([], { minX: Number.NaN, minY: 0, maxX: 1, maxY: 1 }, 1, UNLED), /finite bounds/);
+    assert.throws(() => areaRaster([], { minX: 2, minY: 0, maxX: 1, maxY: 1 }, 1, UNLED), /maximum below its minimum/);
+    assert.throws(() => areaRaster([], { minX: 0, minY: 0, maxX: 1, maxY: 1 }, 0.01, UNLED), /power of two/);
+    assert.throws(() => areaRaster([], { minX: 0, minY: 0, maxX: 1, maxY: 1 }, 1, UNLED, 0), /at least one cell/);
 });
 
 test("an area index's marker names its box's fields by role, and reads back as itself", () => {
@@ -391,51 +399,79 @@ test("an area index's marker names its box's fields by role, and reads back as i
 
 const indexType = ArrayType(RecordSliceIndexType);
 const box = { x: "x", y: "y", width: some("w"), height: some("h"), centre: true, cell: 2 ** -7 };
+// Each index's fields are the row fields it is led by alone (#1432): its key's `on`.
 const indexes = decodeBeast2For(indexType)(encodeBeast2For(indexType)([
     { name: "by_hall", fields: ["hall"], sets: new Set(), structured: false, interval: none, area: none, series: none, summary: none },
-    { name: "racks_by_area", fields: [AREA_FIELD], sets: new Set(), structured: true, interval: none, area: some({ ...box, optional: true }), series: none, summary: none },
-    { name: "racks_by_hall_area", fields: ["hall", AREA_FIELD], sets: new Set(), structured: true, interval: none, area: some({ ...box, optional: true }), series: none, summary: none },
-    { name: "racks_by_tag_area", fields: ["tags", AREA_FIELD], sets: new Set(["tags"]), structured: true, interval: none, area: some({ ...box, optional: true }), series: none, summary: none },
-    { name: "zones_by_area", fields: ["floor", AREA_FIELD], sets: new Set(), structured: true, interval: none, area: some({ ...box, centre: false, optional: false }), series: none, summary: none },
+    { name: "racks_by_area", fields: [], sets: new Set(), structured: true, interval: none, area: some({ ...box, optional: true }), series: none, summary: none },
+    { name: "racks_by_hall_area", fields: ["hall"], sets: new Set(), structured: true, interval: none, area: some({ ...box, optional: true }), series: none, summary: none },
+    { name: "racks_by_tag_area", fields: ["tags"], sets: new Set(["tags"]), structured: true, interval: none, area: some({ ...box, optional: true }), series: none, summary: none },
+    { name: "zones_by_area", fields: ["floor"], sets: new Set(), structured: true, interval: none, area: some({ ...box, centre: false, optional: false }), series: none, summary: none },
 ]));
+/** Each area index's `on` printer, from its key type, as the binding's index key types give them. */
+const keyOf_ = (on: StructType) => StructType({ on, area: IntegerType });
+const PRINTERS = recordOnPrinters({
+    racks_by_area: keyOf_(StructType({})), racks_by_hall_area: keyOf_(StructType({ hall: StringType })),
+    racks_by_tag_area: keyOf_(StructType({ tags: StringType })), zones_by_area: keyOf_(StructType({ floor: IntegerType })),
+});
+const BY_TAG = recordOnPrinter(StructType({ tags: StringType }));
 const view = { minX: 2, minY: 3, maxX: 12, maxY: 8 };
 const values = (...choices: string[]): Choice => variant("values", choices);
-/** Plan a narrowing decoded at the runtime boundary, as a read's `where` arrives. */
-function plan(entries: [string, Choice][]) {
+type Area = ValueTypeOf<typeof RecordSliceAreaType>;
+const windowOf = (box: AreaWindow): Area => variant("window", box);
+const UNPLACED: Area = variant("unplaced", null);
+/** Plan a narrowing decoded at the runtime boundary, as a read's `where` arrives, a read by area's clause beside it. */
+function plan(entries: [string, Choice][], area?: Area) {
     const where = decodeBeast2For(RecordSliceWhereType)(encodeBeast2For(RecordSliceWhereType)(new Map(entries)));
-    return planRecordSlice(indexes, where, "primary");
+    return planRecordSlice(indexes, where, "primary", area, PRINTERS);
 }
 
-test("a window plans through the area index whose leading fields the other choices fill, a combination at a time", () => {
-    assert.deepEqual(plan([[AREA_FIELD, variant("window", view)]]), { index: "racks_by_area", queries: areaQueries([], view, 2 ** -7) });
-    assert.deepEqual(plan([["hall", values('"H1"', '"H2"')], [AREA_FIELD, variant("window", view)]]), {
-        index: "racks_by_hall_area", queries: [...areaQueries(['"H1"'], view, 2 ** -7), ...areaQueries(['"H2"'], view, 2 ** -7)],
+test("a window plans through the area index whose leading fields the narrowing fills, a combination at a time", () => {
+    assert.deepEqual(plan([], windowOf(view)), { index: "racks_by_area", queries: areaQueries([], view, 2 ** -7, UNLED) });
+    assert.deepEqual(plan([["hall", values('"H1"', '"H2"')]], windowOf(view)), {
+        index: "racks_by_hall_area", queries: [...areaQueries(['"H1"'], view, 2 ** -7, BY_HALL), ...areaQueries(['"H2"'], view, 2 ** -7, BY_HALL)],
     });
-    assert.deepEqual(plan([["tags", values('"cold"')], [AREA_FIELD, variant("window", view)]]), {
-        index: "racks_by_tag_area", queries: areaQueries(['"cold"'], view, 2 ** -7),
+    assert.deepEqual(plan([["tags", values('"cold"')]], windowOf(view)), {
+        index: "racks_by_tag_area", queries: areaQueries(['"cold"'], view, 2 ** -7, BY_TAG),
     });
-    // The unplaced clause: the rows of no place, a search a combination.
-    assert.deepEqual(plan([[AREA_FIELD, values(AREA_UNPLACED)]]), {
-        index: "racks_by_area", queries: [variant("fields", { values: [AREA_UNPLACED], prefix: none })],
+    // The unplaced clause: the rows of no place, a search a combination, its leading values one `on` (#1432).
+    assert.deepEqual(plan([], UNPLACED), {
+        index: "racks_by_area", queries: [variant("fields", { values: ["()", AREA_UNPLACED], prefix: none })],
     });
-    assert.deepEqual(plan([["hall", values('"H1"', '"H2"')], [AREA_FIELD, values(AREA_UNPLACED)]]), {
-        index: "racks_by_hall_area", queries: ['"H1"', '"H2"'].map(hall => variant("fields", { values: [hall, AREA_UNPLACED], prefix: none })),
+    assert.deepEqual(plan([["hall", values('"H1"', '"H2"')]], UNPLACED), {
+        index: "racks_by_hall_area", queries: ['(hall="H1")', '(hall="H2")'].map(on => variant("fields", { values: [on, AREA_UNPLACED], prefix: none })),
     });
-    // Without a clause under `__area`, an area index is an ordinary path among the others.
+    // Without a read by area, an area index is a path among the others, read by its whole `on`.
     assert.deepEqual(plan([["hall", values('"H1"')]]), { index: "by_hall", queries: [variant("key", '"H1"')] });
-    assert.deepEqual(plan([["floor", values("2")]]), { index: "zones_by_area", queries: [variant("fields", { values: ["2"], prefix: none })] });
+    assert.deepEqual(plan([["floor", values("2")]]), { index: "zones_by_area", queries: [variant("fields", { values: ["(floor=2)"], prefix: none })] });
+});
+
+test("a narrowing choosing a field named `area` or `__area` beside a read by area's window is planned through an area index led by it: e3's parts are the kind's, never a field's name (#1432)", () => {
+    const named = decodeBeast2For(indexType)(encodeBeast2For(indexType)([
+        { name: "by_area", fields: ["area"], sets: new Set(), structured: false, interval: none, area: none, series: none, summary: none },
+        { name: "racks_by_area", fields: [], sets: new Set(), structured: true, interval: none, area: some({ ...box, optional: true }), series: none, summary: none },
+        { name: "racks_by_area_area", fields: ["area", "__area"], sets: new Set(), structured: true, interval: none, area: some({ ...box, optional: true }), series: none, summary: none },
+    ]));
+    const On = StructType({ area: StringType, __area: StringType });
+    const printers = recordOnPrinters({ racks_by_area: keyOf_(StructType({})), racks_by_area_area: keyOf_(On) });
+    const where = (entries: [string, Choice][]) => decodeBeast2For(RecordSliceWhereType)(encodeBeast2For(RecordSliceWhereType)(new Map(entries)));
+    const chosen = where([["area", values('"A1"')], ["__area", values('"B"')]]);
+    const read = planRecordSlice(named, chosen, "primary", windowOf(view), printers)!;
+    assert.deepEqual(read, { index: "racks_by_area_area", queries: areaQueries(['"A1"', '"B"'], view, 2 ** -7, recordOnPrinter(On)) });
+    assert.ok(read.queries.some(query => query.type === "fields" && query.value.values[0] === '(area="A1", __area="B")'),
+        "its coarser cells name both leading values as one `on`");
+    assert.deepEqual(planRecordSlice(named, chosen, "primary", UNPLACED, printers),
+        { index: "racks_by_area_area", queries: [variant("fields", { values: ['(area="A1", __area="B")', AREA_UNPLACED], prefix: none })] });
+    // Without a read by area, `area` alone is a field the plain index answers.
+    assert.deepEqual(planRecordSlice(named, where([["area", values('"A1"')]]), "primary", undefined, printers), { index: "by_area", queries: [variant("key", '"A1"')] });
 });
 
 test("a read by area it cannot plan is refused, naming why", () => {
-    assert.throws(() => plan([["status", values('"held"')], [AREA_FIELD, variant("window", view)]]),
-        /beside 'status' needs an area index led by exactly 'status' — e3\.recordIndex\.area\(name, record, \{ on: \["status"\], x, y, … \}\).*'racks_by_area', 'racks_by_hall_area', 'racks_by_tag_area', 'zones_by_area' are led by other fields/);
-    assert.throws(() => planRecordSlice([indexes[0]!], new Map([[AREA_FIELD, variant("window", view)]]), "primary"),
+    assert.throws(() => plan([["status", values('"held"')]], windowOf(view)),
+        /beside 'status' needs an area index led by exactly 'status' — index\.area\(\{ on: \["status"\], x, y, … \}\) among the record's indexes.*'racks_by_area', 'racks_by_hall_area', 'racks_by_tag_area', 'zones_by_area' are led by other fields/);
+    assert.throws(() => planRecordSlice([indexes[0]!], new Map(), "primary", windowOf(view), PRINTERS),
         /needs an area index led by no field .*; this binding lists none/);
-    assert.throws(() => plan([["hall", variant("prefix", "H")], [AREA_FIELD, variant("window", view)]]), /takes exact choices beside it, and 'hall' holds a range or a prefix/);
-    assert.throws(() => plan([["tags", values('"cold"', '"hot"')], [AREA_FIELD, variant("window", view)]]), /takes one value of 'tags', which fans out over a Set/);
-    assert.throws(() => plan([["hall", variant("window", view)]]), /reads through an area index's __area, not 'hall'/);
-    assert.throws(() => plan([[AREA_FIELD, variant("range", { from: "0", to: "5" })]]), /choose a window or the unplaced clause, not a range/);
-    assert.throws(() => plan([[AREA_FIELD, values("5")]]), /the one value is the unplaced clause, -1/);
-    assert.throws(() => plan([["floor", values("2")], [AREA_FIELD, values(AREA_UNPLACED)]]), /'zones_by_area' places every row: its 'x' and 'y' are not Options/);
-    assert.throws(() => plan([["hall", values(...Array.from({ length: 65 }, (_, i) => `"H${i}"`))], [AREA_FIELD, variant("window", view)]]), /choose fewer values/);
+    assert.throws(() => plan([["hall", variant("prefix", "H")]], windowOf(view)), /takes exact choices beside it, and 'hall' holds a range or a prefix/);
+    assert.throws(() => plan([["tags", values('"cold"', '"hot"')]], windowOf(view)), /takes one value of 'tags', which fans out over a Set/);
+    assert.throws(() => plan([["floor", values("2")]], UNPLACED), /'zones_by_area' places every row: its 'x' and 'y' are not Options/);
+    assert.throws(() => plan([["hall", values(...Array.from({ length: 65 }, (_, i) => `"H${i}"`))]], windowOf(view)), /choose fewer values/);
 });

@@ -969,6 +969,45 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", { tag: "@desktop
             await expect.poll(() => entry.evaluate(cutNumbers)).toEqual([]);
         });
     }
+
+    /** A table cell whose column cannot hold its numerals (#1438): at WEEK the measures example's weeks are narrower
+     *  than a month's sums, and each cell holding one draws a dot in their place, so a value narrower than its
+     *  numerals is still seen. Its numerals are kept, hidden, and its hover says them. The dot is drawn whole and
+     *  centred in its cell at any width down to its own: in a 9px column, a 42-week window's, the cell's padding
+     *  leaves its line less room than the dot, and it must not wrap off it. */
+    test("planMeasures: a table cell whose column cannot hold its numerals draws a dot in their place, its hover saying them, whole and centred in the cell down to the dot's own width (#1438)", async ({ page }) => {
+        const entry = await openExample(page, "planMeasures");
+        await entry.locator('[data-plan-seg="resolution"]').getByRole("radio", { name: "WEEK", exact: true }).click();
+        await settled(page);
+        const cell = entry.locator("[data-plan-row] [data-cell]:has(> [data-plan-cell-dot])").first();
+        await expect(cell).toHaveCount(1);
+        /** The dot's box against its cell's: drawn, inside it, and at its centre. */
+        const read = () => cell.evaluate((el) => {
+            const d = el.querySelector("[data-plan-cell-dot]")!.getBoundingClientRect();
+            const c = el.getBoundingClientRect();
+            return {
+                drawn: d.width > 0 && d.height > 0,
+                inside: d.left >= c.left - 0.5 && d.right <= c.right + 0.5 && d.top >= c.top - 0.5 && d.bottom <= c.bottom + 0.5,
+                centred: Math.abs(d.left + d.right - c.left - c.right) <= 2 && Math.abs(d.top + d.bottom - c.top - c.bottom) <= 2,
+            };
+        });
+        await expect.poll(read).toEqual({ drawn: true, inside: true, centred: true });
+        const numerals = cell.locator(":scope > [data-table-parts]");
+        await expect(numerals).toHaveCount(1);
+        const said = await numerals.evaluate((g) => [...g.children].map((p) => (p.textContent ?? "").trim()).filter((t) => t !== "").join(" · "));
+        expect(said).toMatch(/\d/);
+        await cell.hover();
+        await expect(page.locator('[data-plan-overlay="tooltip"]')).toHaveText(said);
+        await page.mouse.move(0, 0);
+        await expect(page.locator('[data-plan-overlay="tooltip"]')).toHaveCount(0);
+        for (const px of [9, 4]) {
+            await cell.evaluate((el: HTMLElement, w) => {
+                el.style.setProperty("width", `${w}px`, "important");
+            }, px);
+            await expect.poll(read, `a ${px}px column`).toEqual({ drawn: true, inside: true, centred: true });
+        }
+        await expect.poll(() => entry.evaluate(cutNumbers)).toEqual([]);
+    });
 });
 
 /**
@@ -1601,5 +1640,196 @@ test.describe("Plan paged blocks (#823)", { tag: "@desktop" }, () => {
         await expect(entry.locator(rowSel("jobs", "U11799"))).toHaveCount(1);
         await expect.poll(() => misplaced(entry), "after the landing").toEqual([]);
         expect(await frame.evaluate((el) => el.scrollTop)).toBe(first);
+    });
+});
+
+/** The nested Plans' examples file (#1438). */
+const NESTED_EXAMPLES = "e3/plan/plan-nested";
+
+/**
+ * Shows only the named series of planNestedAll, from its library's Series tab:
+ * each series is a block of every works' rows, so the one shown is at the top.
+ * At the desktop's 1280px the library rests as a rail: opened over the rows,
+ * then closed by a click on the scrim it lays over them.
+ */
+async function showOnly(entry: Locator, shown: readonly string[]): Promise<void> {
+    await entry.getByRole("button", { name: "Expand Library", exact: true }).click();
+    await entry.locator('[role="tab"]', { hasText: /^Series/ }).first().click();
+    for (const title of ["Jobs", "Load", "Crew hours", "Parts"]) {
+        const toggle = entry.getByRole("button", { name: `Toggle ${title}`, exact: true });
+        const on = String(shown.includes(title));
+        if ((await toggle.getAttribute("aria-pressed")) !== on) await toggle.click();
+        await expect(toggle).toHaveAttribute("aria-pressed", on);
+    }
+    await entry.locator("[data-scrim]").click();
+    await expect(entry.locator("[data-scrim]")).toHaveCount(0);
+}
+
+/**
+ * The nested Plan's rows as they draw (#1438): a part's own jobs at the bar's
+ * height whatever its fold; a crew's cell taking a typed number marked so, and
+ * keeping its ring whole once a number typed into it is written.
+ */
+test.describe("planNestedAll's rows (#1438)", { tag: "@desktop" }, () => {
+    test("a part's own jobs draw at the bar's height folded and open, its bands at the rollup's, its row at the row's", async ({ page }) => {
+        const entry = await openExample(page, "planNestedAll", NESTED_EXAMPLES);
+        await showOnly(entry, ["Parts"]);
+        await entry.locator(`[data-plan-group=${JSON.stringify(rowId("assembly", "W-10001"))}]`).click();
+        const part = entry.locator(rowSel("parts", "W-10001", "P10001.1"));
+        await expect(part.locator("[data-run]").first()).toBeVisible();
+        /** The part's row, its jobs' bars and its bands, each height as drawn. */
+        const drawn = () => part.evaluate((row) => {
+            const heights = (sel: string) => [...new Set([...row.querySelectorAll(sel)].map((el) => el.getBoundingClientRect().height))];
+            return { row: row.getBoundingClientRect().height, bars: heights("[data-run]"), bands: heights("[data-plan-band]") };
+        });
+        // The geometry's row, bar and rollup band.
+        const geometry = { row: 32, bars: [20], bands: [12] };
+        await expect(part).toHaveAttribute("aria-expanded", "false");
+        await expect.poll(drawn, "folded").toEqual(geometry);
+        await part.locator('[role="rowheader"]').click();
+        await expect(part).toHaveAttribute("aria-expanded", "true");
+        await expect.poll(drawn, "open").toEqual(geometry);
+    });
+
+    test("a crew's cell taking a typed number wears a faint well inside its edges, and an input's edge on hover; the works row's subtotal, a summary, stays plain", async ({ page }) => {
+        const entry = await openExample(page, "planNestedAll", NESTED_EXAMPLES);
+        await showOnly(entry, ["Crew hours"]);
+        const works = entry.locator(rowSel("crews", "W-10001"));
+        await works.locator('[role="rowheader"]').click();
+        const cell = entry.locator(`[data-plan-row*='series="crew"'] [data-typed]`).first();
+        await expect(cell).toBeVisible();
+        /** A cell's well (its `::after`), whether it is painted, and its edge, as drawn. */
+        const look = (el: Locator) => el.evaluate((c) => {
+            const well = getComputedStyle(c, "::after");
+            const painted = well.content !== "none" && well.backgroundColor !== "rgba(0, 0, 0, 0)";
+            const inside = painted && [well.top, well.right, well.bottom, well.left].every((side) => side === "1px");
+            return { well: painted && inside, edge: getComputedStyle(c).boxShadow };
+        });
+        await expect.poll(() => look(cell)).toEqual({ well: true, edge: "none" });
+        await expect.poll(() => look(works.locator("[data-cell]").first())).toEqual({ well: false, edge: "none" });
+        await cell.hover();
+        await expect.poll(async () => (await look(cell)).edge).toMatch(/ 0px 0px 0px 1px inset$/);
+    });
+
+    test("a crew's cell keeps its ring whole once Enter writes the number typed into it: the field's ring, inside the cell", async ({ page }) => {
+        const entry = await openExample(page, "planNestedAll", NESTED_EXAMPLES);
+        await showOnly(entry, ["Crew hours"]);
+        await entry.locator(rowSel("crews", "W-10001")).locator('[role="rowheader"]').click();
+        const cell = entry.locator(`[data-plan-row*='series="crew"'] [data-typed]`).first();
+        await cell.dblclick();
+        const field = entry.locator("[data-plan-typing]");
+        const input = field.locator("input");
+        await expect(input).toBeFocused();
+        const ring = await field.evaluate((el) => getComputedStyle(el).boxShadow);
+        await input.fill("7");
+        await input.press("Enter");
+        await expect(field).toHaveCount(0);
+        await expect(cell).toBeFocused();
+        // The field's ring, drawn inside the cell, nothing outside it; and the cell lies inside its row, so the row
+        // cuts none of it.
+        const drawn = () => cell.evaluate((el) => {
+            const style = getComputedStyle(el);
+            const box = el.getBoundingClientRect();
+            const row = el.closest("[data-plan-row]")!.getBoundingClientRect();
+            return { ring: style.boxShadow, outline: style.outlineStyle, inside: box.top >= row.top - 0.5 && box.bottom <= row.bottom + 0.5 };
+        });
+        await expect.poll(drawn).toEqual({ ring, outline: "none", inside: true });
+    });
+
+    test("with every series switched off, the strip keeps spanning the decade, says it has nothing to count, and a drag moves the window along it", async ({ page }) => {
+        const entry = await openExample(page, "planNestedAll", NESTED_EXAMPLES);
+        const caption = entry.locator("[data-plan-horizon-caption]");
+        const spanned = (await caption.textContent())!;
+        await showOnly(entry, []);
+        await settled(page);
+        const track = entry.locator("[data-plan-horizon-track] [data-brush-track]");
+        await expect(entry.locator("[data-plan-horizon-meta][data-empty]")).toHaveCount(1);
+        await expect(track.locator("[data-brush-bar]")).toHaveCount(0);
+        await expect(caption).toHaveText(spanned);
+        // The window's body dragged along: it moves on the decade, which stays put.
+        const window = track.locator("[data-brush-window]");
+        const before = await window.getAttribute("aria-valuetext");
+        const box = (await window.boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.down();
+        for (let step = 1; step <= 10; step++) await page.mouse.move(box.x + box.width / 2 + step * 10, box.y + box.height / 2);
+        await page.mouse.up();
+        await expect(window).not.toHaveAttribute("aria-valuetext", before!);
+        await settled(page);
+        await expect(caption).toHaveText(spanned);
+    });
+
+    test("a window of the strip's first week, narrower than a tab, draws its two tabs side by side, neither over the other", async ({ page }) => {
+        const entry = await openExample(page, "planNestedAll", NESTED_EXAMPLES);
+        const track = entry.locator("[data-plan-horizon-track] [data-brush-track]");
+        const window = track.locator("[data-brush-window]");
+        // Home on the start's tab, then on the end's: the strip's first week, a pixel or so of a decade.
+        for (const edge of ["lo", "hi"]) {
+            const before = await window.getAttribute("aria-valuetext");
+            await track.locator(`[data-brush-handle="${edge}"]`).focus();
+            await page.keyboard.press("Home");
+            await expect(window).not.toHaveAttribute("aria-valuetext", before!);
+            await settled(page);
+        }
+        const tabs = await track.evaluate((t) => {
+            const box = t.getBoundingClientRect();
+            const of = (edge: string) => {
+                const r = t.querySelector(`[data-brush-handle="${edge}"]`)!.getBoundingClientRect();
+                return { left: r.left - box.left, right: r.right - box.left };
+            };
+            return { lo: of("lo"), hi: of("hi"), narrow: t.hasAttribute("data-narrow") };
+        });
+        expect(tabs.narrow).toBe(true);
+        expect(tabs.lo.left, "the start's tab inside the track").toBeGreaterThanOrEqual(0);
+        expect(tabs.lo.right, "the start's tab ends before the end's begins").toBeLessThanOrEqual(tabs.hi.left);
+    });
+
+    test("zooming, panning and moving the window add no style rules once each has been drawn: a place is written inline, never into a class", async ({ page }) => {
+        // Wide enough that the toolbar shows every zoom, rather than folding them into a menu.
+        await page.setViewportSize({ width: 1440, height: 900 });
+        const entry = await openExample(page, "planNestedAll", NESTED_EXAMPLES);
+        /** Every style rule the page's emotion sheet holds, those nested in its layers counted. */
+        const rules = () => page.evaluate(() => {
+            const count = (list: CSSRuleList): number => {
+                let n = 0;
+                for (const rule of list) n += 1 + ("cssRules" in rule ? count((rule as CSSGroupingRule).cssRules) : 0);
+                return n;
+            };
+            const sheet = [...document.styleSheets].find((s) => s.ownerNode instanceof Element && s.ownerNode.getAttribute("data-emotion") === "css");
+            return sheet === undefined ? 0 : count(sheet.cssRules);
+        });
+        const toolbar = entry.locator('[data-frame-slot="toolbar"]').first();
+        const track = entry.locator("[data-plan-horizon-track] [data-brush-track]");
+        /** A drag on the strip from one place on it to another, in steps. */
+        const drag = async (from: number, to: number) => {
+            const box = (await track.boundingBox())!;
+            const y = box.y + box.height / 2;
+            await page.mouse.move(box.x + from, y);
+            await page.mouse.down();
+            for (let step = 1; step <= 10; step++) await page.mouse.move(box.x + from + ((to - from) * step) / 10, y);
+            await page.mouse.up();
+            await settled(page);
+        };
+        /** Every zoom, two pans, and a window drawn on the strip and moved along it: the canvas at places it has not drawn. */
+        const round = async (at: number) => {
+            for (const zoom of ["Month", "Quarter", "Year", "Week"]) {
+                await toolbar.getByRole("radio", { name: new RegExp(`^${zoom}$`, "i") }).click();
+                await settled(page);
+            }
+            await entry.locator("[data-plan-row]").first().click();
+            for (let pan = 0; pan < 2; pan++) {
+                await page.keyboard.press("]");
+                await settled(page);
+            }
+            await drag(at, at + 60);
+            const window = (await entry.locator("[data-plan-horizon-track] [data-brush-window]").boundingBox())!;
+            const start = window.x - (await track.boundingBox())!.x + window.width / 2;
+            await drag(start, start + 40);
+        };
+        await round(40);
+        const drawn = await rules();
+        // The same gestures again, every place on the canvas and the strip a new one.
+        await round(160);
+        expect(await rules(), "style rules after a second round at new places").toBe(drawn);
     });
 });

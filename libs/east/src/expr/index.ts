@@ -35,6 +35,8 @@ import { from, equal, notEqual, less, lessEqual, print, is, greaterEqual, greate
 import { toSource } from '../codegen/index.js';
 import { importFunction, exportFunctions, encodeFunctionManifest, decodeFunctionManifest, linkImports, platformDependencies } from '../functions.js';
 import { jq } from './query.js';
+import { field, fields, inCase, patchesFor, struct, withField } from './named.js';
+export { type Patches } from './named.js';
 export { BlockBuilder, type AsyncPlatformDefinition, type PlatformDefinition, type GenericPlatformDefinition, type AsyncGenericPlatformDefinition, type PlatformDeclaration, PLATFORM_DECLARATION, isPlatformDeclaration, equals, eq, notEquals, ne, lessThan, lt, lessThanOrEqual, lte, le, greaterThan, gt, greaterThanOrEqual, gte, ge, diff, applyPatch, composePatch, invertPatch } from './block.js';
 
 // Import standard libraries
@@ -755,6 +757,144 @@ export const East = {
    * ```
    */
   invertPatch,
+
+  // ============================================================================
+  // Names and types held as values
+  // ============================================================================
+
+  /**
+   * Reads a struct's field by a name held as a value — what `value.name`
+   * reads where the name is written — for code building East programs over
+   * types it is handed. A recursive value is read through to its node.
+   *
+   * @param value - A struct, or a recursive value whose node is one
+   * @param name - The field
+   * @param type - The field's type, where the caller holds it: checked, and the expression typed by it
+   * @returns The field's expression
+   * @throws {Error} When the value is not a struct, has no field of the name, or the field is not of the type given —
+   *   as the program is built
+   *
+   * @example
+   * ```ts
+   * const Row = StructType({ name: StringType, site: StringType });
+   * const readOf = (name: string) => East.function([Row], StringType, ($, row) => East.field(row, name, StringType));
+   * const compiled = East.compile(readOf("site"), []);
+   * compiled({ name: "Press 1", site: "North" });  // "North"
+   * ```
+   */
+  field,
+
+  /**
+   * A struct's fields by names held as values: each field's expression, in
+   * the order given, or in the struct's own — to spread into a call, or into
+   * {@link East.struct}. The value is read once a field: give a variable.
+   *
+   * @param value - A struct, or a recursive value whose node is one
+   * @param names - The fields, in the order wanted; every field, in the struct's order, where none are given
+   * @returns The fields' expressions
+   * @throws {Error} When the value is not a struct, or has no field of a name given — as the program is built
+   *
+   * @example
+   * ```ts
+   * const Row = StructType({ name: StringType, site: StringType, status: StringType });
+   * const Place = StructType({ site: StringType, name: StringType });
+   * const placeOf = East.function([Row], Place, ($, row) => East.struct(Place, East.fields(row, ["site", "name"])));
+   * const compiled = East.compile(placeOf, []);
+   * compiled({ name: "Press 1", site: "North", status: "up" });  // { site: "North", name: "Press 1" }
+   * ```
+   */
+  fields,
+
+  /**
+   * Builds a struct of a type held as a value from its fields, by name or in
+   * the type's order — what a struct literal builds where its names are
+   * written. A recursive type's node is built, and wrapped in it.
+   *
+   * @param type - A struct type, or a recursive type whose node is one
+   * @param values - Each field's value or expression: by name, every field once; or in the type's order, one a field
+   * @returns The struct's expression
+   * @throws {Error} When the type is not a struct, a name is not one of its fields, a field has no value, or a value
+   *   is not of its field's type — as the program is built
+   *
+   * @example
+   * ```ts
+   * const Pair = StructType({ low: IntegerType, high: IntegerType });
+   * const ordered = East.function([IntegerType, IntegerType], Pair, ($, a, b) =>
+   *   East.struct(Pair, [East.min(a, b), East.max(a, b)]));
+   * const compiled = East.compile(ordered, []);
+   * compiled(7n, 3n);  // { low: 3n, high: 7n }
+   * ```
+   */
+  struct,
+
+  /**
+   * A struct with one field replaced, by a name held as a value: the same
+   * type, every other field as it is. A recursive value's node is rebuilt,
+   * and wrapped again. The value is read once a field: give a variable.
+   *
+   * @param value - A struct, or a recursive value whose node is one
+   * @param name - The field replaced
+   * @param replacement - Its new value or expression
+   * @returns The struct with the field replaced
+   * @throws {Error} When the value is not a struct, has no field of the name, or the replacement is not of its type —
+   *   as the program is built
+   *
+   * @example
+   * ```ts
+   * const Row = StructType({ name: StringType, status: StringType });
+   * const stopped = East.function([Row], Row, ($, row) => East.withField(row, "status", "down"));
+   * const compiled = East.compile(stopped, []);
+   * compiled({ name: "Press 1", status: "up" });  // { name: "Press 1", status: "down" }
+   * ```
+   */
+  withField,
+
+  /**
+   * A variant of a type held as a value, holding a value in a case by a name
+   * held as a value — what `variant(name, value)` builds where the case is
+   * written. A recursive type's node is built, and wrapped in it.
+   *
+   * @param type - A variant type, or a recursive type whose node is one
+   * @param name - The case
+   * @param value - Its value or expression
+   * @returns The variant's expression
+   * @throws {Error} When the type is not a variant, has no case of the name, or the value is not of the case's type —
+   *   as the program is built
+   *
+   * @example
+   * ```ts
+   * const Reading = VariantType({ load: FloatType, output: FloatType });
+   * const readingOf = (place: string) => East.function([FloatType], Reading, ($, x) => East.inCase(Reading, place, x));
+   * const compiled = East.compile(readingOf("output"), []);
+   * compiled(0.82);  // variant("output", 0.82)
+   * ```
+   */
+  inCase,
+
+  /**
+   * The patch functions of a type held as a value: diff, apply, compose and
+   * invert, each an East function of the type, bound and called as any other
+   * — what {@link East.diff}, {@link East.applyPatch},
+   * {@link East.composePatch} and {@link East.invertPatch} build where the
+   * type is written.
+   *
+   * @param type - The type patched
+   * @returns Its patch type, and its patch functions
+   *
+   * @example
+   * ```ts
+   * const Row = StructType({ name: StringType, status: StringType });
+   * const { diff, apply } = East.patchesFor(Row);
+   * const roundTrip = East.function([Row, Row], Row, ($, before, after) => {
+   *   const diffFn = $.const(diff);
+   *   const applyFn = $.const(apply);
+   *   return applyFn(before, diffFn(before, after));
+   * });
+   * const compiled = East.compile(roundTrip, []);
+   * compiled({ name: "Press 1", status: "up" }, { name: "Press 1", status: "down" });  // { name: "Press 1", status: "down" }
+   * ```
+   */
+  patchesFor,
 
   // ============================================================================
   // Queries

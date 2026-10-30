@@ -106,13 +106,14 @@ The page and the worker speak `e3.fetch`'s protocol, a few messages over the wor
 3. the unit pool, which starts unit workers from `units`, and each repository's runner over it (`WebTaskRunner`);
 4. the orchestrator (`LocalOrchestrator`, as the local server runs it), which records a split task's own execution under the tab's session;
 5. the transfer backend (`WebTransferBackend`), which records the jobs and commits a closed tab left failed, never running them again, and forgets what is past its retention while the tab lives;
-6. the app: e3-api-server's own route factories, mounted as the local server mounts them over many repositories, beside e3-web's byte endpoints for uploads and downloads.
+6. the app: e3-api-server's own route factories, mounted as the local server mounts them over many repositories, a workspace's bundle among them (`createWorkspaceBundleRoutes`: a workspace written out as it is, and made from one, within a request), beside e3-web's byte endpoints for uploads and downloads.
 
 Every request the page's `e3.fetch` posts is answered by the app, and so is every request a unit's e3 platform functions make.
 
 | Option | Default | Effect |
 |---|---|---|
 | `units` | — | Starts a unit worker: a Web Worker whose script calls `serveUnits()` |
+| `width` | the cores | The most units that run at once, and so the most unit workers, each with a heap of its own: `navigator.hardwareConcurrency` unless given. One that is not a whole number of at least one fails the boot, naming it |
 | `access` | by roles, or `any` | The grant each request's caller holds for what it supplies to run — a one-shot, a split call, a function call naming its own runner. As the local server grants it: by the caller's roles (`oneShotAccessByRoles()`) when `identify` says who calls, and `any` when nothing does, the page being single-tenant then, as a server without auth is |
 | `identify` | none | Who calls: the identity (`{ sub, email?, roles }`) of each request's caller, which `access` reads and the record routes commit as. A request to a repository whose caller it does not identify is answered 401, as a server's auth answers one it cannot verify: `Unauthorized: Missing Bearer token`, `Unauthorized: Invalid token`, or `Unauthorized: <why>` when it throws. With none, the page's one caller may do everything |
 | `persist` | `true` | `false` keeps repositories in memory, gone with the page, and needs neither IndexedDB, OPFS nor Web Locks |

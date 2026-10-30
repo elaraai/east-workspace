@@ -20,8 +20,10 @@
 import { test as hostTest } from "node:test";
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { ArrayType, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { AREA_FIELD, AREA_UNPLACED, MAX_AREA_RASTER, MAX_LANDED_SEARCHES, RecordSliceIndexType, RecordSliceWhereType, areaQueries } from "@elaraai/east-ui/internal";
+import { ArrayType, StringType, StructType, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import {
+    MAX_AREA_RASTER, MAX_LANDED_SEARCHES, RecordSliceIndexType, RecordSliceWhereType, areaQueries, recordOnPrinter,
+} from "@elaraai/east-ui/internal";
 import {
     SCHEMATIC_WINDOW_READ_ROWS, SCHEMATIC_WINDOW_ROWS, schematicAreaIndexes, schematicDensityCells, schematicRaster, schematicUnplacedPlan, schematicWindowPlan,
 } from "@elaraai/e3-ui/internal";
@@ -40,12 +42,16 @@ type Choice = Where extends Map<string, infer C> ? C : never;
 const indexType = ArrayType(RecordSliceIndexType);
 /** The racks' box, as an area index over them names it: placed by their centre, at a cell of 2⁻⁷ m. */
 const rackBox = { x: "x", y: "y", width: some("w"), height: some("h"), centre: true, cell: 2 ** -7, optional: false };
+// An area index's fields are its leading fields alone, its key's `on` (#1432).
 const indexes = decodeBeast2For(indexType)(encodeBeast2For(indexType)([
     { name: "racks_by_model", fields: ["model"], sets: new Set(), structured: false, interval: none, area: none, series: none, summary: none },
-    { name: "racks_by_area", fields: [AREA_FIELD], sets: new Set(), structured: true, interval: none, area: some(rackBox), series: none, summary: none },
-    { name: "racks_by_hall_area", fields: ["hall", AREA_FIELD], sets: new Set(), structured: true, interval: none, area: some(rackBox), series: none, summary: none },
-    { name: "racks_by_tag_area", fields: ["tags", AREA_FIELD], sets: new Set(["tags"]), structured: true, interval: none, area: some(rackBox), series: none, summary: none },
+    { name: "racks_by_area", fields: [], sets: new Set(), structured: true, interval: none, area: some(rackBox), series: none, summary: none },
+    { name: "racks_by_hall_area", fields: ["hall"], sets: new Set(), structured: true, interval: none, area: some(rackBox), series: none, summary: none },
+    { name: "racks_by_tag_area", fields: ["tags"], sets: new Set(["tags"]), structured: true, interval: none, area: some(rackBox), series: none, summary: none },
 ]));
+/** The `on` printers of the area index led by no field and of the one led by a hall, as the binding's index key types give them. */
+const UNLED = recordOnPrinter(StructType({}));
+const BY_HALL = recordOnPrinter(StructType({ hall: StringType }));
 const [byModel, , byHallArea] = indexes;
 /** The racks' kind's roles: its box's fields. */
 const roles = { x: "x", y: "y", width: some("w"), height: some("h") };
@@ -83,7 +89,7 @@ hostTest("a window reads through the area index whose `on` the rail's exact choi
 });
 
 hostTest("past the record slice's bound on landed searches across its choices, a window reads through the index led by no field (SC34)", () => {
-    const each = areaQueries([], view, rackBox.cell).length;
+    const each = areaQueries([], view, rackBox.cell, UNLED).length;
     const most = Math.floor(MAX_LANDED_SEARCHES / each);
     const halls = (n: number) => Array.from({ length: n }, (_, i) => `"Hall ${i + 1}"`);
     assert.ok(most >= 1 && most < 64, `${each} searches a hall`);
@@ -94,7 +100,7 @@ hostTest("past the record slice's bound on landed searches across its choices, a
 
 hostTest("a kind read by area with no area index led by no field is refused, naming the index to declare (SC34)", () => {
     assert.throws(() => schematicAreaIndexes([byModel!, byHallArea!], roles, "items", "Schematic.items: \"Rack\""),
-        /^Error: Schematic\.items: "Rack": a kind read by area reads its window through an area index led by no field, whatever the rail chooses, and 'racks_by_hall_area' is led by fields — declare e3\.recordIndex\.area\(name, record, \{ x: "x", y: "y", width: "w", height: "h", at: "centre", cell \}\) beside it, and list it in Data\.bindPaged's indexes$/);
+        /^Error: Schematic\.items: "Rack": a kind read by area reads its window through an area index led by no field, whatever the rail chooses, and 'racks_by_hall_area' is led by fields — declare index\.area\(\{ x: "x", y: "y", width: "w", height: "h", at: "centre", cell \}\) beside it, and list it in Data\.bindPaged's indexes$/);
 });
 
 hostTest("an area index whose box isn't the kind's roles is refused as it reads, naming both (SC34)", () => {
@@ -112,21 +118,23 @@ hostTest("the density's raster is each combination of the leading values', all a
     assert.equal(SCHEMATIC_WINDOW_ROWS, 5_000);
     assert.equal(SCHEMATIC_WINDOW_READ_ROWS, 4 * SCHEMATIC_WINDOW_ROWS);
     const plan = schematicWindowPlan(areas, where([["hall", values('"Hall 1"', '"Hall 2"')]]), view);
-    const raster = schematicRaster(plan, view);
+    const raster = schematicRaster(plan, view, BY_HALL);
     assert.equal(raster.cells.length, 2, "a raster per hall");
     assert.ok(raster.cells.every((cells) => cells.length > 0 && cells.length <= MAX_AREA_RASTER / 2));
     assert.ok(raster.cells.flat().length <= MAX_AREA_RASTER);
     assert.equal(raster.side, rackBox.cell * 2 ** (28 - raster.level));
     assert.deepEqual(raster.cells.map((cells) => [...new Set(cells.map((c) => (c.query.type === "range" ? c.query.value.from[0] : "")))]),
-        [['"Hall 1"'], ['"Hall 2"']], "each hall's cells searched under its value");
+        [['"Hall 1"'], ['"Hall 2"']], "each hall's cells a range, its value the key's first leaf");
     // Read through the index led by no field, one raster.
-    assert.equal(schematicRaster(schematicWindowPlan(areas, where(), view), view).cells.length, 1);
-    // Its coarser cells are every combination's, each coarser than the raster.
+    assert.equal(schematicRaster(schematicWindowPlan(areas, where(), view), view, UNLED).cells.length, 1);
+    // Its coarser cells are every combination's, each coarser than the raster, each an exact search naming its hall as one `on` (#1432).
     assert.ok(raster.coarse.length > 0 && raster.coarse.every((c) => c.level < raster.level));
+    assert.deepEqual([...new Set(raster.coarse.map((c) => (c.query.type === "fields" ? c.query.value.values[0] : "")))],
+        ['(hall="Hall 1")', '(hall="Hall 2")']);
 });
 
 hostTest("the density's cells add every combination's counts cell by cell, and spread a coarser cell's rows evenly over the raster cells it covers (D25)", () => {
-    const raster = schematicRaster(schematicWindowPlan(areas, where([["hall", values('"Hall 1"', '"Hall 2"')]]), view), view);
+    const raster = schematicRaster(schematicWindowPlan(areas, where([["hall", values('"Hall 1"', '"Hall 2"')]]), view), view, BY_HALL);
     const first = raster.cells[0]!, second = raster.cells[1]!;
     const last = first.length - 1;
     // Hall 1 holds 3 rows in the raster's first cell; Hall 2 holds 2 there and 1 in its last.
@@ -151,20 +159,23 @@ hostTest("the density's cells add every combination's counts cell by cell, and s
     assert.throws(() => schematicDensityCells(raster, counts, [1n]), /was counted/);
 });
 
-hostTest("a kind read by area reads its rows with no position through the area index its window would: the choices it leads beside the unplaced clause, the rest left to `within` (D51)", () => {
+hostTest("a kind read by area reads its rows with no position through the area index its window would: the choices it leads, and beside them the unplaced clause, the rest left to `within` (D51, #1432)", () => {
     const unplaced = (narrowing: Where) => {
         const plan = schematicUnplacedPlan(areas, narrowing);
-        return { index: plan.index.name, where: [...plan.where].map(([field, choice]) => [field, choice.type, choice.value]), residual: plan.residual };
+        return {
+            index: plan.index.name, where: [...plan.read.where].map(([field, choice]) => [field, choice.type, choice.value]),
+            area: plan.read.area.type === "some" ? plan.read.area.value.type : "none", residual: plan.residual,
+        };
     };
-    assert.deepEqual(unplaced(where()), { index: "racks_by_area", where: [[AREA_FIELD, "values", [AREA_UNPLACED]]], residual: [] }, "no narrowing: the clause alone");
+    assert.deepEqual(unplaced(where()), { index: "racks_by_area", where: [], area: "unplaced", residual: [] }, "no narrowing: the clause alone");
     assert.deepEqual(unplaced(where([["hall", values('"Hall 1"', '"Hall 2"')]])),
-        { index: "racks_by_hall_area", where: [[AREA_FIELD, "values", [AREA_UNPLACED]], ["hall", "values", ['"Hall 1"', '"Hall 2"']]], residual: [] },
+        { index: "racks_by_hall_area", where: [["hall", "values", ['"Hall 1"', '"Hall 2"']]], area: "unplaced", residual: [] },
         "the halls led, read with the clause");
     assert.deepEqual(unplaced(where([["hall", values('"Hall 1"')], ["model", values('"42U"')]])),
-        { index: "racks_by_hall_area", where: [[AREA_FIELD, "values", [AREA_UNPLACED]], ["hall", "values", ['"Hall 1"']]], residual: ["model"] },
+        { index: "racks_by_hall_area", where: [["hall", "values", ['"Hall 1"']]], area: "unplaced", residual: ["model"] },
         "the hall led, the model left to `within`");
     assert.deepEqual(unplaced(where([["model", values('"42U"')]])),
-        { index: "racks_by_area", where: [[AREA_FIELD, "values", [AREA_UNPLACED]]], residual: ["model"] }, "a choice no area index leads, left to `within`");
+        { index: "racks_by_area", where: [], area: "unplaced", residual: ["model"] }, "a choice no area index leads, left to `within`");
     // One search a combination: many more halls than a window could take stay led.
     const halls = Array.from({ length: 40 }, (_, i) => `"Hall ${i + 1}"`);
     assert.equal(schematicUnplacedPlan(areas, where([["hall", values(...halls)]])).index.name, "racks_by_hall_area");

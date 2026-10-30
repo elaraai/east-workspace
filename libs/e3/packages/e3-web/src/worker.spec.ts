@@ -187,6 +187,27 @@ describe('serveE3, over a MessageChannel', () => {
     await assert.rejects(repoList(e3.apiUrl, opts), /e3\.close\(\) has closed the e3 worker/);
   });
 
+  it('runs its units on as many workers as its host gives, and refuses to boot with a width it cannot use, naming it', async () => {
+    const counted = countedUnits();
+    const e3 = await connect({ units: counted.units, width: 1 });
+    const opts: RequestOptions = { token: null, fetch: e3.fetch };
+    const zip = (await buildE3Fixtures()).platform;
+    await repoCreate(e3.apiUrl, 'default', opts);
+    await packageImport(e3.apiUrl, 'default', zip, opts);
+    await workspaceCreate(e3.apiUrl, 'default', 'main', opts);
+    await workspaceDeploy(e3.apiUrl, 'default', 'main', `${PLATFORM_PACKAGE}@${FIXTURE_VERSION}`, opts);
+    await datasetSet(e3.apiUrl, 'default', 'main', [variant('field', 'inputs'), variant('field', 'repo')], encodeBeast2For(StringType)('default'), opts);
+    assertDataflowSucceeded(await dataflowExecute(e3.apiUrl, 'default', 'main', {}, opts));
+    assert.equal(counted.startedCount(), 1, 'one worker ran the units');
+    for (const width of [0, 1.5]) {
+      const { port1, port2 } = new MessageChannel();
+      serveE3({ units: inProcessUnits(), persist: false, width }, port1);
+      await assert.rejects(createWebE3(port2), {
+        message: new RegExp(`^createWebE3: the e3 worker did not start: RangeError: a unit pool's width is a whole number of at least one, not ${width}`),
+      }, `a width of ${width}`);
+    }
+  });
+
   describe('who calls, when the host says', () => {
     /** Who calls, by the specs' tokens; a verifier that throws for one. */
     const identify: ServeE3Options['identify'] = (request) => {

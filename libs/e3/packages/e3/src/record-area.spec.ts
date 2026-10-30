@@ -4,7 +4,7 @@
  */
 
 /**
- * `e3.recordIndex.area` (#1385): its generated keys, against a direct oracle of
+ * A record's area index, `index.area` (#1385): its generated keys, against a direct oracle of
  * §11.2 written with bit operations rather than the East arithmetic the key
  * function uses; its declared types; its refusals; its projection, the whole
  * row; and its maintenance, which equals its rebuild after inserts, moves,
@@ -16,13 +16,16 @@ import assert from 'node:assert/strict';
 import {
   DictType, East, FloatType, IntegerType, OptionType, PatchType, SetType, SortedMap, StringType, StructType,
   compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printType, some, variant,
-  type FunctionExpr, type ValueTypeOf,
+  type ValueTypeOf,
 } from '@elaraai/east';
 import { record } from './record.js';
-import { recordIndex, type IndexKeyOf, type IndexOn } from './record-index.js';
+import type { AreaIndexSpec, IndexKeyOf, IndexOn } from './record-index.js';
 import { AREA_UNPLACED, areaCellExponent, areaCode } from './record-area.js';
+import { functionAt } from './record-guards.js';
+
+/** The cell code each runtime files a box by: `(cx, cy, side, cell)`. */
+const locate = East.compile(areaCode, []);
 import { buildMutationProgram, indexBuildProgram } from './record-programs.js';
-import { mutation } from './mutation.js';
 import { package_ } from './package.js';
 import type { RecordIndexDef } from './types.js';
 
@@ -33,15 +36,20 @@ const RackRow = StructType({
 });
 const RacksType = DictType(StringType, RackRow);
 type Rack = ValueTypeOf<typeof RackRow>;
-const racks = () => record('racks', RacksType, new Map());
 
 const ZoneRow = StructType({ x: FloatType, y: FloatType, w: FloatType, h: FloatType });
 const ZonesType = DictType(StringType, ZoneRow);
-const zones = () => record('zones', ZonesType, new Map());
+
+/** The area index the racks record declares under `name`, as `e3.record` builds it. */
+const rackArea = <const S extends AreaIndexSpec<typeof RacksType>>(name: string, spec: S) =>
+  record('racks', RacksType, { indexes: (index) => ({ [name]: index.area(spec) }) }).indexes[name]!;
+/** The area index the zones record declares under `name`, as `e3.record` builds it. */
+const zoneArea = <const S extends AreaIndexSpec<typeof ZonesType>>(name: string, spec: S) =>
+  record('zones', ZonesType, { indexes: (index) => ({ [name]: index.area(spec) }) }).indexes[name]!;
 
 // ── The oracle: §11.2 with bit operations ────────────────────────────────────
 
-/** A box's `__area` key, as §11.2 states it, from its centre and its larger side, the finest cell `2^e`. */
+/** A box's `area` code, as §11.2 states it, from its centre and its larger side, the finest cell `2^e`. */
 function oracle(cx: number, cy: number, side: number, e: number): bigint {
   const cell = 2 ** e;
   const half = 2 ** (e + 27);
@@ -83,22 +91,22 @@ function emitted(recordType: typeof RacksType | typeof ZonesType, def: RecordInd
   return out;
 }
 
-describe('e3.recordIndex.area — its keys (§11.2)', () => {
+describe('index.area — its keys (§11.2)', () => {
   it('rounds cell down to a power of two, and refuses one that is no positive number', () => {
-    assert.equal(areaCellExponent('a', 0.01), -7, '0.01 m is filed by 2^-7 = 0.0078125 m cells');
-    assert.equal(areaCellExponent('a', 1), 0);
-    assert.equal(areaCellExponent('a', 0.0078125), -7, 'a power of two is its own');
-    assert.equal(areaCellExponent('a', 1000), 9);
+    assert.equal(areaCellExponent('index.area', 'a', 0.01), -7, '0.01 m is filed by 2^-7 = 0.0078125 m cells');
+    assert.equal(areaCellExponent('index.area', 'a', 1), 0);
+    assert.equal(areaCellExponent('index.area', 'a', 0.0078125), -7, 'a power of two is its own');
+    assert.equal(areaCellExponent('index.area', 'a', 1000), 9);
     for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
-      assert.throws(() => areaCellExponent('a', bad), /takes a cell: the finest cell's side in world units/);
+      assert.throws(() => areaCellExponent('index.area', 'a', bad), /takes a cell: the finest cell's side in world units/);
     }
-    assert.throws(() => areaCellExponent('a', 2 ** 1000), /out of range/);
+    assert.throws(() => areaCellExponent('index.area', 'a', 2 ** 1000), /out of range/);
   });
 
   it('files a box under the deepest level whose cell is twice its larger side, in the cell holding its centre — as the oracle does', () => {
     for (const e of [-7, 0, 3]) {
-      const code = East.compile(areaCode(e), []) as (cx: number, cy: number, side: number) => bigint;
       const cell = 2 ** e;
+      const code = (cx: number, cy: number, side: number) => locate(cx, cy, side, cell);
       const half = 2 ** (e + 27);
       const cases: [number, number, number][] = [
         [0, 0, 0], [-half, -half, 0], [half - cell, half - cell, 0], [cell * 3, -cell * 5, 0],
@@ -128,7 +136,7 @@ describe('e3.recordIndex.area — its keys (§11.2)', () => {
   it('keeps every box inside its cell grown by a quarter of the cell each side: its loose bounds', () => {
     const e = -7;
     const cell = 2 ** e;
-    const code = East.compile(areaCode(e), []) as (cx: number, cy: number, side: number) => bigint;
+    const code = (cx: number, cy: number, side: number) => locate(cx, cy, side, cell);
     const next = stream(7);
     for (let i = 0; i < 2000; i++) {
       const cx = (next() * 2 - 1) * 5000;
@@ -153,55 +161,59 @@ describe('e3.recordIndex.area — its keys (§11.2)', () => {
   });
 
   it('keys a row by its fields: its centre, or its corner plus half its box; unplaced is −1; leading fields fan out', () => {
-    const byArea = recordIndex.area('racks_by_area', racks(), { x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 });
-    const byHallArea = recordIndex.area('racks_by_hall_area', racks(), { on: ['hall'], x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 });
-    const byTagArea = recordIndex.area('racks_by_tag_area', racks(), { on: ['tags'], x: 'x', y: 'y', at: 'centre', cell: 0.01 });
-    const zonesByArea = recordIndex.area('zones_by_area', zones(), { x: 'x', y: 'y', width: 'w', height: 'h', cell: 0.01 });
+    const byArea = rackArea('racks_by_area', { x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 });
+    const byHallArea = rackArea('racks_by_hall_area', { on: ['hall'], x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 });
+    const byTagArea = rackArea('racks_by_tag_area', { on: ['tags'], x: 'x', y: 'y', at: 'centre', cell: 0.01 });
+    const zonesByArea = zoneArea('zones_by_area', { x: 'x', y: 'y', width: 'w', height: 'h', cell: 0.01 });
     const rack = (x: number | null, y: number | null): Rack => ({
       hall: 'H1', tags: new Set(['a', 'b']), x: x === null ? none : some(x), y: y === null ? none : some(y), w: 0.6, h: -1.2, name: 'r',
     });
-    const keyOf = (def: RecordIndexDef) => East.compile(def.keyFn as FunctionExpr<any, any>, []) as (key: string, row: unknown) => unknown;
+    const keyByArea = East.compile(functionAt(byArea.keyFn, [StringType, RackRow], byArea.keyType), []);
+    const keyByHallArea = East.compile(functionAt(byHallArea.keyFn, [StringType, RackRow], byHallArea.keyType), []);
+    const keysByTagArea = East.compile(functionAt(byTagArea.keyFn, [StringType, RackRow], SetType(byTagArea.keyType)), []);
+    const keyByZoneArea = East.compile(functionAt(zonesByArea.keyFn, [StringType, ZoneRow], zonesByArea.keyType), []);
     const decode = decodeBeast2For(RackRow);
     const encode = encodeBeast2For(RackRow);
     const placed = decode(encode(rack(12.34, -5.6)));
-    assert.deepEqual(keyOf(byArea)('r1', placed), { __area: oracle(12.34, -5.6, 1.2, -7) }, 'the larger side, whatever its sign');
-    assert.deepEqual(keyOf(byHallArea)('r1', placed), { hall: 'H1', __area: oracle(12.34, -5.6, 1.2, -7) });
-    const tagged = keyOf(byTagArea)('r1', placed) as Set<{ tags: string; __area: bigint }>;
-    assert.deepEqual([...tagged], [{ tags: 'a', __area: oracle(12.34, -5.6, 0, -7) }, { tags: 'b', __area: oracle(12.34, -5.6, 0, -7) }],
+    // The row's leading fields under `on` — none here — and the cell's code beside them (#1432).
+    assert.deepEqual(keyByArea('r1', placed), { on: {}, area: oracle(12.34, -5.6, 1.2, -7) }, 'the larger side, whatever its sign');
+    assert.deepEqual(keyByHallArea('r1', placed), { on: { hall: 'H1' }, area: oracle(12.34, -5.6, 1.2, -7) });
+    assert.deepEqual([...keysByTagArea('r1', placed)], [{ on: { tags: 'a' }, area: oracle(12.34, -5.6, 0, -7) }, { on: { tags: 'b' }, area: oracle(12.34, -5.6, 0, -7) }],
       'a point is filed at the finest level, once a tag');
-    assert.deepEqual(keyOf(byArea)('r2', decode(encode(rack(null, -5.6)))), { __area: AREA_UNPLACED });
-    assert.deepEqual(keyOf(byArea)('r3', decode(encode(rack(1, null)))), { __area: AREA_UNPLACED });
+    assert.deepEqual(keyByArea('r2', decode(encode(rack(null, -5.6)))), { on: {}, area: AREA_UNPLACED });
+    assert.deepEqual(keyByArea('r3', decode(encode(rack(1, null)))), { on: {}, area: AREA_UNPLACED });
     const zone = decodeBeast2For(ZoneRow)(encodeBeast2For(ZoneRow)({ x: 10, y: 20, w: 4, h: 2 }));
-    assert.deepEqual(keyOf(zonesByArea)('z1', zone), { __area: oracle(12, 21, 4, -7) }, 'a corner plus half the box is its centre');
+    assert.deepEqual(keyByZoneArea('z1', zone), { on: {}, area: oracle(12, 21, 4, -7) }, 'a corner plus half the box is its centre');
   });
 });
 
-describe('e3.recordIndex.area — its declaration', () => {
+describe('index.area — its declaration', () => {
   it('types its key, its fields and its projection from the spec, and carries the box and its rounded cell', () => {
-    const def = recordIndex.area('racks_by_hall_area', racks(), { on: ['hall'], x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 });
-    const keyType: StructType<{ hall: typeof StringType; __area: typeof IntegerType }> = def.keyType;
-    const fields: readonly ['hall', '__area'] = def.on;
+    const def = rackArea('racks_by_hall_area', { on: ['hall'], x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 });
+    const keyType: StructType<{ on: StructType<{ hall: typeof StringType }>; area: typeof IntegerType }> = def.keyType;
+    const fields: readonly ['hall'] = def.on;
     const projection: typeof RackRow = def.valueType;
-    assert.equal(printType(keyType), printType(StructType({ hall: StringType, __area: IntegerType })));
-    assert.deepEqual(fields, ['hall', '__area']);
+    assert.equal(printType(keyType), printType(StructType({ on: StructType({ hall: StringType }), area: IntegerType })));
+    assert.deepEqual(fields, ['hall']);
     assert.equal(printType(projection), printType(RackRow), 'it carries the whole row');
     assert.deepEqual(def.area, { x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.0078125 });
     assert.equal(def.multi, false, 'one entry a row');
-    const alone = recordIndex.area('zones_by_area', zones(), { x: 'x', y: 'y', width: 'w', height: 'h', cell: 1 });
-    const aloneKey: StructType<{ __area: typeof IntegerType }> = alone.keyType;
-    const aloneOn: readonly ['__area'] = alone.on;
-    assert.deepEqual(aloneOn, ['__area']);
-    assert.equal(printType(aloneKey), printType(StructType({ __area: IntegerType })));
+    const alone = zoneArea('zones_by_area', { x: 'x', y: 'y', width: 'w', height: 'h', cell: 1 });
+    // Led by no field, its key's `on` holds none.
+    const aloneKey: StructType<{ on: StructType<Record<never, never>>; area: typeof IntegerType }> = alone.keyType;
+    const aloneOn: readonly [] = alone.on;
+    assert.deepEqual(aloneOn, []);
+    assert.equal(printType(aloneKey), printType(StructType({ on: StructType({}), area: IntegerType })));
     assert.equal(alone.area.at, 'corner', 'the corner, unless it says');
-    // The declared types, as the constructor's spec types them.
+    // The declared types, as the builder's spec types them.
     type Spec = { on: ['hall']; x: 'x'; y: 'y'; cell: 1 };
-    const on: IndexOn<Spec> = ['hall', '__area'];
-    const key: IndexKeyOf<Spec, typeof RacksType> = StructType({ hall: StringType, __area: IntegerType });
-    assert.ok(on.length === 2 && key.type === 'Struct');
+    const on: IndexOn<Spec> = ['hall'];
+    const key: IndexKeyOf<Spec, typeof RacksType> = StructType({ on: StructType({ hall: StringType }), area: IntegerType });
+    assert.ok(on.length === 1 && key.type === 'Struct');
   });
 
   it('projects each entry as its whole row', () => {
-    const def = recordIndex.area('racks_by_area', racks(), { x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 });
+    const def = rackArea('racks_by_area', { x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 });
     const rows = new SortedMap<string, Rack>([
       ['r1', { hall: 'H1', tags: new Set(), x: some(1.5), y: some(2.5), w: 0.6, h: 1.2, name: 'one' }],
       ['r2', { hall: 'H2', tags: new Set(['a']), x: none, y: none, w: 0.6, h: 1.2, name: 'unplaced' }],
@@ -217,44 +229,55 @@ describe('e3.recordIndex.area — its declaration', () => {
   describe('refuses, at definition time', () => {
     it('a field of the wrong type, naming the option, the field and its type', () => {
       // @ts-expect-error — x takes a Float or an Option<Float> field
-      assert.throws(() => recordIndex.area('bad_x', racks(), { x: 'name', y: 'y', cell: 1 }), /x names 'name', of type \.String: x is a Float or an Option<Float> field/);
+      assert.throws(() => rackArea('bad_x', { x: 'name', y: 'y', cell: 1 }), /x names 'name', of type \.String: x is a Float or an Option<Float> field/);
       // @ts-expect-error — width takes a Float field, never an Option
-      assert.throws(() => recordIndex.area('bad_w', racks(), { x: 'x', y: 'y', width: 'x', height: 'h', cell: 1 }), /width names 'x', of type .+: width is a Float field/);
+      assert.throws(() => rackArea('bad_w', { x: 'x', y: 'y', width: 'x', height: 'h', cell: 1 }), /width names 'x', of type .+: width is a Float field/);
       // @ts-expect-error — the row has no such field
-      assert.throws(() => recordIndex.area('missing', racks(), { x: 'missing', y: 'y', cell: 1 }), /x names unknown row field 'missing'/);
+      assert.throws(() => rackArea('missing', { x: 'missing', y: 'y', cell: 1 }), /x names unknown row field 'missing'/);
     });
 
     it('x and y that are not both Options, width without height, and a cell that is no positive number', () => {
       const Mixed = StructType({ x: OptionType(FloatType), y: FloatType, w: FloatType });
-      const mixed = record('mixed', DictType(StringType, Mixed), new Map());
-      assert.throws(() => recordIndex.area('mixed_xy', mixed, { x: 'x', y: 'y', cell: 1 }), /both Options, or neither/);
-      assert.throws(() => recordIndex.area('half_box', zones(), { x: 'x', y: 'y', width: 'w', cell: 1 }), /width and height together/);
-      assert.throws(() => recordIndex.area('no_cell', zones(), { x: 'x', y: 'y', cell: 0 }), /takes a cell/);
+      assert.throws(() => record('mixed', DictType(StringType, Mixed), { indexes: (index) => ({ mixed_xy: index.area({ x: 'x', y: 'y', cell: 1 }) }) }),
+        /both Options, or neither/);
+      assert.throws(() => zoneArea('half_box', { x: 'x', y: 'y', width: 'w', cell: 1 }), /width and height together/);
+      assert.throws(() => zoneArea('no_cell', { x: 'x', y: 'y', cell: 0 }), /takes a cell/);
     });
 
-    it('a value, a row field named __area, and the guards every index applies to its name and its record', () => {
+    it('a value, and the guards every index applies to its name and its record — a row field may be named anything (#1432)', () => {
       // @ts-expect-error — an area index carries the whole row, and takes no value
-      assert.throws(() => recordIndex.area('valued', zones(), { x: 'x', y: 'y', cell: 1, value: East.function([StringType, ZoneRow], FloatType, ($, _k, v) => v.x) }),
+      assert.throws(() => zoneArea('valued', { x: 'x', y: 'y', cell: 1, value: East.function([StringType, ZoneRow], FloatType, ($, _k, v) => v.x) }),
         /takes no value/);
-      const Reserved = StructType({ x: FloatType, y: FloatType, __area: IntegerType });
-      const reserved = record('reserved', DictType(StringType, Reserved), new Map());
-      assert.throws(() => recordIndex.area('reserved_area', reserved, { x: 'x', y: 'y', cell: 1 }), /field named '__area'/);
-      assert.throws(() => recordIndex.area('primary', zones(), { x: 'x', y: 'y', cell: 1 }), /e3.recordIndex.area cannot be named 'primary'/);
-      assert.throws(() => recordIndex.area('by area', zones(), { x: 'x', y: 'y', cell: 1 }), /must be an identifier/);
+      // A row field named `__area` or `area` reserves nothing: the index builds, led by both.
+      const Named = StructType({ x: FloatType, y: FloatType, __area: IntegerType, area: StringType });
+      const named = record('named', DictType(StringType, Named), {
+        initial: new Map(),
+        indexes: (index) => ({
+          named_area: index.area({ on: ['__area', 'area'], x: 'x', y: 'y', cell: 1 }),
+        }),
+      });
+      const byNamed = named.indexes.named_area;
+      assert.equal(printType(byNamed.keyType), printType(StructType({ on: StructType({ __area: IntegerType, area: StringType }), area: IntegerType })));
+      assert.throws(() => zoneArea('primary', { x: 'x', y: 'y', cell: 1 }), /e3\.record 'zones': index\.area cannot be named 'primary'/);
+      assert.throws(() => zoneArea('by area', { x: 'x', y: 'y', cell: 1 }), /must be an identifier/);
     });
   });
 });
 
-describe('e3.recordIndex.area — through mutation and rebuild', () => {
+describe('index.area — through mutation and rebuild', () => {
   it('maintains the collection a rebuild emits after inserts, moves, deletes and unplacing, byte for byte', () => {
-    const rec = racks();
-    const indexes = [
-      recordIndex.area('racks_by_area', rec, { x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 }),
-      recordIndex.area('racks_by_hall_area', rec, { on: ['hall'], x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 }),
-      recordIndex.area('racks_by_tag_area', rec, { on: ['tags'], x: 'x', y: 'y', cell: 0.5 }),
-    ];
-    const patch = mutation.patch(rec);
-    const assembled = package_('area_indexes', '1.0.0', rec, patch, ...indexes).records.racks!;
+    const rec = record('racks', RacksType, {
+      initial: new Map(),
+      indexes: (index) => ({
+        racks_by_area: index.area({ x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 }),
+        racks_by_hall_area: index.area({ on: ['hall'], x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 }),
+        racks_by_tag_area: index.area({ on: ['tags'], x: 'x', y: 'y', cell: 0.5 }),
+      }),
+      mutations: (mutation) => ({ patch: mutation.patch() }),
+    });
+    const indexes: RecordIndexDef[] = Object.values(rec.indexes);
+    const patch = rec.mutations.patch;
+    const assembled = package_('area_indexes', '1.0.0', rec).records.racks!;
     const at = (x: number, y: number, w = 0.6, h = 1.2, hall = 'H1', tags: string[] = ['a']): Rack =>
       ({ hall, tags: new Set(tags), x: some(x), y: some(y), w, h, name: `${x},${y}` });
     const before = new SortedMap<string, Rack>([

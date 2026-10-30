@@ -209,7 +209,7 @@ const ProcessRowView = memo(function ProcessRowView({ row, index, ctx }: {
                 boxShadow={tinted ? 'inset 0 0 0 2px var(--chakra-colors-brand-solid)' : 'none'}
                 opacity={mounted ? 1 : 0}
                 transform={mounted ? 'none' : 'translateY(6px)'}
-                transition={`opacity 220ms ease ${delay}ms, transform 220ms ease ${delay}ms, box-shadow 140ms ease`}
+                style={{ transition: `opacity 220ms ease ${delay}ms, transform 220ms ease ${delay}ms, box-shadow 140ms ease` }}
                 _hover={{ boxShadow: 'inset 0 0 0 1px var(--chakra-colors-border-strong)' }}
                 onClick={() => toggleExpanded(row.id)}
             >
@@ -434,7 +434,7 @@ function GroupSection({ group, ctx, collapsed, toggleCollapsed, headerCss, colum
             {/* Objective header — collapsible tier of the driver tree. */}
             <HStack
                 px="4" py="2.5"
-                pl={`calc(${indent * 4}px + var(--chakra-spacing-4))`}
+                style={{ paddingLeft: `calc(${indent * 4}px + var(--chakra-spacing-4))` }}
                 gap="2.5"
                 borderBottom="1px solid"
                 borderColor="border.subtle"

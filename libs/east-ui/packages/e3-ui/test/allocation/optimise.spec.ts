@@ -40,7 +40,7 @@ const byString = compareFor(StringType);
 /** Builds a payload's East function over the kiln yard's records, the props the test gives beside the base's — refused, if it is, as it is built. */
 function payload(change: Partial<Props> | Readonly<Record<string, unknown>> = {}): void {
     East.function([], AllocationPayloadType, ($) => {
-        const bins = $.let(Record.bind(base.kilnBins, [base.kilnBinsPatch]));
+        const bins = $.let(Record.bind(base.kilnBins));
         const loads = $.let(Data.bind(base.arrivals));
         const yard = $.let(Data.bind(base.kilns));
         const bays = $.let(Data.bind(base.yardBays));

@@ -80,7 +80,7 @@ export const StudioBuilderComponent = EastUI.component("StudioBuilder", StudioBu
 /**
  * `<Studio.Builder>` options.
  *
- * @property pages - The pages record, bound with its patch mutation — `Record.bind(pages, [pagesPatch])`
+ * @property pages - The pages record, bound with its patch mutation — `Record.bind(pages)`
  * @property components - The components the surface lists, in palette order
  * @property project - The project whose pages the builder opens
  * @property env - Where the publish preview publishes to — its Env pill, and "Publish vN to <env>"
@@ -89,7 +89,7 @@ export const StudioBuilderComponent = EastUI.component("StudioBuilder", StudioBu
  * @property id - Names the builder, when a surface holds two — and the page library that opens its pages
  */
 export interface StudioBuilderOptions {
-    /** The pages record, bound with its patch mutation — `Record.bind(pages, [pagesPatch])`. */
+    /** The pages record, bound with its patch mutation — `Record.bind(pages)`. */
     pages: StudioPagesHandle;
     /** The components the surface lists, in palette order. */
     components: SubtypeExprOrValue<ArrayType<StudioComponentType>>;
@@ -141,7 +141,7 @@ export interface StudioBuilderOptions {
  * export const builder = ui("builder", [], East.function([], UIComponentType, _$ => (
  *     <Reactive>{$ => {
  *         const components = $.let([kpiRail, revenueTrend, breakdownBars]);
- *         const pages      = $.let(Record.bind(d.pages, [d.pagesPatch]));
+ *         const pages      = $.let(Record.bind(d.pages));
  *         return <Studio.Builder pages={pages} components={components} project="Ops console"
  *             env="Staging" audience="Field ops · 24 users" rollout="Immediate" />;
  *     }}</Reactive>

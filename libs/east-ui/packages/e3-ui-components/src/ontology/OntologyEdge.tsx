@@ -95,7 +95,7 @@ export const OntologyEdge = memo(({
             <EdgeLabelRenderer>
                 <Box
                     position="absolute"
-                    transform={`translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`}
+                    style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
                     className="nodrag nopan"
                     pointerEvents="all"
                     opacity={data.attention === 'unfocused' ? 0.25 : 1}

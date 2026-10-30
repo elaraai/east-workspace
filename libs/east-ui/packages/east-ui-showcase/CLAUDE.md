@@ -11,10 +11,11 @@ section) against e3 itself, running in the page (#849, e3-web):
 worker (`e3.worker.ts`, repositories in memory) and its unit workers
 (`unit.worker.ts`). Each area — a category's e3 examples, one directory of
 e3-ui's `test/` — has a workspace of its own (#1397), started the first time
-one of its examples shows: its package (the zip at the URL
-`virtual:e3-showcase-packages` gives for it, below) imported, deployed to the
-workspace and its dataflow run once, so a page waits for its own area's work
-and no other's. Every page shows one category — there is no "All" page — so
+one of its examples shows: made from its workspace bundle (at the URL
+`virtual:e3-showcase-bundles` gives for it, below), the workspace as the build
+made it — its package deployed and its dataflow run once, in an e3 as the
+page's runs — so a page deploys and runs nothing, and waits for its own area's
+bundle and no other's. Every page shows one category — there is no "All" page — so
 its e3 examples are one area's. Edits staged against it are kept in memory
 too, so a reload drops them with the e3.
 `components/ShowcaseE3.tsx` mounts e3-ui-components' `E3Provider` and
@@ -24,7 +25,7 @@ one workspace), and gates each e3 example (`E3Gate`): it loads what the
 example reads (its manifest's paths, as a UI task's preview does), polls
 them while it shows, and renders the example — or its area's start's error,
 naming its cause, in the example's place (`data-e3-start="failed"`), with a
-Retry that starts the area again from the step that failed. What loaded
+Retry that starts the area again (a start that failed made no workspace). What loaded
 before renders at once, so a row the doc list mounts again keeps its size;
 an area shown again after another loads what its examples read again. A
 page with no e3 example starts nothing.
@@ -57,7 +58,12 @@ also gives what each batch read sent: the JSON naming its keys, or the runs
 that name them), and applies a record's mutation of the spec's own as another
 session would (`mutateE3`: what the Schematic's budget run fills its floor
 of 50,000 racks through, past the hook's holds and its log). A
-page a person opens never has it, and no published package does. While a
+page a person opens has it only where its address asks every read of its e3
+to wait (`?slow=600`, before the `#`; at most 30 s, `slowFromAddress`): the
+page's reads then answer that long after they were asked, so a person sees
+what a builder draws while one is in flight — a wash, the loading line —
+which the e3 in the page answers too soon to see. No published package has
+it. While a
 spec holds a read on purpose it waits with `settled(page, { holding: true })`,
 which does not wait on the busy main the hold keeps;
 `builder-footer-line-reads.spec.ts` measures the footer's loading line in
@@ -193,15 +199,21 @@ and establish a stable hit target; a previous drop or tab change can scroll it.
   same step's package of the modules a test file mounts, so the SDK packages
   the examples in e3-ui alone.
 - `scripts/vite-plugin-e3-showcase.ts` — runs that step in a node process
-  of its own: the dev server serves each area's zip at
-  `/e3-showcase-<area>.zip` (built again, and the page reloaded to start its
-  e3 over them, after e3-ui's `dist/` or `test/` changes — rebuild e3-ui for
-  an edit to reach the packages), and `vite build` emits each named by its
-  content (`dist/assets/e3-showcase-<area>-<hash>.zip`); the page imports
-  their URLs from `virtual:e3-showcase-packages`, either way.
-  `tests/e3-package/` imports them into an in-memory e3 (`pnpm run test`):
-  each module's definitions in its area's package, each example's bindings
-  found there, and no record its area's modules and examples do not reach.
+  of its own, then `scripts/e3-showcase-bundles.ts` in another: each area's
+  package imported into an e3 as the page's runs (e3-web, units in its thread,
+  pieces cut at the showcase's size), deployed to the area's workspace, its
+  dataflow run once, and the workspace written out as a bundle
+  (`workspaceBundle`). The dev server serves each area's at
+  `/e3-showcase-<area>.beast2`, made as it is first asked for (and again, the
+  page reloaded to start its e3 over them, after e3-ui's `dist/` or `test/`
+  changes — rebuild e3-ui for an edit to reach them), and `vite build` makes
+  them all and emits each named by its content
+  (`dist/assets/e3-showcase-<area>-<hash>.beast2`); the page imports their
+  URLs from `virtual:e3-showcase-bundles`, either way. `tests/e3-package/`
+  imports the packages into an in-memory e3 (`pnpm run test`): each module's
+  definitions in its area's package, each example's bindings found there, and
+  no record its area's modules and examples do not reach; and makes each
+  area's workspace from its bundle in a fresh e3, every task up to date.
 - `scripts/example-renderings.ts` — joins every Code Reference example
   with the plugins' example index (`libs/east-plugin/index.json`)
   by id, for its python rendering (#655): the index stores each program

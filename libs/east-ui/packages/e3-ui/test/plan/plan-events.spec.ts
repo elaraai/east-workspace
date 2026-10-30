@@ -23,7 +23,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
     ArrayType, BooleanType, DateTimeType, DictType, East, Expr, FloatType, FunctionType, IntegerType, NullType, OptionType,
-    StringType, StructType, decodeBeast2For, equalFor, isTypeEqual, none, some, variant,
+    StringType, StructType, decodeBeast2For, equalFor, isTypeEqual, none, some, variant, walkIR,
     type BlockBuilder, type EastType,
 } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
@@ -64,7 +64,7 @@ const WINDOW = { min: FIRST, max: LAST };
 
 /** The jobs over the presses, bound inside a block: the event kind §3.2 declares. */
 function jobsOf($: BlockBuilder<NullType>) {
-    const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+    const jobs = $.let(Record.bind(ex.planPrintJobs));
     return Schedule.events(jobs, {
         name: "Print job", icon: "file-lines",
         title: "title", start: "start", end: "end",
@@ -74,7 +74,7 @@ function jobsOf($: BlockBuilder<NullType>) {
 
 /** The jobs over the presses, bound inside a block, with more of a kind's options. */
 function jobsOf2($: BlockBuilder<NullType>, more: globalThis.Record<string, unknown>) {
-    const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+    const jobs = $.let(Record.bind(ex.planPrintJobs));
     return Schedule.events(jobs, {
         name: "Print job", icon: "file-lines",
         title: "title", start: "start", end: "end",
@@ -101,7 +101,7 @@ const MARKS = Plan.series.events(Row, { key: "marks", title: "Marks", label: (_r
 describe("the payload (PB8, PB11)", () => {
     test("every Plan's payload is one type, whatever its records hold — each kind's rows closed behind functions over bytes", () => {
         inBlock(($) => {
-            const stops = $.let(Record.bind(ex.planPrintStops, [ex.planPrintStopsPatch]));
+            const stops = $.let(Record.bind(ex.planPrintStops));
             const axis = $.let(Plan.axis({ window: WINDOW, resolution: "day" }));
             const resources = { presses: pressesOf($) };
             const ofJobs = Plan.Payload({ axis, resources, events: { job: jobsOf($) } });
@@ -111,6 +111,12 @@ describe("the payload (PB8, PB11)", () => {
             });
             for (const payload of [ofJobs, ofStops]) assert.ok(isTypeEqual(Expr.type(payload as unknown as Expr) as EastType, PlanPayloadType));
         });
+    });
+
+    test("writes each event kind's reads and its item out once: the print works are under 30,000 IR nodes, where each of a kind's parts writing them again made 37,700", () => {
+        let nodes = 0;
+        walkIR(ex.planPrintWorks.fn.toIR().ir, () => { nodes++; });
+        assert.ok(nodes < 30_000, `the print works' program is ${nodes} IR nodes`);
     });
 
     test("<Plan> returns its payload through the `Plan` carrier", () => {
@@ -192,11 +198,11 @@ describe("the Plan's refusals (PB8)", () => {
 
 describe("its narrowing (#1344): one Slice.bindRecords, each source named after what it narrows", () => {
     const axis = Plan.axis({ window: WINDOW, resolution: "day" });
-    const jobIndex = () => Data.bindPaged(ex.planPrintJobs, { indexes: [ex.planPrintJobsByTime, ex.planPrintJobsByStockTime] });
+    const jobIndex = () => Data.bindPaged(ex.planPrintJobs, { indexes: ["plan_print_jobs_by_time", "plan_print_jobs_by_stock_time"] });
     const jobEntries = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planPrintJobs));
     /** The jobs, narrowed through the slice's `job` source when `entries` is given. */
     const narrowedJobs = ($: BlockBuilder<NullType>, more: globalThis.Record<string, unknown> = {}) => {
-        const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+        const jobs = $.let(Record.bind(ex.planPrintJobs));
         return Schedule.events(jobs, {
             name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" },
             entries: jobEntries($), ...more,
@@ -208,16 +214,16 @@ describe("its narrowing (#1344): one Slice.bindRecords, each source named after 
     const jobTemplates = ($: BlockBuilder<NullType>, source?: string) => Schedule.templates($.let(Data.bind(ex.planPrintJobTemplates)).read(), {
         name: (t) => t.name, duration: (t) => variant("hours", t.hours), values: (t) => t.values, ...(source === undefined ? {} : { source }),
     });
-    const templatesIndex = () => Data.bindPaged(ex.planPrintJobTemplates, { indexes: [ex.planPrintJobTemplatesByGroup] });
+    const templatesIndex = () => Data.bindPaged(ex.planPrintJobTemplates, { indexes: ["plan_print_job_templates_by_group"] });
 
     test("an event kind's source, a resource kind's, a templates list's and a tab's: the Plan takes each, and builds", () => {
         assert.equal(refusal(($) => {
             const customers = $.let(Data.bind(ex.planPrintCustomers));
             const slice = Slice.bindRecords("spec.all", {
                 job: { source: jobIndex(), fields: { stock: { label: "Stock" }, start: { label: "Dates" } }, range: "start" },
-                presses: { source: Data.bindPaged(ex.planPrintPresses, { indexes: [ex.planPrintPressesByHall] }), fields: { hall: { label: "Hall", hints: ["Hall A", "Hall B"] } } },
+                presses: { source: Data.bindPaged(ex.planPrintPresses, { indexes: ["plan_print_presses_by_hall"] }), fields: { hall: { label: "Hall", hints: ["Hall A", "Hall B"] } } },
                 jobTemplates: { source: templatesIndex() },
-                customers: { source: Data.bindPaged(ex.planPrintCustomers, { indexes: [ex.planPrintCustomersByDistrict] }), fields: { district: { label: "District", hints: ["Old Town"] } } },
+                customers: { source: Data.bindPaged(ex.planPrintCustomers, { indexes: ["plan_print_customers_by_district"] }), fields: { district: { label: "District", hints: ["Old Town"] } } },
             });
             const payload = Plan.Payload({
                 axis, slice: { slice }, resources: { presses: pressesOf($) },
@@ -238,7 +244,7 @@ describe("its narrowing (#1344): one Slice.bindRecords, each source named after 
             const payload = Plan.Payload({ axis, slice: { slice: rowsSlice() }, series });
             assert.ok(isTypeEqual(Expr.type(payload as unknown as Expr) as EastType, PlanPayloadType));
         }), "");
-        assert.match(refusal(($) => Plan.Payload({ axis, slice: { slice: rowsSlice() }, series, data: $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch])) })),
+        assert.match(refusal(($) => Plan.Payload({ axis, slice: { slice: rowsSlice() }, series, data: $.let(Record.bind(ex.planPrintJobs)) })),
             /^Plan: `slice`'s `rows` source gives the canvas its rows, paged from it — leave `data` out: data=\{Slice\.rows\(slice\)\} is gone, and the Plan reads its rows from the slice: slice=\{\{ slice \}\}$/);
     });
 
@@ -253,7 +259,7 @@ describe("its narrowing (#1344): one Slice.bindRecords, each source named after 
             slice: { slice: Slice.bindRecords("spec.rows.only", { rows: { source: jobIndex(), fields: { start: { label: "Dates" } } } }) } })), refused);
         // …and beside a resource kind's.
         assert.match(refusal(($) => Plan.Payload({ axis: windowless(), resources: { presses: pressesOf($) }, events: { job: jobsOf($) },
-            slice: { slice: Slice.bindRecords("spec.presses.only", { presses: { source: Data.bindPaged(ex.planPrintPresses, { indexes: [ex.planPrintPressesByHall] }), fields: { hall: { label: "Hall", hints: ["Hall A"] } } } }) } })), refused);
+            slice: { slice: Slice.bindRecords("spec.presses.only", { presses: { source: Data.bindPaged(ex.planPrintPresses, { indexes: ["plan_print_presses_by_hall"] }), fields: { hall: { label: "Hall", hints: ["Hall A"] } } } }) } })), refused);
         // An event kind's source holds the window: a windowless axis takes it.
         assert.equal(refusal(($) => Plan.Payload({ axis: windowless(), resources: { presses: pressesOf($) }, events: { job: narrowedJobs($) }, slice: { slice: jobSlice() } })), "");
     });
@@ -276,13 +282,13 @@ describe("its narrowing (#1344): one Slice.bindRecords, each source named after 
 
     test("an event kind's source over another record than the kind's is refused, naming the change", () => {
         assert.match(refusal(($) => Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: narrowedJobs($) },
-            slice: { slice: Slice.bindRecords("spec.other", { job: { source: Data.bindPaged(ex.planPrintCustomers, { indexes: [ex.planPrintCustomersByDistrict] }), fields: { district: { label: "District", hints: ["Old Town"] } } } }) } })),
+            slice: { slice: Slice.bindRecords("spec.other", { job: { source: Data.bindPaged(ex.planPrintCustomers, { indexes: ["plan_print_customers_by_district"] }), fields: { district: { label: "District", hints: ["Old Town"] } } } }) } })),
             /^Schedule\.events: "Print job": the builder's source "job" narrows another record — name it after this kind's slot over the kind's own record, Data\.bindPaged\(record, \{ indexes \}\), its rows joined$/);
     });
 
     test("a kind narrowed through its source needs its `entries`, and takes no `window` or `backlogWindow` beside it", () => {
         assert.match(refusal(($) => {
-            const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+            const jobs = $.let(Record.bind(ex.planPrintJobs));
             return Plan.Payload({ axis, resources: { presses: pressesOf($) }, slice: { slice: jobSlice() },
                 events: { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }) } });
         }), /^Schedule\.events: "Print job": the builder's source "job" reads only its narrowing — and one event, the inspector's or its editing's, is read by its key: give `entries` beside it/);
@@ -295,11 +301,11 @@ describe("its narrowing (#1344): one Slice.bindRecords, each source named after 
         const job = { source: jobIndex(), fields: { start: { label: "Dates" } }, range: "start" as const };
         assert.equal(refusal(($) => {
             const payload = Plan.Payload({ axis, events: { job: narrowedJobs($) }, resources: { presses: pagedPresses($) },
-                slice: { slice: Slice.bindRecords("spec.paged", { job, presses: { source: Data.bindPaged(ex.planPrintPresses, { indexes: [ex.planPrintPressesByHall] }), fields: { hall: { label: "Hall", hints: ["Hall A"] } } } }) } });
+                slice: { slice: Slice.bindRecords("spec.paged", { job, presses: { source: Data.bindPaged(ex.planPrintPresses, { indexes: ["plan_print_presses_by_hall"] }), fields: { hall: { label: "Hall", hints: ["Hall A"] } } } }) } });
             assert.ok(isTypeEqual(Expr.type(payload as unknown as Expr) as EastType, PlanPayloadType));
         }), "");
         assert.match(refusal(($) => Plan.Payload({ axis, events: { job: narrowedJobs($) }, resources: { presses: pagedPresses($) },
-            slice: { slice: Slice.bindRecords("spec.other", { job, presses: { source: Data.bindPaged(ex.planPrintCustomers, { indexes: [ex.planPrintCustomersByDistrict] }), fields: { district: { label: "District", hints: ["Old Town"] } } } }) } })),
+            slice: { slice: Slice.bindRecords("spec.other", { job, presses: { source: Data.bindPaged(ex.planPrintCustomers, { indexes: ["plan_print_customers_by_district"] }), fields: { district: { label: "District", hints: ["Old Town"] } } } }) } })),
             /^Plan: the slice's source "presses" narrows resources\.presses, and its rows are .+ — the kind's are .+: bind the source over the kind's own record, Data\.bindPaged\(record, \{ indexes \}\)$/);
     });
 
@@ -322,7 +328,7 @@ describe("its narrowing (#1344): one Slice.bindRecords, each source named after 
         assert.match(refusal(($) => jobsOf2($, { templates: Schedule.templates($.let(Data.bind(ex.planPrintJobTemplates)).read(), { name: (t) => t.name, values: (t) => t.values, source: "jobTemplates" }) })),
             /^Schedule\.events: "Print job": its templates give each event's `duration` — Schedule\.templates\(rows, \{ …, duration: \(row\) => variant\("hours", …\) \}\), how long the event a template creates runs$/);
         assert.match(refusal(($) => {
-            const stops = $.let(Record.bind(ex.planPrintStops, [ex.planPrintStopsPatch]));
+            const stops = $.let(Record.bind(ex.planPrintStops));
             return Schedule.events(stops, { name: "Stop", icon: "screwdriver-wrench", title: "title", at: "at", resource: { field: "press", of: "presses" },
                 templates: Schedule.templates($.let(Data.bind(ex.planPrintStopTemplates)).read(), { name: (t) => t.name, duration: () => variant("hours", 1.0), values: (t) => t.values, source: "stopTemplates" }) });
         }), /^Schedule\.events: "Stop": an instant kind's events are one time, and its templates give a `duration` — leave it out of Schedule\.templates$/);
@@ -382,8 +388,8 @@ describe("links between events (PB10)", () => {
 });
 
 describe("rows over a dataset (PB9)", () => {
-    const StockRow = StructType({ name: StringType, marks: ArrayType(Plan.Types.EventMark) });
-    const STOCK = new Map([["board", { name: "Board", marks: [] }]]);
+    const StockRow = StructType({ name: StringType, marks: DictType(StringType, StructType({ at: DateTimeType })) });
+    const STOCK = new Map([["board", { name: "Board", marks: new Map() }]]);
     const table = () => Plan.series.table(StockRow, { key: "stock", title: "Paper stock", label: (s) => s.name });
 
     test("a `data` that is no keyed collection, and no series", () => {
@@ -396,8 +402,9 @@ describe("rows over a dataset (PB9)", () => {
     test("a series that writes — an `edit` — is refused, naming Schedule.events", () => {
         const data = ($: BlockBuilder<NullType>) => $.const(STOCK, DictType(StringType, StockRow));
         assert.match(refusal(($) => Plan.over(data($), [table(), Plan.series.events(StockRow, {
-            key: "marks", title: "Marks", label: (s) => s.name, marks: (s) => s.marks,
-            edit: { items: "marks", create: (drop) => ({ key: drop.from.key, at: drop.at, kind: variant("milestone", null), icon: none, label: none }) },
+            key: "marks", title: "Marks", label: (s) => s.name,
+            marks: Plan.items("marks", { at: "at" }, () => ({ kind: "milestone" })),
+            edit: { create: (drop) => ({ at: drop.at.unwrap("time") }) },
         })])), /^Plan\.over: series\[1\], events "Marks", declares `edit` — a Plan's rows over a dataset are read only, and its edits go through its event kinds \(Schedule\.events\)$/);
     });
 

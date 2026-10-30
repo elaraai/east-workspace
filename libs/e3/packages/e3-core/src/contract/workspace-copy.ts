@@ -67,7 +67,7 @@ export function workspaceCopyTests(setup: BackendSetup): void {
         const note = e3.input('note', StringType, variant('value', 'one'));
         const members = [
           e3.task('echo', [note], East.function([StringType], StringType, ($, x) => x)),
-          e3.record('counts', IntegerType, 0n),
+          e3.record('counts', IntegerType, { initial: 0n }),
           ...(version === '2.0.0' ? [e3.input('extra', IntegerType, variant('value', 1n))] : []),
         ];
         const zip = join(dir, `${PKG}-${version}.zip`);

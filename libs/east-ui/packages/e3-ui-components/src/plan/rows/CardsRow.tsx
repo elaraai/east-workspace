@@ -93,8 +93,7 @@ function CardChip({ chip, left, width, rowKey, rowId, styles, ctx, move }: {
             data-plan-frac={left.toFixed(4)}
             data-state={runStateKey(chip.state)}
             // In from its ends — the inset a link meets it by (#1258).
-            left={`calc(${left * 100}% + ${PLAN_CELL_INSET}px)`}
-            width={`calc(${width * 100}% - ${2 * PLAN_CELL_INSET}px)`}
+            style={{ left: `calc(${left * 100}% + ${PLAN_CELL_INSET}px)`, width: `calc(${width * 100}% - ${2 * PLAN_CELL_INSET}px)` }}
             {...handle}
             // Carried by the keyboard (#825) — dimmed as a dragged origin is.
             data-dragging={carried ? "" : undefined}

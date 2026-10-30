@@ -25,10 +25,7 @@ import { e3Spec } from "./fixtures/e3.js";
 const h = e3Spec({ "bind/data/data": ex });
 
 const flows = ex.computedFlows;
-const indexes = [
-    ex.computedByDescription, ex.computedByStateCount, ex.computedByDescriptionCount, ex.computedByLane,
-    ex.computedByOwner, ex.computedByLabel, ex.computedBySize, ex.computedByDecisionOwner,
-] as const;
+const indexes = ["description", "state_count", "description_count", "lane", "owner", "label", "size", "decisionOwner"] as const;
 const binding = Data.bindPaged(flows, { indexes });
 const slice = bindRecord("computed", binding, {
     fields: { description: {}, stateCount: {}, lane: {}, owner: {} },
@@ -120,7 +117,7 @@ test("computed membership deduplicates per record, searches nested values, survi
         decoded.data.refresh(some(committed));
         await h.ready(() => revisionEqual(decoded.data.revision(), some(committed)) ? some(null) : none);
         assert.deepEqual((await h.ready(() => decoded.data.page(0n, 10n))).map(row => row.key), ["b"]);
-        assert.equal(await h.ready(() => decoded.countWhere(captured)), 1n);
+        assert.equal(await h.ready(() => decoded.countWhere({ where: captured, area: none })), 1n);
         assert.equal(await h.ready(() => decoded.contains(captured, "a")), false);
         assert.equal((await h.ready(() => decoded.readEntry("a"))).type, "some", "leaving the index never means the primary flow was deleted");
         decoded.clear("lane");
@@ -135,7 +132,7 @@ test("computed membership deduplicates per record, searches nested values, survi
 test("scalar computed keys infer controls from their index types and support covering-only paging", async () => {
     const f = fixture();
     try {
-        const source = Data.bindPaged(flows, { indexes: [ex.computedByLabel, ex.computedBySize, ex.computedByDecisionOwner], join: false });
+        const source = Data.bindPaged(flows, { indexes: ["label", "size", "decisionOwner"], join: false });
         const sliced = bindRecord("computed-scalars", source, { search: ["label", "decisionOwner"], range: "size" });
         const create = East.compile(East.function([], Expr.type(sliced), () => sliced), f.platform);
         const handle = create();

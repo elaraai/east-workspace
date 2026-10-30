@@ -61,7 +61,7 @@ export { DRAFT_ISSUE_TEXT, SESSION_TEXT, type EditHistoryWord } from "./editing/
 export { type EditSource } from "./editing/use-edit-session.js";
 // The Slice: its bound range, the brush, the rail's toolbar items, and density.
 export { boundRangeDomain, boundRangeHistogram } from "./platform/slice/index.js";
-export { BrushStrip } from "./slice/brush-strip.js";
+export { BrushStrip, type BrushBucket, type BrushStripProps, type BrushWords } from "./slice/brush-strip.js";
 export { SliceDensityContext } from "./slice/density.js";
 export { railAffordanceKinds } from "./slice/rail-kinds.js";
 export { HOST_RANK, useSliceToolbarItems } from "./slice/rail/index.js";
@@ -84,10 +84,11 @@ export { recordSliceWindow, recordSliceDomain, recordSliceWindowFits, setRecordS
 // read at (#1039) — the Plan's events; a window of its record's own rows, by position — the Schematic's Find (#1404); and an
 // area index's cells, counted and read, the bounds of a density raster's searches and the entries of some of their runs,
 // and another record's rows under the keys the cells' and the runs' entries name — the Schematic's window and its details
-// (#1393).
+// (#1393); and a generated index's `on` printer, which those searches name its leading values with (#1432).
 export {
     recordSliceSeeded, recordSlicePlace, recordSliceWithin, recordSliceWithinAt, recordSliceSeek, recordSliceCellRuns, recordSliceCellEntries,
     recordSliceCellJoins, recordSliceRows, recordSliceRevision, recordSlicePage, recordSliceBounds, recordSliceRunEntries, recordSliceRunJoins,
+    recordSliceOnPrinter,
 } from "./platform/slice/record.js";
 // The UI store, tracked reads, and the boundary a renderer's East calls run in.
 export { getStore, initializeStore, trackKey } from "./platform/state-runtime.js";

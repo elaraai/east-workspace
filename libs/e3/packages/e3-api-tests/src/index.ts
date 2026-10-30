@@ -87,6 +87,8 @@ export { platformTests } from './suites/platform.js';
 export { cliTests } from './suites/cli.js';
 export { transferTests } from './suites/transfer.js';
 export { packageTransferTests } from './suites/package-transfer.js';
+// Not one of apiTestSuites: a host that mounts the bundle routes registers it
+export { workspaceBundleTests } from './suites/bundles.js';
 
 import type { TestContext } from './context.js';
 import type { TestSetup } from './setup.js';

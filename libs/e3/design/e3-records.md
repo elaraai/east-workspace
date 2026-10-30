@@ -293,6 +293,15 @@ explicitly rejected in v1 (open question §13).
 > may declare secondary indexes with `e3.recordIndex`, maintained in the same
 > commit. `e3-records-schema.md` §9–§11; the epic is #779.
 
+> **Amended (2026-10-28).** A record is declared whole: `e3.record(name, type,
+> { initial?, indexes, mutations, migrations })` builds its parts in its
+> declaration — `mutation.reduce(fn)`, `mutation.edit(fn)`, `mutation.patch()`;
+> `index.on([…])`, `index.key(fn)` and the generated kinds; `migration.value`,
+> `rows` and `rekey`, listed in the order they run — and freezes them with it.
+> `e3.package` takes the record whole: no part is a package item, so the
+> branch below on `item.kind === 'mutation'` is gone, and so are
+> `e3.mutation.reduce`/`edit`/`patch`, `e3.recordIndex` and `e3.migration`.
+
 `package_()` (`packages/e3/src/package.ts`) branches on
 `item.kind === 'mutation'` exactly as it does for `'function'`
 (`e3-functions.md` §3 item 2): collect by name onto the owning record,

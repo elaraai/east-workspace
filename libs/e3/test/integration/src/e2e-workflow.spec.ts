@@ -598,13 +598,17 @@ describe('reactive caching — change one input, only its tasks recompute', () =
   // tasks that read it. (The mutation reducer runs on the east-node runner, so
   // this is exercised in CI where `make link` puts east-node on PATH.)
   it('mutating a record re-runs the task that reads it; an independent task stays CACHED', async () => {
-    const counter = e3.record('counter', IntegerType, 0n);
-    const inc = e3.mutation.reduce('inc', counter, East.function([IntegerType], IntegerType, ($, s) => s.add(1n)));
+    const counter = e3.record('counter', IntegerType, {
+      initial: 0n,
+      mutations: (mutation) => ({
+        inc: mutation.reduce(East.function([IntegerType], IntegerType, ($, s) => s.add(1n))),
+      }),
+    });
     const otherIn = e3.input('other_in', StringType, variant('value', 'x1'));
     // customTasks read their inputs directly; reads_counter depends on the record.
     const readsCounter = e3.customTask('reads_counter', [counter], IntegerType, (_$, inputs, output) => East.str`cp ${inputs.get(0n)} ${output}`);
     const independent = e3.customTask('independent', [otherIn], StringType, (_$, inputs, output) => East.str`cp ${inputs.get(0n)} ${output}`);
-    await e3.export(e3.package('recreactive', '1.0.0', counter, inc, readsCounter, independent), join(testDir, 'rec.zip'));
+    await e3.export(e3.package('recreactive', '1.0.0', counter, readsCounter, independent), join(testDir, 'rec.zip'));
 
     await runE3Command(['repo', 'create', repoDir], testDir);
     await runE3Command(['package', 'import', repoDir, join(testDir, 'rec.zip')], testDir);

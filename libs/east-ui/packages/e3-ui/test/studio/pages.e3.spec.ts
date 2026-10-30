@@ -5,7 +5,7 @@
 
 /**
  * The pages record in e3 (#992): a solution declares `e3.record("pages",
- * Studio.Types.Pages, …)` and `e3.mutation.patch(pages)`, and every operator
+ * Studio.Types.Pages, …)` with its patch mutation, and every operator
  * action is one patch commit through it — a save (R1), a publish and a revert
  * (R3), a new page and a saved template (R8). A save drafted on a stale page
  * is a conflict, and nothing is overwritten (R2). A redeploy
@@ -71,19 +71,23 @@ const revenueTrend = Studio.component("revenue_trend", { name: "Revenue trend", 
 const listed = East.compile(East.function([], ArrayType(Studio.Types.Component), (_$) => [kpiRail, revenueTrend]), [])();
 
 /** The pages record, holding the Overview — never published — and its one write. */
-const pages = e3.record("pages", StudioPagesType, new SortedMap<Key, Entry>([
-    [OVERVIEW_KEY, variant("page", {
-        draft: {
-            title: "Overview",
-            cells: [
-                { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "fp-kpi" },
-                { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "fp-trend" },
-            ],
-        },
-        live: none,
-    })],
-], keys));
-const pagesPatch = e3.mutation.patch(pages);
+const pages = e3.record("pages", StudioPagesType, {
+    initial: new SortedMap<Key, Entry>([
+        [OVERVIEW_KEY, variant("page", {
+            draft: {
+                title: "Overview",
+                cells: [
+                    { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "fp-kpi" },
+                    { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "fp-trend" },
+                ],
+            },
+            live: none,
+        })],
+    ], keys),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 
 describe("the pages record in e3 (#992)", () => {
     let repo: string;
@@ -96,11 +100,11 @@ describe("the pages record in e3 (#992)", () => {
         storage = new LocalStorage(dirname(repo));
         const surface = ui("studio", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const components = $.let([kpiRail]);
-            const record = $.let(Record.bind(pages, [pagesPatch]));
+            const record = $.let(Record.bind(pages));
             return Studio.Builder({ pages: record, components, project: "ops" });
         }))));
         const zip = join(tempDir, "studio-1.0.0.zip");
-        await e3.export(e3.package("studio", "1.0.0", pages, pagesPatch, surface), zip);
+        await e3.export(e3.package("studio", "1.0.0", pages, surface), zip);
         await packageImport(storage, repo, zip);
         await workspaceCreate(storage, repo, "main");
         await workspaceDeploy(storage, repo, "main", "studio", "1.0.0");
@@ -355,11 +359,11 @@ describe("the pages record in e3 (#992)", () => {
 
         const surface = ui("studio", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const components = $.let([kpiRail, revenueTrend]);
-            const record = $.let(Record.bind(pages, [pagesPatch]));
+            const record = $.let(Record.bind(pages));
             return Studio.Builder({ pages: record, components, project: "ops" });
         }))));
         const zip = join(tempDir, "studio-1.0.1.zip");
-        await e3.export(e3.package("studio", "1.0.1", pages, pagesPatch, surface), zip);
+        await e3.export(e3.package("studio", "1.0.1", pages, surface), zip);
         await packageImport(storage, repo, zip);
         const plans: RecordPlan[] = [];
         await workspaceDeploy(storage, repo, "main", "studio", "1.0.1", { onRecordPlan: (plan) => plans.push(plan) });

@@ -253,7 +253,7 @@ export function useCalendarFind({ kinds, parts, editing, range, format, onPick, 
             if (run.items !== undefined) return run.items.slice(offset, offset + n).map((item, i) => ({ at: at + i, item, kind: run.kind.name, hidings: NO_HIDINGS }));
             const part = run.part!;
             const from = BigInt(run.start + offset);
-            const entries = await awaitTracked(() => recordSlicePage(part, WHOLE, from, BigInt(n))) as readonly RecordEntry[];
+            const entries = await awaitTracked(() => recordSlicePage(part, { where: WHOLE, area: none }, from, BigInt(n))) as readonly RecordEntry[];
             // Which of them the kind's choices hide, asked of e3 over the page just read — its narrowing but the window,
             // which hides no event — and which choices hide those (the hidden pick): nothing is asked with no choice.
             const pick = latest.current.picks.get(run.kind.key);

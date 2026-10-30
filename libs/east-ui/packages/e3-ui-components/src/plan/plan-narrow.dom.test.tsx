@@ -108,7 +108,7 @@ function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date |
         hover: opts?.hover !== undefined ? some(opts.hover) : none,
         expandRender: opts?.expandRender !== undefined ? some(opts.expandRender) : none,
         pick: opts?.pick !== undefined ? some(opts.pick) : none,
-        slice: opts?.slice ?? none,
+        slice: opts?.slice ?? none, nested: none,
         footer: opts?.footer ?? [],
         id: none, sources: [], editing: none, canDrop: none,
         onSelect: none,
@@ -250,7 +250,7 @@ describe("Plan narrow layout (§10 / #570)", () => {
         // The dated rows' source holds the window, W27..W39.
         const rail = await bindRail(() => Slice.bindRecords("plan.narrow.pan", {
             dated: {
-                source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
+                source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_at"] }),
                 fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
             },
         }), ["range"]);

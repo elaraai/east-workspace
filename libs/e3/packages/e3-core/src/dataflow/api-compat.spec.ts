@@ -54,9 +54,7 @@ describe('coreEventToApiEvent', () => {
     const event: ExecutionEvent = variant('task_started', {
       seq: 1n, timestamp: now, task: 'build',
     });
-    const result = coreEventToApiEvent(event);
-    assert.strictEqual(result?.type, 'start');
-    assert.strictEqual(result?.task, 'build');
+    assert.deepStrictEqual(coreEventToApiEvent(event), variant('start', { task: 'build', timestamp: now }));
   });
 
   it('maps task_completed (not cached) to complete, with the peak its runners reported', () => {
@@ -64,15 +62,13 @@ describe('coreEventToApiEvent', () => {
       seq: 2n, timestamp: now, task: 'build',
       cached: false, outputHash: 'abc', duration: 1000n, peakBytes: some(96n * 1024n ** 2n),
     });
-    const result = coreEventToApiEvent(event);
-    assert.strictEqual(result?.type, 'complete');
-    assert.strictEqual(result?.duration, 1000);
-    assert.strictEqual(result?.peakBytes, 96n * 1024n ** 2n);
+    assert.deepStrictEqual(coreEventToApiEvent(event),
+      variant('complete', { task: 'build', timestamp: now, duration: 1000, peakBytes: some(96n * 1024n ** 2n) }));
     const unmeasured: ExecutionEvent = variant('task_completed', {
       seq: 2n, timestamp: now, task: 'build',
       cached: false, outputHash: 'abc', duration: 1000n, peakBytes: none,
     });
-    assert.strictEqual(coreEventToApiEvent(unmeasured)?.peakBytes, undefined);
+    assert.deepStrictEqual(coreEventToApiEvent(unmeasured), variant('complete', { task: 'build', timestamp: now, duration: 1000, peakBytes: none }));
   });
 
   it('maps task_completed (cached) to cached', () => {
@@ -80,8 +76,7 @@ describe('coreEventToApiEvent', () => {
       seq: 2n, timestamp: now, task: 'build',
       cached: true, outputHash: 'abc', duration: 0n, peakBytes: none,
     });
-    const result = coreEventToApiEvent(event);
-    assert.strictEqual(result?.type, 'cached');
+    assert.deepStrictEqual(coreEventToApiEvent(event), variant('cached', { task: 'build', timestamp: now }));
   });
 
   it('maps task_failed with exitCode to failed', () => {
@@ -89,9 +84,7 @@ describe('coreEventToApiEvent', () => {
       seq: 3n, timestamp: now, task: 'build',
       error: none, exitCode: some(1n), duration: 500n,
     });
-    const result = coreEventToApiEvent(event);
-    assert.strictEqual(result?.type, 'failed');
-    assert.strictEqual(result?.exitCode, 1n);
+    assert.deepStrictEqual(coreEventToApiEvent(event), variant('failed', { task: 'build', timestamp: now, duration: 500, exitCode: 1n }));
   });
 
   it('maps task_failed without exitCode to error', () => {
@@ -99,18 +92,15 @@ describe('coreEventToApiEvent', () => {
       seq: 3n, timestamp: now, task: 'build',
       error: some('OOM'), exitCode: none, duration: 500n,
     });
-    const result = coreEventToApiEvent(event);
-    assert.strictEqual(result?.type, 'error');
-    assert.strictEqual(result?.message, 'OOM');
+    assert.deepStrictEqual(coreEventToApiEvent(event), variant('error', { task: 'build', timestamp: now, message: 'OOM' }));
   });
 
   it('maps task_skipped to input_unavailable', () => {
     const event: ExecutionEvent = variant('task_skipped', {
       seq: 4n, timestamp: now, task: 'deploy', cause: 'build',
     });
-    const result = coreEventToApiEvent(event);
-    assert.strictEqual(result?.type, 'input_unavailable');
-    assert.strictEqual(result?.reason, "Upstream task 'build' failed");
+    assert.deepStrictEqual(coreEventToApiEvent(event),
+      variant('input_unavailable', { task: 'deploy', timestamp: now, reason: "Upstream task 'build' failed" }));
   });
 
   it('returns null for execution_started', () => {
@@ -147,9 +137,9 @@ describe('coreEventToApiEvent', () => {
     const event: ExecutionEvent = variant('unit_requeued', {
       seq: 9n, timestamp: now, task: 'build', unit, reason: variant('cap', null), peak: 96n * 1024n ** 2n, reserves: 96n * 1024n ** 2n,
     });
-    assert.deepStrictEqual(coreEventToApiEvent(event), {
-      type: 'requeued', task: 'build', timestamp: now.toISOString(), unit, requeueReason: 'cap', peak: 96n * 1024n ** 2n, reserves: 96n * 1024n ** 2n,
-    });
+    assert.deepStrictEqual(coreEventToApiEvent(event), variant('requeued', {
+      task: 'build', timestamp: now, unit, reason: variant('cap', null), peak: 96n * 1024n ** 2n, reserves: 96n * 1024n ** 2n,
+    }));
   });
 
   it('returns null for a split task\'s stages: the API\'s events are a task\'s', () => {

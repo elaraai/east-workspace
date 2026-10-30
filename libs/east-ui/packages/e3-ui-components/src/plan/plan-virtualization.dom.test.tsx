@@ -23,7 +23,7 @@ import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanRowId, PlanWireRow } from "./model.js";
 import { setBodyRowMountProbe } from "./rows/BodyRow.js";
 import type { PlanInstantValue } from "./instant.js";
-import { blocksSource, oneBlock, rowId, rowKey, rowSel, testKeyOf } from "./plan.test-utils.js";
+import { blocksSource, oneBlock, keySurface, rowId, rowKey, rowSel, testKeyOf } from "./plan.test-utils.js";
 import { PLAN_GEOMETRY } from "./geometry.js";
 
 // Every re-measure the row frame makes is counted, through its probe: the
@@ -135,7 +135,7 @@ function planRoot(rows: PlanWireRow[], opts?: { height?: string; source?: unknow
         expandRender: opts?.expandRender === true
             ? some((id: PlanRowId) => variant("Text", { value: `R · ${id.value.path.join("/")}`, style: none }))
             : none,
-        pick: none, slice: none, footer: [],
+        pick: none, slice: none, nested: none, footer: [],
         id: none, sources: [], editing: none, canDrop: none,
         onSelect: none, onElementClick: none,
         onGroupToggle: none, onGrainChange: none, ui: none,
@@ -218,7 +218,7 @@ describe("Plan heights at a constant row count (#812, #743 item 1)", () => {
         expect(deep.top).toBe(startOf(focused, deep.first));
 
         scrollFrame(container, 0);
-        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "Escape" });
+        fireEvent.keyDown(keySurface(container), { key: "Escape" });
         const rest = Array.from({ length: 61 }, () => 32);
         expect(extentOf(container)).toBe(startOf(rest, 61));
         scrollFrame(container, 1200);

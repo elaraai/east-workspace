@@ -278,7 +278,7 @@ function LibraryDims({ item, keys, styles }: { item: LibraryItemValue; keys: rea
                     <Box css={styles.meterTrack}>
                         <Box
                             css={styles.meterFill}
-                            width={`${Math.max(0, Math.min(100, m.max > 0 ? (m.value / m.max) * 100 : 0))}%`}
+                            style={{ width: `${Math.max(0, Math.min(100, m.max > 0 ? (m.value / m.max) * 100 : 0))}%` }}
                         />
                     </Box>
                     {getSomeorUndefined(m.text) !== undefined && (

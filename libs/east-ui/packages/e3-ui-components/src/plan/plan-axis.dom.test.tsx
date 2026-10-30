@@ -27,7 +27,7 @@ import { e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
-import { blocksSource, oneBlock, rowId, rowSel } from "./plan.test-utils.js";
+import { blocksSource, oneBlock, keySurface, rowId, rowSel } from "./plan.test-utils.js";
 import { RAIL_MODULES, bindRail, type Rail } from "./rail.test-utils.js";
 
 e3Harness(RAIL_MODULES, { measure: false });
@@ -101,7 +101,7 @@ function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date |
         hover: opts?.hover !== undefined ? some(opts.hover) : none,
         expandRender: opts?.expandRender !== undefined ? some(opts.expandRender) : none,
         pick: opts?.pick !== undefined ? some(opts.pick) : none,
-        slice: opts?.slice ?? none,
+        slice: opts?.slice ?? none, nested: none,
         footer: opts?.footer ?? [],
         id: none, sources: [], editing: none, canDrop: none,
         onSelect: none,
@@ -245,14 +245,14 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
     /** The rail over the vans — leaving on day 1 and day 12 — their `FLOAT` days the window, `[1, 9)`. */
     const vansRail = (key: string, affordances: readonly RecordSliceAffordance[]): Promise<Rail> => bindRail(() => Slice.bindRecords(key, {
         vans: {
-            source: Data.bindPaged(records.planDayVans, { indexes: [records.planDayVansByDay] }),
+            source: Data.bindPaged(records.planDayVans, { indexes: ["plan_day_vans_by_day"] }),
             fields: { day: { label: "Day" } }, range: "day", initial: { day: { from: 1.0, to: 9.0 } },
         },
     }), affordances);
     /** The rail over the orders — one a day, day 1 to day 12 — their `INTEGER` days the window, `[1, 9)`. */
     const ordersRail = (key: string): Promise<Rail> => bindRail(() => Slice.bindRecords(key, {
         orders: {
-            source: Data.bindPaged(records.planDayOrders, { indexes: [records.planDayOrdersByDay] }),
+            source: Data.bindPaged(records.planDayOrders, { indexes: ["plan_day_orders_by_day"] }),
             fields: { day: { label: "Day" } }, range: "day", initial: { day: { from: 1n, to: 9n } },
         },
     }), []);
@@ -298,7 +298,7 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             axis: numberAxis, slice: some(rail.chrome),
         }), "plan-631-keys");
-        const surface = container.querySelector('[tabindex="0"]')!;
+        const surface = keySurface(container);
         fireEvent.keyDown(surface, { key: "]" });
         expect(window()).toEqual({ kind: "float", min: 2, max: 10 });
         // Each pan starts from the window READ BACK — whole steps, so a
@@ -323,7 +323,7 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
         }), "plan-949-integer");
         // `[1, 9)` is eight columns — the source's range IS the grid.
         expect(ticks(container)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
-        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "]" });
+        fireEvent.keyDown(keySurface(container), { key: "]" });
         expect(window()).toEqual({ kind: "integer", min: 2, max: 10 });
         expect(part.read().where.get("day")).toEqual(variant("range", { from: "2", to: "10" }));
         expect(ticks(container)).toEqual(["2", "3", "4", "5", "6", "7", "8", "9"]);
@@ -335,7 +335,7 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
         // arm to speak, so the strip does not mount and a pan writes nothing.
         const rail = await bindRail(() => Slice.bindRecords("plan.631.ordinal", {
             dated: {
-                source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
+                source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_at"] }),
                 fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
             },
         }), ["brush"]);
@@ -349,7 +349,7 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
         expect(screen.getByText("NOW")).toBeTruthy();
         expect(container.querySelector("[data-slot='horizon']")).toBeNull();
         expect(container.querySelector("[data-brush-track]")).toBeNull();
-        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "]" });
+        fireEvent.keyDown(keySurface(container), { key: "]" });
         expect(recordSliceWindow(part)).toEqual({ kind: "datetime", min: W27.getTime(), max: W39.getTime() });
         expect(ticks(container)[0]).toBe("PREPRESS");
     });

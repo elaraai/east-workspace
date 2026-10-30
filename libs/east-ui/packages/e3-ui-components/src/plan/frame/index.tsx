@@ -63,7 +63,10 @@
  * `id` too (`planKeys(id).series`, PB29, `hidden.ts`), and only while the
  * library lists that tab, as nothing else could show it again: the event
  * kinds' rows leave it out through the `blocks` seam, and the canvas leaves
- * out the Plan's own `rows` it hides. An event kind hidden there is in none of
+ * out the Plan's own `rows` it hides. What it switches of `data`'s picked
+ * series is kept under the pick's own key (`pick.<key>`), and goes back into
+ * the pick when the Plan mounts: the pick's state lives in the page's store,
+ * which a reload empties. An event kind hidden there is in none of
  * the canvas's figures — the footer's counts and the inspector's — and nothing
  * says so (#1039).
  *
@@ -93,7 +96,7 @@
  * @packageDocumentation
  */
 
-import { Fragment, memo, useCallback, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { SortedMap, StringType, compareFor, equalFor, equivalentFor, none, type ValueTypeOf } from "@elaraai/east";
 import { Plan, PlanComponent, PlanEventBlocksType, PlanEventPagedType, PlanPayloadType, planKeys } from "@elaraai/e3-ui/internal";
@@ -115,7 +118,7 @@ import type { PlanRootValue } from "../model.js";
 import { PlanOverlapsContext } from "../rows/element-overlap.js";
 import { usePlanWords, useResolvedPlanWords } from "../words.js";
 import { PlanKindsReader, type PlanBacklogEntry, type PlanKindsRead, type PlanOverlaps } from "./counts.js";
-import { NONE_HIDDEN, hiddenOf, rowsHiddenOf } from "./hidden.js";
+import { NONE_HIDDEN, hiddenOf, hides, rowsHiddenOf } from "./hidden.js";
 import { NO_INSPECTED, PlanSelectionReader, usePlanInspector, usePlanInspectorSelection, type PlanInspectedEvent } from "./inspector.js";
 import { tabLibrary, usePlanLibrary, type PlanPickValue } from "./library.js";
 
@@ -364,6 +367,38 @@ interface PlanFrameProps {
     shown: PlanEventShownValue;
 }
 
+/**
+ * The canvas's pick over `data`'s series, kept for the viewer while the
+ * library lists the Series tab (PB29): the pick's state lives in the page's
+ * store, which a reload empties, so what the tab writes into it is kept under
+ * the pick's key as well, and goes back into the pick when the Plan mounts —
+ * before it paints, so the series open as the viewer left them. An id the pick
+ * no longer lists is dropped on the way back; a pick the tab never wrote opens
+ * as its program sets it.
+ *
+ * @param pick - The canvas's own pick, when `data`'s series are picked
+ * @param listed - Whether the library lists the Series tab
+ * @returns The pick, what the tab writes into it kept
+ */
+function useKeptPick(pick: PlanPickValue | undefined, listed: boolean): PlanPickValue | undefined {
+    const { state: kept, setState: keep } = usePersistedState<readonly string[] | undefined>(`pick.${pick?.key ?? ""}`, undefined);
+    // Once for each pick: after that the tab writes both.
+    const restored = useRef<string | undefined>(undefined);
+    useLayoutEffect(() => {
+        if (!listed || pick === undefined || (restored.current !== undefined && stringEqual(restored.current, pick.key))) return;
+        restored.current = pick.key;
+        if (kept === undefined) return;
+        const ids = pick.items.map((item) => item.id);
+        const back = hiddenOf(kept).filter((id) => hides(ids, id));
+        const now = pick.state.read();
+        if (back.length !== now.length || back.some((id) => !hides(now, id))) pick.state.write([...back]);
+    }, [listed, pick, kept]);
+    return useMemo(() => (!listed || pick === undefined ? pick : {
+        ...pick,
+        state: { ...pick.state, write: (next: string[]) => { keep(next); return pick.state.write(next); } },
+    }), [listed, pick, keep]);
+}
+
 /** The frame, its regions holding the canvas and its chrome — inside the canvas's contexts. */
 function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden, onHidden, followed, shown }: PlanFrameProps) {
     planFrameRenderProbe?.();
@@ -377,7 +412,8 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
     // The backlog's weeks count from the axis's now, or from the clock when the Plan mounted.
     const [mounted] = useState(() => new Date());
     const now = root.axis.type === "time" ? getSomeorUndefined(root.axis.value.now) ?? mounted : mounted;
-    const pick = useMemo((): PlanPickValue | undefined => getSomeorUndefined(root.pick), [root.pick]);
+    const given = useMemo((): PlanPickValue | undefined => getSomeorUndefined(root.pick), [root.pick]);
+    const pick = useKeptPick(given, library.some((tab) => tab.type === "series"));
     // What the event kinds read, counted with every kind's drafts in place (#1194) — the counts, the overlaps, the
     // backlog — and what the rail hides of the backlog (#1344), held with its cards (#1398), reported by a component of
     // its own.

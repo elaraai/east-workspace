@@ -4,9 +4,10 @@
  */
 
 /** Centred interval-tree keys for ordinary maintained record indexes. */
-import { DateTimeType, East, Expr, IntegerType, OptionType, SetType, StructType, isTypeEqual, none, printType, some,
-  type EastType, type FunctionExpr } from '@elaraai/east';
-import type { IndexFunction } from './record-index.js';
+import { DateTimeType, East, IntegerType, NullType, OptionType, SetType, StructType, none, some } from '@elaraai/east';
+import type { RecordDef, RecordIndexDef } from './types.js';
+import { INDEX_PURITY, checkEntryParams, checkPure, indexRunner, indexedEntry, onlyOptions, signatureOf, type IndexConstructor } from './record-guards.js';
+import { checkLeading, checkTimeField, fieldReader, leadingValues, type RowType } from './record-keys.js';
 
 /** The signed millisecond domain containing every valid JavaScript Date. */
 const BIAS = 1n << 53n;
@@ -28,88 +29,120 @@ export const IntervalEntryType = StructType({ node: IntegerType, at: IntegerType
  * @internal
  */
 export const intervalEntries = East.function([IntegerType, IntegerType], SetType(IntervalEntryType), ($, start, end) => {
-  const entries = $.let(new Set<{ node: bigint; at: bigint }>(), SetType(IntervalEntryType));
-  $(entries.insert({ node: 0n, at: start }));
   $.if(start.less(-BIAS).or(() => start.greaterEqual(BIAS)).or(() => end.less(-BIAS)).or(() => end.greaterEqual(BIAS)), ($) => {
     $.error('Interval endpoints must be valid DateTime milliseconds');
   });
   // Instants and one-millisecond intervals cannot carry into another
   // millisecond. A missing or non-positive end keeps instant semantics.
-  $.if(end.greater(start.add(1n)), ($) => {
-    const left = $.let(start.add(BIAS + LEAVES));
-    const right = $.let(end.subtract(1n).add(BIAS + LEAVES));
-    $.while(left.notEqual(right), ($) => {
-      $.assign(left, left.divide(2n));
-      $.assign(right, right.divide(2n));
-    });
-    $(entries.insert({ node: left.multiply(2n), at: start }));
-    $(entries.insert({ node: left.multiply(2n).add(1n), at: end }));
+  $.if(end.lessEqual(start.add(1n)), ($) => {
+    $.return(new Set([{ node: 0n, at: start }]));
   });
-  return entries;
+  const left = $.let(start.add(BIAS + LEAVES));
+  const right = $.let(end.subtract(1n).add(BIAS + LEAVES));
+  $.while(left.notEqual(right), ($) => {
+    $.assign(left, left.divide(2n));
+    $.assign(right, right.divide(2n));
+  });
+  return new Set([{ node: 0n, at: start }, { node: left.multiply(2n), at: start }, { node: left.multiply(2n).add(1n), at: end }]);
 });
 
 /**
- * Generate the pure key function, using the existing field-index function for
- * all leading fields (including Set membership). This stays an ordinary
- * multi-entry index: mutation, rebuild, storage and transport are shared.
- * @param name - Index name for authoring errors.
- * @param keyType - Primary key type.
- * @param valueType - Record row type.
- * @param on - Exact leading fields.
- * @param interval - Start and end row fields.
- * @param prefix - The standard generated field-index key function.
- * @returns The generated keys and its fan-out flag.
+ * The entries an event is filed under (`intervalEntries`): with no start, the
+ * backlog's one, at node 0; with no end, an instant's.
+ *
+ * `(start, end) → Set<{ node, at }>`
+ * @internal
  */
-export function intervalKey(name: string, keyType: EastType, valueType: EastType, on: readonly string[],
-  interval: { from: string; to: string }, prefix?: { fn: IndexFunction; multi: boolean }) {
-  if (valueType.type !== 'Struct') throw new Error(`e3.recordIndex.interval '${name}' indexes a record with Struct rows`);
-  const rowType = valueType as StructType<Record<string, EastType>>;
-  const startType = rowType.fields[interval.from];
-  const endType = rowType.fields[interval.to];
-  for (const [option, field, type] of [['from', interval.from, startType], ['to', interval.to, endType]] as const) {
-    if (type === undefined) throw new Error(`e3.recordIndex.interval '${name}' ${option} names unknown row field '${field}'`);
-    if (!isTypeEqual(type, DateTimeType) && !isTypeEqual(type, OptionType(DateTimeType))) {
-      throw new Error(`e3.recordIndex.interval '${name}' ${option} names '${field}', of type ${printType(type)}: ${option} is a DateTime or an Option<DateTime> field`);
-    }
-  }
-  if (on.includes(interval.from) || on.includes('__interval') || interval.from === '__interval') {
-    throw new Error(`e3.recordIndex.interval '${name}': its start '${interval.from}' and the reserved '__interval' cannot be leading fields`);
-  }
-  const fields = Object.fromEntries(on.map(field => {
-    const type = rowType.fields[field]!;
-    return [field, type.type === 'Set' ? type.key : type];
-  }));
-  const indexType = StructType({ ...fields, __interval: IntegerType, [interval.from]: startType! });
-  const prefixType = prefix === undefined ? undefined : Expr.type(prefix.fn as unknown as Expr) as { output: EastType };
-  // Dynamic field names are erased only inside this generated East function,
-  // as in the standard field-key generator; all types were checked above.
-  const fn = East.function([keyType as never, rowType], SetType(indexType), ($: any, key: any, row: any) => {
-    const locate = $.const(intervalEntries);
-    const start = $.let(startType!.type === 'DateTime' ? some(row[interval.from]) : row[interval.from], OptionType(DateTimeType));
-    const end = $.let(endType!.type === 'DateTime' ? some(row[interval.to]) : row[interval.to], OptionType(DateTimeType));
-    const entries = $.let(new Set([{ node: 0n, at: 0n }]), SetType(IntervalEntryType));
-    $.match(start, { some: ($: any, from: any) => {
-      const to = $.let(end.match({ some: (_$: any, to: any) => to, none: () => from }));
-      $.assign(entries, locate(from.toEpochMilliseconds(), to.toEpochMilliseconds()));
-    } });
-    const keys = $.let(new Set(), SetType(indexType));
-    const append = ($: any, values: any) => {
-      const leading = Object.fromEntries(on.map(field => [field, on.length === 1 ? values : values[field]]));
-      $.for(entries, ($: any, entry: any) => {
-        const date = $.let(East.DateTime.fromEpochMilliseconds(entry.at));
-        const at = startType!.type === 'DateTime' ? date
-          : start.match({ some: () => some(date), none: () => none });
-        $(keys.insert({ ...leading, __interval: entry.node, [interval.from]: at }));
-      });
-    };
-    if (prefix === undefined) append($, undefined);
-    else {
-      const make = $.const(prefix.fn as FunctionExpr<any, any>);
-      const values = $.let(make(key, row), prefixType!.output);
-      if (prefix.multi) $.for(values, ($: any, value: any) => append($, value));
-      else append($, values);
-    }
-    return keys;
+export const eventEntries = East.function([OptionType(DateTimeType), OptionType(DateTimeType)], SetType(IntervalEntryType), ($, start, end) => {
+  const locate = $.const(intervalEntries);
+  $.match(start, {
+    some: ($, from) => { $.return(locate(from.toEpochMilliseconds(), end.unwrap('some', () => from).toEpochMilliseconds())); },
+    none: () => {},
   });
-  return { fn, multi: true };
+  // No start: the backlog's one entry, at node 0.
+  return new Set([{ node: 0n, at: 0n }]);
+});
+
+/** `(start, at) → an entry's instant`, at a DateTime start's type. */
+const instantAt = East.function([OptionType(DateTimeType), IntegerType], DateTimeType, (_$, _start, at) => East.DateTime.fromEpochMilliseconds(at));
+
+/** `(start, at) → an entry's instant`, at an Option<DateTime> start's type: `none` for the backlog's, an event with no start. */
+const optionInstantAt = East.function([OptionType(DateTimeType), IntegerType], OptionType(DateTimeType), ($, start, at) => {
+  $.match(start, {
+    some: ($) => { $.return(some(East.DateTime.fromEpochMilliseconds(at))); },
+    none: () => {},
+  });
+  return none;
+});
+
+/**
+ * An interval index's definition (`index.interval`): its key
+ * function, `{ on: { …on }, node, at }` an entry, filing each event under at
+ * most three entries a combination of its leading values — a Set among them
+ * fanning out — and the backlog's, with no start, under node 0. It stays an
+ * ordinary multi-entry index: mutation, rebuild, storage and transport are
+ * shared.
+ *
+ * @param constructor - The declaration, as a refusal names it
+ * @param name - The index
+ * @param rec - Its record
+ * @param spec - `from` and `to`, and the optional leading `on`
+ * @param config - Its runner selection
+ * @returns The definition
+ * @throws {Error} When a field is not of its option's type, when the start leads the index, or on any guard every index applies
+ */
+export function intervalDefinition(
+  constructor: IndexConstructor, name: string, rec: RecordDef, spec: { readonly on?: readonly string[]; readonly from: string; readonly to: string },
+  config: { runner?: RecordIndexDef['runner'] } | undefined,
+): RecordIndexDef {
+  const { keyType, valueType } = indexedEntry(constructor, name, rec);
+  onlyOptions(constructor, name, spec, ['on', 'from', 'to']);
+  if (valueType.type !== 'Struct') throw new Error(`${constructor} '${name}' indexes a record with Struct rows`);
+  const rowType: RowType = valueType;
+  const start = checkTimeField(constructor, name, rowType, 'from', spec.from);
+  const end = checkTimeField(constructor, name, rowType, 'to', spec.to);
+  const on = spec.on ?? [];
+  // Led by its start and ordered by it again, the index would answer nothing the interval does not.
+  if (on.includes(spec.from)) {
+    throw new Error(`${constructor} '${name}': its start '${spec.from}' cannot be a leading field — the index orders by it already`);
+  }
+  const leading = checkLeading(constructor, name, rowType, on);
+  // The row's leading fields under `on`, and e3's own parts beside them (#1432): the tree node an entry is filed at,
+  // and the instant it is ordered by, at the start field's type.
+  const indexType = StructType({ on: leading.onType, node: IntegerType, at: rowType.fields[spec.from]! });
+  const readStart = fieldReader(keyType, rowType, { option: start });
+  const readEnd = fieldReader(keyType, rowType, { option: end });
+  const leads = leadingValues(keyType, rowType, leading);
+  // An entry's instant at the start field's type.
+  const instant = start.optional ? optionInstantAt : instantAt;
+  // An event's entries under one combination of its leading values.
+  const entriesUnder = East.function([leading.onType, OptionType(DateTimeType), SetType(IntervalEntryType)], SetType(indexType), ($, on, from, entries) => {
+    const at = $.const(instant);
+    return entries.toSet((_$, entry) => ({ on, node: entry.node, at: at(from, entry.at) }));
+  });
+  const keyFn = East.function([keyType, rowType], SetType(indexType), ($, key, row) => {
+    const startOf = $.const(readStart);
+    const endOf = $.const(readEnd);
+    const locate = $.const(eventEntries);
+    const combinations = $.const(leads);
+    const under = $.const(entriesUnder);
+    const from = $.let(startOf(key, row));
+    const entries = $.let(locate(from, endOf(key, row)));
+    return combinations(key, row).flattenToSet((_$, on) => under(on, from, entries));
+  });
+  const runner = indexRunner(config);
+  checkPure(`${constructor} '${name}' 'keys' function`, keyFn, INDEX_PURITY);
+  checkEntryParams(constructor, name, "'keys' function", keyType, valueType, signatureOf(keyFn).inputs);
+  return {
+    kind: 'recordIndex',
+    name,
+    record: rec,
+    on: Object.freeze([...on]),
+    interval: Object.freeze({ from: spec.from, to: spec.to }),
+    keyFn,
+    multi: true,
+    keyType: indexType,
+    valueType: NullType,
+    runner,
+  };
 }

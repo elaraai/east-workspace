@@ -20,6 +20,7 @@ import {
     type SubtypeExprOrValue,
     type VariantType,
     East,
+    Expr,
     ArrayType,
     AsyncFunctionType,
     BooleanType,
@@ -87,6 +88,7 @@ import {
 import {
     type SheetColumnMeta,
     type SheetBridge,
+    type SheetHold,
     describeColumn,
     describeGroupCell,
     buildBridge,
@@ -346,6 +348,9 @@ export interface SheetInternalOptions {
     sourceId?: SubtypeExprOrValue<StringType>;
     /** The narrowing's chrome: one rail over the sheet's `Slice.bindRecords`, checked by `<Sheet>`. */
     slice?: SubtypeExprOrValue<OptionType<RecordSlicesChromeType>>;
+    /** Binds each of the bridge's functions once in the block the sheet is built in, for every wire function built
+     *  from it to refer to (`<Sheet>`'s block); without it each is written where it is used. */
+    hold?: SheetHold;
 }
 
 /** A whole-value bind handle (`State.bind` / `Data.bind`) over `Array<R>` — accepted as `data`; `R` a row struct, or an entry `Sheet.Types.Entry(P, "lines")` (#846). */
@@ -559,7 +564,7 @@ export function createSheetRoot(
     columns: unknown,
     options?: unknown,
 ): ExprType<SheetRootType> {
-    return buildSheet(data, columns, options, {}).root;
+    return heldRoot(data, columns, options, {});
 }
 
 /**
@@ -582,7 +587,19 @@ export function createSheetRootWith(
     options: unknown,
     internal: SheetInternalOptions,
 ): ExprType<SheetRootType> {
-    return buildSheet(data, columns, options, internal).root;
+    return heldRoot(data, columns, options, internal);
+}
+
+/**
+ * A sheet's root, built in a block of its own that holds each of its bridge's
+ * functions once ({@link SheetHold}): a root built alone has no block of its
+ * caller's to hold them in.
+ */
+function heldRoot(data: unknown, columns: unknown, options: unknown, internal: SheetInternalOptions): ExprType<SheetRootType> {
+    return Expr.block(($) => {
+        const hold = internal.hold ?? (<T extends EastType>(value: ExprType<T>): ExprType<T> => $.const(value) as ExprType<T>);
+        return buildSheet(data, columns, options, { ...internal, hold }).root;
+    }) as ExprType<SheetRootType>;
 }
 
 /**
@@ -790,6 +807,7 @@ function buildSheet(
             : { kind: "paged", source: resolved.source, keyed, keyType },
         ...(groupDecl !== undefined && cellMetas !== undefined ? { group: { linesField: groupDecl.lines, cellMetas } } : {}),
         ...(opts.subRows !== undefined ? { subRows: opts.subRows } : {}),
+        ...(internal.hold !== undefined ? { hold: internal.hold } : {}),
     });
 
     // Pass 2 — the wire columns.

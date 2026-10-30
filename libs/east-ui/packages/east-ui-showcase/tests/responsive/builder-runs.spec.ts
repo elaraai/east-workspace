@@ -226,7 +226,7 @@ function faults(at: RunAt, paged: Paged): string[] {
     return bad;
 }
 
-// A test a builder: each is an area of its own, whose workspace the page deploys the first time it shows (#1397).
+// A test a builder: each is an area of its own, whose workspace the page makes from its bundle the first time it shows (#1397).
 for (const theme of ["light", "dark"] as const) {
     for (const paged of PAGED) {
         test(`scrolled into rows not read, the ${paged.builder}'s run draws its own rows in the view at their pitch, says nothing${paged.builder === "Sheet" ? " but their numbers" : ""}, and nothing moves as the rows land (#1398, CL2) (${theme}) @desktop`, async ({ page }) => {

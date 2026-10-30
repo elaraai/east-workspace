@@ -6,9 +6,9 @@
 /**
  * The e3 the showcase runs in its page (#849), measured in a real browser.
  * The e3 examples read, write, page and call through e3-web — e3's storage,
- * runner and API on the page's own workers, each area's package deployed in a
- * workspace of its own and its dataflow run once, as the area's first example
- * shows (#1397) — and nothing stands in for it:
+ * runner and API on the page's own workers, each area's workspace made from
+ * the bundle the build made of it, as the area's first example shows (#1397) —
+ * and nothing stands in for it:
  *
  * - a bound paged Plan lands its first units in key order, stands the units
  *   it has not read in one tail run, and lands the next windows where the
@@ -20,10 +20,10 @@
  * - a doc row the list mounts again shows its example at once, on every e3
  *   category's page;
  * - the isolated-file route starts the same e3;
- * - the page fetches an area's package at the URL the bundle carries, named by
- *   its content, as the area's first example shows, and another area's only
- *   once one of its examples shows; an area shown again runs against the
- *   workspace it kept;
+ * - the page fetches an area's workspace bundle at the URL its code carries,
+ *   named by its content, as the area's first example shows, and another
+ *   area's only once one of its examples shows; an area shown again runs
+ *   against the workspace it kept;
  * - an e3 that cannot start says why in the e3 examples' place, and the rest
  *   of the showcase is untouched; a Retry starts it again.
  *
@@ -220,7 +220,7 @@ test.describe("the showcase's e3, in the page (#849)", () => {
         await history.scrollIntoViewIfNeeded();
         await settled(page);
         await expect(statValue(history, "Counter")).toHaveText("1");
-        // The deploy's commit, and the increment.
+        // The commit of the deploy the build ran, and the increment.
         await expect(history.getByText("2 COMMITS", { exact: true })).toBeVisible();
     });
 
@@ -236,7 +236,7 @@ test.describe("the showcase's e3, in the page (#849)", () => {
         await page.keyboard.press("ArrowRight");
         await expect(statValue(staged, "Live (with stage)")).toHaveText("51");
         await expect(statValue(staged, "Server")).toHaveText("50");
-        // The page reloads, and its e3 starts afresh from its package: the
+        // The page reloads, and its e3 starts afresh from its bundles: the
         // edit staged against the last one went with it.
         await page.reload();
         await page.waitForSelector("header", { timeout: 20_000 });
@@ -300,7 +300,7 @@ test.describe("the showcase's e3, in the page (#849)", () => {
         });
     }
 
-    test("the page fetches an area's package as its first example shows — the zip named by its content — another area's only as one of its examples shows, and an area shown again runs against the workspace it kept", async ({ page }) => {
+    test("the page fetches an area's workspace bundle as its first example shows — named by its content — another area's only as one of its examples shows, and an area shown again runs against the workspace it kept", async ({ page }) => {
         const fetched: { path: string; status: number }[] = [];
         page.on("response", (response) => {
             const url = new URL(response.url());
@@ -309,9 +309,9 @@ test.describe("the showcase's e3, in the page (#849)", () => {
         const file = "e3/bind/func/func";
         const status = await openEntry(page, file, "funcBindStatus");
         await expect(status.getByText("IDLE", { exact: true })).toBeVisible();
-        expect(fetched).toEqual([{ path: expect.stringMatching(/^\/assets\/e3-showcase-bind-[\w-]{8,}\.zip$/), status: 200 }]);
+        expect(fetched).toEqual([{ path: expect.stringMatching(/^\/assets\/e3-showcase-bind-[\w-]{8,}\.beast2$/), status: 200 }]);
 
-        // Another area's example: its own package, deployed as it shows, and its example runs.
+        // Another area's example: its own bundle, its workspace made as it shows, and its example runs.
         const ontology = "e3/ontology/ontology";
         await page.evaluate(hash => { location.hash = hash; }, `#${ontology}/supplyChainOntology`);
         const supply = entryOf(page, ontology, "supplyChainOntology");
@@ -319,8 +319,8 @@ test.describe("the showcase's e3, in the page (#849)", () => {
         await settled(page);
         await expect(supply.locator("[data-e3-start]")).toHaveCount(0);
         expect(fetched).toEqual([
-            { path: expect.stringMatching(/^\/assets\/e3-showcase-bind-[\w-]{8,}\.zip$/), status: 200 },
-            { path: expect.stringMatching(/^\/assets\/e3-showcase-ontology-[\w-]{8,}\.zip$/), status: 200 },
+            { path: expect.stringMatching(/^\/assets\/e3-showcase-bind-[\w-]{8,}\.beast2$/), status: 200 },
+            { path: expect.stringMatching(/^\/assets\/e3-showcase-ontology-[\w-]{8,}\.beast2$/), status: 200 },
         ]);
 
         // The first area again: nothing fetched, and its function runs against the workspace it kept.
@@ -334,13 +334,13 @@ test.describe("the showcase's e3, in the page (#849)", () => {
     });
 
     test("an e3 that cannot start says why in the e3 examples' place, and the rest of the showcase is untouched", async ({ page }) => {
-        // The package the page's e3 imports cannot be fetched.
-        await page.route("**/e3-showcase*.zip", (route) => route.fulfill({ status: 503, body: "the package is away" }));
+        // The bundle the page's e3 makes the area's workspace from cannot be fetched.
+        await page.route("**/e3-showcase*.beast2", (route) => route.fulfill({ status: 503, body: "the bundle is away" }));
         const entry = await openEntry(page, "e3/bind/func/func", "funcBindStatus");
         const failed = entry.locator('[data-e3-start="failed"]');
         await expect(failed).toContainText("e3 did not start in this page");
         await expect(failed).toContainText(
-            /could not fetch its package: \S+\/e3-showcase-[\w-]+\.zip answered 503 Service Unavailable: the package is away/);
+            /could not fetch its workspace bundle: \S+\/e3-showcase-[\w-]+\.beast2 answered 503 Service Unavailable: the bundle is away/);
         // An East page renders as ever: no e3 example on it, no error, and its
         // example on screen.
         await page.goto("/?theme=light#buttons/button");
@@ -354,10 +354,10 @@ test.describe("the showcase's e3, in the page (#849)", () => {
     });
 
     test("a start that failed is tried again by its Retry: e3 starts, and the e3 examples run against it", async ({ page }) => {
-        // The package cannot be fetched — until it can.
+        // The bundle cannot be fetched — until it can.
         let away = true;
-        await page.route("**/e3-showcase*.zip", (route) => (away
-            ? route.fulfill({ status: 503, body: "the package is away" })
+        await page.route("**/e3-showcase*.beast2", (route) => (away
+            ? route.fulfill({ status: 503, body: "the bundle is away" })
             : route.continue()));
         const file = "e3/bind/func/func";
         const status = await openEntry(page, file, "funcBindStatus");
