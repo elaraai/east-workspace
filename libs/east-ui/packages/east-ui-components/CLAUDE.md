@@ -53,9 +53,14 @@ one: a canvas that zoomed or panned grew its style sheet by thousands of
 rules a gesture (planNestedAll's Year zoom alone, 57,000), every frame's
 styling slowed with it, and past about 262,000 rules Chrome applies no new
 one, so whatever then draws at a new place draws unstyled. A value from a
-bounded set — a token, a state's literal — stays a prop. The responsive
-suite's `plan-geometry.spec.ts` holds planNestedAll's rule count still across
-zooms, pans and strip drags.
+bounded set — a token, a state's literal — stays a prop, and so does a
+number passed through whole, which Chakra may read as a token (`w={10}` is
+2.5rem). The lint rule `east-ui/inline-places` (`eslint/inline-places.js`,
+its cases in `test/lint/`) refuses a Chakra style prop given a number worked
+out as the component renders — a sum, a template, `Math.round(x)`, or a
+local or helper of this code holding one — and the responsive suite's
+`plan-geometry.spec.ts` holds planNestedAll's rule count still across zooms,
+pans and strip drags.
 
 | Target (from `libs/east-ui/`) | What it does |
 |---|---|

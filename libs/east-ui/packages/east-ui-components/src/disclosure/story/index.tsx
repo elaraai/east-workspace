@@ -191,7 +191,7 @@ const StoryChromeRow = memo(function StoryChromeRow({ title, count, active, stic
                         position="absolute"
                         insetY="0"
                         left="0"
-                        width={`${count > 0 ? ((active + 1) / count) * 100 : 0}%`}
+                        style={{ width: `${count > 0 ? ((active + 1) / count) * 100 : 0}%` }}
                         background="colorPalette.solid"
                         colorPalette="brand"
                         transition="width 200ms ease-out"
@@ -621,7 +621,7 @@ export const EastChakraStory = memo(function EastChakraStory({ value, storageKey
         // stays unchromed per the spec — keyframes bring their own framing.
         <ChakraBox
             position="sticky"
-            top={layout === "stacked" ? `${title !== undefined ? chromePx : 0}px` : `${stageTop}px`}
+            style={{ top: layout === "stacked" ? `${title !== undefined ? chromePx : 0}px` : `${stageTop}px` }}
             paddingBottom="4"
             data-scope="story-stage"
             background={layout === "stacked" ? "bg.surface" : undefined}

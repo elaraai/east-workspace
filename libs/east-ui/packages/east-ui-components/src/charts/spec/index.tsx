@@ -1130,7 +1130,7 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
             const renderFrame = (w: number, h?: number) =>
                 w > 0 && (f.height > 0 || (h ?? 0) > 0)
                     ? render(w, h)
-                    : <Skeleton width="100%" height={skeletonHeight} />;
+                    : <Skeleton width="100%" style={{ height: skeletonHeight }} />;
             // `debounceTime={0}` makes the skeleton→chart swap immediate (visx
             // ParentSize otherwise debounces measurement by ~300ms).
             // height <= 0 is the "fill parent" sentinel (Chart `height: "fill"`):
