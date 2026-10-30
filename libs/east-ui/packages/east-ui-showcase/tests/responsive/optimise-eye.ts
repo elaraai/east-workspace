@@ -73,9 +73,14 @@ function rowAt(row: Locator): Promise<{ items: (string | null)[]; inside: boolea
 /**
  * The `optimise` recipe's steady ring, as the page resolves it in the theme: `0 0 0 1px elara.edge, 0 0 8px 1px
  * elara.soft` — inset on a Sheet cell — drawn on a probe and read back, so it compares with an entry's computed shadow
- * however the engine prints the colours.
+ * however the engine prints the colours. The DecisionQueue's previews draw a proposal in it too
+ * (`decision-queue.spec.ts`).
+ *
+ * @param page - The page
+ * @param inset - Whether the ring is inset, as on a cell
+ * @returns The ring as the page computes it
  */
-function steadyRing(page: Page, inset: boolean): Promise<string> {
+export function steadyRing(page: Page, inset: boolean): Promise<string> {
     return page.evaluate((inset) => {
         const probe = document.createElement("span");
         probe.style.boxShadow = inset

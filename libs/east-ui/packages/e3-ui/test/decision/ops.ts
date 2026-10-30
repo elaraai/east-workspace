@@ -4,29 +4,32 @@
  */
 /**
  * The decision queue's example app (#1447, `Decision Queue Spec.md` §3.1,
- * §3.2): a warehouse, a print shop, a kiln yard and a workshop under one roof
- * — the repo's own example records — whose models propose changes to each.
- * Its cases are one record, every kind of decision in it: an option's change
- * is a variant, its tag the kind of decision and its value a patch of the
- * record that kind changes, built with East's own diff of the rows it touches
- * (`changes.ts`). Its verdicts are another record, which the queue writes; the
- * price list is a record no builder draws, as are the supply side's records
- * (`supply.ts`). Beside them, the smallest queue's:
- * a record of the model's proposals, each one decision with no alternatives,
- * and its verdicts. Every name and figure is generated.
+ * §3.2, §15): a warehouse, a print shop, a kiln yard and a workshop under one
+ * roof — the repo's own example records — whose models propose changes to
+ * each. Its cases are one record, every kind of decision in it: an option's
+ * change is a variant, its tag the kind of decision and its value a patch of
+ * the record that kind changes, built with East's own diff of the rows it
+ * touches (`changes.ts`). Its verdicts are another record, which the queue
+ * writes; the price list, the stock levels, the lines' cure settings and the
+ * presses' readiness are records no builder draws. The cases are the spec's
+ * mock's, like for like — its scopes, titles, options, figures, questions and
+ * warnings — on Tuesday 10 March 2026 at 13:00, the examples' `now`, over the
+ * rows of the records each changes. Beside them, the smallest queue's — a
+ * record of the model's proposals, each one decision with no alternatives, and
+ * its verdicts — and the routine queue's: the models' routine changes, each its
+ * own one proposal, and their verdicts. Every name and figure is generated.
  */
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType,
+    BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType,
     VariantType, diffFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { KilnBin } from "../allocation/kiln-yard.js";
 import { CalendarService, calendarServices } from "../calendar/calendar.examples.js";
 import { PrintJob, planEventJobs } from "../plan/plan-events.examples.js";
-import { WarehouseDuty, warehouseDuties } from "../roster/warehouse.js";
+import { WarehouseCover, WarehouseDuty, warehouseDuties } from "../roster/warehouse.js";
 import { OptimiseWorkOrder } from "../sheet/optimise.examples.js";
-import { binPatch, byString, dutiesPatch, jobsPatch, ld2235Bin, option, ordersPatch, servicesPatch } from "./changes.js";
-import { CatalogueItem, ForecastPoint, ServiceArea, StockOrder, StoreStock } from "./supply.js";
+import { binPatch, byString, coverPatch, dutiesFor, dutiesPatch, dutiesTo, jobsPatch, ld2235Bin, optionDefaults, ordersPatch, servicesPatch } from "./changes.js";
 
 // ============================================================================
 // The app's records (§3.1)
@@ -34,6 +37,15 @@ import { CatalogueItem, ForecastPoint, ServiceArea, StockOrder, StoreStock } fro
 
 /** A list price, and the demand a week the model expects at it: a record no builder draws. */
 export const ListPrice = StructType({ region: StringType, price: FloatType, demand: FloatType, from: DateTimeType });
+
+/** An item's stock: the units on order, and the model's stock-out risk in the week ahead, in percent: a record no builder draws. */
+export const StockLevel = StructType({ item: StringType, onOrder: FloatType, risk: FloatType });
+
+/** A line's cure: its cure time in minutes, the bond strength it gives in MPa, and the batches on trial at the slow cure: a record no builder draws. */
+export const CureSetting = StructType({ line: StringType, cure: FloatType, bond: FloatType, trialBatches: IntegerType });
+
+/** A press's readiness: the days until it is ready, as the forecast has them, and whether a person confirmed them: a record no builder draws. */
+export const PressReadiness = StructType({ press: StringType, days: FloatType, confirmed: BooleanType });
 
 /** What an option changes: its tag is the kind of decision, its value a patch of the record that kind changes. */
 export const OpsChange = VariantType({
@@ -44,10 +56,10 @@ export const OpsChange = VariantType({
     yard: PatchType(DictType(StringType, KilnBin)),              // the kiln yard's bins, as the Allocation draws them
     orders: PatchType(DictType(StringType, OptimiseWorkOrder)),  // the shop's work orders, as the Sheet draws them
     pricing: PatchType(DictType(StringType, ListPrice)),         // the price list, which no builder draws
-    restock: PatchType(DictType(StringType, StockOrder)),        // the stock orders, read by each option's own forecast
-    split: PatchType(DictType(StringType, StoreStock)),          // one item's stock across the stores, read as a mix
-    minimums: PatchType(DictType(StringType, CatalogueItem)),    // the catalogue's minimum stock, a rule across its ranges
-    rounds: PatchType(DictType(StringType, ServiceArea)),        // the service rounds' areas, each in a round
+    stock: PatchType(DictType(StringType, StockLevel)),          // the stock levels, which no builder draws
+    trial: PatchType(DictType(StringType, CureSetting)),         // the lines' cure settings, which no builder draws
+    cover: PatchType(DictType(StringType, WarehouseCover)),      // the rota's cover targets, which the Roster edits in a form of its own
+    ready: PatchType(DictType(StringType, PressReadiness)),      // the presses' readiness, which no builder draws
 });
 
 /** One way to decide a case: the app's own words for it, what it is worth, and its change. */
@@ -64,7 +76,6 @@ export const OpsOption = StructType({
     refused: OptionType(StringType),
     knockOn: SetType(StringType),                    // rows of the target moved because of the change, not by it
     guesses: DictType(StringType, FloatType),        // the changed rows the model is unsure of, by key
-    forecast: ArrayType(ForecastPoint),              // the stock on hand the option leaves, by week: what a projection draws
     change: OpsChange,
 });
 
@@ -75,7 +86,7 @@ export const OpsCase = StructType({
     due: OptionType(DateTimeType),
     routine: BooleanType,
     unit: StringType,
-    figure: VariantType({ money: NullType, count: NullType, percent: NullType }),  // what its figures are: money, a count — the orders' — or a share
+    figure: VariantType({ money: NullType, count: NullType }),  // what its figures are: money or a count
     model: StringType,
     why: StringType,
     ifWrong: OptionType(FloatType),
@@ -95,12 +106,18 @@ export const OpsVerdict = StructType({
     note: OptionType(StringType),
 });
 
+/** An option of the app's, its optional parts left out. */
+export function option(row: Pick<ValueTypeOf<typeof OpsOption>, "label" | "title" | "summary" | "detail" | "value" | "change">
+    & Partial<ValueTypeOf<typeof OpsOption>>): ValueTypeOf<typeof OpsOption> {
+    return { ...optionDefaults(), ...row };
+}
+
 /** The price list's rows, by region. */
 type PriceRow = ValueTypeOf<typeof ListPrice>;
 /** The price list's patch, as a model diffs the rows it touches. */
 const diffPrices = diffFor(DictType(StringType, ListPrice));
 /** When this quarter's prices took effect. */
-const pricesFrom = new Date("2028-01-01T00:00:00Z");
+const pricesFrom = new Date("2026-01-01T00:00:00Z");
 
 /** The price list: a row a region, each with the demand a week the model expects at it. */
 export const listPriceRows: SortedMap<string, PriceRow> = new SortedMap<string, PriceRow>([
@@ -115,7 +132,55 @@ export function pricesPatch(key: string, price: number, demand: number) {
     const row = listPriceRows.get(key)!;
     return diffPrices(new SortedMap([[key, row]], byString), new SortedMap([[key, { ...row, price, demand }]], byString));
 }
-/** The print works' jobs, as the shop's record holds them. */
+
+/** The stock levels' rows, by item. */
+type StockRow = ValueTypeOf<typeof StockLevel>;
+/** The stock levels: the C5 envelopes, with nothing on order and a 34% risk of running out in week 11, and two items beside them. */
+export const stockLevelRows: SortedMap<string, StockRow> = new SortedMap<string, StockRow>([
+    ["a4-labels", { item: "A4 labels", onOrder: 1_200, risk: 6 }],
+    ["c5", { item: "C5 envelopes", onOrder: 0, risk: 34 }],
+    ["dl", { item: "DL envelopes", onOrder: 2_500, risk: 2 }],
+], byString);
+/** The stock levels' patch, as a model diffs the rows it touches. */
+const diffStock = diffFor(DictType(StringType, StockLevel));
+/** The stock levels' patch putting units of one item on order, at the risk the model expects then: the patch of that row alone. */
+export function stockPatch(key: string, onOrder: number, risk: number) {
+    const row = stockLevelRows.get(key)!;
+    return diffStock(new SortedMap([[key, row]], byString), new SortedMap([[key, { ...row, onOrder, risk }]], byString));
+}
+
+/** The cure settings' rows, by line. */
+type CureRow = ValueTypeOf<typeof CureSetting>;
+/** The lines' cure settings: line 2 at the standard 40 minutes, its bond 41.0 MPa, and the other two beside it. */
+export const cureSettingRows: SortedMap<string, CureRow> = new SortedMap<string, CureRow>([
+    ["line-1", { line: "Line 1", cure: 40, bond: 40.6, trialBatches: 0n }],
+    ["line-2", { line: "Line 2", cure: 40, bond: 41.0, trialBatches: 0n }],
+    ["line-3", { line: "Line 3", cure: 45, bond: 42.3, trialBatches: 0n }],
+], byString);
+/** The cure settings' patch, as a model diffs the rows it touches. */
+const diffCure = diffFor(DictType(StringType, CureSetting));
+/** The cure settings' patch changing one line's fields: the patch of that row alone. */
+export function curePatch(key: string, change: Partial<CureRow>) {
+    const row = cureSettingRows.get(key)!;
+    return diffCure(new SortedMap([[key, row]], byString), new SortedMap([[key, { ...row, ...change }]], byString));
+}
+
+/** The presses' readiness rows, by press. */
+type ReadinessRow = ValueTypeOf<typeof PressReadiness>;
+/** The presses' readiness: Press A1 back in about two days, as yet unconfirmed, and Press B3 ready. */
+export const pressReadinessRows: SortedMap<string, ReadinessRow> = new SortedMap<string, ReadinessRow>([
+    ["a1", { press: "Press A1", days: 2, confirmed: false }],
+    ["b3", { press: "Press B3", days: 0, confirmed: true }],
+], byString);
+/** The presses' readiness's patch, as a model diffs the rows it touches. */
+const diffReadiness = diffFor(DictType(StringType, PressReadiness));
+/** The presses' readiness's patch confirming one press's days: the patch of that row alone. */
+export function readinessPatch(key: string) {
+    const row = pressReadinessRows.get(key)!;
+    return diffReadiness(new SortedMap([[key, row]], byString), new SortedMap([[key, { ...row, confirmed: true }]], byString));
+}
+
+/** The print shop's jobs, as the shop's record holds them. */
 const printJobs = planEventJobs.default!;
 /** J-3007's loyalty cards on Press B2, 10:00–13:00 on the 20th: two hours over J-3006's market posters there. */
 const loyaltyCards = printJobs.get("J-3007")!;
@@ -126,24 +191,28 @@ const tue11 = new Date("2027-05-11T14:15:00Z");
 const wed12 = new Date("2027-05-12T07:15:00Z");
 /** J. Tansy's Friday late, 14:00–22:00: the week's fifth shift of theirs, 4 h past their 38. */
 const tansyFriday = warehouseDuties.get("s234")!;
-/** Thursday's agency request on the late picking shift, whose fields a request for Saturday's takes. */
-const thursdayRequest = warehouseDuties.get("s250")!;
-const saturdayLate = new Date("2028-03-11T14:00:00Z");
-const saturdayLateEnd = new Date("2028-03-11T22:00:00Z");
-/** Monday to Wednesday of the week after the warehouse's: the days the shop's ready orders fall due. */
-const mon13 = new Date("2028-03-13T00:00:00Z");
-const tue14 = new Date("2028-03-14T00:00:00Z");
-const wed15 = new Date("2028-03-15T00:00:00Z");
+/** The duties the week's overtime case moves: K. Jasper's Wednesday early and L. Holm's Friday late, each past their 38 h, and Thursday's early agency request. */
+const overtime = ["s295", "s104", "s217"] as const;
+/** Monday to Wednesday next week: the days the shop's ready orders fall due. */
+const mon16 = new Date("2026-03-16T00:00:00Z");
+const tue17 = new Date("2026-03-17T00:00:00Z");
+const wed18 = new Date("2026-03-18T00:00:00Z");
+/** The routine changes: C. Kestrel's late and S. Meadow's night on Thursday, each 10 h, ended at 8 h; Saturday's inbound early cover trimmed to the 11 heads rostered; and Press A1's readiness confirmed. */
+const thursdayTrim = dutiesFor([["s121", 8], ["s153", 8]]);
+const saturdayCover = coverPatch("2028-03-11-inbound-early", 11n);
+const pressA1Ready = readinessPatch("a1");
 
 /**
- * The cases the models left: who takes J. Tansy's Friday late, and a request for Saturday's open late — routine — on
- * the warehouse's rota; where the print works' J-3007 runs, overlapping J-3006 on Press B2; when Press 1's maintenance
- * runs, overlapping the mounting brackets on Thursday; which kiln the kiln yard's LD-2235 dries in, waiting since its
- * window opened; a price for the Coast region; and the shop's ready work orders.
+ * The cases the models left, the mock's like for like. Overdue: who takes J. Tansy's Friday late, two hours late, and
+ * where the print works' J-3007 runs, overlapping J-3006 on Press B2, 35 minutes late. Due today: which kiln the kiln
+ * yard's LD-2235 dries in, the C5 envelopes' reorder, and when Press 1's maintenance runs, overlapping the mounting
+ * brackets on Thursday. This week: a price for the Coast region and the week's overtime, both by Friday, line 2's
+ * slow cure by Thursday, and the ready orders' due dates by Wednesday. Routine: two long Thursday shifts trimmed,
+ * Saturday's inbound early cover trimmed to the heads rostered, and Press A1's readiness confirmed.
  */
 export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new SortedMap<string, ValueTypeOf<typeof OpsCase>>([
     ["rota-tansy", {
-        area: "rota", scope: "Picking · W10", due: some(new Date("2028-03-08T13:00:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
+        area: "rota", scope: "Picking · W10", due: some(new Date("2026-03-10T11:00:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
         model: "staffing-v3.2.1 · run #42",
         why: "Picking demand runs 14% above plan for the next two weeks. The extra late shift sits on J. Tansy, 4h over contract; B. Pumice has 14h spare.",
         ifWrong: some(-8_000), recommended: "1-pumice",
@@ -165,19 +234,8 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
                 change: variant("rota", dutiesPatch([["s234", tansyFriday]])) })],
         ], byString),
     }],
-    ["rota-saturday", {
-        area: "rota", scope: "Picking · W10", due: none, routine: true, unit: "uplift", figure: variant("money", null),
-        model: "roster-opt · run #204",
-        why: "Saturday's late picking shift is one short of its seven; Northside Staffing can fill it.",
-        ifWrong: none, recommended: "1-request",
-        options: new SortedMap([
-            ["1-request", option({ label: "Request", title: "Request an agency late on Saturday", summary: "Agency · Sat 14–22",
-                detail: "Northside Staffing covers Saturday 14–22.", value: 1_200,
-                change: variant("rota", dutiesPatch([["s319", { ...thursdayRequest, start: saturdayLate, end: saturdayLateEnd }]])) })],
-        ], byString),
-    }],
     ["print-j3007", {
-        area: "print", scope: "Print works · Hall B", due: some(new Date("2028-03-08T14:25:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
+        area: "print", scope: "Print works · Hall B", due: some(new Date("2026-03-10T12:25:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
         model: "press-sched-v2 · run #118",
         why: "J-3006 runs on Press B2 until 12:00, so J-3007 overlaps it for two hours. Press A1 is free from 11:00 and carries the same stock.",
         ifWrong: some(-1_800), recommended: "1-a1",
@@ -197,24 +255,8 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
                 change: variant("print", jobsPatch(printJobs, [["J-3007", { ...loyaltyCards, press: some("a2") }]])) })],
         ], byString),
     }],
-    ["workshop-press1", {
-        area: "workshop", scope: "Fabrication", due: some(new Date("2028-03-08T17:00:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
-        model: "fab-sched · run #12",
-        why: "Press 1's preventive maintenance overlaps the mounting brackets on Thursday. Saturday morning is free on Press 1 and inside the service interval.",
-        ifWrong: some(-900), recommended: "1-sat",
-        options: new SortedMap([
-            ["1-sat", option({ label: "Sat 06:00", title: "Move Press 1 maintenance to Sat 06:00", summary: "Press 1 · Sat 3 06:00–08:00",
-                detail: "Clears the overlap with the mounting brackets · $380 call-out.", value: 2_400, confidence: some(0.74),
-                question: some("Is A. Ash free on Saturday at 06:00?"),
-                change: variant("workshop", servicesPatch("service1", { ...pressOneService,
-                    start: new Date("2026-10-03T06:00:00Z"), end: new Date("2026-10-03T08:00:00Z") })) })],
-            ["2-keep", option({ label: "Keep Thu 09:00", title: "Keep Press 1 maintenance on Thu 09:00", summary: "no change",
-                detail: "No change to the calendar.", note: some("the overlap with the mounting brackets stays"), value: 0,
-                change: variant("workshop", servicesPatch("service1", pressOneService)) })],
-        ], byString),
-    }],
     ["yard-ld2235", {
-        area: "yard", scope: "Kiln yard", due: some(new Date("2028-03-08T16:00:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
+        area: "yard", scope: "Kiln yard", due: some(new Date("2026-03-10T14:00:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
         model: "yard-fit · run #77",
         why: "K-305 is free on Tue 11 and takes 4–10 m³: LD-2235's 8 m³ dries its 9 days there before the kiln's next planned charge on Thu 20. The bulk kilns take no load under 40 m³.",
         ifWrong: some(-600), recommended: "1-k305",
@@ -233,9 +275,43 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
                 change: variant("yard", binPatch("3127", ld2235Bin("K-601", tue11))) })],
         ], byString),
     }],
+    ["stock-c5", {
+        area: "stock", scope: "Replenishment", due: some(new Date("2026-03-10T16:00:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
+        model: "replen-v1.4 · run #31",
+        why: "Week 10 demand runs 9% above forecast. Without an order, the C5 envelopes fall under their 400-unit safety level in week 11; the supplier needs 6 days.",
+        ifWrong: some(-5_000), recommended: "1-q2000",
+        options: new SortedMap([
+            ["1-q2000", option({ label: "2,000 units", title: "Reorder 2,000 units of C5 envelopes", summary: "on order 0 → 2,000",
+                detail: "Arrives Mar 16.", note: some("stock-out risk 3%"), value: 42_000, confidence: some(0.77),
+                change: variant("stock", stockPatch("c5", 2_000, 3)) })],
+            ["2-q1500", option({ label: "1,500 units", title: "Reorder 1,500 units of C5 envelopes", summary: "on order 0 → 1,500",
+                detail: "Arrives Mar 16.", note: some("stock-out risk 9%"), value: 35_000, confidence: some(0.75),
+                change: variant("stock", stockPatch("c5", 1_500, 9)) })],
+            ["3-wait", option({ label: "Wait a week", title: "Wait a week to reorder C5 envelopes", summary: "no order this week",
+                detail: "No order this week.", note: some("stock-out risk 34% in wk 11"), value: 18_000, confidence: some(0.6),
+                warn: some("Stock falls under the safety level in week 11."),
+                change: variant("stock", stockPatch("c5", 0, 34)) })],
+        ], byString),
+    }],
+    ["workshop-press1", {
+        area: "workshop", scope: "Fabrication", due: some(new Date("2026-03-10T17:00:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
+        model: "fab-sched · run #12",
+        why: "Press 1's preventive maintenance overlaps the mounting brackets on Thursday. Saturday morning is free on Press 1 and inside the service interval.",
+        ifWrong: some(-900), recommended: "1-sat",
+        options: new SortedMap([
+            ["1-sat", option({ label: "Sat 06:00", title: "Move Press 1 maintenance to Sat 06:00", summary: "Press 1 · Sat 3 06:00–08:00",
+                detail: "Clears the overlap with the mounting brackets · $380 call-out.", value: 2_400, confidence: some(0.74),
+                question: some("Is A. Ash free on Saturday at 06:00?"),
+                change: variant("workshop", servicesPatch("service1", { ...pressOneService,
+                    start: new Date("2026-10-03T06:00:00Z"), end: new Date("2026-10-03T08:00:00Z") })) })],
+            ["2-keep", option({ label: "Keep Thu 09:00", title: "Keep Press 1 maintenance on Thu 09:00", summary: "no change",
+                detail: "No change to the calendar.", note: some("the overlap with the mounting brackets stays"), value: 0,
+                change: variant("workshop", servicesPatch("service1", pressOneService)) })],
+        ], byString),
+    }],
     ["price-coast", {
-        area: "pricing", scope: "Regional list prices", due: some(new Date("2028-03-10T17:00:00Z")), routine: false, unit: "uplift / mo", figure: variant("money", null),
-        model: "demand-coast · query 2h ago",
+        area: "pricing", scope: "Regional list prices", due: some(new Date("2026-03-13T17:00:00Z")), routine: false, unit: "uplift / mo",
+        figure: variant("money", null), model: "demand-coast · query 2h ago",
         why: "Coast demand is less sensitive to price than other regions, at an elasticity of −0.42. Competitors sit at a median of $11.20.",
         ifWrong: some(-6_100), recommended: "1-p1100",
         options: new SortedMap([
@@ -250,19 +326,88 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
                 change: variant("pricing", pricesPatch("coast", 10.50, 14_200)) })],
         ], byString),
     }],
+    // The week's overtime, read by what it costs: two overtime shifts to people under contract, and an agency request to a third.
+    ["rota-overtime", {
+        area: "rota", scope: "Warehouse · W10", due: some(new Date("2026-03-13T17:00:00Z")), routine: false, unit: "saved / wk",
+        figure: variant("money", null), model: "roster-opt · run #204",
+        why: "Week 10 carries 60h of overtime and two agency requests while B. Pumice, N. Ochre and J. Quartz sit under contract. Moving 3 shifts to them cuts overtime and agency cost.",
+        ifWrong: some(-2_100), recommended: "1-all",
+        options: new SortedMap([
+            ["1-all", option({ label: "All 3 changes", title: "Rebalance week 10 across 3 people", summary: "3 shifts · 3 people",
+                detail: "Overtime falls from 60h to 56h and Thursday's early agency request goes.", value: 156, confidence: some(0.81),
+                change: variant("rotaCost", dutiesTo([["s295", "jquartz"], ["s104", "nochre"], ["s217", "bpumice"]])) })],
+            ["2-overtime", option({ label: "Overtime only", title: "Move only the 2 overtime shifts in week 10", summary: "2 shifts · 2 people",
+                detail: "Overtime falls from 60h to 56h; the agency requests stay.", note: some("agency stays at 2 requests"), value: 84,
+                confidence: some(0.84),
+                change: variant("rotaCost", dutiesTo([["s295", "jquartz"], ["s104", "nochre"]])) })],
+            ["3-keep", option({ label: "Keep as rostered", title: "Keep week 10 as rostered", summary: "no change",
+                detail: "No change to the roster.", note: some("60h of overtime stays"), value: 0,
+                change: variant("rotaCost", dutiesPatch(overtime.map(key => [key, warehouseDuties.get(key)!] as const))) })],
+        ], byString),
+    }],
+    // A causal estimate: line 2's slow cure, its bond strength the figure.
+    ["trial-cure", {
+        area: "trial", scope: "Line 2", due: some(new Date("2026-03-12T17:00:00Z")), routine: false, unit: "MPa bond", figure: variant("count", null),
+        model: "causal · slow_cure · 2d ago",
+        why: "Slow cure raises bond strength by 5.2 MPa (95% 3.9 to 6.5) after adjusting for line and resin batch. All four refutation checks pass.",
+        ifWrong: some(-16), recommended: "1-switch",
+        options: new SortedMap([
+            ["1-switch", option({ label: "Switch now", title: "Switch line 2 to slow cure", summary: "cure 40 → 55 min",
+                detail: "Throughput falls from 120 to 104 / h.", note: some("4 of 4 checks pass"), value: 5.2, confidence: some(0.86),
+                change: variant("trial", curePatch("line-2", { cure: 55, bond: 46.2 })) })],
+            ["2-trial", option({ label: "Trial first", title: "Run a 2-week trial of slow cure on line 2", summary: "48 batches · half slow",
+                detail: "Decide on Mar 24 with the trial result.", note: some("confirms the effect first"), value: 0, confidence: some(0.95),
+                change: variant("trial", curePatch("line-2", { trialBatches: 48n })) })],
+        ], byString),
+    }],
+    // The Sheet's cells filled from history, one a guess.
     ["orders-ready", {
-        area: "orders", scope: "Workshop orders", due: some(new Date("2028-03-08T17:00:00Z")), routine: false, unit: "orders", figure: variant("count", null),
-        model: "sheet copilot · 5m ago",
-        why: "Three orders are ready with no due date. The shop's next free days on their work centres give each one.",
+        area: "orders", scope: "Workshop orders", due: some(new Date("2026-03-11T17:00:00Z")), routine: false, unit: "due dates",
+        figure: variant("count", null), model: "sheet copilot · 5m ago",
+        why: "WO-1005, WO-1007 and WO-1008 can't be scheduled while they have no due date. 38 similar orders on the same work centres give a date for each.",
         ifWrong: none, recommended: "1-all",
         options: new SortedMap([
-            ["1-all", option({ label: "All three", title: "Schedule the three ready orders", summary: "3 orders",
+            ["1-all", option({ label: "Fill all 3", title: "Fill 3 due dates on the ready orders from history", summary: "3 due dates",
                 detail: "WO-1005, WO-1007 and WO-1008 are given due dates and set Scheduled.", value: 3, confidence: some(0.91),
                 guesses: new SortedMap([["WO-1007", 0.69]], byString),
-                change: variant("orders", ordersPatch([["WO-1005", mon13], ["WO-1007", tue14], ["WO-1008", wed15]])) })],
-            ["2-first", option({ label: "WO-1005 only", title: "Schedule WO-1005 alone", summary: "1 order",
-                detail: "WO-1005 is given a due date; the other two stay ready.", value: 1, confidence: some(0.96),
-                change: variant("orders", ordersPatch([["WO-1005", mon13]])) })],
+                change: variant("orders", ordersPatch([["WO-1005", mon16], ["WO-1007", tue17], ["WO-1008", wed18]])) })],
+            ["2-sure", option({ label: "Fill the 2 sure ones", title: "Fill the 2 due dates the copilot is sure of", summary: "2 due dates",
+                detail: "WO-1007 stays without a due date.", note: some("conf 0.95 or more"), value: 2, confidence: some(0.96),
+                change: variant("orders", ordersPatch([["WO-1005", mon16], ["WO-1008", wed18]])) })],
+        ], byString),
+    }],
+    // Routine: the band at the end, applied together.
+    ["rota-trim", {
+        area: "rota", scope: "Inbound · W10", due: none, routine: true, unit: "uplift", figure: variant("money", null),
+        model: "roster-opt · run #204",
+        why: "C. Kestrel's late and S. Meadow's night on Thursday run 10h, and neither agreed to the extra 2h.",
+        ifWrong: none, recommended: "1-trim",
+        options: new SortedMap([
+            ["1-trim", option({ label: "Trim", title: "Trim 4h from Thursday's long shifts", summary: "2 shifts · 10h → 8h",
+                detail: "C. Kestrel's late and S. Meadow's night end 2h earlier.", value: 168,
+                change: variant("rota", thursdayTrim) })],
+        ], byString),
+    }],
+    ["cover-saturday", {
+        area: "cover", scope: "Inbound · Sat 11", due: none, routine: true, unit: "uplift", figure: variant("money", null),
+        model: "cover-plan · run #8",
+        why: "Saturday's inbound early has 11 rostered against a target of 12; the forecast's unloading fits 11.",
+        ifWrong: none, recommended: "1-trim",
+        options: new SortedMap([
+            ["1-trim", option({ label: "Trim", title: "Trim Saturday's inbound early cover by one", summary: "heads 12 → 11",
+                detail: "Saturday's inbound early needs 11, the heads rostered.", value: 408,
+                change: variant("cover", saturdayCover) })],
+        ], byString),
+    }],
+    ["ready-a1", {
+        area: "ready", scope: "Press A1", due: none, routine: true, unit: "days", figure: variant("count", null),
+        model: "eta-forecast · run #3",
+        why: "Press A1's new rollers fit on Wednesday; the forecast has it ready two days later.",
+        ifWrong: none, recommended: "1-confirm",
+        options: new SortedMap([
+            ["1-confirm", option({ label: "Confirm", title: "Confirm Press A1 ready in ~2 days", summary: "confirmed",
+                detail: "Press A1's readiness is confirmed.", value: 2,
+                change: variant("ready", pressA1Ready) })],
         ], byString),
     }],
 ], byString);
@@ -280,6 +425,30 @@ const proposeCases = East.function([OpsCasesType, OpsCasesType, SetType(StringTy
 /** The price list, a record no builder draws, written through its patch door. */
 export const listPrices = e3.record("list_prices", DictType(StringType, ListPrice), {
     initial: listPriceRows,
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+/** The stock levels, a record no builder draws, written through their patch door. */
+export const stockLevels = e3.record("stock_levels", DictType(StringType, StockLevel), {
+    initial: stockLevelRows,
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+/** The lines' cure settings, a record no builder draws, written through their patch door. */
+export const cureSettings = e3.record("cure_settings", DictType(StringType, CureSetting), {
+    initial: cureSettingRows,
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+/** The presses' readiness, a record no builder draws, written through its patch door. */
+export const pressReadiness = e3.record("press_readiness", DictType(StringType, PressReadiness), {
+    initial: pressReadinessRows,
     mutations: (mutation) => ({
         patch: mutation.patch(),
     }),
@@ -322,19 +491,19 @@ export const Proposal = StructType({
     headline: StringType, brief: StringType, description: StringType, saving: FloatType, details: ProposalDetails,
 });
 
-/** The model's proposals: a price for the North region, and a due date for the first ready order. */
+/** The model's proposals: a price for the North region by Friday, and a due date for the first ready order by 17:00 today. */
 export const proposalRows: SortedMap<string, ValueTypeOf<typeof Proposal>> = new SortedMap<string, ValueTypeOf<typeof Proposal>>([
     ["prop-north", {
-        site: "Regional list prices", deadline: some(new Date("2028-03-10T17:00:00Z")), metric: "uplift / mo", run: "demand-north · query 1h ago",
+        site: "Regional list prices", deadline: some(new Date("2026-03-13T17:00:00Z")), metric: "uplift / mo", run: "demand-north · query 1h ago",
         rationale: "North demand held at $11.20 through the last two rises; competitors sit at $11.60.",
         headline: "Raise the North list price to $11.50", brief: "North $11.20 → $11.50", description: "Demand −1.2% · revenue +1.4%.",
         saving: 4_300, details: variant("pricing", pricesPatch("north", 11.50, 6_027)),
     }],
     ["prop-wo1005", {
-        site: "Workshop orders", deadline: some(new Date("2028-03-08T17:00:00Z")), metric: "orders", run: "sheet copilot · 5m ago",
+        site: "Workshop orders", deadline: some(new Date("2026-03-10T17:00:00Z")), metric: "orders", run: "sheet copilot · 5m ago",
         rationale: "WO-1005 is ready with no due date; its work centre is free from Monday.",
-        headline: "Schedule WO-1005 for Mon 13 Mar", brief: "WO-1005 · due Mon 13 Mar", description: "WO-1005 is given a due date and set Scheduled.",
-        saving: 1, details: variant("orders", ordersPatch([["WO-1005", mon13]])),
+        headline: "Schedule WO-1005 for Mon 16 Mar", brief: "WO-1005 · due Mon 16 Mar", description: "WO-1005 is given a due date and set Scheduled.",
+        saving: 1, details: variant("orders", ordersPatch([["WO-1005", mon16]])),
     }],
 ], byString);
 
@@ -347,6 +516,57 @@ export const proposals = e3.record("proposals", DictType(StringType, Proposal), 
 });
 /** The verdicts on them, which the queue writes through their patch door. */
 export const proposalVerdicts = e3.record("proposal_verdicts", DictType(StringType, OpsVerdict), {
+    initial: new Map(),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+// ============================================================================
+// The routine queue's (§15)
+// ============================================================================
+
+/** What a routine change changes: its tag is the kind of decision, its value a patch of the record that kind changes. */
+export const RoutineChange = VariantType({
+    rota: PatchType(DictType(StringType, WarehouseDuty)),        // the warehouse rota's duties, as the Roster draws them
+    cover: PatchType(DictType(StringType, WarehouseCover)),      // the rota's cover targets
+    ready: PatchType(DictType(StringType, PressReadiness)),      // the presses' readiness
+});
+
+/** A routine change of the models', in the app's own words: its own one proposal, applied with the others in one go. */
+export const Routine = StructType({
+    scope: StringType, unit: StringType, figure: VariantType({ money: NullType, count: NullType }), model: StringType, why: StringType,
+    title: StringType, summary: StringType, detail: StringType, value: FloatType, change: RoutineChange,
+});
+
+/** The routine changes the models left, the mock's like for like: the Ops cases' routine band, each its own proposal. */
+export const routineRows: SortedMap<string, ValueTypeOf<typeof Routine>> = new SortedMap<string, ValueTypeOf<typeof Routine>>([
+    ["rota-trim", {
+        scope: "Inbound · W10", unit: "uplift", figure: variant("money", null), model: "roster-opt · run #204",
+        why: "C. Kestrel's late and S. Meadow's night on Thursday run 10h, and neither agreed to the extra 2h.",
+        title: "Trim 4h from Thursday's long shifts", summary: "2 shifts · 10h → 8h", detail: "C. Kestrel's late and S. Meadow's night end 2h earlier.",
+        value: 168, change: variant("rota", thursdayTrim),
+    }],
+    ["cover-saturday", {
+        scope: "Inbound · Sat 11", unit: "uplift", figure: variant("money", null), model: "cover-plan · run #8",
+        why: "Saturday's inbound early has 11 rostered against a target of 12; the forecast's unloading fits 11.",
+        title: "Trim Saturday's inbound early cover by one", summary: "heads 12 → 11", detail: "Saturday's inbound early needs 11, the heads rostered.",
+        value: 408, change: variant("cover", saturdayCover),
+    }],
+    ["ready-a1", {
+        scope: "Press A1", unit: "days", figure: variant("count", null), model: "eta-forecast · run #3",
+        why: "Press A1's new rollers fit on Wednesday; the forecast has it ready two days later.",
+        title: "Confirm Press A1 ready in ~2 days", summary: "confirmed", detail: "Press A1's readiness is confirmed.",
+        value: 2, change: variant("ready", pressA1Ready),
+    }],
+], byString);
+
+/** The routine changes, a record of the models'. */
+export const routines = e3.record("routines", DictType(StringType, Routine), {
+    initial: routineRows,
+});
+/** The verdicts on them, which the queue writes through their patch door. */
+export const routineVerdicts = e3.record("routine_verdicts", DictType(StringType, OpsVerdict), {
     initial: new Map(),
     mutations: (mutation) => ({
         patch: mutation.patch(),
