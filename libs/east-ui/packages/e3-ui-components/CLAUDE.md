@@ -886,7 +886,8 @@ Put static appearance in slot recipes and select states with attributes.
 Inline values are for computed geometry only, written through `style` (or a
 CSS variable set there), never a Chakra style prop, which mints a CSS class
 for each value that the page never removes (east-ui-components' CLAUDE.md ›
-Visual style, #1440). Reuse the app's named text styles
+Visual style, #1440); the lint rule `east-ui/inline-places` refuses a style
+prop given a number worked out as the component renders. Reuse the app's named text styles
 and existing recipe parts for toolbar, column headings, axis labels, rows,
 cards, inspector, library and footer. Verify every role: font family, size,
 weight, line height, tracking, case and tabular numerals. Merely loading the
