@@ -161,9 +161,9 @@ function codec(): NonNullable<typeof manifestCodec> {
  *
  * @remarks
  * The collection type is written with its recursive types renamed
- * canonically ({@link canonicalTypeValue}): the ids a runtime gives them are
- * its own, and a manifest's hash names the collection in a store, so one
- * collection must have one manifest whichever runtime writes it.
+ * canonically ({@link canonicalTypeValue}), whatever ids its writer gave them:
+ * a manifest's hash names the collection in a store, so one collection has one
+ * manifest, whoever writes it and whenever.
  */
 export function encodeCollectionManifest(manifest: CollectionManifest): Uint8Array {
   return codec().encode({ ...manifest, type: canonicalTypeValue(manifest.type) });

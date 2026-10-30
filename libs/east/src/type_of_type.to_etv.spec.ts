@@ -243,13 +243,13 @@ describe("toEastTypeValue", () => {
   });
 
   // =========================================================================
-  // Alpha-equivalence — wrapper ids are runtime artefacts (type ids here,
-  // table indices off the wire), so recursive types compare up to naming
+  // Alpha-equivalence — a wrapper's id is its writer's (in a build, a hash of
+  // the type), so recursive types compare up to naming
   // =========================================================================
 
   describe("isTypeValueEqual up to wrapper naming (#770)", () => {
-    // A hand-spelled recursive type value, as a decoder produces it: the
-    // wrapper's id is whatever the wire said, never this process's type id.
+    // A hand-spelled recursive type value, as a value read off the wire may
+    // carry it: the wrapper's id is whatever its writer gave it.
     const list = (id: bigint) => variant("Recursive", variant("wrapper", {
       id,
       inner: variant("Variant", [
@@ -476,12 +476,12 @@ describe("canonicalTypeValue", () => {
   });
 });
 
-// Two builds number their recursive types by their own counters, so a type
-// edited between two exports can keep its id (#1225). isTypeValueEqual takes
-// one id as one type, as the type checker needs; a check across builds reads
-// the bodies.
+// An id read off the wire is its writer's word: an earlier release numbered
+// its recursive types by its process's counter, so a type edited between two
+// exports could keep its id (#1225). isTypeValueEqual takes one id as one
+// type, as the type checker needs; a check across builds reads the bodies.
 describe("isTypeValueStructurallyEqual", () => {
-  /** A tree of `head`s, its wrapper numbered `id`, as a build would number it. */
+  /** A tree of `head`s, its wrapper numbered `id`, as its writer numbered it. */
   const tree = (id: bigint, head: EastTypeValue) => variant("Recursive", variant("wrapper", {
     id,
     inner: variant("Struct", [
