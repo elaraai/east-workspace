@@ -104,6 +104,11 @@
  * or always with `liveHeights`, a row that changes height moves the rows below
  * it in the frame it changes: the virtualizer, told by its observer, draws them
  * again only a task later, after the page has painted them where they were.
+ * Rows that hold a part sticking to the view's top (`stickyParts`, the queue's
+ * card heads, R9) are placed by their `top`, never a transform: the browser
+ * works a sticky part's offset out from the layout, which a transform leaves
+ * where it was, and a row moved by its transform had its head stuck that far
+ * off.
  *
  * A keyed frame's scroll request (`scrollToIndex`) brings in its ROW, never
  * whichever row holds its index a frame later (#885). TanStack reconciles a
@@ -488,6 +493,16 @@ interface VirtualRowsBaseProps {
      * frame. A hold does so while it stands.
      */
     liveHeights?: boolean | undefined;
+    /**
+     * Whether the rows hold parts that stick to the view's top (`position:
+     * sticky`, default false) — the decision queue's card heads (R9): each
+     * measured row is then placed by its `top`, never a transform. The browser
+     * works a sticky part's offset out from the layout, which a transform
+     * leaves where it was: a row moved by its transform had its part stuck as
+     * far off as the transform moved it. A transform moves a row with no
+     * layout, so it stays the default.
+     */
+    stickyParts?: boolean | undefined;
     /**
      * Whether to measure mounted rows (default true). Pass `false` when rows
      * are FIXED-HEIGHT (the given sizes are exact): rows then sit at exact
@@ -984,7 +999,7 @@ export function setVirtualRowsMeasureProbe(fn: (() => void) | undefined): void {
  */
 export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const {
-        header, sticky, footer, overlay, count, estimateSize, sizes, getItemKey, anchorable, runs, hold, liveHeights, renderRow,
+        header, sticky, footer, overlay, count, estimateSize, sizes, getItemKey, anchorable, runs, hold, liveHeights, stickyParts, renderRow,
         measureRows = true, overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, rootProps, fillParent, scrollElRef,
         scrollToIndex, scrollNonce, scrollAlign = "center", onRangeChange, sizeVersion,
         virtualizeUnboundedAt, onAnchorChange, restoreAnchor, rowsProps, rowsRef, onViewport,
@@ -1682,7 +1697,8 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                         top="0"
                         left="0"
                         width="100%"
-                        style={{ transform: `translateY(${item.start - margin}px)` }}
+                        // Placed by its top where it holds a sticky part, which the browser places from the layout.
+                        style={stickyParts === true ? { top: `${item.start - margin}px` } : { transform: `translateY(${item.start - margin}px)` }}
                     >
                         <RowTopContext.Provider value={item.start - margin}><RowContent index={item.index} render={renderRow} /></RowTopContext.Provider>
                     </Box>
