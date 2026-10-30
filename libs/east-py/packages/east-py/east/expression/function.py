@@ -15,15 +15,17 @@ notices a traced argument.
 
 A build opens an authoring-frame source map (``east.expression.location``,
 #626): every node the body builds carries the ``loc_id`` of the python
-frames that built it, the artifact carries the map (``_east_source_map``),
-and the compile hands it to east-c — so a runtime error inside the function
-names the python ``file:line:column`` of the failing expression, and the
-function's beast2 encoding carries the map for every other runner.
+frames that built it, up to the call of ``East.function``, the artifact
+carries the map (``_east_source_map``), and the compile hands it to east-c —
+so a runtime error inside the function names the python ``file:line:column``
+of the failing expression, and the function's beast2 encoding carries the map
+for every other runner.
 """
 
 from __future__ import annotations
 
 import contextlib
+import sys
 import threading
 from typing import Any
 
@@ -204,6 +206,7 @@ def detached_build():
         "effects": list(lift._effect_frames),
         "loops": list(lift._loop_frames), "frames": list(statements._frames),
         "scopes": list(naming._scopes), "pending": set(naming._pending),
+        "generated": naming._generated,
         "async": _async_build, "map": location._current,
     }
     lift._fn_registry = None
@@ -227,6 +230,9 @@ def detached_build():
         naming._scopes[:] = saved["scopes"]
         naming._pending.clear()
         naming._pending.update(saved["pending"])
+        # the detached build numbered its own names from 0; the enclosing
+        # build's go on from where they were, so none is drawn twice
+        naming._generated = saved["generated"]
         _async_build = saved["async"]
         location._current = saved["map"]
 
@@ -645,23 +651,27 @@ def _check_signature(param_types: Any, out: Any, entry: str) -> list[EastType]:
     return types
 
 
-def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str) -> Any:
+def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str, caller: Any) -> Any:
     """The shared strict-builder core behind ``East.function``/``asyncFunction``.
+
+    ``caller`` is the frame that called the entry: the build's location
+    stacks stop at it (``location.source_map_scope``).
 
     Under a check (:func:`collect_build_errors`) a failure is recorded and a
     placeholder returned instead of raising, so one import reports every
     broken function in the module.
     """
     if _current_collector() is None:
-        return _build_strict(param_types, out, body, is_async=is_async, entry=entry)
+        return _build_strict(param_types, out, body, is_async=is_async, entry=entry, caller=caller)
     call_site = capture_frames()
     try:
-        return _build_strict(param_types, out, body, is_async=is_async, entry=entry)
+        return _build_strict(param_types, out, body, is_async=is_async, entry=entry, caller=caller)
     except Exception as error:  # noqa: BLE001 - the checker reports whatever the build raised
         return _record_build_error(error, body, entry, call_site)
 
 
-def _build_strict(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str) -> Any:
+def _build_strict(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str,
+                  caller: Any) -> Any:
     """The build itself — raises on any failure."""
     types = _check_signature(param_types, out, entry)
     if not callable(body):
@@ -680,8 +690,9 @@ def _build_strict(param_types: Any, out: Any, body: Any, *, is_async: bool, entr
     _trusted_frames.append(trusted)
     try:
         # The build's source map: fresh, or the enclosing build's when this
-        # function is being built inside another body (#626).
-        with source_map_scope() as source_map:
+        # function is being built inside another body (#626). Its stacks stop
+        # at the caller, so they are the function's own frames (#1460).
+        with source_map_scope(caller) as source_map:
             lazy_ir, out_type, fn_binds = trace(body, types, out_hint=out, is_async=is_async, lazy=True)
     finally:
         _async_build = previous
@@ -886,8 +897,9 @@ def function(param_types: list[EastType], out: EastType, body: Any = None) -> An
     """
     if body is None:
         _check_signature(param_types, out, "East.function")
-        return lambda fn: _build(param_types, out, fn, is_async=False, entry="East.function")
-    return _build(param_types, out, body, is_async=False, entry="East.function")
+        return lambda fn: _build(param_types, out, fn, is_async=False, entry="East.function",
+                                 caller=sys._getframe(1))
+    return _build(param_types, out, body, is_async=False, entry="East.function", caller=sys._getframe(1))
 
 
 def async_function(param_types: list[EastType], out: EastType, body: Any = None) -> Any:
@@ -920,8 +932,9 @@ def async_function(param_types: list[EastType], out: EastType, body: Any = None)
     """
     if body is None:
         _check_signature(param_types, out, "East.asyncFunction")
-        return lambda fn: _build(param_types, out, fn, is_async=True, entry="East.asyncFunction")
-    return _build(param_types, out, body, is_async=True, entry="East.asyncFunction")
+        return lambda fn: _build(param_types, out, fn, is_async=True, entry="East.asyncFunction",
+                                 caller=sys._getframe(1))
+    return _build(param_types, out, body, is_async=True, entry="East.asyncFunction", caller=sys._getframe(1))
 
 
 def _artifact_ir(fn: Any, entry: str) -> tuple[Any, bool, tuple, SourceMap | None]:

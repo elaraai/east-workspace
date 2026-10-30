@@ -14,18 +14,23 @@ above it. A runtime error inside the compiled function resolves its node's
 and on every other runner the function is exported to, because the map rides
 the function value's beast2 encoding (the #476 wire shape reserves it).
 
-This is the python twin of ``libs/east/src/location.ts``, contract for
-contract: ``SourceMap`` interns stacks by content with entry 0 the empty
-"no location" stack; :func:`capture_frames` walks the live python stack and
-keeps only the AUTHOR's frames (East's own package, the standard library and
-installed third-party packages are dropped, so a stack heads with user code
-rather than with the builder internals); paths are relativized to a base
-directory — the working directory unless :func:`set_location_base_path` says
-otherwise — so serialized IR carries no machine-specific paths; and the map
-is ambient: a build opens one with :func:`source_map_scope`, every node
-built inside asks :func:`location_id` for its id, and a build nested inside
-another (an ``East.function`` referenced from a body) shares the enclosing
-map, exactly as ``ensure_source_map`` does in TS.
+This is the python twin of ``libs/east/src/location.ts``: ``SourceMap``
+interns stacks by content with entry 0 the empty "no location" stack;
+:func:`capture_frames` walks the live python stack and keeps only the
+AUTHOR's frames (East's own package, the standard library and installed
+third-party packages are dropped, so a stack heads with user code rather than
+with the builder internals); paths are relativized, so serialized IR carries
+no machine-specific paths; and the map is ambient: a build opens one with
+:func:`source_map_scope`, every node built inside asks :func:`location_id`
+for its id, and a build nested inside another (an ``East.function``
+referenced from a body) shares the enclosing map, exactly as
+``ensure_source_map`` does in TS.
+
+A recorded stack holds the function's own frames and nothing more: the walk
+stops at the frame that called ``East.function``, and a recorded path is
+relative to its file's project root. Its IR is then the same whoever imported
+the module, and whatever directory the process ran in, which is what a task's
+hash needs of it (#1460).
 
 Capture is per NODE at build time and never per call: a compiled function
 carries its map on the C side and resolves an error's ``loc_id`` only when
@@ -118,7 +123,8 @@ class SourceMap:
 # working directory by default, or what set_location_base_path() installs
 # (deterministic fixtures) — and kept with forward slashes. Paths outside the
 # base stay absolute; pseudo-files (``<stdin>``, ``<string>``) stay as they
-# are. Never raises.
+# are. Never raises. A path a source map records is relative to its file's
+# project root instead (see "Recorded paths" below).
 
 _explicit_base: str | None = None
 _explicit_base_set = False
@@ -148,9 +154,11 @@ def set_location_base_path(base: str | None) -> None:
     """Set the directory captured locations are relativized against.
 
     Pass a path to relativize against it (paths outside it stay absolute);
-    pass ``None`` to reset to the automatic default, the working directory.
-    The twin of TypeScript's ``setLocationBasePath``, for deterministic
-    fixtures and reproducible exports.
+    pass ``None`` to reset to the automatic default: a source map records a
+    path relative to its file's project root (the nearest directory above it
+    holding a ``pyproject.toml``), and a traceback's frames are relative to
+    the working directory. The twin of TypeScript's ``setLocationBasePath``,
+    for deterministic fixtures.
 
     Args:
         base: The base directory, or ``None`` for the default.
@@ -163,6 +171,7 @@ def set_location_base_path(base: str | None) -> None:
         _explicit_base_set = True
         _explicit_base = _clean(os.path.abspath(base))
     _author_paths.clear()
+    _map_paths.clear()
 
 
 def normalize_frame_path(raw: str) -> str:
@@ -247,6 +256,60 @@ def _author_path(filename: str) -> str | None:
     decision = _decide(filename)
     _author_paths[filename] = decision
     return decision
+
+
+# ─── Recorded paths ─────────────────────────────────────────────────────────
+#
+# What a source map records goes into the IR, and from there into a task's
+# hash. Relative to the working directory, a function's bytes would depend on
+# where the process that built it ran, and one process exporting several
+# packages could write each of them only one way. A recorded path is relative
+# to its file's PROJECT root instead — the nearest directory above it holding
+# a pyproject.toml — which places a file the same way wherever its project
+# sits and whatever runs it. A file in no project keeps the working-directory
+# form, and an explicit base (set_location_base_path) wins over both.
+
+#: directory → the nearest directory at or above it holding a pyproject.toml, or None
+_project_roots: dict[str, str | None] = {}
+
+#: co_filename → the path a source map records, or None when the frame is not the author's
+_map_paths: dict[str, str | None] = {}
+
+
+def _project_root(directory: str) -> str | None:
+    hit = _project_roots.get(directory, _MISS)
+    if hit is not _MISS:
+        return hit
+    parent = os.path.dirname(directory)
+    if os.path.isfile(os.path.join(directory, "pyproject.toml")):
+        root: str | None = directory
+    elif parent == directory:
+        root = None
+    else:
+        root = _project_root(parent)
+    if len(_project_roots) > _CACHE_LIMIT:
+        _project_roots.clear()
+    _project_roots[directory] = root
+    return root
+
+
+def _map_path(filename: str) -> str | None:
+    hit = _map_paths.get(filename, _MISS)
+    if hit is not _MISS:
+        return hit
+    path = _author_path(filename)
+    if path is not None and not _explicit_base_set and not filename.startswith("<"):
+        try:
+            absolute = os.path.abspath(filename)
+            root = _project_root(os.path.dirname(absolute))
+            if root is not None:
+                path = _clean(os.path.relpath(absolute, root))
+        except (OSError, ValueError):  # pragma: no cover - a path nothing above expected
+            pass
+    if len(_map_paths) > _CACHE_LIMIT:
+        _map_paths.clear()
+    _map_paths[filename] = path
+    return path
 
 
 # ─── Positions ──────────────────────────────────────────────────────────────
@@ -366,19 +429,24 @@ def capture_frames() -> tuple[Location, ...]:
     """The author's frames of the current call, innermost first.
 
     East's own frames, the standard library and installed packages are
-    dropped (see the module notes), paths are normalized, and columns are
-    1-based. Empty when no author frame is on the stack, or while capture is
-    switched off (:func:`set_location_capture`).
+    dropped (see the module notes), paths take the form a source map records
+    ("Recorded paths"), and columns are 1-based. In a build the walk stops
+    at the frame that called ``East.function`` (:func:`source_map_scope`).
+    Empty when no author frame is on the stack, or while capture is switched
+    off (:func:`set_location_capture`).
     """
     if not _capture_enabled:
         return ()
     frame = sys._getframe(1)
+    stop = _boundary
     out: list[Location] = []
     while frame is not None:
-        path = _author_path(frame.f_code.co_filename)
+        path = _map_path(frame.f_code.co_filename)
         if path is not None:
             line, column = _position(frame)
             out.append((path, line, column))
+        if frame is stop:
+            break
         frame = frame.f_back
     return tuple(out)
 
@@ -386,26 +454,38 @@ def capture_frames() -> tuple[Location, ...]:
 # ─── The ambient map ────────────────────────────────────────────────────────
 
 _current: SourceMap | None = None
+#: the frame the open build's stacks stop at, or None to walk the whole stack
+_boundary: Any = None
 
 
 @contextlib.contextmanager
-def source_map_scope() -> Iterator[SourceMap]:
+def source_map_scope(boundary: Any = None) -> Iterator[SourceMap]:
     """Run a build with a source map current, yielding that map.
 
     A fresh map when none is open; the ENCLOSING build's when one is — a
     function built inside another body shares its map, so the nested
     function's ids resolve wherever the enclosing one's do (TS
     ``ensure_source_map``). Re-entrant safe.
+
+    Args:
+        boundary: The frame that called ``East.function``. A fresh map's
+            stacks stop at it, so they hold the function's own frames — its
+            body's, the helpers those called and the call that built it —
+            and never those of the code that imported or called its module.
+            A nested build keeps the enclosing build's. ``None`` walks the
+            whole stack.
     """
-    global _current
+    global _current, _boundary
     if _current is not None:
         yield _current
         return
     _current = SourceMap()
+    previous, _boundary = _boundary, boundary
     try:
         yield _current
     finally:
         _current = None
+        _boundary = previous
 
 
 def current_source_map() -> SourceMap | None:
