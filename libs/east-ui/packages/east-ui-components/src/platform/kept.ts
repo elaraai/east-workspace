@@ -615,6 +615,19 @@ function readScopeSerial(): number {
 }
 
 /**
+ * Write every address still waiting out its interval, now: what a test calls
+ * in place of waiting the interval out.
+ */
+export function flushKept(): void {
+    for (const entry of entries.values()) {
+        if (entry.timer === undefined) continue;
+        clearTimeout(entry.timer);
+        entry.timer = undefined;
+        store(entry);
+    }
+}
+
+/**
  * The storage name a key is kept under — its query parameter, for the
  * address: what a test seeds or reads storage by.
  *

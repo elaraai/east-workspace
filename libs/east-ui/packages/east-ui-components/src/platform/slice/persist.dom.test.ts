@@ -12,7 +12,7 @@
  * history / atob).
  */
 
-import { describe, test, expect, beforeEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { StructType, encodeBeast2For, none, some, variant } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import {
@@ -25,6 +25,9 @@ import {
 import { initializeStore } from "../state-runtime.js";
 import { UIStore } from "../state-store.js";
 import { sliceConfig } from "../../testing/slice.js";
+import { keptName } from "../kept.js";
+
+afterEach(() => { vi.restoreAllMocks(); });
 
 const byName = new Map(SliceImpl.map(p => [p.name, p.fn]));
 const call = (name: string, ...args: unknown[]): unknown =>
@@ -52,7 +55,7 @@ describe("slice persistence (#168)", () => {
 
         call("slice_add_filter", "p.local", eqPred("a"));
         flushSlicePersistence();
-        expect(window.localStorage.getItem("east-ui.slice.p.local")).toBeTruthy();
+        expect(window.localStorage.getItem(keptName("east-ui.slice.p.local"))).toBeTruthy();
 
         // A brand-new session: fresh registrations + store; bind seeds the
         // default, then enabling persistence restores the saved narrowing.
@@ -64,6 +67,15 @@ describe("slice persistence (#168)", () => {
         const restored = call("slice_read", "p.local") as { filters: Array<{ type: string; value: { fieldId: string } }> };
         expect(restored.filters.length).toBe(1);
         expect(restored.filters[0]!.value.fieldId).toBe("id");
+    });
+
+    test("a mutation is kept at once: a reload straight after it finds the narrowing", () => {
+        initializeStore(new UIStore());
+        buildSliceHandle("p.now", cfg, initial, [{ id: "a" }, { id: "b" }], none);
+        enableSlicePersistence("p.now", "local");
+        call("slice_add_filter", "p.now", eqPred("a"));
+        // No flush: what a reload would read now.
+        expect(window.localStorage.getItem(keptName("east-ui.slice.p.now"))).toBeTruthy();
     });
 
     test("url mode round-trips a representative state through the query parameter", () => {
@@ -96,16 +108,18 @@ describe("slice persistence (#168)", () => {
         enableSlicePersistence("p.sess", "session");
         call("slice_add_filter", "p.sess", eqPred("a"));
         flushSlicePersistence();
-        expect(window.sessionStorage.getItem("east-ui.slice.p.sess")).toBeTruthy();
-        expect(window.localStorage.getItem("east-ui.slice.p.sess")).toBeNull();
+        expect(window.sessionStorage.getItem(keptName("east-ui.slice.p.sess", { where: "tab" }))).toBeTruthy();
+        expect(window.localStorage.getItem(keptName("east-ui.slice.p.sess"))).toBeNull();
     });
 
-    test("a corrupt / foreign blob is ignored — the seeded state stands", () => {
-        window.localStorage.setItem("east-ui.slice.p.bad", "not-a-beast2-blob");
+    test("a corrupt / foreign blob is ignored and removed — the seeded state stands", () => {
+        vi.spyOn(console, "warn").mockImplementation(() => undefined);
+        window.localStorage.setItem(keptName("east-ui.slice.p.bad"), "not-a-beast2-blob");
         initializeStore(new UIStore());
         buildSliceHandle("p.bad", cfg, initial, [{ id: "a" }], none);
         expect(() => enableSlicePersistence("p.bad", "local")).not.toThrow();
         expect((call("slice_read", "p.bad") as { filters: unknown[] }).filters.length).toBe(0);
+        expect(window.localStorage.getItem(keptName("east-ui.slice.p.bad"))).toBeNull();
     });
 
     test("an OLDER wire shape — a State without `resolution` — is ignored, never mis-decoded; the seed stands", () => {
@@ -123,7 +137,7 @@ describe("slice persistence (#168)", () => {
         } as never);
         let bin = "";
         for (const b of bytes) bin += String.fromCharCode(b);
-        window.localStorage.setItem("east-ui.slice.p.old", btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""));
+        window.localStorage.setItem(keptName("east-ui.slice.p.old"), btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""));
 
         initializeStore(new UIStore());
         buildSliceHandle("p.old", cfg, initial, [{ id: "a" }], none);
@@ -132,6 +146,7 @@ describe("slice persistence (#168)", () => {
         expect(state.filters.length).toBe(0);
         expect(state.search.type).toBe("none");
         expect(state.resolution.type).toBe("none");
+        expect(window.localStorage.getItem(keptName("east-ui.slice.p.old"))).toBeNull();
     });
 
     test("unregistered keys never touch storage", () => {
