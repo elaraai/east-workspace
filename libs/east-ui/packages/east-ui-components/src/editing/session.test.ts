@@ -500,6 +500,107 @@ test("drafts carried over with no refused Save before them hold nothing the sour
     expect(session.conflicts.get("J1")!.said).toBeUndefined();
 });
 
+// ── A refused Save sent again ───────────────────────────────────────────────
+
+const JobBatch = Editing.Types.ChangeSet(Job, StringType);
+type Answer = ValueTypeOf<typeof Editing.Types.ApplyResult>;
+const lastConflict = (): Answer => variant("conflict", [recordIssue, said("J1")]);
+/**
+ * A keyed session over the jobs at revision r1, J1's and J2's quantities
+ * drafted, whose Saves the source answers in turn with `answers` — refused,
+ * once they run out, as another write got there first — and the revision each
+ * Save it was sent was drafted at.
+ */
+const answering = (answers: Answer[]) => {
+    const bases: string[] = [];
+    const session = new EditSession<Bar>({
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, auto: false,
+        apply: (bytes) => {
+            const base = decodeBeast2For(JobBatch)(bytes).base;
+            bases.push(base.type === "revision" ? base.value : "snapshot");
+            return answers.shift() ?? lastConflict();
+        },
+        patch: undefined, refresh: undefined,
+    });
+    session.observeBase(variant("revision", "r1"));
+    session.record([
+        { id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) },
+        { id: "J2", before: job(band), after: job({ ...band, qty: 8n }) },
+    ], "typed", "Edit jobs");
+    return { session, bases };
+};
+/** The source moved to `revision`, J1's task renamed there by another write: the drafts carried over, nothing to choose. */
+const renamedAt = (session: EditSession<Bar>, revision: string) => {
+    session.observeBase(variant("revision", revision));
+    return session.merge(variant("revision", revision), (id) => (id === "J1" ? some({ ...cut, task: `Panel cutting, ${revision}` }) : some(band)));
+};
+/** Lets the session's own Save run to its answer. */
+const answered = async () => { for (let i = 0; i < 4; i++) await Promise.resolve(); };
+
+test("a Save refused because another write got there first is sent again by itself, at the revision its drafts carried over to, once nothing is left to choose", async () => {
+    const { session, bases } = answering([lastConflict(), variant("applied", { revision: some("r3") })]);
+    await session.apply();
+    expect([session.status, bases]).toEqual(["conflict", ["r1"]]);
+    expect(renamedAt(session, "r2")).toBe("merged");
+    await answered();
+    // Sent again with no Save of the person's: the drafts as they carried over, at r2.
+    expect([session.status, bases]).toEqual(["reconciling", ["r1", "r2"]]);
+    expect(session.pending).toBe(2);
+});
+
+test("a refused Save whose drafts carry over to a part both changed waits for the person: chosen, Save is theirs to press", async () => {
+    const { session, bases } = answering([lastConflict()]);
+    await session.apply();
+    session.observeBase(variant("revision", "r2"));
+    // Another write set J1's quantity too: a conflict.
+    expect(session.merge(variant("revision", "r2"), (id) => (id === "J1" ? some({ ...cut, qty: 3n }) : some(band)))).toBe("merged");
+    await answered();
+    expect([session.status, session.unsettled, bases]).toEqual(["idle", 1, ["r1"]]);
+    expect(session.settleAll("draft")).toBe(true);
+    await answered();
+    expect([session.status, session.canApply, bases]).toEqual(["idle", true, ["r1"]]);
+});
+
+test("a Save refused again and again is sent again three times in a row at most; the person's Save then sends it, and may be sent again as many times after it", async () => {
+    const { session, bases } = answering([]);
+    await session.apply();
+    for (const revision of ["r2", "r3", "r4"]) {
+        renamedAt(session, revision);
+        await answered();
+        expect(session.status).toBe("conflict");
+    }
+    expect(bases).toEqual(["r1", "r2", "r3", "r4"]);
+    // The fourth carry-over sends nothing by itself.
+    renamedAt(session, "r5");
+    await answered();
+    expect([session.status, session.canApply, bases.length]).toEqual(["idle", true, 4]);
+    // The person's Save, refused, is sent again by itself.
+    await session.apply();
+    renamedAt(session, "r6");
+    await answered();
+    expect(bases).toEqual(["r1", "r2", "r3", "r4", "r5", "r6"]);
+});
+
+test("a refused Save carried over again before it is sent again goes once, at the revision it carried over to last; a Discard drops it", async () => {
+    const twice = answering([lastConflict(), variant("applied", { revision: some("r4") })]);
+    await twice.session.apply();
+    // The source moves twice before the re-send runs: it goes once, from r3.
+    renamedAt(twice.session, "r2");
+    twice.session.observeBase(variant("revision", "r3"));
+    await answered();
+    expect([twice.session.carrying, twice.bases]).toEqual([true, ["r1"]]);
+    twice.session.merge(variant("revision", "r3"), (id) => (id === "J1" ? some({ ...cut, task: "Panel cutting, r3" }) : some(band)));
+    await answered();
+    expect([twice.session.status, twice.bases]).toEqual(["reconciling", ["r1", "r3"]]);
+
+    const dropped = answering([lastConflict()]);
+    await dropped.session.apply();
+    renamedAt(dropped.session, "r2");
+    dropped.session.discard();
+    await answered();
+    expect([dropped.session.pending, dropped.bases]).toEqual([0, ["r1"]]);
+});
+
 // ── Drafts carried over a source that moved (#1438) ─────────────────────────
 
 const Bench = StructType({ name: StringType, jobs: DictType(StringType, IntegerType) });

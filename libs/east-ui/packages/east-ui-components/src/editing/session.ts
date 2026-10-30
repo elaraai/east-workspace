@@ -330,6 +330,12 @@ interface Submission<W> {
 }
 
 const placementEqual = equalFor(OptionType(EditingPlacementType));
+/**
+ * How many times in a row a Save the source refused because another write got
+ * there first is sent again by the session itself, once its drafts carry over
+ * with nothing to choose: past it, the person's Save sends it.
+ */
+const RESENDS = 3;
 const stringEqual = equalFor(StringType);
 const blobEqual = equalFor(BlobType);
 const schemaEqual = equalFor(EastTypeType);
@@ -483,6 +489,10 @@ export class EditSession<W> {
     private readonly conflictIssues = new Map<string, EditIssue>();
     /** What the source said of each entry a Save it refused for a conflict named, kept for the conflicts carried over from it. */
     private said = new Map<string, string>();
+    /** A Save the source refused because another write got there first, to send again once its drafts carry over with nothing to choose. */
+    private again = false;
+    /** How many times in a row the session has sent a Save again itself, since the person's last ({@link RESENDS}). */
+    private resent = 0;
     /** The conflicts as last read, at the session's version: the same object while it does not move. */
     private conflictsCache: { readonly serial: number; readonly value: ReadonlyMap<string, EntryConflicts> } | undefined;
     /** A Save's conflict at a revision base whose entries the session has still to name (#1199). */
@@ -878,7 +888,9 @@ export class EditSession<W> {
      * is settled ({@link EditSession.settle}), and Save waits. An entry whose
      * draft the source's value now holds whole is no draft any more. The
      * history starts over at the drafts: an undo would take an entry back to
-     * its version at the old base.
+     * its version at the old base. A Save the source refused because another
+     * write got there first is sent again, once its drafts carry over with
+     * nothing to choose — a few times in a row at most ({@link RESENDS}).
      *
      * @param base - The base the source moved to
      * @param read - Each drafted entry, as the source holds it at that base: `none` for one it does not hold, `undefined`
@@ -918,12 +930,15 @@ export class EditSession<W> {
         }
         // What the source said of each entry, where it refused a Save for a conflict: kept for the conflicts carried over.
         const said = this.refusalWords();
+        const refused = this.status === "conflict";
         this.base = this.cloneBase(base);
         this.baseline = baseline; this.current = current; this.ancestors = ancestors; this.forgetConflicts(); this.said = said;
         this.moving = undefined;
         this.history = []; this.cursor = 0;
         this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
         this.draftsChanged();
+        // A refused Save goes again with nothing to choose; with a conflict, the person's Save sends it once it is chosen.
+        this.again = (refused || this.again) && this.unsettled === 0 && this.resent < RESENDS;
         this.changed(); this.maybeAutoApply();
         return "merged";
     }
@@ -1180,7 +1195,7 @@ export class EditSession<W> {
         this.current = new Map(this.baseline);
         this.draftsChanged();
         this.emit(before, this.current, "discard", "Discard changes");
-        this.ancestors.clear(); this.forgetConflicts(); this.moving = undefined;
+        this.ancestors.clear(); this.forgetConflicts(); this.moving = undefined; this.again = false;
         this.history = []; this.cursor = 0; this.stale = false;
         this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
         this.changed(); this.maybeAutoApply(false);
@@ -1189,13 +1204,24 @@ export class EditSession<W> {
         // A discard cancels queued automatic submissions as well as avoiding a
         // new one: removing an incomplete draft may make another edit ready.
         const sequence = ++this.autoSequence;
-        if (enabled && this.binding.auto) queueMicrotask(() => {
-            if (sequence === this.autoSequence && this.canApply) void this.apply();
+        if (enabled && (this.binding.auto || this.again)) queueMicrotask(() => {
+            if (sequence !== this.autoSequence) return;
+            const again = this.again;
+            // Carried over again meanwhile: that carry-over sends it.
+            if (this.moving === undefined) this.again = false;
+            if (!this.canApply) return;
+            if (again) { this.resent++; void this.send(); } else void this.apply();
         });
     }
 
-    /** Apply the batch; a retry keeps the original immutable bytes and captured callback. */
+    /** Apply the batch, as the person's Save does; a retry keeps the original immutable bytes and captured callback. */
     async apply(): Promise<void> {
+        this.again = false; this.resent = 0;
+        await this.send();
+    }
+
+    /** Send the batch: the person's Save, or the session's own again after a refusal ({@link RESENDS}). */
+    private async send(): Promise<void> {
         if (this.status === "applying" || this.status === "reconciling") return;
         if (!this.submission) {
             if (!this.canApply || !this.base || !this.binding.apply) return;

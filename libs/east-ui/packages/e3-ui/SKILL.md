@@ -794,7 +794,8 @@ export const builder = ui("builder", [], East.function([], UIComponentType, _$ =
   redoes, discards and saves, and ⌘Z / Ctrl+Z undo from anywhere in the
   builder. Save is one patch commit on the page; a save another write beat is
   refused, and the drafts are carried over to the newer page, a part both
-  changed waiting to be chosen before Save. The selection bar
+  changed waiting to be chosen before Save — with none, the Save goes again
+  by itself. The selection bar
   names the selected placement: its component's icon and name, its key and
   what its code reads.
 - **The toolbar**, one row: the page's status — `Draft` with an open ring until
@@ -1395,7 +1396,10 @@ const onPatch = $.const(East.function([Plan.Types.PatchEvent(Hall)], NullType, (
   Theirs, each value in plain words; who changed it last, where the source
   said so when it refused a Save, and what both began from — with Keep all
   mine and Use all theirs at its foot. It never opens by itself.
-  A Save whose outcome is unknown retries the SAME request ("Retry
+  A Save another write got there first is refused, and once its drafts carry
+  over with nothing to choose it is sent again by itself — three times in a
+  row at most, then the person's Save sends it; with a conflict, the person
+  saves once it is chosen. A Save whose outcome is unknown retries the SAME request ("Retry
   request"), and drafts retire only once the source reads back at the
   committed revision ("Saved — loading the confirmed revision…").
 - **Kept through a reload.** The drafts are kept in the tab's storage as
