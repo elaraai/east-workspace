@@ -164,6 +164,11 @@ east-py export-functions pricing.functions -o pricing.functions.beast2 -p east-p
 # Only the functions an importer uses (--only, repeatable): a sibling function's
 # platform call then needs no -p package
 east-py export-functions pricing.functions -o pricing.functions.beast2 --only score
+
+# Several manifests from one import of the module: batch.beast2 is a batch
+# (FunctionExportBatchType), each entry its own output, -p packages and --only
+# functions; e3.export runs one of these per workspace package
+east-py export-functions pricing.functions --batch batch.beast2 --name pricing
 ```
 
 ### Linting East bodies

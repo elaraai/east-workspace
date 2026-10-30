@@ -267,7 +267,7 @@ run time. Three pieces, name for name in both languages:
 
 | Step | TypeScript | python |
 |---|---|---|
-| Export a package's functions as a **manifest** | `East.exportFunctions(pkg, version, { name: fn }, { providers })` → `East.encodeFunctionManifest` · CLI `east-node export-functions <module.js> -o <file> [-p <platform-package>…] [--only <name>…]` (reads the module's `eastFunctions`; `--only` narrows it to the named functions) | `East.export_functions(pkg, version, {"name": fn}, providers)` → `East.encode_function_manifest` · CLI `east-py export-functions <module> -o <file> [-p <platform-package>…] [--only <name>]…` (reads the module's `east_functions`; `--only` narrows it) |
+| Export a package's functions as a **manifest** | `East.exportFunctions(pkg, version, { name: fn }, { providers })` → `East.encodeFunctionManifest` · CLI `east-node export-functions <module.js> -o <file> [-p <platform-package>…] [--only <name>…]` (reads the module's `eastFunctions`; `--only` narrows it to the named functions), or `--batch <file>` for several manifests from one import of the module | `East.export_functions(pkg, version, {"name": fn}, providers)` → `East.encode_function_manifest` · CLI `east-py export-functions <module> -o <file> [-p <platform-package>…] [--only <name>]…` (reads the module's `east_functions`; `--only` narrows it), or `--batch <file>` likewise |
 | Refer to an exported function | `East.importFunction(pkg, name, FunctionType([...], Out))` — a callable function expression | `East.import_function(pkg, name, FunctionType([...], Out))` |
 | Resolve the references | `East.linkImports(fn, manifests)` → `{ ir, imports, sourceMap }` — what `e3.export(pkg, out, { functions })` runs on every task, function and mutation | `East.link_imports(fn, manifests)` → `(ir, imports)` |
 
@@ -286,6 +286,16 @@ its own), or a function that itself holds an unresolved import is refused —
 exports do not chain (v1). A manifest an earlier release wrote, whose
 functions carry no `source_map`, is refused by both decoders, which say to
 re-export it with this release.
+
+A **batch** (`FunctionExportBatchType`, an array of
+`FunctionExportBatchEntryType` — `only`, `output`, `packages`, alphabetical in
+both languages) is what `export-functions --batch <file>` reads in place of
+`-o` / `-p` / `--only`: the module is imported once, and each entry writes the
+manifest its own `-o <output> -p <packages…> --only <only…>` call would write,
+byte for byte (an empty `only` exports every function; a relative `output` is
+relative to the batch's directory). The entries run in order and the first
+that fails ends the export, so an entry whose manifest is missing is the one
+that failed or one after it.
 
 An **unresolved import** is a `Platform` node named `east.importFunction`
 whose two arguments are the package and function names — no new IR node
@@ -316,24 +326,27 @@ workspace the export runs in, found the way a `{ custom }` platform is: the
 governing `uv.lock` above the working directory, by PEP 503 canonical name,
 local sources only; the governing npm lockfile, by `package.json` name,
 workspace members only. A python member is exported with `east-py
-export-functions <package> --name <package> [-p provider…]`, run in the
+export-functions <package> --batch <file> --name <package>`, run in the
 member's directory — the `east-py` of the nearest `.venv` above it, else
 `east-py` on PATH, `EAST_PY` naming it outright — with the member's `src/`
 and directory on `PYTHONPATH`, so the package's root module (declaring
 `east_functions`) imports whether or not it is installed. A node member is
-exported with `east-node export-functions <entry> --name <package> [-p
-provider…]`, `<entry>` the target of its `package.json`
+exported with `east-node export-functions <entry> --batch <file> --name
+<package>`, `<entry>` the target of its `package.json`
 `exports["./functions"]` (a built module declaring `eastFunctions` — a
 member is built before it is exported, as it is before it is packed), run
 by the `@elaraai/east-node-cli` the member resolves, else `east-node` on
 PATH, `EAST_NODE` naming it outright. The providers are the importing
 owner's runner in the exporting language: a stock platform maps to its
 python / node family member, a `{ custom }` name passes through on a runner
-of that runtime. One export runs per package and provider set, of exactly
-the functions the owners with those providers import (`--only`), so a
-sibling function's platform call never fails an owner that does not use it,
-and each owner links against the manifests exported for its own runner. A
-manifest given in `functions:` wins for its package; a
+of that runtime. One process exports each package, since importing it is
+where an export's time goes: its batch holds a manifest per provider set,
+of exactly the functions the owners with those providers import (`only`), so
+a sibling function's platform call never fails an owner that does not use it,
+and each owner links against the manifests exported for its own runner. The
+packages export side by side, as many at once as the export has cores
+(`e3.export`'s `cores`; the CLI's `-j`), and the first to fail stops the
+rest. A manifest given in `functions:` wins for its package; a
 referenced package that is neither given nor a local member is an export
 error naming the import and both ways out. `e3-cli`'s `e3 export` /
 `workspace deploy --from-source` inherit this; `--functions` is for
