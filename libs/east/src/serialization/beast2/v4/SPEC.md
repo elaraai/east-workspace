@@ -38,6 +38,14 @@ All five tables/sections are **global** — shared across the entire blob. Every
   - Two Recursive wrappers are one entry when their bodies are structurally
     equal with each body's self-references standing for its own wrapper
     (wrapper ids are not on the wire).
+- **A recursive type's id is a hash of its table.** Because the table writes
+  no id, the `id` a recursive type's `wrapper` and its `ref`s carry in a type
+  value is the first 62 bits of the SHA-256 of the type-table section written
+  for that type alone (`recursiveTypeId` in `type-table.ts`; east-c's
+  `east_type_structural_id`, which east-py calls). Every runtime writes a
+  recursive type under it, and the decoder names each wrapper it reads by it,
+  so one type has one id in every process and runtime. The definition is
+  frozen: a later container keeps hashing this table.
   - Types found during the value walk (capture types, recursive wrappers) are
     appended by the same rules, after the root closure, in walk order.
 - A decoder must build an entry reached from inside a wrapper's body (where
@@ -158,10 +166,10 @@ There is no separate "IR encoder" vs "user encoder". The same `buildEncoder(type
 
 ### 2. Encode and decode are completely independent
 The encoder and decoder must not share internal state. Each is self-contained:
-- **Encoder** works from source types (in-memory `EastType` objects with source-level recursive IDs). It builds encoder closures from these types and uses them to write bytes.
-- **Decoder** works from decoded types (read from the blob's type table section, with position-based recursive IDs). It builds decoder closures from these types and uses them to read bytes.
-- **The wire format is the only contract between them.** Both agree on byte layout, section ordering, and encoding rules — NOT on internal state like recursive type IDs or closure trees.
-- Recursive type IDs are NOT stable across encode/decode. The type table serialization assigns position-based IDs that differ from the source-level counter-based IDs. The encoder's `typeCtx` (keyed by source IDs) and the decoder's `typeCtx` (keyed by decoded IDs) must never be shared or mixed.
+- **Encoder** works from source types (in-memory `EastType` objects). It builds encoder closures from these types and uses them to write bytes.
+- **Decoder** works from decoded types (read from the blob's type table section). It builds decoder closures from these types and uses them to read bytes.
+- **The wire format is the only contract between them.** Both agree on byte layout, section ordering, and encoding rules — NOT on internal state like closure trees.
+- A recursive type has one id on both sides — the hash of its table (see Type table) — but the encoder's `typeCtx` and the decoder's `typeCtx` are never shared or mixed all the same: each is built from the types its own side holds.
 - Consequence: you can encode on one machine/runtime and decode on another. No ambient state, no process-level singletons shared between encode and decode paths.
 
 ### 3. Tables are global and always present

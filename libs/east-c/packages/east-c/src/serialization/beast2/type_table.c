@@ -18,6 +18,7 @@
  */
 
 #include "internal.h"
+#include "east/sha256.h"
 
 /* ================================================================== */
 /*  Beast2 Flat Type Table                                             */
@@ -452,6 +453,18 @@ typedef struct {
 static B2TTCacheSlot g_tt_cache[B2_TT_CACHE_SLOTS];
 static uint64_t g_tt_cache_age = 0;
 
+/* The digest each recursive type id names in this process, so that a second
+ * type whose table hashes to the same id is refused rather than taken for the
+ * first. Its types die with the arena, so it is cleared with the cache. */
+typedef struct {
+    int64_t id;
+    uint8_t digest[EAST_SHA256_DIGEST_SIZE];
+} B2NamedId;
+
+static B2NamedId *g_named_ids = NULL;
+static size_t g_named_ids_len = 0;
+static size_t g_named_ids_cap = 0;
+
 void east_beast2_type_cache_clear(void)
 {
     for (int i = 0; i < B2_TT_CACHE_SLOTS; i++) {
@@ -461,6 +474,59 @@ void east_beast2_type_cache_clear(void)
         memset(&g_tt_cache[i], 0, sizeof(g_tt_cache[i]));
     }
     g_tt_cache_age = 0;
+    free(g_named_ids);
+    g_named_ids = NULL;
+    g_named_ids_len = 0;
+    g_named_ids_cap = 0;
+}
+
+/* Registers `digest` under `id`, aborting if another digest has it. */
+static void named_id_register(int64_t id, const uint8_t digest[EAST_SHA256_DIGEST_SIZE])
+{
+    for (size_t i = 0; i < g_named_ids_len; i++) {
+        if (g_named_ids[i].id != id) continue;
+        if (memcmp(g_named_ids[i].digest, digest, EAST_SHA256_DIGEST_SIZE) == 0) return;
+        fprintf(stderr,
+                "east: two recursive types have the id %lld: their type tables hash alike "
+                "in their first 62 bits and differ after\n",
+                (long long)id);
+        abort();
+    }
+    if (g_named_ids_len >= g_named_ids_cap) {
+        size_t cap = g_named_ids_cap ? g_named_ids_cap * 2 : 16;
+        B2NamedId *grown = realloc(g_named_ids, cap * sizeof(B2NamedId));
+        if (!grown) return; /* OOM: the id stands, unguarded */
+        g_named_ids = grown;
+        g_named_ids_cap = cap;
+    }
+    g_named_ids[g_named_ids_len].id = id;
+    memcpy(g_named_ids[g_named_ids_len].digest, digest, EAST_SHA256_DIGEST_SIZE);
+    g_named_ids_len++;
+}
+
+int64_t east_type_structural_id(EastType *type)
+{
+    if (!type || type->kind != EAST_TYPE_RECURSIVE || !type->data.recursive.node) return -1;
+    if (type->data.recursive.has_id) return type->data.recursive.id;
+
+    Beast2FlatTypeTable table;
+    flat_tt_init(&table);
+    size_t root = flat_tt_add_et(&table, type);
+    ByteBuffer *section = byte_buffer_new(256);
+    write_type_table_section(root, &table, section);
+    flat_tt_free(&table);
+    uint8_t digest[EAST_SHA256_DIGEST_SIZE];
+    east_sha256(section->data, section->len, digest);
+    byte_buffer_free(section);
+
+    uint64_t head = 0;
+    for (int i = 0; i < 8; i++)
+        head = (head << 8) | digest[i];
+    int64_t id = (int64_t)(head >> 2);
+    named_id_register(id, digest);
+    type->data.recursive.id = id;
+    type->data.recursive.has_id = true;
+    return id;
 }
 
 /* Duplicate a parsed table with the copy holding its own retained refs.
