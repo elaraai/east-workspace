@@ -23,6 +23,8 @@ export {
     kept, useKept, keptText, keptFlag, keptBytes, keptJson, keptRead, NOT_KEPT, onClearKept, keptName, resetKept,
     type Kept, type KeptCodec, type KeptOptions, type KeptReader,
 } from "./platform/kept.js";
+// A developer's debug flag, set by hand in the browser's console.
+export { debugFlag } from "./platform/debug-flag.js";
 // Formatting: a tick's spec and printers, a date pattern's printer and reader,
 // the theme's colour lookup, and a density's row heights.
 export { formatDatePattern, parseDatePattern, tickFormatter, type TickFormat } from "./charts/spec/index.js";
