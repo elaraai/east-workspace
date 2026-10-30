@@ -4,12 +4,12 @@
  */
 
 /**
- * The DecisionQueue's East types (#1447, `Decision Queue Spec.md` §5): what
- * its kinds read from the app's rows — a case and its options, each change a
- * tag and a patch as bytes — the verdict it writes, and the closed builds its
- * payload carries. The app's rows cross as beast2 bytes behind East functions
- * the kinds reify over the app's row types, so the payload is one type
- * whatever the app's records hold, as Schedule's kinds are.
+ * The DecisionQueue's East types (#1447, #1458, `Decision Queue Spec.md` §5):
+ * what its kinds read from the app's rows — a case, its options and its
+ * verdict, each change a tag and a patch as bytes — the verdict it writes, and
+ * the closed builds its payload carries. The app's rows cross as beast2 bytes
+ * behind East functions the kinds reify over the app's row types, so the
+ * payload is one type whatever the app's records hold, as Schedule's kinds are.
  *
  * @packageDocumentation
  */
@@ -19,7 +19,7 @@ import {
     StructType, VariantType,
 } from "@elaraai/east";
 import { ColorTokenType, Format, TimeStepType } from "@elaraai/east-ui";
-import { EditingType } from "@elaraai/east-ui/internal";
+import { EditingType, LiveSourceType } from "@elaraai/east-ui/internal";
 import { CalendarPagedType } from "../calendar/paged.js";
 import { AllocationLabelsType } from "../allocation/index.js";
 import * as A from "../allocation/types.js";
@@ -57,7 +57,7 @@ export type DecisionChangeType = typeof DecisionChangeType;
  * @property summary - The line beside Proposed / Modified
  * @property detail - The sentence under Change
  * @property note - Its line in Options (`lands at 38 h of 38`)
- * @property value - The value line, its figure in Options and its share of the section's total
+ * @property value - The value line, and its figure in Options
  * @property confidence - The model's confidence in it, 0 to 1; `none` reads `no data`
  * @property question - A question only a person can answer, which gates Apply
  * @property warn - The warning box's words
@@ -90,12 +90,26 @@ export const DecisionOptionType = StructType({
 export type DecisionOptionType = typeof DecisionOptionType;
 
 /**
- * A case a model leaves to a person, as its roles read it (§5.1).
+ * What a person decided (§5.2).
  *
- * @property key - Its key in the cases' record: the key its verdict is written under
+ * @property applied - The option's change written
+ * @property overridden - Another way chosen, the option's change not written
+ * @property deferred - Left for later
+ * @property handedOff - Given to someone else
+ */
+export const DecisionVerdictCaseType = VariantType({ applied: NullType, overridden: NullType, deferred: NullType, handedOff: NullType });
+
+/** Type representing {@link DecisionVerdictCaseType}. */
+export type DecisionVerdictCaseType = typeof DecisionVerdictCaseType;
+
+/**
+ * A case a model leaves to a person, as its roles read it (§5.1), and the
+ * verdict its row holds (§5.2).
+ *
+ * @property key - Its key in the cases' record: the row its verdict is written into
  * @property scope - The eyebrow after where it lands (`Inbound · W10`)
- * @property due - When it is due, which places it in a section; `none` for no deadline
- * @property routine - Whether it belongs to the Routine band
+ * @property due - When it is due: the due words and their tone; `none` for no deadline
+ * @property routine - Whether it is routine: the Routine mark on its card
  * @property unit - The value's word (`saved / wk`)
  * @property format - How its values print (east-ui's `Format`); `none` prints plain numbers
  * @property ifWrong - What it costs if the recommendation is wrong; `none` reads `no data`
@@ -103,6 +117,9 @@ export type DecisionOptionType = typeof DecisionOptionType;
  * @property why - Why's paragraph
  * @property recommended - The key of the option the card opens on; `none` for a case that is its own one proposal
  * @property options - Its options, in their key order; one, keyed `none`, for a case that is its own one proposal
+ * @property verdict - The verdict its row holds: `none` while it waits, its card; else its receipt
+ * @property option - The option its row says was taken, `none` for none or a case that is its own one proposal: a receipt's words
+ * @property row - Its row as read, as bytes: what a verdict is written into
  */
 export const DecisionCaseType = StructType({
     key: StringType,
@@ -116,50 +133,17 @@ export const DecisionCaseType = StructType({
     why: StringType,
     recommended: OptionType(StringType),
     options: ArrayType(DecisionOptionType),
+    verdict: OptionType(DecisionVerdictCaseType),
+    option: OptionType(StringType),
+    row: BlobType,
 });
 
 /** Type representing {@link DecisionCaseType}. */
 export type DecisionCaseType = typeof DecisionCaseType;
 
-/**
- * The cases, as a read gives them: every one, or — past the cap — how many
- * there are, and none read (§12).
- *
- * @property cases - The cases, in their key order
- * @property tooMany - How many cases the source holds, past the cap: the banner names the count, and nothing is read
- */
-export const DecisionCasesType = VariantType({ cases: ArrayType(DecisionCaseType), tooMany: IntegerType });
-
-/** Type representing {@link DecisionCasesType}. */
-export type DecisionCasesType = typeof DecisionCasesType;
-
-/**
- * The cases' kind, closed (§5.4): the cases read through their roles.
- *
- * @property read - The cases: the record read whole, or the slice's `decisions` source read complete; `none` while a
- *   read is in flight
- */
-export const DecisionsKindType = StructType({ read: FunctionType([], OptionType(DecisionCasesType)) });
-
-/** Type representing {@link DecisionsKindType}. */
-export type DecisionsKindType = typeof DecisionsKindType;
-
 // ============================================================================
-// What the verdicts write
+// What a verdict writes
 // ============================================================================
-
-/**
- * What a person decided (§5.2).
- *
- * @property applied - The option's change written
- * @property overridden - Another way chosen, the option's change not written
- * @property deferred - Left for later
- * @property handedOff - Given to someone else
- */
-export const DecisionVerdictCaseType = VariantType({ applied: NullType, overridden: NullType, deferred: NullType, handedOff: NullType });
-
-/** Type representing {@link DecisionVerdictCaseType}. */
-export type DecisionVerdictCaseType = typeof DecisionVerdictCaseType;
 
 /**
  * A person's answer to an option's question.
@@ -187,7 +171,7 @@ export const DecisionReasonType = VariantType({ context: NullType, data: NullTyp
 export type DecisionReasonType = typeof DecisionReasonType;
 
 /**
- * A verdict, as the queue writes it into the app's row through the verdicts'
+ * A verdict, as the queue writes it into the case's row through the verdict's
  * roles (§5.2).
  *
  * @property verdict - What was decided
@@ -209,25 +193,39 @@ export const DecisionVerdictType = StructType({
 /** Type representing {@link DecisionVerdictType}. */
 export type DecisionVerdictType = typeof DecisionVerdictType;
 
+// ============================================================================
+// The cases' kind
+// ============================================================================
+
 /**
- * The verdicts' kind, closed (§5.2, §5.4): the app's record of verdicts, its
- * session and its read by key, and how a verdict is written into its row.
+ * The cases' kind, closed (§5.4): the cases read through their roles, the
+ * session over their record, and how a verdict is written into a case's row.
  *
- * @property editing - The shared session over the verdicts' record, with its patch door: Save writes through it
- * @property entries - The record read by key: a case with a verdict under its key never shows (D1)
- * @property write - The verdict written into a row — the stored one, or a new row of the type's defaults for `none` — the
- *   fields its roles map written and every other field as it was, as bytes
+ * @property cases - The cases: `whole`, the record read whole in its key order, `none` while the read is in flight; or
+ *   `paged`, the slice's `decisions` source a page at a time under the narrowing as it stands, in its index's order, its
+ *   count e3's (D4, D5)
+ * @property read - A row's bytes and its key read as its case: a drafted row's, with the verdict the draft holds
+ * @property editing - The shared session over the cases' record, with its patch door: Save writes the verdicts through it
+ * @property entries - The record read by key beside the slice's source — a case drafted, Save's confirmation; `none` for
+ *   the record read whole
+ * @property write - The verdict written into a case's row: the fields its roles map written and every other field as it
+ *   was, as bytes
  * @property roles - Which of the verdict's parts the app's row holds: without one the card asks for none of it
  */
-export const DecisionVerdictsKindType = StructType({
+export const DecisionsKindType = StructType({
+    cases: VariantType({
+        whole: FunctionType([], OptionType(ArrayType(DecisionCaseType))),
+        paged: LiveSourceType(ArrayType(DecisionCaseType)),
+    }),
+    read: FunctionType([BlobType, StringType], DecisionCaseType),
     editing: EditingType,
-    entries: ScheduleEntriesType,
-    write: FunctionType([OptionType(BlobType), DecisionVerdictType], BlobType),
+    entries: OptionType(ScheduleEntriesType),
+    write: FunctionType([BlobType, DecisionVerdictType], BlobType),
     roles: StructType({ option: BooleanType, answer: BooleanType, reason: BooleanType, note: BooleanType }),
 });
 
-/** Type representing {@link DecisionVerdictsKindType}. */
-export type DecisionVerdictsKindType = typeof DecisionVerdictsKindType;
+/** Type representing {@link DecisionsKindType}. */
+export type DecisionsKindType = typeof DecisionsKindType;
 
 // ============================================================================
 // Where each kind of decision draws

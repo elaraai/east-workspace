@@ -655,6 +655,8 @@ export {
     SCHEDULE_INDEX_PAGE, ScheduleKeyReadType, checkEntries, checkIndexWindow, joinRefusal, scheduleBacklogWindow, scheduleDayWindow,
     scheduleEntryByKey, scheduleLastKey, type ScheduleWindowProp,
 } from './schedule/window.js';
+// A type's value as a record's session carries it on its wire: one constant, whatever the type's size.
+export { scheduleTypeValue } from './schedule/session.js';
 export { SchedulePatchTypeFor, schedulePatch, type SchedulePatchInput, type SchedulePatchOf } from './schedule/patch.js';
 // The most events a builder reads and draws of one kind over what it reads at once (#1039): a kind's window through its
 // source is counted first and read only within it; past it, its rows shade from its summary or are hatched.
@@ -685,25 +687,24 @@ export {
 // ride on `Experiment.Types`, so they are not re-exported individually here.
 export { Experiment, ExperimentComponent } from './experiment/index.js';
 // The DecisionQueue (#1447): `<DecisionQueue>` with its namespace, the payload
-// the renderer takes through the `DecisionQueue` carrier — the cases' and the
-// verdicts' kinds, each closed behind East functions over the rows' bytes, each
-// target and the tags it serves, and its rail — the payload's assembly, the
-// declarations it is written with, and its East types.
+// the renderer takes through the `DecisionQueue` carrier — the cases' kind,
+// closed behind East functions over the rows' bytes: their reads, whole or a
+// page at a time, the session over their record and how a verdict is written
+// into a case's row (#1458); each target and the tags it serves; and its rail —
+// the payload's assembly, the declarations it is written with, and its East
+// types.
 export {
     DecisionQueue, DecisionQueueComponent, DecisionQueuePayloadType, createDecisionQueuePayload,
     type DecisionQueueNamespace, type DecisionQueueProps,
 } from './decision/queue.js';
 export * from './decision/types.js';
 export {
-    DECISION_QUEUE_CASES, DECISIONS_SOURCE, decisionQueueDecisions, isDecisionQueueDecisions,
-    type DecisionCaseRole, type DecisionCaseRoles, type DecisionChangeRole, type DecisionOptionChangeRole, type DecisionOptionRole,
-    type DecisionOptionRoles, type DecisionOptionRowOf, type DecisionOptions, type DecisionProposalRoles, type DecisionQueueDecisions,
-    type DecisionRecordOfPatch, type DecisionRoles, type DecisionTargets, type DecisionTargetsOf,
+    DECISIONS_SOURCE, decisionQueueDecisions, isDecisionQueueDecisions,
+    type DecisionCaseRole, type DecisionCaseRoles, type DecisionChangeRole, type DecisionChoiceField, type DecisionOptionChangeRole,
+    type DecisionOptionRole, type DecisionOptionRoles, type DecisionOptionRowOf, type DecisionOptions, type DecisionProposalRoles,
+    type DecisionQueueDecisions, type DecisionRecordOfPatch, type DecisionRoles, type DecisionStringOptionField, type DecisionTargets,
+    type DecisionTargetsOf, type DecisionVerdictRoles,
 } from './decision/decisions.js';
-export {
-    decisionQueueVerdicts, isDecisionQueueVerdicts,
-    type DecisionChoiceField, type DecisionQueueVerdicts, type DecisionStringOptionField, type DecisionVerdictRoles,
-} from './decision/verdicts.js';
 export {
     decisionQueueProjectionTarget, decisionQueueRecordTarget, decisionQueueZonesTarget, decisionTarget, decisionTargetRole, isDecisionTarget,
     type DecisionProjectionTargetConfig, type DecisionQueueTarget, type DecisionRecordTargetConfig, type DecisionTargetNames,

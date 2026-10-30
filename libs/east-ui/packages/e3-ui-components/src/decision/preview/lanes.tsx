@@ -4,16 +4,16 @@
  */
 
 /**
- * A lanes crop, drawn (`Decision Queue Spec.md` D8, P13–P20, P24, P25): the
+ * A lanes crop, drawn (`Decision Queue Spec.md` D8, P13–P17, P19, P20, P24, P25): the
  * Plan's, the Calendar's and the Allocation's ruler over the window, its ticks
  * the window's hours, days or weeks, and a lane a resource the change touches,
  * the Allocation's waiting row, or a day it lands on: its name and its measure
  * before → after in its tone at its head — the Plan's booked share, the
  * Calendar's overlaps, the Allocation's load — and on its plot the grid, the
  * now line where the window holds it that day, and its entries — each at its
- * place in the lane's stack, the change's marked, its ghosts dashed, its lock,
- * its conflict and the `+N` of the other cases changing it; an Allocation's
- * its bins and its resources' jobs, as the board draws them. What it draws is
+ * place in the lane's stack, the change's marked, its ghosts dashed, its lock
+ * and its conflict; an Allocation's its bins and its resources' jobs, as the
+ * board draws them. What it draws is
  * {@link lanesPreview}'s. Past two lanes, the kind's map (P5, P12): the
  * resources of the kinds the change lands on as tiles under their groups'
  * labels, and the when strip of the new times it gives its events
@@ -113,8 +113,7 @@ const knocked = (c: LaneClause): c is Extract<LaneClause, { kind: "move" | "resc
 
 /**
  * A lanes crop's sentence (P25): what moves where — each with what it breaks once the change is made (P15) — and the
- * knock-ons it pushes (P16), then the entries it leaves pinned (P17), those other cases change too (P18) and the rows
- * the model guessed; with nothing marked, the lanes it would land on; stale, what the change touches, which moved after
+ * knock-ons it pushes (P16), then the entries it leaves pinned (P17) and the rows the model guessed; with nothing marked, the lanes it would land on; stale, what the change touches, which moved after
  * the model's run (P21).
  *
  * @param model - The crop
@@ -149,10 +148,7 @@ export function lanesSentence(model: LanesModel, guessed: readonly string[], sta
         pushes: pushes.length === 0 ? undefined : m.previewPushes({
             pushes: pushes.map(c => (c.kind === "move" ? { what: c.what, onto: c.to, start: time(c.start) } : { what: c.what, was: time(c.was), start: time(c.start) })),
         }),
-        marks: [
-            ...model.pinned.map(p => m.previewPinned({ what: p.what, on: p.on })),
-            ...model.shared.map(s => m.previewAlsoIn({ what: s.what, n: words.number(s.n), one: s.n === 1 })),
-        ],
+        marks: model.pinned.map(p => m.previewPinned({ what: p.what, on: p.on })),
         guessed: guessed.length === 0 ? undefined : { keys: m.previewList({ items: guessed }), n: guessed.length },
     });
 }
@@ -234,7 +230,6 @@ function barTitle(bar: LaneBar, dated: Dated, words: DecisionQueueWords): string
         to: bar.to === undefined ? undefined : bar.to.name ?? span(bar.to.start, bar.to.end),
         knock: bar.knock, locked: bar.locked,
         breach: breachText(bar.breach, words),
-        shared: bar.shared > 0 ? { n: words.number(bar.shared), one: bar.shared === 1 } : undefined,
     });
 }
 
@@ -252,7 +247,7 @@ interface BarProps {
     readonly styles: SlotStyles;
 }
 
-/** An entry on a lane: its title, its lock and its conflict, and the `+N` of the other cases changing it. */
+/** An entry on a lane: its title, its lock and its conflict. */
 function Bar({ bar, shape, dated, words, styles }: BarProps) {
     const place = { "--pv-left": `${bar.left * 100}%`, "--pv-width": `${bar.width * 100}%`, "--pv-lane": `${bar.lane}` } as CSSProperties;
     const proposed = bar.op === "add" || bar.op === "chg";
@@ -264,7 +259,6 @@ function Bar({ bar, shape, dated, words, styles }: BarProps) {
             <Box as="span" css={styles.barText}>{bar.title}</Box>
             {bar.locked && <Box as="span" css={styles.icon} aria-hidden="true"><FontAwesomeIcon icon={faLock} /></Box>}
             {bar.breach !== undefined && <Box as="span" css={styles.icon} data-tone="warn" aria-hidden="true"><FontAwesomeIcon icon={faTriangleExclamation} /></Box>}
-            {bar.shared > 0 && <Box as="span" css={styles.shared} data-preview-shared="">{words.m.previewShared({ n: words.number(bar.shared) })}</Box>}
         </Box>
     );
 }

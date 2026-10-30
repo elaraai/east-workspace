@@ -5,7 +5,7 @@
 
 /**
  * What a Roster target's preview draws (`Decision Queue Spec.md` D8, P4, P5,
- * P13–P19, P24, P25): the week a change lands in, before it and after it,
+ * P13–P17, P19, P24, P25): the week a change lands in, before it and after it,
  * assembled as the Roster assembles its week — each stored duty placed by the
  * Roster's own placement, the queue's drafts in their place — and the people
  * it lands on, each a row of the week's seven days: the duties as they stand,
@@ -49,8 +49,6 @@ export interface RosterPreviewTile {
     readonly breach: string | undefined;
     /** Whether the target's `locked` pins it (P17). */
     readonly locked: boolean;
-    /** How many other cases' chosen options change it too (P18). */
-    readonly shared: number;
     /** A ghost's: whom the change moves it to. */
     readonly to: string | undefined;
 }
@@ -127,8 +125,6 @@ export interface RosterPreviewInput {
     readonly knockOn: (key: string) => boolean;
     /** Whether the target's `locked` pins a duty, by its row. */
     readonly locked: (bytes: Uint8Array, key: string) => boolean;
-    /** How many other cases change a duty. */
-    readonly shared: (key: string) => number;
 }
 
 /**
@@ -221,7 +217,7 @@ export function rosterPreview(input: RosterPreviewInput): RosterPreviewModel {
             const mine = marked && touches(id);
             const knock = mine && input.knockOn(id);
             const op: PreviewOp | undefined = !mine || knock ? undefined : b !== undefined && sameWho(b.who, a.who) && sameDay(b.slot.day, a.slot.day) ? "chg" : "add";
-            day.push({ key: id, shift: a.slot.shift, op, knock, breach: breaches.get(id), locked: input.locked(now.rows.get(id)!.bytes, id), shared: mine ? input.shared(id) : 0, to: undefined });
+            day.push({ key: id, shift: a.slot.shift, op, knock, breach: breaches.get(id), locked: input.locked(now.rows.get(id)!.bytes, id), to: undefined });
         }
         // Their duties the change moves off a day of theirs, or removes: ghosts, ahead of what the day holds.
         if (marked) {
@@ -233,7 +229,7 @@ export function rosterPreview(input: RosterPreviewInput): RosterPreviewModel {
                 const day = days[Number(b.slot.day)];
                 if (day === undefined) continue;
                 day.unshift({ key: id, shift: b.slot.shift, op: a === undefined ? "del" : "from", knock: false, breach: undefined,
-                    locked: input.locked(was.rows.get(id)!.bytes, id), shared: 0, to: a === undefined ? undefined : nameOf(a.who) });
+                    locked: input.locked(was.rows.get(id)!.bytes, id), to: a === undefined ? undefined : nameOf(a.who) });
             }
         }
         const held = (placed: PlacedDuties): number => [...placed.assignments.values()].filter(a => sameWho(a.who, who)).length;

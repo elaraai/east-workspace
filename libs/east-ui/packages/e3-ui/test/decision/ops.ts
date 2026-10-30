@@ -3,27 +3,28 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /**
- * The decision queue's example app (#1447, `Decision Queue Spec.md` §3.1,
- * §3.2, §15): a warehouse, a print shop, a kiln yard and a workshop under one
- * roof — the repo's own example records — whose models propose changes to
- * each. Its cases are one record, every kind of decision in it: an option's
- * change is a variant, its tag the kind of decision and its value a patch of
- * the record that kind changes, built with East's own diff of the rows it
- * touches (`changes.ts`). Its verdicts are another record, which the queue
- * writes; the price list, the stock levels, the lines' cure settings and the
- * presses' readiness are records no builder draws. The cases are the spec's
- * mock's, like for like — its scopes, titles, options, figures, questions and
- * warnings — on Tuesday 10 March 2026 at 13:00, the examples' `now`, over the
- * rows of the records each changes. Beside them, the smallest queue's — a
- * record of the model's proposals, each one decision with no alternatives, and
- * its verdicts — and the routine queue's: the models' routine changes, each its
- * own one proposal, and their verdicts. Every name and figure is generated.
+ * The decision queue's example app (#1447, #1458, `Decision Queue Spec.md`
+ * §3.1, §3.2, §15): a warehouse, a print shop, a kiln yard and a workshop
+ * under one roof — the repo's own example records — whose models propose
+ * changes to each. Its cases are one record, every kind of decision in it,
+ * each row carrying its verdict, which the queue writes through the record's
+ * patch door: an option's change is a variant, its tag the kind of decision
+ * and its value a patch of the record that kind changes, built with East's own
+ * diff of the rows it touches (`changes.ts`). The price list, the stock
+ * levels, the lines' cure settings and the presses' readiness are records no
+ * builder draws. The cases are the spec's mock's, like for like — its scopes,
+ * titles, options, figures, questions and warnings — on Tuesday 10 March 2026
+ * at 13:00, the examples' `now`, over the rows of the records each changes,
+ * each waiting as the model writes it; the app's own indexes on their
+ * judgement narrow them (D18). Beside them, the smallest queue's: a record of
+ * the model's proposals, each one decision with no alternatives, and its
+ * verdict. Every name and figure is generated.
  */
 import {
     BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType,
-    VariantType, diffFor, none, some, variant, type ValueTypeOf,
+    VariantType, diffFor, none, some, variant, type PatchTypeOf, type ValueTypeOf,
 } from "@elaraai/east";
-import e3 from "@elaraai/e3";
+import e3, { type IndexDraft, type IndexesOf, type MutationDraft, type MutationsOf, type RecordDef } from "@elaraai/e3";
 import { KilnBin } from "../allocation/kiln-yard.js";
 import { CalendarService, calendarServices } from "../calendar/calendar.examples.js";
 import { PrintJob, planEventJobs } from "../plan/plan-events.examples.js";
@@ -79,7 +80,10 @@ export const OpsOption = StructType({
     change: OpsChange,
 });
 
-/** A case a model leaves to a person. */
+/** When a verdict was given: each case of the verdict but `waiting` holds it. */
+const Given = StructType({ at: DateTimeType });
+
+/** A case a model leaves to a person, and the person's verdict on it. */
 export const OpsCase = StructType({
     area: StringType,                  // the app's own field, which the rail narrows by; the queue maps none
     scope: StringType,
@@ -92,15 +96,9 @@ export const OpsCase = StructType({
     ifWrong: OptionType(FloatType),
     recommended: StringType,           // the key of the option the card opens on
     options: DictType(StringType, OpsOption),  // keyed by the model's rank, which orders them: `1-pumice`, `2-osier`, …
-});
-
-/** When a verdict was given: each case of a verdict holds it. */
-const Given = StructType({ at: DateTimeType });
-
-/** A person's verdict on a case, under the case's key. */
-export const OpsVerdict = StructType({
-    verdict: VariantType({ applied: Given, overridden: Given, deferred: Given, handedOff: Given }),
-    option: OptionType(StringType),
+    // The verdict, which the queue writes: waiting, as the model writes every new case, until a person decides it.
+    verdict: VariantType({ waiting: NullType, applied: Given, overridden: Given, deferred: Given, handedOff: Given }),
+    option: OptionType(StringType),    // the option taken
     answer: OptionType(VariantType({ yes: NullType, no: NullType, unsure: NullType })),
     reason: OptionType(VariantType({ context: NullType, data: NullType, priorities: NullType, other: NullType })),
     note: OptionType(StringType),
@@ -110,6 +108,11 @@ export const OpsVerdict = StructType({
 export function option(row: Pick<ValueTypeOf<typeof OpsOption>, "label" | "title" | "summary" | "detail" | "value" | "change">
     & Partial<ValueTypeOf<typeof OpsOption>>): ValueTypeOf<typeof OpsOption> {
     return { ...optionDefaults(), ...row };
+}
+
+/** A case as a model writes it: its own fields, its verdict waiting — nothing chosen, answered or noted yet. */
+export function proposed(row: Omit<ValueTypeOf<typeof OpsCase>, "verdict" | "option" | "answer" | "reason" | "note">): ValueTypeOf<typeof OpsCase> {
+    return { ...row, verdict: variant("waiting", null), option: none, answer: none, reason: none, note: none };
 }
 
 /** The price list's rows, by region. */
@@ -207,11 +210,12 @@ const pressA1Ready = readinessPatch("a1");
  * where the print works' J-3007 runs, overlapping J-3006 on Press B2, 35 minutes late. Due today: which kiln the kiln
  * yard's LD-2235 dries in, the C5 envelopes' reorder, and when Press 1's maintenance runs, overlapping the mounting
  * brackets on Thursday. This week: a price for the Coast region and the week's overtime, both by Friday, line 2's
- * slow cure by Thursday, and the ready orders' due dates by Wednesday. Routine: two long Thursday shifts trimmed,
- * Saturday's inbound early cover trimmed to the heads rostered, and Press A1's readiness confirmed.
+ * slow cure by Thursday, and the ready orders' due dates by Wednesday. And three routine ones: two long Thursday shifts
+ * trimmed, Saturday's inbound early cover trimmed to the heads rostered, and Press A1's readiness confirmed. Each
+ * waits, as the model writes it.
  */
 export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new SortedMap<string, ValueTypeOf<typeof OpsCase>>([
-    ["rota-tansy", {
+    ["rota-tansy", proposed({
         area: "rota", scope: "Picking · W10", due: some(new Date("2026-03-10T11:00:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
         model: "staffing-v3.2.1 · run #42",
         why: "Picking demand runs 14% above plan for the next two weeks. The extra late shift sits on J. Tansy, 4h over contract; B. Pumice has 14h spare.",
@@ -233,8 +237,8 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
                 warn: some("J. Tansy stays 4h over contract; an SLA breach is likely in week 2."),
                 change: variant("rota", dutiesPatch([["s234", tansyFriday]])) })],
         ], byString),
-    }],
-    ["print-j3007", {
+    })],
+    ["print-j3007", proposed({
         area: "print", scope: "Print works · Hall B", due: some(new Date("2026-03-10T12:25:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
         model: "press-sched-v2 · run #118",
         why: "J-3006 runs on Press B2 until 12:00, so J-3007 overlaps it for two hours. Press A1 is free from 11:00 and carries the same stock.",
@@ -254,8 +258,8 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
                 detail: "J-3007 runs on A2 10:00–13:00.", value: 0, refused: some("takes no board stock"),
                 change: variant("print", jobsPatch(printJobs, [["J-3007", { ...loyaltyCards, press: some("a2") }]])) })],
         ], byString),
-    }],
-    ["yard-ld2235", {
+    })],
+    ["yard-ld2235", proposed({
         area: "yard", scope: "Kiln yard", due: some(new Date("2026-03-10T14:00:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
         model: "yard-fit · run #77",
         why: "K-305 is free on Tue 11 and takes 4–10 m³: LD-2235's 8 m³ dries its 9 days there before the kiln's next planned charge on Thu 20. The bulk kilns take no load under 40 m³.",
@@ -274,8 +278,8 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
                 detail: "K-601 dries it Tue 11 14:15 – Thu 20.", value: 0, refused: some("bulk kiln · takes no load under 40 m³"),
                 change: variant("yard", binPatch("3127", ld2235Bin("K-601", tue11))) })],
         ], byString),
-    }],
-    ["stock-c5", {
+    })],
+    ["stock-c5", proposed({
         area: "stock", scope: "Replenishment", due: some(new Date("2026-03-10T16:00:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
         model: "replen-v1.4 · run #31",
         why: "Week 10 demand runs 9% above forecast. Without an order, the C5 envelopes fall under their 400-unit safety level in week 11; the supplier needs 6 days.",
@@ -292,8 +296,8 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
                 warn: some("Stock falls under the safety level in week 11."),
                 change: variant("stock", stockPatch("c5", 0, 34)) })],
         ], byString),
-    }],
-    ["workshop-press1", {
+    })],
+    ["workshop-press1", proposed({
         area: "workshop", scope: "Fabrication", due: some(new Date("2026-03-10T17:00:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
         model: "fab-sched · run #12",
         why: "Press 1's preventive maintenance overlaps the mounting brackets on Thursday. Saturday morning is free on Press 1 and inside the service interval.",
@@ -308,8 +312,8 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
                 detail: "No change to the calendar.", note: some("the overlap with the mounting brackets stays"), value: 0,
                 change: variant("workshop", servicesPatch("service1", pressOneService)) })],
         ], byString),
-    }],
-    ["price-coast", {
+    })],
+    ["price-coast", proposed({
         area: "pricing", scope: "Regional list prices", due: some(new Date("2026-03-13T17:00:00Z")), routine: false, unit: "uplift / mo",
         figure: variant("money", null), model: "demand-coast · query 2h ago",
         why: "Coast demand is less sensitive to price than other regions, at an elasticity of −0.42. Competitors sit at a median of $11.20.",
@@ -325,9 +329,9 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
                 detail: "No change to prices.", note: some("margin stays at 18%"), value: 0,
                 change: variant("pricing", pricesPatch("coast", 10.50, 14_200)) })],
         ], byString),
-    }],
+    })],
     // The week's overtime, read by what it costs: two overtime shifts to people under contract, and an agency request to a third.
-    ["rota-overtime", {
+    ["rota-overtime", proposed({
         area: "rota", scope: "Warehouse · W10", due: some(new Date("2026-03-13T17:00:00Z")), routine: false, unit: "saved / wk",
         figure: variant("money", null), model: "roster-opt · run #204",
         why: "Week 10 carries 60h of overtime and two agency requests while B. Pumice, N. Ochre and J. Quartz sit under contract. Moving 3 shifts to them cuts overtime and agency cost.",
@@ -344,9 +348,9 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
                 detail: "No change to the roster.", note: some("60h of overtime stays"), value: 0,
                 change: variant("rotaCost", dutiesPatch(overtime.map(key => [key, warehouseDuties.get(key)!] as const))) })],
         ], byString),
-    }],
+    })],
     // A causal estimate: line 2's slow cure, its bond strength the figure.
-    ["trial-cure", {
+    ["trial-cure", proposed({
         area: "trial", scope: "Line 2", due: some(new Date("2026-03-12T17:00:00Z")), routine: false, unit: "MPa bond", figure: variant("count", null),
         model: "causal · slow_cure · 2d ago",
         why: "Slow cure raises bond strength by 5.2 MPa (95% 3.9 to 6.5) after adjusting for line and resin batch. All four refutation checks pass.",
@@ -359,9 +363,9 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
                 detail: "Decide on Mar 24 with the trial result.", note: some("confirms the effect first"), value: 0, confidence: some(0.95),
                 change: variant("trial", curePatch("line-2", { trialBatches: 48n })) })],
         ], byString),
-    }],
+    })],
     // The Sheet's cells filled from history, one a guess.
-    ["orders-ready", {
+    ["orders-ready", proposed({
         area: "orders", scope: "Workshop orders", due: some(new Date("2026-03-11T17:00:00Z")), routine: false, unit: "due dates",
         figure: variant("count", null), model: "sheet copilot · 5m ago",
         why: "WO-1005, WO-1007 and WO-1008 can't be scheduled while they have no due date. 38 similar orders on the same work centres give a date for each.",
@@ -375,9 +379,9 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
                 detail: "WO-1007 stays without a due date.", note: some("conf 0.95 or more"), value: 2, confidence: some(0.96),
                 change: variant("orders", ordersPatch([["WO-1005", mon16], ["WO-1008", wed18]])) })],
         ], byString),
-    }],
-    // Routine: the band at the end, applied together.
-    ["rota-trim", {
+    })],
+    // Routine: each marked so on its card, and decided there as any case is.
+    ["rota-trim", proposed({
         area: "rota", scope: "Inbound · W10", due: none, routine: true, unit: "uplift", figure: variant("money", null),
         model: "roster-opt · run #204",
         why: "C. Kestrel's late and S. Meadow's night on Thursday run 10h, and neither agreed to the extra 2h.",
@@ -387,8 +391,8 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
                 detail: "C. Kestrel's late and S. Meadow's night end 2h earlier.", value: 168,
                 change: variant("rota", thursdayTrim) })],
         ], byString),
-    }],
-    ["cover-saturday", {
+    })],
+    ["cover-saturday", proposed({
         area: "cover", scope: "Inbound · Sat 11", due: none, routine: true, unit: "uplift", figure: variant("money", null),
         model: "cover-plan · run #8",
         why: "Saturday's inbound early has 11 rostered against a target of 12; the forecast's unloading fits 11.",
@@ -398,8 +402,8 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
                 detail: "Saturday's inbound early needs 11, the heads rostered.", value: 408,
                 change: variant("cover", saturdayCover) })],
         ], byString),
-    }],
-    ["ready-a1", {
+    })],
+    ["ready-a1", proposed({
         area: "ready", scope: "Press A1", due: none, routine: true, unit: "days", figure: variant("count", null),
         model: "eta-forecast · run #3",
         why: "Press A1's new rollers fit on Wednesday; the forecast has it ready two days later.",
@@ -409,17 +413,18 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
                 detail: "Press A1's readiness is confirmed.", value: 2,
                 change: variant("ready", pressA1Ready) })],
         ], byString),
-    }],
+    })],
 ], byString);
 
 /** The cases, the app's record of them, keyed by case. */
 const OpsCasesType = DictType(StringType, OpsCase);
+type OpsCases = typeof OpsCasesType;
 
-/** The models' mutation of their cases: a run's cases in, each under a key of its own, and the cases decided since out. */
-const proposeCases = East.function([OpsCasesType, OpsCasesType, SetType(StringType)], OpsCasesType, ($, cases, run, decided) => {
-    const next = $.let(cases.copy());
+/** The models' mutation of their cases: the cases decided since out — their verdicts kept in the record's history — and a run's cases in, each waiting under a key of its own. */
+const proposeCases = East.function([OpsCasesType, OpsCasesType], OpsCasesType, ($, cases, run) => {
+    const next = $.let(cases.filter((_$, row) => row.verdict.hasTag("waiting")));
     $(next.unionInPlace(run, (_$, _held, proposed) => proposed));
-    return next.filter((_$, _row, key) => decided.has(key).not());
+    return next;
 });
 
 /** The price list, a record no builder draws, written through its patch door. */
@@ -454,24 +459,38 @@ export const pressReadiness = e3.record("press_readiness", DictType(StringType, 
     }),
 });
 
-/** The models' cases: the app's record, filled by its own mutation — e3's tasks read records and never write them. */
-export const opsCases = e3.record("ops_cases", OpsCasesType, {
+/** The key of the app's index on a case's judgement — its verdict's tag — and its area. */
+const ByJudgementArea = StructType({ judgement: StringType, area: StringType });
+/** The key of the app's index on a case's judgement and its scope. */
+const ByJudgementScope = StructType({ judgement: StringType, scope: StringType });
+
+/**
+ * The cases' record's type, written out as its parts declare it: the type of a patch door over rows that hold patches
+ * — a patch of a patch — is longer than TypeScript writes into this module's declarations (TS7056).
+ */
+type OpsCasesRecord = RecordDef<OpsCases, [variant<"field", "records">, variant<"field", "ops_cases">],
+    IndexesOf<{
+        ops_cases_by_judgement_area: IndexDraft<typeof ByJudgementArea, NullType, undefined>;
+        ops_cases_by_judgement_scope: IndexDraft<typeof ByJudgementScope, NullType, undefined>;
+    }, OpsCases>,
+    MutationsOf<{ ops_propose: MutationDraft<[OpsCases]>; patch: MutationDraft<[PatchTypeOf<OpsCases>]> }, OpsCases>>;
+
+/**
+ * The models' cases: the app's record, filled by its own mutation — e3's tasks read records and never write them — and
+ * the verdicts the queue writes into them through their patch door.
+ */
+export const opsCases: OpsCasesRecord = e3.record("ops_cases", OpsCasesType, {
     initial: opsCaseRows,
     indexes: (index) => ({
-        // The app's own fields, which the rail narrows the cases by.
-        ops_cases_by_area: index.on(["area"]),
-        ops_cases_by_scope: index.on(["scope"]),
+        // The app's own: whether anyone has judged a case — its verdict's tag — then a field the rail narrows by.
+        ops_cases_by_judgement_area: index.key(East.function([StringType, OpsCase], ByJudgementArea,
+            (_$, _key, c) => ({ judgement: c.verdict.getTag(), area: c.area }))),
+        ops_cases_by_judgement_scope: index.key(East.function([StringType, OpsCase], ByJudgementScope,
+            (_$, _key, c) => ({ judgement: c.verdict.getTag(), scope: c.scope }))),
     }),
     mutations: (mutation) => ({
-        ops_propose: mutation.reduce(proposeCases),
-    }),
-});
-
-/** The people's verdicts: the record the queue writes, through its patch door. */
-export const opsVerdicts = e3.record("ops_verdicts", DictType(StringType, OpsVerdict), {
-    initial: new Map(),
-    mutations: (mutation) => ({
-        patch: mutation.patch(),
+        ops_propose: mutation.reduce(proposeCases),  // the app's: the decided cases out, a run's cases in, each waiting
+        patch: mutation.patch(),                     // the queue's: the verdicts
     }),
 });
 
@@ -485,10 +504,11 @@ export const ProposalDetails = VariantType({
     pricing: PatchType(DictType(StringType, ListPrice)),         // the price list
 });
 
-/** A proposal of the app's model, in the app's own words: one decision, no alternatives. */
+/** A proposal of the app's model, in the app's own words: one decision, no alternatives — and the verdict on it. */
 export const Proposal = StructType({
     site: StringType, deadline: OptionType(DateTimeType), metric: StringType, run: StringType, rationale: StringType,
     headline: StringType, brief: StringType, description: StringType, saving: FloatType, details: ProposalDetails,
+    verdict: VariantType({ waiting: NullType, applied: NullType, overridden: NullType, deferred: NullType, handedOff: NullType }),
 });
 
 /** The model's proposals: a price for the North region by Friday, and a due date for the first ready order by 17:00 today. */
@@ -497,77 +517,22 @@ export const proposalRows: SortedMap<string, ValueTypeOf<typeof Proposal>> = new
         site: "Regional list prices", deadline: some(new Date("2026-03-13T17:00:00Z")), metric: "uplift / mo", run: "demand-north · query 1h ago",
         rationale: "North demand held at $11.20 through the last two rises; competitors sit at $11.60.",
         headline: "Raise the North list price to $11.50", brief: "North $11.20 → $11.50", description: "Demand −1.2% · revenue +1.4%.",
-        saving: 4_300, details: variant("pricing", pricesPatch("north", 11.50, 6_027)),
+        saving: 4_300, details: variant("pricing", pricesPatch("north", 11.50, 6_027)), verdict: variant("waiting", null),
     }],
     ["prop-wo1005", {
         site: "Workshop orders", deadline: some(new Date("2026-03-10T17:00:00Z")), metric: "orders", run: "sheet copilot · 5m ago",
         rationale: "WO-1005 is ready with no due date; its work centre is free from Monday.",
         headline: "Schedule WO-1005 for Mon 16 Mar", brief: "WO-1005 · due Mon 16 Mar", description: "WO-1005 is given a due date and set Scheduled.",
-        saving: 1, details: variant("orders", ordersPatch([["WO-1005", mon16]])),
+        saving: 1, details: variant("orders", ordersPatch([["WO-1005", mon16]])), verdict: variant("waiting", null),
     }],
 ], byString);
 
-/** The model's proposals, the rail narrowing them by site. */
+/** The model's proposals, with the patch door the queue writes each verdict through, and an index on their site for a rail. */
 export const proposals = e3.record("proposals", DictType(StringType, Proposal), {
     initial: proposalRows,
     indexes: (index) => ({
         proposals_by_site: index.on(["site"]),
     }),
-});
-/** The verdicts on them, which the queue writes through their patch door. */
-export const proposalVerdicts = e3.record("proposal_verdicts", DictType(StringType, OpsVerdict), {
-    initial: new Map(),
-    mutations: (mutation) => ({
-        patch: mutation.patch(),
-    }),
-});
-
-// ============================================================================
-// The routine queue's (§15)
-// ============================================================================
-
-/** What a routine change changes: its tag is the kind of decision, its value a patch of the record that kind changes. */
-export const RoutineChange = VariantType({
-    rota: PatchType(DictType(StringType, WarehouseDuty)),        // the warehouse rota's duties, as the Roster draws them
-    cover: PatchType(DictType(StringType, WarehouseCover)),      // the rota's cover targets
-    ready: PatchType(DictType(StringType, PressReadiness)),      // the presses' readiness
-});
-
-/** A routine change of the models', in the app's own words: its own one proposal, applied with the others in one go. */
-export const Routine = StructType({
-    scope: StringType, unit: StringType, figure: VariantType({ money: NullType, count: NullType }), model: StringType, why: StringType,
-    title: StringType, summary: StringType, detail: StringType, value: FloatType, change: RoutineChange,
-});
-
-/** The routine changes the models left, the mock's like for like: the Ops cases' routine band, each its own proposal. */
-export const routineRows: SortedMap<string, ValueTypeOf<typeof Routine>> = new SortedMap<string, ValueTypeOf<typeof Routine>>([
-    ["rota-trim", {
-        scope: "Inbound · W10", unit: "uplift", figure: variant("money", null), model: "roster-opt · run #204",
-        why: "C. Kestrel's late and S. Meadow's night on Thursday run 10h, and neither agreed to the extra 2h.",
-        title: "Trim 4h from Thursday's long shifts", summary: "2 shifts · 10h → 8h", detail: "C. Kestrel's late and S. Meadow's night end 2h earlier.",
-        value: 168, change: variant("rota", thursdayTrim),
-    }],
-    ["cover-saturday", {
-        scope: "Inbound · Sat 11", unit: "uplift", figure: variant("money", null), model: "cover-plan · run #8",
-        why: "Saturday's inbound early has 11 rostered against a target of 12; the forecast's unloading fits 11.",
-        title: "Trim Saturday's inbound early cover by one", summary: "heads 12 → 11", detail: "Saturday's inbound early needs 11, the heads rostered.",
-        value: 408, change: variant("cover", saturdayCover),
-    }],
-    ["ready-a1", {
-        scope: "Press A1", unit: "days", figure: variant("count", null), model: "eta-forecast · run #3",
-        why: "Press A1's new rollers fit on Wednesday; the forecast has it ready two days later.",
-        title: "Confirm Press A1 ready in ~2 days", summary: "confirmed", detail: "Press A1's readiness is confirmed.",
-        value: 2, change: variant("ready", pressA1Ready),
-    }],
-], byString);
-
-/** The routine changes, a record of the models'. */
-export const routines = e3.record("routines", DictType(StringType, Routine), {
-    initial: routineRows,
-});
-/** The verdicts on them, which the queue writes through their patch door. */
-export const routineVerdicts = e3.record("routine_verdicts", DictType(StringType, OpsVerdict), {
-    initial: new Map(),
     mutations: (mutation) => ({
         patch: mutation.patch(),
     }),

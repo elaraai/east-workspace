@@ -32,7 +32,7 @@ import { EMPTY_SCHEDULE_DRAFTS } from "../../shared/schedule/editing.js";
 import type { ScheduleItemValue } from "../../shared/schedule/overlaps.js";
 import { kindPlural } from "../../shared/schedule/words.js";
 import { appliedRows, standingRows, type DecisionTarget } from "../editing.js";
-import { PreviewFailed, PreviewFrame, PreviewPending, guessedOf, leftBy, sharedOf, type PreviewProps } from "./frame.js";
+import { PreviewFailed, PreviewFrame, PreviewPending, guessedOf, leftBy, type PreviewProps } from "./frame.js";
 import { LanesCrop, LanesMap, dayText, lanesSentence, mapSentence, type PreviewMap } from "./lanes.js";
 import { UNASSIGNED, laneDay, laneDayKey, laneDayWindow, laneEvent, lanesPreview, type LaneEvent, type LanesModel } from "./lanes-model.js";
 import { CROP_LANES, lanesMap, type MapResource } from "./map-model.js";
@@ -83,7 +83,7 @@ export interface CalendarPreviewProps extends PreviewProps {
  * @param props - The case, its target and record, the rows its change leaves and the queue's editing ({@link CalendarPreviewProps})
  * @returns The preview
  */
-export function CalendarPreview({ c, view, target, kind, record, rows, changed, schedule, shared, words, styles, now }: CalendarPreviewProps) {
+export function CalendarPreview({ c, view, target, kind, record, rows, changed, schedule, words, styles, now }: CalendarPreviewProps) {
     const option = view.option;
     const read = useCallback((): CalendarRead => {
         if (rows === "reading" || rows === "failed") return PENDING;
@@ -204,7 +204,6 @@ export function CalendarPreview({ c, view, target, kind, record, rows, changed, 
                 const bytes = bytesOf.get(key);
                 return bytes !== undefined && locked(bytes, key);
             },
-            shared: key => sharedOf(shared, record.key, key),
             overlaps: slot => kind.events.find(k => stringEqual(k.key, slot))?.overlaps.type === "warn",
             pairs: "all",
             measure: "overlaps",
@@ -246,7 +245,7 @@ export function CalendarPreview({ c, view, target, kind, record, rows, changed, 
                 },
             },
         };
-    }, [rows, changed, option, c.options, view.recommended, record, target, schedule, kind, shared, words]);
+    }, [rows, changed, option, c.options, view.recommended, record, target, schedule, kind, words]);
     const { result } = useTrackedEvaluation(read);
     const stale = rows === "stale";
     if (rows === "failed" || !result.ok) {

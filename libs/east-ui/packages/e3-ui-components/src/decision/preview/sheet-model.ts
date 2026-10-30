@@ -5,7 +5,7 @@
 
 /**
  * A Sheet target's preview, worked out (`Decision Queue Spec.md` D7, P3, P4,
- * P13, P14, P16–P18, P21, P25, P26): the rows the change touches as the Sheet
+ * P13, P14, P16, P17, P21, P25, P26): the rows the change touches as the Sheet
  * shows them — each row's cells as its columns print them, as it stands and as
  * the change leaves it — the first three in the change's order, under the
  * Sheet's first column, which names each row, and the columns the change sets
@@ -89,8 +89,6 @@ export interface SheetCropRow {
     readonly knock: boolean;
     /** Whether it is locked (P17). */
     readonly locked: boolean;
-    /** How many other cases change it (P18). */
-    readonly shared: number;
     /** The model's confidence in it, where it guessed it (P26). */
     readonly confidence: number | undefined;
     /** Its cells, a column drawn after the first. */
@@ -131,8 +129,6 @@ export interface SheetCropInputs {
     readonly knockOn: (key: string) => boolean;
     /** Whether a row is locked (P17). */
     readonly locked: (key: string) => boolean;
-    /** How many other cases change a row (P18). */
-    readonly shared: (key: string) => number;
     /** The model's confidence in a row it guessed (P26); `undefined` for one it did not. */
     readonly confidence: (key: string) => number | undefined;
 }
@@ -185,7 +181,6 @@ function cropRow(row: SheetCropInput, first: SheetCropColumn | undefined, shown:
         op: whole ?? (named && !knock ? "chg" : undefined),
         knock: named && knock,
         locked: input.locked(key),
-        shared: marked ? input.shared(key) : 0,
         confidence, cells,
     };
 }

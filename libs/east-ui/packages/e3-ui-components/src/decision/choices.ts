@@ -5,13 +5,12 @@
 
 /**
  * The viewer's own state in the DecisionQueue (`Decision Queue Spec.md` D12,
- * R21, §14), kept under the queue's `id` until a verdict: the open card, the
- * Routine band's fold, and each card's choices — the option chosen, the
- * answer to each option's question, the note, Modify's edits of each option
- * and the override form — so a card closed and opened again, or the queue
- * unmounted and mounted again, shows them as left. An option is named by its
- * key as East prints it ({@link optionId}); Modify's edited rows are kept as
- * their bytes, in base64.
+ * R21, §14), kept under the queue's `id` until a verdict: the open card, and
+ * each card's choices — the option chosen, the answer to each option's
+ * question, the note, Modify's edits of each option and the override form —
+ * so a card closed and opened again, or the queue unmounted and mounted again,
+ * shows them as left. An option is named by its key as East prints it
+ * ({@link optionId}); Modify's edited rows are kept as their bytes, in base64.
  *
  * @packageDocumentation
  */
@@ -19,7 +18,7 @@
 import { useCallback, useMemo } from "react";
 import { OptionType, StringType, printFor } from "@elaraai/east";
 import { usePersistedState } from "@elaraai/east-ui-components";
-import type { DecisionOption } from "./layout.js";
+import type { DecisionOption } from "./cases.js";
 import type { DecisionAnswerWord, DecisionReasonWord } from "./messages.js";
 
 /** Modify's edit of one changed row: the row as the viewer left it, or the row kept as it stands. */
@@ -50,13 +49,11 @@ export interface DecisionChoices {
      * nor closed one, which opens the first case waiting (§11).
      */
     readonly open: string | null | undefined;
-    /** Whether the Routine band is open. */
-    readonly routineOpen: boolean;
     /** Each card's choices, by its case's key. */
     readonly cases: Readonly<Record<string, CaseChoice>>;
 }
 
-const INITIAL: DecisionChoices = { open: undefined, routineOpen: false, cases: {} };
+const INITIAL: DecisionChoices = { open: undefined, cases: {} };
 const NO_CHOICE: CaseChoice = {};
 const printKey = printFor(OptionType(StringType));
 
@@ -83,8 +80,6 @@ export interface DecisionChoicesState {
     forget(keys: Iterable<string>): void;
     /** Opens a card, or closes the open one with `null`. */
     setOpen(key: string | null): void;
-    /** Opens or folds the Routine band. */
-    setRoutineOpen(open: boolean): void;
 }
 
 /**
@@ -112,10 +107,8 @@ export function useDecisionChoices(storageKey: string): DecisionChoicesState {
         });
     }, [setState]);
     const setOpen = useCallback((key: string | null) => setState(was => (was.open === key ? was : { ...was, open: key })), [setState]);
-    const setRoutineOpen = useCallback((open: boolean) => setState(was => ({ ...was, routineOpen: open })), [setState]);
     const choiceOf = useCallback((key: string) => choices.cases[key] ?? NO_CHOICE, [choices]);
-    return useMemo(() => ({ choices, choiceOf, setChoice, forget, setOpen, setRoutineOpen }),
-        [choices, choiceOf, setChoice, forget, setOpen, setRoutineOpen]);
+    return useMemo(() => ({ choices, choiceOf, setChoice, forget, setOpen }), [choices, choiceOf, setChoice, forget, setOpen]);
 }
 
 /**

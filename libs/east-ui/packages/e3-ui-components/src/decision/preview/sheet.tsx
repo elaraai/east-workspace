@@ -5,7 +5,7 @@
 
 /**
  * A Sheet target's preview (`Decision Queue Spec.md` D7, D8, P3, P4, P13,
- * P14, P16–P18, P21, P23, P25, P26): the rows the change touches as the Sheet
+ * P14, P16, P17, P21, P23, P25, P26): the rows the change touches as the Sheet
  * draws them — each row's bytes, as it stands and as the change leaves it,
  * projected into the Sheet's row by the Sheet's own `project`, its cells
  * printed as the Sheet's columns print them — the first three at the Sheet's
@@ -30,7 +30,7 @@ import type { SheetRowValue } from "../../sheet/values.js";
 import { appliedRows, standingRows, type DecisionTarget } from "../editing.js";
 import { CONFIDENCE } from "../figures.js";
 import type { DecisionQueueWords } from "../messages.js";
-import { PreviewFailed, PreviewFrame, PreviewPending, flag, leftBy, sharedOf, staleNames, type PreviewProps } from "./frame.js";
+import { PreviewFailed, PreviewFrame, PreviewPending, flag, leftBy, staleNames, type PreviewProps } from "./frame.js";
 import { CROP_ROWS, sheetCrop, type SheetCropCell, type SheetCropColumn, type SheetCropInput, type SheetCropModel, type SheetCropRow } from "./sheet-model.js";
 
 /** A Sheet target's kind, decoded. */
@@ -75,7 +75,7 @@ export interface SheetPreviewProps extends PreviewProps {
  * @param props - The case, its target and record, the rows its change leaves and the queue's editing ({@link SheetPreviewProps})
  * @returns The preview
  */
-export function SheetPreview({ c, view, target, kind, record, rows, changed, schedule, shared, words, styles }: SheetPreviewProps) {
+export function SheetPreview({ c, view, target, kind, record, rows, changed, schedule, words, styles }: SheetPreviewProps) {
     const option = view.option;
     const sheet = kind.sheet.sheet;
     const columns = useMemo(() => cropColumns(sheet, words), [sheet, words]);
@@ -135,10 +135,9 @@ export function SheetPreview({ c, view, target, kind, record, rows, changed, sch
                     const bytes = bytesOf.get(key);
                     return bytes !== undefined && locked(bytes, key);
                 },
-                shared: key => sharedOf(shared, record.key, key),
             }),
         };
-    }, [rows, changed, option, c.options, view.recommended, record, target, schedule, sheet, columns, shared]);
+    }, [rows, changed, option, c.options, view.recommended, record, target, schedule, sheet, columns]);
     const { result } = useTrackedEvaluation(read);
     const stale = rows === "stale";
     if (rows === "failed" || !result.ok) {
@@ -204,16 +203,14 @@ function SheetCrop({ model, label, stale, words, styles }: PartProps & { readonl
     );
 }
 
-/** A row's name: its first column's value, its marks, its lock and the `+N` of the other cases changing it (P16–P18). */
+/** A row's name: its first column's value, its marks and its lock (P16, P17). */
 function RowName({ row, words, styles }: PartProps & { readonly row: SheetCropRow }) {
     const { m } = words;
-    const shared = row.shared > 0 ? { n: words.number(row.shared), one: row.shared === 1 } : undefined;
     return (
-        <Box as="span" css={styles.sheetKey} title={m.previewRow({ name: row.name, op: row.op, knock: row.knock, locked: row.locked, shared })}
+        <Box as="span" css={styles.sheetKey} title={m.previewRow({ name: row.name, op: row.op, knock: row.knock, locked: row.locked })}
             data-preview-name="" data-op={row.op} data-fill={row.op !== undefined || row.knock ? "cell" : undefined} data-knock={flag(row.knock)}>
             <span data-value="">{row.name}</span>
             {row.locked && <Box as="span" css={styles.icon} aria-hidden="true"><FontAwesomeIcon icon={faLock} /></Box>}
-            {shared !== undefined && <Box as="span" css={styles.shared} data-preview-shared="">{m.previewShared({ n: shared.n })}</Box>}
         </Box>
     );
 }

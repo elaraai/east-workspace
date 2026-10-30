@@ -40,7 +40,7 @@ function changeOf(events: readonly (readonly [string, LaneEvent | undefined, Lan
     const window = laneWindow(events.flatMap(([, b, a]) => [b, a]).filter((e): e is LaneEvent => e !== undefined))!;
     return lanesPreview({
         window, context: [], before, after, lands: [], marked: true,
-        knockOn: key => knocked.some(k => stringEqual(k, key)), locked: () => false, shared: () => 0, overlaps: () => false,
+        knockOn: key => knocked.some(k => stringEqual(k, key)), locked: () => false, overlaps: () => false,
         pairs: "kind", measure: "share", nameOf: lane => lane,
     });
 }

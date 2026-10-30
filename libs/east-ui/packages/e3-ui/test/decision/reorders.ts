@@ -3,19 +3,22 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /**
- * The decision queue's windowed example (#1455, `Decision Queue Spec.md` §15):
- * a replenishment model's reorders across a chain of forty stores — 20,000 of
- * them, an item at a store each, each its own one proposal (D15) — and the
- * chain's stock levels they change, a row an item at a store. The rail narrows
- * the reorders through the record's indexes on the store and the range, the
- * queue reading the narrowing a page at a time; unnarrowed, they are past its
- * 1,000, which its banner says. The same pure generators give both records'
- * keys and rows, so each reorder's patch is of its own stock row. Every name
- * and figure is generated.
+ * The decision queue's paged example (#1455, #1458, `Decision Queue Spec.md`
+ * §3.5, §15): a replenishment model's reorders across a chain of forty stores
+ * — 20,000 of them, an item at a store each, each its own one proposal (D15),
+ * each carrying the verdict the queue writes — and the chain's stock levels
+ * they change, a row an item at a store. The rail narrows the reorders through
+ * the app's own indexes on their judgement, their store and their range (D18),
+ * the queue reading the narrowing a page at a time as the list scrolls, in the
+ * index's order (D4, D5). The same pure generators give both records' keys and
+ * rows, so each reorder's patch is of its own stock row. Every name and figure
+ * is generated.
  */
-import { ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, PatchType, StringType, StructType, VariantType, some, variant } from "@elaraai/east";
+import {
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, StringType, StructType, VariantType, none, some, variant,
+} from "@elaraai/east";
 import e3 from "@elaraai/e3";
-import { OpsVerdict, StockLevel } from "./ops.js";
+import { StockLevel } from "./ops.js";
 
 /** The chain's stock levels, by an item at a store. */
 const ChainStock = DictType(StringType, StockLevel);
@@ -25,10 +28,14 @@ export const ReorderChange = VariantType({
     stock: PatchType(ChainStock),  // the chain's stock levels, which no builder draws
 });
 
-/** A reorder the replenishment model proposes, in the app's own words: one item at one store, its own one proposal. */
+/** A person's verdict on a reorder: waiting, as the model writes every reorder, until a person decides it. */
+export const ReorderVerdict = VariantType({ waiting: NullType, applied: NullType, overridden: NullType, deferred: NullType, handedOff: NullType });
+
+/** A reorder the replenishment model proposes, in the app's own words: one item at one store, its own one proposal — and the verdict on it. */
 export const Reorder = StructType({
     store: StringType, range: StringType, due: OptionType(DateTimeType), run: StringType, why: StringType,
     title: StringType, summary: StringType, detail: StringType, uplift: FloatType, confidence: FloatType, change: ReorderChange,
+    verdict: ReorderVerdict, note: OptionType(StringType),
 });
 
 /** The reorders, by an item at a store. */
@@ -84,6 +91,7 @@ const generateChainStock = East.function([IntegerType], ChainStock, ($, count) =
  * The reorders, `count` of them: an item at a store each, between 200 and 900 units, its change the patch of that
  * item's stock row alone — East's own diff of the row before and after — and due from 09:00 on Tuesday 10 March 2026
  * every twelve hours to Saturday's, so at the examples' `now` some are overdue, some due today and the rest this week.
+ * Each waits, as the model writes it, with no note.
  */
 const generateReorders = East.function([IntegerType], Reorders, ($, count) => {
     const rows = $.let(new Map(), Reorders);
@@ -95,6 +103,8 @@ const generateReorders = East.function([IntegerType], Reorders, ($, count) => {
     const stockOf = $.const(reorderStock);
     const from = $.const(new Date("2026-03-10T09:00:00Z"));
     const run = $.const("replen-v1.4 · run #31");
+    const waiting = $.const(variant("waiting", null), ReorderVerdict);
+    const noNote = $.const(none, OptionType(StringType));
     const i = $.let(0n);
     $.while(i.less(count), ($2) => {
         const key = $2.const(keyOf(i));
@@ -118,6 +128,7 @@ const generateReorders = East.function([IntegerType], Reorders, ($, count) => {
             uplift: units.multiply(i.remainder(5n).add(3n)).toFloat(),
             confidence: i.remainder(35n).toFloat().divide(100.0).add(0.6),
             change: variant("stock", East.diff(before, ordered)),
+            verdict: waiting, note: noNote,
         }));
         $2.assign(i, i.add(1n));
     });
@@ -132,18 +143,16 @@ export const chainStock = e3.record("chain_stock", ChainStock, {
     }),
 });
 
-/** The reorders: 20,000, made by their generator, the rail narrowing them by store and range. */
+/** The reorders: 20,000, made by their generator, with the patch door the queue writes each verdict through. */
 export const reorders = e3.record("reorders", Reorders, {
     initial: () => East.compile(generateReorders, [])(20000n),
     indexes: (index) => ({
-        reorders_by_store_range: index.on(["store", "range"]),
-        reorders_by_range: index.on(["range"]),
+        // The app's own: whether anyone has judged a reorder — its verdict's tag — then its store and its range, or its range.
+        reorders_by_judgement: index.key(East.function([StringType, Reorder], StructType({ judgement: StringType, store: StringType, range: StringType }),
+            (_$, _key, r) => ({ judgement: r.verdict.getTag(), store: r.store, range: r.range }))),
+        reorders_by_judgement_range: index.key(East.function([StringType, Reorder], StructType({ judgement: StringType, range: StringType }),
+            (_$, _key, r) => ({ judgement: r.verdict.getTag(), range: r.range }))),
     }),
-});
-
-/** The verdicts on them, which the queue writes through their patch door. */
-export const reorderVerdicts = e3.record("reorder_verdicts", DictType(StringType, OpsVerdict), {
-    initial: new Map(),
     mutations: (mutation) => ({
         patch: mutation.patch(),
     }),

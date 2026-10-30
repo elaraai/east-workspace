@@ -29,7 +29,7 @@ import { lower, other } from "../../allocation/nouns.js";
 import { kindPlural } from "../../shared/schedule/words.js";
 import { appliedRows, draftedRows, standingRows, type DecisionTarget } from "../editing.js";
 import { allocationCrop, type AllocationCropBin, type AllocationCropDay, type AllocationCropPlan } from "./allocation-model.js";
-import { PreviewFailed, PreviewFrame, PreviewPending, guessedOf, leftBy, sharedOf, type PreviewProps } from "./frame.js";
+import { PreviewFailed, PreviewFrame, PreviewPending, guessedOf, leftBy, type PreviewProps } from "./frame.js";
 import { LanesCrop, LanesMap, dayText, lanesSentence, mapSentence, type PreviewMap } from "./lanes.js";
 import type { LanesModel } from "./lanes-model.js";
 import { CROP_LANES, lanesMap } from "./map-model.js";
@@ -60,7 +60,7 @@ export interface AllocationPreviewProps extends PreviewProps {
  * @param props - The case, its target and record, the rows its change leaves and the queue's editing ({@link AllocationPreviewProps})
  * @returns The preview
  */
-export function AllocationPreview({ c, view, target, kind, record, rows, changed, schedule, shared, words, styles, now }: AllocationPreviewProps) {
+export function AllocationPreview({ c, view, target, kind, record, rows, changed, schedule, words, styles, now }: AllocationPreviewProps) {
     const option = view.option;
     // The board's codecs and checks at the bins' row type, and every arrival and resource it reads: made once.
     const domain = useMemo(() => allocationDomain(kind.bin.rowType), [kind.bin.rowType]);
@@ -159,7 +159,6 @@ export function AllocationPreview({ c, view, target, kind, record, rows, changed
                 const bytes = bytesOf.get(key);
                 return bytes !== undefined && locked(bytes, key);
             },
-            shared: key => sharedOf(shared, record.key, key),
             ms: step => Number(ms(step)),
             words: {
                 part: (code, q) => m.previewBin({ code: code ?? m.previewReserved({ sentence: false }), quantity: quantity(q, context.unit) }),
@@ -178,7 +177,7 @@ export function AllocationPreview({ c, view, target, kind, record, rows, changed
             state: "ready", model,
             map: { model: lanesMap(model, resources, true), nouns: { event, events: kindPlural(event), resources: other(kind.labels.resource) } },
         };
-    }, [rows, changed, option, c.options, view.recommended, record, target, schedule, kind, domain, context, shared, words]);
+    }, [rows, changed, option, c.options, view.recommended, record, target, schedule, kind, domain, context, words]);
     const { result } = useTrackedEvaluation(read);
     const stale = rows === "stale";
     if (rows === "failed" || !result.ok) {

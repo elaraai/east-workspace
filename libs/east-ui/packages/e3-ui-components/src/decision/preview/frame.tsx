@@ -4,13 +4,13 @@
  */
 
 /**
- * What every preview shares (`Decision Queue Spec.md` P1, P2, P18, P21, P23,
- * P25, P26): its frame — one image, its sentence its name, at its kind's
- * height, dashed while stale — its rows not read yet, the shared placeholder
- * shapes in its final layout after its own reveal clock, and a read that
- * failed, said once; the rows as the change, edited, leaves them and those the
- * model guessed; and the other cases' changes of an entry, counted for its
- * `+N`. The `decisionPreview` recipe draws them from the attributes they set.
+ * What every preview shares (`Decision Queue Spec.md` P1, P2, P21, P23, P25,
+ * P26): its frame — one image, its sentence its name, at its kind's height,
+ * dashed while stale — its rows not read yet, the shared placeholder shapes in
+ * its final layout after its own reveal clock, and a read that failed, said
+ * once; and the rows as the change, edited, leaves them and those the model
+ * guessed. The `decisionPreview` recipe draws them from the attributes they
+ * set.
  *
  * @packageDocumentation
  */
@@ -21,7 +21,7 @@ import { LoadingFailedLine, LoadingReveal, PlaceholderShape, type SlotStyles } f
 import type { ScheduleEditing } from "../../shared/schedule/editing.js";
 import { bytesOf } from "../choices.js";
 import type { DecisionRecord, DecisionTarget } from "../editing.js";
-import type { DecisionCase } from "../layout.js";
+import type { DecisionCase } from "../cases.js";
 import type { DecisionQueueWords } from "../messages.js";
 import type { CardView, ChangedRow, RowsState } from "../state.js";
 
@@ -65,21 +65,6 @@ export function guessedOf(guesses: ReadonlyMap<string, number> | undefined, chan
     return changed.filter(row => guesses.has(row.key)).map(row => row.key);
 }
 
-/** How many waiting cases' chosen options change each row (P18): by the record's key, then the row's. */
-export type SharedRows = ReadonlyMap<string, ReadonlyMap<string, number>>;
-
-/**
- * How many other cases change a row (P18): the waiting cases whose chosen option changes it, this one aside.
- *
- * @param shared - The rows every waiting case's chosen option changes
- * @param record - The row's record's key
- * @param key - The row's key
- * @returns How many other cases change it
- */
-export function sharedOf(shared: SharedRows, record: string, key: string): number {
-    return Math.max(0, (shared.get(record)?.get(key) ?? 0) - 1);
-}
-
 /** What a preview draws from: the case, its target and record, the rows its change leaves, and the queue's editing. */
 export interface PreviewProps {
     /** The case. */
@@ -96,8 +81,6 @@ export interface PreviewProps {
     readonly changed: readonly ChangedRow[];
     /** The queue's editing: the rows as they stand, drafts in place. */
     readonly schedule: ScheduleEditing;
-    /** The rows every waiting case changes (P18). */
-    readonly shared: SharedRows;
     /** The queue's words. */
     readonly words: DecisionQueueWords;
     /** The `decisionPreview` recipe's styles. */

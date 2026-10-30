@@ -17,7 +17,6 @@
 
 import { editingMessages, type EditingMessages, type Formatters } from "@elaraai/east-ui-components";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
-import type { DecisionSection } from "./layout.js";
 import type { LaneBreach, LaneVerb } from "./preview/lanes-model.js";
 
 /** What a person decided, as the queue words it: the verdict's case. */
@@ -68,14 +67,6 @@ export type PreviewCellsWords =
     | { readonly kind: "change"; readonly columns: readonly string[]; readonly rows: readonly string[]; readonly more: string | undefined }
     | { readonly kind: "add" | "remove"; readonly rows: readonly string[]; readonly more: string | undefined };
 
-/** How many other cases change an entry, worded: the count, and whether it is one. */
-export interface PreviewSharedWords {
-    /** The count. */
-    readonly n: string;
-    /** Whether it is one. */
-    readonly one: boolean;
-}
-
 /** How many events a map's tile counts, worded: the count, whether it is one, and the events' noun in its number. */
 export interface PreviewCountWords {
     /** The count. */
@@ -102,8 +93,6 @@ export interface PreviewTileWords {
     readonly locked: boolean;
     /** The rule it breaks once the change is made. */
     readonly breach: string | undefined;
-    /** How many other cases change it. */
-    readonly shared: PreviewSharedWords | undefined;
 }
 
 /** The DecisionQueue's message table: numbers and values arrive formatted. */
@@ -112,18 +101,16 @@ export interface DecisionQueueMessages extends EditingMessages, PagedLoadingMess
     title: () => string;
     /** The cases, in the loading line's noun — `decisions`. */
     noun: () => string;
-    /** The past-due count — `2 past due`; its narrow form `2 late`. */
-    pastDue: (p: { n: string; narrow: boolean }) => string;
-    /** A section's label — `Overdue`, `Due today`, `This week`, `Later`. */
-    section: (p: { section: DecisionSection }) => string;
+    /** One case, in the Save notice's noun — `decision`. */
+    nounOne: () => string;
     /** A due case's words past its time — `35m late`, `2h late`, `3d late`. */
     late: (p: { amount: string; unit: "m" | "h" | "d" }) => string;
     /** A case's words before its time — `by 14:00`, `by Fri 13`. */
     by: (p: { when: string }) => string;
     /** The chip beside the summary — `Proposed`, or `Modified` once the viewer has chosen or edited. */
     chip: (p: { modified: boolean }) => string;
-    /** A card's status — `Needs answer`, `Blocked`, `Handoff`, `Stale`. */
-    status: (p: { status: "needsAnswer" | "blocked" | "handoff" | "stale" }) => string;
+    /** A card's status — `Needs answer`, `Blocked`, `Handoff`, `Stale`, or `Routine` for a routine case with none of those. */
+    status: (p: { status: "needsAnswer" | "blocked" | "handoff" | "stale" | "routine" }) => string;
     /** The options' label — `Options · 3`. */
     options: (p: { n: string }) => string;
     /** A refused option's line — `refused · over the weekly cap`. */
@@ -200,26 +187,16 @@ export interface DecisionQueueMessages extends EditingMessages, PagedLoadingMess
     overrideCase: () => string;
     /** A receipt's verdict — `Applied`, `Overridden`, `Deferred`, `Handed off`. */
     verdict: (p: { verdict: DecisionVerdictWord }) => string;
-    /** A receipt's, and the batch banner's, Undo. */
+    /** A receipt's Undo, while its verdict is the history's last step. */
     undo: () => string;
-    /** The batch banner — `Applied` and `3 routine cases`. */
-    batch: (p: { n: string }) => { readonly title: string; readonly description: string };
-    /** The Routine band's toggle — `Routine`. */
-    routine: () => string;
-    /** The Routine band's total — `+$3.4k together`. */
-    together: (p: { total: string }) => string;
-    /** The Routine band's action — `Apply all 3`. */
-    applyAll: (p: { n: string }) => string;
     /** The empty state: its title and its two lines. */
     empty: () => { readonly title: string; readonly undo: string; readonly next: string };
-    /** Past the cap — `20,000 decisions waiting — narrow the queue to see them`. */
-    tooMany: (p: { n: string }) => string;
     /** A failed read of the cases: the banner's title. */
     readFailed: () => string;
     /** A verdict the history could not record, its records read or saved still: the banner's title and line. */
     unrecorded: () => { readonly title: string; readonly description: string };
-    /** The verdicts' session, as its banners name it — `Verdicts: Save stopped — …`. */
-    verdictsSession: () => string;
+    /** The cases' session, which holds their verdicts, as its banners name it — `Decisions: Save stopped — …`. */
+    casesSession: () => string;
     /** A guessed cell's title — `conf 0.69 · a guess`. */
     guess: (p: { confidence: string }) => string;
     /** Items in running text — `Mon, Wed and Thu`. */
@@ -228,7 +205,7 @@ export interface DecisionQueueMessages extends EditingMessages, PagedLoadingMess
     previewClause: (p: PreviewClauseWords) => string;
     /**
      * A preview's sentence (P25): its clauses, a map's count ahead of them, the knock-ons the last pushes, the marks it
-     * names after them — an entry pinned, an entry other cases change — and the rows the model guessed.
+     * names after them — an entry pinned — and the rows the model guessed.
      */
     previewSentence: (p: {
         clauses: readonly string[]; people?: { n: string; of: string } | undefined; pushes?: string | undefined; marks?: readonly string[] | undefined;
@@ -238,8 +215,6 @@ export interface DecisionQueueMessages extends EditingMessages, PagedLoadingMess
     previewPushes: (p: { pushes: readonly PreviewPushWords[] }) => string;
     /** An entry the target's `locked` pins, which the change leaves as it stands (P17, P25) — `Market posters is pinned on Press B2`. */
     previewPinned: (p: { what: string; on: string }) => string;
-    /** An entry the change touches that other cases' chosen options change too (P18, P25) — `1 other case changes Winter brochure too`. */
-    previewAlsoIn: (p: { what: string; n: string; one: boolean }) => string;
     /**
      * The sentence of a preview whose change no longer applies (P21, P25): the rows it touches moved after the model's
      * run, named — the entries it changes, or `whose` shifts it changes — `Stale: the rows changed after this run; the
@@ -263,8 +238,6 @@ export interface DecisionQueueMessages extends EditingMessages, PagedLoadingMess
     previewCount: (p: { n: string; of: string }) => string;
     /** A preview's entry's title (P25): its shift and day, and how the change marks it. */
     previewTile: (p: PreviewTileWords) => string;
-    /** The `+N` chip of the other cases changing an entry (P18) — `+2`. */
-    previewShared: (p: { n: string }) => string;
     /**
      * One clause of a lanes preview's sentence (P25) — `Loyalty cards leaves Press B2, where it overlapped Market posters,
      * and runs on Press A1 from 11:30 to 14:30`, `LD-2235 leaves Waiting and is held in K-305 from Tue 11 14:15 to Thu 20 00:00`.
@@ -324,8 +297,8 @@ export interface DecisionQueueMessages extends EditingMessages, PagedLoadingMess
      * where the change sets it — and how the change marks it: `Due: — → 13 Mar 28`, `Due: 13 Mar 28 · removed`.
      */
     previewCell: (p: { column: string; was: string; is: string; op: "add" | "chg" | "del" | undefined; knock: boolean }) => string;
-    /** A Sheet preview's row's title (P25): its name, how the change marks it, its lock, and the other cases changing it — `WO-1005 · changed`. */
-    previewRow: (p: { name: string; op: "add" | "chg" | "del" | undefined; knock: boolean; locked: boolean; shared: PreviewSharedWords | undefined }) => string;
+    /** A Sheet preview's row's title (P25): its name, how the change marks it, and its lock — `WO-1005 · changed`. */
+    previewRow: (p: { name: string; op: "add" | "chg" | "del" | undefined; knock: boolean; locked: boolean }) => string;
     /** A head's caption over a preview's chart (P7, P10, P11) — `Pay code`, `Change`, `Changed`, `Rows`, `Net`. */
     previewCaption: (p: { caption: "payCode" | "change" | "changed" | "rows" | "net" }) => string;
     /** A record preview's field's caption (P6): its row's name and its own — `coast · List price`. */
@@ -368,14 +341,11 @@ export interface DecisionQueueMessages extends EditingMessages, PagedLoadingMess
      * (chosen) stays at 1,840 or above; No order falls to 0, under min`.
      */
     previewProjection: (p: { lines: readonly { label: string; chosen: boolean; low: string; under: boolean }[]; limit: string | undefined }) => string;
-    /** A batch step's label in the history — `Apply 3 routine cases`. */
-    batchStep: (p: { n: string }) => string;
     /** A verdict step's label in the history — `Apply: Move 3 night shifts`. */
     verdictStep: (p: { verdict: DecisionVerdictWord; title: string }) => string;
 }
 
-const SECTIONS: Record<DecisionSection, string> = { overdue: "Overdue", today: "Due today", week: "This week", later: "Later" };
-const STATUSES = { needsAnswer: "Needs answer", blocked: "Blocked", handoff: "Handoff", stale: "Stale" } as const;
+const STATUSES = { needsAnswer: "Needs answer", blocked: "Blocked", handoff: "Handoff", stale: "Stale", routine: "Routine" } as const;
 const CALLS = { needs: "Needs your answer", blocked: "Blocked", handoff: "Handoff", answered: "Answered" } as const;
 const HELP = {
     needs: "Apply waits for this answer. The model can't see it.",
@@ -402,9 +372,6 @@ const CAPTIONS = { payCode: "Pay code", change: "Change", changed: "Changed", ro
 
 /** Items in running text — `Mon, Wed and Thu`. */
 const listOf = (items: readonly string[]): string => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]!}`);
-/** How many other cases change an entry, in its title. */
-const sharedText = (shared: PreviewSharedWords | undefined): string | undefined =>
-    (shared === undefined ? undefined : `${shared.n} other ${shared.one ? "case changes" : "cases change"} it too`);
 /** A title's parts, those it has, in order. */
 const parts = (...said: readonly (string | undefined)[]): string => said.filter((part): part is string => part !== undefined).join(" · ");
 /** A sentence's tail naming the rows the model guessed (P26), after its head. */
@@ -422,8 +389,7 @@ export const decisionQueueMessages: DecisionQueueMessages = {
     ...pagedLoadingMessages,
     title: () => "Decisions",
     noun: () => "decisions",
-    pastDue: ({ n, narrow }) => (narrow ? `${n} late` : `${n} past due`),
-    section: ({ section }) => SECTIONS[section],
+    nounOne: () => "decision",
     late: ({ amount, unit }) => `${amount}${unit} late`,
     by: ({ when }) => `by ${when}`,
     chip: ({ modified }) => (modified ? "Modified" : "Proposed"),
@@ -466,15 +432,10 @@ export const decisionQueueMessages: DecisionQueueMessages = {
     overrideCase: () => "Override case",
     verdict: ({ verdict }) => VERDICTS[verdict],
     undo: () => "Undo",
-    batch: ({ n }) => ({ title: "Applied", description: `${n} routine cases` }),
-    routine: () => "Routine",
-    together: ({ total }) => `${total} together`,
-    applyAll: ({ n }) => `Apply all ${n}`,
     empty: () => ({ title: "Nothing waiting", undo: "Undo brings the last verdict back", next: "New cases arrive with the next run" }),
-    tooMany: ({ n }) => `${n} decisions waiting — narrow the queue to see them`,
     readFailed: () => "Couldn't read decisions",
     unrecorded: () => ({ title: "Verdict not recorded", description: "Its records are being read or saved — try again in a moment." }),
-    verdictsSession: () => "Verdicts",
+    casesSession: () => "Decisions",
     guess: ({ confidence }) => `conf ${confidence} · a guess`,
     previewList: ({ items }) => listOf(items),
     previewClause: (p) => {
@@ -492,7 +453,6 @@ export const decisionQueueMessages: DecisionQueueMessages = {
     },
     previewPushes: ({ pushes }) => `pushes ${listOf(pushes.map(p => ("onto" in p ? `${p.what} onto ${p.onto} at ${p.start}` : `${p.what} from ${p.was} to ${p.start}`)))}`,
     previewPinned: ({ what, on }) => `${what} is pinned on ${on}`,
-    previewAlsoIn: ({ what, n, one }) => `${n} other ${one ? "case changes" : "cases change"} ${what} too`,
     previewStale: ({ names, whose }) => `Stale: the rows changed after this run; the change${names === undefined ? "" : whose === true ? ` to ${names}'s shifts` : ` to ${names}`} needs a rerun`,
     previewUnchanged: ({ names }) => `Nothing changes for ${names}`,
     previewHours: ({ before, after, same, contract, compact }) => (same
@@ -505,15 +465,13 @@ export const decisionQueueMessages: DecisionQueueMessages = {
     ].filter((part): part is string => part !== undefined).join(", "),
     previewMorePeople: ({ n }) => `+ ${n} more people`,
     previewCount: ({ n, of }) => `${n} of ${of}`,
-    previewTile: ({ what, when, op, to, knock, locked, breach, shared }) => parts(
+    previewTile: ({ what, when, op, to, knock, locked, breach }) => parts(
         `${what} · ${when}`,
         op === "add" ? "proposed" : op === "chg" ? "changed" : op === "from" ? `moves to ${to ?? "another day"}` : op === "del" ? "comes off" : undefined,
         knock ? "knock-on" : undefined,
         locked ? "locked" : undefined,
         breach,
-        sharedText(shared),
     ),
-    previewShared: ({ n }) => `+${n}`,
     previewEvent: (p) => {
         switch (p.kind) {
             case "move": return `${p.what} leaves ${p.from}${p.overlapped === undefined ? "" : `, where it overlapped ${p.overlapped},`} and ${doesText(p.verb, p.to)} from ${p.start} to ${p.end}${breachText(p.breach)}`;
@@ -570,12 +528,11 @@ export const decisionQueueMessages: DecisionQueueMessages = {
         op === "add" || op === "del" ? MARKS[op] : undefined,
         knock ? "knock-on" : undefined,
     ),
-    previewRow: ({ name, op, knock, locked, shared }) => parts(
+    previewRow: ({ name, op, knock, locked }) => parts(
         name,
         op === undefined ? undefined : MARKS[op],
         knock ? "knock-on" : undefined,
         locked ? "locked" : undefined,
-        sharedText(shared),
     ),
     previewCaption: ({ caption }) => CAPTIONS[caption],
     previewFieldName: ({ row, field }) => `${row} · ${field}`,
@@ -598,7 +555,6 @@ export const decisionQueueMessages: DecisionQueueMessages = {
     },
     previewProjection: ({ lines, limit }) => lines.map(line => `${line.label}${line.chosen ? " (chosen)" : ""} ${line.under
         ? `falls to ${line.low}, under ${limit ?? "the limit"}` : `stays at ${line.low} or above`}`).join("; "),
-    batchStep: ({ n }) => `Apply ${n} routine cases`,
     verdictStep: ({ verdict, title }) => `${VERDICTS[verdict]}: ${title}`,
 };
 

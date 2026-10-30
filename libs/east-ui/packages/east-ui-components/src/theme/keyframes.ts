@@ -23,8 +23,8 @@
  *    and blink, the banner's fade, and the landing of a run's result on a
  *    builder's entries.
  *  - `decision-*`          — the decision queue (`Decision Queue Spec.md`
- *    §8): a card's body opening, the receipt's arrival and leaving, and the
- *    count chip's settle.
+ *    §8): a card's body opening, the receipt's arrival, and the count chip's
+ *    settle.
  *
  * @packageDocumentation
  */
@@ -174,8 +174,7 @@ export const keyframes = defineKeyframes({
     },
     // The decision queue (`Decision Queue Spec.md` §8): an open card's body grows down from under its head, its rows
     // from none to all; the receipt shrinks from the card's height — `--receipt-from`, which the queue sets — to its 40px,
-    // and leaves to nothing, the 8px it stands below the row above going with it, so the rows below rise with no jump;
-    // the count chip settles from the tint to its paper as the count changes.
+    // so the rows below rise with no jump; the count chip settles from the tint to its paper as the count changes.
     "decision-open": {
         "0%":   { gridTemplateRows: "0fr" },
         "100%": { gridTemplateRows: "1fr" },
@@ -183,10 +182,6 @@ export const keyframes = defineKeyframes({
     "decision-receipt-in": {
         "0%":   { height: "var(--receipt-from)" },
         "100%": { height: "40px" },
-    },
-    "decision-receipt-out": {
-        "0%":   { height: "40px", opacity: 1, marginTop: "8px" },
-        "100%": { height: "0", opacity: 0, marginTop: "0", borderWidth: "0" },
     },
     "decision-settle": {
         "0%":   { backgroundColor: "var(--chakra-colors-brand-tint)" },

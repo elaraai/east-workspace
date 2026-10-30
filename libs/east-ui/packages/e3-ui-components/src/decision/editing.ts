@@ -4,35 +4,43 @@
  */
 
 /**
- * The DecisionQueue's editing (`Decision Queue Spec.md` Q1, Q2, D3, R23):
- * one history over a session per record the queue writes — the verdicts, and
- * each record a change lands in, one session a record however many targets
- * draw it — through the shared Schedule editing, as the Roster's records are.
- * A verdict is one step across them: the verdict drafted into the verdicts'
- * record through their `write`, and, for Apply, the rows the chosen option's
- * change leaves — the target's `apply` over the rows it touches as they stand,
- * drafted or stored, with Modify's edits in place — each drafted whole into
- * its record. The rows a change touches are read at once: a record's stored
- * rows by key in one request ({@link standingRows}), never a request or two
- * a key. Save sends each record's changes through its patch door as a request
- * of its own.
+ * The DecisionQueue's editing (`Decision Queue Spec.md` Q1, D1, D3, R23):
+ * one history over a session per record the queue writes — the cases' own
+ * record, whose rows hold the verdicts, and each record a change lands in,
+ * one session a record however many targets draw it — through the shared
+ * Schedule editing, as the Roster's records are. A verdict is one step across
+ * them: the verdict written into the case's own row through the cases'
+ * `write` — the row as its session finds it, drafted or as read, every field
+ * the verdict's roles leave as it was — and, for Apply, the rows the chosen
+ * option's change leaves — the target's `apply` over the rows it touches as
+ * they stand, drafted or stored, with Modify's edits in place — each drafted
+ * whole into its record. A case's row is found where the list read it, at the
+ * revision it read it at, else by its key; the rows a change touches are read
+ * at once, a record's stored rows by key in one request ({@link standingRows}),
+ * never a request or two a key. Save sends each record's changes through its
+ * patch door as a request of its own, and its notice counts the cases it took
+ * out of the narrowing (R26).
  *
  * @packageDocumentation
  */
 
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import {
     BlobType, EastTypeType, OptionType, SortedMap, StringType, compareFor, equalFor, fromEastTypeValue, none, parseFor, some, variant,
     type EastType, type EastTypeValue, type ValueTypeOf, type option,
 } from "@elaraai/east";
-import type { DecisionQueuePayloadType, DecisionTargetType, DecisionVerdictType } from "@elaraai/e3-ui/internal";
+import { DECISIONS_SOURCE, type DecisionQueuePayloadType, type DecisionTargetType, type DecisionVerdictType } from "@elaraai/e3-ui/internal";
 import type { BatchReadiness, EditHistory } from "@elaraai/east-ui-components";
 import { wholeEntryReadiness } from "@elaraai/east-ui-components/internal";
 import { defaultPagedRuntime, pagedSourceOf, type PagedRow } from "../platform/paged-runtime.js";
-import { useScheduleEditing, type ScheduleChange, type ScheduleEditing, type ScheduleEditingRecord, type ScheduleEntryRef } from "../shared/schedule/editing.js";
-import { draftedRow, rowCodec } from "../shared/schedule/records.js";
-import type { DecisionCase, DecisionOption } from "./layout.js";
-import type { DecisionAnswerWord, DecisionReasonWord, DecisionVerdictWord } from "./messages.js";
+import {
+    useScheduleEditing, type ScheduleChange, type ScheduleEditing, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleRowRead,
+} from "../shared/schedule/editing.js";
+import { draftedRow, rowCodec, type RowCodec } from "../shared/schedule/records.js";
+import { sourcePart } from "../shared/schedule/visibility.js";
+import type { DecisionRead } from "./data.js";
+import type { DecisionCase, DecisionOption } from "./cases.js";
+import { decisionQueueMessages, type DecisionAnswerWord, type DecisionReasonWord, type DecisionVerdictWord } from "./messages.js";
 
 /** The queue's payload, decoded. */
 export type DecisionQueueValue = ValueTypeOf<DecisionQueuePayloadType>;
@@ -41,8 +49,8 @@ export type DecisionTarget = ValueTypeOf<typeof DecisionTargetType>;
 /** A verdict, decoded. */
 export type DecisionVerdictValue = ValueTypeOf<typeof DecisionVerdictType>;
 
-/** What a change names the verdicts' record by in the history. */
-export const VERDICTS = "decision.verdicts";
+/** What a change names the cases' own record by in the history: the record whose rows hold the verdicts. */
+export const CASES = "decision.cases";
 
 const compareString = compareFor(StringType);
 const stringEqual = equalFor(StringType);
@@ -120,7 +128,7 @@ export function rowsReadiness(record: DecisionRecord, rows: ReadonlyMap<string, 
     return wholeEntryReadiness(record.ready.value, NO_ORIGINALS, { encode: codec.encode, equal: NEVER_EQUAL })(entries);
 }
 
-/** The queue's editing: its history over the verdicts and the targets' records, and how a verdict is made of a decision. */
+/** The queue's editing: its history over the cases' record and the targets' records, and how a verdict is made of a decision. */
 export interface DecisionEditing {
     /** The shared Schedule editing over the records: how a step is recorded, and what each record holds. */
     readonly schedule: ScheduleEditing;
@@ -130,55 +138,132 @@ export interface DecisionEditing {
     readonly records: readonly (DecisionRecord | undefined)[];
 }
 
+/** Each read's cases by their key, made once a read: what the cases' session finds a row in. */
+const readKeys = new WeakMap<ReadonlyMap<number, DecisionCase>, ReadonlyMap<string, DecisionCase>>();
+
 /**
- * The queue's sessions (see the module docs).
+ * A case the list read, by its key.
+ *
+ * @param read - The read
+ * @param id - The case's key
+ * @returns The case; `undefined` for one the read does not hold
+ */
+function readCase(read: DecisionRead, id: string): DecisionCase | undefined {
+    let byKey = readKeys.get(read.rows);
+    if (byKey === undefined) {
+        const made = new Map<string, DecisionCase>();
+        for (const c of read.rows.values()) made.set(c.key, c);
+        readKeys.set(read.rows, made);
+        byKey = made;
+    }
+    return byKey.get(id);
+}
+
+/**
+ * The queue's sessions (see the module docs). Through the slice's source, a
+ * case's row is found where the list last read it — what a verdict rewrites,
+ * and what Save's confirmation reads, before any row is read by its key —
+ * while that read is at the revision the cases' record reads; and Save's
+ * notice counts the cases it took out of the source's narrowing. The editing
+ * is made again as a record comes to take a gesture, or stops — its first
+ * read landing — so a card reads the rows its change touches then.
  *
  * @param value - The payload
  * @param storageKey - The queue's key: its sessions and their history are kept under it, whatever the narrowing or a remount
+ * @param read - The cases the list last read; `undefined` before a read has landed
  * @returns The editing
  */
-export function useDecisionEditing(value: DecisionQueueValue, storageKey: string): DecisionEditing {
-    const { verdicts, targets } = value;
+export function useDecisionEditing(value: DecisionQueueValue, storageKey: string, read: DecisionRead | undefined): DecisionEditing {
+    const { decisions, targets } = value;
     const { records, byTarget } = useMemo(() => {
         const byTarget = targets.map(targetRecord);
         // One session a record, however many targets draw it.
         const distinct: DecisionRecord[] = [];
         for (const record of byTarget) if (record !== undefined && !distinct.some(held => stringEqual(held.key, record.key))) distinct.push(record);
-        const records: ScheduleEditingRecord[] = [{ key: VERDICTS, name: "Verdicts", editing: verdicts.editing, entries: some(verdicts.entries) }, ...distinct];
+        const records: ScheduleEditingRecord[] = [
+            { key: CASES, name: decisionQueueMessages.casesSession(), editing: decisions.editing, entries: decisions.entries }, ...distinct,
+        ];
         return { records, byTarget };
-    }, [verdicts, targets]);
-    const schedule = useScheduleEditing({ kinds: NO_KINDS, records, applyMode: "batch", storageKey, joined: NO_JOINED });
+    }, [decisions, targets]);
+    // The rows the list last read, as the cases' session finds them: one object while the record's read holds, so the
+    // sessions are made once — it reads the latest read as it runs.
+    const latest = useRef(read);
+    latest.current = read;
+    const entries = decisions.entries;
+    const reads = useMemo((): Readonly<Record<string, ScheduleRowRead>> | undefined => {
+        if (entries.type !== "some") return undefined;
+        const seam = entries.value;
+        return {
+            [CASES]: (id) => {
+                const held = latest.current;
+                if (held === undefined || held.revision === undefined) return undefined;
+                // Pinned to the revision it was read at: a read at another than the record's is no row of the Save's.
+                const at = seam.revision();
+                if (at.type === "some" && !stringEqual(at.value, held.revision)) return undefined;
+                const c = readCase(held, id);
+                return c === undefined ? undefined : some(some(c.row));
+            },
+        };
+    }, [entries]);
+    const slice = value.slice.type === "some" ? value.slice.value : undefined;
+    const recordSlices = useMemo(() => {
+        const part = sourcePart(slice, DECISIONS_SOURCE);
+        return part === undefined ? undefined : [part];
+    }, [slice]);
+    const editing = useScheduleEditing({ kinds: NO_KINDS, records, reads, applyMode: "batch", storageKey, joined: NO_JOINED, recordSlices });
+    // Whether each record takes a gesture moves as its first read lands, which moves nothing the shared editing hands on:
+    // the queue's is made again as it moves, so a card drawn apart — a memo — reads the rows its change touches then.
+    const takes = records.map(record => (editing.available(record.key) ? "1" : "0")).join("");
+    const schedule = useMemo((): ScheduleEditing => {
+        void takes;
+        return { ...editing };
+    }, [editing, takes]);
     return useMemo(() => ({ schedule, history: schedule.history, records: byTarget }), [schedule, byTarget]);
 }
 
 /**
- * How the verdicts' session holds a case's verdict (D1): drafted — the case is decided, its verdict unsaved — or
- * removed — an Undo past its Save took a saved verdict back, so the case waits again.
- */
-export type VerdictDraft = "drafted" | "removed";
-
-/**
- * How a case's verdict is drafted (D1, see {@link VerdictDraft}).
- *
- * @param schedule - The queue's editing
- * @param key - The case's key
- * @returns How it is drafted; `undefined` for no draft — the case waits unless its verdict reads back as saved
- */
-export function verdictDraft(schedule: ScheduleEditing, key: string): VerdictDraft | undefined {
-    if (!schedule.draftsOf(VERDICTS).has(key)) return undefined;
-    const session = schedule.sessions.find(held => stringEqual(held.kind, VERDICTS))?.session;
-    return draftedRow(session?.entries.get(key)) === undefined ? "removed" : "drafted";
-}
-
-/**
- * How many steps the verdicts' session holds done: every step the queue records holds a verdict, so it moves with
- * each — what tells a receipt, or the batch banner, that its step is still the history's last.
+ * How many steps the cases' session holds done: every step the queue records holds a verdict, so it moves with each —
+ * what tells a receipt that its step is still the history's last (R27).
  *
  * @param schedule - The queue's editing
  * @returns The steps done; `undefined` before the session is made
  */
-export function verdictSteps(schedule: ScheduleEditing): number | undefined {
-    return schedule.sessions.find(held => stringEqual(held.kind, VERDICTS))?.session.depth.undo;
+export function casesSteps(schedule: ScheduleEditing): number | undefined {
+    return schedule.sessions.find(held => stringEqual(held.kind, CASES))?.session.depth.undo;
+}
+
+/** Each payload's cases' codec, made once: the row type its session holds. */
+const caseCodecs = new WeakMap<object, RowCodec>();
+/** Each version of a case's row the session holds, read once by each payload's `read`: a version is the same object until a gesture replaces it. */
+const sessionCases = new WeakMap<object, WeakMap<object, DecisionCase>>();
+
+/**
+ * A case as its row stands now (D1): where the cases' session holds its row —
+ * a verdict drafted, an Undo taking one back, a Save's verdict until the
+ * record reads back past it — that row read as its case, through the
+ * payload's `read`; else the case as the list read it. Whether a case waits is
+ * whether this one's verdict is none.
+ *
+ * @param value - The payload
+ * @param schedule - The queue's editing
+ * @param c - The case as the list read it
+ * @returns The case as it stands
+ */
+export function caseNow(value: DecisionQueueValue, schedule: ScheduleEditing, c: DecisionCase): DecisionCase {
+    const version = schedule.sessions.find(held => stringEqual(held.kind, CASES))?.session.entries.get(c.key);
+    if (version === undefined) return c;
+    const { read, editing } = value.decisions;
+    let made = sessionCases.get(read);
+    if (made === undefined) { made = new WeakMap(); sessionCases.set(read, made); }
+    const held = made.get(version);
+    if (held !== undefined) return held;
+    const drafted = draftedRow(version);
+    if (drafted === undefined) return c;
+    let codec = caseCodecs.get(editing);
+    if (codec === undefined) { codec = rowCodec(editing.entryType); caseCodecs.set(editing, codec); }
+    const now = read(codec.encode(drafted.row), c.key);
+    made.set(version, now);
+    return now;
 }
 
 /**
@@ -237,6 +322,19 @@ function keyReaderOf(record: KeyedRecord): (id: string) => unknown {
     };
     keyReaders.push({ type: keyType.value, read });
     return read;
+}
+
+/**
+ * A record's key from its text, as a read by key asks for it ({@link rowsByKey}): a String key's text is the key; any
+ * other key's is East's text of it, read back.
+ *
+ * @param record - The record: its name and its key type
+ * @param id - The key's text
+ * @returns The key, an East value of the record's key type
+ * @throws {Error} For text that names no key of the record's key type
+ */
+export function keyOfText(record: KeyedRecord, id: string): unknown {
+    return keyReaderOf(record)(id);
 }
 
 /**
@@ -336,9 +434,6 @@ export type AppliedRows =
     | { readonly state: "stale" }
     | { readonly state: "none" };
 
-/** The rows earlier changes of a batch leave, by their record's key then the row's: `undefined` for one removed. */
-export type EarlierRows = ReadonlyMap<string, ReadonlyMap<string, Uint8Array | undefined>>;
-
 /**
  * The rows an option's change leaves (R23, P21): the target's `apply` over
  * the rows its patch touches as they stand, read at once ({@link standingRows})
@@ -349,24 +444,19 @@ export type EarlierRows = ReadonlyMap<string, ReadonlyMap<string, Uint8Array | u
  * @param target - The target its change's tag names
  * @param record - That target's record
  * @param o - The option
- * @param earlier - The rows the changes before it in a batch leave ({@link appliedInTurn}): it applies over them
  * @returns The rows, or why there are none to write
  */
-export function appliedRows(schedule: ScheduleEditing, target: DecisionTarget | undefined, record: DecisionRecord | undefined, o: DecisionOption,
-    earlier?: EarlierRows): AppliedRows {
+export function appliedRows(schedule: ScheduleEditing, target: DecisionTarget | undefined, record: DecisionRecord | undefined, o: DecisionOption): AppliedRows {
     if (target === undefined || record === undefined) return { state: "none" };
     // A record read whole not read yet, or a session that takes no gesture now — its Save under way: nothing to write yet.
     if (!schedule.available(record.key)) return { state: "reading" };
     const keys = target.touched(o.change.patch);
-    const before = earlier?.get(record.key);
-    // The rows it touches as they stand, read at once — but those an earlier change of the batch leaves, which stand as it
-    // leaves them.
-    const read = standingRows(schedule, record, before === undefined ? keys : keys.filter(key => !before.has(key)));
+    const read = standingRows(schedule, record, keys);
     if (read.type !== "some") return { state: "reading" };
     const standing = new SortedMap<string, option<Uint8Array>>([], compareString);
     const held = new Map<string, Uint8Array | undefined>();
     for (const key of keys) {
-        const row = before !== undefined && before.has(key) ? before.get(key) : read.value.get(key);
+        const row = read.value.get(key);
         standing.set(key, row === undefined ? none : some(row));
         held.set(key, row);
     }
@@ -381,42 +471,6 @@ export function appliedRows(schedule: ScheduleEditing, target: DecisionTarget | 
     return { state: "ready", rows, standing: held };
 }
 
-/** One option of a batch, and the target and record its change lands in. */
-export interface AppliedItem {
-    /** The target its change's tag names. */
-    readonly target: DecisionTarget | undefined;
-    /** That target's record. */
-    readonly record: DecisionRecord | undefined;
-    /** The option. */
-    readonly option: DecisionOption;
-}
-
-/** What an option of a batch leaves (R28, D9): what its change leaves, or that the app's check fails the rows it writes. */
-export type BatchRows = AppliedRows | { readonly state: "unready" };
-
-/**
- * The rows each option of a batch leaves, in turn (R28): each over the rows as they stand with the rows the options
- * before it leave in place, so two changes of one row compose in the batch's order, as its one step records them. An
- * option whose rows fail the app's check is `unready`, and leaves the options after it nothing (D9). Read inside a
- * tracked evaluation.
- *
- * @param schedule - The queue's editing
- * @param items - The batch's options, in its order
- * @returns What each leaves, in the same order
- */
-export function appliedInTurn(schedule: ScheduleEditing, items: readonly AppliedItem[]): BatchRows[] {
-    const earlier = new Map<string, Map<string, Uint8Array | undefined>>();
-    return items.map((item): BatchRows => {
-        const applied = appliedRows(schedule, item.target, item.record, item.option, earlier);
-        if (applied.state !== "ready" || item.record === undefined) return applied;
-        if (rowsReadiness(item.record, applied.rows).type !== "ready") return { state: "unready" };
-        let rows = earlier.get(item.record.key);
-        if (rows === undefined) { rows = new Map(); earlier.set(item.record.key, rows); }
-        for (const [key, row] of applied.rows) rows.set(key, row);
-        return applied;
-    });
-}
-
 /** A decision as the person made it: what a step of the history records. */
 export interface Decided {
     /** The case. */
@@ -425,7 +479,7 @@ export interface Decided {
     readonly option: DecisionOption | undefined;
     /** What was decided. */
     readonly verdict: DecisionVerdictWord;
-    /** The answer to the option's question, where the verdicts' roles hold one. */
+    /** The answer to the option's question, where the verdict's roles hold one. */
     readonly answer?: DecisionAnswerWord | undefined;
     /** An override's reason. */
     readonly reason?: DecisionReasonWord | undefined;
@@ -436,9 +490,9 @@ export interface Decided {
 }
 
 /**
- * The changes a decision drafts (R23): the verdict, written into a new row of
- * the verdicts' record under the case's key through their `write` — the
- * fields their roles map, every other as a new row has it — and each row its
+ * The changes a decision drafts (R23): the verdict, written into the case's
+ * own row through the cases' `write` — the fields the verdict's roles map,
+ * every other as the row stands, drafted or as read — and each row its
  * change writes, whole, or removed.
  *
  * @param value - The payload
@@ -447,7 +501,7 @@ export interface Decided {
  * @returns The changes, for one step
  */
 export function decisionChanges(value: DecisionQueueValue, d: Decided, at: Date): ScheduleChange[] {
-    const roles = value.verdicts.roles;
+    const roles = value.decisions.roles;
     const note = d.note === undefined || d.note.trim() === "" ? none : some(d.note);
     const verdict: DecisionVerdictValue = {
         verdict: variant(d.verdict, null),
@@ -457,7 +511,7 @@ export function decisionChanges(value: DecisionQueueValue, d: Decided, at: Date)
         reason: roles.reason && d.reason !== undefined ? some(variant(d.reason, null)) : none,
         note: roles.note ? note : none,
     };
-    const changes: ScheduleChange[] = [{ kind: VERDICTS, id: d.c.key, row: value.verdicts.write(none, verdict), created: true }];
+    const changes: ScheduleChange[] = [{ kind: CASES, id: d.c.key, rewrite: row => value.decisions.write(row, verdict) }];
     if (d.rows !== undefined) {
         for (const [id, row] of d.rows.rows) {
             changes.push(row === undefined ? { kind: d.rows.record.key, id, remove: true } : { kind: d.rows.record.key, id, row });

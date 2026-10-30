@@ -10,20 +10,24 @@
  * - **Anchoring** (R8–R13), watched frame by frame from each gesture until the
  *   list has held still: a head's top within 1px across an open that closes
  *   the card above it, a close of an open head stuck to the list's top, an
- *   open, Apply — its receipt 40px, standing where the head stood — the
- *   receipt's Undo, a `j` and an Escape; the open card's head stuck to the
- *   list's top over its body; and under reduced motion no animation and no
- *   transition, the anchoring kept.
- * - **Looks** (§8, P2, P13, P14, P21, R25): the card closed and open, its head
- *   and its chip, the receipt and the marks over the previews, computed in the
- *   theme against its tokens; and each preview kind's height and frame, swept
+ *   open, Apply — its receipt 40px, standing where the head stood, the
+ *   keyboard on the next card's head, the count holding — the receipt's Undo,
+ *   a `j` and an Escape; the open card's head stuck to the list's top over its
+ *   body; under reduced motion no animation and no transition, the anchoring
+ *   kept; and Save, which takes the applied case out of the waiting ones, the
+ *   Save notice saying so and the count settling — at once under reduced
+ *   motion — and settling again as the history's Undo past the Save is saved
+ *   (R4, R24–R27).
+ * - **Looks** (§8, P2, P13, P14, P21): the list's rows — the first card 12
+ *   below the list's top, the next 8 below it — the card closed and open, its
+ *   head and its chip, and the marks over the previews, computed in the theme
+ *   against its tokens; and each preview kind's height and frame, swept
  *   through the previews gallery.
  * - **Narrow hosts** (R30): the same queue in a 360px parent and a 294px one,
  *   and the phone example in its own box — one column, nothing sideways, the
- *   count kept and the past-due count its short form, or in the 294px parent,
- *   at the row's floor, its clock and its number, its words said — and on a
- *   coarse pointer each control of the open card a 44px target by its box or
- *   its halo.
+ *   count kept — and on a coarse pointer each control of the open card, the
+ *   Roster's case with its options and its question, a 44px target by its box
+ *   or its halo.
  *
  * The toolbar at every width, its 28px controls and the footer's line are the
  * shared sweeps', which list the queue beside the builders
@@ -48,12 +52,16 @@ const PHONE = "e3/decision/decision/decisionQueuePhone";
 /** The queue's root, in its entry. */
 const ROOT = "[data-decision-queue]";
 
-/** The Roster's case, the first waiting and open as the queue opens. */
-const ROTA = "rota-tansy";
-/** The Plan's case under it, whose Apply waits on no answer. */
+/** The first case waiting in its source's order — Saturday's cover, a routine one — open as the queue opens. */
+const FIRST = "cover-saturday";
+/** The case under it. */
+const SECOND = "orders-ready";
+/** The Plan's case, whose Apply waits on no answer. */
 const PRINT = "print-j3007";
-/** The first case due today, the next card after the Plan's. */
-const YARD = "yard-ld2235";
+/** The case under the Plan's: the next waiting card after it. */
+const NEXT = "ready-a1";
+/** The Roster's case, whose open card offers its options and asks its question. */
+const ROTA = "rota-tansy";
 
 /** The page: tall enough that an example's 760px box shows whole beside the showcase's chrome. */
 const PAGE = { width: 1600, height: 1200 } as const;
@@ -265,19 +273,14 @@ async function press(page: Page, control: Locator): Promise<void> {
 }
 
 /**
- * Points at a receipt once it has arrived — it arrives from its card's height to its own — so it stays while the
- * checks look (R27).
+ * Waits for a receipt to arrive: it arrives from its card's height to its own (R24).
  *
- * @param page - The page
  * @param shown - The receipt
  */
-async function pointAt(page: Page, shown: Locator): Promise<void> {
-    const point = await shown.evaluate(async (el) => {
+async function arrived(shown: Locator): Promise<void> {
+    await shown.evaluate(async (el) => {
         await Promise.all(el.getAnimations().map((animation) => animation.finished.then(() => undefined, () => undefined)));
-        const b = el.getBoundingClientRect();
-        return { x: b.left + b.width / 3, y: b.top + b.height / 2 };
     });
-    await page.mouse.move(point.x, point.y);
 }
 
 /**
@@ -460,8 +463,8 @@ async function sweepPreviews(page: Page, entry: Locator, want: MarkLook): Promis
 }
 
 /**
- * What is wrong with the queue at a narrow width (R30): the list scrolling sideways; a section, card, receipt or the
- * Routine band past the list's sides, or a card out of the one column; a part of a card — a preview's own parts
+ * What is wrong with the queue at a narrow width (R30): the list scrolling sideways; a card or a receipt past the list's
+ * sides, or a card out of the one column; a part of a card — a preview's own parts
  * apart, its crop being its own — past the card's sides; and, on a fine pointer, a part whose content runs past its
  * box (a coarse pointer's halos reach past their controls by design, never moving one).
  *
@@ -478,10 +481,10 @@ function narrowFaults(entry: Locator, fine: boolean): Promise<string[]> {
         const box = list.getBoundingClientRect();
         const right = box.left + list.clientWidth;
         const named = (el: Element) => {
-            const key = el.getAttribute("data-decision-card") ?? el.getAttribute("data-decision-receipt") ?? el.getAttribute("data-decision-section");
+            const key = el.getAttribute("data-decision-card") ?? el.getAttribute("data-decision-receipt");
             return key === null ? el.tagName.toLowerCase() : key;
         };
-        for (const row of list.querySelectorAll("[data-decision-section], [data-decision-card], [data-decision-receipt], [data-decision-routine]")) {
+        for (const row of list.querySelectorAll("[data-decision-card], [data-decision-receipt]")) {
             const b = row.getBoundingClientRect();
             if (b.left < box.left - 0.5 || b.right > right + 0.5) faults.push(`${named(row)} runs past the list: ${b.left.toFixed(1)}–${b.right.toFixed(1)} in ${box.left.toFixed(1)}–${right.toFixed(1)}`);
         }
@@ -541,79 +544,36 @@ function targetFaults(entry: Locator): Promise<string[]> {
     });
 }
 
-/** Where the past-due count stands in a narrow row (R30): its short form, `2 late`, or at the row's floor its clock and its number. */
-type LateForm = "short" | "floor";
-
-/** The past-due count as the row shows it. */
-interface LateLook {
-    /** The toolbar's form of it: `1` its short form, `2` its clock and its number. */
-    readonly form: string | null;
-    /** Whether its clock is drawn. */
-    readonly clock: boolean;
-    /** The words drawn, and the words a screen reader hears: what no `aria-hidden` part holds. */
-    readonly shown: string;
-    readonly said: string;
-    /** What a hover says. */
-    readonly title: string | null;
-}
-
 /**
- * The past-due count as the row shows it.
- *
- * @param entry - The example's entry
- * @returns Its form, its clock, the words it draws and says, and its hover's
- */
-function lateLook(entry: Locator): Promise<LateLook> {
-    return queueOf(entry).locator("[data-frame-slot='toolbar'] [data-toolbar] > [data-toolbar-item='decision.late']").first().evaluate((item) => {
-        const late = item.querySelector<HTMLElement>("[data-decision-late]");
-        const shown: string[] = [];
-        const said: string[] = [];
-        if (late !== null) {
-            const walker = document.createTreeWalker(late, NodeFilter.SHOW_TEXT);
-            for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-                const parent = node.parentElement!;
-                const hider = parent.closest("[aria-hidden='true']");
-                if (hider === null || !late.contains(hider)) said.push(node.textContent ?? "");
-                // What a screen reader alone hears is drawn a pixel square, clipped.
-                if (parent.getBoundingClientRect().width > 1) shown.push(node.textContent ?? "");
-            }
-        }
-        const clock = late?.querySelector("svg[data-icon='clock']");
-        return {
-            form: item.getAttribute("data-toolbar-form"),
-            clock: clock != null && clock.getBoundingClientRect().width > 0,
-            shown: shown.join("").trim(),
-            said: said.join("").trim(),
-            title: late?.getAttribute("title") ?? null,
-        };
-    });
-}
-
-/**
- * Holds the queue at a narrow width to R30: one column and nothing sideways, the count kept, the past-due count its
- * short form or at the row's floor its clock and its number, its words said and on hover, and on a coarse pointer the
- * open card's controls 44px targets.
+ * Holds the queue at a narrow width to R30: one column and nothing sideways, the count kept, and on a coarse pointer
+ * the open card's controls 44px targets.
  *
  * @param page - The page
  * @param entry - The example's entry
- * @param late - Where the past-due count stands, and its number
  * @param where - The width, for the failures
  */
-async function expectNarrow(page: Page, entry: Locator, late: { readonly form: LateForm; readonly n: string }, where: string): Promise<void> {
+async function expectNarrow(page: Page, entry: Locator, where: string): Promise<void> {
     const coarse = await page.evaluate(() => matchMedia("(pointer: coarse)").matches);
     expect(await narrowFaults(entry, !coarse), where).toEqual([]);
     await expect(rowItem(entry, "decision.title", "[data-decision-count]"), `${where}: the count stays`).toHaveText(/^\d+$/u);
-    const want: LateLook = late.form === "short"
-        ? { form: "1", clock: false, shown: `${late.n} late`, said: `${late.n} late`, title: null }
-        : { form: "2", clock: true, shown: late.n, said: `${late.n} past due`, title: `${late.n} past due` };
-    await expect.poll(() => lateLook(entry), {
-        message: `${where}: the past-due count ${late.form === "short" ? "its short form" : "its clock and its number at the row's floor"}`,
-    }).toEqual(want);
     if (coarse) expect(await targetFaults(entry), `${where}: each control a 44px target`).toEqual([]);
 }
 
+/**
+ * Opens the Roster's case as a viewer does: the list scrolled to it, and its head pressed.
+ *
+ * @param page - The page
+ * @param entry - The example's entry
+ */
+async function openRota(page: Page, entry: Locator): Promise<void> {
+    await place(entry, head(ROTA), 40);
+    await settled(page);
+    await pressHead(page, entry, ROTA);
+    await expect(queueOf(entry).locator(card(ROTA))).toHaveAttribute("data-open", "");
+}
+
 for (const theme of THEMES) {
-    test(`anchoring: a head's top within 1px across an open closing the card above, a close stuck at the list's top, an open, Apply's receipt — 40px, where the head stood — its Undo, a j and an Escape; the open head stuck over its body; under reduced motion no animation, the anchoring kept (R8–R13, R25) (${theme}) @desktop`, async ({ page }) => {
+    test(`anchoring: a head's top within 1px across an open closing the card above, a close stuck at the list's top, an open, Apply's receipt — 40px, where the head stood, the keyboard on the next head, the count holding — its Undo, a j and an Escape; the open head stuck over its body; under reduced motion no animation, the anchoring kept; Save taking the applied case out of the waiting ones, the count settling (R3, R4, R8–R13, R24–R27) (${theme}) @desktop`, async ({ page }) => {
         // A cold start of the page's e3, then a dozen gestures, each watched until the list has held still.
         test.setTimeout(120_000);
         await page.setViewportSize(PAGE);
@@ -622,8 +582,9 @@ for (const theme of THEMES) {
         await queue.scrollIntoViewIfNeeded();
         await settled(page);
         // The first case waiting is open as the queue opens.
-        await expect(queue.locator(card(ROTA))).toHaveAttribute("data-open", "");
+        await expect(queue.locator(card(FIRST))).toHaveAttribute("data-open", "");
         const title = rowItem(entry, "decision.title", "[data-decision-count]");
+        await expect(title).toHaveText("12");
 
         await test.step("an open that closes the card above it: the head opened stays where it stood (R7, R8)", async () => {
             const placed = await place(entry, head(PRINT), 200);
@@ -632,7 +593,7 @@ for (const theme of THEMES) {
             const before = (await partAt(entry, head(PRINT)))!.top;
             const frames = await watch(page, entry, [head(PRINT)], () => pressHead(page, entry, PRINT));
             await expect(queue.locator(card(PRINT))).toHaveAttribute("data-open", "");
-            await expect(queue.locator(card(ROTA))).not.toHaveAttribute("data-open");
+            await expect(queue.locator(card(FIRST))).not.toHaveAttribute("data-open");
             expectHeld(frames, 0, before, "the head opened");
         });
 
@@ -671,7 +632,7 @@ for (const theme of THEMES) {
         });
 
         let applied = 0;
-        await test.step("Apply: the receipt — 40px, in its verdict's tone and the theme's — stands where the head stood, the count settling (R25, R26)", async () => {
+        await test.step("Apply: the receipt — 40px, in its verdict's tone and the theme's — stands where the head stood, the keyboard on the next case's head, which neither opens nor scrolls, the count holding e3's (R3, R24, R25)", async () => {
             const apply = queue.locator(applyOf(PRINT));
             await expect(apply).toHaveText("Apply");
             await expect.poll(() => apply.getAttribute("aria-disabled"), { message: "Apply is on once the preview has read its rows", timeout: 30_000 }).toBeNull();
@@ -681,9 +642,12 @@ for (const theme of THEMES) {
             const named = (await queue.locator(head(PRINT)).locator(":scope > :nth-child(2)").textContent()) ?? "";
             const frames = await watch(page, entry, [receipt(PRINT)], async () => {
                 await press(page, apply);
-                await pointAt(page, queue.locator(receipt(PRINT)));
+                await arrived(queue.locator(receipt(PRINT)));
             });
             expectHeld(frames, 0, before - 1, "the receipt");
+            // The keyboard on the next waiting case's head, which neither opens nor scrolls: the receipt held above says so.
+            await expect(queue.locator(head(NEXT))).toBeFocused();
+            await expect(queue.locator(card(NEXT))).not.toHaveAttribute("data-open");
             const shown = queue.locator(receipt(PRINT));
             const height = await shown.evaluate(async (el) => {
                 await Promise.all(el.getAnimations().map((animation) => animation.finished.then(() => undefined, () => undefined)));
@@ -715,12 +679,13 @@ for (const theme of THEMES) {
                 title: named,
                 undo: ["Undo", await token(page, "brand-solid")],
             });
-            await expect(title).toHaveAttribute("data-settle", "");
-            expect(await title.evaluate((el) => getComputedStyle(el).animationName), "the count settles").toBe("decision-settle");
+            // A draft moves no count of e3's: the chip holds, unsettled.
+            await expect(title).toHaveText("12");
+            await expect(title).not.toHaveAttribute("data-settle");
             applied = before;
         });
 
-        await test.step("the receipt's Undo: the card back, open, its head where it stood (R26)", async () => {
+        await test.step("the receipt's Undo: the card back, open, its head where it stood (R27)", async () => {
             const frames = await watch(page, entry, [head(PRINT)], () => press(page, queue.locator(receipt(PRINT)).getByRole("button", { name: "Undo", exact: true })));
             await expect(queue.locator(card(PRINT))).toHaveAttribute("data-open", "");
             await expect(queue.locator(receipt(PRINT))).toHaveCount(0);
@@ -730,27 +695,27 @@ for (const theme of THEMES) {
 
         let next = 0;
         await test.step("j: the next card opens, the one open closes above it, its head where it stood (R12)", async () => {
-            const placed = await place(entry, head(YARD), 300);
+            const placed = await place(entry, head(NEXT), 300);
             expect(Math.abs(placed - 300), `the next case's head placed at ${placed}`).toBeLessThanOrEqual(1);
             await settled(page);
-            const before = (await partAt(entry, head(YARD)))!.top;
+            const before = (await partAt(entry, head(NEXT)))!.top;
             await expect(queue.locator(head(PRINT))).toBeFocused();
-            const frames = await watch(page, entry, [head(YARD)], () => page.keyboard.press("j"));
-            await expect(queue.locator(card(YARD))).toHaveAttribute("data-open", "");
+            const frames = await watch(page, entry, [head(NEXT)], () => page.keyboard.press("j"));
+            await expect(queue.locator(card(NEXT))).toHaveAttribute("data-open", "");
             await expect(queue.locator(card(PRINT))).not.toHaveAttribute("data-open");
             expectHeld(frames, 0, before, "the head j opened");
-            await expect(queue.locator(head(YARD))).toBeFocused();
+            await expect(queue.locator(head(NEXT))).toBeFocused();
             next = before;
         });
 
         await test.step("Escape: the open card closes, its head where it stood (R12)", async () => {
-            const frames = await watch(page, entry, [head(YARD)], () => page.keyboard.press("Escape"));
-            await expect(queue.locator(card(YARD))).not.toHaveAttribute("data-open");
+            const frames = await watch(page, entry, [head(NEXT)], () => page.keyboard.press("Escape"));
+            await expect(queue.locator(card(NEXT))).not.toHaveAttribute("data-open");
             expectHeld(frames, 0, next, "the head Escape closed");
-            await expect(queue.locator(head(YARD))).toBeFocused();
+            await expect(queue.locator(head(NEXT))).toBeFocused();
         });
 
-        await test.step("reduced motion: no arrival, no turn, no settle, the receipt 40px from its first frame — the anchoring kept (R13)", async () => {
+        await test.step("reduced motion: no arrival, no turn, the receipt 40px from its first frame — the anchoring kept (R13)", async () => {
             await page.emulateMedia({ reducedMotion: "reduce" });
             await page.mouse.move(0, 0);
             await place(entry, head(PRINT), 150);
@@ -767,18 +732,40 @@ for (const theme of THEMES) {
             const at = (await partAt(entry, head(PRINT)))!.top;
             const frames = await watch(page, entry, [receipt(PRINT)], async () => {
                 await press(page, apply);
-                await pointAt(page, queue.locator(receipt(PRINT)));
+                await arrived(queue.locator(receipt(PRINT)));
             });
             expectHeld(frames, 0, at - 1, "the receipt under reduced motion");
             const heights = frames.map((frame) => frame[0]).filter((part): part is At => part !== null && part !== undefined).map((part) => part.height);
             expect(heights.filter((h) => Math.abs(h - 40) > 0.5), `the receipt 40px in every frame — ${heights.join(" ")}`).toEqual([]);
             expect(await queue.locator(receipt(PRINT)).evaluate((el) => getComputedStyle(el).animationName), "the receipt's arrival").toBe("none");
+        });
+
+        const toolbar = queue.locator("[data-frame-slot='toolbar']");
+        await test.step("Save, under reduced motion: the applied case leaves the waiting ones, the Save notice says so, and e3's count settles at once, with no animation (R4, R13, R26)", async () => {
+            await press(page, toolbar.getByRole("button", { name: "Save", exact: true }));
+            await expect(queue.locator(receipt(PRINT)), "the case saved leaves the list").toHaveCount(0, { timeout: 30_000 });
+            await expect(title).toHaveText("11", { timeout: 30_000 });
             await expect(title).toHaveAttribute("data-settle", "");
             expect(await title.evaluate((el) => getComputedStyle(el).animationName), "the count's settle").toBe("none");
+            await expect(queue.locator("[data-decision-footer] [data-record-save-notice='']")).toHaveText("1 decision left this view", { timeout: 30_000 });
+        });
+
+        await test.step("the history's Undo past the Save, saved: the case back among the waiting ones, and e3's count settling (R4, R27)", async () => {
+            await page.emulateMedia({ reducedMotion: "no-preference" });
+            await press(page, toolbar.getByRole("button", { name: "Undo", exact: true }));
+            await press(page, toolbar.getByRole("button", { name: "Save", exact: true }));
+            await expect(title).toHaveText("12", { timeout: 30_000 });
+            await expect(title).toHaveAttribute("data-settle", "");
+            expect(await title.evaluate((el) => getComputedStyle(el).animationName), "the count settles").toBe("decision-settle");
+            // Back where the source has it: the list read from its top down to it.
+            await queue.locator("[data-decision-list]").evaluate((el) => { el.scrollTop = 0; });
+            await settled(page);
+            await place(entry, head(PRINT), 40);
+            await expect(queue.locator(card(PRINT)), "the case back, waiting").toHaveCount(1, { timeout: 30_000 });
         });
     });
 
-    test(`looks: the card closed and open, its head and its chip, and the marks over the previews, in the theme's tokens; each preview kind its height and frame, swept through the previews gallery (§8, P2, P13, P14, P21) (${theme}) @desktop`, async ({ page }) => {
+    test(`looks: the list's rows, the card closed and open, its head and its chip, and the marks over the previews, in the theme's tokens; each preview kind its height and frame, swept through the previews gallery (§8, P2, P13, P14, P21) (${theme}) @desktop`, async ({ page }) => {
         // A cold start of the page's e3, then a sweep of the gallery's cases, each read as the list reaches it.
         test.setTimeout(120_000);
         await page.setViewportSize(PAGE);
@@ -787,13 +774,13 @@ for (const theme of THEMES) {
         await queue.scrollIntoViewIfNeeded();
         await page.mouse.move(0, 0);
         await settled(page);
-        await expect(queue.locator(card(ROTA))).toHaveAttribute("data-open", "");
+        await expect(queue.locator(card(FIRST))).toHaveAttribute("data-open", "");
         // The open card above and the closed one under it, both drawn.
-        await place(entry, head(PRINT), 400);
+        await place(entry, head(SECOND), 400);
         await settled(page);
         const want = await markLook(page);
 
-        await test.step("the card closed and open, its head and its chip", async () => {
+        await test.step("the list's rows, the card closed and open, its head and its chip", async () => {
             const look = await queue.evaluate((root, { open, closed }) => {
                 const edge = (s: CSSStyleDeclaration, side: "top" | "bottom") =>
                     [s.getPropertyValue(`border-${side}-width`), s.getPropertyValue(`border-${side}-style`), s.getPropertyValue(`border-${side}-color`)].join(" ");
@@ -803,37 +790,48 @@ for (const theme of THEMES) {
                     const c = getComputedStyle(cardEl);
                     const h = getComputedStyle(headEl);
                     return {
-                        card: { margin: c.marginTop, edge: edge(c, "top"), radius: c.borderTopLeftRadius, background: c.backgroundColor },
+                        card: { edge: edge(c, "top"), radius: c.borderTopLeftRadius, background: c.backgroundColor },
                         head: {
                             background: h.backgroundColor, padding: [h.paddingTop, h.paddingRight, h.paddingBottom, h.paddingLeft].join(" "),
                             position: h.position, top: h.top, rule: edge(h, "bottom"),
                         },
+                        cardEl,
                         headEl,
                     };
                 };
                 const shut = of(closed);
+                const opened = of(open);
                 const chipEl = [...shut.headEl.children].at(-2)!.firstElementChild!;
                 const chip = getComputedStyle(chipEl);
+                // The top of the list's content, wherever the list has scrolled to; the open card is the first.
+                const list = root.querySelector("[data-decision-list]")!;
+                const top = list.getBoundingClientRect().top - list.scrollTop;
+                const first = opened.cardEl.getBoundingClientRect();
+                const under = shut.cardEl.getBoundingClientRect();
                 return {
+                    rows: { first: first.top - top, gap: under.top - first.bottom },
                     closed: { card: shut.card, head: shut.head },
-                    open: { card: of(open).card, head: of(open).head },
+                    open: { card: opened.card, head: opened.head },
                     chip: {
                         words: chipEl.textContent, height: chipEl.getBoundingClientRect().height, edge: edge(chip, "top"),
                         color: chip.color, transform: chip.textTransform,
                     },
                 };
-            }, { open: ROTA, closed: PRINT });
+            }, { open: FIRST, closed: SECOND });
+            // The list's rows (§8): the first card 12 below the list's top, and the card under it 8 below it.
+            expect(Math.abs(look.rows.first - 12), `the first card 12 below the list's top: ${look.rows.first}`).toBeLessThanOrEqual(1);
+            expect(Math.abs(look.rows.gap - 8), `the card under it 8 below it: ${look.rows.gap}`).toBeLessThanOrEqual(1);
             const surface = await token(page, "bg-surface");
             const strong = await token(page, "border-strong");
             const subtle = await token(page, "border-subtle");
             const md = await radius(page, "md");
             const brand = await token(page, "brand-solid");
             expect(look.closed, "the closed card and its head").toEqual({
-                card: { margin: "8px", edge: `1px solid ${strong}`, radius: md, background: surface },
+                card: { edge: `1px solid ${strong}`, radius: md, background: surface },
                 head: { background: surface, padding: "12px 12px 12px 12px", position: "sticky", top: "0px", rule: expect.stringMatching(/^0px /u) },
             });
             expect(look.open, "the open card and its head").toEqual({
-                card: { margin: "8px", edge: `1px solid ${await token(page, "fg")}`, radius: md, background: surface },
+                card: { edge: `1px solid ${await token(page, "fg")}`, radius: md, background: surface },
                 head: { background: await token(page, "bg-subtle"), padding: "12px 12px 12px 12px", position: "sticky", top: "0px", rule: `1px solid ${subtle}` },
             });
             expect(look.chip, "the proposal's chip").toEqual({ words: "Proposed", height: 18, edge: `1px dashed ${brand}`, color: brand, transform: "uppercase" });
@@ -865,24 +863,24 @@ for (const theme of THEMES) {
         });
     });
 
-    test(`narrow hosts: the same queue in a 360px parent and a 294px one, and the phone example in its own box — one column, nothing sideways, the count kept and the past-due count its short form, in the 294px one at the row's floor its clock and its number; on a coarse pointer each control of the open card a 44px target by its box or its halo (R30) (${theme})`, async ({ page }) => {
+    test(`narrow hosts: the same queue in a 360px parent and a 294px one, and the phone example in its own box — one column, nothing sideways, the count kept; on a coarse pointer each control of the open card a 44px target by its box or its halo (R30) (${theme})`, async ({ page }) => {
         await page.setViewportSize({ width: 1280, height: 900 });
         const entry = await visitBuilder(page, OPS, ROOT, theme);
-        await expect(queueOf(entry).locator(card(ROTA))).toHaveAttribute("data-open", "");
-        const wide = (await rowItem(entry, "decision.late", "[data-decision-late]").textContent()) ?? "";
-        const pastDue = /^(\d+) past due$/u.exec(wide);
-        expect(pastDue, `the past-due count at the queue's full width: '${wide}'`).not.toBeNull();
-        const n = pastDue?.[1] ?? "";
-        for (const [width, form] of [[360, "short"], [294, "floor"]] as const) {
+        await expect(queueOf(entry).locator(card(FIRST))).toHaveAttribute("data-open", "");
+        // The Roster's case open: its options and its question among the card's controls.
+        await openRota(page, entry);
+        for (const width of [360, 294] as const) {
             await test.step(`in a ${width}px parent`, async () => {
                 await sizeBuilder(page, entry, ROOT, width);
-                await expectNarrow(page, entry, { form, n }, `a ${width}px parent`);
+                await expect(queueOf(entry).locator(card(ROTA)), "the open case stays open").toHaveAttribute("data-open", "");
+                await expectNarrow(page, entry, `a ${width}px parent`);
             });
         }
         await test.step("the phone example, in its own box", async () => {
             const phone = await visitBuilder(page, PHONE, ROOT, undefined);
-            await expect(queueOf(phone).locator(card(ROTA))).toHaveAttribute("data-open", "");
-            await expectNarrow(page, phone, { form: "short", n }, "the phone example");
+            await expect(queueOf(phone).locator(card(FIRST))).toHaveAttribute("data-open", "");
+            await openRota(page, phone);
+            await expectNarrow(page, phone, "the phone example");
         });
     });
 }

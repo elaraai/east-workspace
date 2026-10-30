@@ -4,8 +4,8 @@
  *
  * @vitest-environment jsdom
  *
- * The DecisionQueue's previews on e3 itself (#1453, #1455, `Decision Queue
- * Spec.md` §9.5, §15), over the full queue's example (§3.3) — the mock's
+ * The DecisionQueue's previews on e3 itself (#1453, #1455, #1458, `Decision
+ * Queue Spec.md` §9.5, §15), over the full queue's example (§3.3) — the mock's
  * cases, like for like: the models' cases read through the rail's source,
  * each option's change landing where its tag says — the warehouse rota's
  * duties, drawn as the Roster draws them, by people and by what they cost,
@@ -13,11 +13,12 @@
  * maintenance, drawn as the Calendar draws it, the kiln yard's bins, drawn as
  * the Allocation draws them, the shop's work orders, drawn as the Sheet draws
  * them, and the stock levels, the lines' cure settings and the price list,
- * which no builder draws, each in its own form. The cases are laid out by
- * when each is due, then by what the recommendation is worth, money printed
- * as money and the orders and the bond as counts — a section of both with no
- * total — each head where its change lands, when it is due, its title, its
- * chip line and its figure; the routine cases in their band (R1–R3, R28). A
+ * which no builder draws, each in its own form. The cases stand in the order
+ * the rail's source reads them — the app's index on their judgement, then
+ * their area — neither sorted nor sectioned, money printed as money and the
+ * orders and the bond as counts, each head where its change lands, when it is
+ * due, its title, its chip line, its figure and its status, the routine ones
+ * marked so (R1–R3). A
  * card's preview stands between its title and its chip line, open or closed
  * (P1): the People week's crop of the people the change lands on, their hours
  * before → after in the tone the change gives them, the duty it proposes
@@ -37,24 +38,25 @@
  * its line (R14); choosing another option draws its change, and one that
  * changes nothing draws the people, or the days, the recommendation lands on,
  * unmarked (P4); Apply, once the question is answered, writes the duty and the
- * verdict through their doors (R16, R23, R29), the print case's the job, the
- * workshop case's the maintenance, the yard case's the bin, the stock case's
- * the stock level and the orders case's the work orders; and the routine
- * band's Apply all writes its three changes — Thursday's long shifts trimmed,
- * Saturday's cover and Press A1's readiness — and their verdicts (R28).
+ * verdict — a field of the case's own row — through their doors (R16, R23,
+ * R29), the print case's the job, the workshop case's the maintenance, the
+ * yard case's the bin, the stock case's the stock level and the orders case's
+ * the work orders; and the routine cases are decided as any case is, Apply on
+ * each writing its change — Saturday's cover, Thursday's long shifts trimmed
+ * and Press A1's readiness — and its verdict.
  */
 
 import { afterEach, beforeEach, expect, test } from "vitest";
-import { act, fireEvent, waitFor, within } from "@testing-library/react";
+import { waitFor, within } from "@testing-library/react";
 import { DateTimeType, SortedMap, StringType, compareFor, equalFor, none, some, variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/decision/decision";
-import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
+import { e3Harness, slot } from "../e3-web-mount.test-utils.js";
 import { layOutList } from "./list.test-utils.js";
 import { decisionQueueMessages as m } from "./messages.js";
 import {
     action, axis, card, chartRow, chipLine, entries, fields, head, heads, history, marked, measure, openCard, optionOf, press, preview, previewRow,
-    previewRows, ruler, sections, sheetCells, sheetHead, sheetName, tile, tiles,
+    previewRows, ruler, sheetCells, sheetHead, sheetName, tile, tiles,
 } from "./preview.test-utils.js";
 import "./index.js";
 
@@ -65,7 +67,7 @@ let restoreFrame: () => void = () => {};
 beforeEach(() => { restoreFrame = layOutList(12_000); });
 afterEach(() => restoreFrame());
 
-const verdictEqual = equalFor(ex.OpsVerdict);
+const caseEqual = equalFor(ex.OpsCase);
 const dutiesEqual = equalFor(ex.rosterDuties.type);
 const coverEqual = equalFor(ex.rosterCover.type);
 const jobsEqual = equalFor(ex.planEventJobs.type);
@@ -77,8 +79,11 @@ const readinessEqual = equalFor(ex.pressReadiness.type);
 const compareTime = compareFor(DateTimeType);
 const byString = compareFor(StringType);
 
-/** The queue's cases, in the order the list draws them: by when each is due, then by what its recommendation is worth. */
-const CASES = ["rota-tansy", "print-j3007", "yard-ld2235", "stock-c5", "workshop-press1", "orders-ready", "trial-cure", "price-coast", "rota-overtime"];
+/** The queue's cases, in the order the list draws them: the rail's source's, the app's index on their judgement, then their area. */
+const CASES = [
+    "cover-saturday", "orders-ready", "price-coast", "print-j3007", "ready-a1", "rota-overtime", "rota-tansy", "rota-trim", "stock-c5", "trial-cure",
+    "workshop-press1", "yard-ld2235",
+];
 
 /** Thursday's long shifts, which the routine trim ends 2h earlier: C. Kestrel's late at 22:00, S. Meadow's night at 06:00. */
 const THU_LATE_END = new Date("2028-03-09T22:00:00Z");
@@ -111,13 +116,6 @@ function readHead(container: HTMLElement, key: string) {
     };
 }
 
-/** The routine band's rows, as each reads: its case, its recommended option's title, where its change lands and the case's scope, and its figure. */
-const routineRows = (container: HTMLElement) => [...container.querySelectorAll<HTMLElement>("[data-decision-routine-case]")].map(row => {
-    const [, text, value] = [...row.children];
-    const [title, meta] = [...text!.children];
-    return [row.getAttribute("data-decision-routine-case"), title!.textContent, meta!.textContent, value?.textContent];
-});
-
 /** Mounts the full queue, and waits until its cards show and the open one's preview has drawn its rows. */
 async function open() {
     const ui = await h.mount(ex.decisionQueueOps);
@@ -126,57 +124,65 @@ async function open() {
     return ui;
 }
 
-/** A case's saved verdict, given within a span: its time read off it, and every other field as given. */
-async function savedVerdict(key: string, from: Date, to: Date, rest: { option: string; answer?: "yes" | "no" | "unsure" }) {
-    const saved = (await h.read(ex.opsVerdicts)).get(key);
-    expect(saved).toBeDefined();
-    const at = saved!.verdict.value.at;
+/**
+ * A case's row as saved: applied within a span — its time read off it — on the option and with the answer given, and
+ * every other field as the model wrote it.
+ */
+async function savedCase(key: string, from: Date, to: Date, rest: { option: string; answer?: "yes" | "no" | "unsure" }) {
+    const saved = (await h.read(ex.opsCases)).get(key);
+    if (saved === undefined || saved.verdict.type !== "applied") throw new Error(`${key} was not saved applied`);
+    const at = saved.verdict.value.at;
     expect(compareTime(at, from)).toBeGreaterThanOrEqual(0);
     expect(compareTime(at, to)).toBeLessThanOrEqual(0);
-    expect(verdictEqual(saved!, {
-        verdict: variant("applied", { at }), option: some(rest.option),
-        answer: rest.answer === undefined ? none : some(variant(rest.answer, null)), reason: none, note: none,
+    expect(caseEqual(saved, {
+        ...ex.opsCaseRows.get(key)!, verdict: variant("applied", { at }), option: some(rest.option),
+        answer: rest.answer === undefined ? none : some(variant(rest.answer, null)),
     })).toBe(true);
 }
 
-// ── Laying out (R1–R3, R28) ─────────────────────────────────────────────────
+// ── Laying out (R1–R3) ──────────────────────────────────────────────────────
 
-test("the mock's cases, like for like, by when each is due — Overdue and Due today each its count and total, This week money beside counts, no total — each head where its change lands and the case's scope, when it is due, its title, its chip line, its figure and its status, its preview the kind its target draws; the routine cases in their band, folded; the first opens on its recommendation (R1–R3, R7, R14, R28)", async () => {
+test("the mock's cases, like for like, in the order the rail's source reads them — the app's index on their judgement, then their area — neither sorted nor sectioned: each head where its change lands and the case's scope, when it is due, its title, its chip line, its figure and its status, the routine ones marked so, its preview the kind its target draws; the toolbar says e3's count, and the first waiting case opens (R1–R3, R7, R14)", async () => {
     const { container } = await open();
     await waitFor(() => expect(CASES.filter(key => !drawn(container, key))).toEqual([]), { timeout: 15_000 });
-    expect(sections(container)).toEqual([["overdue", "Overdue | 2 | +$86K"], ["today", "Due today | 3 | +$46K"], ["week", "This week | 4"]]);
-    expect(slot(container, "toolbar").querySelector("[data-decision-title] [data-decision-count]")?.textContent).toBe("9");
+    expect(container.querySelector("[data-decision-section]")).toBeNull();
+    expect(slot(container, "toolbar").querySelector("[data-decision-title] [data-decision-count]")?.textContent).toBe("12");
     const proposed = m.chip({ modified: false });
     const needs = m.status({ status: "needsAnswer" });
+    const routine = m.status({ status: "routine" });
     expect(CASES.map(key => readHead(container, key))).toEqual([
-        { scope: "Roster · Picking · W10", due: "2h late", tone: "overdue", title: "Move J. Tansy's Friday late to B. Pumice",
-            chips: `${proposed}B. Pumice · Fri 14–22`, value: "+$80K", unit: "uplift", status: needs },
-        { scope: "Plan · Print works · Hall B", due: "35m late", tone: "overdue", title: "Move job J-3007 from Press B2 to Press A1",
-            chips: `${proposed}A1 · 11:30–14:30`, value: "+$6.2K", unit: "uplift" },
-        { scope: "Allocation · Kiln yard", due: "by 14:00", tone: "today", title: "Load LD-2235 (8 m³) into kiln K-305",
-            chips: `${proposed}K-305 · Tue 11 14:15`, value: "+$1.9K", unit: "uplift", status: needs },
-        { scope: "Inventory · Replenishment", due: "by 16:00", tone: "today", title: "Reorder 2,000 units of C5 envelopes",
-            chips: `${proposed}on order 0 → 2,000`, value: "+$42K", unit: "uplift" },
-        { scope: "Calendar · Fabrication", due: "by 17:00", tone: "today", title: "Move Press 1 maintenance to Sat 06:00",
-            chips: `${proposed}Press 1 · Sat 3 06:00–08:00`, value: "+$2.4K", unit: "uplift", status: needs },
+        { scope: "Capacity · Inbound · Sat 11", title: "Trim Saturday's inbound early cover by one",
+            chips: `${proposed}heads 12 → 11`, value: "+$408", unit: "uplift", status: routine },
         { scope: "Sheet · Workshop orders", due: "by Wed 11", title: "Fill 3 due dates on the ready orders from history",
             chips: `${proposed}3 due dates`, value: "+3", unit: "due dates" },
-        { scope: "Experiment · Line 2", due: "by Thu 12", title: "Switch line 2 to slow cure",
-            chips: `${proposed}cure 40 → 55 min`, value: "+5.2", unit: "MPa bond" },
         { scope: "Pricing · Regional list prices", due: "by Fri 13", title: "Raise the Coast list price to $11.00",
             chips: `${proposed}Coast $10.50 → $11.00`, value: "+$17K", unit: "uplift / mo" },
+        { scope: "Plan · Print works · Hall B", due: "35m late", tone: "overdue", title: "Move job J-3007 from Press B2 to Press A1",
+            chips: `${proposed}A1 · 11:30–14:30`, value: "+$6.2K", unit: "uplift" },
+        { scope: "Forecast · Press A1", title: "Confirm Press A1 ready in ~2 days", chips: `${proposed}confirmed`, value: "+2", unit: "days", status: routine },
         { scope: "Roster · Warehouse · W10", due: "by Fri 13", title: "Rebalance week 10 across 3 people",
             chips: `${proposed}3 shifts · 3 people`, value: "+$156", unit: "saved / wk" },
+        { scope: "Roster · Picking · W10", due: "2h late", tone: "overdue", title: "Move J. Tansy's Friday late to B. Pumice",
+            chips: `${proposed}B. Pumice · Fri 14–22`, value: "+$80K", unit: "uplift", status: needs },
+        { scope: "Roster · Inbound · W10", title: "Trim 4h from Thursday's long shifts",
+            chips: `${proposed}2 shifts · 10h → 8h`, value: "+$168", unit: "uplift", status: routine },
+        { scope: "Inventory · Replenishment", due: "by 16:00", tone: "today", title: "Reorder 2,000 units of C5 envelopes",
+            chips: `${proposed}on order 0 → 2,000`, value: "+$42K", unit: "uplift" },
+        { scope: "Experiment · Line 2", due: "by Thu 12", title: "Switch line 2 to slow cure",
+            chips: `${proposed}cure 40 → 55 min`, value: "+5.2", unit: "MPa bond" },
+        { scope: "Calendar · Fabrication", due: "by 17:00", tone: "today", title: "Move Press 1 maintenance to Sat 06:00",
+            chips: `${proposed}Press 1 · Sat 3 06:00–08:00`, value: "+$2.4K", unit: "uplift", status: needs },
+        { scope: "Allocation · Kiln yard", due: "by 14:00", tone: "today", title: "Load LD-2235 (8 m³) into kiln K-305",
+            chips: `${proposed}K-305 · Tue 11 14:15`, value: "+$1.9K", unit: "uplift", status: needs },
     ]);
     expect(CASES.map(key => [preview(container, key).getAttribute("data-kind"), preview(container, key).getAttribute("data-layout")])).toEqual([
-        ["roster", "roster"], ["plan", "lanes"], ["allocation", "lanes"], ["record", "fields"], ["calendar", "lanes"], ["sheet", "sheet"],
-        ["record", "fields"], ["record", "fields"], ["roster", "cost"],
+        ["record", "fields"], ["sheet", "sheet"], ["record", "fields"], ["plan", "lanes"], ["record", "fields"], ["roster", "cost"],
+        ["roster", "roster"], ["roster", "roster"], ["record", "fields"], ["record", "fields"], ["calendar", "lanes"], ["allocation", "lanes"],
     ]);
-    // The band at the end, folded: its count and Apply all, and no total — its cases' figures are money and a count.
-    const band = container.querySelector<HTMLElement>("[data-decision-routine]")!;
-    expect(band.textContent).toBe(`${m.routine()}3${m.applyAll({ n: "3" })}`);
-    expect(routineRows(container)).toEqual([]);
-    // The overdue case opens, on its recommendation: its line says so before its note.
+    // The first waiting case opens.
+    expect(openCard(container)).toBe("cover-saturday");
+    // Opened, the rota case is on its recommendation: its line says so before its note.
+    await press(head(container, "rota-tansy"));
     expect(openCard(container)).toBe("rota-tansy");
     const recommended = optionOf(container, "rota-tansy", /^B\. Pumice/u);
     expect(recommended.getAttribute("aria-selected")).toBe("true");
@@ -199,21 +205,21 @@ test("the rota case's preview is the People week's crop of the people its change
     expect(measure(pumice, "24 → 32h")).toBeUndefined();
     expect(tile(tansy, "s234")).toEqual({ op: "from", fill: undefined, title: "Late · Fri 10 · moves to B. Pumice" });
     expect(tile(pumice, "s234")).toEqual({ op: "add", fill: "own", title: "Late · Fri 10 · proposed" });
-    // Only the duty the change moves is marked; no other case changes it.
+    // Only the duty the change moves is marked.
     expect(marked(tansy)).toEqual(["s234"]);
     expect(marked(pumice)).toEqual(["s234"]);
-    expect(frame.querySelector("[data-preview-shared]")).toBeNull();
     // The preview sits between the title and the chip line, on the closed card as on the open one.
+    expect(openCard(container)).toBe("cover-saturday");
     const parts = [...head(container, "rota-tansy").children];
     expect(parts.indexOf(frame)).toBe(2);
-    await act(async () => { fireEvent.keyDown(container.querySelector<HTMLElement>("[data-decision-main]")!, { key: "Escape" }); });
-    await settle();
-    expect(openCard(container)).toBeUndefined();
+    await press(head(container, "rota-tansy"));
+    expect(openCard(container)).toBe("rota-tansy");
     expect(previewRows(preview(container, "rota-tansy"))).toEqual(["J. Tansy", "B. Pumice"]);
 });
 
 test("choosing another option draws its change: A. Osier takes the late, over contract, and the chip reads Modified; an option that changes nothing draws the people the recommendation lands on as they stand, unmarked (P1, P4, P24, R15)", async () => {
     const { container } = await open();
+    await press(head(container, "rota-tansy"));
     await press(optionOf(container, "rota-tansy", /^A\. Osier/u));
     const frame = () => preview(container, "rota-tansy");
     await waitFor(() => expect(previewRows(frame())).toEqual(["J. Tansy", "A. Osier"]));
@@ -439,9 +445,8 @@ test("the orders case's preview is the Sheet's crop of the work orders its chang
     expect(sheetCells(previewRow(frame(), "WO-1005"))).toEqual(set("16 Mar 26", undefined));
     expect(sheetCells(previewRow(frame(), "WO-1007"))).toEqual(set("17 Mar 26", guess));
     expect(sheetCells(previewRow(frame(), "WO-1008"))).toEqual(set("18 Mar 26", undefined));
-    // Each row is named by its first column, unmarked: its cells show its change. No other case changes them.
+    // Each row is named by its first column, unmarked: its cells show its change.
     expect(sheetName(previewRow(frame(), "WO-1005"))).toEqual({ op: undefined, title: "WO-1005" });
-    expect(frame().querySelector("[data-preview-shared]")).toBeNull();
 });
 
 test("choosing the orders case's two sure ones draws WO-1005 and WO-1008 alone, neither a guess, and the chip reads Modified (P1, P4, R15)", async () => {
@@ -469,8 +474,8 @@ test("the orders case's Apply drafts the three orders and the verdict as one ste
     await press(apply());
     expect(container.querySelector('[data-decision-receipt="orders-ready"]')).not.toBeNull();
     await press(history(container, editingMessages.apply()));
-    expect(mutated()).toEqual([ex.opsVerdicts.name, ex.optimiseWorkOrders.name].sort());
-    await savedVerdict("orders-ready", from, new Date(), { option: "1-all" });
+    expect(mutated()).toEqual([ex.opsCases.name, ex.optimiseWorkOrders.name].sort());
+    await savedCase("orders-ready", from, new Date(), { option: "1-all" });
     expect(ordersEqual(await h.read(ex.optimiseWorkOrders), new SortedMap([...orders,
         ["WO-1005", { ...orders.get("WO-1005")!, status: "Scheduled", due: some(MON_16) }],
         ["WO-1007", { ...orders.get("WO-1007")!, status: "Scheduled", due: some(TUE_17) }],
@@ -488,8 +493,8 @@ test("the stock case's Apply drafts the C5 envelopes' reorder and the verdict as
     await press(apply());
     expect(container.querySelector('[data-decision-receipt="stock-c5"]')).not.toBeNull();
     await press(history(container, editingMessages.apply()));
-    expect(mutated()).toEqual([ex.opsVerdicts.name, ex.stockLevels.name].sort());
-    await savedVerdict("stock-c5", from, new Date(), { option: "1-q2000" });
+    expect(mutated()).toEqual([ex.opsCases.name, ex.stockLevels.name].sort());
+    await savedCase("stock-c5", from, new Date(), { option: "1-q2000" });
     expect(stockEqual(await h.read(ex.stockLevels), new SortedMap([...stock, ["c5", { ...stock.get("c5")!, onOrder: 2_000, risk: 3 }]], byString))).toBe(true);
 });
 
@@ -503,8 +508,8 @@ test("the print case's Apply drafts J-3007's move and the verdict as one step, a
     await press(apply());
     expect(container.querySelector('[data-decision-receipt="print-j3007"]')).not.toBeNull();
     await press(history(container, editingMessages.apply()));
-    expect(mutated()).toEqual([ex.opsVerdicts.name, ex.planEventJobs.name].sort());
-    await savedVerdict("print-j3007", from, new Date(), { option: "1-a1" });
+    expect(mutated()).toEqual([ex.opsCases.name, ex.planEventJobs.name].sort());
+    await savedCase("print-j3007", from, new Date(), { option: "1-a1" });
     const cards = jobs.get("J-3007")!;
     expect(jobsEqual(await h.read(ex.planEventJobs), new SortedMap([...jobs, ["J-3007", {
         ...cards, press: some("a1"), start: some(new Date("2026-10-20T11:30:00Z")), end: some(new Date("2026-10-20T14:30:00Z")),
@@ -523,8 +528,8 @@ test("the workshop case's Apply waits for its question; answered Yes, it drafts 
     await press(apply());
     expect(container.querySelector('[data-decision-receipt="workshop-press1"]')).not.toBeNull();
     await press(history(container, editingMessages.apply()));
-    expect(mutated()).toEqual([ex.calendarServices.name, ex.opsVerdicts.name].sort());
-    await savedVerdict("workshop-press1", from, new Date(), { option: "1-sat", answer: "yes" });
+    expect(mutated()).toEqual([ex.calendarServices.name, ex.opsCases.name].sort());
+    await savedCase("workshop-press1", from, new Date(), { option: "1-sat", answer: "yes" });
     const service = services.get("service1")!;
     expect(servicesEqual(await h.read(ex.calendarServices), new SortedMap([...services, ["service1", {
         ...service, start: new Date("2026-10-03T06:00:00Z"), end: new Date("2026-10-03T08:00:00Z"),
@@ -543,8 +548,8 @@ test("the yard case's Apply waits for its question; answered Yes, it drafts LD-2
     await press(apply());
     expect(container.querySelector('[data-decision-receipt="yard-ld2235"]')).not.toBeNull();
     await press(history(container, editingMessages.apply()));
-    expect(mutated()).toEqual([ex.kilnBins.name, ex.opsVerdicts.name].sort());
-    await savedVerdict("yard-ld2235", from, new Date(), { option: "1-k305", answer: "yes" });
+    expect(mutated()).toEqual([ex.kilnBins.name, ex.opsCases.name].sort());
+    await savedCase("yard-ld2235", from, new Date(), { option: "1-k305", answer: "yes" });
     expect(binsEqual(await h.read(ex.kilnBins), new SortedMap([...bins, ["3127", {
         bay: "B-1", at: new Date("2027-05-11T14:15:00Z"), load: some("LD-2235"), m3: 8, spec: some("MC10"), dryFor: variant("days", 9),
         kilns: new SortedMap([["K-305", 8]], byString), specBooked: "MC10", specMeasured: "MC10", gradeBooked: "P", gradeMeasured: "P1",
@@ -555,6 +560,7 @@ test("the yard case's Apply waits for its question; answered Yes, it drafts LD-2
 test("Apply waits for the question's answer; answered Yes, it drafts the moved duty and the verdict as one step, and Save writes the duty to B. Pumice and the verdict with its option and answer, a request each (R16, R23, R29)", async () => {
     const { container } = await open();
     const duties = await h.read(ex.rosterDuties);
+    await press(head(container, "rota-tansy"));
     const apply = () => action(container, "rota-tansy", m.action({ action: "apply" }));
     expect(apply().getAttribute("aria-disabled")).toBe("true");
     expect(apply().getAttribute("title")).toBe(m.applyOff({ why: "needs" }));
@@ -564,38 +570,33 @@ test("Apply waits for the question's answer; answered Yes, it drafts the moved d
     await press(apply());
     expect(container.querySelector('[data-decision-receipt="rota-tansy"]')).not.toBeNull();
     await press(history(container, editingMessages.apply()));
-    expect(mutated()).toEqual([ex.opsVerdicts.name, ex.rosterDuties.name].sort());
-    await savedVerdict("rota-tansy", from, new Date(), { option: "1-pumice", answer: "yes" });
+    expect(mutated()).toEqual([ex.opsCases.name, ex.rosterDuties.name].sort());
+    await savedCase("rota-tansy", from, new Date(), { option: "1-pumice", answer: "yes" });
     const friday = duties.get("s234")!;
     expect(dutiesEqual(await h.read(ex.rosterDuties), new SortedMap([...duties, ["s234", { ...friday, who: variant("staff", "bpumice") }]], byString))).toBe(true);
 });
 
-// ── The routine band (R28) ──────────────────────────────────────────────────
+// ── The routine cases (R16, R29) ────────────────────────────────────────────
 
-test("the routine band unfolds to its three cases, most worth first, each its recommendation's title, where its change lands and the case's scope, and its figure; Apply all drafts the three changes and their verdicts as one step, its banner saying so; Save writes Thursday's two long shifts ended 2h earlier, Saturday's inbound early cover at 11 heads and Press A1's readiness confirmed, and the verdicts, a request each (R28, R29)", async () => {
+test("the routine cases are decided as any case is, each on its own card: Saturday's cover — the first waiting, open — Thursday's long shifts and Press A1's readiness each applied, a step each; Save writes Saturday's inbound early cover at 11 heads, Thursday's two long shifts ended 2h earlier, Press A1's readiness confirmed and the three verdicts, a request a record (R16, R23, R29)", async () => {
     const { container } = await open();
     const duties = await h.read(ex.rosterDuties);
     const cover = await h.read(ex.rosterCover);
     const readiness = await h.read(ex.pressReadiness);
-    const band = () => container.querySelector<HTMLElement>("[data-decision-routine]")!;
-    await press(band().querySelector("button[aria-expanded]")!);
-    expect(routineRows(container)).toEqual([
-        ["cover-saturday", "Trim Saturday's inbound early cover by one", "Capacity · Inbound · Sat 11", "+$408"],
-        ["rota-trim", "Trim 4h from Thursday's long shifts", "Roster · Inbound · W10", "+$168"],
-        ["ready-a1", "Confirm Press A1 ready in ~2 days", "Forecast · Press A1", "+2"],
-    ]);
-    const applyAll = () => within(band()).getByRole("button", { name: m.applyAll({ n: "3" }) });
-    await waitFor(() => expect(applyAll().getAttribute("aria-disabled")).toBeNull());
     const from = new Date();
-    await press(applyAll());
-    expect(slot(container, "banners").textContent).toContain(m.batch({ n: "3" }).description);
-    expect(container.querySelector("[data-decision-routine]")).toBeNull();
+    for (const key of ["cover-saturday", "rota-trim", "ready-a1"]) {
+        if (openCard(container) !== key) await press(head(container, key));
+        const apply = () => action(container, key, m.action({ action: "apply" }));
+        await waitFor(() => expect(apply().getAttribute("aria-disabled")).toBeNull());
+        await press(apply());
+        expect(container.querySelector(`[data-decision-receipt="${key}"]`)).not.toBeNull();
+    }
     await press(history(container, editingMessages.apply()));
-    expect(mutated()).toEqual([ex.opsVerdicts.name, ex.pressReadiness.name, ex.rosterCover.name, ex.rosterDuties.name].sort());
+    expect(mutated()).toEqual([ex.opsCases.name, ex.pressReadiness.name, ex.rosterCover.name, ex.rosterDuties.name].sort());
     const to = new Date();
-    await savedVerdict("rota-trim", from, to, { option: "1-trim" });
-    await savedVerdict("cover-saturday", from, to, { option: "1-trim" });
-    await savedVerdict("ready-a1", from, to, { option: "1-confirm" });
+    await savedCase("cover-saturday", from, to, { option: "1-trim" });
+    await savedCase("rota-trim", from, to, { option: "1-trim" });
+    await savedCase("ready-a1", from, to, { option: "1-confirm" });
     expect(dutiesEqual(await h.read(ex.rosterDuties), new SortedMap([...duties,
         ["s121", { ...duties.get("s121")!, end: THU_LATE_END }],
         ["s153", { ...duties.get("s153")!, end: THU_NIGHT_END }],

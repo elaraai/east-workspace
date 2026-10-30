@@ -34,7 +34,7 @@ import { RosterPreview } from "./roster.js";
 import { SheetPreview } from "./sheet.js";
 import { ZonesPreview } from "./zones.js";
 
-export { flag, sharedOf, type SharedRows } from "./frame.js";
+export { flag } from "./frame.js";
 
 /** Props of {@link DecisionPreview}: what a preview draws from, the recipe's styles its own. */
 export type DecisionPreviewProps = Omit<PreviewProps, "styles">;

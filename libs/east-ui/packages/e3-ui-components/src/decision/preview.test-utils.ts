@@ -4,9 +4,9 @@
  */
 
 /**
- * What the DecisionQueue's previews' DOM tests read (#1453, #1454,
- * `Decision Queue Spec.md` §9.5): the cards in their order and their
- * sections' heads, a card's preview — its rows, each row's measure in its
+ * What the DecisionQueue's previews' DOM tests read (#1453, #1454, #1458,
+ * `Decision Queue Spec.md` §9.5): the cards in their order, a card's
+ * preview — its rows, each row's measure in its
  * tone, and the entries it draws as the change marks them — a Sheet crop's
  * head and cells, a lanes crop's ruler, a chart's or a projection's axis, a
  * chart's rows, a record's changed fields, a card's options, chip line and
@@ -26,9 +26,6 @@ export const head = (container: HTMLElement, key: string) => container.querySele
 export const card = (container: HTMLElement, key: string) => container.querySelector<HTMLElement>(`[data-decision-card="${key}"]`)!;
 /** The open card's case's key; `undefined` while none is open. */
 export const openCard = (container: HTMLElement) => container.querySelector("[data-decision-card][data-open]")?.getAttribute("data-decision-card") ?? undefined;
-/** Each section's head as it reads: its label, its count and its total. */
-export const sections = (container: HTMLElement) => [...container.querySelectorAll("[data-decision-section]")].map(el =>
-    [el.getAttribute("data-decision-section"), [...el.children].map(part => part.textContent).filter(text => text !== "").join(" | ")]);
 /** A case's preview: the one image in its card's head. */
 export const preview = (container: HTMLElement, key: string) => head(container, key).querySelector<HTMLElement>("[data-decision-preview]")!;
 /** A preview's rows, by the name each heads. */

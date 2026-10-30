@@ -4,11 +4,11 @@
  */
 
 /**
- * A case's card in the DecisionQueue (`Decision Queue Spec.md` §8, R14–R24),
- * and the receipt a verdict leaves where it stood (R25–R28).
+ * A case's card in the DecisionQueue (`Decision Queue Spec.md` §8, R14–R23),
+ * and the receipt a verdict leaves where it stood (R24–R27).
  *
  * The head is the card's toggle: the target's icon, its name and the case's
- * scope, the due words in their section's tone, the recommended option's
+ * scope, the due words in their tone, the recommended option's
  * title, its preview's frame, `Proposed` or `Modified` beside the summary, and
  * the value line with the status at its end. Open, the body holds the options
  * — a listbox, one tab stop, the arrows moving along it — the change's
@@ -31,7 +31,7 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type AnimationEvent, type CSSProperties, type KeyboardEvent, type RefObject } from "react";
 import { Box, Field as ChakraField, VisuallyHidden, chakra, useRecipe } from "@chakra-ui/react";
 import { findIconDefinition, library, type IconDefinition, type IconName } from "@fortawesome/fontawesome-svg-core";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -42,7 +42,7 @@ import {
     EastChakraCheckbox, EastChakraRadioGroup, EastChakraStringInput, EastChakraTextarea, fieldFormMessages, getSomeorUndefined, takeKey,
     useTrackedEvaluation, type BatchReadiness, type FieldFormWords, type TickFormatOpt,
 } from "@elaraai/east-ui-components";
-import { LoadingFailedLine, useReceiptHold, type SlotStyles } from "@elaraai/east-ui-components/internal";
+import { LoadingFailedLine, type SlotStyles } from "@elaraai/east-ui-components/internal";
 import type { ScheduleEditing } from "../shared/schedule/editing.js";
 import { rowCodec } from "../shared/schedule/records.js";
 import { bytesOf, keptBytes, optionId, type CaseChoice, type RowEdit } from "./choices.js";
@@ -50,8 +50,8 @@ import {
     appliedRows, rowsReadiness, targetOf, type AppliedRows, type Decided, type DecisionQueueValue, type DecisionRecord, type DecisionTarget,
 } from "./editing.js";
 import { figureRuns } from "./figures.js";
-import { DecisionPreview, flag, type SharedRows } from "./preview/index.js";
-import { dueWords, sectionOf, type DecisionCase } from "./layout.js";
+import { dueWhen, dueWords, type DecisionCase } from "./cases.js";
+import { DecisionPreview, flag } from "./preview/index.js";
 import type { DecisionAnswerWord, DecisionQueueWords, DecisionReasonWord, DecisionVerdictWord } from "./messages.js";
 import { DecisionRowForm } from "./row-form.js";
 import {
@@ -63,7 +63,7 @@ import {
 library.add(fas);
 
 /** Which of a verdict's parts the app's rows hold: without one the card asks for none of it (§5.2). */
-export type DecisionRoles = DecisionQueueValue["verdicts"]["roles"];
+export type DecisionRoles = DecisionQueueValue["decisions"]["roles"];
 
 const stringEqual = equalFor(StringType);
 
@@ -96,8 +96,8 @@ const CALL_TONES: Readonly<Record<CallState, "warn" | "neg" | "pos">> = { needs:
 const CALL_ICONS: Readonly<Record<CallState, IconDefinition>> = {
     needs: faTriangleExclamation, blocked: faCircleExclamation, handoff: faTriangleExclamation, answered: faCheck,
 };
-/** A status's tone at the value line's end (P21). */
-const STATUS_TONES = { needsAnswer: "warn", blocked: "neg", handoff: "warn", stale: "warn" } as const;
+/** A status's tone at the value line's end (P21, §8): Routine's the fourth ink. */
+const STATUS_TONES = { needsAnswer: "warn", blocked: "neg", handoff: "warn", stale: "warn", routine: "routine" } as const;
 
 /** A case with no option reads no rows. */
 const NO_OPTION: AppliedRows = { state: "none" };
@@ -197,8 +197,6 @@ export interface DecisionCardProps {
     readonly storageKey: string;
     /** The queue's editing: the rows the chosen option's change touches, as they stand, are read through it. */
     readonly schedule: ScheduleEditing;
-    /** The rows every waiting case's chosen option changes: an entry's `+N` (P18). */
-    readonly shared: SharedRows;
     /** Opens the card, or closes it. */
     readonly onToggle: (key: string) => void;
     /** Changes some of the card's choices, from its choices as they stand. */
@@ -214,7 +212,7 @@ export interface DecisionCardProps {
  * @returns The card
  */
 export const DecisionCard = memo(function DecisionCard({
-    c, targets, records, choice, open, roles, readOnly, now, words, styles, storageKey, schedule, shared, onToggle, onChoice, onDecide,
+    c, targets, records, choice, open, roles, readOnly, now, words, styles, storageKey, schedule, onToggle, onChoice, onDecide,
 }: DecisionCardProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
@@ -267,13 +265,13 @@ export const DecisionCard = memo(function DecisionCard({
     const applyIssues = useMemo(() => issuesOf(ready?.apply), [ready]);
     const overrideIssues = useMemo(() => issuesOf(ready?.override), [ready]);
 
-    const status = cardStatus(view, rows === "stale");
+    const status = cardStatus(view, rows === "stale", c.routine);
     const off = applyOff(view, rows, !checked.ok || (ready !== undefined && ready.apply.type !== "ready"));
     // An override's own edits the check fails hold Override case, its issues its words (R20).
     const held = !overriding ? undefined : !checked.ok || (ready?.override !== undefined && ready.override.type !== "ready")
         ? m.applyOff({ why: "unready", issues: overrideIssues.list }) : undefined;
     const due = dueWords(c.due, now);
-    const section = sectionOf(c.due, now);
+    const when = dueWhen(c.due, now);
     const dueText = due === undefined ? undefined
         : due.kind === "late" ? m.late({ amount: words.number(due.amount), unit: due.unit })
             : due.kind === "time" ? m.by({ when: words.time(due.at) })
@@ -371,12 +369,12 @@ export const DecisionCard = memo(function DecisionCard({
                     <Box as="span" css={styles.eyebrowIcon} aria-hidden="true">{icon !== undefined && <FontAwesomeIcon icon={icon} />}</Box>
                     <Box as="span" css={styles.eyebrowText}>{target === undefined ? c.scope : `${target.name} · ${c.scope}`}</Box>
                     {dueText !== undefined && (
-                        <Box as="span" css={styles.due} data-tone={section === "overdue" || section === "today" ? section : undefined}>{dueText}</Box>
+                        <Box as="span" css={styles.due} data-tone={when === "later" ? undefined : when}>{dueText}</Box>
                     )}
                 </Box>
                 <Box css={styles.headTitle}><Figured text={title} /></Box>
                 {target !== undefined && option !== undefined && (
-                    <DecisionPreview c={c} view={view} target={target} record={record} rows={rows} changed={changed} schedule={schedule} shared={shared}
+                    <DecisionPreview c={c} view={view} target={target} record={record} rows={rows} changed={changed} schedule={schedule}
                         words={words} now={now} />
                 )}
                 <Box css={styles.chipLine}>
@@ -842,9 +840,9 @@ export interface DecisionReceiptProps {
     readonly verdict: DecisionVerdictWord;
     /** The option's title, as the card showed it. */
     readonly title: string;
-    /** The card's height, which the receipt arrives from. */
-    readonly from: number;
-    /** Whether its step is the history's last, so its Undo takes it back. */
+    /** The card's height, which a verdict just given arrives from; `undefined` once it has, and for a case read decided. */
+    readonly from?: number | undefined;
+    /** Whether its verdict is the history's last step, so its Undo takes it back (R27). */
     readonly undo: boolean;
     /** The queue's words. */
     readonly words: DecisionQueueWords;
@@ -852,24 +850,27 @@ export interface DecisionReceiptProps {
     readonly styles: SlotStyles;
     /** Takes the verdict back. */
     readonly onUndo: (key: string) => void;
-    /** Called once it has left. */
-    readonly onGone: (key: string) => void;
+    /** Called once a verdict just given has arrived. */
+    readonly onArrived?: ((key: string) => void) | undefined;
 }
 
 /**
- * The receipt a verdict leaves where its card stood (R25–R28): its dot and verdict in the verdict's tone, the option's
- * title, and Undo while its step is the history's last. It arrives from the card's height and stays its time — on
- * while pointed at or focused — then leaves (`useReceiptHold`).
+ * The receipt a verdict leaves where its card stood (R24–R27), a status (`role="status"`): its dot and verdict in the
+ * verdict's tone, the option's title, and Undo while its verdict is the history's last step. A verdict just given
+ * arrives from the card's height; the receipt stays while its case is in the list, with no hold and no leaving (R25). A
+ * case read decided — saved, or decided in another session — is the same receipt, drawn at once, with no Undo.
  *
- * @param props - The verdict, and what Undo and its leaving do ({@link DecisionReceiptProps})
+ * @param props - The verdict, and what Undo and its arrival do ({@link DecisionReceiptProps})
  * @returns The receipt
  */
-export const DecisionReceipt = memo(function DecisionReceipt({ caseKey, verdict, title, from, undo, words, styles, onUndo, onGone }: DecisionReceiptProps) {
-    const gone = useCallback(() => onGone(caseKey), [onGone, caseKey]);
-    const hold = useReceiptHold(gone);
+export const DecisionReceipt = memo(function DecisionReceipt({ caseKey, verdict, title, from, undo, words, styles, onUndo, onArrived }: DecisionReceiptProps) {
+    const arriving = from !== undefined;
+    const arrived = useCallback((e: AnimationEvent<HTMLDivElement>) => {
+        if (e.target === e.currentTarget) onArrived?.(caseKey);
+    }, [onArrived, caseKey]);
     return (
-        <Box css={styles.receipt} role="status" data-decision-receipt={caseKey} data-leaving={flag(hold.leaving)}
-            style={{ "--receipt-from": `${from}px` } as CSSProperties} {...hold.props}>
+        <Box css={styles.receipt} role="status" data-decision-receipt={caseKey} data-arriving={flag(arriving)}
+            style={arriving ? { "--receipt-from": `${from}px` } as CSSProperties : undefined} onAnimationEnd={arriving ? arrived : undefined}>
             <Box as="span" css={styles.receiptDot} data-verdict={verdict} aria-hidden="true" />
             <Box as="span" css={styles.receiptVerdict} data-verdict={verdict}>{words.m.verdict({ verdict })}</Box>
             <Box as="span" css={styles.receiptTitle}>{title}</Box>

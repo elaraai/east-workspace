@@ -70,10 +70,10 @@ function planOf(day: Date, bins: [string, Bin][]): AllocationCropPlan {
     const plan = { status: variant("draft", null), bins: new SortedMap(bins, byString) } as unknown as Day;
     return { bins: plan.bins, loads: domain.loads(day, plan, CONTEXT), issues: domain.check(day, plan, CONTEXT) };
 }
-/** The crop of a change over Tue 11, marked, nothing knocked on, locked or shared but as given. */
+/** The crop of a change over Tue 11, marked, nothing knocked on or locked but as given. */
 const crop = (bins: readonly AllocationCropBin[], before: [string, Bin][], after: [string, Bin][], rest: Partial<AllocationCropInput> = {}): LanesModel => allocationCrop({
     bins, days: [{ day: on(0), before: planOf(on(0), before), after: planOf(on(0), after) }], lands: new SortedMap([], byString), marked: true,
-    context: CONTEXT, knockOn: () => false, locked: () => false, shared: () => 0, ms: step => Number(allocationWords().ms(step)),
+    context: CONTEXT, knockOn: () => false, locked: () => false, ms: step => Number(allocationWords().ms(step)),
     words: {
         part: (code, quantity) => m.previewBin({ code: code ?? m.previewReserved({ sentence: false }), quantity: allocationWords().quantity(quantity, "m³") }),
         what: code => code ?? m.previewReserved({ sentence: true }),
@@ -158,12 +158,12 @@ describe("allocationCrop", () => {
         expect(model.clauses).toEqual([{ kind: "add", what: "A reservation", on: "R-2", verb: "held", start: on(0, 9, 15), end: on(8) }]);
     });
 
-    test("a bin whose parts the change leaves as they were, changing something else of it, is changed in place, breaching what the check says of it; a knock-on, a lock and other cases are the bin's", () => {
+    test("a bin whose parts the change leaves as they were, changing something else of it, is changed in place, breaching what the check says of it; a knock-on and a lock are the bin's", () => {
         const more = { ...IN_R2, quantity: 5 };
         const model = crop([{ key: "c1", before: IN_R2, after: more }], [["c1", IN_R2]], [["c1", more]], {
-            locked: key => stringEqual(key, "c1"), shared: key => (stringEqual(key, "c1") ? 2 : 0),
+            locked: key => stringEqual(key, "c1"),
         });
-        expect(model.rows[0]!.bars.map(bar => [bar.op, bar.locked, bar.shared, bar.breach])).toEqual([["chg", true, 2, { kind: "issue", text: "1 m³ unallocated · L-1 06:15" }]]);
+        expect(model.rows[0]!.bars.map(bar => [bar.op, bar.locked, bar.breach])).toEqual([["chg", true, { kind: "issue", text: "1 m³ unallocated · L-1 06:15" }]]);
         expect(model.clauses).toEqual([{ kind: "change", what: "E-2", on: "R-2" }]);
         const knocked = crop([{ key: "c1", before: IN_R2, after: more }], [["c1", IN_R2]], [["c1", more]], { knockOn: key => stringEqual(key, "c1") });
         expect(knocked.rows[0]!.bars.map(bar => [bar.op, bar.knock])).toEqual([[undefined, true]]);
