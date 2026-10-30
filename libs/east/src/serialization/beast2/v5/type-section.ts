@@ -118,7 +118,7 @@ function structuralBytes(type: EastTypeValue | EastType): Uint8Array {
   const cached = structuralBytesCache.get(type as object);
   if (cached) return cached;
   const builder = new TypeTableBuilder();
-  const rootIdx = builder.add(type);
+  const rootIdx = builder.add(asTypeValue(type));
   const writer = new BufferWriter();
   writeTypeTableSection(rootIdx, builder.entries, writer);
   const bytes = writer.toUint8Array();

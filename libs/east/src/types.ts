@@ -1269,7 +1269,9 @@ export function printType(type: EastType, stack: EastType[] = []): string {
   
   // It should print the same output as printing an `EastType` as an `EastTypeType`, but
   // printing values hasn't been defined by this stage and printType is crucial for
-  // internal debugging and `Expr` error messages.
+  // internal debugging and `Expr` error messages. A recursive type is the exception:
+  // it prints its type id in this process, where its type value carries the hash of
+  // its type table, which this module, below the type table, cannot compute.
 
   // We do skip mutable aliasing of struct field or variant case lists for clarity.
   // Types are intended to be immutable in any case.

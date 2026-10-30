@@ -126,6 +126,9 @@ cdef extern from "east/types.h":
     EastType *east_recursive_type_new()
     void east_recursive_type_set(EastType *rec, EastType *node)
     EastType *east_recursive_type_intern(EastType *rec)
+    # The id every runtime writes a recursive type under: a hash of its type
+    # table. -1 for a type that is not a recursive wrapper with its node set.
+    int64_t east_type_structural_id(EastType *type)
 
     # Ref counting
     void east_type_retain(EastType *t)
