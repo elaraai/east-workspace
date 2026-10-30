@@ -175,11 +175,20 @@ describe('the task view — Output', () => {
             assert.deepEqual(fs.readdirSync(scratch), ['forecast.beast2'], 'the file takes its name once it is whole');
             assert.ok(api.calls.includes('datasetGetStream main.tasks.forecast.output'));
             assert.match(mounted.lines()[33]!, new RegExp(`saved [\\d.]+ KB to ${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+            const first = mounted.store.getState().toast;
+            assert.ok(first !== null);
             await mounted.type(`/save ${file}`);
             await mounted.press(KEY.enter);
             assert.match(mounted.lines()[33]!, /^ › overwrite .*forecast\.beast2\?\s+⏎ yes · esc no/);
             await mounted.press(KEY.enter);
-            await mounted.waitFor(() => /saved/.test(mounted!.lines()[33] ?? ''));
+            // The first save's toast shows for three seconds, and again once the
+            // question goes: the overwrite is done only once a toast of its own says so.
+            await mounted.waitFor(() => {
+                const toast = mounted!.store.getState().toast;
+                return toast !== null && toast.id !== first.id && /^saved /.test(toast.text);
+            });
+            assert.deepEqual(new Uint8Array(fs.readFileSync(file)), stored);
+            assert.deepEqual(fs.readdirSync(scratch), ['forecast.beast2'], 'the overwrite takes the name once it is whole');
         } finally {
             fs.rmSync(scratch, { recursive: true, force: true });
         }
