@@ -9,11 +9,12 @@
  * the receipt a verdict left where it stood, and the Routine band last —
  * through the shared `VirtualRows`, each row keyed by what it shows, so a card
  * keeps its instance, its height and its place however the rows around it
- * change. A gesture's hold keeps the head it acts on where it was on screen
- * (R8), and goes on to show the body it opened (R11); a row's height moving —
- * a body growing open, a card shrinking to its receipt, a receipt leaving —
- * moves the rows below it in that frame. Once a read finds nothing waiting,
- * the shared empty state stands at the list's top instead.
+ * change, and each placed by its top, so an open card's head sticks to the
+ * list's top over its body (R9). A gesture's hold keeps the head it acts on
+ * where it was on screen (R8), and goes on to show the body it opened (R11); a
+ * row's height moving — a body growing open, a card shrinking to its receipt, a
+ * receipt leaving — moves the rows below it in that frame. Once a read finds
+ * nothing waiting, the shared empty state stands at the list's top instead.
  *
  * @packageDocumentation
  */
@@ -281,7 +282,7 @@ export const DecisionList = memo(function DecisionList(props: DecisionListProps)
     if (empty) return <EmptyList words={words} styles={styles} />;
     return (
         <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.list as Record<string, unknown> | undefined} rootProps={LIST_PROPS}
-            count={rows.length} getItemKey={getItemKey} anchorable={anchorable} hold={hold} liveHeights estimateSize={estimateSize} renderRow={renderRow}
+            count={rows.length} getItemKey={getItemKey} anchorable={anchorable} hold={hold} liveHeights stickyParts estimateSize={estimateSize} renderRow={renderRow}
             scrollToIndex={scrollIndex === undefined || scrollIndex < 0 ? undefined : scrollIndex} scrollNonce={scrollTo?.nonce} scrollAlign="start" />
     );
 });
