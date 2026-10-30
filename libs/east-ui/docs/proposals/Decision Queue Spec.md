@@ -584,8 +584,9 @@ a popover and a phone; both are this one component.
 The cases are read as the Plan and the Sheet read their rows (D4): through the
 rail's source a page at a time as the list scrolls, in its index's order. Here
 a replenishment model's 20,000 reorders across a chain of stores, each its own
-one proposal (D15): the record carries the verdict the queue writes, and an
-index of the app's own on whether anyone has judged a reorder (D18).
+one proposal (D15): the record carries the verdict the queue writes, and
+indexes of the app's own on whether anyone has judged a reorder, beside the
+fields the rail narrows by (D18).
 
 ```ts
 export const Reorder = StructType({
@@ -597,10 +598,13 @@ export const Reorder = StructType({
 export const reorders = e3.record("reorders", DictType(StringType, Reorder), {
     initial: () => East.compile(generateReorders, [])(20000n),
     indexes: (index) => ({
-        // The app's own: whether anyone has judged a reorder, then its store and its range.
+        // The app's own: whether anyone has judged a reorder, then its store and its range, or its range.
         reorders_by_judgement: index.key(East.function([StringType, Reorder],
             StructType({ judgement: StringType, store: StringType, range: StringType }),
             (_$, _key, r) => ({ judgement: r.verdict.getTag(), store: r.store, range: r.range }))),
+        reorders_by_judgement_range: index.key(East.function([StringType, Reorder],
+            StructType({ judgement: StringType, range: StringType }),
+            (_$, _key, r) => ({ judgement: r.verdict.getTag(), range: r.range }))),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
@@ -611,8 +615,9 @@ export const reorders = e3.record("reorders", DictType(StringType, Reorder), {
     const rows = $.let(Record.bind(reorders));
     const entries = $.let(Data.bindPaged(reorders));
     const slice = $.let(Slice.bindRecords("ex.decisionQueueRecordIndexes", {
-        decisions: { source: Data.bindPaged(reorders, { indexes: ["reorders_by_judgement"] }), icon: { prefix: "fas", name: "inbox" },
-            fields: { judgement: { label: "Judgement" }, store: { label: "Store" }, range: { label: "Range" } },
+        decisions: { source: Data.bindPaged(reorders, { indexes: ["reorders_by_judgement", "reorders_by_judgement_range"] }), icon: { prefix: "fas", name: "inbox" },
+            fields: { judgement: { label: "Judgement", hints: ["waiting", "applied", "overridden", "deferred", "handedOff"] }, store: { label: "Store" },
+                range: { label: "Range", hints: ["Envelopes", "Labels", "Folders", "Notebooks", "Cards"] } },
             initial: { judgement: ["waiting"] } },
     }));
     const stock = $.let(Record.bind(chainStock));
@@ -634,7 +639,11 @@ export const reorders = e3.record("reorders", DictType(StringType, Reorder), {
 The queue opens on the waiting reorders, e3's count of them in its toolbar, and
 reads the page in view. A reorder applied and saved leaves the list, and the
 Save notice says so (R26); Judgement's other choices show the decided ones,
-each its receipt. Without a rail the record is read whole (§3.2).
+each its receipt. Each index serves the narrowings its key leads with — a
+judgement and a store, a range with them or not, through the first; a
+judgement and a range through the second — and a store or a range chosen
+with no judgement the rail asks for one first (`Choose Judgement first.`), as
+it does over any record. Without a rail the record is read whole (§3.2).
 
 ## 4. The props
 
@@ -748,8 +757,10 @@ card's.
 | `note` | `Option<String>` | the case's note; without it no note |
 
 A role naming a field the row lacks, or one of another type, a case of the
-variant named twice, or a `waiting` case holding anything but Null, is refused
-at build, naming the field and its type.
+variant named twice, a case of it no role names — one the queue would read and
+could not tell — or a `waiting` case holding anything but Null, is refused at
+build, naming the field and its type; so is a role given as an accessor,
+naming the row's fields (D17).
 
 ### 5.3 `DecisionQueue.change` — where each kind of decision draws
 
@@ -1322,8 +1333,9 @@ does, and what follows.
   another record — each a compile error); `decisions` bound with a
   `Data.bind` or a `Data.bindPaged`; `entries` missing beside the slice's
   source, or given with none; a verdict role naming a field the row lacks or
-  one of another type, a case named twice, `waiting` holding anything but
-  Null; the change role's `of` lacking a tag, or a tag whose type is
+  one of another type, a case named twice, a case of the variant none names,
+  `waiting` holding anything but Null, a role given as an accessor; the
+  change role's `of` lacking a tag, or a tag whose type is
   not its target's record's patch (both types named); a target's kind bound
   read only; `map: "cost"` without `pay`; D15's two forms mixed; the builders'
   kinds refused as their tags refuse them; an old prop refused naming its
