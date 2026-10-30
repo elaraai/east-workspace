@@ -1,6 +1,6 @@
 ---
 name: e3-ui
-description: "Builds interactive decision surfaces as e3 UI tasks (ui()) authored in east-ui JSX and bound to workspace data: Data.bind and Data.bindPaged for datasets, Record.bind for records and their mutations, Func.bind for e3.function calls, staged edits applied or discarded together. Provides the planning builders Plan, Sheet, Calendar, Roster, Allocation, Flowchart and Schematic, plus Ontology, the Decide loop (DecisionQueue, over the app's cases and verdicts), the Studio page builder, saved jq queries (Query.Builder), and rendering deployed surfaces in a React app (E3Provider). Use when a UI reads or writes e3 workspace data or runs as an e3 task; components with no e3 data are east-ui's."
+description: "Builds interactive decision surfaces as e3 UI tasks (ui()) authored in east-ui JSX and bound to workspace data: Data.bind and Data.bindPaged for datasets, Record.bind for records and their mutations, Func.bind for e3.function calls, staged edits applied or discarded together. Provides the planning builders Plan, Sheet, Calendar, Roster, Allocation, Flowchart and Schematic, plus Ontology, the Decide loop (DecisionQueue, over the app's record of cases and their verdicts), the Studio page builder, saved jq queries (Query.Builder), and rendering deployed surfaces in a React app (E3Provider). Use when a UI reads or writes e3 workspace data or runs as an e3 task; components with no e3 data are east-ui's."
 ---
 
 # e3-ui — e3 + UI bridge
@@ -137,10 +137,11 @@ Task → What do you need?
     │   └─ The saved queries, and where new ones start    → <Query.Library queries datasets onOpen? id? />
     │
     ├─ Decide the cases the app's models leave to a person — the DecisionQueue
-    │   ├─ The queue over the app's cases and its verdicts  → <DecisionQueue id decisions={DecisionQueue.decisions(cases, { scope, due, unit, model, why, … })} verdicts={DecisionQueue.verdicts(Record.bind(r), { entries, verdict, … })} />
+    │   ├─ The queue over the app's record of cases         → <DecisionQueue id decisions={DecisionQueue.decisions(Record.bind(cases), { scope, due, unit, model, why, …, verdict })} />
     │   ├─ A case's alternatives, or each case one proposal → recommended + options: { from, title, summary, detail, value, change, … }, or the option's roles beside the case's
     │   ├─ Where each kind of decision draws                → change: { from, of: { <tag>: DecisionQueue.change.roster / plan / calendar / allocation / sheet / record / zones / projection } }
-    │   └─ Narrow the cases — one rail; follow; read only   → slice={{ slice: Slice.bindRecords(key, { decisions: { source } }) }} (the cases Data.bindPaged(record)) · onSelect={fn(Option<String>)} · readOnly
+    │   ├─ The verdict, written into the case's own row     → verdict: { field, waiting, applied, overridden, deferred, handedOff } · option? · answer? · reason? · note?
+    │   └─ Narrow the cases — one rail; follow; read only   → slice={{ slice: Slice.bindRecords(key, { decisions: { source: Data.bindPaged(cases, { indexes }) } }) }} + entries: Data.bindPaged(cases) · onSelect={fn(Option<String>)} · readOnly
     │
     ├─ Draw what is scheduled on ONE shared axis — the Plan
     │   ├─ Rows derived from data by a series list            → <Plan axis={…} data={…} series={[…]} />
@@ -398,15 +399,16 @@ start and end are `Option<DateTime>` when it can wait in the backlog.
   (`OntologyType`), committing through the binding. The **east-ontology** skill
   builds the graph.
 - **The Decide loop.** `<DecisionQueue>` is the cases an app's models leave to
-  a person, over the app's own records. The cases are the models' (a record
-  the app's mutation fills, or a task's output), which the queue only reads;
-  the verdicts are a record of the app's keyed by the case, read by key and
-  written through its patch door, and a case waits while no verdict holds its
-  key. Apply drafts the option's change through the door of the record its tag
-  names too, and Save writes each record. `Decision.bind`,
-  `Decision.Types.Decision` and `<DecisionJournal>` are gone. Start from
-  `e3-ui:decision.examples.tsx:decisionQueueMinimal` (smallest), then
-  `decisionQueueOps` and `decisionQueueRecordIndexes`.
+  a person. The cases are one record of the app's, bound with its patch door,
+  each row a case and its verdict: the app's own mutation fills it, each new
+  case waiting (a task's output is filled into it first), and the queue writes
+  each verdict into its case's row, the fields its roles name and no other. It
+  sorts and caps nothing: the rail's narrowing over the app's own index on the
+  verdict's tag decides which cases show. Apply also drafts the option's
+  change through the door of the record it changes, and Save writes each
+  record. `Decision.bind`, `Decision.Types.Decision` and `<DecisionJournal>`
+  are gone. Start from `e3-ui:decision.examples.tsx:decisionQueueMinimal`
+  (smallest), then `decisionQueueOps` and `decisionQueueRecordIndexes`.
 - **The Studio.** `Studio.component(key, { name, category, icon, span?, … },
   fn)` declares a self-contained component written like a `ui()` body; the
   pages live in one `Studio.Types.Pages` record with a patch mutation.
