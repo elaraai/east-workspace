@@ -458,7 +458,19 @@ def cmd_export_functions(args: argparse.Namespace) -> int:
     writes. The entries run in order and the first that fails ends the
     export, so an entry whose manifest was not written is the one that
     failed, or one after it.
+
+    The module's functions are built as the export first reads them, and
+    none is compiled (``deferred_builds``): a function no entry names, and no
+    named one calls, is never built (#1460).
     """
+    from east.expression.function import deferred_builds
+
+    with deferred_builds():
+        return _export_functions(args)
+
+
+def _export_functions(args: argparse.Namespace) -> int:
+    """The export :func:`cmd_export_functions` runs, builds deferred."""
     import importlib
     import importlib.metadata
     import importlib.util
