@@ -206,7 +206,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14, windows-latest]
+        os: [ubuntu-latest, macos-15, windows-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -507,7 +507,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14, windows-latest]
+        os: [ubuntu-latest, macos-15, windows-latest]
         pkg:
           - { name: east-py, dir: libs/east-py/packages/east-py }
           - { name: east-py-datascience, dir: libs/east-py/packages/east-py-datascience }
@@ -532,7 +532,7 @@ jobs:
         env:
           CIBW_BUILD: "cp311-* cp312-* cp313-*"
           CIBW_SKIP: "*-musllinux_*"
-          # macos-14 is Apple Silicon (arm64); also cross-compile Intel wheels.
+          # The macOS runner is Apple Silicon (arm64); also cross-compile Intel wheels.
           CIBW_ARCHS_MACOS: "arm64 x86_64"
           # The single shared east-c (libeast-c.so / .dylib / east_c_shared.dll) is
           # a payload of the core `east` package. Exclude it from wheel repair on
@@ -645,10 +645,15 @@ jobs:
         include:
           - { os: ubuntu-latest,    target: linux-x64   }
           - { os: ubuntu-24.04-arm, target: linux-arm64 }
-          - { os: macos-14,         target: macos-arm64 }
-          - { os: macos-14,         target: macos-x64,  cmake_arch: x86_64 }
+          - { os: macos-15,         target: macos-arm64 }
+          - { os: macos-15,         target: macos-x64,  cmake_arch: x86_64 }
           - { os: windows-latest,   target: win32-x64   }
     runs-on: ${{ matrix.os }}
+    env:
+      # The macOS binaries load on macOS 14 and later, as the ones built on
+      # macos-14 did; built on a newer image, the SDK would otherwise set the
+      # floor at its own version. Linux and Windows builds ignore it.
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
     defaults:
       run:
         # Git Bash on Windows so the mkdir/cp/tar build + stage steps run on every OS.

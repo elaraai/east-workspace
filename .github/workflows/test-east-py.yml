@@ -86,7 +86,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14, windows-latest]
+        os: [ubuntu-latest, macos-15, windows-latest]
         part: [1, 2]
     runs-on: ${{ matrix.os }}
     defaults:
@@ -278,7 +278,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14, windows-latest]
+        os: [ubuntu-latest, macos-15, windows-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -419,7 +419,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14, windows-latest]
+        os: [ubuntu-latest, macos-15, windows-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -427,7 +427,7 @@ jobs:
     env:
       UV_PYTHON: "3.11"
       CMAKE_GENERATOR: Ninja
-      # Force PyTorch Lightning onto CPU. macos-14 is Apple Silicon, so "auto"
+      # Force PyTorch Lightning onto CPU. The macOS runner is Apple Silicon, so "auto"
       # would pick the MPS GPU backend, but MPS is unusable on the headless
       # runner (allocations fail). No CI runner has a usable GPU, so CPU is the
       # correct, deterministic choice everywhere.
