@@ -24,14 +24,14 @@
  *
  * @packageDocumentation
  */
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentPropsWithRef, type Ref } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentPropsWithRef, type Ref } from "react";
 import { Box, Button, chakra, Portal, Tooltip, VisuallyHidden, useRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faNotEqual } from "@fortawesome/free-solid-svg-icons";
 import { SliceEditPopover } from "../slice/edit/index.js";
 import { useSlotStyles } from "../theme/slot-styles.js";
 import { StringType, equalFor } from "@elaraai/east";
-import { conflictViewOf, rangeViewOf, type ConflictView, type RangeEnd } from "./conflict-view.js";
+import { conflictViewOf, rangeViewOf, wordRuns, type ConflictView, type RangeEnd } from "./conflict-view.js";
 import { EditHistory } from "./history.js";
 import type { ConflictPoint } from "./merge.js";
 import type { EditingWords } from "./messages.js";
@@ -42,6 +42,10 @@ const NARROW_PX = 480;
 
 /** The most a count shows: past it, `99+`. */
 const MOST_COUNTED = 99;
+/** Past this many characters, a text reads two lines and opens in place with Show all. */
+const LONG_TEXT = 80;
+/** How many Skeleton cards stand in while the newest data is read. */
+const SKELETONS = 2;
 
 // ── A banner's Choose ───────────────────────────────────────────────────
 
@@ -329,8 +333,12 @@ export function ConflictsControl<W>({ session, words, onIssue, where, issueText,
 
     const n = cards.length;
     const count = waiting > MOST_COUNTED ? `${words.number(MOST_COUNTED)}+` : words.number(waiting);
-    const tip = waiting > 0 ? m.conflictsTip({ n: waiting, count: words.number(waiting) }) : m.conflictsSettled({ n: chosen, count: words.number(chosen) });
-    const close = () => { setOpen(false); setReopened(new Set()); };
+    const tip = waiting > 0
+        ? (locked ? m.conflictsLockedTip({ n: waiting, count: words.number(waiting) }) : m.conflictsTip({ n: waiting, count: words.number(waiting) }))
+        : m.conflictsSettled({ n: chosen, count: words.number(chosen) });
+    // The cards whose long values are open in place.
+    const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
+    const close = () => { setOpen(false); setReopened(new Set()); setOpened(new Set()); };
     const goTo = (card: Card) => {
         onIssue(card.issue);
         // In a narrow frame the popover would cover the item: it closes, and the button stays. A frame not laid out has no width.
@@ -341,18 +349,29 @@ export function ConflictsControl<W>({ session, words, onIssue, where, issueText,
     // Where the newer value came from — what the source said, else that it changed — then what both began from.
     const sourceOf = (card: Card): string => (card.said === undefined ? m.conflictChangedSince() : issueText?.(card.said) ?? card.said);
     const contextOf = (card: Card): string => [sourceOf(card), ...(card.view.was === undefined ? [] : [m.conflictWas({ value: card.view.was })])].join(" · ");
+    // A value longer than its two lines opens in place with Show all, never in a second popover.
+    const long = (card: Card) => [[card.view.yours, card.view.yoursForm], [card.view.theirs, card.view.theirsForm]]
+        .some(([value, form]) => form === "text" && (value!.length > LONG_TEXT || value!.includes("\n")));
     const choiceRow = (card: Card, seq: number, choice: ConflictChoice) => {
         const checked = card.choice === choice;
         const name = choice === "draft" ? m.conflictYours() : m.conflictTheirs();
         const value = choice === "draft" ? card.view.yours : card.view.theirs;
+        const form = choice === "draft" ? card.view.yoursForm : card.view.theirsForm;
+        // Open, two texts mark the words that differ in each.
+        const isOpen = opened.has(card.key);
+        const runs = isOpen && card.view.yoursForm === "text" && card.view.theirsForm === "text" ? wordRuns(card.view.yours, card.view.theirs) : undefined;
+        const shown = runs === undefined ? value
+            : (choice === "draft" ? runs.a : runs.b).map((run, i) => (run.differs ? <mark key={i}>{run.text}</mark> : <Fragment key={i}>{run.text}</Fragment>));
         // Theirs reads with where it came from and what both began from, as the line under it shows them.
         const said = choice === "draft" ? [name, value] : [name, value, contextOf(card)];
         return (
+            // Off while a run is out: aria-disabled, never disabled, so it keeps its place and the focus.
             <chakra.label css={styles.choice} data-checked={checked ? "" : undefined} data-disabled={off ? "" : undefined} data-choice={choice}>
-                <chakra.input type="radio" css={styles.radio} name={`${bodyId}-${seq}`} value={choice} checked={checked} disabled={off}
+                <chakra.input type="radio" css={styles.radio} name={`${bodyId}-${seq}`} value={choice} checked={checked} aria-disabled={off ? true : undefined}
                     aria-label={said.join(", ")} onChange={() => { if (!off) card.settle(choice); }} />
+                <Box as="span" css={styles.radioMark} aria-hidden />
                 <Box as="span" css={styles.choiceName}>{name}</Box>
-                <Box as="span" css={styles.choiceValue}>{value}</Box>
+                <Box as="span" css={styles.choiceValue} data-form={form} data-open={isOpen ? "" : undefined}>{shown}</Box>
             </chakra.label>
         );
     };
@@ -390,10 +409,13 @@ export function ConflictsControl<W>({ session, words, onIssue, where, issueText,
                     {choiceRow(card, seq, "draft")}
                     {choiceRow(card, seq, "source")}
                 </Box>
-                <Box css={styles.context} aria-hidden>
-                    {sourceOf(card)}
-                    {card.view.was !== undefined && <>{" · "}<Box as="span" css={styles.was}>{m.conflictWas({ value: card.view.was })}</Box></>}
-                </Box>
+                <Box css={styles.context} aria-hidden>{contextOf(card)}</Box>
+                {long(card) && (
+                    <chakra.button type="button" css={styles.showAll} aria-expanded={opened.has(card.key)} data-conflict-show=""
+                        onClick={() => setOpened((was) => { const next = new Set(was); if (next.has(card.key)) next.delete(card.key); else next.add(card.key); return next; })}>
+                        {opened.has(card.key) ? m.conflictShowLess() : m.conflictShowAll()}
+                    </chakra.button>
+                )}
             </Box>
         );
     };
@@ -402,7 +424,7 @@ export function ConflictsControl<W>({ session, words, onIssue, where, issueText,
             {/* Said as conflicts appear, from a region there before them. */}
             <VisuallyHidden aria-live="polite" data-conflicts-said="">{waiting > 0 ? m.conflictsAppeared({ n: waiting, count: words.number(waiting) }) : ""}</VisuallyHidden>
             {shown && (
-                <SliceEditPopover open={open} onOpenChange={(next) => (next ? setOpen(true) : close())} label={m.conflictsHead({ n, count: words.number(n) })} size="lg" flush
+                <SliceEditPopover open={open} onOpenChange={(next) => (next ? setOpen(true) : close())} label={session.carrying ? m.conflictsTitle() : <>{m.conflictsTitle()} · <Box as="span" css={styles.headCount}>{words.number(n)}</Box></>} size="lg" flush
                     initialFocusEl={() => {
                         // The first conflict still waiting, else the first card.
                         const at = document.getElementById(bodyId);
@@ -413,16 +435,26 @@ export function ConflictsControl<W>({ session, words, onIssue, where, issueText,
                             count={waiting > 0 ? count : undefined} chrome={[iconStyles, bar.conflicts]} countChrome={bar.conflictsCount} anchor={anchor} />
                     }
                     footActions={<>
-                        <Button size="xs" variant="outline" disabled={off} onClick={() => { if (!off) session.settleAll("draft"); }}>{m.conflictsKeepAll()}</Button>
-                        <Button size="xs" variant="outline" disabled={off} onClick={() => { if (!off) session.settleAll("source"); }}>{m.conflictsTakeAll()}</Button>
+                        <Button size="xs" variant="outline" aria-disabled={off ? true : undefined} onClick={() => { if (!off) session.settleAll("draft"); }}>{m.conflictsKeepAll()}</Button>
+                        <Button size="xs" variant="outline" aria-disabled={off ? true : undefined} onClick={() => { if (!off) session.settleAll("source"); }}>{m.conflictsTakeAll()}</Button>
                     </>}>
                     <Box id={bodyId} data-conflicts-body="">
-                        {done
-                            ? <Box css={styles.intro} data-done=""><FontAwesomeIcon icon={faCheck} />{m.conflictsSettled({ n, count: words.number(n) })}</Box>
-                            : <Box css={styles.intro}>{m.conflictsIntro()}</Box>}
-                        {locked ? <Box css={styles.notice}>{m.conflictsLocked()}</Box>
-                            : session.carrying ? <Box css={styles.notice}>{m.historyStatus({ status: "carrying" })}</Box> : null}
-                        {cards.map(cardOf)}
+                        {session.carrying ? (
+                            // Still checking: the live dot and its line, then Skeleton cards in the cards' final layout.
+                            <>
+                                <Box css={styles.notice} data-conflicts-notice="checking"><Box as="span" css={styles.live} aria-hidden />{m.historyStatus({ status: "carrying" })}</Box>
+                                {Array.from({ length: SKELETONS }, (_, i) => <Box key={i} css={styles.skeleton} data-conflict-skeleton="" aria-hidden><span /><span /><span /></Box>)}
+                            </>
+                        ) : (
+                            <>
+                                {done
+                                    ? <Box css={styles.intro} data-done=""><FontAwesomeIcon icon={faCheck} />
+                                        {(session.pending > 0 ? m.conflictsSettled : m.conflictsSettledNothing)({ n, count: words.number(n) })}</Box>
+                                    : <Box css={styles.intro}>{m.conflictsIntro()}</Box>}
+                                {locked && <Box css={styles.notice} data-conflicts-notice="locked"><Box as="span" css={styles.live} aria-hidden />{m.conflictsLocked()}</Box>}
+                                {cards.map(cardOf)}
+                            </>
+                        )}
                     </Box>
                 </SliceEditPopover>
             )}

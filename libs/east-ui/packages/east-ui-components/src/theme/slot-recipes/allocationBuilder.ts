@@ -74,7 +74,7 @@ import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { INSPECTOR_STATUS } from "./inspector.js";
 import { heldToolbarSlot, retainedColumn, retainedRow } from "./loading.js";
 import { linkRibbons } from "./links/ribbons.js";
-import { planElementFocus, planRowFocus } from "./plan/focus.js";
+import { planElementConflict, planElementFocus, planRowFocus } from "./plan/focus.js";
 import { moveGhostBase, moveGhostSlots } from "./time/move-ghost.js";
 import { nowBase, nowSlots } from "./time/now.js";
 import { scheduleAgenda, scheduleCard, scheduleCardActions, scheduleCardHead, scheduleCardTitle } from "./schedule-agenda.js";
@@ -269,6 +269,8 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             // A lit link's halo round its bin (A67): 1px of the strong ink, 4 outside it.
             "&[data-link-lit]": { outline: "1px solid", outlineColor: "fg.strong", outlineOffset: "4px" },
             ...planElementFocus,
+            // A conflict not yet chosen: the warn halo, 4px outside the bin.
+            ...planElementConflict,
             ...ownStages,
             // Its body dragged, the card it leaves is a dashed brand hole (A24).
             "&[data-dragging]": { borderStyle: "dashed", borderColor: "brand.solid", background: "transparent" },
@@ -421,6 +423,9 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "&[data-kind=load][data-draft]": { background: "brandTint", borderWidth: "1px", borderStyle: "dashed", borderColor: "brand.solid" },
             "&[data-kind=load][data-over]": { borderWidth: "1px", borderStyle: "solid", borderColor: "status.neg" },
             "&[data-kind=load][data-focus]": { outline: "2px solid", outlineColor: "fg", outlineOffset: "1px" },
+            // A conflict not yet chosen: the warn halo, 4px outside the load — its focus a ring of its own just outside it.
+            "&[data-kind=load][data-conflict]": { outline: "1px solid {colors.status.warn}", outlineOffset: "4px", zIndex: 3 },
+            "&[data-kind=load][data-conflict][data-focus]": { boxShadow: "0 0 0 2px {colors.fg}" },
             // A lit link's halo round its resource's load (A67).
             "&[data-kind=load][data-link-lit]": { outline: "1px solid", outlineColor: "fg.strong", outlineOffset: "4px" },
             // A ranked fit's preview of the hold: brand-tint, dashed (A28).
@@ -580,6 +585,8 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             background: "bg.surface", cursor: "default",
             "&:hover": { background: "bg.canvas" },
             "&[data-selected]": { background: "bg.subtle" },
+            // A conflict not yet chosen: the warn ring, inside the row's edge — it runs the table's width.
+            "&[data-conflict]": { outline: "1px solid {colors.status.warn}", outlineOffset: "-1px" },
             // Retained while a narrowing is read (#1398, CL5): the shared retained row.
             "[data-allocation-stale] &": retainedRow,
         },

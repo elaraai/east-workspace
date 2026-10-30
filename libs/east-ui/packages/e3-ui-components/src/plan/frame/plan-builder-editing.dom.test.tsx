@@ -600,6 +600,8 @@ describe("Save per kind (PB45–PB48)", () => {
         const [card, ...more] = await conflictCards(container);
         expect(more).toEqual([]);
         expect([card!.item, card!.yours]).toEqual(["Spring catalogue", "Yours, Alder & Finch Ltd"]);
+        // Its bar wears the warn halo while the conflict waits.
+        expect(bar(container, "J-1001")!.hasAttribute("data-conflict")).toBe(true);
         expect(card!.theirs).toBe("Theirs, Alder & Finch Group, Changed since this edit began — last changed by another session · was Alder & Finch");
         // The stop committed; the job did not, and its draft stands over the other planner's, waiting to be chosen.
         expect(await commits(ex.planPrintStops.name)).toEqual(["patch", ...deployed]);
@@ -608,7 +610,8 @@ describe("Save per kind (PB45–PB48)", () => {
         await select(bar(container, "J-1001")!);
         expect(customer(container)).toBe("Alder & Finch Ltd");
         expect(pending(container)).toBe("1 pending");
-        expect(historyButton(container, SAVE).disabled).toBe(true);
+        // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+        expect(historyButton(container, SAVE).getAttribute("aria-disabled")).toBe("true");
     });
 
     test("a reload keeps every kind's drafts in this tab: still to save, drawn as they were, and Save sends each kind's", async () => {

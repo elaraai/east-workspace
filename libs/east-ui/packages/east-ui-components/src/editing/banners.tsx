@@ -22,6 +22,8 @@
  */
 import { useMemo, useSyncExternalStore } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faNotEqual } from "@fortawesome/free-solid-svg-icons";
 import { BannerView } from "../feedback/banner/index.js";
 import type { HistoryAction } from "./HistoryBar.js";
 import type { EditIssue, EditSession } from "./session.js";
@@ -97,59 +99,63 @@ export function SessionBanners<W>({ session, words, onAction, where, issueText, 
             </Box>
         );
     };
+    // One Default button at a banner's end.
     const action = (label: string, run: HistoryAction) => (
-        <Button size="xs" variant="outline" data-banner-action={run} onClick={() => onAction(run)}>{label}</Button>
+        <Button size="md" variant="outline" data-banner-action={run} onClick={() => onAction(run)}>{label}</Button>
     );
+    const word = (kind: Parameters<typeof m.bannerWord>[0]["kind"]) => m.bannerWord({ kind });
     const errorText = error === undefined ? undefined : sessionErrorText(error, words);
     const unsettled = session.unsettled;
     return (
         <>
             {unsettled > 0 && (
                 <Box data-session-banner="conflicts">
-                    <BannerView status="warning" title={titled(m.bannerConflicts({ n: unsettled, count: words.number(unsettled) }))}
+                    {/* No live role of its own: the conflicts button's live region says it, once. */}
+                    <BannerView status="guard" form="band" live={false} mark={<FontAwesomeIcon icon={faNotEqual} />} word={word("conflict")}
+                        title={titled(m.bannerConflicts({ n: unsettled, count: words.number(unsettled) }))}
                         actions={choose === undefined ? undefined
-                            : <Button size="xs" variant="outline" data-banner-action="choose" onClick={choose}>{m.conflictsChoose()}</Button>} />
+                            : <Button size="md" variant="outline" data-banner-action="choose" onClick={choose}>{m.conflictsChoose()}</Button>} />
                 </Box>
             )}
             {status === "conflict" && (
                 <Box data-session-banner="conflict">
-                    <BannerView status="warning" title={titled(m.bannerConflict({ n: session.issues.length, count: words.number(session.issues.length) }))}
+                    <BannerView status="error" form="band" word={word("conflict")} title={titled(m.bannerConflict({ n: session.issues.length, count: words.number(session.issues.length) }))}
                         description={issues(session.issues)} />
                 </Box>
             )}
             {status === "idle" && errorText !== undefined && (
                 <Box data-session-banner="prepare">
-                    <BannerView status="error" title={titled(m.bannerRejected())} description={errorText} actions={action(m.retryRequest(), "apply")} />
+                    <BannerView status="error" form="band" word={word("rejected")} title={titled(m.bannerRejected())} description={errorText} actions={action(m.retryRequest(), "apply")} />
                 </Box>
             )}
             {status === "rejected" && (
                 <Box data-session-banner="rejected">
-                    <BannerView status="error" title={titled(m.bannerRejected())} description={issues(session.issues)} />
+                    <BannerView status="error" form="band" word={word("rejected")} title={titled(m.bannerRejected())} description={issues(session.issues)} />
                 </Box>
             )}
             {status === "unknown" && (
                 <Box data-session-banner="unknown">
-                    <BannerView status="warning" title={titled(m.bannerUnknown())} description={errorText} actions={action(m.retryRequest(), "apply")} />
+                    <BannerView status="guard" form="band" word={word("unconfirmed")} title={titled(m.bannerUnknown())} description={errorText} actions={action(m.retryRequest(), "apply")} />
                 </Box>
             )}
             {status === "reconciling" && errorText !== undefined && (
                 <Box data-session-banner="confirm">
-                    <BannerView status="warning" title={titled(m.bannerConfirmFailed())} description={errorText} actions={action(m.retryRefresh(), "refresh")} />
+                    <BannerView status="guard" form="band" word={word("unconfirmed")} title={titled(m.bannerConfirmFailed())} description={errorText} actions={action(m.retryRefresh(), "refresh")} />
                 </Box>
             )}
             {stale && (
                 <Box data-session-banner="stale">
-                    <BannerView status="stale" title={titled(m.bannerStale())} actions={action(m.discard(), "discard")} />
+                    <BannerView status="stale" form="band" word={word("stale")} title={titled(m.bannerStale())} actions={action(m.discard(), "discard")} />
                 </Box>
             )}
             {keeping.state === "unkept" && (
                 <Box data-session-banner="unkept">
-                    <BannerView status="warning" title={titled(m.bannerUnkept({ reason: keeping.reason }))} />
+                    <BannerView status="guard" form="band" word={word("unkept")} title={titled(m.bannerUnkept({ reason: keeping.reason }))} />
                 </Box>
             )}
             {keeping.state === "lost" && (
                 <Box data-session-banner="lost">
-                    <BannerView status="warning" title={titled(m.bannerLost({ reason: keeping.reason }))} />
+                    <BannerView status="guard" form="band" word={word("unkept")} title={titled(m.bannerLost({ reason: keeping.reason }))} />
                 </Box>
             )}
         </>

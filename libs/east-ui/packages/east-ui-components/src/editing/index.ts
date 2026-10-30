@@ -49,6 +49,8 @@ export {
     CLEAN_DRAFT,
     type BatchReadiness,
     type DraftPresentation,
+    conflictMarks,
+    type ConflictMarks,
     type DraftToPresent,
 } from "./draft.js";
 export {

@@ -10,9 +10,10 @@
  *
  * @packageDocumentation
  */
-import { OptionType, equalFor, none, some, variant, type EastType, type VariantType, type ValueTypeOf } from "@elaraai/east";
+import { OptionType, StringType, equalFor, none, some, variant, type EastType, type VariantType, type ValueTypeOf } from "@elaraai/east";
 import { EditingBatchReadinessType, EditingIssueType, EditingReadinessType } from "@elaraai/east-ui/internal";
 import { DRAFT_ISSUE_TEXT } from "./messages.js";
+import type { ConflictPoint } from "./merge.js";
 
 type Issue = ValueTypeOf<typeof EditingIssueType>;
 /** A batch's readiness — every draft's issues together. */
@@ -195,6 +196,47 @@ export interface DraftPresentation {
     issues: ReadonlyMap<string, string>;
     /** It was never applied, so discarding it drops it. */
     discardable: boolean;
+    /** Where it holds a conflict not yet chosen — what the warn halo rings ({@link conflictMarks}); none for none. */
+    conflicts?: ConflictMarks | undefined;
+}
+
+const nameEqual = equalFor(StringType);
+
+/** Where an entry, or one child row of it, holds a conflict not yet chosen: the parts the warn halo rings. */
+export interface ConflictMarks {
+    /** Each field a conflict is in. */
+    readonly fields: ReadonlySet<string>;
+    /** Whether the entry — or the child row — is one itself: both added it, or one side removed it. */
+    readonly whole: boolean;
+}
+
+/**
+ * Where an entry's conflicts are, field by field — or, given a child row
+ * (its group's children field and its index), that row's: what the warn
+ * halo rings on a canvas, a field's part for each conflict in it and the
+ * whole for one at the entry itself. A choice of a variant on the way down
+ * (a group or a row of a sheet with loose rows) is passed over.
+ *
+ * @param points - The entry's conflicts still to choose
+ * @param child - A child row: its group's children field and its index there
+ * @returns Its marks; `undefined` where none falls on it
+ */
+export function conflictMarks(points: readonly ConflictPoint[] | undefined, child?: { readonly field: string; readonly index: number }): ConflictMarks | undefined {
+    if (points === undefined || points.length === 0) return undefined;
+    const fields = new Set<string>();
+    let whole = false;
+    for (const point of points) {
+        let at = point.at.filter((step, i) => !(step.kind === "variant" && point.at.slice(0, i).every((before) => before.kind === "variant")));
+        if (child !== undefined) {
+            const [field, index] = at;
+            if (field?.kind !== "field" || !nameEqual(field.name, child.field) || index?.kind !== "index" || Number(index.index) !== child.index) continue;
+            at = at.slice(2);
+        }
+        const first = at.find((step) => step.kind !== "variant");
+        if (first === undefined) whole = true;
+        else if (first.kind === "field") fields.add(first.name);
+    }
+    return fields.size === 0 && !whole ? undefined : { fields, whole };
 }
 
 /** A draft with nothing to show. */

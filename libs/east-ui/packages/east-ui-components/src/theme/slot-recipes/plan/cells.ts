@@ -17,7 +17,7 @@ import type { SystemStyleObject } from "@chakra-ui/react";
 import { coarseHitArea } from "../../../style/hit-area.js";
 import { fieldInRingedControl } from "../../field-chrome.js";
 import { lifecycleStates } from "./states.js";
-import { PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
+import { PLAN_OVERLAP_RING, planElementConflict, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
 
 /**
  * The no-data hatch (#1039): a 45° rule in the ink at 7% across what no value shades — a heat cell, and the Calendar's
@@ -303,6 +303,7 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         },
         ...planElementSelected,
         ...planElementFocus,
+        ...planElementConflict,
     },
     // A tile's label (`data-plan-label`) — a labelled tile's, or a resting
     // proposal's `plan`. Its own flex item, so a label wider than the tile
@@ -464,6 +465,7 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         },
         ...planElementSelected,
         ...planElementFocus,
+        ...planElementConflict,
     },
     // A chip's icon (`data-plan-icon`) — Font Awesome's, 1.25em wide in the
     // chip's font; a chip narrower inside than that draws none, never a part

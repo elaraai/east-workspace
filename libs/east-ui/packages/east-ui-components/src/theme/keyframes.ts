@@ -29,6 +29,11 @@
 import { defineKeyframes } from "@chakra-ui/react";
 
 export const keyframes = defineKeyframes({
+    // A banner's entrance (the design system's Banner: in over --dur-base, --ease-out): it fades in where it stands.
+    "banner-in": {
+        "0%":   { opacity: 0 },
+        "100%": { opacity: 1 },
+    },
     // Entrance for transient drag-layer chrome (the trash sink, #267) —
     // a short rise + fade so the zone reads as appearing for THIS drag.
     "elara-fade-in": {

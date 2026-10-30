@@ -819,6 +819,8 @@ describe("a conflict's Go to", () => {
         await waitFor(() => expect(c.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
         const [conflict, ...more] = await conflictCards(c);
         expect(more).toEqual([]);
+        // The bin wears the warn halo while the conflict waits.
+        expect(card(c, "3113").hasAttribute("data-conflict")).toBe(true);
         await press(conflict!.goTo());
         expect([card(c, "3113").hasAttribute("data-selected"), card(c, "3101").hasAttribute("data-selected"), activeTab(c)?.startsWith("Details")]).toEqual([true, false, true]);
     });

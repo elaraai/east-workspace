@@ -21,6 +21,13 @@ import type { ConflictRange } from "./session.js";
 
 const textEqual = equalFor(StringType);
 
+/**
+ * How a value reads in its row: numbers, dates and ids in mono, tabular;
+ * text in the body face, two lines then Show all; absence — removed, cleared,
+ * empty — in words, in the absent style.
+ */
+export type ValueForm = "mono" | "text" | "absent";
+
 /** One conflict, as a person reads it. */
 export interface ConflictView {
     /** The entry, by its key in words, else its id: its name where the collection gives none. */
@@ -33,6 +40,10 @@ export interface ConflictView {
     readonly yours: string;
     /** The source's value there. */
     readonly theirs: string;
+    /** How the draft's value reads ({@link ValueForm}). */
+    readonly yoursForm: ValueForm;
+    /** How the source's value reads. */
+    readonly theirsForm: ValueForm;
     /** What both began from there; `undefined` where neither held the part. */
     readonly was: string | undefined;
 }
@@ -62,6 +73,11 @@ interface Step { readonly kind: "field" | "item" | "choice"; readonly words: str
 export function sentenceOf(name: string): string {
     const words = name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase();
     return words.length === 0 ? name : words[0]!.toUpperCase() + words.slice(1);
+}
+
+/** Whether a type is an option: none, or some value — a wrapper of its value, no step a person reads. */
+function isOption(type: EastType): boolean {
+    return type.type === "Variant" && Object.keys(type.cases).length === 2 && "none" in type.cases && "some" in type.cases;
 }
 
 /** A part of a draft: its type there, and its value — `undefined` for none. */
@@ -114,8 +130,8 @@ function walk(draftType: EastType, value: option<unknown>, at: PatchPath, words:
                 break;
             }
             case "variant": {
-                if (type !== undefined && isDraftField(type)) {
-                    // The draft's own field: no step of the entry's.
+                if (type !== undefined && (isDraftField(type) || isOption(type))) {
+                    // The draft's own field, or an option's value: no step of the entry's.
                     const cell = held?.held as variant<string, unknown> | undefined;
                     const inside = cell !== undefined && textEqual(cell.type, segment.tag);
                     held = inside ? { held: cell.value } : held;
@@ -187,6 +203,40 @@ function describe(type: EastType | undefined, value: { readonly held: unknown } 
 }
 
 /**
+ * How a part's value reads: absent where it holds none — removed, cleared,
+ * missing, empty text — mono for a number, a date or a key, else text.
+ *
+ * @param part - The part
+ * @returns Its form
+ */
+function formOf(part: Part): ValueForm {
+    if (part.value === undefined) return "absent";
+    let type = part.type;
+    let held = part.value.held;
+    // Through the draft's own field and an option to what it holds.
+    while (type?.type === "Variant") {
+        const cell = held as variant<string, unknown>;
+        const cases = type.cases as Record<string, EastType>;
+        const option = Object.keys(cases).length === 2 && "none" in cases && "some" in cases;
+        if (isDraftField(type)) {
+            if (textEqual(cell.type, "missing")) return "absent";
+            if (!textEqual(cell.type, "value")) return "text";
+        } else if (option) {
+            if (textEqual(cell.type, "none")) return "absent";
+        } else {
+            return "text";
+        }
+        held = cell.value;
+        type = cases[cell.type];
+    }
+    switch (type?.type) {
+        case "Integer": case "Float": case "DateTime": return "mono";
+        case "String": return (held as string).length === 0 ? "absent" : "text";
+        default: return "text";
+    }
+}
+
+/**
  * The steps down to a part, split where the part's own label begins: at its
  * last field, else at its last step. Above it, a field a key or an item
  * follows goes — `Crews / Crew 1` reads `Crew 1`.
@@ -231,7 +281,10 @@ export function conflictViewOf(draftType: EastType, conflict: ConflictValues, wo
         label,
         yours: side(yoursAt, alike),
         theirs: side(theirsAt, alike),
-        was: wasAt.part.value === undefined ? undefined : describe(wasAt.part.type, wasAt.part.value, words, alike),
+        yoursForm: formOf(yoursAt.part),
+        theirsForm: formOf(theirsAt.part),
+        was: wasAt.part.value !== undefined ? describe(wasAt.part.type, wasAt.part.value, words, alike)
+            : conflict.was.type === "some" ? words.m.conflictEmpty() : undefined,
     };
 }
 
@@ -307,6 +360,14 @@ export function rangeViewOf(draftType: EastType, range: ConflictRange, values: R
         return from === to ? from : `${from} – ${to}`;
     };
     const alike = side((end) => end.yours, false) === side((end) => end.theirs, false);
+    // A side's range reads in mono where both its ends hold a date, absent where it holds no entry or no date at all.
+    const rangeForm = (pick: (end: RangeEnd) => option<unknown>): ValueForm => {
+        const start = endOf(draftType, pick(values.start), range.start, words);
+        const end = endOf(draftType, pick(values.end), range.end, words);
+        if (start === undefined || end === undefined) return "absent";
+        if (start.date !== undefined && end.date !== undefined) return "mono";
+        return formOf(start.part) === "absent" && formOf(end.part) === "absent" ? "absent" : "text";
+    };
     const { keyType, key } = values;
     return {
         name: keyType !== undefined && key !== undefined ? describe(keyType, { held: key }, words, false) : values.id,
@@ -314,6 +375,55 @@ export function rangeViewOf(draftType: EastType, range: ConflictRange, values: R
         label: [m.conflictDates()],
         yours: side((end) => end.yours, alike) ?? m.conflictRemoved(),
         theirs: side((end) => end.theirs, alike) ?? m.conflictRemoved(),
+        yoursForm: rangeForm((end) => end.yours),
+        theirsForm: rangeForm((end) => end.theirs),
         was: side((end) => end.was, alike),
     };
+}
+
+/** A run of a text's words: whether it differs from the other version's. */
+export interface TextRun {
+    readonly text: string;
+    readonly differs: boolean;
+}
+
+/**
+ * Two versions of a text, word by word: each split into runs, those the other
+ * version does not hold marked — what a long text opened in place marks in
+ * each. Two texts too long to compare word by word come back whole, unmarked.
+ *
+ * @param a - One version
+ * @param b - The other
+ * @returns Each version's runs
+ */
+export function wordRuns(a: string, b: string): { readonly a: readonly TextRun[]; readonly b: readonly TextRun[] } {
+    const split = (text: string) => text.split(/(\s+)/).filter((part) => part.length > 0);
+    const x = split(a), y = split(b);
+    if (x.length * y.length > 40_000) return { a: [{ text: a, differs: false }], b: [{ text: b, differs: false }] };
+    // The longest common subsequence of the words, spaces included.
+    const lcs: number[][] = Array.from({ length: x.length + 1 }, () => new Array<number>(y.length + 1).fill(0));
+    for (let i = x.length - 1; i >= 0; i--) {
+        for (let j = y.length - 1; j >= 0; j--) {
+            lcs[i]![j] = textEqual(x[i]!, y[j]!) ? lcs[i + 1]![j + 1]! + 1 : Math.max(lcs[i + 1]![j]!, lcs[i]![j + 1]!);
+        }
+    }
+    const marksA: boolean[] = new Array<boolean>(x.length).fill(true), marksB: boolean[] = new Array<boolean>(y.length).fill(true);
+    for (let i = 0, j = 0; i < x.length && j < y.length;) {
+        if (textEqual(x[i]!, y[j]!)) { marksA[i] = false; marksB[j] = false; i++; j++; }
+        else if (lcs[i + 1]![j]! >= lcs[i]![j + 1]!) i++;
+        else j++;
+    }
+    // Runs of the words alike or apart; a space between two marked words is marked with them.
+    const runs = (parts: readonly string[], marks: readonly boolean[]): TextRun[] => {
+        const out: TextRun[] = [];
+        parts.forEach((part, i) => {
+            const space = part.trim().length === 0;
+            const differs = space ? (marks[i - 1] ?? false) && (marks[i + 1] ?? false) : marks[i]!;
+            const last = out[out.length - 1];
+            if (last !== undefined && last.differs === differs) out[out.length - 1] = { text: last.text + part, differs };
+            else out.push({ text: part, differs });
+        });
+        return out;
+    };
+    return { a: runs(x, marksA), b: runs(y, marksB) };
 }

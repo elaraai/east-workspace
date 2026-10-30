@@ -848,7 +848,8 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
             fireEvent.click(historyButton(c, SAVE));
         }, (jobs) => jobWith(jobs, "W-0001", { customer: "Alder & Finch Group" }));
         await carriedOver(c, ["conflicts"]);
-        expect(historyButton(c, SAVE).disabled).toBe(true);
+        // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+        expect(historyButton(c, SAVE).getAttribute("aria-disabled")).toBe("true");
         const cards = await conflictCards(c);
         expect(cards.map((card) => card.item)).toEqual(["Brochure run"]);
         expect(cards[0]!.theirs).toContain("Changed since this edit began — last changed by another session");
@@ -975,7 +976,8 @@ describe("planRowDrop's data session, its record read a window at a time (#1199)
             const cards = await conflictCards(container);
             expect(cards.map((card) => card.item?.split(" / ")[0])).toEqual(["H1-P03", "H1-P03"]);
             expect(cards.every((card) => card.theirs?.includes("last changed by another session") === true)).toBe(true);
-            expect(historyButton(container, SAVE).disabled).toBe(true);
+            // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+            expect(historyButton(container, SAVE).getAttribute("aria-disabled")).toBe("true");
             expect(pending(container)).toBe("1 pending");
             expect(h.requests("find", opsPath).some((request) => request.query.get("key") === '"p03"')).toBe(true);
             expect(h.requests("read", opsPath)).toEqual([]);

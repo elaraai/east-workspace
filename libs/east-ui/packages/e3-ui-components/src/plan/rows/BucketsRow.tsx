@@ -51,7 +51,7 @@ import { usePlanDispatch, usePlanScale, type PlanElementRefValue } from "../cont
 import { runStateKey, type PlanRowMove } from "./SpanRow.js";
 import { usePlanElementSelect } from "./element-select.js";
 import { usePlanElementOverlap } from "./element-overlap.js";
-import { PlanDraftedContext, usePlanElementDrafted } from "./element-draft.js";
+import { PlanDraftedContext, usePlanElementConflicted, usePlanElementDrafted } from "./element-draft.js";
 import { usePlanElementOp } from "./element-optimise.js";
 import { BucketCell, type BucketCellTile } from "./BucketCell.js";
 import { usePlanMovable } from "../edit/movable.js";
@@ -115,6 +115,7 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move, folded 
     const overlap = usePlanElementOverlap(ev.key);
     // An event its drafts changed wears the brand tint in a brand border (#1196).
     const drafted = usePlanElementDrafted(ev.key);
+    const conflict = usePlanElementConflicted(ev.key);
     // What a run of the optimiser did to its event (#1409, R17), while it is still the run's draft.
     const op = usePlanElementOp(ev.key);
     const optimised = drafted ? op : undefined;
@@ -146,6 +147,7 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move, folded 
             data-tone={ev.tone.type === "some" ? ev.tone.value.type : undefined}
             data-overlap={overlap ? "" : undefined}
             data-draft={drafted ? "" : undefined}
+            data-conflict={conflict ? "" : undefined}
             data-op={optimised?.op}
             data-fill={optimised !== undefined ? "own" : undefined}
             title={optimised?.provenance}

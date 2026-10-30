@@ -131,6 +131,8 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onCo
         : undefined;
     const n = issues.length;
     const unsettled = session.unsettled;
+    // Save waits for the conflicts to be chosen aria-disabled, never disabled: it keeps the focus, and its Tooltip says why.
+    const waiting = status !== "unknown" && unsettled > 0;
     // Drafts a reload would lose, or that a reload could not restore: said under the buttons where the bar says its error.
     const keeping = useDraftsKeeping(session);
     const keepingText = keeping.state === "unkept" ? m.bannerUnkept({ reason: keeping.reason })
@@ -138,19 +140,21 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onCo
     return <Box data-slot="history" data-history-form={buttonsOnly ? "buttons" : "full"} data-history-locked={locked ? "" : undefined} css={styles.root}>
         <Box css={styles.actions}>
             {!buttonsOnly && message !== undefined && <Text role="status" aria-live="polite" css={styles.status}>{message}</Text>}
+            {/* The conflicts button first, before Issues: it is what turns Save back on. */}
+            <ConflictsControl session={session} words={words} onIssue={onConflict ?? onIssue} where={where} issueText={issueText} locked={locked} />
             {!buttonsOnly && <Box data-slot="historyIssues" data-empty={n === 0 ? "" : undefined} css={styles.issues}>
                 <HistoryButton styles={styles} label={m.issues({ n, count: words.number(n) })}
                     tip={m.issuesTip({ n, count: words.number(n) })} locked={false}
                     icon={faTriangleExclamation} disabled={n === 0} onClick={() => { if (issues[0]) onIssue(issues[0]); }} />
             </Box>}
-            <ConflictsControl session={session} words={words} onIssue={onConflict ?? onIssue} where={where} issueText={issueText} locked={locked} />
             <HistoryButton styles={styles} label={m.undo()} tip={m.undoTip()} icon={faArrowRotateLeft} disabled={!session.canUndo && !commitEditor} locked={locked} onClick={() => onAction("undo")} />
             <HistoryButton styles={styles} label={m.redo()} tip={m.redoTip()} icon={faArrowRotateRight} disabled={!session.canRedo} locked={locked} onClick={() => onAction("redo")} />
             <HistoryButton styles={styles} label={m.discard()} tip={m.discardTip()} icon={faXmark} disabled={!session.canDiscard || (pending === 0 && !commitEditor)} locked={locked} onClick={() => onAction("discard")} />
             {status === "reconciling" ? <HistoryButton styles={styles} label={m.retryRefresh()} icon={faRotate} disabled={false} locked={locked} onClick={() => onAction("refresh")} />
                 : <HistoryButton styles={styles} label={status === "unknown" ? m.retryRequest() : m.apply()}
-                    tip={status !== "unknown" && unsettled > 0 ? m.applySettleFirst({ n: unsettled, count: words.number(unsettled) }) : undefined}
-                    icon={status === "unknown" ? faRotate : faCheck} disabled={status !== "unknown" && !session.canApply && !commitEditor} locked={locked} onClick={() => onAction("apply")} />}
+                    tip={waiting ? m.applySettleFirst({ n: unsettled, count: words.number(unsettled) }) : undefined}
+                    icon={status === "unknown" ? faRotate : faCheck} disabled={!waiting && status !== "unknown" && !session.canApply && !commitEditor}
+                    locked={locked || waiting} onClick={() => onAction("apply")} />}
         </Box>
         {showError && session.error !== undefined && <Text css={styles.error} role="alert">{sessionErrorText(session.error, words)}</Text>}
         {showError && session.error === undefined && keepingText !== undefined && <Text css={styles.notice} data-history-keeping="">{keepingText}</Text>}

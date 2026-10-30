@@ -22,6 +22,20 @@ const NONE: ReadonlySet<string> = new Set();
 /** The events a draft changed, by their elements' keys — none outside a Plan of event kinds. */
 export const PlanDraftedContext = createContext<ReadonlySet<string>>(NONE);
 
+/** The events holding a conflict not yet chosen, by their elements' keys — the warn halo's; none outside a Plan of event kinds. */
+export const PlanConflictedContext = createContext<ReadonlySet<string>>(NONE);
+
+/**
+ * Whether an element's event holds a conflict not yet chosen: the element
+ * wears the warn halo (the conflicts design's canvas marks).
+ *
+ * @param key - The element's key
+ * @returns Whether its event holds one
+ */
+export function usePlanElementConflicted(key: string): boolean {
+    return useContext(PlanConflictedContext).has(key);
+}
+
 /**
  * Whether an element's event is drafted: the element wears the drafted look.
  *

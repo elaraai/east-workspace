@@ -306,8 +306,17 @@ function RosterFrame(props: FrameProps) {
     // Where the People views rest (#1398): saved under the Roster's key, so each comes back to it as it mounts.
     const { state: anchor, setState: setAnchor } = usePersistedState<RosterAnchor>(`${key}.anchor`, NO_ANCHOR, readRosterAnchor);
     const onAnchor = useCallback((next: Partial<RosterAnchor>) => setAnchor(was => ({ ...was, ...next })), [setAnchor]);
+    // A duty holding a conflict not yet chosen wears the warn halo: asked again as the history moves, which every choice
+    // and every carry-over moves.
+    const schedule = editing?.schedule;
+    const scheduleVersion = schedule?.version;
+    const dutyKind = source.duty.kind.key;
+    const conflicted = useCallback((id: string) => schedule?.conflicted(dutyKind, id) === true,
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version says they moved
+        [schedule, scheduleVersion, dutyKind]);
     const viewProps = { value, week, held, start, day: window.day, view: window.view, setView: window.setView, span, weeks: weekStates, openWeek: window.openWeek,
-        styles, format, narrow, coverage, hours, pay: weekPay.pay, domain, issues, proposals, selection, select, commands, drag, onError: setError, read, optimised, lit: landing.lit };
+        styles, format, narrow, coverage, hours, pay: weekPay.pay, domain, issues, proposals, selection, select, commands, drag, onError: setError, read, optimised, lit: landing.lit,
+        conflicted };
     // Search Records (#1398): a person found by their key is selected — in the People layout their row brought into view
     // once the narrowing draws it, and a pick's person given the keyboard there, once the box has let it go: their name
     // takes the focus as ↑ / ↓ give it. One the rail's narrowing hides is shown by clearing just the choices of the

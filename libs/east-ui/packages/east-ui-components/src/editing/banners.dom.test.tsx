@@ -144,12 +144,14 @@ test("a session one of several in a history titles each banner with its source's
     const stale = editingMessages.bannerStale();
     const named = mount(session, { name: "Runs" });
     expect(kinds(named.container)).toEqual(["conflict", "stale"]);
-    expect(banner(named.container, "conflict")!.textContent!.startsWith(editingMessages.bannerSource({ source: "Runs", title: conflict }))).toBe(true);
-    expect(banner(named.container, "stale")!.textContent!.startsWith(editingMessages.bannerSource({ source: "Runs", title: stale }))).toBe(true);
+    // Each banner's message, after its word: the title, named.
+    const title = (container: HTMLElement, kind: string) => banner(container, kind)!.querySelector("[data-banner-title]")!.textContent!;
+    expect(title(named.container, "conflict").startsWith(editingMessages.bannerSource({ source: "Runs", title: conflict }))).toBe(true);
+    expect(title(named.container, "stale").startsWith(editingMessages.bannerSource({ source: "Runs", title: stale }))).toBe(true);
+    expect(banner(named.container, "stale")!.querySelector("[data-banner-word]")!.textContent).toBe(editingMessages.bannerWord({ kind: "stale" }));
     named.unmount();
     const bare = mount(session);
-    expect([banner(bare.container, "conflict")!.textContent!.startsWith(conflict), banner(bare.container, "stale")!.textContent!.startsWith(stale)])
-        .toEqual([true, true]);
+    expect([title(bare.container, "conflict").startsWith(conflict), title(bare.container, "stale").startsWith(stale)]).toEqual([true, true]);
 });
 
 test("a banner leaves when what it reports does, following the session itself", async () => {

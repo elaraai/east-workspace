@@ -82,6 +82,8 @@ export interface TimelineProps {
     held: Day | undefined;
     /** Whether two bins are the same: one unlike the record's is a draft. */
     sameBin: (a: Bin, b: Bin) => boolean;
+    /** Whether a bin holds a conflict not yet chosen: it wears the warn halo. None by default. */
+    conflicted?: ((id: string) => boolean) | undefined;
     /** Every resource's load. */
     loads: SortedMap<string, Load>;
     /** The day's slots. */
@@ -821,7 +823,7 @@ const CardBody = memo(function CardBody({ card, props, lines, flags, lit, refuse
         : `Allocated to ${to} · drag the connector onto ${a(nouns.resource)} to move it · click to choose another`;
     return <Box {...body} ref={attach} css={styles.card} role="button" tabIndex={0} title={op === undefined ? tip : `${op.provenance} · ${tip}`} aria-label={tip} aria-pressed={selected}
         data-scope="allocation" data-allocation-card={id} data-resources={parts.map(p => p.key).join(" ")} data-reserved={reserved ? "" : undefined}
-        data-draft={draft ? "" : undefined} data-selected={selected ? "" : undefined} data-dim={dim ? "" : undefined} data-link-lit={lit ? "" : undefined}
+        data-draft={draft ? "" : undefined} data-conflict={props.conflicted?.(id) === true ? "" : undefined} data-selected={selected ? "" : undefined} data-dim={dim ? "" : undefined} data-link-lit={lit ? "" : undefined}
         data-refuses={refuses ? "" : undefined} data-op={op?.op} data-fill={op === undefined ? undefined : "own"}
         data-draggable={body !== undefined ? "" : undefined} style={{ "--card-lane": card.lane, "--card-row": card.row } as CSSProperties}
         onPointerDown={event => { drag.arm({ kind: "body", bin: id }); body?.onPointerDown?.(event); }}

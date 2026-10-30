@@ -150,7 +150,11 @@ test("a Save another session's write beat carries the draft over to the row as i
     // Nothing goes out of date: the draft's task stands where both changed it, and Save waits for it to be chosen.
     expect(slot(container, "banners")!.textContent).toContain(editingMessages.bannerConflicts({ n: 1, count: "1" }));
     expect(container.querySelector('[data-slot="row"] [data-key="task"]')!.textContent).toBe("Panel cutting, maple");
-    expect((getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    // The cell both changed wears the warn halo; the row's other cells do not.
+    const ringed = () => [...container.querySelectorAll('[data-slot="row"] [data-conflict]')].map((cell) => cell.getAttribute("data-key"));
+    expect(ringed()).toEqual(["task"]);
+    // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+    expect((getByRole("button", { name: "Save" }) as HTMLButtonElement).getAttribute("aria-disabled")).toBe("true");
     expect((await readJobs()).get("J-0001")!.task).toBe("Panel cutting, walnut");
     // The history item says nothing under its buttons: the toolbar keeps one row.
     expect(slot(container, "toolbar")!.querySelector('[role="alert"]')).toBeNull();
@@ -163,9 +167,10 @@ test("a Save another session's write beat carries the draft over to the row as i
         "J-0001", "Yours, Panel cutting, maple",
         "Theirs, Panel cutting, walnut, Changed since this edit began — last changed by another session · was Panel cutting",
     ]);
-    // Kept, the draft's task saves over the newer one.
+    // Kept, the draft's task saves over the newer one; chosen, the halo goes.
     await act(async () => { fireEvent.click(card!.radio("draft")); });
     expect(banners(container)).toEqual([]);
+    expect(ringed()).toEqual([]);
     await act(async () => { press(getByRole("button", { name: "Save" })); });
     await settle();
     expect((await readJobs()).get("J-0001")!.task).toBe("Panel cutting, maple");
@@ -185,7 +190,8 @@ test("a record read a window at a time carries a Save's drafts over to the rows 
     expect((await conflictCards(container)).map((card) => card.item)).toEqual(["J-0001"]);
     expect([...container.querySelectorAll('[data-slot="row"] [data-key="task"]')].slice(0, 2).map((cell) => cell.textContent))
         .toEqual(["Panel cutting, maple", "Edge banding, both edges"]);
-    expect((getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+    expect((getByRole("button", { name: "Save" }) as HTMLButtonElement).getAttribute("aria-disabled")).toBe("true");
     // Each row the Save changed was sought by its key once it answered; the record never whole.
     const sought = h.requests("find", JOBS_DATASET).slice(asked).map((request) => request.query.get("key"));
     expect(sought).toEqual(expect.arrayContaining(['"J-0001"', '"J-0002"']));

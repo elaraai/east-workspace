@@ -760,7 +760,7 @@ Task → Which tag?
 │           └─ plotGutter (optional) — shared gutter (#147): pins the step lane so a Trace stacked under a Chart lines up (left supersedes labelWidth)
 │
 ├─ Feedback (status & async signals)
-│   ├─ <Banner> — page-spanning notice
+│   ├─ <Banner> — page-spanning notice, the design system's Banner card: one row centred on itself — the status's mark (a triangle for warning/guard, a circle for error, else its 8px dot), the title as its message in the body face at 13, the description under it, the actions at its end (one Default button makes it 48 tall)
 │   │   └─ Props:
 │   │       ├─ status (required) — info | warning | success | error | neutral | change | guard | stale
 │   │       ├─ title (required) — string or UIComponent

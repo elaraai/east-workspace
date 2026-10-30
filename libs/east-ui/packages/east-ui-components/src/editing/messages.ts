@@ -66,10 +66,20 @@ export interface EditingMessages {
     conflictsTip: (p: { n: number; count: string }) => string;
     /** The conflicts popover's head — `Conflicts · 2`. */
     conflictsHead: (p: { n: number; count: string }) => string;
+    /** The popover's head before its count — and while the newest data is read, alone. */
+    conflictsTitle: () => string;
+    /** The button's Tooltip while a run of the optimiser is out. */
+    conflictsLockedTip: (p: { n: number; count: string }) => string;
+    /** Opens a long value in place. */
+    conflictShowAll: () => string;
+    /** Folds it again. */
+    conflictShowLess: () => string;
     /** Its first words: what happened, and what to do. */
     conflictsIntro: () => string;
     /** Every conflict chosen — `All 2 conflicts chosen. Save is on.` */
     conflictsSettled: (p: { n: number; count: string }) => string;
+    /** Every conflict chosen, and nothing left to save: each choice took the newer value. */
+    conflictsSettledNothing: (p: { n: number; count: string }) => string;
     /** Said as conflicts appear, to a screen reader. */
     conflictsAppeared: (p: { n: number; count: string }) => string;
     /** Keep every one's draft value. */
@@ -96,6 +106,8 @@ export interface EditingMessages {
     bannerLost: (p: { reason: "schema" | "unreadable" }) => string;
     /** The banner while conflicts wait — `2 of your changes conflict with newer changes`. */
     bannerConflicts: (p: { n: number; count: string }) => string;
+    /** A session banner's word, before its message: what it is, in mono capitals. */
+    bannerWord: (p: { kind: "conflict" | "rejected" | "unconfirmed" | "stale" | "unkept" }) => string;
     /** The banner's action: open the conflicts. */
     conflictsChoose: () => string;
     /** Why the choices are off while an optimiser run is out. */
@@ -187,8 +199,13 @@ export const editingMessages: EditingMessages = {
     conflicts: ({ n, count }) => `${count} ${plural(n, "conflict", "conflicts")}`,
     conflictsTip: ({ n, count }) => `${count} ${plural(n, "conflict", "conflicts")} · Choose which changes to keep`,
     conflictsHead: ({ count }) => `Conflicts · ${count}`,
+    conflictsTitle: () => "Conflicts",
+    conflictsLockedTip: ({ n, count }) => `${count} ${plural(n, "conflict", "conflicts")} · Choices are off while the optimiser runs`,
+    conflictShowAll: () => "Show all",
+    conflictShowLess: () => "Show less",
     conflictsIntro: () => "Someone else changed these while you were editing. Choose which version to keep. Save is off until every one is chosen.",
     conflictsSettled: ({ n, count }) => (n === 1 ? "The conflict is chosen. Save is on." : `All ${count} conflicts chosen. Save is on.`),
+    conflictsSettledNothing: ({ n, count }) => (n === 1 ? "The conflict is chosen. Nothing is left to save." : `All ${count} conflicts chosen. Nothing is left to save.`),
     conflictsAppeared: ({ n, count }) => `${count} of your ${plural(n, "changes conflicts", "changes conflict")} with newer changes. Save is off until you choose.`,
     conflictsKeepAll: () => "Keep all mine",
     conflictsTakeAll: () => "Use all theirs",
@@ -205,8 +222,9 @@ export const editingMessages: EditingMessages = {
     bannerLost: ({ reason }) => (reason === "schema" ? "Changes from before the reload could not be restored: the data's shape has changed since."
         : "Changes from before the reload could not be restored."),
     bannerConflicts: ({ n, count }) => `${count} of your ${plural(n, "changes conflicts", "changes conflict")} with newer changes`,
+    bannerWord: ({ kind }) => ({ conflict: "Conflict", rejected: "Rejected", unconfirmed: "Unconfirmed", stale: "Stale", unkept: "Not kept" })[kind],
     conflictsChoose: () => "Choose",
-    conflictsLocked: () => "An optimiser run is in progress. Choose once it finishes.",
+    conflictsLocked: () => "Choices are off while the optimiser runs",
     conflictKept: ({ value }) => `kept yours: ${value}`,
     conflictTaken: ({ value }) => `used theirs: ${value}`,
     conflictRemoved: () => "Removed",

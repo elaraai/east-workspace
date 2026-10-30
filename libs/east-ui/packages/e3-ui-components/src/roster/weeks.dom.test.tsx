@@ -136,10 +136,13 @@ describe("Roster week lifecycle", () => {
         await h.patch(ex.rosterDuties, newer);
         // The removal is carried over to the duty as the other session left it: it waits to be chosen, and Save is off.
         await carriedOver(container);
-        expect(history(container, editingMessages.apply()).hasAttribute("disabled")).toBe(true);
+        // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+        expect(history(container, editingMessages.apply()).getAttribute("aria-disabled")).toBe("true");
         expect(assignment(container, "s37").hasAttribute("data-removed")).toBe(true);
         const [card] = await conflictCards(container);
         expect([card!.item, card!.yours]).toEqual(["C. Clover", "Yours, Removed"]);
+        // The duty wears the warn halo while the conflict waits.
+        expect(assignment(container, "s37").hasAttribute("data-conflict")).toBe(true);
         // Another duty selected, its Go to selects this one, as its issue's click in the Issues tab does.
         const other = [...container.querySelectorAll<HTMLElement>("[data-roster-assignment]")].find((el) => el.getAttribute("data-roster-assignment") !== "s37")!;
         await press(other);
@@ -171,7 +174,8 @@ describe("Roster week lifecycle", () => {
             return now;
         });
         await carriedOver(container);
-        expect(history(container, editingMessages.apply()).hasAttribute("disabled")).toBe(true);
+        // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+        expect(history(container, editingMessages.apply()).getAttribute("aria-disabled")).toBe("true");
         expect(assignment(container, "s37").hasAttribute("data-removed")).toBe(true);
         expect((await h.read(ex.rosterDuties)).get("s37")!.start).toEqual(at("2028-03-09T05:00:00"));
         // The duty's conflict, with who changed the record last.

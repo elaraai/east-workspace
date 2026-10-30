@@ -840,7 +840,8 @@ describe("a gesture drafts its row whole (#1438)", () => {
         const theirs = await anotherMoves("J-10001-114", 2);
         // The draft is carried over: the job both moved waits to be chosen, its draft standing; nothing is out of date.
         await waitFor(() => expect(slot(c, "toolbar")!.textContent).not.toContain(editingMessages.historyStatus({ status: "carrying" })));
-        expect(applyButton(c).hasAttribute("disabled")).toBe(true);
+        // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+        expect(applyButton(c).getAttribute("aria-disabled")).toBe("true");
         expect(c.querySelector('[data-plan-count="pending"]')?.textContent).toBe("1 pending");
         expect(slot(c, "banners")?.textContent ?? "").not.toContain(editingMessages.bannerStale());
         expect((await readMachines()).get("M-10001")!.jobs.get("J-10001-114")).toEqual(theirs);

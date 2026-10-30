@@ -407,6 +407,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
             data-blank={rowBlank ? "" : undefined}
             data-invalid={invalid ? "" : undefined}
             data-draft={props.draft?.pending ? "" : undefined}
+            data-conflict={props.draft?.conflicts?.whole === true ? "" : undefined}
             data-incomplete={props.draft?.incomplete ? "" : undefined}
             data-owned={row?.owned ? "" : undefined}
             data-anchor={hasFills ? "" : undefined}
@@ -510,6 +511,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                         data-kind={meta.kind}
                         data-editable={meta.editable ? "" : undefined}
                         data-invalid={cell?.type === "Invalid" ? "" : undefined}
+                        data-conflict={props.draft?.conflicts?.fields.has(meta.key) === true ? "" : undefined}
                         data-value={meta.kind === "enum" && cell?.type === "String" ? cell.value : undefined}
                         data-op={op}
                         data-fill={op !== undefined ? "cell" : undefined}
@@ -1036,6 +1038,7 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
             data-slot={sticky === true ? "stickyBand" : "row"}
             data-band-row=""
             data-draft={props.draft?.pending ? "" : undefined}
+            data-conflict={props.draft?.conflicts?.whole === true ? "" : undefined}
             data-invalid={props.draft?.invalid ? "" : undefined}
             data-incomplete={props.draft?.incomplete ? "" : undefined}
             data-insert-preview={props.insertPreview}
@@ -1129,6 +1132,7 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                             data-slot="cell"
                             data-key={colMeta.key}
                             data-kind={meta?.kind}
+                            data-conflict={props.draft?.conflicts?.fields.has(colMeta.key) === true ? "" : undefined}
                             data-selected={selected ? "" : undefined}
                             data-blank={cellIsBlank(cell) ? "" : undefined}
                             data-editable={meta !== undefined && meta.editable ? "" : undefined}

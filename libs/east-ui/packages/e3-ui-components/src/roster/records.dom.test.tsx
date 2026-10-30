@@ -149,7 +149,8 @@ describe("one history over the Roster's records (#1369)", () => {
             expect([...c.querySelectorAll("[data-session-banner]")].map((b) => b.getAttribute("data-session-banner")), slot(c, "banners").textContent ?? "").toEqual(["conflicts"]);
             expect(slot(c, "toolbar").textContent).not.toContain(editingMessages.historyStatus({ status: "carrying" }));
         });
-        expect(history(c, editingMessages.apply()).hasAttribute("disabled")).toBe(true);
+        // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+        expect(history(c, editingMessages.apply()).getAttribute("aria-disabled")).toBe("true");
         // Named as the Roster names a duty: whose it is.
         const [card, ...more] = await conflictCards(c);
         expect(more).toEqual([]);

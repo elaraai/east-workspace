@@ -18,7 +18,7 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
-import { planElementDrafted, planElementFocus, planElementSelected, planRowFocus } from "./plan/focus.js";
+import { planElementConflict, planElementDrafted, planElementFocus, planElementSelected, planRowFocus } from "./plan/focus.js";
 import { INSPECTOR_SECTION, INSPECTOR_STATUS } from "./inspector.js";
 import { heldToolbarSlot, retainedColumn, retainedRow } from "./loading.js";
 import { scheduleAgenda, scheduleAgendaGroup, scheduleCard, scheduleCardActions, scheduleCardHead, scheduleCardTitle } from "./schedule-agenda.js";
@@ -80,7 +80,7 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         assignment: { display: "flex", alignItems: "center", gap: "5px", minHeight: "26px", padding: "0 6px", minWidth: 0, border: "1px solid", borderColor: "border.subtle", borderRadius: "3px", background: "bg.surface", cursor: "pointer",
             "&[data-added], &[data-moved]": { borderStyle: "dashed" }, "&[data-layout=people]": { flexWrap: "wrap", gap: "3px", padding: "3px", "& [data-roster-assignment-name]": { flexBasis: "60%" }, "& [data-roster-grip]": { display: "none" } },
             "&[data-density=compact]": { minHeight: "22px" }, "&[data-agency]": { background: "bg.panel" }, "&[data-request]": { borderStyle: "dashed", background: "transparent" },
-            ...planElementDrafted, ...planElementSelected, ...planElementFocus,
+            ...planElementDrafted, ...planElementSelected, ...planElementFocus, ...planElementConflict,
             "&[data-tone=warning]": { borderColor: "fg.warning" }, "&[data-tone=danger]": { borderColor: "fg.danger", background: "bg.danger.subtle" },
             "&[data-removed]": { textDecoration: "line-through", background: "bg.warning.subtle", color: "fg.subtle" }, "&[data-dragging]": { opacity: 0.4 },
             "&:hover [data-roster-grip], &:focus-within [data-roster-grip]": { opacity: 0.45 }, "&:hover [data-roster-chip-action], &:focus-within [data-roster-chip-action]": { opacity: 1 },
@@ -179,7 +179,7 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             "&[data-removed]": { textDecoration: "line-through", background: "bg.warning.subtle", color: "fg.subtle" },
             "&[data-preview]": { borderStyle: "dashed", borderColor: "brand.solid", background: "transparent", color: "brand.fg" },
             "&[data-preview][data-off]": { borderColor: "fg.subtle", color: "fg.subtle", textDecoration: "line-through" },
-            "&[data-selected]": { outline: "1px solid", outlineColor: "fg", outlineOffset: "0" }, ...planElementFocus, "&[data-dragging]": { opacity: 0.4 },
+            "&[data-selected]": { outline: "1px solid", outlineColor: "fg", outlineOffset: "0" }, ...planElementFocus, ...planElementConflict, "&[data-dragging]": { opacity: 0.4 },
             "&:hover [data-roster-chip-action], &:focus-within [data-roster-chip-action]": { opacity: 1 },
             "[data-roster-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },
         tileLabel: { textStyle: "body.sm", fontWeight: "medium", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },

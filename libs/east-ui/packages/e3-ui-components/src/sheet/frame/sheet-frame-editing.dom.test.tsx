@@ -228,7 +228,8 @@ test("a Save another write overtakes on the same cell is a conflict: the draft s
     expect(statusLine(container)).toBeUndefined();
     expect(tasks(container)[0]).toBe("Panel cutting, maple");
     expect(drafted(container)).toBe(1);
-    expect(disabled(toolbar(container).getByRole("button", { name: "Save" }))).toBe(true);
+    // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+    expect(toolbar(container).getByRole("button", { name: "Save" }).getAttribute("aria-disabled")).toBe("true");
     expect((await readJobs()).get("J-0001")!.task).toBe("Panel cutting, walnut");
 });
 
@@ -422,7 +423,8 @@ test("a reload over another session's change to the same task brings the draft b
     const { container } = await h.mount(ex.sheetBasic);
     await waitFor(() => expect(banners(container)).toEqual(["conflicts"]));
     expect(tasks(container)[0]).toBe("Panel cutting, maple");
-    expect(disabled(toolbar(container).getByRole("button", { name: "Save" }))).toBe(true);
+    // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+    expect(toolbar(container).getByRole("button", { name: "Save" }).getAttribute("aria-disabled")).toBe("true");
     const [card, ...more] = await conflictCards(container);
     expect(more).toEqual([]);
     expect([card!.item, card!.yours, card!.theirs]).toEqual([

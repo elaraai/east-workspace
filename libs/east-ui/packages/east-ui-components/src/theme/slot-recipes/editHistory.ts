@@ -53,14 +53,15 @@ export const editHistorySlotRecipe = defineSlotRecipe({
         issues: {
             display: "flex",
             flexShrink: "0",
-            "&[data-empty]": { visibility: "hidden" },
+            // Only while there are issues: no slot is kept for none.
+            "&[data-empty]": { display: "none" },
         },
         conflicts: {
             width: "auto",
             minWidth: "28px",
             paddingX: "{spacing.2}",
-            gap: "{spacing.1.5}",
-            "& svg": { color: "status.warn" },
+            gap: "{spacing.2}",
+            "& svg": { color: "status.warn", fontSize: "14px" },
             // Every one chosen, its popover still open: the icon alone, in the ink of a settled control.
             "&[data-settled] svg": { color: "fg.muted" },
             "&[data-state=open]": { background: "bg.subtle" },

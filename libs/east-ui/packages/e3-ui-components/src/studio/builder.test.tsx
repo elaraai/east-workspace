@@ -447,7 +447,8 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         // The commit is refused, and the canvas, reading the page back, carries its drafts over to it: the tile it moved,
         // the other save removed — a conflict, and Save waits for it.
         expect(container.querySelector("[data-slot=history]")!.textContent).not.toContain("Source changed");
-        expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+        // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+        expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).getAttribute("aria-disabled")).toBe("true");
         expect(await commits()).toEqual(["patch", ...before]);
         const overview = (await readRecord()).get(OVERVIEW)!;
         if (overview.type !== "page") throw new Error("expected a page");

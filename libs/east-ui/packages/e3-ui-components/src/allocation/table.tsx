@@ -70,6 +70,8 @@ export interface TableProps {
     plan: Day;
     held: Day | undefined;
     sameBin: (a: Bin, b: Bin) => boolean;
+    /** Whether a bin holds a conflict not yet chosen: it wears the warn halo. None by default. */
+    conflicted?: ((id: string) => boolean) | undefined;
     loads: SortedMap<string, Load>;
     slots: readonly Slot[];
     selection: Selection | undefined;
@@ -455,7 +457,8 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
     const remainderTrigger = (isOpen: boolean) => <chakra.button type="button" css={styles.tablePlaceholder} data-allocation-placeholder="remainder" data-open={isOpen ? "" : undefined}
         title={remainderWords} aria-label={remainderWords} aria-haspopup="listbox" onPointerDown={event => event.stopPropagation()}>{remainderInside}</chakra.button>;
     return <Box ref={given} css={styles.tableRow} role="row" tabIndex={row.bin !== undefined ? -1 : undefined} data-allocation-row={row.key} data-kind={row.kind}
-        data-columns={shown === 0 ? "none" : undefined} data-selected={selectedAs !== undefined ? "" : undefined} data-draft={draft ? "" : undefined} onClick={select}>
+        data-columns={shown === 0 ? "none" : undefined} data-selected={selectedAs !== undefined ? "" : undefined} data-draft={draft ? "" : undefined}
+        data-conflict={row.bin !== undefined && props.conflicted?.(row.bin) === true ? "" : undefined} onClick={select}>
         <Box as="span" css={styles.tableTime} data-holds={bin !== undefined ? "" : undefined}>{time}</Box>
         <Box as="span" css={styles.tableLane}>{lane}</Box>
         {row.kind === "bin" && bin !== undefined ? <>

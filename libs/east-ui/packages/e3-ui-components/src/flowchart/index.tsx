@@ -150,6 +150,9 @@ const flowEqual = equalFor(Flowchart.Types.Flow);
 const nameOrder = compareFor(StringType);
 const nameEqual = equalFor(StringType);
 
+/** No state holds a conflict. */
+const NO_STATES: ReadonlySet<string> = new Set();
+
 export type { FlowchartValue, FlowchartCanvasValue, FlowchartFlowValue };
 
 /** Props of {@link EastChakraFlowchart}. */
@@ -406,6 +409,22 @@ function FlowchartFrame({ value, held, storageKey, chrome, flowsPart, followed, 
         : entry !== undefined && entryHeld !== undefined ? { name: entry, flow: entryHeld } : (drafted ?? undefined);
     // Its drafts delete it (#1250): main and the inspector say so.
     const deleted = pending && drafted === null;
+    // The open flow's states holding a conflict not yet chosen, by their keys as its drafts hold them: their nodes wear
+    // the warn halo. A conflict's steps run down the flow to its states and one state's place among them.
+    const conflicts = session.conflicts;
+    const shownStates = shown?.flow.states;
+    const conflictedStates = useMemo((): ReadonlySet<string> => {
+        const points = entry === undefined ? undefined : conflicts.get(entry)?.points;
+        if (points === undefined || shownStates === undefined) return NO_STATES;
+        const out = new Set<string>();
+        for (const point of points) {
+            const [field, states, index] = point.at.filter((step) => step.kind !== "variant");
+            if (field?.kind !== "field" || !nameEqual(field.name, "flow") || states?.kind !== "field" || !nameEqual(states.name, "states") || index?.kind !== "index") continue;
+            const state = shownStates[Number(index.index)];
+            if (state !== undefined) out.add(state.key);
+        }
+        return out;
+    }, [conflicts, entry, shownStates]);
     const flow = shown?.flow ?? NO_FLOW;
     // Whether a flow is there to edit: one its source or its drafts hold — never a new flow before its session holds it, nor one its drafts delete.
     const hasFlow = shown !== undefined;
@@ -705,7 +724,7 @@ function FlowchartFrame({ value, held, storageKey, chrome, flowsPart, followed, 
                         description={words.m.flowDeleted({ part: "hint", name: shownName ?? openName ?? "" })} />
                 </Box>
             )
-            : <FlowchartCanvasView ref={canvasRef} canvas={canvas} model={model} orientation={orientation} reveal={reveal}
+            : <FlowchartCanvasView ref={canvasRef} canvas={canvas} model={model} orientation={orientation} reveal={reveal} conflicted={conflictedStates}
                 edit={canvasEdit} drop={drop.canvas} selection={selection} onSelect={setSelected} words={words} storageKey={storageKey} />;
 
     return (

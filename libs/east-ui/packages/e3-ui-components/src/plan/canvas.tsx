@@ -158,7 +158,7 @@ import { PlanTypingStore, planZooms, type PlanTyping } from "./edit/typing.js";
 import { originOf, unmoved, usePlanCarry, type PlanMoveRequest } from "./edit/use-carry.js";
 import { PlanCarryAnnouncer } from "./edit/announce.js";
 import { PlanSelectableContext, elementKeyOf, holdsElement, selectableOf } from "./rows/element-select.js";
-import { PlanDraftedContext } from "./rows/element-draft.js";
+import { PlanConflictedContext, PlanDraftedContext } from "./rows/element-draft.js";
 import { PlanOptimisedContext, type PlanOptimisedMarks } from "./rows/element-optimise.js";
 import { rowValueAt, type PlanCanvasInspect } from "./root/inspect.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
@@ -1653,6 +1653,15 @@ export function usePlanCanvas({
         for (const [kind, byId] of eventDrafts) for (const id of byId.keys()) out.add(printEventRef({ kind, key: id }));
         return out;
     }, [eventDrafts]);
+    // The events holding a conflict not yet chosen, by their elements' keys: each element of one wears the warn halo.
+    // Read again as the history moves (its version), which every choice and every carry-over moves.
+    const eventSessions = eventEditing.sessions;
+    const conflicted = useMemo(() => {
+        const out = new Set<string>();
+        for (const held of eventSessions) for (const id of held.session.conflicts.keys()) out.add(printEventRef({ kind: held.kind, key: id }));
+        return out;
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version says they moved
+    }, [eventSessions, historyVersion]);
     // The canvas's contexts and its declared density wrap everything the
     // frame draws — main, and the toolbar's items, the banners and the
     // footer — so each speaks as the canvas does.
@@ -1692,7 +1701,7 @@ export function usePlanCanvas({
             <PlanCursorContext.Provider value={cursor}>
             <PlanResolversContext.Provider value={resolvers}>
             <PlanSelectableContext.Provider value={selectable}>
-            <PlanDraftedContext.Provider value={drafted}>
+            <PlanDraftedContext.Provider value={drafted}><PlanConflictedContext.Provider value={conflicted}>
             <PlanOptimisedContext.Provider value={optimisedMarks}>
             <PlanGridContext.Provider value={gridCtx}>
             <PlanEditContext.Provider value={editCtx}>
@@ -1700,7 +1709,7 @@ export function usePlanCanvas({
             </PlanEditContext.Provider>
             </PlanGridContext.Provider>
             </PlanOptimisedContext.Provider>
-            </PlanDraftedContext.Provider>
+            </PlanConflictedContext.Provider></PlanDraftedContext.Provider>
             </PlanSelectableContext.Provider>
             </PlanResolversContext.Provider>
             </PlanCursorContext.Provider>

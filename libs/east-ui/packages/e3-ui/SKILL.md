@@ -1390,7 +1390,10 @@ const onPatch = $.const(East.function([Plan.Types.PatchEvent(Hall)], NullType, (
   conflict. The draft keeps its own value there, and Save waits until every
   conflict is chosen, the draft's value or the source's, each choice one step
   Undo takes back. While one waits, the history item leads with the
-  conflicts button (≠ and how many) and a banner says how many changes
+  conflicts button (≠ and how many, before Issues), Save waits
+  aria-disabled (its tooltip says why), each item holding one wears the warn
+  halo (1px, 4px outside it) until it is chosen, and the banner band under
+  the toolbar — the ≠ mark, the word Conflict — says how many changes
   conflict, its Choose opening the same popover: a card for each conflict —
   the item as the banners name it (an event by its title), with Go to, which
   shows the item and selects it; the part's label; Yours and Theirs, each

@@ -300,7 +300,8 @@ describe("Calendar explicit action forms", () => {
             expect([...container.querySelectorAll("[data-session-banner]")].map((b) => b.getAttribute("data-session-banner"))).toEqual(["conflicts"]);
             expect(slot(container, "toolbar").textContent).not.toContain(editingMessages.historyStatus({ status: "carrying" }));
         });
-        expect(history(container, editingMessages.apply()).hasAttribute("disabled")).toBe(true);
+        // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+        expect(history(container, editingMessages.apply()).getAttribute("aria-disabled")).toBe("true");
         const [conflict, ...more] = await conflictCards(container);
         expect(more).toEqual([]);
         expect([conflict!.item, conflict!.yours]).toEqual(["job1", "Yours, Removed"]);
@@ -325,6 +326,10 @@ describe("Calendar explicit action forms", () => {
         const [conflict, ...more] = await conflictCards(container);
         expect(more).toEqual([]);
         expect([conflict!.item, conflict!.yours]).toEqual(["Mounting brackets · batch 42", "Yours, Customer here"]);
+        // The event wears the warn halo until the conflict is chosen.
+        expect(event(container, "job", "job1").hasAttribute("data-conflict")).toBe(true);
+        await act(async () => { fireEvent.click(conflict!.radio("draft")); });
+        expect(event(container, "job", "job1").hasAttribute("data-conflict")).toBe(false);
     });
     test("a reload keeps each kind's drafts in this tab: the events deleted stay deleted, still to save, and Save sends each kind's", async () => {
         const first = await h.mount(ex.calendarOperations);

@@ -65,7 +65,7 @@ export { dateToCalendarDate, dateValueToDate } from "./forms/input/index.js";
 // The editing session's parts: its bar, a draft's presentation and checks, and its words.
 export { HistoryBar } from "./editing/HistoryBar.js";
 export {
-    CLEAN_DRAFT, kindOfIssue, normalizeDraft, presentDraft, raiseIssue, wholeEntryReadiness, type DraftPresentation,
+    CLEAN_DRAFT, conflictMarks, kindOfIssue, normalizeDraft, presentDraft, raiseIssue, wholeEntryReadiness, type ConflictMarks, type DraftPresentation,
 } from "./editing/draft.js";
 export { DRAFT_ISSUE_TEXT, SESSION_TEXT, type EditHistoryWord } from "./editing/messages.js";
 export { type EditSource } from "./editing/use-edit-session.js";

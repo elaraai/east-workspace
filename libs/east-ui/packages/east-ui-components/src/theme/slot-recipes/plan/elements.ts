@@ -19,7 +19,7 @@ import { fontAwesomeSize } from "../../icon-size.js";
 import { moveGhostBase } from "../time/move-ghost.js";
 import { timeResizeEdge } from "../time/resize.js";
 import { lifecycleStates } from "./states.js";
-import { PLAN_DRAFT_HALO, PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
+import { PLAN_DRAFT_HALO, PLAN_OVERLAP_RING, planElementConflict, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
 
 /** The slots this part styles. */
 export const elementsSlots = [
@@ -111,6 +111,7 @@ export const elementsBase = {
         },
         ...planElementSelected,
         ...planElementFocus,
+        ...planElementConflict,
     },
     // A span's label — whole, or ellipsized when it alone does not fit, its
     // line the bar's inside height (#1258). Below a letter and the ellipsis
@@ -231,6 +232,7 @@ export const elementsBase = {
         ...grab,
         ...planElementSelected,
         ...planElementFocus,
+        ...planElementConflict,
     },
     // ── Chart rows — the marks, axis ticks + ref labels ──
     // A chart row's marks (#949): the svg fills the plot, and every mark's
@@ -383,6 +385,7 @@ export const elementsBase = {
         ...grab,
         ...planElementSelected,
         ...planElementFocus,
+        ...planElementConflict,
     },
     // An exception's triangle draws no overlap ring: it is the warn mark
     // already, and a ring round a border-drawn triangle is its square box —
@@ -414,6 +417,7 @@ export const elementsBase = {
         ...grab,
         ...planElementSelected,
         ...planElementFocus,
+        ...planElementConflict,
     },
     // K7 icon swap — hosts choose the glyph, never the geometry: the icon
     // fits the canvas's square icon box (`--plan-mark-icon-w`), whatever its
@@ -448,6 +452,7 @@ export const elementsBase = {
         ...grab,
         ...planElementSelected,
         ...planElementFocus,
+        ...planElementConflict,
     },
     markLabel: {
         position: "absolute",

@@ -223,7 +223,8 @@ export function conflictSteps(draftType: EastType, at: PatchPath): ConflictStep[
                 type = type?.type === "Dict" ? type.value : undefined;
                 break;
             case "variant":
-                if (type !== undefined && isDraftField(type)) {
+                // The draft's own field, or an option's value: no step of the entry's.
+                if (type !== undefined && (isDraftField(type) || (type.type === "Variant" && Object.keys(type.cases).length === 2 && "none" in type.cases && "some" in type.cases))) {
                     type = type.type === "Variant" ? type.cases[segment.tag] : undefined;
                     break;
                 }

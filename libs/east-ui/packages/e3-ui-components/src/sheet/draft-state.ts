@@ -11,7 +11,7 @@
  * @packageDocumentation
  */
 import { none, variant, type EastType } from "@elaraai/east";
-import { CLEAN_DRAFT, presentDraft, type DraftPresentation } from "@elaraai/east-ui-components/internal";
+import { CLEAN_DRAFT, conflictMarks, presentDraft, type DraftPresentation } from "@elaraai/east-ui-components/internal";
 import { type BatchReadiness } from "@elaraai/east-ui-components";
 import type { EntryVersion, SheetTransactions } from "./transactions.js";
 import { SHEET_WORDS, issueText, type SheetWords } from "./words.js";
@@ -52,6 +52,7 @@ function childOf(type: EastType, entry: EntryVersion | undefined, field: string,
 export function draftPresentation(session: SheetTransactions, type: EastType, field: string | undefined, id: string, child?: string, readiness?: BatchReadiness, words: SheetWords = SHEET_WORDS): DraftPresentation {
     const entry = session.entries.get(id);
     if (entry?.draft === undefined) return CLEAN_DRAFT;
+    const points = session.conflicts.get(id)?.points;
     const original = session.originals.get(id);
     let current: unknown = entry.draft;
     let before = original?.draft;
@@ -65,10 +66,13 @@ export function draftPresentation(session: SheetTransactions, type: EastType, fi
         if (current === undefined) return CLEAN_DRAFT;
         row = entry.wire?.lines.findIndex(line => line.key === child) ?? -1;
     }
-    return presentDraft({
+    const presented = presentDraft({
         type, current, before, entry: id, row, readiness, writable: session.writable,
         text: (message) => issueText(message, words),
     });
+    // Where it holds a conflict not yet chosen: its cells the warn halo rings, or the row whole.
+    const conflicts = conflictMarks(points, child === undefined || field === undefined || row === undefined ? undefined : { field, index: row });
+    return conflicts === undefined ? presented : { ...presented, conflicts };
 }
 
 /**

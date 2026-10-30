@@ -105,10 +105,13 @@ test("while conflicts wait, their button leads the bar's buttons with how many, 
     const ui = mount(session);
     expect(button()!.textContent).toBe("2");
     expect(button()!.getAttribute("aria-label")).toBe("2 conflicts");
-    // Before Undo, the first of the history's buttons.
-    const names = [...ui.container.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"));
-    expect(names.indexOf("Undo") - names.indexOf("2 conflicts")).toBe(1);
-    expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    // The first of the history's buttons: before Issues, and Undo.
+    expect(ui.container.querySelector('[data-slot="history"] button')!.getAttribute("aria-label")).toBe("2 conflicts");
+    // Save waits aria-disabled, never disabled: it keeps the focus, and its Tooltip says why; a press does nothing.
+    const save = ui.getByRole("button", { name: "Save" }) as HTMLButtonElement;
+    expect([save.disabled, save.getAttribute("aria-disabled")]).toEqual([false, "true"]);
+    fireEvent.click(save);
+    expect(ui.onAction).not.toHaveBeenCalled();
     // Said once, as they appear.
     expect(document.querySelector("[data-conflicts-said]")!.textContent).toBe("2 of your changes conflict with newer changes. Save is off until you choose.");
 });
@@ -128,13 +131,15 @@ test("each conflict as the collection names it, with both sides and what both be
     expect(ui.getByRole("radio", { name: "Yours, 4" })).toBe(radio(card!, "draft"));
     expect(ui.getByRole("radio", { name: "Theirs, 7, Changed since you started editing · was 1" })).toBe(radio(card!, "source"));
     expect([radio(card!, "draft").checked, radio(card!, "source").checked]).toEqual([false, false]);
-    expect(ui.getByText("Conflicts · 1")).toBeTruthy();
+    // The head: Conflicts · 1, its count in a span of its own (the active control's ink).
+    expect([...document.querySelectorAll("span")].some((span) => span.textContent === "Conflicts · 1")).toBe(true);
 
     fireEvent.click(radio(card!, "source"));
     expect([session.unsettled, session.pending]).toEqual([0, 0]);
     expect(session.entries.get("a")!.draft).toEqual(liftDraft(Draft, { id: "a", end: 7n }));
-    // Every one chosen: it says so, and the card folds to how it is chosen, which opens it again.
-    await waitFor(() => expect(ui.getByText("The conflict is chosen. Save is on.")).toBeTruthy());
+    // Every one chosen: it says so — Theirs taken, nothing is left to save — and the card folds to how it is chosen,
+    // which opens it again.
+    await waitFor(() => expect(ui.getByText("The conflict is chosen. Nothing is left to save.")).toBeTruthy());
     expect(cards()[0]!.querySelector("input")).toBeNull();
     fireEvent.click(ui.getByRole("button", { name: "End · used theirs: 7" }));
     expect(radio(cards()[0]!, "source").checked).toBe(true);
@@ -193,14 +198,20 @@ test("in a narrow frame Go to closes the popover, which would cover the item, an
     expect(button()!.textContent).toBe("1");
 });
 
-test("locked while an optimiser run is out: it opens, its choices and its foot are off, and it says why", async () => {
+test("locked while an optimiser run is out: it opens, its choices and its foot aria-disabled — their place and the focus kept — and the live dot says why", async () => {
     const session = conflicted(["a"]);
     const ui = mount(session, { locked: true });
+    expect(button()!.closest("[data-conflicts]")).toBeTruthy();
     await opened(1);
-    expect(ui.getByText("An optimiser run is in progress. Choose once it finishes.")).toBeTruthy();
-    expect([radio(cards()[0]!, "draft").disabled, radio(cards()[0]!, "source").disabled]).toEqual([true, true]);
-    expect((ui.getByRole("button", { name: "Keep all mine" }) as HTMLButtonElement).disabled).toBe(true);
+    const notice = document.querySelector('[data-conflicts-notice="locked"]')!;
+    expect(notice.textContent).toBe("Choices are off while the optimiser runs");
+    expect(notice.querySelector("span[aria-hidden]")).not.toBeNull();
+    const [draft, source] = [radio(cards()[0]!, "draft"), radio(cards()[0]!, "source")];
+    expect([draft.disabled, draft.getAttribute("aria-disabled"), source.getAttribute("aria-disabled")]).toEqual([false, "true", "true"]);
+    const keepAll = ui.getByRole("button", { name: "Keep all mine" }) as HTMLButtonElement;
+    expect([keepAll.disabled, keepAll.getAttribute("aria-disabled")]).toEqual([false, "true"]);
     fireEvent.click(radio(cards()[0]!, "source"));
+    fireEvent.click(keepAll);
     expect(session.unsettled).toBe(1);
 });
 
@@ -219,6 +230,12 @@ test("the banner says how many of the person's changes conflict, and its Choose 
     const alone = render(<ChakraProvider value={system}><SessionBanners session={session} words={WORDS} onAction={() => undefined} /></ChakraProvider>);
     const banner = () => document.querySelector<HTMLElement>('[data-session-banner="conflicts"]');
     expect(banner()!.textContent).toContain("2 of your changes conflict with newer changes");
+    // The design system's Banner, a guard band under the toolbar: the conflicts mark, its word, the message — and no live
+    // role of its own, the conflicts button's live region saying it once.
+    const root = banner()!.firstElementChild!;
+    expect([root.getAttribute("data-banner-tone"), root.getAttribute("data-banner-form"), root.getAttribute("role")]).toEqual(["guard", "band", null]);
+    expect(root.querySelector("[data-banner-word]")!.textContent).toBe("Conflict");
+    expect(root.querySelector('[data-banner-mark] svg[data-icon="not-equal"]')).not.toBeNull();
     // No bar holds the session: nothing to open.
     expect(banner()!.querySelector("[data-banner-action]")).toBeNull();
     alone.unmount();
@@ -266,4 +283,74 @@ test("an item moved both ways is one card — its dates whole on each side — a
     expect(session.entries.get("B1")!.draft).toEqual(booking(23, 27).draft);
     act(() => session.undo());
     expect([session.unsettled, session.chosen, session.conflicts.get("B1")!.points.length]).toEqual([1, 0, 2]);
+});
+
+
+// ── Each value as the component shows it ─────────────────────────────────
+
+const Note = StructType({ id: StringType, note: StringType });
+const NoteDraft = Editing.Types.Draft(Note);
+const noteOf = (note: string): EntryVersion<string> => ({ draft: liftDraft(NoteDraft, { id: "n1", note }), wire: "n1", place: start });
+const BEGAN = "Crane booked for the morning shift on 16 Nov. Access via gate 1; escort required past the substation.";
+const MINE = "Crane booked for the morning shift on 16 Nov. Access via gate 3; escort required past the substation.";
+const THEIRS = "Crane booked for the afternoon shift on 16 Nov. Access via gate 5; escort required past the substation.";
+
+test("a number reads in mono; absence in words, in the absent style", async () => {
+    mount(conflicted(["a"]));
+    await opened(1);
+    const value = (choice: "draft" | "source") => cards()[0]!.querySelector<HTMLElement>(`[data-choice=${choice}] [data-form]`)!;
+    expect([value("draft").getAttribute("data-form"), value("draft").textContent]).toEqual(["mono", "4"]);
+    // Another write removes the run: Theirs reads Removed, absent.
+    const gone = drafted(["b"]);
+    gone.observeBase(variant("snapshot", []));
+    cleanup();
+    mount(gone);
+    await opened(1);
+    expect([value("source").getAttribute("data-form"), value("source").textContent]).toEqual(["absent", "Removed"]);
+});
+
+test("a long text reads two lines, and Show all opens both in place, the words that differ marked in each", async () => {
+    const session = new EditSession<string>({
+        sourceId: "notes", entryType: Note, draftType: NoteDraft, idField: "id", auto: false,
+        apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
+    });
+    session.observeBase(variant("snapshot", [{ id: "n1", note: BEGAN }]));
+    session.record([{ id: "n1", before: noteOf(BEGAN), after: noteOf(MINE) }], "typed", "Edit the note");
+    session.observeBase(variant("snapshot", [{ id: "n1", note: THEIRS }]));
+    const ui = mount(session);
+    await opened(1);
+    const value = (choice: "draft" | "source") => cards()[0]!.querySelector<HTMLElement>(`[data-choice=${choice}] [data-form]`)!;
+    expect([value("draft").getAttribute("data-form"), value("draft").hasAttribute("data-open")]).toEqual(["text", false]);
+    expect(value("draft").querySelector("mark")).toBeNull();
+    fireEvent.click(ui.getByRole("button", { name: "Show all" }));
+    expect(value("draft").hasAttribute("data-open")).toBe(true);
+    const marked = (choice: "draft" | "source") => [...value(choice).querySelectorAll("mark")].map((mark) => mark.textContent);
+    expect(marked("draft")).toEqual(["morning", "3;"]);
+    expect(marked("source")).toEqual(["afternoon", "5;"]);
+    expect(value("source").textContent).toBe(THEIRS);
+    fireEvent.click(ui.getByRole("button", { name: "Show less" }));
+    expect(value("draft").hasAttribute("data-open")).toBe(false);
+});
+
+test("while the newest data is read, the head counts nothing: the live dot says so, over Skeleton cards", async () => {
+    const Shift = StructType({ hours: IntegerType });
+    const ShiftDraft = Editing.Types.Draft(Shift);
+    const shift = (hours: bigint): EntryVersion<string> => ({ draft: liftDraft(ShiftDraft, { hours }), wire: "s1", place: some(variant("keyOrder", null)) });
+    const session = new EditSession<string>({
+        sourceId: "shifts", entryType: Shift, draftType: ShiftDraft, keyType: StringType, auto: false,
+        apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
+    });
+    session.observeBase(variant("revision", "r1"));
+    session.record([{ id: "s1", before: shift(8n), after: shift(10n) }], "typed", "Set hours");
+    session.observeBase(variant("revision", "r2"));
+    session.merge(variant("revision", "r2"), () => some({ hours: 9n }));
+    mount(session);
+    await opened(1);
+    const head = () => [...document.querySelectorAll("span")].find((span) => span.textContent?.startsWith("Conflicts"))!.textContent;
+    expect(head()).toBe("Conflicts · 1");
+    // The source moves again: its newest data is read.
+    act(() => session.observeBase(variant("revision", "r3")));
+    await waitFor(() => expect(document.querySelector('[data-conflicts-notice="checking"]')).not.toBeNull());
+    expect(document.querySelector('[data-conflicts-notice="checking"]')!.textContent).toBe("Checking your changes against the newest data");
+    expect([document.querySelectorAll("[data-conflict-skeleton]").length, cards().length, head()]).toEqual([2, 0, "Conflicts"]);
 });

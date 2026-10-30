@@ -516,6 +516,13 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         const part = key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key));
         return part === undefined ? issue.entry : where(part.kind)(issue);
     };
+    // A bin holding a conflict not yet chosen wears the warn halo: asked again as the history moves, which every choice and
+    // every carry-over moves.
+    const scheduleSessions = editing?.schedule.sessions;
+    const scheduleVersion = editing?.schedule.version;
+    const conflicted = useCallback((id: string) => scheduleSessions?.some((held) => held.kind !== PERIODS && held.session.conflicts.has(id)) === true,
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version says they moved
+        [scheduleSessions, scheduleVersion]);
     // A conflict's Go to: its bin shown on its day and selected, as its issue's Show does; a day's opens the Issues tab.
     const onConflict = (issue: EditIssue) => {
         const key = history?.sourceOf(issue);
@@ -597,19 +604,19 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
                 {/* Below 480px of main, cards with explicit actions, each one of the board's commands (A78); resizing keeps the layout, the
                     selection and the drafts, which are the frame's. */}
                 {narrow ? <AllocationCards value={value} context={context} styles={styles} day={day} plan={plan} held={held}
-                        sameBin={domain.sameBin} loads={loads} lines={lines} slots={slots} layout={window.view.layout} surface={drag.surface}
+                        sameBin={domain.sameBin} conflicted={conflicted} loads={loads} lines={lines} slots={slots} layout={window.view.layout} surface={drag.surface}
                         selection={selection} select={inspect} follow={follow} editable={commands.canEdit()} commands={commands} fit={fit}
                         without={without} reserving={reserving} visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys}
                         visibleArrivals={arrivalsShown.keys} clearFilters={clearFilters} read={read} optimised={optimised} lit={landing.lit}
                         bookOnto={(arrival, resource) => { setRefusal(undefined); bookOnto(scene, { kind: "arrival", arrival }, resource); }} />
                     : window.view.layout === "timeline" ? <AllocationTimeline value={value} context={context} styles={styles} format={format} day={day} plan={plan}
-                        held={held} sameBin={domain.sameBin} loads={loads} slots={slots} issues={issues} visible={resourcesShown.keys} visibleLanes={lanesShown.keys}
+                        held={held} sameBin={domain.sameBin} conflicted={conflicted} loads={loads} slots={slots} issues={issues} visible={resourcesShown.keys} visibleLanes={lanesShown.keys}
                         visibleArrivals={arrivalsShown.keys} read={read} empty={empty} optimised={optimised} lit={landing.lit}
                         clearFilters={clearFilters} selection={selection} focus={focus} highlight={highlight} picked={pickGrip !== undefined} book={bookPicked}
                         editable={commands.canEdit()} select={inspect} choose={id => { inspect({ type: "bin", id }); setChooser(id); revealPane("Inspector"); }} follow={follow}
                         link={link} selectLink={selectLink} unlink={(bin, resource) => commands.unlink(bin, resource)} drag={drag} candidates={domain.candidates} />
                     : <AllocationTable value={value} domain={domain} context={context} styles={styles} format={format} day={day} plan={plan} held={held}
-                        sameBin={domain.sameBin} loads={loads} slots={slots} selection={selection} editable={commands.canEdit()} select={inspect} follow={follow}
+                        sameBin={domain.sameBin} conflicted={conflicted} loads={loads} slots={slots} selection={selection} editable={commands.canEdit()} select={inspect} follow={follow}
                         drag={drag} commands={commands} fit={fit} without={without} reserving={reserving} highlight={highlight} book={bookPicked} read={read}
                         visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys} visibleArrivals={arrivalsShown.keys} clearFilters={clearFilters}
                         anchor={anchor.table} onAnchor={onTableAnchor} narrowing={tableNarrowing} optimised={optimised} lit={landing.lit} />}

@@ -176,6 +176,14 @@ export interface ScheduleEditing<I extends Item = Item> {
      */
     available(kind: string): boolean;
     /**
+     * Whether an event — or a row of a record a builder writes — holds a
+     * conflict not yet chosen: what wears the warn halo on a canvas.
+     *
+     * @param kind - The kind's slot, or the record's key
+     * @param id - The event's key's text
+     */
+    conflicted(kind: string, id: string): boolean;
+    /**
      * An event's row as its kind's record held it when last read — what its
      * drafts are tinted against — or a row of a record a builder writes.
      *
@@ -520,6 +528,10 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
             const i = indexOf(kind);
             return i >= 0 && state.available(keys[i]!);
         },
+        conflicted(kind: string, id: string): boolean {
+            const i = indexOf(kind);
+            return i >= 0 && history.session(keys[i]!)?.conflicts.has(id) === true;
+        },
         held(kind: string, id: string): unknown {
             const i = indexOf(kind);
             if (i < 0) return undefined;
@@ -659,6 +671,7 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
     latest.current = api;
     const draftsOf = useCallback((kind: string) => latest.current.draftsOf(kind), []);
     const available = useCallback((kind: string) => latest.current.available(kind), []);
+    const conflicted = useCallback((kind: string, id: string) => latest.current.conflicted(kind, id), []);
     const held = useCallback((kind: string, id: string) => latest.current.held(kind, id), []);
     const read = useCallback((kind: string, id: string) => latest.current.read(kind, id), []);
     const mint = useCallback((kind: string, from: string, minted: ReadonlySet<string>) => latest.current.mint(kind, from, minted), []);
@@ -666,6 +679,6 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
 
     return useMemo(() => ({
         history, sessions, drafts: drafts.drafts, draftsVersion: drafts.version, version,
-        draftsOf, available, held, read, mint, record,
-    }), [history, sessions, drafts, version, draftsOf, available, held, read, mint, record]);
+        draftsOf, available, conflicted, held, read, mint, record,
+    }), [history, sessions, drafts, version, draftsOf, available, conflicted, held, read, mint, record]);
 }

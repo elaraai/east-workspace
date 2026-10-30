@@ -39,7 +39,7 @@ import type { PlanMovable } from "../edit/store.js";
 import type { DerivedBand, PlanRowId } from "../model.js";
 import { usePlanElementSelect } from "./element-select.js";
 import { usePlanElementOverlap } from "./element-overlap.js";
-import { usePlanElementDrafted } from "./element-draft.js";
+import { usePlanElementConflicted, usePlanElementDrafted } from "./element-draft.js";
 import { usePlanElementOp } from "./element-optimise.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -102,6 +102,7 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, ctx, move }: 
     const overlap = usePlanElementOverlap(run.key);
     // An event its drafts changed wears the brand tint in a brand border (#1196).
     const drafted = usePlanElementDrafted(run.key);
+    const conflict = usePlanElementConflicted(run.key);
     // What a run of the optimiser did to its event (#1409, R17), while it is still the run's draft: the bar keeps
     // its own fill and takes the ring and glow, and says so on hover.
     const op = usePlanElementOp(run.key);
@@ -114,6 +115,7 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, ctx, move }: 
             data-stuck={stuck ? "" : undefined}
             data-overlap={overlap ? "" : undefined}
             data-draft={drafted ? "" : undefined}
+            data-conflict={conflict ? "" : undefined}
             data-op={optimised?.op}
             data-fill={optimised !== undefined ? "own" : undefined}
             title={optimised?.provenance}

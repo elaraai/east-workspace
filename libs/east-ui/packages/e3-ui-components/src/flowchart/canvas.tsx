@@ -157,6 +157,8 @@ export interface FlowchartCanvasHandle {
 export interface FlowchartCanvasViewProps {
     /** What the canvas draws its flow with. */
     readonly canvas: FlowchartCanvasValue;
+    /** The keys of the states holding a conflict not yet chosen: their nodes wear the warn halo. None by default. */
+    readonly conflicted?: ReadonlySet<string> | undefined;
     /** The open flow's view model. */
     readonly model: FlowchartModel;
     /** Left to right, or top down. */
@@ -357,7 +359,7 @@ function badgeStyle(cls: ModelLink["cls"], selected: boolean): { stroke: string;
  * @param props - The canvas's options, the flow's model, the orientation, what to reveal, the gestures, the drop cell, the selection and what selects, the words, the storage key and the frame's handle
  * @returns The canvas's box, which scrolls the flow inside it
  */
-export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, drop, selection, onSelect, words, storageKey, ref }: FlowchartCanvasViewProps) {
+export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, drop, selection, onSelect, words, storageKey, ref, conflicted }: FlowchartCanvasViewProps) {
     const styles = useSlotRecipe({ key: "flowchart" })();
 
     // ── decode ────────────────────────────────────────────────────────────
@@ -908,6 +910,7 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
                                     data-flowchart-node={rect.key}
                                     css={nm.ghost ? styles.ghostNode : styles.node}
                                     data-selected={isSel || undefined}
+                                    data-conflict={conflicted?.has(rect.key) === true ? "" : undefined}
                                     data-drop-target={dropMark?.kind === "state" && keyEqual(dropMark.key, rect.key) ? "" : undefined}
                                     style={{
                                         left: rect.x, top: rect.y, width: rect.w, height: rect.h,

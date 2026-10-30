@@ -61,7 +61,7 @@ function viewOf(was: option<unknown>, mine: option<unknown>, theirs: option<unkn
 describe("a conflict in words", () => {
     test("a number both changed: the entry by its key, the field as its label, each side and what both began from in the reader's locale", () => {
         const view = viewOf(draft(row()), draft(row({ hours: 1500 })), draft(row({ hours: 450 })));
-        expect(view).toEqual({ name: "Works 10012", path: [], label: ["Hours"], yours: "1,500", theirs: "450", was: "442" });
+        expect(view).toEqual({ name: "Works 10012", path: [], label: ["Hours"], yours: "1,500", theirs: "450", yoursForm: "mono", theirsForm: "mono", was: "442" });
     });
 
     test("a value deep in a map of maps: the key above the label says which, and the label runs down to the week", () => {
@@ -97,6 +97,19 @@ describe("a conflict in words", () => {
         const view = viewOf(draft(row({ due: some(week) })), draft(row({ due: none })), draft(row({ due: some(new Date(Date.UTC(2026, 10, 16))) })));
         expect(view.label).toEqual(["Due"]);
         expect([view.yours, view.theirs, view.was]).toEqual(["Cleared", WORDS.date(new Date(Date.UTC(2026, 10, 16))), WORDS.date(week)]);
+    });
+
+    test("an optional date both set otherwise is labelled by its field alone — an option's value is no step a person reads", () => {
+        const later = new Date(Date.UTC(2026, 10, 16)), latest = new Date(Date.UTC(2026, 10, 23));
+        const view = viewOf(draft(row({ due: some(week) })), draft(row({ due: some(later) })), draft(row({ due: some(latest) })));
+        expect([view.label, view.yours, view.theirs, view.yoursForm]).toEqual([["Due"], WORDS.date(later), WORDS.date(latest), "mono"]);
+    });
+
+    test("a part both added where the entry held none reads as it began: Empty", () => {
+        const next = new Date(Date.UTC(2026, 10, 16));
+        const withWeek = (hours: number) => new SortedMap([["Crew 1", { lead: "North", hours: new SortedMap([[week, 40], [next, hours]], compareFor(DateTimeType)) }]], compareFor(StringType));
+        const view = viewOf(draft(row()), draft(row({ crews: withWeek(50) })), draft(row({ crews: withWeek(45) })));
+        expect([view.yours, view.theirs, view.was]).toEqual(["50", "45", "Empty"]);
     });
 
     test("a list's item by its place, counting from one", () => {

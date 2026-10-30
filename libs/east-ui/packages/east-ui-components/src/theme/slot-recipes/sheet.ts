@@ -148,6 +148,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { conflictHalo } from "../conflict-halo.js";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { fieldInRingedControl } from "../field-chrome.js";
 import { TOOLBAR_CONTROL_HEIGHT } from "../toolbar-row.js";
@@ -570,6 +571,10 @@ export const sheetSlotRecipe = defineSlotRecipe({
             "&[data-draft]": { background: "color-mix(in oklch, var(--chakra-colors-status-warn) 8%, var(--chakra-colors-bg-surface))" },
             "&[data-invalid]": { background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-surface))" },
             "&[data-picked]": { background: "brandTint" },
+            // A row holding a cell's conflict halo rides over its neighbours, so the halo shows whole; a row that is a
+            // conflict itself (both added it, or one side removed it) wears the warn ring inside its edge.
+            "&:has(> [data-conflict])": { zIndex: "2" },
+            "&[data-conflict]": { outline: "1px solid {colors.status.warn}", outlineOffset: "-1px" },
             // The row an author's card lands on (#1187); a row that refuses the drag.
             "&[data-drop-active][data-drop-at=row]": { background: "brandTint" },
             "&[data-drop-invalid]": { background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-surface))" },
@@ -818,6 +823,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             minWidth: "0",
             // A cell's hover, but not on the row a drag rests on: the row's wash shows through (#1187).
             "&:is(:hover, [data-hover]):not([data-drop-active] > *, [data-drop-invalid] > *)": { background: "bg.panel" },
+            // A conflict not yet chosen: the warn halo, 4px outside the cell.
+            ...conflictHalo("sm"),
             "&[data-invalid]": { background: "color-mix(in srgb, var(--chakra-colors-status-neg) 17%, var(--chakra-colors-bg-surface))", "& [data-slot=cellText]": { color: "fg.danger" } },
         },
         cellIssue: {
@@ -1441,6 +1448,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
         groupCell: {
             position: "relative", display: "flex", alignItems: "center", minWidth: "0", minHeight: "28px",
             cursor: "default", overflow: "visible",
+            // A conflict not yet chosen: the warn halo, 4px outside the cell.
+            ...conflictHalo("sm"),
             '& > span': { fontSize: "10px", fontFamily: "mono", color: "fg.muted" },
             '&[data-editable]': { cursor: "text" },
             '&:last-child': { marginLeft: "auto" },
