@@ -436,6 +436,36 @@ describe("the Series tab over a canvas whose series are picked (#590)", () => {
         ]);
     });
 
+    test("what the tab switches of the picked series is kept under the pick's key, and goes back into a new page's pick", async () => {
+        const first = renderPicked(fakePick(["c"]));
+        await settle();
+        await openTab(first.container, "Series");
+        await toggle(first.container, "Press jobs");
+        await toggle(first.container, "Crew shifts");
+        expect(localStorage.getItem("pick.test.plan.pick")).toBe(JSON.stringify(["a"]));
+        first.unmount();
+
+        // A reload: the pick as its program sets it, the browser's storage kept.
+        const pick = fakePick(["c"]);
+        renderPicked(pick).unmount();
+        expect(pick.state.read()).toEqual(["a"]);
+
+        // An id the pick no longer lists is dropped on the way back.
+        localStorage.setItem("pick.test.plan.pick", JSON.stringify(["b", "gone"]));
+        const renamed = fakePick(["c"]);
+        renderPicked(renamed).unmount();
+        expect(renamed.state.read()).toEqual(["b"]);
+        // Without the Series tab nothing drives the pick from here, so nothing goes back.
+        const untabbed = fakePick(["c"]);
+        renderPicked(untabbed, [] as unknown as PlanValue["library"]).unmount();
+        expect(untabbed.state.read()).toEqual(["c"]);
+        // A pick the tab never wrote opens as its program sets it.
+        localStorage.removeItem("pick.test.plan.pick");
+        const fresh = fakePick(["c"]);
+        renderPicked(fresh).unmount();
+        expect(fresh.state.read()).toEqual(["c"]);
+    });
+
     test("an empty Series tab explains that there is nothing to hide", async () => {
         const { container } = renderPicked(undefined, [variant("series", { kinds: [], rows: [] })] as unknown as PlanValue["library"]);
         await settle();

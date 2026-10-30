@@ -18,7 +18,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import { DateTimeType, East, FloatType, compareFor } from "@elaraai/east";
-import { editingMessages } from "@elaraai/east-ui-components";
+import { StateRuntime, UIStore, editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-nested";
 import type { TreePath } from "@elaraai/e3-types";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
@@ -159,6 +159,40 @@ describe("the nested series example on e3 (#1439)", () => {
         await toggle("Jobs");
         await act(async () => { c.querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!.scrollTo({ top: 0 }); });
         await waitFor(() => expect(jobs()?.querySelector("[data-run]")).not.toBeNull());
+    });
+
+    test("planNestedAll: the series a viewer switched open as they were left after a reload", async () => {
+        const series = async (c: HTMLElement) => {
+            const pane = slot(c, "start")!;
+            fireEvent.click([...pane.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Series "))!);
+            await settle();
+            const panel = () => pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+            return {
+                lines: () => [...panel().querySelectorAll<HTMLElement>("[data-slot='pickPanel'] button[aria-pressed]")]
+                    .map((line) => [line.getAttribute("aria-label")!.replace(/^Toggle /, ""), line.getAttribute("aria-pressed") === "true"]),
+                toggle: async (name: string) => {
+                    fireEvent.click([...panel().querySelectorAll<HTMLElement>("button[aria-pressed]")].find((b) => b.getAttribute("aria-label") === `Toggle ${name}`)!);
+                    await settle();
+                },
+            };
+        };
+        const first = await h.mount(ex.planNestedAll);
+        await settle();
+        const tab = await series(first.container);
+        // The load as a line alone, its rows at the top: the alarms, chips and tiles stay off, as they start.
+        for (const name of ["Jobs", "Load", "Crew hours", "Parts", "Load line"]) await tab.toggle(name);
+        first.unmount();
+
+        // A reload: a new page's store, holding the pick as the program sets it, and the browser's storage kept.
+        StateRuntime.initializeStore(new UIStore());
+        const { container: c } = await h.mount(ex.planNestedAll);
+        await settle();
+        expect((await series(c)).lines()).toEqual([["Jobs", false], ["Load", false], ["Crew hours", false], ["Parts", false],
+            ["Load line", true], ["Alarms", false], ["Job chips", false], ["Alarm tiles", false]]);
+        expect(slot(c, "main")!.querySelector(rowAt(entry("works", "W-10001")))).toBeNull();
+        await waitFor(() => expect(slot(c, "main")!.querySelector(rowAt(entry("load-line", "W-10001")))).not.toBeNull());
+        // Kept under the pick's own key.
+        expect(new Set(JSON.parse(localStorage.getItem("pick.ex.planNestedAll.series")!))).toEqual(new Set(["works", "load", "crews", "assembly", "alarm-marks", "job-chips", "alarm-tiles"]));
     });
 
     test("planNestedAll: its load as a line, switched on, reads the works' load through the index: the chart says its least, greatest and last value in the window", async () => {

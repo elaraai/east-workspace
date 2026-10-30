@@ -157,9 +157,11 @@ function planPickOptions(
  * The handle is STATE (`State.bind` underneath), so it is built inside a
  * `Reactive`. Pass it to the canvas as `pick`, in place of `series`: the Plan
  * shows the picked series, and its library's Series tab
- * (`Plan.library.series()`) lists them, each with its eye. The data flagship,
- * `planTargetState`, picks its whole series list this way, one hidden to
- * start.
+ * (`Plan.library.series()`) lists them, each with its eye. What a viewer
+ * switches there is kept under `key` in the browser's storage, so a reload
+ * opens the series as they were left; a pick the tab never wrote opens with
+ * `hidden`. The data flagship, `planTargetState`, picks its whole series list
+ * this way, one hidden to start.
  *
  * @param key - The store key; also the persistence key
  * @param all - Every series that COULD show, in layout order
