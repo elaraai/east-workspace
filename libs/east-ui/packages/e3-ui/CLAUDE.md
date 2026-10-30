@@ -166,8 +166,10 @@ children's cells. A drafted row is read whole; Save restates each listed
 collection's change by key (`src/plan/nested-patch.ts`). The Plan's
 `plan-nested` example (#1439, `planNestedAll` in
 `test/plan/plan-nested.examples.tsx`, on the Plan's page) shows them on e3
-over the works: every series kind over ten years, sparse and spread evenly,
-its series picked from the library, a crew's hours typed into. The records
+over the works: every series kind over ten years — span, heat, table and
+group shown, chart, events, cards and buckets switched off to start — sparse
+and spread evenly, its series picked from the library, a crew's hours typed
+into. The records
 the tests read besides — the machines (five collections, the cap), the halls
 (strips by their members' mean), the assemblies (bands filed under parents)
 and the ledgers (subtotals by two rollups, typed readings) — are fixtures

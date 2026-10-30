@@ -11,9 +11,10 @@
  * sparse and spread evenly over them; and the task that generates them from
  * their sizes. And the Plan over them (#1439):
  *
- * - `planNestedAll`, every series kind over the works, paged by rows and by
- *   time, each series switched on and off from the library's Series tab, a
- *   crew's hours typed into.
+ * - `planNestedAll`, every series kind over the works — span, heat, table,
+ *   group, and, switched off to start, chart, events, cards and buckets —
+ *   paged by rows and by time, each series switched on and off from the
+ *   library's Series tab, a crew's hours typed into.
  *
  * The records the Plan's tests read besides are `plan-nested.fixtures.ts`'s,
  * on no page of the showcase.
@@ -204,20 +205,23 @@ export const planWorks = e3.record("plan_works", WorksByKey, {
  * ten years (#1438): each works' jobs as runs and its alarms as decisions,
  * its load as a heat strip, its crews' hours as a table whose works row draws
  * their sums as e3 keeps them, and its parts as a tree whose folded parents
- * draw their bands from the jobs e3 files under them. The rail pages the
- * works and narrows them by site and state; the canvas pages them by rows and
- * by time, reading the cells around the rows in view, and shades a collection
- * from its totals past 10,000 items. The series are picked: the library's
- * Series tab switches each on and off. A moved job is a draft of its works
- * read whole, saved by key through the patch door.
+ * draw their bands from the jobs e3 files under them; and, switched off to
+ * start, its load as a line, its alarms as exception marks and as tiles, and
+ * its jobs as chips. The rail pages the works and narrows them by site and
+ * state; the canvas pages them by rows and by time, reading the cells around
+ * the rows in view, and shades a collection from its totals past 10,000
+ * items. The series are picked: the library's Series tab switches each on and
+ * off. A moved job is a draft of its works read whole, saved by key through
+ * the patch door.
  */
 export const planNestedAll = example({
     keywords: [
         "Plan", "Slice", "Slice.bindRecords", "rows", "rail", "paged", "Data.bindPaged", "index.nested", "nested series index",
         "cell", "subtotals", "bands", "rollup", "tree", "children", "shading", "cap", "large record", "stress", "pick", "Plan.pick",
-        "library", "Plan.library.series", "Series tab", "Record.onApply", "keyed", "editing", "Save", "#1438",
+        "library", "Plan.library.series", "Series tab", "Record.onApply", "keyed", "editing", "Save", "chart", "events", "marks",
+        "cards", "chips", "buckets", "tiles", "#1438",
     ],
-    description: "Every series a Plan reads a cell at a time, over two hundred works and ten years: each works' jobs as runs and its alarms as decisions, its load as a heat strip, its crews' hours as a table whose works row draws their sums as e3 keeps them, and its parts as a tree whose folded parents draw their bands from the jobs e3 files under them — paged by rows and by time, each series switched on and off from the library's Series tab; a moved job drafts its works read whole and saves by key",
+    description: "Every series a Plan reads a cell at a time, over two hundred works and ten years: each works' jobs as runs and its alarms as decisions, its load as a heat strip, its crews' hours as a table whose works row draws their sums as e3 keeps them, and its parts as a tree whose folded parents draw their bands from the jobs e3 files under them; and, switched off to start, its load as a line, its alarms as marks and as tiles, and its jobs as chips — paged by rows and by time, each series switched on and off from the library's Series tab; a moved job drafts its works read whole and saves by key",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const works = $.let(Record.bind(planWorks, ["patch"]));
@@ -262,7 +266,25 @@ export const planNestedAll = example({
                             runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: job.state })),
                         })]),
                     }),
-                ])}
+                    // The other kinds over the same collections, switched off to start: the load as a line, the alarms as
+                    // exception marks and as tiles, the jobs as chips.
+                    Plan.series.chart(Works, {
+                        key: "load-line", title: "Load line", label: (w) => w.name,
+                        layers: [Plan.line(Plan.values("load", (v) => ({ y: v })))],
+                    }),
+                    Plan.series.events(Works, {
+                        key: "alarm-marks", title: "Alarms", label: (w) => w.name,
+                        marks: Plan.items("alarms", { at: "at" }, (alarm) => ({ kind: variant("exception", null), label: some(alarm.code) })),
+                    }),
+                    Plan.series.cards(Works, {
+                        key: "job-chips", title: "Job chips", label: (w) => w.name,
+                        chips: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: job.state })),
+                    }),
+                    Plan.series.buckets(Works, {
+                        key: "alarm-tiles", title: "Alarm tiles", label: (w) => w.name,
+                        events: Plan.items("alarms", { at: "at" }, (alarm) => ({ state: variant("confirmed", null), label: some(alarm.code) })),
+                    }),
+                ], { hidden: ["load-line", "alarm-marks", "job-chips", "alarm-tiles"] })}
                 library={[Plan.library.series()]}
                 editing={{ onApply: Record.onApply(works, { keyed: true }) }}
                 style={{ height: "fill" }} />
