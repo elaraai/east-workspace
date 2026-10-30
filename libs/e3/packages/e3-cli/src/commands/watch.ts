@@ -127,7 +127,7 @@ export async function watchCommand(
     // Export to temp zip
     const tempZip = path.join(os.tmpdir(), `e3-watch-${Date.now()}.zip`);
     try {
-      await e3.export(pkg, tempZip, { functions: readFunctionManifests(options.functions ?? []) });
+      await e3.export(pkg, tempZip, { functions: readFunctionManifests(options.functions ?? []), cores: budget.cores });
     } catch (err) {
       console.log(`[${timestamp()}] Error exporting package:`);
       console.log(`  ${formatError(err)}`);

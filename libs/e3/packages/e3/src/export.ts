@@ -75,6 +75,11 @@ export interface ExportOptions {
    * must be provided by the consuming task's runner (see `runnerProvides`).
    */
   functions?: readonly FunctionManifest[];
+  /**
+   * Cores: how many workspace packages export their functions at once, a
+   * process each (#1459; default: the CPUs available).
+   */
+  cores?: number;
 }
 
 // Named export_ to avoid conflict with reserved word
@@ -118,9 +123,10 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
     }
     for (const step of rdef.migrations) refer(step.body, `migration "${rname}.${step.name}"`, step.runner);
   }
-  const manifests = resolveFunctionManifests(references, explicit, process.cwd(), options?.onEvent === undefined
-    ? undefined
-    : (e: ResolveEvent) => options.onEvent!({ kind: 'functions', ...e }));
+  const manifests = await resolveFunctionManifests(references, explicit, process.cwd(), {
+    ...(options?.cores !== undefined && { cores: options.cores }),
+    ...(options?.onEvent !== undefined && { onEvent: (e: ResolveEvent) => options.onEvent!({ kind: 'functions', ...e }) }),
+  });
   const link = (bundle: IRBundle | AsyncIRBundle, owner: string, runner: Runner | undefined): IRBundle | AsyncIRBundle => {
     const { ir, imports, sourceMap } = linkImports(bundle, manifests.forOwner(runner));
     if (imports.length === 0) return bundle;
