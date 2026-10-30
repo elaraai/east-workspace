@@ -18,7 +18,7 @@ import {
 } from "@elaraai/east";
 import { EditingDraftTypeFor } from "@elaraai/east-ui/internal";
 import { formatters } from "../format/index.js";
-import { conflictViewOf, sentenceOf } from "./conflict-view.js";
+import { conflictViewOf, rangeViewOf, sentenceOf } from "./conflict-view.js";
 import { liftDraft } from "./draft.js";
 import { EntryMerger } from "./merge.js";
 import { editingMessages, type EditingWords } from "./messages.js";
@@ -118,5 +118,54 @@ describe("a conflict in words", () => {
 
     test("a name reads as a sentence", () => {
         expect(["maxWeeklyHours", "max_weekly_hours", "hours", "crewID"].map(sentenceOf)).toEqual(["Max weekly hours", "Max weekly hours", "Hours", "Crew id"]);
+    });
+});
+
+describe("an item's start and end, read as one range", () => {
+    const Run = StructType({ name: StringType, start: DateTimeType, end: DateTimeType });
+    const RunDraft = EditingDraftTypeFor(Run);
+    const Job = StructType({ name: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType) });
+    const JobDraft = EditingDraftTypeFor(Job);
+    const DATES = { start: "start", end: "end" };
+    const at = (day: number, hour = 6) => new Date(Date.UTC(2026, 10, day, hour));
+    const run = (start: Date, end: Date) => some(liftDraft(RunDraft, { name: "Press 1", start, end }));
+    /** A range's card over the merge's own conflicts: an end both changed reads each side's; one only the draft holds, the draft carried over. */
+    const viewOf = (draftType: typeof RunDraft | typeof JobDraft, was: option<unknown>, draft: option<unknown>, source: option<unknown>) => {
+        const merged = new EntryMerger(draftType).merge(was, draft, source);
+        const clashes = new Set(merged.points.map((point) => (point.at[0]?.kind === "field" ? point.at[0].name : "")));
+        const end = (field: string) => (clashes.has(field)
+            ? { was: merged.ancestor!, yours: draft, theirs: source }
+            : { was: merged.ancestor!, yours: merged.draft, theirs: merged.draft });
+        return { clashes: [...clashes].sort(), view: rangeViewOf(draftType, DATES, { id: "R1", key: undefined, keyType: undefined, start: end("start"), end: end("end") }, WORDS) };
+    };
+
+    test("a run moved both ways reads as one range on each side, and as it began", () => {
+        const { clashes, view } = viewOf(RunDraft, run(at(16), at(20)), run(at(17), at(21)), run(at(23), at(27)));
+        expect(clashes).toEqual(["end", "start"]);
+        expect([view.label, view.yours, view.theirs, view.was]).toEqual([["Dates"], WORDS.range(at(17), at(21)), WORDS.range(at(23), at(27)), WORDS.range(at(16), at(20))]);
+    });
+
+    test("only its end both changed: each side reads the range whole, its start as the draft carried it over", () => {
+        // Here the end went to the 22nd; there the run moved to the 23rd–27th: the start combines, the end clashes.
+        const { clashes, view } = viewOf(RunDraft, run(at(16), at(20)), run(at(16), at(22)), run(at(23), at(27)));
+        expect(clashes).toEqual(["end"]);
+        expect([view.yours, view.theirs]).toEqual([`${WORDS.date(at(23))} – ${WORDS.date(at(22))}`, WORDS.range(at(23), at(27))]);
+    });
+
+    test("two sides alike to the day are written with their times, so they read apart", () => {
+        const { view } = viewOf(RunDraft, run(at(16), at(20)), run(at(16, 9), at(20)), run(at(16, 10), at(20)));
+        expect([view.yours, view.theirs]).toEqual([`${WORDS.dateTime(at(16, 9))} – ${WORDS.dateTime(at(20))}`, `${WORDS.dateTime(at(16, 10))} – ${WORDS.dateTime(at(20))}`]);
+    });
+
+    test("an item unscheduled reads cleared once; one the source removed reads removed", () => {
+        const job = (start: option<Date>, end: option<Date>) => some(liftDraft(JobDraft, { name: "Batch 42", start, end }));
+        const { view } = viewOf(JobDraft, job(some(at(16)), some(at(20))), job(some(at(17)), some(at(21))), job(none, none));
+        expect([view.yours, view.theirs]).toEqual([WORDS.range(at(17), at(21)), editingMessages.conflictCleared()]);
+        const gone = rangeViewOf(RunDraft, DATES, {
+            id: "R1", key: undefined, keyType: undefined,
+            start: { was: run(at(16), at(20)), yours: run(at(17), at(21)), theirs: none },
+            end: { was: run(at(16), at(20)), yours: run(at(17), at(21)), theirs: none },
+        }, WORDS);
+        expect(gone.theirs).toBe(editingMessages.conflictRemoved());
     });
 });

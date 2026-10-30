@@ -86,6 +86,8 @@ export interface EditingMessages {
     conflictChangedSince: () => string;
     /** Go to the entry. */
     conflictGoTo: () => string;
+    /** A range card's label: an item's start and end, read as one. */
+    conflictDates: () => string;
     /** A conflict, as the issue a collection goes to. */
     issueConflict: () => string;
     /** The banner while a reload would lose the drafts: the tab's storage refused them, and why. */
@@ -195,6 +197,7 @@ export const editingMessages: EditingMessages = {
     conflictWas: ({ value }) => `was ${value}`,
     conflictChangedSince: () => "Changed since you started editing",
     conflictGoTo: () => "Go to",
+    conflictDates: () => "Dates",
     issueConflict: () => "Someone else changed this too — choose which version to keep",
     bannerUnkept: ({ reason }) => (reason === "full" ? "A reload would lose these changes: this tab's storage is full. Save them soon."
         : reason === "unavailable" ? "A reload would lose these changes: this browser keeps nothing for this tab. Save them soon."

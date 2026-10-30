@@ -28,6 +28,7 @@ export {
     type SessionDrafts,
     type EntryConflicts,
     type ConflictChoice,
+    type ConflictRange,
     type SettledConflict,
 } from "./session.js";
 export { EntryMerger, conflictSteps, type ConflictKind, type ConflictPoint, type ConflictStep, type MergedEntry } from "./merge.js";

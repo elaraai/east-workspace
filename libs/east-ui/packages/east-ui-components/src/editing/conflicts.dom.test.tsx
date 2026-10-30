@@ -17,7 +17,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useSyncExternalStore } from "react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { IntegerType, StringType, StructType, none, some, variant } from "@elaraai/east";
+import { DateTimeType, IntegerType, StringType, StructType, none, some, variant } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
 import { system } from "../theme/index.js";
 import { formatters } from "../format/index.js";
@@ -233,4 +233,37 @@ test("the banner says how many of the person's changes conflict, and its Choose 
     // Every one chosen: the banner goes.
     fireEvent.click(screen.getByRole("button", { name: "Use all theirs" }));
     expect(banner()).toBeNull();
+});
+
+// ── An item's dates, one card ─────────────────────────────────────────────
+
+const Booking = StructType({ id: StringType, start: DateTimeType, end: DateTimeType });
+const BookingDraft = Editing.Types.Draft(Booking);
+const day = (d: number) => new Date(Date.UTC(2026, 10, d, 6));
+const booking = (from: number, to: number): EntryVersion<string> => ({ draft: liftDraft(BookingDraft, { id: "B1", start: day(from), end: day(to) }), wire: "B1", place: start });
+
+test("an item moved both ways is one card — its dates whole on each side — and one choice settles both, one step Undo takes back", async () => {
+    const session = new EditSession<string>({
+        sourceId: "bookings", entryType: Booking, draftType: BookingDraft, idField: "id", auto: false, ranges: [{ start: "start", end: "end" }],
+        apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
+    });
+    session.observeBase(variant("snapshot", [{ id: "B1", start: day(16), end: day(20) }]));
+    session.record([{ id: "B1", before: booking(16, 20), after: booking(17, 21) }], "drop", "Move B1");
+    // Another write moves it to the 23rd–27th: both its start and its end clash, and wait as one.
+    session.observeBase(variant("snapshot", [{ id: "B1", start: day(23), end: day(27) }]));
+    expect(session.conflicts.get("B1")!.points).toHaveLength(2);
+    expect(session.unsettled).toBe(1);
+    const ui = mount(session);
+    expect(button()!.textContent).toBe("1");
+    await opened(1);
+    const [card] = cards();
+    expect(card!.textContent).toContain("Dates");
+    expect(ui.getByRole("radio", { name: `Yours, ${WORDS.range(day(17), day(21))}` })).toBe(radio(card!, "draft"));
+    expect(radio(card!, "source").getAttribute("aria-label")).toBe(`Theirs, ${WORDS.range(day(23), day(27))}, Changed since you started editing · was ${WORDS.range(day(16), day(20))}`);
+
+    fireEvent.click(radio(card!, "source"));
+    expect([session.unsettled, session.chosen]).toEqual([0, 1]);
+    expect(session.entries.get("B1")!.draft).toEqual(booking(23, 27).draft);
+    act(() => session.undo());
+    expect([session.unsettled, session.chosen, session.conflicts.get("B1")!.points.length]).toEqual([1, 0, 2]);
 });

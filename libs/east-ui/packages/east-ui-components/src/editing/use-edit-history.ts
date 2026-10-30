@@ -27,7 +27,7 @@ import { liftDraft } from "./draft.js";
 import type { EditHistory } from "./history.js";
 import { bindingOf, gateOf, historyKeyOf, keptHistory, keptSession, sessionKeyOf, sourceSessionsOf, type SourceSessions } from "./kept.js";
 import { keepDrafts, keptDraftsKey } from "./keep.js";
-import { EditSession, keyReader, type EditSessionBinding, type EntryVersion } from "./session.js";
+import { EditSession, keyReader, type ConflictRange, type EditSessionBinding, type EntryVersion } from "./session.js";
 import type { EditingValue } from "./use-edit-session.js";
 
 /**
@@ -72,6 +72,8 @@ export interface EditHistorySource<W> {
      * with them (keep.ts).
      */
     readonly wireType?: EastType | undefined;
+    /** Its entries' fields that read as one, each an item's start and end (the session's `ranges`). */
+    readonly ranges?: readonly ConflictRange[] | undefined;
 }
 
 /**
@@ -172,7 +174,7 @@ export function useEditHistory<W>(
         const entryType = fromEastTypeValue(editing.entryType);
         const draftType = fromEastTypeValue(editing.draftType);
         const keyType = fromEastTypeValue(editing.keyType.value);
-        const binding = { ...bindingOf<W>(editing, { entryType, draftType, keyType }, source.ready, paged?.refresh), prepare: source.prepare };
+        const binding = { ...bindingOf<W>(editing, { entryType, draftType, keyType }, source.ready, paged?.refresh), prepare: source.prepare, ranges: source.ranges };
         const kept = sourceSessionsOf(store, editing.sourceId);
         const session = keptSession<W>(kept, sessionKeyOf(storageKey, editing.entryType, editing.draftType), () => {
             const next = new EditSession<W>(binding);

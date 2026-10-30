@@ -17,6 +17,7 @@
 import { StringType, equalFor, parseFor, printFor, toEastTypeValue, type EastType, type PatchPath, type option, type variant } from "@elaraai/east";
 import { isDraftField } from "./merge.js";
 import type { EditingWords } from "./messages.js";
+import type { ConflictRange } from "./session.js";
 
 const textEqual = equalFor(StringType);
 
@@ -231,5 +232,88 @@ export function conflictViewOf(draftType: EastType, conflict: ConflictValues, wo
         yours: side(yoursAt, alike),
         theirs: side(theirsAt, alike),
         was: wasAt.part.value === undefined ? undefined : describe(wasAt.part.type, wasAt.part.value, words, alike),
+    };
+}
+
+/** One end of a range, on each side: the whole entry each side reads it from, present or absent. */
+export interface RangeEnd {
+    /** What both began from. */
+    readonly was: option<unknown>;
+    /** The draft: Yours. */
+    readonly yours: option<unknown>;
+    /** What a choice of Theirs leaves there: the source's value where the end conflicts, else the draft's. */
+    readonly theirs: option<unknown>;
+}
+
+/** A range's conflicts, as one card reads them: the entry, and each end's values. */
+export interface RangeValues {
+    /** The entry's id. */
+    readonly id: string;
+    /** A keyed source's key; `undefined` for an Array source's entry. */
+    readonly key: unknown;
+    /** A keyed source's key type; `undefined` for an Array source. */
+    readonly keyType: EastType | undefined;
+    /** Its start's values. */
+    readonly start: RangeEnd;
+    /** Its end's values. */
+    readonly end: RangeEnd;
+}
+
+/**
+ * One end of a range on one side: the field's part of the entry's draft, and
+ * the date it holds through the draft's own wrapper and an option, where it
+ * holds one; `undefined` for an entry the side does not hold.
+ */
+function endOf(draftType: EastType, value: option<unknown>, field: string, words: EditingWords): { part: Part; date: Date | undefined } | undefined {
+    if (value.type !== "some") return undefined;
+    const { part } = walk(draftType, value, [{ kind: "field", name: field }], words);
+    let type = part.type;
+    let held = part.value?.held;
+    while (type?.type === "Variant" && held !== undefined) {
+        const cell = held as variant<string, unknown>;
+        const cases = type.cases as Record<string, EastType>;
+        const option = Object.keys(cases).length === 2 && "none" in cases && "some" in cases;
+        const through = isDraftField(type) ? textEqual(cell.type, "value") : option && textEqual(cell.type, "some");
+        if (!through) break;
+        held = cell.value;
+        type = cases[cell.type];
+    }
+    return { part, date: type?.type === "DateTime" && held !== undefined ? held as Date : undefined };
+}
+
+/**
+ * A range's conflict in words — an item's start and end as one value, its
+ * dates: `Nov 16 – 20, 2026` on each side, written in full where the two
+ * sides read alike to the day, so they read apart. A side that does not hold
+ * the entry reads removed.
+ *
+ * @param draftType - The entry's draft type
+ * @param range - The range's two fields
+ * @param values - The entry, and each end's values
+ * @param words - The words
+ * @returns The conflict as a person reads it
+ */
+export function rangeViewOf(draftType: EastType, range: ConflictRange, values: RangeValues, words: EditingWords): ConflictView {
+    const { m } = words;
+    const side = (pick: (end: RangeEnd) => option<unknown>, full: boolean): string | undefined => {
+        const start = endOf(draftType, pick(values.start), range.start, words);
+        const end = endOf(draftType, pick(values.end), range.end, words);
+        if (start === undefined || end === undefined) return undefined;
+        if (start.date !== undefined && end.date !== undefined) {
+            return full ? `${words.dateTime(start.date)} – ${words.dateTime(end.date)}` : words.range(start.date, end.date);
+        }
+        // An end with no date reads as its value does — cleared, say — and two that read alike, once.
+        const from = describe(start.part.type, start.part.value, words, full), to = describe(end.part.type, end.part.value, words, full);
+        return from === to ? from : `${from} – ${to}`;
+    };
+    const alike = side((end) => end.yours, false) === side((end) => end.theirs, false);
+    const { keyType, key } = values;
+    return {
+        name: keyType !== undefined && key !== undefined ? describe(keyType, { held: key }, words, false) : values.id,
+        path: [],
+        label: [m.conflictDates()],
+        yours: side((end) => end.yours, alike) ?? m.conflictRemoved(),
+        theirs: side((end) => end.theirs, alike) ?? m.conflictRemoved(),
+        was: side((end) => end.was, alike),
     };
 }

@@ -214,6 +214,17 @@ const at = (text: string) => new Date(text);
 const printInstant = printFor(DateTimeType);
 
 describe("every gesture is one transaction (PB43)", () => {
+    test("each kind's session reads its events' start and end as one range, its dates: a conflict at either is one card of the popover", async () => {
+        await h.install({ fn: printKindsFn });
+        const payload = printKinds();
+        const { result } = renderHook(() => usePlanEventEditing({ kinds: payload.events, applyMode: "batch", storageKey: "plan-ranges", joined: NO_JOINED }));
+        await settle();
+        const roles = new Map(payload.events.map((kind) => [kind.key, kind.schedule] as const));
+        const ranges = result.current.sessions.map((held) => [held.kind, held.session.ranges] as const);
+        expect(ranges.length).toBeGreaterThan(0);
+        for (const [kind, held] of ranges) expect(held).toEqual([{ start: roles.get(kind)!.start, end: roles.get(kind)!.end }]);
+    });
+
     test("a move, a resize, a drop, a schedule and an unschedule — each the kind's own write, one transaction — undone one at a time, in the order they were made, across kinds", async () => {
         // The kinds read their records through the runtimes a mounted Plan installs, their records loaded.
         await h.install({ fn: printKindsFn });

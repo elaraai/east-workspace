@@ -148,6 +148,17 @@ export interface EntryConflicts {
 
 /** How a conflict is settled: the draft's value kept, or the source's taken. */
 export type ConflictChoice = "draft" | "source";
+/**
+ * Two fields of an entry that read as one value: its start and its end — an
+ * item's dates. The conflicts popover shows a conflict at either as one card,
+ * the range whole, and settles the two together.
+ */
+export interface ConflictRange {
+    /** The field of its start. */
+    readonly start: string;
+    /** The field of its end. */
+    readonly end: string;
+}
 
 /**
  * A drafted entry as a reload keeps it (keep.ts): what both began from, the
@@ -279,6 +290,8 @@ export interface EditSessionBinding<W> {
      * changed.
      */
     carryOver?: boolean | undefined;
+    /** The entry's fields that read as one, each an item's start and end ({@link ConflictRange}); none by default. */
+    ranges?: readonly ConflictRange[] | undefined;
     /**
      * The collection's projection of a draft the session made itself — one
      * carried over to a newer base, or settled — where it draws drafts from
@@ -674,10 +687,45 @@ export class EditSession<W> {
      */
     get settled(): readonly SettledConflict[] { return [...this.settledPoints.values()]; }
 
-    /** How many conflicts are still to settle: Save waits until none is. */
+    /**
+     * How many conflicts are still to settle — a range's start and end in one
+     * entry counting once, as the conflicts popover shows them on one card
+     * ({@link ConflictRange}): Save waits until none is.
+     */
     get unsettled(): number {
         let n = 0;
-        for (const entry of this.conflicts.values()) n += entry.points.length;
+        for (const entry of this.conflicts.values()) n += this.cardsOf(entry.points);
+        return n;
+    }
+
+    /**
+     * How many settled conflicts the conflicts popover shows: a range's in
+     * one entry counting once.
+     */
+    get chosen(): number {
+        const byEntry = new Map<string, ConflictPoint[]>();
+        for (const settled of this.settledPoints.values()) {
+            const points = byEntry.get(settled.id);
+            if (points === undefined) byEntry.set(settled.id, [settled.point]);
+            else points.push(settled.point);
+        }
+        let n = 0;
+        for (const points of byEntry.values()) n += this.cardsOf(points);
+        return n;
+    }
+
+    /** How many cards one entry's conflicts make: each on its own, but those at one range's start and end together. */
+    private cardsOf(points: readonly ConflictPoint[]): number {
+        const ranges = this.binding.ranges ?? [];
+        if (ranges.length === 0) return points.length;
+        const hit = new Set<number>();
+        let n = 0;
+        for (const point of points) {
+            const first = point.at[0];
+            const at = first?.kind === "field" ? ranges.findIndex((range) => stringEqual(range.start, first.name) || stringEqual(range.end, first.name)) : -1;
+            if (at < 0) n++;
+            else if (!hit.has(at)) { hit.add(at); n++; }
+        }
         return n;
     }
     /** Every entry the session holds a version of, as it stands. */
@@ -690,6 +738,8 @@ export class EditSession<W> {
     get keyType(): EastType | undefined { return this.binding.keyType; }
     /** The entry's draft schema: what a conflict's values are read with. */
     get draftType(): EastType { return this.binding.draftType; }
+    /** The entry's fields that read as one ({@link ConflictRange}). */
+    get ranges(): readonly ConflictRange[] { return this.binding.ranges ?? []; }
 
     /**
      * The drafts as a reload keeps them (keep.ts): each entry drafted away
@@ -972,7 +1022,21 @@ export class EditSession<W> {
      * @returns Whether anything moved
      */
     settle(id: string, path: string, choice: ConflictChoice): boolean {
-        return this.settleEach(new Map([[id, [path]]]), choice);
+        return this.settleTogether(id, [path], choice);
+    }
+
+    /**
+     * Settle several conflicts of an entry one way — a range's start and end
+     * ({@link ConflictRange}) — as one step of the history, which Undo takes
+     * back.
+     *
+     * @param id - The entry
+     * @param paths - The conflicts' patch paths
+     * @param choice - Which value stands
+     * @returns Whether anything moved
+     */
+    settleTogether(id: string, paths: readonly string[], choice: ConflictChoice): boolean {
+        return this.settleEach(new Map([[id, paths]]), choice);
     }
 
     /**

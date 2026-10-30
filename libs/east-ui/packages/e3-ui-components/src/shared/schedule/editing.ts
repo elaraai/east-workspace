@@ -381,11 +381,13 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
         const check = kind.ready.type === "some" ? kind.ready.value : undefined;
         const key = historyKeyOf(storageKey, editing);
         const entryType = fromEastTypeValue(kind.editing.entryType) as EastType;
+        // An event's start and end read as one, its dates: a conflict at either is one card of the popover.
+        const ranges = kind.kind === undefined ? undefined : [{ start: kind.kind.schedule.start, end: kind.kind.schedule.end }];
         const ready = check === undefined ? undefined : wholeEntryReadiness(check, () => historyRef.current?.session(key)?.originals, {
             encode: encodeBeast2For(entryType) as (value: unknown) => Uint8Array,
             equal: equalFor(entryType) as (a: unknown, b: unknown) => boolean,
         });
-        if (kind.entries.type !== "some") return { editing, ready, prepare, wireType: EntryRefType };
+        if (kind.entries.type !== "some") return { editing, ready, prepare, wireType: EntryRefType, ranges };
         const seam = kind.entries.value;
         const decodeRow = codecs[i]!.decodeRow;
         const own = kind.read;
@@ -409,7 +411,7 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
                 return read.value.type === "some" ? some(some(decodeRow(read.value.value))) : some(none);
             },
         };
-        return { editing, ready, paged, prepare, wireType: EntryRefType };
+        return { editing, ready, paged, prepare, wireType: EntryRefType, ranges };
     }), [parts, codecs, applyMode, storageKey, recordSlices]);
     const state = useEditHistory<ScheduleEntryRef>(sources, storageKey, joined);
     historyRef.current = state.history;

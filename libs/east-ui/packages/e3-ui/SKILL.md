@@ -1392,10 +1392,13 @@ const onPatch = $.const(East.function([Plan.Types.PatchEvent(Hall)], NullType, (
   Undo takes back. While one waits, the history item leads with the
   conflicts button (≠ and how many) and a banner says how many changes
   conflict, its Choose opening the same popover: a card for each conflict —
-  the item as the banners name it, with Go to; the part's label; Yours and
-  Theirs, each value in plain words; who changed it last, where the source
-  said so when it refused a Save, and what both began from — with Keep all
-  mine and Use all theirs at its foot. It never opens by itself.
+  the item as the banners name it (an event by its title), with Go to, which
+  shows the item and selects it; the part's label; Yours and Theirs, each
+  value in plain words; who changed it last, where the source said so when
+  it refused a Save, and what both began from — with Keep all mine and Use
+  all theirs at its foot. An event's start and end read as one range: a
+  conflict at either is one card, Dates, the range whole on each side, its
+  two chosen together and counted once. It never opens by itself.
   A Save another write got there first is refused, and once its drafts carry
   over with nothing to choose it is sent again by itself — three times in a
   row at most, then the person's Save sends it; with a conflict, the person

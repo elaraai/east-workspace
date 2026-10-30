@@ -221,6 +221,8 @@ export class EditHistory<W> {
     }
     /** How many conflicts are still to settle, every session's: Save waits until none is. */
     get unsettled(): number { return this.all.reduce((n, session) => n + session.unsettled, 0); }
+    /** How many settled conflicts the conflicts popover shows, across the sessions: a range's in one entry counting once. */
+    get chosen(): number { return this.all.reduce((n, session) => n + session.chosen, 0); }
 
     /**
      * The session an issue is of, by the issue itself — the very object a
@@ -279,10 +281,24 @@ export class EditHistory<W> {
      * @returns Whether anything moved
      */
     settleConflict(key: string, id: string, path: string, choice: ConflictChoice): boolean {
+        return this.settleConflicts(key, id, [path], choice);
+    }
+
+    /**
+     * Settle several conflicts of an entry in its session one way — a range's
+     * start and end — as one step of the history.
+     *
+     * @param key - The session's key
+     * @param id - The entry
+     * @param paths - The conflicts' patch paths
+     * @param choice - Which value stands
+     * @returns Whether anything moved
+     */
+    settleConflicts(key: string, id: string, paths: readonly string[], choice: ConflictChoice): boolean {
         const session = this.sessions.get(key);
         if (session === undefined) return false;
         return this.run(() => {
-            const moved = session.settle(id, path, choice);
+            const moved = session.settleTogether(id, paths, choice);
             if (moved) this.push([key]);
             return moved;
         });
