@@ -41,7 +41,7 @@ import { carrySaid, keyOn } from "../plan-move.test-utils.js";
 import { boundFrame } from "../../sheet/frame.test-utils.js";
 import { offering } from "../../shared/schedule/keys.test-utils.js";
 import { act, el, elementKey, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
-import { conflictCards } from "../../e3-web-mount.test-utils.js";
+import { conflictCards, reloadPage } from "../../e3-web-mount.test-utils.js";
 
 const h = planHarness({ "plan/plan-events": ex, "plan/plan": rowDrop });
 // A select scrolls its open listbox to the chosen option; jsdom does not scroll.
@@ -598,6 +598,28 @@ describe("Save per kind (PB45–PB48)", () => {
         expect(customer(container)).toBe("Alder & Finch Ltd");
         expect(pending(container)).toBe("1 pending");
         expect(historyButton(container, SAVE).disabled).toBe(true);
+    });
+
+    test("a reload keeps every kind's drafts in this tab: still to save, drawn as they were, and Save sends each kind's", async () => {
+        const first = await h.mount(ex.planPrintWorks);
+        await settle();
+        await select(bar(first.container, "J-1001")!);
+        await typeInto(first.container, "customer", "Alder & Finch Ltd");
+        await select(stop(first.container, "S-01")!);
+        await act(async () => { fireEvent.click(pane(first.container).querySelector<HTMLInputElement>("[data-inspector-fields='custom'] input[value='service']")!); });
+        await settle();
+        expect(pending(first.container)).toBe("2 pending");
+        reloadPage();
+        const { container } = await h.mount(ex.planPrintWorks);
+        await settle();
+        await waitFor(() => expect(pending(container)).toBe("2 pending"));
+        expect(banners(container)).toEqual([]);
+        await select(bar(container, "J-1001")!);
+        expect(customer(container)).toBe("Alder & Finch Ltd");
+        await press(historyButton(container, SAVE));
+        expect((await readJobs()).get("J-1001")!.customer).toBe("Alder & Finch Ltd");
+        expect((await readStops()).get("S-01")!.kind.type).toBe("service");
+        expect(pending(container)).toBe("0 pending");
     });
 
     test("a refused write is a banner with its reason, its kind's drafts kept; the other kinds commit (PB46)", async () => {

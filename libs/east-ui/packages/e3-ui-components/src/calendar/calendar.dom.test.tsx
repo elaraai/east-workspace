@@ -13,7 +13,7 @@ import { Calendar, Record } from "@elaraai/e3-ui";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
 import { act, calendarHarness, card, event, settle, slot, width } from "./harness.test-utils.js";
-import { conflictCards } from "../e3-web-mount.test-utils.js";
+import { conflictCards, reloadPage } from "../e3-web-mount.test-utils.js";
 const h = calendarHarness();
 const history = (c: HTMLElement, name: string) => within(slot(c, "toolbar")).getByRole("button", { name });
 async function press(node: Element) { await act(async () => { fireEvent.click(node); }); await settle(); }
@@ -310,6 +310,22 @@ describe("Calendar explicit action forms", () => {
         await press(history(container, editingMessages.discard()));
         expect(event(container, "job", "job1")).not.toBeNull(); expect(event(container, "service", "service1")).toBeNull();
     });
+    test("a reload keeps each kind's drafts in this tab: the events deleted stay deleted, still to save, and Save sends each kind's", async () => {
+        const first = await h.mount(ex.calendarOperations);
+        for (const [kind, key] of [["job", "job1"], ["service", "service1"]]) {
+            await press(event(first.container, kind!, key!));
+            await act(async () => { fireEvent.keyDown(event(first.container, kind!, key!), { key: "Delete" }); }); await settle();
+        }
+        reloadPage();
+        const { container } = await h.mount(ex.calendarOperations);
+        // The drafts come back to save: Save is on, the deleted events not drawn.
+        await waitFor(() => expect(history(container, editingMessages.apply()).hasAttribute("disabled")).toBe(false));
+        expect([event(container, "job", "job1"), event(container, "service", "service1")]).toEqual([null, null]);
+        await press(history(container, editingMessages.apply()));
+        expect((await jobs()).has("job1")).toBe(false);
+        expect((await h.read(ex.calendarServices)).has("service1")).toBe(false);
+    });
+
     test("a write whose answers are lost leaves its kind unknown; Retry resends the same request, and nothing is written twice", async () => {
         const { container } = await h.mount(ex.calendarOperations);
         for (const [kind, key] of [["job", "job1"], ["service", "service1"]]) {

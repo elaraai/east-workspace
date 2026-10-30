@@ -29,6 +29,13 @@ import { EditingPlacementType } from "@elaraai/east-ui/internal";
 import { kept, keptBytes, type KeptFailureReason } from "../platform/kept.js";
 import type { EditSession, KeptEntry } from "./session.js";
 
+/**
+ * The type of a collection's projection of an entry that is only the entry's
+ * id — a ref: what a collection that draws its drafts from its source's rows
+ * keeps its drafts with (`wireType`).
+ */
+export const EntryRefType = StructType({ id: StringType });
+
 /** One drafted entry as the tab keeps it: each value beast2 at its own type. */
 const KeptEntryType = StructType({
     id: StringType,

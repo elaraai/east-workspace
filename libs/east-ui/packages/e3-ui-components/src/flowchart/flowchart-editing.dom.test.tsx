@@ -43,7 +43,7 @@ import {
 } from "@elaraai/east";
 import { Editing, Reactive, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { EastChakraComponent, UIStore, editingMessages, formatters, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
-import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { initializeStore, resetKept } from "@elaraai/east-ui-components/internal";
 import { Flowchart } from "@elaraai/e3-ui/internal";
 import * as edits from "./edits.js";
 import { act, enabled, flowchartHarness, press, settle, toolbar } from "./flowchart.test-utils.js";
@@ -616,6 +616,22 @@ describe("Save's outcomes (FB23)", () => {
         expect(sent).toHaveLength(2);
         expect(blobEqual(sent[0]!, sent[1]!), "the same request").toBe(true);
         expect(container.querySelector("[data-session-banner='unknown']")).toBeNull();
+    });
+
+    test("a reload keeps the drafts in this tab: the lane added is drawn as it was, still to save", async () => {
+        const { source } = captured(() => FLOWS);
+        const first = await mount(payload(source));
+        await addLane(first.container);
+        const drawn = [...laneHeads(first.container)];
+        expect(drawn).toEqual(["INDUCT", "SORT", "HOLD", laneLabel(4).toUpperCase()]);
+        // A reload: the page and its UI store go; the tab's storage stays.
+        cleanup();
+        initializeStore(new UIStore());
+        resetKept();
+        const { container } = await mount(payload(source));
+        await waitFor(() => expect(laneHeads(container)).toEqual(drawn));
+        expect(pending(container)).toBe(` · ${m.footerPending({ n: 1, count: "1" })}`);
+        expect(enabled(SAVE)).toBe(true);
     });
 
     test("the source moving under pending drafts carries them over: another write's rename stands beside the lane drafted here, and Save is on", async () => {

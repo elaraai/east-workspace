@@ -54,7 +54,7 @@
  */
 
 import { useCallback, useLayoutEffect, useMemo, useSyncExternalStore } from "react";
-import { BlobType, SortedMap, StringType, compareFor, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
+import { BlobType, SortedMap, StringType, StructType, compareFor, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
 import { Editing, EditingDraftFieldType, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { Flowchart } from "@elaraai/e3-ui/internal";
 import {
@@ -86,6 +86,8 @@ export interface FlowRow {
 
 /** The session's entry schema: a whole flow. */
 const FLOW_ENTRY = toEastTypeValue(Flowchart.Types.Flow);
+/** A flow's row, as its drafts are kept through a reload with it: its name and the flow. */
+const FLOW_ROW = StructType({ name: StringType, flow: Flowchart.Types.Flow });
 /** Its draft schema: the flow drafted whole. */
 const FLOW_DRAFT = toEastTypeValue(EditingDraftFieldType(Flowchart.Types.Flow));
 /** Its key: the flow's name. */
@@ -347,7 +349,7 @@ export function useFlowSession(options: FlowSessionOptions): FlowSessionState {
     }), [paged]);
     const prepare = useMemo(() => prepareRecordSliceSave(recordSlice, source?.revision), [recordSlice, source]);
     const view = paged === undefined ? storageKey : `${storageKey}:${name === undefined ? "none" : printName(name)}`;
-    const edit = useEditSession<FlowRow>(editing, source, rows, positions, view, { idOf: rowName, ready, prepare });
+    const edit = useEditSession<FlowRow>(editing, source, rows, positions, view, { idOf: rowName, ready, prepare, wireType: FLOW_ROW });
 
     // Each flow's session is kept by its name, for the Flows tab.
     useLayoutEffect(() => {

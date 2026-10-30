@@ -20,7 +20,7 @@ import {
     act, assignment, at, card, history, narrow, NEXT, open, press, rosterHarness, searched, settle, slot, START, warehouseRoster, weekDuties, width,
     type Choice,
 } from "./harness.test-utils.js";
-import { conflictCards } from "../e3-web-mount.test-utils.js";
+import { conflictCards, reloadPage } from "../e3-web-mount.test-utils.js";
 import { DAY } from "./model.js";
 import { resetKept } from "@elaraai/east-ui-components/internal";
 const h = rosterHarness();
@@ -144,6 +144,17 @@ describe("Roster week lifecycle", () => {
         // Its own times differ from its shift's now: the chip says them.
         expect(assignment(container, "s37").textContent).toContain("05:00–14:00");
     });
+    test("a reload keeps the week's drafts in this tab: the duty removed stays removed, still to save, and Save removes it", async () => {
+        const first = await h.mount(ex.rosterWarehouse);
+        await press(within(assignment(first.container, "s37")).getByRole("button", { name: "Remove C. Clover" }));
+        reloadPage();
+        const { container } = await h.mount(ex.rosterWarehouse);
+        await waitFor(() => expect(history(container, editingMessages.apply()).hasAttribute("disabled")).toBe(false));
+        expect(assignment(container, "s37").hasAttribute("data-removed")).toBe(true);
+        await press(history(container, editingMessages.apply()));
+        expect((await h.read(ex.rosterDuties)).has("s37")).toBe(false);
+    });
+
     test("a concurrent write during Save carries the draft over: the duty removed here and moved there waits to be chosen, the draft retained", async () => {
         const { container } = await h.mount(ex.rosterWarehouse);
         await press(within(assignment(container, "s37")).getByRole("button", { name: "Remove C. Clover" }));

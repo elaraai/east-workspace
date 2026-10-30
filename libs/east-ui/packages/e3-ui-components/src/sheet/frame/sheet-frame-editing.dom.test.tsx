@@ -24,6 +24,7 @@ import { Record, Sheet } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import { patchRecord } from "../../e3-web.test-utils.js";
 import { act, sheetHarness, settle, slot } from "./harness.test-utils.js";
+import { conflictCards, reloadPage } from "../../e3-web-mount.test-utils.js";
 
 const h = sheetHarness();
 const JOBS = ex.sheetJobs;
@@ -377,4 +378,54 @@ test("auto mode sends each ready gesture as it lands, through the same protocol;
     expect((await readJobs()).get("J-0004")!.task).toBe("Spray finish");
     expect(await commits(JOBS)).toEqual(["patch", "patch", ...deployed]);
     expect(tasks(container)[3]).toBe("Spray finish");
+});
+
+test("a reload keeps the drafts in this tab: the task typed and the job added are drawn as they were, still to save, and Save saves them", async () => {
+    const first = await h.mount(ex.sheetBasic);
+    await typeInto(cells(first.container, "task")[0]!, "Panel cutting, maple");
+    await typeInto(slot(first.container, "main")!.querySelector('[data-slot="row"][data-blank] [data-key="task"]')!, "Sanding");
+    expect(drafted(first.container)).toBe(2);
+    reloadPage();
+    const { container } = await h.mount(ex.sheetBasic);
+    await waitFor(() => expect(tasks(container)).toEqual(["Panel cutting, maple", "Edge banding", "CNC routing", "Spray finish", "Sanding"]));
+    expect([drafted(container), banners(container)]).toEqual([2, []]);
+    // The history starts at the drafts the reload kept: nothing to undo, everything to save.
+    expect(disabled(toolbar(container).getByRole("button", { name: "Undo" }))).toBe(true);
+    await press(toolbar(container).getByRole("button", { name: "Save" }));
+    const saved = await readJobs();
+    expect(saved.get("J-0001")!.task).toBe("Panel cutting, maple");
+    expect([...saved.values()].map((job) => job.task)).toContain("Sanding");
+    expect(drafted(container)).toBe(0);
+});
+
+test("a reload keeps a cell's text that could not be read as it was typed: drawn so, and its issue still holding Save", async () => {
+    const first = await h.mount(ex.sheetBasic);
+    await typeInto(cells(first.container, "qty")[0]!, "twelve");
+    expect(disabled(toolbar(first.container).getByRole("button", { name: "Save" }))).toBe(true);
+    // The cell as it is drawn: the text, and its issue said beside it.
+    const drawn = cells(first.container, "qty")[0]!.textContent;
+    expect(drawn).toContain("twelve");
+    reloadPage();
+    const { container } = await h.mount(ex.sheetBasic);
+    await waitFor(() => expect(cells(container, "qty")[0]!.textContent).toBe(drawn));
+    expect(drafted(container)).toBe(1);
+    expect(disabled(toolbar(container).getByRole("button", { name: "Save" }))).toBe(true);
+    expect(toolbar(container).getByRole("button", { name: "1 issue" })).toBeTruthy();
+});
+
+test("a reload over another session's change to the same task brings the draft back as a conflict to choose", async () => {
+    const first = await h.mount(ex.sheetBasic);
+    await typeInto(cells(first.container, "task")[0]!, "Panel cutting, maple");
+    reloadPage();
+    // While the tab reloads, another session saves the same task.
+    await writeJob("J-0001", { task: "Panel cutting, walnut" });
+    const { container } = await h.mount(ex.sheetBasic);
+    await waitFor(() => expect(banners(container)).toEqual(["conflicts"]));
+    expect(tasks(container)[0]).toBe("Panel cutting, maple");
+    expect(disabled(toolbar(container).getByRole("button", { name: "Save" }))).toBe(true);
+    const [card, ...more] = await conflictCards(container);
+    expect(more).toEqual([]);
+    expect([card!.item, card!.yours, card!.theirs]).toEqual([
+        "J-0001", "Yours, Panel cutting, maple", "Theirs, Panel cutting, walnut, Changed since you started editing · was Panel cutting",
+    ]);
 });

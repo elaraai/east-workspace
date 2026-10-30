@@ -33,6 +33,7 @@ import { ChakraProvider } from "@chakra-ui/react";
 import type { EastIR, EastType, ValueTypeOf } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui/internal";
 import { DragLayerProvider, EastChakraComponent, StateRuntime, UIStore, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
+import { resetKept } from "@elaraai/east-ui-components/internal";
 import { deriveManifest } from "@elaraai/e3-ui";
 import type { TreePath } from "@elaraai/e3-types";
 import {
@@ -332,6 +333,8 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
         state.e3?.reset();
         cleanup();
         localStorage.clear();
+        // The tab's storage goes too: a test is a tab of its own, and the drafts a test's sessions kept are not the next's.
+        sessionStorage.clear();
         // What every spy recorded goes with the test, as its stub does: vitest
         // keeps each spy a file makes until the file ends, and restoring one
         // keeps its calls, each with the element it was called on — which
@@ -533,6 +536,17 @@ export async function toolbarAtFloor(): Promise<void> {
  * @returns The slot's element
  */
 export const slot = (container: HTMLElement, name: string) => container.querySelector<HTMLElement>(`[data-builder-frame] [data-frame-slot="${name}"]`)!;
+
+/**
+ * A reload of the page, in the same tab: what it drew goes, with its UI store —
+ * every editing session in it — and what it kept in memory; the tab's storage
+ * stays, as a reload leaves it. Mount again after it, as the page loads again.
+ */
+export function reloadPage(): void {
+    cleanup();
+    StateRuntime.initializeStore(new UIStore());
+    resetKept();
+}
 
 /** A card of the history bar's conflicts popover, as a person reads it: the item, each choice as it is read out, and the choices. */
 export interface ConflictCard {

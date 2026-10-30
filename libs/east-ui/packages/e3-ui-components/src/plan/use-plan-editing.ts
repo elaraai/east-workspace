@@ -45,7 +45,7 @@ import {
 } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import {
-    historyKeyOf, useEditSession, useTrackedEvaluation, type EditHistory, type EditingValue, type EditSession, type EditSessionBinding, type EntryUpdate, type EntryVersion,
+    EntryRefType, historyKeyOf, useEditSession, useTrackedEvaluation, type EditHistory, type EditingValue, type EditSession, type EditSessionBinding, type EntryUpdate, type EntryVersion,
     type Origin, type HistoryAction, type DragEventValue,
 } from "@elaraai/east-ui-components";
 import { type EditSource, kindOfIssue, wholeEntryReadiness, windowedSourceOf, prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
@@ -321,7 +321,7 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
 
     const prepare = useMemo(() => prepareRecordSliceSave(recordSlice, source?.revision), [recordSlice, source]);
     const { session, observed, original, available, version } = useEditSession<PlanEntryRef>(
-        editing ?? INERT, source, resident.refs, resident.positions, storageKey, { idOf: idOfRef, ready, prepare });
+        editing ?? INERT, source, resident.refs, resident.positions, storageKey, { idOf: idOfRef, ready, prepare, wireType: EntryRefType });
     sessionRef.current = session;
     // The session's key in the Plan's one history (#1194): its source, the view and its schema.
     const historyKey = useMemo(() => historyKeyOf(storageKey, editing ?? INERT), [storageKey, editing]);

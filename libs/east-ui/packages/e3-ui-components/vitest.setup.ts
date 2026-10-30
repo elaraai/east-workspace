@@ -65,4 +65,6 @@ afterEach(() => {
 beforeEach(async () => {
     const { resetKept } = await import("@elaraai/east-ui-components/internal");
     resetKept();
+    // A test is a tab of its own: what an earlier test's sessions kept in the tab's storage is not its.
+    if (typeof sessionStorage !== "undefined") sessionStorage.clear();
 });

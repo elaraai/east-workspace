@@ -605,13 +605,16 @@ export {
 // (`takeKey`, #1398) — the banners a builder shows its error in instead (#1184), and
 // the session's words — its error, too, in the surface's (#936). A builder
 // whose entries live in several sources keeps a session per source and one
-// history over them (#1194): the Plan's event kinds, the Calendar's.
+// history over them (#1194): the Plan's event kinds, the Calendar's. A session's
+// drafts are kept through a reload of the tab where its builder says how its
+// projection of an entry is typed (`wireType`): a ref's, `EntryRefType`.
 export {
     EditSession,
     EditHistory,
     useEditSession,
     useEditHistory,
     historyKeyOf,
+    EntryRefType,
     liftDraft,
     historyToolbarItem,
     historyShortcut,
