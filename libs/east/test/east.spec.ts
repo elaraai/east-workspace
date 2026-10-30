@@ -22,6 +22,7 @@ import {
     OptionType,
     variant,
     printType,
+    printFor,
     NeverType,
     RefType,
     ref
@@ -1769,6 +1770,8 @@ await describe("East", (test) => {
         $(assert.equal(East.print(dictType), printType(DictType(StringType, IntegerType))));
         $(assert.equal(East.print(structType), printType(StructType({ a: IntegerType, b: StringType }))));
         $(assert.equal(East.print(variantType), printType(VariantType({ some: IntegerType, none: NullType }))));
-        $(assert.equal(East.print(eastTypeType), printType(EastTypeType)));
+        // printType names a recursive type by its type id in the process, for
+        // error messages; a type value names it by its id in every runtime.
+        $(assert.equal(East.print(eastTypeType), printFor(EastTypeType)(toEastTypeValue(EastTypeType))));
     })
 });

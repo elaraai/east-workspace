@@ -76,6 +76,10 @@ change to one is a new version of the thing, not an edit to it.
   refuse index flag bits they do not know, so a new flag is a new container
   version.
 - **The beast2 well-known type registry:** its ids are pinned.
+- **A recursive type's id:** the first 62 bits of the SHA-256 of its beast2
+  type-table section, written for the type alone. IR carries it, so a change
+  to its definition changes the bytes of every program holding a recursive
+  type.
 - **The segment manifest** (`$segments`): readers recognize it by its exact
   field set, so a changed struct is a different object to every reader.
 
@@ -529,3 +533,15 @@ Each wire changed under this rule, with the kind it is.
   re-exported, and the dataflow computes each UI task's output again under the
   new type. A UI task's output is not stored state, so no repository upgrade
   step ships with it.
+- **A recursive type is written under the hash of its type table (#1202,
+  #1462)** — package-borne, and no type changes. The `id` a recursive type's
+  `wrapper` and its `ref`s carry was a counter of the process that wrote it,
+  so one program's IR held other ids in another process or runtime; it is the
+  first 62 bits of the SHA-256 of the type's beast2 type table, which every
+  runtime writes alike, and a decoder names each wrapper it reads by it. IR,
+  function manifests and package objects that hold a recursive type get new
+  bytes once: packages are re-exported, and the dataflow runs each task over
+  them again. A dataset's type is its type table, which writes no id, and a
+  segment manifest writes its collection's type renamed canonically, so
+  neither changes, and no repository upgrade step ships with it. A reader
+  takes an id as the bytes give it, so IR an earlier SDK wrote still reads.

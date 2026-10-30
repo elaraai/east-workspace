@@ -117,13 +117,16 @@ cdef void _load_well_known_types():
     global _py_ir_type, _py_east_type_type, _well_known_loaded
     if _well_known_loaded:
         return
-    _well_known_loaded = True
     try:
         from east.types.type_of_type import IRType, EastTypeType
-        _py_ir_type = IRType
-        _py_east_type_type = EastTypeType
     except ImportError:
-        pass
+        # type_of_type is still loading: building these types asks east-c to
+        # name them, which converts them, before the module holds them. A
+        # later call finds them.
+        return
+    _py_ir_type = IRType
+    _py_east_type_type = EastTypeType
+    _well_known_loaded = True
 
 
 # ─── py_type_to_c ─────────────────────────────────────────────────────────
@@ -246,11 +249,17 @@ cdef _eastc.EastType* _py_type_to_c_impl(object py_type) except NULL:
         if payload.type == "wrapper":
             rec_id = payload.value["id"]
             result = _eastc.east_recursive_type_new()
+            # A wrapper inside another of its id (crafted bytes; no writer
+            # nests one) shadows it, and gives the binding back when done.
+            outer = _rec_id_ctx.get(rec_id)
             _rec_id_ctx[rec_id] = <uintptr_t>result
             try:
                 elem = py_type_to_c(payload.value["inner"])
             finally:
-                del _rec_id_ctx[rec_id]
+                if outer is None:
+                    del _rec_id_ctx[rec_id]
+                else:
+                    _rec_id_ctx[rec_id] = outer
             _eastc.east_recursive_type_set(result, elem)
             _eastc.east_type_release(elem)
             return _eastc.east_recursive_type_intern(result)
@@ -870,18 +879,20 @@ cdef object _c_type_tag_to_py_type_inner(_eastc.EastType *c_type):
 cdef object _c_type_tag_to_py_type_impl(_eastc.EastType *c_type, uintptr_t key):
     cdef _eastc.EastTypeKind kind = c_type.kind
 
-    # RECURSIVE wrapper: mint a scope id and emit `wrapper({id, inner})`,
-    # with self-references inside the inner emitted as `ref(id)`. The built
-    # wrapper is interned through types.py's registry so every in-process
-    # route to the same structure converges on one canonical wrapper (and id).
+    # RECURSIVE wrapper: emit `wrapper({id, inner})` under the id east-c
+    # names the type by, a hash of its type table (the id every runtime gives
+    # it), with self-references inside the inner emitted as `ref(id)`. The
+    # built wrapper is interned through types.py's registry so every
+    # in-process route to the same structure converges on one canonical
+    # wrapper.
     if kind == _eastc.EAST_TYPE_RECURSIVE:
         if c_type.data.recursive.node == NULL:
             raise ValueError("recursive wrapper type has no node set")
         existing = _rev_rec_ids.get(key)
         if existing is not None:
             return EastVariant("Recursive", EastVariant("ref", existing))
-        from east.types.types import _intern_recursive_wrapper, _mint_recursive_id
-        rec_id = _mint_recursive_id()
+        from east.types.types import _intern_recursive_wrapper
+        rec_id = _eastc.east_type_structural_id(c_type)
         _rev_rec_ids[key] = rec_id
         try:
             inner = _c_type_tag_to_py_type_inner(c_type.data.recursive.node)
@@ -1882,6 +1893,22 @@ def c_function_value_type(uintptr_t fn_val_ptr):
                 _eastc.east_type_of_type_init()
             return c_value_to_py(tv, _eastc.east_type_type)
     return None
+
+
+def recursive_type_id(object py_wrapper):
+    """The id every runtime writes the recursive type ``py_wrapper`` under.
+
+    The first 62 bits of the SHA-256 of its type table — east-c's
+    ``east_type_structural_id``, and TypeScript's ``recursiveTypeId`` — so it
+    does not depend on the ids ``py_wrapper`` carries: ``recursive_type``
+    builds a type under a provisional id and asks for its own here. The
+    wrapper itself is converted uncached, since nothing converts it again.
+    """
+    cdef _eastc.EastType* c_type = _py_type_to_c_impl(py_wrapper)
+    try:
+        return _eastc.east_type_structural_id(c_type)
+    finally:
+        _eastc.east_type_release(c_type)
 
 
 def canonicalize_type(object py_type):

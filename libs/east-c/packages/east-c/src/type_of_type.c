@@ -815,10 +815,10 @@ EastType *east_type_from_value(EastValue *v)
 /*  Converts EastType* -> EastTypeType variant value (EastValue*).     */
 /*  Inverse of east_type_from_value.                                   */
 /*                                                                     */
-/*  The Recursive(N) depth value counts compound types in the nesting  */
-/*  hierarchy, matching how beast2's typeCtx stack works in TypeScript. */
-/*  Each compound type (Array, Dict, Struct, Variant, Function, etc.)  */
-/*  pushes onto the context stack; N counts back from the top.         */
+/*  A recursive type is Recursive(wrapper({id, inner})), and each      */
+/*  reference back to it inside inner is Recursive(ref(id)), under the */
+/*  id east_type_structural_id gives it: a hash of its type table, so  */
+/*  every runtime writes one type with one id.                         */
 /* ================================================================== */
 
 typedef struct {
@@ -931,14 +931,14 @@ static EastValue *type_to_value_ctx(EastType *type, TVCtx *ctx)
     if (!type) return NULL;
 
     /* Check for self-reference: pointer matches a recursive wrapper.
-     * Produce Recursive(variant("ref", pointer_id)). */
+     * Produce Recursive(variant("ref", id)). */
     for (int i = ctx->num_recs - 1; i >= 0; i--) {
         if (type == ctx->recs[i].wrapper) {
-            int64_t ptr_id = ctx->recs[i].wrapper->type_id;
+            int64_t id = east_type_structural_id(ctx->recs[i].wrapper);
             /* Get the Recursive case's variant type (VariantType({ref, wrapper})) */
             EastType *vtype = east_type_type->data.recursive.node;
             EastType *rec_case_type = vtype->data.variant.cases[TT_RECURSIVE].type;
-            EastValue *ref_val = east_variant_new("ref", east_integer(ptr_id), rec_case_type);
+            EastValue *ref_val = east_variant_new("ref", east_integer(id), rec_case_type);
             return east_variant_new("Recursive", ref_val, vtype);
         }
     }
@@ -949,13 +949,13 @@ static EastValue *type_to_value_ctx(EastType *type, TVCtx *ctx)
         EastValue *inner = type_to_value_ctx(type->data.recursive.node, ctx);
         ctx->num_recs--;
 
-        int64_t ptr_id = type->type_id;
+        int64_t id = east_type_structural_id(type);
         EastType *vtype = east_type_type->data.recursive.node;
         EastType *rec_case_type = vtype->data.variant.cases[TT_RECURSIVE].type;
         EastType *wrapper_struct_type =
             rec_case_type->data.variant.cases[1].type; /* "wrapper" case */
         const char *w_names[] = {"id", "inner"};
-        EastValue *w_vals[] = {east_integer(ptr_id), inner};
+        EastValue *w_vals[] = {east_integer(id), inner};
         EastValue *ws = east_struct_new(w_names, w_vals, 2, wrapper_struct_type);
         east_value_release(w_vals[0]);
         east_value_release(inner);
