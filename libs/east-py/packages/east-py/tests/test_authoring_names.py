@@ -16,7 +16,9 @@ from typing import Any
 
 from east import East
 from east.codegen import to_python_source
-from east.expression.naming import authored_name, hint_at, parameter_names, reset_names
+from east.expression.function import detached_build
+from east.expression.naming import authored_name, fresh_name, hint_at, parameter_names, reset_names
+from east.serialization.beast2 import encode_beast2_with_header_for
 from east.serialization.json import encode_json_for
 from east.types.type_of_type import IRType
 from east.types.types import ArrayType, FloatType, IntegerType, StringType, VariantType
@@ -129,6 +131,30 @@ class TestIRCarriesTheAuthoringNames:
 
         assert [n for n in variable_names(again) if n == "x"] == ["x"]
         assert variable_names(demo) == self.names
+
+
+def _doubling():
+    return East.function([ArrayType(IntegerType)], ArrayType(IntegerType),
+                         lambda b, xs: xs.map(lambda b, x: x * 2))
+
+
+def test_a_build_numbers_the_names_it_generates_so_its_ir_is_its_programs_alone():
+    encode = encode_beast2_with_header_for(IRType)
+    first = _doubling()
+    East.function([ArrayType(IntegerType)], IntegerType, lambda b, xs: xs.map(lambda b, x: x).size())
+    second = _doubling()
+    assert any(re.fullmatch(r"__n\d+", n) for n in variable_names(first))  # the map's unnamed index slot
+    assert encode(first._east_ir) == encode(second._east_ir)
+
+
+def test_a_detached_build_numbers_its_own_names_and_the_enclosing_build_goes_on():
+    encode = encode_beast2_with_header_for(IRType)
+    reset_names()
+    assert [fresh_name(), fresh_name()] == ["__n0", "__n1"]
+    with detached_build():
+        detached = _doubling()
+    assert fresh_name() == "__n2"
+    assert encode(detached._east_ir) == encode(_doubling()._east_ir)
 
 
 @East.function([IntegerType], IntegerType)

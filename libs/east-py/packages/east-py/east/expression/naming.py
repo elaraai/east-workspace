@@ -50,12 +50,32 @@ _BINDINGS_LIMIT = 256
 #: id(code) → (code, its instructions' spans) — pinned by the entry so the id cannot be recycled
 _spans: dict[int, tuple[Any, list[Span | None]]] = {}
 _SPANS_LIMIT = 256
+#: the number the open build's next generated name takes
+_generated = 0
 
 
 def reset_names() -> None:
-    """Forget every scope — called when a build opens its outermost frame."""
+    """Forget every scope and number generated names from 0 again — called
+    when a build opens its outermost frame."""
+    global _generated
     _scopes.clear()
     _pending.clear()
+    _generated = 0
+
+
+def fresh_name() -> str:
+    """A name for a variable the author did not name — ``__n0``, ``__n1``…
+    — that no other variable of the open build has, so a nested body never
+    shadows an outer variable it reads.
+
+    Numbered per build, as TypeScript numbers its ``_N`` per lowering: a
+    function's IR is then its program's alone, whatever the process built
+    before it. The ``__`` spelling is never an authored name
+    (:func:`authored_name` refuses it as a hint), so the two cannot meet."""
+    global _generated
+    name = f"__n{_generated}"
+    _generated += 1
+    return name
 
 
 def open_scope() -> None:
