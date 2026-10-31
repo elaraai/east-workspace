@@ -4,18 +4,19 @@
  */
 
 /**
- * What every preview shares (`Decision Queue Spec.md` P1, P2, P21, P23, P25,
- * P26): its frame — one image, its sentence its name, at its kind's height,
- * dashed while stale — its rows not read yet, the shared placeholder shapes in
- * its final layout after its own reveal clock, and a read that failed, said
- * once; and the rows as the change, edited, leaves them and those the model
- * guessed. The `decisionPreview` recipe draws them from the attributes they
- * set.
+ * What every preview shares (`Decision Queue Spec.md` P1, P2, P21, P22, P23,
+ * P25, P26): its frame — one image, its sentence its name, at its kind's
+ * height, dashed while stale, settling once applied — its rows not read yet,
+ * the shared placeholder shapes in its final layout after its own reveal
+ * clock, and a read that failed, said once; what it shows held while it
+ * settles; and the rows as the change, edited, leaves them and those the
+ * model guessed. The `decisionPreview` recipe draws them from the attributes
+ * they set.
  *
  * @packageDocumentation
  */
 
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
 import { LoadingFailedLine, LoadingReveal, PlaceholderShape, type SlotStyles } from "@elaraai/east-ui-components/internal";
 import type { ScheduleEditing } from "../../shared/schedule/editing.js";
@@ -65,6 +66,22 @@ export function guessedOf(guesses: ReadonlyMap<string, number> | undefined, chan
     return changed.filter(row => guesses.has(row.key)).map(row => row.key);
 }
 
+/**
+ * A value held while `held` (P22): the last it was before `held` turned true. An applied card's reads are evaluated
+ * again as the verdict lands in their records — its rows written, its case decided — and what the card shows stands
+ * meanwhile, as it was at the click, while its preview settles.
+ *
+ * @typeParam T - The value's type
+ * @param value - The value as it now is
+ * @param held - Whether the last value stands
+ * @returns The value as it now is, or, while held, as it last was before
+ */
+export function useHeld<T>(value: T, held: boolean): T {
+    const kept = useRef(value);
+    if (!held) kept.current = value;
+    return kept.current;
+}
+
 /** What a preview draws from: the case, its target and record, the rows its change leaves, and the queue's editing. */
 export interface PreviewProps {
     /** The case. */
@@ -87,6 +104,8 @@ export interface PreviewProps {
     readonly styles: SlotStyles;
     /** The time the queue counts from: a crop of time draws its now line where its window holds it (P20). */
     readonly now: Date;
+    /** Whether the case was just applied: the preview settles, what it shows held as it was at the click (P22). */
+    readonly applied: boolean;
 }
 
 /** How a preview lays its rows out: what the recipe sizes and draws it by (`data-layout`). */
@@ -107,6 +126,8 @@ export interface PreviewFrameProps {
     readonly stale: boolean;
     /** Whether its rows are read still. */
     readonly busy?: boolean | undefined;
+    /** Whether its case was just applied: its marks settle (P22). */
+    readonly applied?: boolean | undefined;
     /** The recipe's styles. */
     readonly styles: SlotStyles;
     /** What it draws. */
@@ -114,15 +135,16 @@ export interface PreviewFrameProps {
 }
 
 /**
- * A preview's frame (P1, P2, P21, P25): one image named by its sentence, at its kind's height, dashed while stale.
+ * A preview's frame (P1, P2, P21, P22, P25): one image named by its sentence, at its kind's height, dashed while
+ * stale, its marks settling once applied.
  *
  * @param props - Its kind, layout, sentence and state, and what it draws ({@link PreviewFrameProps})
  * @returns The frame
  */
-export function PreviewFrame({ kind, layout, label, stale, busy, styles, children }: PreviewFrameProps) {
+export function PreviewFrame({ kind, layout, label, stale, busy, applied, styles, children }: PreviewFrameProps) {
     return (
         <Box css={styles.root} role="img" aria-label={label} aria-busy={busy === true || undefined} data-decision-preview="" data-kind={kind}
-            data-layout={layout} data-stale={flag(stale)}>
+            data-layout={layout} data-stale={flag(stale)} data-applied={flag(applied === true)}>
             {children}
         </Box>
     );

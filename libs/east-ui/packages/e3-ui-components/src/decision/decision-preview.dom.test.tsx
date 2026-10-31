@@ -56,7 +56,7 @@ import { layOutList } from "./list.test-utils.js";
 import { decisionQueueMessages as m } from "./messages.js";
 import {
     action, axis, card, chartRow, chipLine, entries, fields, head, heads, history, marked, measure, openCard, optionOf, press, preview, previewRow,
-    previewRows, ruler, sheetCells, sheetHead, sheetName, tile, tiles,
+    previewRows, ruler, settleApplied, sheetCells, sheetHead, sheetName, tile, tiles,
 } from "./preview.test-utils.js";
 import "./index.js";
 
@@ -472,6 +472,7 @@ test("the orders case's Apply drafts the three orders and the verdict as one ste
     await waitFor(() => expect(apply().getAttribute("aria-disabled")).toBeNull());
     const from = new Date();
     await press(apply());
+    await settleApplied(container, "orders-ready");
     expect(container.querySelector('[data-decision-receipt="orders-ready"]')).not.toBeNull();
     await press(history(container, editingMessages.apply()));
     expect(mutated()).toEqual([ex.opsCases.name, ex.optimiseWorkOrders.name].sort());
@@ -491,6 +492,7 @@ test("the stock case's Apply drafts the C5 envelopes' reorder and the verdict as
     await waitFor(() => expect(apply().getAttribute("aria-disabled")).toBeNull());
     const from = new Date();
     await press(apply());
+    await settleApplied(container, "stock-c5");
     expect(container.querySelector('[data-decision-receipt="stock-c5"]')).not.toBeNull();
     await press(history(container, editingMessages.apply()));
     expect(mutated()).toEqual([ex.opsCases.name, ex.stockLevels.name].sort());
@@ -506,6 +508,7 @@ test("the print case's Apply drafts J-3007's move and the verdict as one step, a
     await waitFor(() => expect(apply().getAttribute("aria-disabled")).toBeNull());
     const from = new Date();
     await press(apply());
+    await settleApplied(container, "print-j3007");
     expect(container.querySelector('[data-decision-receipt="print-j3007"]')).not.toBeNull();
     await press(history(container, editingMessages.apply()));
     expect(mutated()).toEqual([ex.opsCases.name, ex.planEventJobs.name].sort());
@@ -526,6 +529,7 @@ test("the workshop case's Apply waits for its question; answered Yes, it drafts 
     await waitFor(() => expect(apply().getAttribute("aria-disabled")).toBeNull());
     const from = new Date();
     await press(apply());
+    await settleApplied(container, "workshop-press1");
     expect(container.querySelector('[data-decision-receipt="workshop-press1"]')).not.toBeNull();
     await press(history(container, editingMessages.apply()));
     expect(mutated()).toEqual([ex.calendarServices.name, ex.opsCases.name].sort());
@@ -546,6 +550,7 @@ test("the yard case's Apply waits for its question; answered Yes, it drafts LD-2
     await waitFor(() => expect(apply().getAttribute("aria-disabled")).toBeNull());
     const from = new Date();
     await press(apply());
+    await settleApplied(container, "yard-ld2235");
     expect(container.querySelector('[data-decision-receipt="yard-ld2235"]')).not.toBeNull();
     await press(history(container, editingMessages.apply()));
     expect(mutated()).toEqual([ex.kilnBins.name, ex.opsCases.name].sort());
@@ -568,6 +573,7 @@ test("Apply waits for the question's answer; answered Yes, it drafts the moved d
     await waitFor(() => expect(apply().getAttribute("aria-disabled")).toBeNull());
     const from = new Date();
     await press(apply());
+    await settleApplied(container, "rota-tansy");
     expect(container.querySelector('[data-decision-receipt="rota-tansy"]')).not.toBeNull();
     await press(history(container, editingMessages.apply()));
     expect(mutated()).toEqual([ex.opsCases.name, ex.rosterDuties.name].sort());
@@ -589,6 +595,7 @@ test("the routine cases are decided as any case is, each on its own card: Saturd
         const apply = () => action(container, key, m.action({ action: "apply" }));
         await waitFor(() => expect(apply().getAttribute("aria-disabled")).toBeNull());
         await press(apply());
+        await settleApplied(container, key);
         expect(container.querySelector(`[data-decision-receipt="${key}"]`)).not.toBeNull();
     }
     await press(history(container, editingMessages.apply()));

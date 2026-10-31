@@ -29,7 +29,7 @@ import { appliedRows, draftedRows, standingRows, type DecisionTarget } from "../
 import { CONFIDENCE, NET } from "../figures.js";
 import type { DecisionQueueWords } from "../messages.js";
 import { fieldAt } from "../state.js";
-import { PreviewFailed, PreviewFrame, PreviewPending, flag, guessedOf, leftBy, staleNames, type PreviewProps } from "./frame.js";
+import { PreviewFailed, PreviewFrame, PreviewPending, flag, guessedOf, leftBy, staleNames, useHeld, type PreviewProps } from "./frame.js";
 import {
     GROUP_ROWS, MIX_ROWS, RECORD_FIELDS, recordFields, recordGroups, recordMix,
     type GroupRow, type MixModel, type MixRowInput, type RecordFieldItem, type RecordFieldSpec, type RecordRowInput,
@@ -77,7 +77,7 @@ export interface RecordPreviewProps extends PreviewProps {
  * @param props - The case, its target and record, the rows its change leaves and the queue's editing ({@link RecordPreviewProps})
  * @returns The preview
  */
-export function RecordPreview({ c, view, target, kind, record, rows, changed, schedule, words, styles }: RecordPreviewProps) {
+export function RecordPreview({ c, view, target, kind, record, rows, changed, schedule, words, styles, applied }: RecordPreviewProps) {
     const option = view.option;
     const formWords = useMemo((): FieldFormWords => ({ ...words, m: fieldFormMessages }), [words]);
     const codec = useMemo(() => rowCodec(kind.rowType), [kind.rowType]);
@@ -160,7 +160,8 @@ export function RecordPreview({ c, view, target, kind, record, rows, changed, sc
         }
         return { state: "ready", layout: "fields", fields: recordFields({ specs, rows: inputs, lands, marked }), names, marked };
     }, [rows, changed, option, c.options, view.recommended, record, target, schedule, kind, codec, specs]);
-    const { result } = useTrackedEvaluation(read);
+    const { result: live } = useTrackedEvaluation(read);
+    const result = useHeld(live, applied);
     const stale = rows === "stale";
     const pending = layoutOf(kind);
     if (rows === "failed" || !result.ok) {
@@ -169,7 +170,7 @@ export function RecordPreview({ c, view, target, kind, record, rows, changed, sc
     }
     const got = result.value;
     if (got.state === "pending") return <PreviewPending kind="record" layout={pending} rows={PENDING_ROWS[pending]} words={words} styles={styles} />;
-    if (got.state === "empty") return <PreviewFrame kind="record" layout={pending} label={option?.detail ?? ""} stale={stale} styles={styles} />;
+    if (got.state === "empty") return <PreviewFrame kind="record" layout={pending} label={option?.detail ?? ""} stale={stale} applied={applied} styles={styles} />;
     const { m } = words;
     const guessed = guessedOf(option?.guesses, changed);
     const guess = guessed.length === 0 ? undefined : { keys: m.previewList({ items: guessed }), n: guessed.length };
@@ -179,7 +180,7 @@ export function RecordPreview({ c, view, target, kind, record, rows, changed, sc
         case "fields": {
             const tips = got.fields.map(f => fieldTip(f, words));
             return (
-                <PreviewFrame kind="record" layout="fields" label={lead(m.previewFields({ fields: tips, guessed: guess }))} stale={stale} styles={styles}>
+                <PreviewFrame kind="record" layout="fields" label={lead(m.previewFields({ fields: tips, guessed: guess }))} stale={stale} applied={applied} styles={styles}>
                     {got.fields.map((f, i) => <FieldBlock key={`${f.key}.${f.field}`} field={f} tip={tips[i]!} words={words} styles={styles} />)}
                 </PreviewFrame>
             );
@@ -187,7 +188,7 @@ export function RecordPreview({ c, view, target, kind, record, rows, changed, sc
         case "mix": {
             const moved = got.mix.rows.filter(row => !row.same).map(row => ({ name: row.name, was: words.number(row.was), now: words.number(row.now) }));
             return (
-                <PreviewFrame kind="record" layout="mix" label={lead(m.previewMix({ rows: moved, guessed: guess }))} stale={stale} styles={styles}>
+                <PreviewFrame kind="record" layout="mix" label={lead(m.previewMix({ rows: moved, guessed: guess }))} stale={stale} applied={applied} styles={styles}>
                     <Mix model={got.mix} name={target.name} words={words} styles={styles} />
                 </PreviewFrame>
             );
@@ -198,7 +199,7 @@ export function RecordPreview({ c, view, target, kind, record, rows, changed, sc
             const field = kind.group.type === "some" ? kind.group.value.field : "";
             const caption = kind.fields.find(spec => spec.path.length === 1 && stringEqual(spec.path[0]!, field))?.label ?? field;
             return (
-                <PreviewFrame kind="record" layout="groups" label={label} stale={stale} styles={styles}>
+                <PreviewFrame kind="record" layout="groups" label={label} stale={stale} applied={applied} styles={styles}>
                     <Groups groups={got.groups} caption={caption} marked={got.marked} net={net} words={words} styles={styles} />
                 </PreviewFrame>
             );

@@ -30,7 +30,7 @@ import { scheduleWithinCap } from "../../shared/schedule/cells.js";
 import { EMPTY_SCHEDULE_DRAFTS } from "../../shared/schedule/editing.js";
 import { kindPlural } from "../../shared/schedule/words.js";
 import { appliedRows, standingRows, type DecisionTarget } from "../editing.js";
-import { PreviewFailed, PreviewFrame, PreviewPending, guessedOf, leftBy, type PreviewProps } from "./frame.js";
+import { PreviewFailed, PreviewFrame, PreviewPending, guessedOf, leftBy, useHeld, type PreviewProps } from "./frame.js";
 import { LanesCrop, LanesMap, lanesSentence, mapSentence, type PreviewMap } from "./lanes.js";
 import { UNASSIGNED, laneEvent, laneWindow, lanesOf, lanesPreview, type LaneEvent, type LanesModel } from "./lanes-model.js";
 import { CROP_LANES, lanesMap, type MapResource } from "./map-model.js";
@@ -90,7 +90,7 @@ export interface PlanPreviewProps extends PreviewProps {
  * @param props - The case, its target and record, the rows its change leaves and the queue's editing ({@link PlanPreviewProps})
  * @returns The preview
  */
-export function PlanPreview({ c, view, target, kind, record, rows, changed, schedule, words, styles, now }: PlanPreviewProps) {
+export function PlanPreview({ c, view, target, kind, record, rows, changed, schedule, words, styles, now, applied }: PlanPreviewProps) {
     const option = view.option;
     const read = useCallback((): PlanRead => {
         if (rows === "reading" || rows === "failed") return PENDING;
@@ -243,7 +243,8 @@ export function PlanPreview({ c, view, target, kind, record, rows, changed, sche
             },
         };
     }, [rows, changed, option, c.options, view.recommended, record, target, schedule, kind, words]);
-    const { result } = useTrackedEvaluation(read);
+    const { result: live } = useTrackedEvaluation(read);
+    const result = useHeld(live, applied);
     const stale = rows === "stale";
     if (rows === "failed" || !result.ok) {
         if (!result.ok) console.error(`[DecisionQueue] case ${c.key}'s preview could not read its events:`, result.error);
@@ -251,13 +252,13 @@ export function PlanPreview({ c, view, target, kind, record, rows, changed, sche
     }
     const got = result.value;
     if (got.state === "pending") return <PreviewPending kind="plan" layout="lanes" rows={PENDING_LANES} words={words} styles={styles} />;
-    if (got.state === "empty") return <PreviewFrame kind="plan" layout="lanes" label={option?.detail ?? ""} stale={stale} styles={styles} />;
+    if (got.state === "empty") return <PreviewFrame kind="plan" layout="lanes" label={option?.detail ?? ""} stale={stale} applied={applied} styles={styles} />;
     const guessed = guessedOf(option?.guesses, changed);
     // A map's sentence counts what changes; with nothing marked, it names the lanes the recommendation lands on (P4), and stale
     // what the change touches (P21), as a crop's does.
     if (got.map !== undefined) {
         const label = stale || got.model.clauses.length === 0 ? lanesSentence(got.model, guessed, stale, words) : mapSentence(got.map, guessed, words);
-        return <LanesMap kind="plan" map={got.map} label={label} stale={stale} words={words} styles={styles} />;
+        return <LanesMap kind="plan" map={got.map} label={label} stale={stale} applied={applied} words={words} styles={styles} />;
     }
-    return <LanesCrop kind="plan" model={got.model} label={lanesSentence(got.model, guessed, stale, words)} stale={stale} now={now} words={words} styles={styles} />;
+    return <LanesCrop kind="plan" model={got.model} label={lanesSentence(got.model, guessed, stale, words)} stale={stale} applied={applied} now={now} words={words} styles={styles} />;
 }

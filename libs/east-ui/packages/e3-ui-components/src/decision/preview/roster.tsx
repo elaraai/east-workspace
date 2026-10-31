@@ -37,7 +37,7 @@ import { appliedRows, draftedRows, standingRows, type DecisionTarget } from "../
 import { payFormat } from "../figures.js";
 import type { DecisionQueueWords } from "../messages.js";
 import { costPreview, type CostModel } from "./cost-model.js";
-import { NAMED, PreviewFailed, PreviewFrame, PreviewPending, flag, guessedOf, leftBy, staleNames, type PreviewProps } from "./frame.js";
+import { NAMED, PreviewFailed, PreviewFrame, PreviewPending, flag, guessedOf, leftBy, staleNames, useHeld, type PreviewProps } from "./frame.js";
 import { WEEK_DAYS, firstStart, rosterPreview, type RosterPreviewModel, type RosterPreviewRow, type RosterPreviewTile } from "./roster-model.js";
 
 /** A Roster target's kind, decoded. */
@@ -87,7 +87,7 @@ export interface RosterPreviewProps extends PreviewProps {
  * @param props - The case, its target and record, the rows its change leaves and the queue's editing ({@link RosterPreviewProps})
  * @returns The preview
  */
-export function RosterPreview({ c, view, target, kind, record, rows, changed, schedule, words, styles }: RosterPreviewProps) {
+export function RosterPreview({ c, view, target, kind, record, rows, changed, schedule, words, styles, applied }: RosterPreviewProps) {
     const roster = kind.roster;
     const roles = useSlotStyles("rosterBuilder");
     const domain = useMemo(() => rosterDomain(roster.duty.rowType), [roster]);
@@ -164,7 +164,8 @@ export function RosterPreview({ c, view, target, kind, record, rows, changed, sc
             }),
         };
     }, [rows, changed, option, c.options, view.recommended, record, target, schedule, roster, domain, context, cost, pays]);
-    const { result } = useTrackedEvaluation(read);
+    const { result: live } = useTrackedEvaluation(read);
+    const result = useHeld(live, applied);
     const stale = rows === "stale";
     if (rows === "failed" || !result.ok) {
         if (!result.ok) console.error(`[DecisionQueue] case ${c.key}'s preview could not read its week:`, result.error);
@@ -177,15 +178,15 @@ export function RosterPreview({ c, view, target, kind, record, rows, changed, sc
             : <PreviewPending kind="roster" layout="roster" rows={CROP_PEOPLE} cells={WEEK_DAYS} words={words} styles={styles} />;
     }
     if (got.state === "empty") {
-        return <PreviewFrame kind="roster" layout={cost ? "cost" : "roster"} label={option?.detail ?? ""} stale={stale} styles={styles} />;
+        return <PreviewFrame kind="roster" layout={cost ? "cost" : "roster"} label={option?.detail ?? ""} stale={stale} applied={applied} styles={styles} />;
     }
-    if (got.state === "cost") return <CostMap model={got.model} stale={stale} words={words} styles={styles} roster={roster} />;
+    if (got.state === "cost") return <CostMap model={got.model} stale={stale} applied={applied} words={words} styles={styles} roster={roster} />;
     const model = got.model;
     const map = model.rows.length > CROP_PEOPLE;
     const label = sentence(model, words, guessedOf(view.option?.guesses, changed), map, stale);
     return map
-        ? <PeopleMap model={model} label={label} stale={stale} words={words} styles={styles} roles={roles} roster={roster} />
-        : <Crop model={model} label={label} stale={stale} words={words} styles={styles} roles={roles} roster={roster} />;
+        ? <PeopleMap model={model} label={label} stale={stale} applied={applied} words={words} styles={styles} roles={roles} roster={roster} />
+        : <Crop model={model} label={label} stale={stale} applied={applied} words={words} styles={styles} roles={roles} roster={roster} />;
 }
 
 /** The day of the week a preview's day is. */
@@ -244,6 +245,7 @@ interface ViewProps {
     readonly model: RosterPreviewModel;
     readonly label: string;
     readonly stale: boolean;
+    readonly applied: boolean;
     readonly words: DecisionQueueWords;
     readonly styles: SlotStyles;
     /** The Roster's own recipe: its tile, its off day's wash and its mark. */
@@ -277,9 +279,9 @@ function DayHead({ date, words, styles }: { readonly date: Date; readonly words:
 }
 
 /** The crop (P4): the people the change lands on, as the People week draws them. */
-function Crop({ model, label, stale, words, styles, roles, roster }: ViewProps) {
+function Crop({ model, label, stale, applied, words, styles, roles, roster }: ViewProps) {
     return (
-        <PreviewFrame kind="roster" layout="roster" label={label} stale={stale} styles={styles}>
+        <PreviewFrame kind="roster" layout="roster" label={label} stale={stale} applied={applied} styles={styles}>
             <Box css={styles.header} aria-hidden="true">
                 <Box as="span" css={styles.headerCell} />
                 {Array.from({ length: WEEK_DAYS }, (_, day) => <DayHead key={day} date={dayOf(model, day)} words={words} styles={styles} />)}
@@ -321,12 +323,12 @@ function Tile({ tile, day, words, styles, roles, roster }: {
 }
 
 /** The map by people (P5): every person the change touches as the People month marks them, four rows, then the count of the rest. */
-function PeopleMap({ model, label, stale, words, styles, roles, roster }: ViewProps) {
+function PeopleMap({ model, label, stale, applied, words, styles, roles, roster }: ViewProps) {
     const { m } = words;
     const shown = model.rows.slice(0, MAP_PEOPLE);
     const more = model.rows.length - shown.length;
     return (
-        <PreviewFrame kind="roster" layout="people" label={label} stale={stale} styles={styles}>
+        <PreviewFrame kind="roster" layout="people" label={label} stale={stale} applied={applied} styles={styles}>
             <Box css={styles.people}>
                 <Box css={styles.peopleRow} data-head="" aria-hidden="true">
                     <span />
@@ -368,8 +370,9 @@ function PeopleMap({ model, label, stale, words, styles, roles, roster }: ViewPr
  * ghost, an added cost glowing — and its figure, signed, in the Roster's currency: better where it saves, worse where it
  * adds.
  */
-function CostMap({ model, stale, words, styles, roster }: {
-    readonly model: CostModel; readonly stale: boolean; readonly words: DecisionQueueWords; readonly styles: SlotStyles; readonly roster: RosterPayload;
+function CostMap({ model, stale, applied, words, styles, roster }: {
+    readonly model: CostModel; readonly stale: boolean; readonly applied: boolean; readonly words: DecisionQueueWords; readonly styles: SlotStyles;
+    readonly roster: RosterPayload;
 }) {
     const { m } = words;
     const format = roster.currency.type === "some" ? payFormat(roster.currency.value) : undefined;
@@ -379,7 +382,7 @@ function CostMap({ model, stale, words, styles, roster }: {
         : m.previewCosts({ week: words.number(weekNumber(model.start)), codes: moved.map(row => ({ code: row.code, change: money(row.change, true) })), failed: model.failed });
     const at = (left: number, width: number) => ({ "--pv-left": `${left}%`, "--pv-width": `${width}%` }) as CSSProperties;
     return (
-        <PreviewFrame kind="roster" layout="cost" label={label} stale={stale} styles={styles}>
+        <PreviewFrame kind="roster" layout="cost" label={label} stale={stale} applied={applied} styles={styles}>
             <Box css={styles.chart}>
                 <Box css={styles.chartHead} aria-hidden="true">
                     <Box as="span" css={styles.chartCaption}>{m.previewCaption({ caption: "payCode" })}</Box>

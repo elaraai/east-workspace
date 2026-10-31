@@ -10,19 +10,23 @@
  * - **Anchoring** (R8–R13), watched frame by frame from each gesture until the
  *   list has held still: a head's top within 1px across an open that closes
  *   the card above it, a close of an open head stuck to the list's top, an
- *   open, Apply — its receipt 40px, standing where the head stood, the
- *   keyboard on the next card's head, the count holding — the receipt's Undo,
- *   a `j` and an Escape; the open card's head stuck to the list's top over its
- *   body; under reduced motion no animation and no transition, the anchoring
- *   kept; and Save, which takes the applied case out of the waiting ones, the
- *   Save notice saying so and the count settling — at once under reduced
- *   motion — and settling again as the history's Undo past the Save is saved
- *   (R4, R24–R27).
- * - **Looks** (§8, P2, P13, P14, P21): the list's rows — the first card 12
+ *   open, Apply — the card standing where it stood, inert, while its preview
+ *   settles over its clock, then its receipt 40px, standing where the head
+ *   stood, the keyboard on the next card's head, the count holding — the
+ *   receipt's Undo, a `j` and an Escape; the open card's head stuck to the
+ *   list's top over its body; under reduced motion no animation and no
+ *   transition, the applied card's clock 0, the anchoring kept; and Save,
+ *   which takes the applied case out of the waiting ones, the Save notice
+ *   saying so and the count settling — at once under reduced motion — and
+ *   settling again as the history's Undo past the Save is saved (R4,
+ *   R24–R27, P22).
+ * - **Looks** (§8, P2, P13–P16, P21, P22): the list's rows — the first card 12
  *   below the list's top, the next 8 below it — the card closed and open, its
  *   head and its chip, and the marks over the previews, computed in the theme
- *   against its tokens; and each preview kind's height and frame, swept
- *   through the previews gallery.
+ *   against its tokens; each preview kind's height and frame, swept through
+ *   the previews gallery; and the gallery's knock-on and breach applied, each
+ *   card standing while every mark settles — the glow, the ghost and the two
+ *   rings — before its receipt arrives.
  * - **Narrow hosts** (R30): the same queue in a 360px parent and a 294px one,
  *   and the phone example in its own box — one column, nothing sideways, the
  *   count kept — and on a coarse pointer each control of the open card, the
@@ -62,6 +66,10 @@ const PRINT = "print-j3007";
 const NEXT = "ready-a1";
 /** The Roster's case, whose open card offers its options and asks its question. */
 const ROTA = "rota-tansy";
+/** The gallery's knock-on: a job the change pushes keeps its fill in a dashed ring beside its ghost. */
+const KNOCK = "print-knock";
+/** The gallery's breach: the job the change places and the one it still overlaps each take the warning ring. */
+const BREACH = "print-breach";
 
 /** The page: tall enough that an example's 760px box shows whole beside the showcase's chrome. */
 const PAGE = { width: 1600, height: 1200 } as const;
@@ -281,6 +289,169 @@ async function arrived(shown: Locator): Promise<void> {
     await shown.evaluate(async (el) => {
         await Promise.all(el.getAnimations().map((animation) => animation.finished.then(() => undefined, () => undefined)));
     });
+}
+
+/** The page's name for what a card was as its Apply landed. */
+const APPLIED = "__decisionApplied";
+
+/** A mark of an applied card's preview as its Apply landed. */
+interface AppliedMark {
+    /** Its mark, `null` for an entry drawn as it is. */
+    readonly op: string | null;
+    /** Whether it takes the knock-on's ring, or the breach's. */
+    readonly knock: boolean;
+    readonly breach: boolean;
+    /** What its transitions move, in order. */
+    readonly moves: readonly string[];
+}
+
+/** What a card was as its Apply landed (P22): whether it took anything more, its preview, its clock and its marks. */
+interface Applied {
+    /** Whether it takes nothing more: inert. */
+    readonly inert: boolean;
+    /** Whether its preview settles (`data-applied`). */
+    readonly preview: boolean;
+    /** Its clock, whose end the queue waits on: its animation's name and duration. */
+    readonly clock: { readonly name: string; readonly duration: string };
+    /** Each mark of its preview. */
+    readonly marks: readonly AppliedMark[];
+}
+
+/**
+ * Watches for a case's card to be applied (P22), and records what it was in the commit that applied it — before any
+ * frame drew it — holding its clock there if asked, so its preview is read settled while the card stands.
+ *
+ * @param entry - The example's entry
+ * @param key - The case
+ * @param hold - Whether the card's clock is paused as it starts
+ */
+function watchApplied(entry: Locator, key: string, hold: boolean): Promise<void> {
+    return queueOf(entry).evaluate((root, { key, hold, name }) => {
+        const page = window as unknown as Record<string, unknown>;
+        delete page[name];
+        const observer = new MutationObserver(() => {
+            const cardEl = root.querySelector<HTMLElement>(`[data-decision-card="${key}"][data-applied]`);
+            if (cardEl === null) return;
+            observer.disconnect();
+            // The card's own animations, its style brought up to date first: the clock among them as it starts.
+            if (hold) {
+                for (const animation of cardEl.getAnimations()) {
+                    if (animation instanceof CSSAnimation && animation.animationName === "decision-applied") animation.pause();
+                }
+            }
+            const s = getComputedStyle(cardEl);
+            const preview = cardEl.querySelector("[data-decision-preview]");
+            page[name] = {
+                inert: cardEl.inert,
+                preview: preview?.hasAttribute("data-applied") ?? false,
+                clock: { name: s.animationName, duration: s.animationDuration },
+                marks: [...preview?.querySelectorAll<HTMLElement>("[data-op], [data-knock], [data-breach]") ?? []].map((el) => ({
+                    op: el.getAttribute("data-op"),
+                    knock: el.hasAttribute("data-knock"),
+                    breach: el.hasAttribute("data-breach"),
+                    moves: el.getAnimations().flatMap((animation) => (animation instanceof CSSTransition ? [animation.transitionProperty] : [])).sort(),
+                })),
+            };
+        });
+        observer.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-applied"] });
+    }, { key, hold, name: APPLIED });
+}
+
+/**
+ * What a case's card was as its Apply landed, once {@link watchApplied} has seen it.
+ *
+ * @param page - The page
+ * @param key - The case
+ * @returns What it was
+ */
+async function appliedOf(page: Page, key: string): Promise<Applied> {
+    await expect.poll(() => page.evaluate((name) => name in window, APPLIED), { message: `${key}'s card applied`, timeout: 15_000 }).toBe(true);
+    return page.evaluate((name) => (window as unknown as Record<string, Applied>)[name]!, APPLIED);
+}
+
+/**
+ * Lets every transition the marks of a held applied card's preview started run out, the card standing, and reads each
+ * mark settled (P22): a proposal unlit, a ghost gone, a ring's colour clear.
+ *
+ * @param entry - The example's entry
+ * @param key - The case
+ * @returns Each mark not settled, in words; none when every one has
+ */
+function settledFaults(entry: Locator, key: string): Promise<string[]> {
+    return queueOf(entry).evaluate(async (root, key) => {
+        const preview = root.querySelector(`[data-decision-card="${key}"][data-applied] [data-decision-preview]`);
+        if (preview === null) return ["the card gave way before its preview settled"];
+        const marks = [...preview.querySelectorAll<HTMLElement>("[data-op], [data-knock], [data-breach]")];
+        await Promise.all(marks.flatMap((el) => el.getAnimations().map((animation) => animation.finished.then(() => undefined, () => undefined))));
+        const faults: string[] = [];
+        for (const el of marks) {
+            const s = getComputedStyle(el);
+            const op = el.getAttribute("data-op");
+            const what = `${el.getAttribute("data-preview-tile") ?? "?"} ${op ?? "as it is"}`;
+            if ((op === "add" || op === "chg") && s.boxShadow !== "none") faults.push(`${what}: still lit, ${s.boxShadow}`);
+            if ((op === "from" || op === "del") && s.opacity !== "0") faults.push(`${what}: its ghost still drawn, opacity ${s.opacity}`);
+            if ((el.hasAttribute("data-knock") || el.hasAttribute("data-breach")) && s.outlineColor !== "rgba(0, 0, 0, 0)") {
+                faults.push(`${what}: its ring still drawn, ${s.outlineColor}`);
+            }
+        }
+        return faults;
+    }, key);
+}
+
+/**
+ * Lets a held card's clock run on: it ends as the rest of its duration runs out, and the queue sets the receipt in the
+ * card's place.
+ *
+ * @param entry - The example's entry
+ * @param key - The case
+ */
+function releaseApplied(entry: Locator, key: string): Promise<void> {
+    return queueOf(entry).evaluate((root, key) => {
+        for (const animation of root.querySelector(`[data-decision-card="${key}"]`)?.getAnimations() ?? []) {
+            if (animation instanceof CSSAnimation && animation.animationName === "decision-applied") animation.play();
+        }
+    }, key);
+}
+
+/**
+ * Each mark of an applied card's preview that did not set out to settle as it should (P22, R13): with motion, a
+ * proposal's glow, a ghost's opacity and a ring's colour each by a transition of its own; under reduced motion, nothing
+ * by a transition.
+ *
+ * @param applied - What the card was as its Apply landed
+ * @param motion - Whether the page moves: no reduced motion
+ * @returns Each fault, in words; none when every mark set out as it should
+ */
+function moveFaults(applied: Applied, motion: boolean): string[] {
+    return applied.marks.flatMap((mark) => {
+        const what = `${mark.op ?? "as it is"}${mark.knock ? " knocked on" : ""}${mark.breach ? " breaching" : ""}`;
+        if (!motion) return mark.moves.length === 0 ? [] : [`${what}: moves ${mark.moves.join(", ")} under reduced motion`];
+        const want = [
+            ...(mark.op === "add" || mark.op === "chg" ? ["box-shadow"] : []),
+            ...(mark.op === "from" || mark.op === "del" ? ["opacity"] : []),
+            ...(mark.knock || mark.breach ? ["outline-color"] : []),
+        ];
+        const missing = want.filter((property) => !mark.moves.includes(property));
+        return missing.length === 0 ? [] : [`${what}: no transition of ${missing.join(", ")}, only of ${mark.moves.join(", ") || "nothing"}`];
+    });
+}
+
+/**
+ * A theme duration as the page resolves it.
+ *
+ * @param page - The page
+ * @param name - The duration token, after `--chakra-durations-` (`slow`)
+ * @returns Its computed duration
+ */
+function duration(page: Page, name: string): Promise<string> {
+    return page.evaluate((n) => {
+        const probe = document.createElement("span");
+        probe.style.animationDuration = `var(--chakra-durations-${n})`;
+        document.body.appendChild(probe);
+        const value = getComputedStyle(probe).animationDuration;
+        probe.remove();
+        return value;
+    }, name);
 }
 
 /**
@@ -573,7 +744,7 @@ async function openRota(page: Page, entry: Locator): Promise<void> {
 }
 
 for (const theme of THEMES) {
-    test(`anchoring: a head's top within 1px across an open closing the card above, a close stuck at the list's top, an open, Apply's receipt — 40px, where the head stood, the keyboard on the next head, the count holding — its Undo, a j and an Escape; the open head stuck over its body; under reduced motion no animation, the anchoring kept; Save taking the applied case out of the waiting ones, the count settling (R3, R4, R8–R13, R24–R27) (${theme}) @desktop`, async ({ page }) => {
+    test(`anchoring: a head's top within 1px across an open closing the card above, a close stuck at the list's top, an open, Apply — the card standing while its preview settles, then its receipt 40px, where the head stood, the keyboard on the next head, the count holding — its Undo, a j and an Escape; the open head stuck over its body; under reduced motion no animation, the applied card's clock 0, the anchoring kept; Save taking the applied case out of the waiting ones, the count settling (R3, R4, R8–R13, R24–R27, P22) (${theme}) @desktop`, async ({ page }) => {
         // A cold start of the page's e3, then a dozen gestures, each watched until the list has held still.
         test.setTimeout(120_000);
         await page.setViewportSize(PAGE);
@@ -632,7 +803,7 @@ for (const theme of THEMES) {
         });
 
         let applied = 0;
-        await test.step("Apply: the receipt — 40px, in its verdict's tone and the theme's — stands where the head stood, the keyboard on the next case's head, which neither opens nor scrolls, the count holding e3's (R3, R24, R25)", async () => {
+        await test.step("Apply: the card stands where it stood, inert, while its preview settles over its clock — the proposal unlit, the ghost gone — then the receipt — 40px, in its verdict's tone and the theme's — stands where the head stood, the keyboard on the next case's head, which neither opens nor scrolls, the count holding e3's (R3, R24, R25, P22)", async () => {
             const apply = queue.locator(applyOf(PRINT));
             await expect(apply).toHaveText("Apply");
             await expect.poll(() => apply.getAttribute("aria-disabled"), { message: "Apply is on once the preview has read its rows", timeout: 30_000 }).toBeNull();
@@ -640,10 +811,25 @@ for (const theme of THEMES) {
             await settled(page);
             const before = (await partAt(entry, head(PRINT)))!.top;
             const named = (await queue.locator(head(PRINT)).locator(":scope > :nth-child(2)").textContent()) ?? "";
-            const frames = await watch(page, entry, [receipt(PRINT)], async () => {
+            // The card's clock held as the Apply lands, so its marks are read settled while it stands; then let run on.
+            await watchApplied(entry, PRINT, true);
+            let stood: Applied | undefined;
+            let unsettled: string[] = [];
+            const frames = await watch(page, entry, [receipt(PRINT), head(PRINT)], async () => {
                 await press(page, apply);
+                stood = await appliedOf(page, PRINT);
+                unsettled = await settledFaults(entry, PRINT);
+                await releaseApplied(entry, PRINT);
                 await arrived(queue.locator(receipt(PRINT)));
             });
+            const { marks, ...landed } = stood!;
+            expect(landed, "the card as its Apply landed: inert, its preview settling, its clock the slow duration").toEqual({
+                inert: true, preview: true, clock: { name: "decision-applied", duration: await duration(page, "slow") },
+            });
+            expect(marks.map((mark) => mark.op).sort(), "its preview's marks: the job's ghost, and where it lands").toEqual(["add", "from"]);
+            expect(moveFaults(stood!, true), "each mark setting out to settle").toEqual([]);
+            expect(unsettled, "each mark settled while the card stood").toEqual([]);
+            expectHeld(frames, 1, before, "the applied card's head, standing while its preview settles");
             expectHeld(frames, 0, before - 1, "the receipt");
             // The keyboard on the next waiting case's head, which neither opens nor scrolls: the receipt held above says so.
             await expect(queue.locator(head(NEXT))).toBeFocused();
@@ -715,7 +901,7 @@ for (const theme of THEMES) {
             await expect(queue.locator(head(NEXT))).toBeFocused();
         });
 
-        await test.step("reduced motion: no arrival, no turn, the receipt 40px from its first frame — the anchoring kept (R13)", async () => {
+        await test.step("reduced motion: no arrival, no turn, the applied card's clock 0 and its marks moving by no transition, the receipt 40px from its first frame — the anchoring kept (R13, P22)", async () => {
             await page.emulateMedia({ reducedMotion: "reduce" });
             await page.mouse.move(0, 0);
             await place(entry, head(PRINT), 150);
@@ -730,14 +916,22 @@ for (const theme of THEMES) {
             await showWhole(entry, applyOf(PRINT));
             await settled(page);
             const at = (await partAt(entry, head(PRINT)))!.top;
+            await watchApplied(entry, PRINT, false);
             const frames = await watch(page, entry, [receipt(PRINT)], async () => {
                 await press(page, apply);
                 await arrived(queue.locator(receipt(PRINT)));
             });
+            // The card gives way at once: its clock run in the theme's moment, which still ends, and its marks moving by no
+            // transition.
+            const stood = await appliedOf(page, PRINT);
+            expect(stood.clock.name, "the applied card's clock").toBe("decision-applied");
+            expect(Number.parseFloat(stood.clock.duration), `the applied card's clock under reduced motion: ${stood.clock.duration}`).toBeLessThan(0.001);
+            expect(moveFaults(stood, false), "its marks moving by no transition").toEqual([]);
             expectHeld(frames, 0, at - 1, "the receipt under reduced motion");
             const heights = frames.map((frame) => frame[0]).filter((part): part is At => part !== null && part !== undefined).map((part) => part.height);
             expect(heights.filter((h) => Math.abs(h - 40) > 0.5), `the receipt 40px in every frame — ${heights.join(" ")}`).toEqual([]);
-            expect(await queue.locator(receipt(PRINT)).evaluate((el) => getComputedStyle(el).animationName), "the receipt's arrival").toBe("none");
+            // Its arrival drew nothing, and ended.
+            await expect(queue.locator(receipt(PRINT)), "the receipt arrived").not.toHaveAttribute("data-arriving");
         });
 
         const toolbar = queue.locator("[data-frame-slot='toolbar']");
@@ -765,7 +959,7 @@ for (const theme of THEMES) {
         });
     });
 
-    test(`looks: the list's rows, the card closed and open, its head and its chip, and the marks over the previews, in the theme's tokens; each preview kind its height and frame, swept through the previews gallery (§8, P2, P13, P14, P21) (${theme}) @desktop`, async ({ page }) => {
+    test(`looks: the list's rows, the card closed and open, its head and its chip, and the marks over the previews, in the theme's tokens; each preview kind its height and frame, swept through the previews gallery; the gallery's knock-on and breach applied, every mark settling before the receipt (§8, P2, P13–P16, P21, P22) (${theme}) @desktop`, async ({ page }) => {
         // A cold start of the page's e3, then a sweep of the gallery's cases, each read as the list reaches it.
         test.setTimeout(120_000);
         await page.setViewportSize(PAGE);
@@ -842,8 +1036,9 @@ for (const theme of THEMES) {
             expect(await markFaults(entry, want)).toEqual([]);
         });
 
+        let gallery: Locator | undefined;
         await test.step("the previews gallery: each preview kind its height and frame, inside its head, and its marks", async () => {
-            const gallery = await visitBuilder(page, PREVIEWS, ROOT, undefined);
+            gallery = await visitBuilder(page, PREVIEWS, ROOT, undefined);
             await queueOf(gallery).scrollIntoViewIfNeeded();
             await page.mouse.move(0, 0);
             const { looks, faults } = await sweepPreviews(page, gallery, want);
@@ -860,6 +1055,42 @@ for (const theme of THEMES) {
                     height: PREVIEW_HEIGHT[look.kind], edge: look.stale ? staleRule : rule, radius: sm, background: paper, inHead: true,
                 });
             }
+        });
+
+        await test.step("the gallery's knock-on and breach, applied: each card stands while every mark settles — the proposal unlit, the ghost gone, the knock-on's ring and the breach's clear — then gives way to its receipt (P15, P16, P22)", async () => {
+            const shown = queueOf(gallery!);
+            const settles = new Set<string>();
+            for (const key of [KNOCK, BREACH]) {
+                // From the list's top down to the case: the sweep left the list at its end, and the breach stands above the
+                // knock-on, and `place` looks for a case not drawn yet further down.
+                await shown.locator("[data-decision-list]").evaluate((el) => { el.scrollTop = 0; });
+                await settled(page);
+                const placed = await place(gallery!, head(key), 40);
+                expect(Math.abs(placed - 40), `${key}'s head placed at ${placed}`).toBeLessThanOrEqual(1);
+                await settled(page);
+                await pressHead(page, gallery!, key);
+                await expect(shown.locator(card(key))).toHaveAttribute("data-open", "");
+                const apply = shown.locator(applyOf(key));
+                await expect.poll(() => apply.getAttribute("aria-disabled"), { message: `${key}'s Apply is on once its preview has read its rows`, timeout: 30_000 }).toBeNull();
+                await showWhole(gallery!, applyOf(key));
+                await settled(page);
+                // Its clock held as the Apply lands, so its marks are read settled while it stands; then let run on.
+                await watchApplied(gallery!, key, true);
+                await press(page, apply);
+                const stood = await appliedOf(page, key);
+                const unsettled = await settledFaults(gallery!, key);
+                await releaseApplied(gallery!, key);
+                await arrived(shown.locator(receipt(key)));
+                expect(stood.inert, `${key}: inert as it stands`).toBe(true);
+                expect(moveFaults(stood, true), `${key}: each mark setting out to settle`).toEqual([]);
+                expect(unsettled, `${key}: each mark settled while the card stood`).toEqual([]);
+                for (const mark of stood.marks) {
+                    if (mark.op !== null) settles.add(mark.op);
+                    if (mark.knock) settles.add("knock");
+                    if (mark.breach) settles.add("breach");
+                }
+            }
+            expect([...settles].sort(), "the marks the two cards settle").toEqual(["add", "breach", "from", "knock"]);
         });
     });
 
