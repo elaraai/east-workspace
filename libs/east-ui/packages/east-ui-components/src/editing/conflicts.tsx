@@ -12,7 +12,9 @@
  * the warn tone. It never opens by itself. Its popover holds a card for each
  * conflict: the item, named as the collection names its issues, with Go to,
  * which shows the item and selects it (the history bar's `onConflict`, else
- * its issue click); the part's label; Yours and
+ * its issue click) — the popover staying open, and hanging by its frame's
+ * other side where it would cover the item; where neither side clears the
+ * item, and in a narrow frame, it closes; the part's label; Yours and
  * Theirs, a radio group whose choice applies at once as one step of the
  * history, which Undo takes back; and what both began from. A conflict at an
  * item's start or end (the session's `ranges`) shows on its range's one card,
@@ -29,6 +31,7 @@ import { Box, Button, chakra, Portal, Tooltip, VisuallyHidden, useRecipe, type S
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faNotEqual } from "@fortawesome/free-solid-svg-icons";
 import { SliceEditPopover } from "../slice/edit/index.js";
+import { POPOVER_OVERFLOW } from "../overlays/popover/frame-bounds.js";
 import { useSlotStyles } from "../theme/slot-styles.js";
 import { StringType, equalFor, type PatchPath } from "@elaraai/east";
 import { conflictViewOf, rangeViewOf, wordRuns, type ConflictView, type RangeEnd } from "./conflict-view.js";
@@ -39,6 +42,14 @@ import { conflictFieldOf, conflictPartOf, type ConflictChoice, type ConflictRang
 
 /** Below this width the frame a history bar sits in is narrow: Go to closes the popover, which would cover the item. */
 const NARROW_PX = 480;
+
+/** What a Go to shows, as a builder draws it: its item, wearing the ring, selected. */
+const SHOWN = "[data-conflict][data-selected]";
+/** A box on the page, in client coordinates. */
+type Box = Pick<DOMRectReadOnly, "left" | "right" | "top" | "bottom" | "width" | "height">;
+/** Whether two boxes share any of their area: an item under the popover. */
+const overlaps = (a: Box, b: Box): boolean =>
+    a.width > 0 && a.height > 0 && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
 
 /** The most a count shows: past it, `99+`. */
 const MOST_COUNTED = 99;
@@ -382,12 +393,85 @@ export function ConflictsControl<W>({ session, words, onIssue, where, item, issu
     // The cards whose long values are open in place.
     const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
     const close = () => { setOpen(false); setReopened(new Set()); setOpened(new Set()); };
+    // The side of the builder's frame the popover hangs by, off the item a Go to showed under it, until it closes; and
+    // the watch for that item.
+    const [away, setAway] = useState<"start" | "end" | undefined>(undefined);
+    const watching = useRef<(() => void) | undefined>(undefined);
+    useEffect(() => () => watching.current?.(), []);
+    useEffect(() => {
+        if (open) return;
+        watching.current?.();
+        setAway(undefined);
+    }, [open]);
+    const hangFrom = useMemo(() => (away === undefined ? undefined : (): DOMRectInit | null => {
+        const by = anchor.current?.getBoundingClientRect();
+        const frame = anchor.current?.closest("[data-builder-frame]")?.getBoundingClientRect();
+        return by === undefined || frame === undefined ? null : { x: away === "start" ? frame.left : frame.right, y: by.top, width: 0, height: by.height };
+    }), [away]);
+    // The item Go to shows, as it shows — at once, or once its rows are read: the one in the builder's frame that takes
+    // the focus or the selection, wearing the ring. Under the popover, the popover hangs by a side of the frame that
+    // leaves it clear; where neither does, it closes, as in a narrow frame, and the button stays.
+    const watchShown = () => {
+        watching.current?.();
+        const frame = anchor.current?.closest<HTMLElement>("[data-builder-frame]");
+        if (frame === null || frame === undefined) return;
+        let item: Element | null = null;
+        let selected = false;
+        let placing = 0;
+        const place = () => {
+            placing = 0;
+            const content = document.getElementById(bodyId)?.closest<HTMLElement>('[data-part="content"]');
+            if (item === null || !item.isConnected || content === null || content === undefined) return;
+            // One found by its selection is still selected: a selection Go to replaced is no longer its item.
+            if (selected && !item.matches(SHOWN)) return;
+            const at = item.getBoundingClientRect();
+            const over = content.getBoundingClientRect();
+            if (!overlaps(at, over)) return;
+            // Where it would hang by each side, as Zag places it there: in from the side, at the height it has now.
+            const bounds = frame.getBoundingClientRect();
+            const clear = (["start", "end"] as const).find((side) => {
+                const left = side === "start" ? bounds.left + POPOVER_OVERFLOW : bounds.right - POPOVER_OVERFLOW - over.width;
+                return !overlaps(at, { left, right: left + over.width, top: over.top, bottom: over.bottom, width: over.width, height: over.height });
+            });
+            if (clear !== undefined) setAway(clear);
+            else close();
+        };
+        const seen = (el: Element | null, by: "focus" | "selection") => {
+            if (el === null || !frame.contains(el) || !el.hasAttribute("data-conflict")) return;
+            item = el;
+            selected = by === "selection";
+            if (placing === 0) placing = requestAnimationFrame(place);
+        };
+        const onFocus = (e: FocusEvent) => { seen(e.target instanceof Element ? e.target : null, "focus"); };
+        const observer = new MutationObserver((records) => {
+            for (const record of records) {
+                if (record.type === "attributes") {
+                    if (record.target instanceof Element && record.target.hasAttribute("data-selected")) seen(record.target, "selection");
+                } else {
+                    for (const node of record.addedNodes) if (node instanceof Element) seen(node.matches(SHOWN) ? node : node.querySelector(SHOWN), "selection");
+                }
+            }
+        });
+        observer.observe(frame, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-selected"] });
+        document.addEventListener("focusin", onFocus);
+        watching.current = () => {
+            observer.disconnect();
+            document.removeEventListener("focusin", onFocus);
+            if (placing !== 0) cancelAnimationFrame(placing);
+            watching.current = undefined;
+        };
+        // Shown already, as Go to left it: focused, else selected.
+        const active = document.activeElement;
+        if (active !== null && active.hasAttribute("data-conflict")) seen(active, "focus");
+        else seen(frame.querySelector(SHOWN), "selection");
+    };
     const goTo = (card: Card) => {
         onIssue(card.issue, card.at);
         // In a narrow frame the popover would cover the item: it closes, and the button stays. A frame not laid out has no width.
-        const frame = anchor.current?.closest<HTMLElement>("[data-toolbar]") ?? anchor.current?.parentElement;
-        const width = frame?.getBoundingClientRect().width ?? 0;
+        const toolbar = anchor.current?.closest<HTMLElement>("[data-toolbar]") ?? anchor.current?.parentElement;
+        const width = toolbar?.getBoundingClientRect().width ?? 0;
         if (width > 0 && width < NARROW_PX) close();
+        else watchShown();
     };
     // Where the newer value came from — what the source said, else that it changed — then what both began from.
     const sourceOf = (card: Card): string => (card.said === undefined ? m.conflictChangedSince() : issueText?.(card.said) ?? card.said);
@@ -470,6 +554,7 @@ export function ConflictsControl<W>({ session, words, onIssue, where, item, issu
                 <SliceEditPopover open={open} onOpenChange={(next) => (next ? setOpen(true) : close())} label={session.carrying ? m.conflictsTitle() : <>{m.conflictsTitle()} · <Box as="span" css={styles.headCount}>{words.number(n)}</Box></>} size="lg" flush
                     // Go to moves the focus to the item: the popover stays open beside it, but in a narrow frame.
                     keepOnFocusOut
+                    hangFrom={hangFrom}
                     initialFocusEl={() => {
                         // The first conflict still waiting, else the first card.
                         const at = document.getElementById(bodyId);
@@ -483,7 +568,7 @@ export function ConflictsControl<W>({ session, words, onIssue, where, item, issu
                         <Button size="xs" variant="outline" aria-disabled={off ? true : undefined} onClick={() => { if (!off) session.settleAll("draft"); }}>{m.conflictsKeepAll()}</Button>
                         <Button size="xs" variant="outline" aria-disabled={off ? true : undefined} onClick={() => { if (!off) session.settleAll("source"); }}>{m.conflictsTakeAll()}</Button>
                     </>}>
-                    <Box id={bodyId} data-conflicts-body="">
+                    <Box id={bodyId} data-conflicts-body="" data-hung={away}>
                         {session.carrying ? (
                             // Still checking: the live dot and its line, then Skeleton cards in the cards' final layout.
                             <>

@@ -1399,8 +1399,10 @@ const onPatch = $.const(East.function([Plan.Types.PatchEvent(Hall)], NullType, (
   conflict, its Choose opening the same popover: a card for each conflict —
   the item as the banners name it (an event by its title), with Go to, which
   shows the item and selects it — the groups folded over it opened, and the
-  view moved to its dates, week or day where it shows others; the part's
-  label; Yours and Theirs, each
+  view moved to its dates, week or day where it shows others — the popover
+  staying open off it, by a side of the frame that leaves it clear where it
+  would cover it (where neither does, and in a frame under 480px, it
+  closes); the part's label; Yours and Theirs, each
   value in plain words; who changed it last, where the source said so when
   it refused a Save, and what both began from — with Keep all mine and Use
   all theirs at its foot. An event's start and end read as one range: a

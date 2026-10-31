@@ -213,6 +213,63 @@ test("in a narrow frame Go to closes the popover, which would cover the item, an
     expect(button()!.textContent).toBe("1");
 });
 
+test("at full width Go to keeps the popover open, and where the item it shows lies under it the popover hangs by its frame's other side, until it closes", async () => {
+    const onIssue = vi.fn<(issue: EditIssue, at?: PatchPath) => void>();
+    render(
+        <ChakraProvider value={system}>
+            <div data-builder-frame="">
+                <Bar session={conflicted(["a"])} words={WORDS} editing={false} onAction={vi.fn()} onIssue={onIssue} where={(issue) => `Run ${issue.entry}`} />
+                <div data-conflict="" tabIndex={-1} data-testid="item" />
+            </div>
+        </ChakraProvider>,
+    );
+    // Go to focuses its item, wearing the ring, as a table's cell takes the focus.
+    const item = screen.getByTestId("item");
+    onIssue.mockImplementation(() => { item.focus(); });
+    const box = (left: number, top: number, width: number, height: number) =>
+        ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top }) as DOMRect;
+    vi.spyOn(item.closest<HTMLElement>("[data-builder-frame]")!, "getBoundingClientRect").mockReturnValue(box(0, 0, 1200, 800));
+    vi.spyOn(button()!.parentElement!, "getBoundingClientRect").mockReturnValue(box(0, 0, 1200, 40));
+    await opened(1);
+    const body = () => document.querySelector<HTMLElement>("[data-conflicts-body]");
+    // The popover below its button, at the frame's end; the item under it, right of the frame's middle.
+    vi.spyOn(body()!.closest<HTMLElement>('[data-part="content"]')!, "getBoundingClientRect").mockReturnValue(box(800, 50, 380, 350));
+    vi.spyOn(item, "getBoundingClientRect").mockReturnValue(box(900, 300, 50, 30));
+    fireEvent.click(cards()[0]!.querySelector("[data-conflict-go]")!);
+    await waitFor(() => expect(body()?.getAttribute("data-hung")).toBe("start"));
+    expect([cards().length, document.activeElement]).toEqual([1, item]);
+    // Closed and opened again, it hangs from its button.
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(cards()).toHaveLength(0));
+    await opened(1);
+    expect(body()!.hasAttribute("data-hung")).toBe(false);
+});
+
+test("where neither side of its frame leaves the item Go to shows clear, the popover closes, as in a narrow frame, and the button stays", async () => {
+    const onIssue = vi.fn<(issue: EditIssue, at?: PatchPath) => void>();
+    render(
+        <ChakraProvider value={system}>
+            <div data-builder-frame="">
+                <Bar session={conflicted(["a"])} words={WORDS} editing={false} onAction={vi.fn()} onIssue={onIssue} where={(issue) => `Run ${issue.entry}`} />
+                <div data-conflict="" tabIndex={-1} data-testid="item" />
+            </div>
+        </ChakraProvider>,
+    );
+    const item = screen.getByTestId("item");
+    onIssue.mockImplementation(() => { item.focus(); });
+    const box = (left: number, top: number, width: number, height: number) =>
+        ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top }) as DOMRect;
+    vi.spyOn(item.closest<HTMLElement>("[data-builder-frame]")!, "getBoundingClientRect").mockReturnValue(box(0, 0, 1200, 800));
+    vi.spyOn(button()!.parentElement!, "getBoundingClientRect").mockReturnValue(box(0, 0, 1200, 40));
+    await opened(1);
+    // A popover 380px wide over an item 600px wide in the frame's middle: by either side, it would cover it.
+    vi.spyOn(document.querySelector("[data-conflicts-body]")!.closest<HTMLElement>('[data-part="content"]')!, "getBoundingClientRect").mockReturnValue(box(800, 50, 380, 350));
+    vi.spyOn(item, "getBoundingClientRect").mockReturnValue(box(300, 300, 600, 30));
+    fireEvent.click(cards()[0]!.querySelector("[data-conflict-go]")!);
+    await waitFor(() => expect(cards()).toHaveLength(0));
+    expect([button()!.textContent, document.activeElement]).toEqual(["1", item]);
+});
+
 test("locked while an optimiser run is out: it opens, its choices and its foot aria-disabled — their place and the focus kept — and the live dot says why", async () => {
     const session = conflicted(["a"]);
     const ui = mount(session, { locked: true });
