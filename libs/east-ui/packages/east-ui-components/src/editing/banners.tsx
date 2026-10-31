@@ -65,6 +65,18 @@ export interface SessionBannersProps<W> {
      * saved — 1 conflict with newer changes`. Left out, the titles name none.
      */
     name?: string | undefined;
+    /**
+     * Its conflicts banner alone — for a session no history bar holds, beside
+     * the one a bar does: another flow's, say, whose drafts its own bar acts
+     * on once it is open. Every banner by default.
+     */
+    conflictsOnly?: boolean | undefined;
+    /**
+     * What the conflicts banner's Choose does while no history bar holds the
+     * session: open what holds it. A bar's conflicts popover, while one holds
+     * it; no Choose without either.
+     */
+    onChoose?: (() => void) | undefined;
 }
 
 /**
@@ -75,9 +87,9 @@ export interface SessionBannersProps<W> {
  * @param props - The session, the collection's words, its history actions, and how it names an issue
  * @returns The banners that apply now, each wrapped in an element naming its kind (`data-session-banner`)
  */
-export function SessionBanners<W>({ session, words, onAction, where, issueText, name }: SessionBannersProps<W>) {
+export function SessionBanners<W>({ session, words, onAction, where, issueText, name, conflictsOnly = false, onChoose }: SessionBannersProps<W>) {
     useSyncExternalStore(session.subscribe, session.getSnapshot);
-    const choose = useConflictsOpener(session);
+    const choose = useConflictsOpener(session) ?? onChoose;
     const keeping = useDraftsKeeping(session);
     const recipe = useSlotRecipe({ key: "editHistory" });
     const styles = useMemo(() => recipe({}) as unknown as Styles, [recipe]);
@@ -117,6 +129,7 @@ export function SessionBanners<W>({ session, words, onAction, where, issueText, 
                             : <Button size="md" variant="outline" data-banner-action="choose" onClick={choose}>{m.conflictsChoose()}</Button>} />
                 </Box>
             )}
+            {!conflictsOnly && <>
             {status === "conflict" && (
                 <Box data-session-banner="conflict">
                     <BannerView status="error" form="band" word={word("conflict")} title={titled(m.bannerConflict({ n: session.issues.length, count: words.number(session.issues.length) }))}
@@ -158,6 +171,7 @@ export function SessionBanners<W>({ session, words, onAction, where, issueText, 
                     <BannerView status="guard" form="band" word={word("unkept")} title={titled(m.bannerLost({ reason: keeping.reason }))} />
                 </Box>
             )}
+            </>}
         </>
     );
 }

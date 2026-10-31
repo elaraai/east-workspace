@@ -109,6 +109,7 @@ import {
     implementUIComponent,
     takeKey,
     typedInto,
+    useConflictsOpener,
     useDataStable,
     useFormatters,
     useTrackedEvaluation,
@@ -701,12 +702,28 @@ function FlowchartFrame({ value, held, storageKey, chrome, flowsPart, followed, 
         record: value.source.type !== "data", saved, keys, words,
     });
 
-    // The banners: the open flow's session's; each source the library follows whose narrowing could not be read, with Retry
-    // (#1346); then a `flow` the flowchart doesn't hold, as the Sheet names an entry its record doesn't (FB42).
+    // Another flow's conflicts wait in its own session, which the history item does not act on: a banner each, naming the
+    // flow, whose Choose opens it, then its conflicts as the history item holds its session.
+    const [chooseIn, setChooseIn] = useState<string | undefined>(undefined);
+    const openConflicts = useConflictsOpener(session);
+    useEffect(() => {
+        if (chooseIn === undefined || entry === undefined || !nameEqual(chooseIn, entry) || openConflicts === undefined) return;
+        setChooseIn(undefined);
+        openConflicts();
+    }, [chooseIn, entry, openConflicts]);
+    const otherFlows = edits && held.many ? kept.sessions.all().filter(([n]) => entry === undefined || !nameEqual(n, entry)) : [];
+
+    // The banners: the open flow's session's, then each other flow's conflicts; each source the library follows whose
+    // narrowing could not be read, with Retry (#1346); then a `flow` the flowchart doesn't hold, as the Sheet names an entry
+    // its record doesn't (FB42).
     const failed = [...followed.values()].filter((source) => source.error !== undefined);
     const banners = !edits && missing === undefined && failed.length === 0 ? undefined : (
         <>
             {edits && <SessionBanners session={session} words={words} onAction={onAction} />}
+            {otherFlows.map(([n, other]) => (
+                <SessionBanners key={n} session={other} words={words} onAction={onAction} name={n} conflictsOnly
+                    onChoose={() => { setChooseIn(n); openStored(n); }} />
+            ))}
             {failed.map((source) => (
                 <Box key={source.name} data-flowchart-banner="source">
                     <BannerView status="error" title={words.m.sourceUnavailable({ name: source.name })} description={source.error}

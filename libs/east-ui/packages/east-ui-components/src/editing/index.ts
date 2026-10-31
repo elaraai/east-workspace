@@ -65,6 +65,7 @@ export {
 export { HistoryBar, type HistoryAction, type HistoryBarProps } from "./HistoryBar.js";
 export { historyToolbarItem, HISTORY_RANK } from "./history-item.js";
 export { SessionBanners, type SessionBannersProps } from "./banners.js";
+export { useConflictsOpener } from "./conflicts.js";
 export { historyShortcut, typedInto, takeKey, type HistoryKeyPress, type TakenKey } from "./shortcuts.js";
 export {
     editingMessages,

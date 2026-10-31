@@ -621,6 +621,7 @@ export {
     typedInto,
     takeKey,
     SessionBanners,
+    useConflictsOpener,
     editingMessages,
     sessionErrorText,
     type BatchReadiness,

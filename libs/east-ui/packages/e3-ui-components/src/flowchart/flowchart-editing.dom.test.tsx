@@ -653,6 +653,24 @@ describe("Save's outcomes (FB23)", () => {
         expect(enabled(SAVE)).toBe(true);
     });
 
+    test("with another flow open, a flow's conflict still shows: a banner names the flow, and its Choose opens the flow and its conflicts", async () => {
+        await h.commitFlows(FLOWS);
+        const { container } = await h.mountRecord({ flow: "Sort", library: [Flowchart.library.flows()] });
+        await renameLane(container, "sort", "Sortation");
+        // Another write renames the same lane otherwise: a conflict, while the flow is open. Then another flow opened.
+        await h.commitFlows(withFlow(FLOWS, "Sort", edits.renameLane(SORT, "sort", "Sorting")));
+        await waitFor(() => expect(container.querySelector("[data-conflicts]")).not.toBeNull());
+        await act(async () => { fireEvent.click(container.querySelector("[data-frame-slot='start'] [data-library-item='Returns']")!); });
+        await settle();
+        expect(container.querySelector("[data-flowchart-flow]")!.textContent).toBe("Returns");
+        const banner = () => container.querySelector<HTMLElement>("[data-session-banner='conflicts']");
+        await waitFor(() => expect(banner()?.textContent).toContain(`Sort: ${editingMessages.bannerConflicts({ n: 1, count: "1" })}`));
+        await act(async () => { fireEvent.click(banner()!.querySelector("[data-banner-action='choose']")!); });
+        await settle();
+        expect(container.querySelector("[data-flowchart-flow]")!.textContent).toBe("Sort");
+        await waitFor(() => expect(document.querySelectorAll("[data-conflict-card]")).toHaveLength(1));
+    });
+
     test("a lane renamed here and otherwise by another write is a conflict named by the lane as the flow shows it, and its Go to selects the lane", async () => {
         const { source } = captured(() => FLOWS);
         const { container, rerender } = await mount(payload(source));
