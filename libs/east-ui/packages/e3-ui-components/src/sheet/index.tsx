@@ -3882,6 +3882,22 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             seekSearch.jump(range.row);
         }).catch(() => { /* superseded or cleared */ });
     }, [onIssue, body, seekSearch, keyIsText, rowsPick]);
+    // A conflict's row as the sheet shows it, in the cards of the history's popover: its first text column's text —
+    // `Panel cutting` — where it holds one, else its key. Read as the popover draws, so the history item is the same
+    // while the rows move.
+    const namingNow = useRef({ rows, columns });
+    namingNow.current = { rows, columns };
+    const rowWhere = useCallback((issue: EditIssue) => {
+        const { rows: shown, columns: drawn } = namingNow.current;
+        const row = shown.find((r) => stringEqual(r.id, issue.entry));
+        if (row === undefined) return issue.entry;
+        for (const column of drawn.list) {
+            if (column.kind !== "text") continue;
+            const cell = row.cells.get(column.key);
+            if (cell?.type === "String" && cell.value.trim().length > 0) return cell.value;
+        }
+        return issue.entry;
+    }, []);
     // The issues' rows the narrowing may hide — those the body does not draw — asked of e3 as the Issues tab lists them,
     // and what an issue's line says of one it hides, in the sheet's words for an issue (the hidden pick).
     const drawnEntries = useMemo(() => {
@@ -4201,7 +4217,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         search: pickSearch,
         // The session's error is the frame's banner (#1184), never a line under the item. Its issues button goes to the
         // first issue as the Issues tab's lines do: sought where its row is not drawn, its filters cleared where they hide it.
-        history: !readOnly ? historyToolbarItem({ session, words, editing: ui.edit !== null, onAction: onHistoryAction, onIssue: goToIssue, showError: false, locked }) : undefined,
+        history: !readOnly ? historyToolbarItem({ session, words, editing: ui.edit !== null, onAction: onHistoryAction, onIssue: goToIssue, where: rowWhere, showError: false, locked }) : undefined,
         optimise: optimiseParts.toolbarItem,
         flash,
     });

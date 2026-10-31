@@ -428,6 +428,17 @@ test("a reload over another session's change to the same task brings the draft b
     const [card, ...more] = await conflictCards(container);
     expect(more).toEqual([]);
     expect([card!.item, card!.yours, card!.theirs]).toEqual([
-        "J-0001", "Yours, Panel cutting, maple", "Theirs, Panel cutting, walnut, Changed since you started editing · was Panel cutting",
+        "Panel cutting, maple", "Yours, Panel cutting, maple", "Theirs, Panel cutting, walnut, Changed since you started editing · was Panel cutting",
     ]);
+});
+
+test("a conflict's card names its row as the sheet shows it — by its task — never by its key", async () => {
+    const { container } = await h.mount(ex.sheetBasic);
+    await typeInto(cells(container, "qty")[0]!, "60");
+    // Another write sets the same job's quantity otherwise.
+    await writeJob("J-0001", { qty: some(52.0) });
+    await waitFor(() => expect(banners(container)).toEqual(["conflicts"]));
+    const [card, ...more] = await conflictCards(container);
+    expect(more).toEqual([]);
+    expect(card!.item).toBe("Panel cutting");
 });

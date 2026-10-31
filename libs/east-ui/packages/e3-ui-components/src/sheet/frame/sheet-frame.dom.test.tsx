@@ -164,7 +164,7 @@ test("a Save another session's write beat carries the draft over to the row as i
     const [card, ...more] = await conflictCards(container);
     expect(more).toEqual([]);
     expect([card!.item, card!.yours, card!.theirs]).toEqual([
-        "J-0001", "Yours, Panel cutting, maple",
+        "Panel cutting, maple", "Yours, Panel cutting, maple",
         "Theirs, Panel cutting, walnut, Changed since this edit began — last changed by another session · was Panel cutting",
     ]);
     // Kept, the draft's task saves over the newer one; chosen, the halo goes.
@@ -187,7 +187,7 @@ test("a record read a window at a time carries a Save's drafts over to the rows 
     await h.race(JOBS, () => press(getByRole("button", { name: "Save" })), (jobs) => withTask(jobs, "J-0001", "Panel cutting, walnut"));
     await carriedOver(container, ["conflicts"]);
     // The first job's task, which both changed, waits to be chosen; the second's draft is carried over beside it.
-    expect((await conflictCards(container)).map((card) => card.item)).toEqual(["J-0001"]);
+    expect((await conflictCards(container)).map((card) => card.item)).toEqual(["Panel cutting, maple"]);
     expect([...container.querySelectorAll('[data-slot="row"] [data-key="task"]')].slice(0, 2).map((cell) => cell.textContent))
         .toEqual(["Panel cutting, maple", "Edge banding, both edges"]);
     // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
