@@ -19,7 +19,8 @@
  * placeholders, Apply off meanwhile (P23); the rows a record's target touches
  * are read by key, in one request (R1); and Apply on the Plan's crop writes
  * the job through the target that reads it by its source, and the verdict
- * into the case's own row.
+ * into the case's own row, its card standing as its preview settles, the
+ * crop's marks as they were at the click (P22).
  */
 
 import { afterEach, beforeEach, expect, test } from "vitest";
@@ -32,8 +33,8 @@ import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import { layOutList } from "./list.test-utils.js";
 import { decisionQueueMessages as m } from "./messages.js";
 import {
-    action, axis, chartRow, entries, fields, head, heads, history, marked, measure, openCard, press, preview, previewRow, previewRows, ruler,
-    sheetCells, sheetHead, tile, tiles,
+    action, axis, card, chartRow, entries, fields, head, heads, history, marked, measure, openCard, press, preview, previewRow, previewRows, ruler,
+    settleApplied, sheetCells, sheetHead, tile, tiles,
 } from "./preview.test-utils.js";
 import "./index.js";
 
@@ -416,7 +417,7 @@ test("the catalogue's rows the minimums change are read by key, in one request: 
 
 // ── Apply (R16, R29) ────────────────────────────────────────────────────────
 
-test("the Plan crop's Apply drafts J-1019's move and the verdict as one step, and Save writes the job to Press B3 09:30–15:30 through the target that reads it by its source, and the verdict, a request each (R16, R29)", async () => {
+test("the Plan crop's Apply drafts J-1019's move and the verdict as one step — the card standing, inert, as its preview settles, J-1019's ghost on Press B2 and its proposal on Press B3 as they were at the click, until it gives way to its receipt — and Save writes the job to Press B3 09:30–15:30 through the target that reads it by its source, and the verdict, a request each (R16, R29, P22)", async () => {
     const { container } = await open();
     const jobs = await h.read(ex.planPrintJobs);
     await press(head(container, "print-j1019"));
@@ -424,6 +425,15 @@ test("the Plan crop's Apply drafts J-1019's move and the verdict as one step, an
     await waitFor(() => expect(apply().getAttribute("aria-disabled")).toBeNull());
     const from = new Date();
     await press(apply());
+    // The verdict lands the job on Press B3 in the editing, but the card shows what it showed at the click while its
+    // preview settles: the ghost where the job was and the proposal where it goes.
+    expect([card(container, "print-j1019").hasAttribute("data-applied"), card(container, "print-j1019").hasAttribute("inert")]).toEqual([true, true]);
+    const settling = preview(container, "print-j1019");
+    expect(settling.hasAttribute("data-applied")).toBe(true);
+    expect(tiles(previewRow(settling, "Press B2"), "J-1019")).toEqual([{ op: "from", fill: undefined, title: "Loyalty cards · 10:00–13:00 · moves to Press B3" }]);
+    expect(tiles(previewRow(settling, "Press B3"), "J-1019")).toEqual([{ op: "add", fill: "own", title: "Loyalty cards · 09:30–15:30 · proposed" }]);
+    expect(container.querySelector('[data-decision-receipt="print-j1019"]')).toBeNull();
+    await settleApplied(container, "print-j1019");
     expect(container.querySelector('[data-decision-receipt="print-j1019"]')).not.toBeNull();
     await press(history(container, editingMessages.apply()));
     expect(mutated()).toEqual([ex.planPrintJobs.name, ex.previewCases.name].sort());

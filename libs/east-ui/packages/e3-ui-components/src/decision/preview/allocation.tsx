@@ -29,7 +29,7 @@ import { lower, other } from "../../allocation/nouns.js";
 import { kindPlural } from "../../shared/schedule/words.js";
 import { appliedRows, draftedRows, standingRows, type DecisionTarget } from "../editing.js";
 import { allocationCrop, type AllocationCropBin, type AllocationCropDay, type AllocationCropPlan } from "./allocation-model.js";
-import { PreviewFailed, PreviewFrame, PreviewPending, guessedOf, leftBy, type PreviewProps } from "./frame.js";
+import { PreviewFailed, PreviewFrame, PreviewPending, guessedOf, leftBy, useHeld, type PreviewProps } from "./frame.js";
 import { LanesCrop, LanesMap, dayText, lanesSentence, mapSentence, type PreviewMap } from "./lanes.js";
 import type { LanesModel } from "./lanes-model.js";
 import { CROP_LANES, lanesMap } from "./map-model.js";
@@ -60,7 +60,7 @@ export interface AllocationPreviewProps extends PreviewProps {
  * @param props - The case, its target and record, the rows its change leaves and the queue's editing ({@link AllocationPreviewProps})
  * @returns The preview
  */
-export function AllocationPreview({ c, view, target, kind, record, rows, changed, schedule, words, styles, now }: AllocationPreviewProps) {
+export function AllocationPreview({ c, view, target, kind, record, rows, changed, schedule, words, styles, now, applied }: AllocationPreviewProps) {
     const option = view.option;
     // The board's codecs and checks at the bins' row type, and every arrival and resource it reads: made once.
     const domain = useMemo(() => allocationDomain(kind.bin.rowType), [kind.bin.rowType]);
@@ -178,7 +178,8 @@ export function AllocationPreview({ c, view, target, kind, record, rows, changed
             map: { model: lanesMap(model, resources, true), nouns: { event, events: kindPlural(event), resources: other(kind.labels.resource) } },
         };
     }, [rows, changed, option, c.options, view.recommended, record, target, schedule, kind, domain, context, words]);
-    const { result } = useTrackedEvaluation(read);
+    const { result: live } = useTrackedEvaluation(read);
+    const result = useHeld(live, applied);
     const stale = rows === "stale";
     if (rows === "failed" || !result.ok) {
         if (!result.ok) console.error(`[DecisionQueue] case ${c.key}'s preview could not read its bins:`, result.error);
@@ -186,13 +187,13 @@ export function AllocationPreview({ c, view, target, kind, record, rows, changed
     }
     const got = result.value;
     if (got.state === "pending") return <PreviewPending kind="allocation" layout="lanes" rows={PENDING_LANES} words={words} styles={styles} />;
-    if (got.state === "empty") return <PreviewFrame kind="allocation" layout="lanes" label={option?.detail ?? ""} stale={stale} styles={styles} />;
+    if (got.state === "empty") return <PreviewFrame kind="allocation" layout="lanes" label={option?.detail ?? ""} stale={stale} applied={applied} styles={styles} />;
     const guessed = guessedOf(option?.guesses, changed);
     // A map's sentence counts what changes; with nothing marked, it names the lanes the recommendation lands on (P4), and stale
     // what the change touches (P21), as a crop's does.
     if (got.map !== undefined) {
         const label = stale || got.model.clauses.length === 0 ? lanesSentence(got.model, guessed, stale, words) : mapSentence(got.map, guessed, words);
-        return <LanesMap kind="allocation" map={got.map} label={label} stale={stale} words={words} styles={styles} />;
+        return <LanesMap kind="allocation" map={got.map} label={label} stale={stale} applied={applied} words={words} styles={styles} />;
     }
-    return <LanesCrop kind="allocation" model={got.model} label={lanesSentence(got.model, guessed, stale, words)} stale={stale} now={now} words={words} styles={styles} />;
+    return <LanesCrop kind="allocation" model={got.model} label={lanesSentence(got.model, guessed, stale, words)} stale={stale} applied={applied} now={now} words={words} styles={styles} />;
 }

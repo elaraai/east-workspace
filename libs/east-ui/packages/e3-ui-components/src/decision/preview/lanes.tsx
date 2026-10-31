@@ -163,6 +163,8 @@ export interface LanesCropProps {
     readonly label: string;
     /** Whether the change no longer applies (P21). */
     readonly stale: boolean;
+    /** Whether its case was just applied: its marks settle (P22). */
+    readonly applied: boolean;
     /** The time the queue counts from: its now line, where the window holds it — on a day lane, on its day (P20). */
     readonly now: Date;
     /** The queue's words. */
@@ -177,12 +179,12 @@ export interface LanesCropProps {
  * @param props - Its kind, what it draws, its sentence and state ({@link LanesCropProps})
  * @returns The crop
  */
-export function LanesCrop({ kind, model, label, stale, now, words, styles }: LanesCropProps) {
+export function LanesCrop({ kind, model, label, stale, applied, now, words, styles }: LanesCropProps) {
     const dated = datedOf(model.window);
     // An Allocation's entries are its bins and its resources' jobs, as the board draws them.
     const shape = kind === "allocation" ? "bin" : undefined;
     return (
-        <PreviewFrame kind={kind} layout="lanes" label={label} stale={stale} styles={styles}>
+        <PreviewFrame kind={kind} layout="lanes" label={label} stale={stale} applied={applied} styles={styles}>
             <Box css={styles.lanes}>
                 <Box css={styles.ruler} aria-hidden="true" data-preview-ruler="">
                     <span />
@@ -316,6 +318,8 @@ export interface LanesMapProps {
     readonly label: string;
     /** Whether the change no longer applies (P21). */
     readonly stale: boolean;
+    /** Whether its case was just applied: its marks settle (P22). */
+    readonly applied: boolean;
     /** The queue's words. */
     readonly words: DecisionQueueWords;
     /** The `decisionPreview` recipe's styles. */
@@ -330,9 +334,9 @@ export interface LanesMapProps {
  * @param props - Its kind, what it draws, its sentence and state ({@link LanesMapProps})
  * @returns The map
  */
-export function LanesMap({ kind, map, label, stale, words, styles }: LanesMapProps) {
+export function LanesMap({ kind, map, label, stale, applied, words, styles }: LanesMapProps) {
     return (
-        <PreviewFrame kind={kind} layout="map" label={label} stale={stale} styles={styles}>
+        <PreviewFrame kind={kind} layout="map" label={label} stale={stale} applied={applied} styles={styles}>
             <Box css={styles.map} data-preview-map="">
                 {map.model.rows.map(row => (
                     <Box key={row.group} css={styles.mapRow} data-preview-group={row.group}>

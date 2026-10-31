@@ -28,10 +28,17 @@
  * fails it holds Apply — and an override's own edits, Override case — its
  * issues the button's words and each under its row in the Edit panel.
  *
+ * Applied, the card stands where it was for `--dur-slow` while its preview
+ * settles (P22) — the `decisionQueue` recipe's clock, which draws nothing —
+ * showing what it showed at the click, then hands its height to the queue,
+ * whose receipt arrives from it.
+ *
  * @packageDocumentation
  */
 
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type AnimationEvent, type CSSProperties, type KeyboardEvent, type RefObject } from "react";
+import {
+    memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type AnimationEvent, type CSSProperties, type KeyboardEvent, type RefObject,
+} from "react";
 import { Box, Field as ChakraField, VisuallyHidden, chakra, useRecipe } from "@chakra-ui/react";
 import { findIconDefinition, library, type IconDefinition, type IconName } from "@fortawesome/fontawesome-svg-core";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -51,7 +58,7 @@ import {
 } from "./editing.js";
 import { figureRuns } from "./figures.js";
 import { dueWhen, dueWords, type DecisionCase } from "./cases.js";
-import { DecisionPreview, flag } from "./preview/index.js";
+import { DecisionPreview, flag, useHeld } from "./preview/index.js";
 import type { DecisionAnswerWord, DecisionQueueWords, DecisionReasonWord, DecisionVerdictWord } from "./messages.js";
 import { DecisionRowForm } from "./row-form.js";
 import {
@@ -203,6 +210,13 @@ export interface DecisionCardProps {
     readonly onChoice: (key: string, next: (was: CaseChoice) => Partial<CaseChoice>) => void;
     /** Takes a decision: the decision, and the card's height, which its receipt arrives from. */
     readonly onDecide: (d: Decided, from: number) => void;
+    /** Whether the case was just applied: the card stands, taking nothing more, while its preview settles (P22). */
+    readonly applied: boolean;
+    /**
+     * Called once an applied card's preview has settled: its case's key, and its height, which its receipt arrives from —
+     * none for a card drawn applied, scrolled back to as it settled, whose receipt stands at once.
+     */
+    readonly onApplied: (key: string, from: number | undefined) => void;
 }
 
 /**
@@ -212,8 +226,13 @@ export interface DecisionCardProps {
  * @returns The card
  */
 export const DecisionCard = memo(function DecisionCard({
-    c, targets, records, choice, open, roles, readOnly, now, words, styles, storageKey, schedule, onToggle, onChoice, onDecide,
+    c: liveCase, targets, records, choice: liveChoice, open, roles, readOnly, now, words, styles, storageKey, schedule, onToggle, onChoice, onDecide,
+    applied, onApplied,
 }: DecisionCardProps) {
+    // Applied, the card shows what it showed at the click while its preview settles (P22): its case and the viewer's
+    // choices as they were — a Save meanwhile reads the case decided and lets its choices go — and its reads below.
+    const c = useHeld(liveCase, applied);
+    const choice = useHeld(liveChoice, applied);
     const { m } = words;
     const button = useRecipe({ key: "button" });
     const ids = useId();
@@ -235,7 +254,9 @@ export const DecisionCard = memo(function DecisionCard({
         void attempt;
         return option === undefined ? NO_OPTION : appliedRows(schedule, target, record, option);
     }, [schedule, target, record, option, attempt]);
-    const { result } = useTrackedEvaluation(readRows);
+    const { result: liveRows } = useTrackedEvaluation(readRows);
+    // The verdict lands its rows in their record, so the change would leave them as they stand: held as they were.
+    const result = useHeld(liveRows, applied);
     useEffect(() => {
         if (!result.ok) console.error(`[DecisionQueue] the rows case ${c.key}'s change touches could not be read:`, result.error);
     }, [result, c.key]);
@@ -257,7 +278,8 @@ export const DecisionCard = memo(function DecisionCard({
             override: overriding ? rowsReadiness(record, overrideRows(changed)) : undefined,
         };
     }, [open, record, rows, changed, overriding]);
-    const { result: checked } = useTrackedEvaluation(readReadiness);
+    const { result: liveCheck } = useTrackedEvaluation(readReadiness);
+    const checked = useHeld(liveCheck, applied);
     useEffect(() => {
         if (!checked.ok) console.error(`[DecisionQueue] the app's check of case ${c.key}'s rows could not be run:`, checked.error);
     }, [checked, c.key]);
@@ -361,8 +383,24 @@ export const DecisionCard = memo(function DecisionCard({
     const warn = option === undefined ? undefined : getSomeorUndefined(option.warn);
     const panel = choice.panel;
 
+    // ── Applied (P22) ─────────────────────────────────────────────────────────
+    // The recipe's clock ends once the preview has settled, and the receipt arrives from the card's height. A card drawn
+    // applied — the list unmounted it as it settled, and a scroll brings it back — gives way at once.
+    const settled = useCallback((e: AnimationEvent<HTMLDivElement>) => {
+        if (e.target === e.currentTarget) onApplied(c.key, cardRef.current?.offsetHeight);
+    }, [onApplied, c.key]);
+    const drawnApplied = useRef(applied);
+    useLayoutEffect(() => {
+        if (!drawnApplied.current) return;
+        drawnApplied.current = false;
+        onApplied(c.key, undefined);
+    }, [onApplied, c.key]);
+
     return (
-        <Box ref={cardRef} css={styles.card} data-decision-card={c.key} data-open={flag(open)} onKeyDown={onCardKey}>
+        // Applied, the card is leaving — its verdict counted, the keyboard gone on to the next case — so it takes nothing
+        // more: inert, which no retained content ever is (#1398, CL8), since retained content stays.
+        <Box ref={cardRef} css={styles.card} data-decision-card={c.key} data-open={flag(open)} data-applied={flag(applied)} inert={applied}
+            onKeyDown={onCardKey} onAnimationEnd={applied ? settled : undefined}>
             <Box css={styles.head} role="button" tabIndex={0} aria-expanded={open} data-decision-head={c.key}
                 data-open={flag(open)} data-modified={flag(view.modified)} onClick={toggle} onKeyDown={onHeadKey}>
                 <Box css={styles.eyebrow}>
@@ -375,7 +413,7 @@ export const DecisionCard = memo(function DecisionCard({
                 <Box css={styles.headTitle}><Figured text={title} /></Box>
                 {target !== undefined && option !== undefined && (
                     <DecisionPreview c={c} view={view} target={target} record={record} rows={rows} changed={changed} schedule={schedule}
-                        words={words} now={now} />
+                        words={words} now={now} applied={applied} />
                 )}
                 <Box css={styles.chipLine}>
                     <Box as="span" css={styles.proposal}>{m.chip({ modified: view.modified })}</Box>

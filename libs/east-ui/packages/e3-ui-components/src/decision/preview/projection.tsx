@@ -22,7 +22,7 @@ import { FloatType, StringType, compareFor, equalFor } from "@elaraai/east";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import type { SlotStyles } from "@elaraai/east-ui-components/internal";
 import type { DecisionTarget } from "../editing.js";
-import { PreviewFailed, PreviewFrame, PreviewPending, flag, type PreviewProps } from "./frame.js";
+import { PreviewFailed, PreviewFrame, PreviewPending, flag, useHeld, type PreviewProps } from "./frame.js";
 import { projectionPreview, type ProjectionLine, type ProjectionLineInput, type ProjectionModel } from "./projection-model.js";
 
 /** A projection target's kind, decoded. */
@@ -51,7 +51,7 @@ const at = (name: string, percent: number): CSSProperties => ({ [name]: `${perce
  * @param props - The case, its target, the card's view and the queue's words ({@link ProjectionPreviewProps})
  * @returns The preview
  */
-export function ProjectionPreview({ c, view, target, kind, rows, words, styles }: ProjectionPreviewProps) {
+export function ProjectionPreview({ c, view, target, kind, rows, words, styles, applied }: ProjectionPreviewProps) {
     const read = useCallback((): ProjectionRead => {
         if (rows === "reading" || rows === "failed") return PENDING;
         const lines: ProjectionLineInput[] = [];
@@ -66,7 +66,8 @@ export function ProjectionPreview({ c, view, target, kind, rows, words, styles }
         if (lines.length === 0) return EMPTY;
         return { state: "ready", model: projectionPreview(lines, kind.limit.type === "some" ? kind.limit.value.y : undefined) };
     }, [rows, c.options, view.chosen, target, kind]);
-    const { result } = useTrackedEvaluation(read);
+    const { result: live } = useTrackedEvaluation(read);
+    const result = useHeld(live, applied);
     const stale = rows === "stale";
     if (rows === "failed" || !result.ok) {
         if (!result.ok) console.error(`[DecisionQueue] case ${c.key}'s preview could not read its options' series:`, result.error);
@@ -74,7 +75,7 @@ export function ProjectionPreview({ c, view, target, kind, rows, words, styles }
     }
     const got = result.value;
     if (got.state === "pending") return <PreviewPending kind="projection" layout="projection" rows={1} words={words} styles={styles} />;
-    if (got.state === "empty") return <PreviewFrame kind="projection" layout="projection" label={view.option?.detail ?? ""} stale={stale} styles={styles} />;
+    if (got.state === "empty") return <PreviewFrame kind="projection" layout="projection" label={view.option?.detail ?? ""} stale={stale} applied={applied} styles={styles} />;
     const { m } = words;
     const model = got.model;
     const limit = kind.limit.type === "some" ? kind.limit.value : undefined;
@@ -88,7 +89,7 @@ export function ProjectionPreview({ c, view, target, kind, rows, words, styles }
     });
     const last = model.x.length - 1;
     return (
-        <PreviewFrame kind="projection" layout="projection" label={label} stale={stale} styles={styles}>
+        <PreviewFrame kind="projection" layout="projection" label={label} stale={stale} applied={applied} styles={styles}>
             <Box css={styles.projection}>
                 <Box css={styles.yAxis} aria-hidden="true" data-preview-axis="y">
                     {model.y !== undefined && <Box as="span" css={styles.yLabel} style={at("--pv-at", model.y.at)}>{yText(model.y.value)}</Box>}

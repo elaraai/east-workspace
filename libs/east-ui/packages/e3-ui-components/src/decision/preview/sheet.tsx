@@ -30,7 +30,7 @@ import type { SheetRowValue } from "../../sheet/values.js";
 import { appliedRows, standingRows, type DecisionTarget } from "../editing.js";
 import { CONFIDENCE } from "../figures.js";
 import type { DecisionQueueWords } from "../messages.js";
-import { PreviewFailed, PreviewFrame, PreviewPending, flag, leftBy, staleNames, type PreviewProps } from "./frame.js";
+import { PreviewFailed, PreviewFrame, PreviewPending, flag, leftBy, staleNames, useHeld, type PreviewProps } from "./frame.js";
 import { CROP_ROWS, sheetCrop, type SheetCropCell, type SheetCropColumn, type SheetCropInput, type SheetCropModel, type SheetCropRow } from "./sheet-model.js";
 
 /** A Sheet target's kind, decoded. */
@@ -75,7 +75,7 @@ export interface SheetPreviewProps extends PreviewProps {
  * @param props - The case, its target and record, the rows its change leaves and the queue's editing ({@link SheetPreviewProps})
  * @returns The preview
  */
-export function SheetPreview({ c, view, target, kind, record, rows, changed, schedule, words, styles }: SheetPreviewProps) {
+export function SheetPreview({ c, view, target, kind, record, rows, changed, schedule, words, styles, applied }: SheetPreviewProps) {
     const option = view.option;
     const sheet = kind.sheet.sheet;
     const columns = useMemo(() => cropColumns(sheet, words), [sheet, words]);
@@ -138,7 +138,8 @@ export function SheetPreview({ c, view, target, kind, record, rows, changed, sch
             }),
         };
     }, [rows, changed, option, c.options, view.recommended, record, target, schedule, sheet, columns]);
-    const { result } = useTrackedEvaluation(read);
+    const { result: live } = useTrackedEvaluation(read);
+    const result = useHeld(live, applied);
     const stale = rows === "stale";
     if (rows === "failed" || !result.ok) {
         if (!result.ok) console.error(`[DecisionQueue] case ${c.key}'s preview could not read its rows:`, result.error);
@@ -146,8 +147,8 @@ export function SheetPreview({ c, view, target, kind, record, rows, changed, sch
     }
     const got = result.value;
     if (got.state === "pending") return <PreviewPending kind="sheet" layout="sheet" rows={CROP_ROWS} cells={1} words={words} styles={styles} />;
-    if (got.state === "empty") return <PreviewFrame kind="sheet" layout="sheet" label={option?.detail ?? ""} stale={stale} styles={styles} />;
-    return <SheetCrop model={got.model} label={sentence(got.model, stale, words)} stale={stale} words={words} styles={styles} />;
+    if (got.state === "empty") return <PreviewFrame kind="sheet" layout="sheet" label={option?.detail ?? ""} stale={stale} applied={applied} styles={styles} />;
+    return <SheetCrop model={got.model} label={sentence(got.model, stale, words)} stale={stale} applied={applied} words={words} styles={styles} />;
 }
 
 /**
@@ -183,11 +184,13 @@ interface PartProps {
 }
 
 /** The crop (P4): the Sheet's head over its first column and the columns the change sets, and the rows it touches, 28 tall. */
-function SheetCrop({ model, label, stale, words, styles }: PartProps & { readonly model: SheetCropModel; readonly label: string; readonly stale: boolean }) {
+function SheetCrop({ model, label, stale, applied, words, styles }: PartProps & {
+    readonly model: SheetCropModel; readonly label: string; readonly stale: boolean; readonly applied: boolean;
+}) {
     // The tracks after the first column: the columns drawn, a count only the data knows.
     const tracks = { "--pv-columns": `${Math.max(1, model.columns.length - 1)}` } as CSSProperties;
     return (
-        <PreviewFrame kind="sheet" layout="sheet" label={label} stale={stale} styles={styles}>
+        <PreviewFrame kind="sheet" layout="sheet" label={label} stale={stale} applied={applied} styles={styles}>
             <Box css={styles.header} style={tracks} aria-hidden="true">
                 {model.columns.map(column => (
                     <Box key={column.key} as="span" css={styles.headerCell} data-align={column.figures === "end" ? "end" : undefined}>{column.header}</Box>

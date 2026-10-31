@@ -21,11 +21,13 @@
  * viewer opened that leaves the list closes with it (R6). A gesture holds the
  * head it acts on where it was on screen (R8, R11). A verdict is one step of
  * one history over the cases' record and each record a change lands in
- * (`editing.ts`, R23); its card becomes its receipt in its place, whose Undo is
- * the history's while its step is the last (R24, R27), and the keyboard goes to
- * the next card's head (R25). The keys (R12): `j` and `k` step to the next and
- * the previous waiting case — one not read yet brought into view and opened as
- * it lands — Escape closes the open card, and the history's own. While a new
+ * (`editing.ts`, R23); its card becomes its receipt in its place — an applied
+ * one once its preview has settled, the card standing as it was meanwhile and
+ * taking nothing (P22) — whose Undo is the history's while its step is the last
+ * (R24, R27), and the keyboard goes to the next card's head (R25); a step of the
+ * history ends every such wait at once. The keys (R12): `j` and `k` step to the
+ * next and the previous waiting case — one not read yet brought into view and
+ * opened as it lands — Escape closes the open card, and the history's own. While a new
  * narrowing's, revision's or count's cases are read, those shown stand in,
  * retained (R5): readable, openable, and taking no verdict.
  *
@@ -49,7 +51,9 @@ import { useDecisionChoices } from "./choices.js";
 import { DecisionDataReader, DecisionOpenReader, INITIAL_DATA, type DecisionData, type DecisionRead } from "./data.js";
 import { CASES, caseNow, casesSteps, decisionChanges, useDecisionEditing, type Decided, type DecisionQueueValue } from "./editing.js";
 import { DecisionFooter } from "./footer.js";
-import { DecisionList, HEAD_PART, RECEIPT_PART, REVEAL_PX, caseRowKey, type DecisionArrival, type DecisionRangeChange } from "./list.js";
+import {
+    DecisionList, HEAD_PART, RECEIPT_PART, REVEAL_PX, caseRowKey, type DecisionApplying, type DecisionArrival, type DecisionRangeChange,
+} from "./list.js";
 import { decisionQueueMessages, type DecisionQueueWords } from "./messages.js";
 import { useDecisionToolbar } from "./toolbar.js";
 
@@ -76,6 +80,7 @@ const FOCUS_TRIES = 4;
  */
 const CLICK_FOCUS: Readonly<Record<string, string>> = { tabIndex: "-1" };
 const NO_ARRIVALS: ReadonlyMap<string, DecisionArrival> = new Map();
+const NO_APPLYING: ReadonlyMap<string, DecisionApplying> = new Map();
 
 /** Two keys the same: both none, or the same text. */
 function sameKey(a: string | undefined, b: string | undefined): boolean {
@@ -130,6 +135,50 @@ function waitingFrom(read: DecisionRead, from: number, dir: 1 | -1, waits: (c: D
 function arrivalOver(was: ReadonlyMap<string, DecisionArrival>, key: string): ReadonlyMap<string, DecisionArrival> {
     const arrival = was.get(key);
     return arrival === undefined || arrival.from === undefined ? was : new Map(was).set(key, { ...arrival, from: undefined });
+}
+
+/**
+ * The arrivals with an applied card's height, once its preview has settled (P22): its receipt arrives from it.
+ *
+ * @param was - The arrivals
+ * @param key - The case's key
+ * @param from - The card's height; `undefined` for a receipt that stands at once
+ * @returns The arrivals; the same where the case has none, or its height is that already
+ */
+function arrivalFrom(was: ReadonlyMap<string, DecisionArrival>, key: string, from: number | undefined): ReadonlyMap<string, DecisionArrival> {
+    const arrival = was.get(key);
+    return arrival === undefined || arrival.from === from ? was : new Map(was).set(key, { ...arrival, from });
+}
+
+/**
+ * The cases just applied, less one whose card has given way to its receipt (P22).
+ *
+ * @param was - The cases just applied
+ * @param key - The case's key
+ * @returns The cases; the same where it is none of them
+ */
+function settledOf(was: ReadonlyMap<string, DecisionApplying>, key: string): ReadonlyMap<string, DecisionApplying> {
+    if (!was.has(key)) return was;
+    const next = new Map(was);
+    next.delete(key);
+    return next;
+}
+
+/**
+ * Whether a card's head shows nowhere in the list's view: a hold keeps only what the view shows where it was (R8).
+ *
+ * @param board - Main, which holds the list
+ * @param caseKey - The case's key
+ * @returns Whether its head is wholly above the view or below it; `false` where it shows, or where the list draws none
+ */
+function headOutOfView(board: HTMLElement | null, caseKey: string): boolean {
+    if (board === null) return false;
+    const list = board.querySelector("[data-decision-list]");
+    const head = [...board.querySelectorAll("[data-decision-head]")].find(el => stringEqual(el.getAttribute("data-decision-head") ?? "", caseKey));
+    if (list === null || head === undefined) return false;
+    const view = list.getBoundingClientRect();
+    const at = head.getBoundingClientRect();
+    return at.bottom < view.top || at.top > view.bottom;
 }
 
 /**
@@ -280,8 +329,10 @@ function DecisionFrame({ value, storageKey: key }: FrameProps) {
     }, [identity, dataRange]);
 
     // ── The gestures, the same functions while the frame draws again ─────────
-    const latest = useRef({ value, m, chosen, open, read, waits, retained });
-    latest.current = { value, m, chosen, open, read, waits, retained };
+    // The cases just applied whose cards stand while their previews settle (P22), by their key.
+    const [applying, setApplying] = useState<ReadonlyMap<string, DecisionApplying>>(NO_APPLYING);
+    const latest = useRef({ value, m, chosen, open, read, waits, retained, applying });
+    latest.current = { value, m, chosen, open, read, waits, retained, applying };
     const onToggle = useCallback((caseKey: string) => {
         const opening = !sameKey(latest.current.open, caseKey);
         setSeek(undefined);
@@ -291,7 +342,8 @@ function DecisionFrame({ value, storageKey: key }: FrameProps) {
     const [unrecorded, setUnrecorded] = useState(false);
     const [arrivals, setArrivals] = useState<ReadonlyMap<string, DecisionArrival>>(NO_ARRIVALS);
     // A verdict (R23, R24): one step of the history; its card becomes its receipt where it stood, held there, and the
-    // keyboard goes to the next waiting case's head, which neither opens nor scrolls (R25).
+    // keyboard goes to the next waiting case's head, which neither opens nor scrolls (R25). Applied, the card stands as it
+    // was — open or closed — taking nothing while its preview settles, and becomes its receipt once it has (P22).
     const onDecide = useCallback((d: Decided, from: number) => {
         const live = latest.current;
         if (readOnly || live.retained) return;
@@ -303,16 +355,31 @@ function DecisionFrame({ value, storageKey: key }: FrameProps) {
         setUnrecorded(false);
         setSeek(undefined);
         const mark = casesSteps(editing.schedule);
-        setArrivals(was => new Map(was).set(d.c.key, { from, mark }));
-        holdRow(d.c.key, HEAD_PART);
+        if (d.verdict === "applied") {
+            setArrivals(was => new Map(was).set(d.c.key, { from: undefined, mark }));
+            setApplying(was => new Map(was).set(d.c.key, { open: sameKey(live.open, d.c.key) }));
+        } else {
+            setArrivals(was => new Map(was).set(d.c.key, { from, mark }));
+            holdRow(d.c.key, HEAD_PART);
+        }
         setOpen(null);
         const at = live.read === undefined ? undefined : placeOf(live.read, d.c.key);
         focusAfter(at === undefined || live.read === undefined ? undefined : waitingFrom(live.read, at + 1, 1, live.waits)?.key);
     }, [editing, readOnly, holdRow, setOpen]);
+    // An applied card's preview has settled (P22): it gives way to its receipt, which arrives from its height, held where
+    // its head shows (R8). A card drawn applied — scrolled back to as it settled — gives way at once, its receipt
+    // standing; one the viewer scrolled away from meanwhile is held nowhere, the frame keeping what the view shows.
+    const onApplied = useCallback((caseKey: string, from: number | undefined) => {
+        if (!latest.current.applying.has(caseKey)) return;
+        setApplying(was => settledOf(was, caseKey));
+        setArrivals(was => arrivalFrom(was, caseKey, from));
+        if (from !== undefined && !headOutOfView(main.current, caseKey)) holdRow(caseKey, HEAD_PART);
+    }, [holdRow]);
     // A receipt's Undo (R27): the history's; the case comes back open where the receipt was.
     const onUndo = useCallback((caseKey: string) => {
         if (readOnly) return;
         setSeek(undefined);
+        setApplying(NO_APPLYING);
         editing.history.act("undo");
         setArrivals(was => arrivalOver(was, caseKey));
         holdRow(caseKey, RECEIPT_PART, REVEAL_PX);
@@ -332,6 +399,8 @@ function DecisionFrame({ value, storageKey: key }: FrameProps) {
         // A field typed into hands the keyboard to main first, so what it holds is taken as the step runs.
         const active = main.current?.ownerDocument.activeElement ?? null;
         if (active instanceof HTMLElement && typedInto(active)) main.current?.focus({ preventScroll: true });
+        // A step ends every applied card's wait (P22): a verdict it takes back waits again, and one it keeps is its receipt.
+        setApplying(NO_APPLYING);
         history.act(action);
     }, [history]);
     // A case's place and the case, where the read holds it.
@@ -414,7 +483,7 @@ function DecisionFrame({ value, storageKey: key }: FrameProps) {
                     rootProps={CLICK_FOCUS} banners={<>
                         {!readOnly && editing.schedule.sessions.map(held => (
                             <SessionBanners key={held.key} session={held.session} words={words} name={sessionName(held.kind)} where={where(held.kind)}
-                                onAction={action => editing.history.actOn(held.key, action)} />
+                                onAction={action => { setApplying(NO_APPLYING); editing.history.actOn(held.key, action); }} />
                         ))}
                         {data.error !== undefined && (
                             <BannerView status="error" title={m.readFailed()} description={data.error}
@@ -429,9 +498,10 @@ function DecisionFrame({ value, storageKey: key }: FrameProps) {
                         leaves the keyboard here. */}
                     <Box ref={main} css={styles.main} data-decision-main="" tabIndex={-1}>
                         <DecisionList read={read} identity={identity} retained={data.retained} onRangeChange={onRangeChange} value={value}
-                            arrivals={arrivals} undoMark={undoMark} open={open} choiceOf={choiceOf} targets={value.targets} records={editing.records}
+                            arrivals={arrivals} applying={applying} undoMark={undoMark} open={open} choiceOf={choiceOf} targets={value.targets} records={editing.records}
                             roles={value.decisions.roles} readOnly={readOnly} now={now} words={words} styles={styles} storageKey={key} schedule={schedule}
-                            hold={hold} scrollTo={scrollTo} onToggle={onToggle} onChoice={setChoice} onDecide={onDecide} onUndo={onUndo} onArrived={onArrived} />
+                            hold={hold} scrollTo={scrollTo} onToggle={onToggle} onChoice={setChoice} onDecide={onDecide} onUndo={onUndo} onArrived={onArrived}
+                            onApplied={onApplied} />
                     </Box>
                 </BuilderFrame>
             </LoadingReveal>

@@ -5,9 +5,10 @@
 
 /**
  * The DecisionQueue's list (`Decision Queue Spec.md` §7, §8, R1–R5, R7–R13,
- * R24–R27): main's one column — every case of the source, in its order, as it
- * stands: a waiting case its card, a decided one its receipt, and a case not
- * read yet a pending card, a closed card's height — through the shared
+ * R24–R27, P22): main's one column — every case of the source, in its order, as
+ * it stands: a waiting case its card, a decided one its receipt — one just
+ * applied its card still, standing as it was while its preview settles — and a
+ * case not read yet a pending card, a closed card's height — through the shared
  * `VirtualRows`, each row keyed by what it shows, so a card keeps its
  * instance, its height and its place however the rows around it change, and
  * each placed by its top, so an open card's head sticks to the list's top over
@@ -46,6 +47,24 @@ export interface DecisionArrival {
     readonly from: number | undefined;
     /** The cases' steps done once its step was recorded: its Undo shows while that is still the history's last step (R27). */
     readonly mark: number | undefined;
+}
+
+/** A case just applied, whose card stands while its preview settles (P22). */
+export interface DecisionApplying {
+    /** Whether its card was open at the click: it stands as it was until it gives way to its receipt. */
+    readonly open: boolean;
+}
+
+/**
+ * A case just applied whose card still stands (P22): its verdict standing, and the click's entry.
+ *
+ * @param applying - The cases just applied, by their key
+ * @param key - The case's key
+ * @param standing - The case as its row stands
+ * @returns The click's entry; `undefined` for a case whose card has given way, or that waits again
+ */
+function settlingOf(applying: ReadonlyMap<string, DecisionApplying>, key: string, standing: DecisionCase): DecisionApplying | undefined {
+    return standing.verdict.type === "some" ? applying.get(key) : undefined;
 }
 
 /**
@@ -137,6 +156,8 @@ export interface DecisionListProps {
     readonly value: DecisionQueueValue;
     /** The verdicts given here, by their case's key: each receipt's arrival and its Undo's step. */
     readonly arrivals: ReadonlyMap<string, DecisionArrival>;
+    /** The cases just applied whose cards stand while their previews settle (P22), by their key. */
+    readonly applying: ReadonlyMap<string, DecisionApplying>;
     /** The cases' steps done while the history can undo its last: a receipt whose mark it is takes Undo (R27). */
     readonly undoMark: number | undefined;
     /** The open case's key. */
@@ -175,6 +196,8 @@ export interface DecisionListProps {
     readonly onUndo: (key: string) => void;
     /** A receipt has arrived. */
     readonly onArrived: (key: string) => void;
+    /** An applied card's preview has settled: its case's key, and its height, which its receipt arrives from. */
+    readonly onApplied: (key: string, from: number | undefined) => void;
 }
 
 /**
@@ -185,8 +208,8 @@ export interface DecisionListProps {
  */
 export const DecisionList = memo(function DecisionList(props: DecisionListProps) {
     const {
-        read, identity, retained, onRangeChange, value, arrivals, undoMark, open, choiceOf, targets, records, roles, readOnly, now, words, styles,
-        storageKey, schedule, hold, scrollTo, onToggle, onChoice, onDecide, onUndo, onArrived,
+        read, identity, retained, onRangeChange, value, arrivals, applying, undoMark, open, choiceOf, targets, records, roles, readOnly, now, words,
+        styles, storageKey, schedule, hold, scrollTo, onToggle, onChoice, onDecide, onUndo, onArrived, onApplied,
     } = props;
     const count = read?.count ?? 0;
     // A case as its row stands now: drafted, else as read (D1). Read again only as the history moves.
@@ -207,9 +230,12 @@ export const DecisionList = memo(function DecisionList(props: DecisionListProps)
     const estimateSize = useCallback((index: number) => {
         const c = read?.rows.get(index);
         if (c === undefined) return ROW_PX.card;
-        if (stands(c).verdict.type === "some") return ROW_PX.receipt;
-        return open !== undefined && stringEqual(open, c.key) ? ROW_PX.openCard : ROW_PX.card;
-    }, [read, stands, open]);
+        const standing = stands(c);
+        const settling = settlingOf(applying, c.key, standing);
+        if (standing.verdict.type === "some" && settling === undefined) return ROW_PX.receipt;
+        const isOpen = settling !== undefined ? settling.open : open !== undefined && stringEqual(open, c.key);
+        return isOpen ? ROW_PX.openCard : ROW_PX.card;
+    }, [read, stands, applying, open]);
     // A row is drawn again only as this moves (#1398, CL9): what the rows show.
     const renderRow = useCallback((index: number): ReactNode => {
         const c = read?.rows.get(index);
@@ -217,7 +243,8 @@ export const DecisionList = memo(function DecisionList(props: DecisionListProps)
             return <Box css={styles.cardRow} data-decision-pending={index}><PlaceholderCard height={PENDING_PX} index={index} /></Box>;
         }
         const standing = stands(c);
-        if (standing.verdict.type === "some") {
+        const settling = settlingOf(applying, c.key, standing);
+        if (standing.verdict.type === "some" && settling === undefined) {
             // Its verdict's receipt (R24): one given here arrives from its card and takes Undo while its step is the
             // history's last (R27); one read decided — saved, or decided in another session — stands with none.
             const arrival = arrivals.get(c.key);
@@ -229,16 +256,17 @@ export const DecisionList = memo(function DecisionList(props: DecisionListProps)
                 </Box>
             );
         }
-        const isOpen = open !== undefined && stringEqual(open, c.key);
+        // A waiting case's card — or one just applied, standing as it was at the click while its preview settles (P22).
+        const isOpen = settling !== undefined ? settling.open : open !== undefined && stringEqual(open, c.key);
         return (
             <Box css={styles.cardRow}>
                 <DecisionCard c={c} targets={targets} records={records} choice={choiceOf(c.key)} open={isOpen} roles={roles} readOnly={readOnly}
                     now={now} words={words} styles={styles} storageKey={storageKey} schedule={schedule}
-                    onToggle={onToggle} onChoice={onChoice} onDecide={onDecide} />
+                    onToggle={onToggle} onChoice={onChoice} onDecide={onDecide} applied={settling !== undefined} onApplied={onApplied} />
             </Box>
         );
-    }, [read, stands, arrivals, undoMark, open, choiceOf, targets, records, roles, readOnly, now, words, styles, storageKey, schedule,
-        onToggle, onChoice, onDecide, onUndo, onArrived]);
+    }, [read, stands, arrivals, applying, undoMark, open, choiceOf, targets, records, roles, readOnly, now, words, styles, storageKey, schedule,
+        onToggle, onChoice, onDecide, onUndo, onArrived, onApplied]);
     if (read === undefined) return null;
     if (count === 0) return <EmptyList words={words} styles={styles} retained={retained} />;
     return (

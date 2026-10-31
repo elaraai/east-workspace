@@ -92,8 +92,9 @@
  * — an entry the change moves off (`data-op="from"`) or that is gone from its row (`data-op="del"`, struck through) —
  * dashed in `elara.edge`, unfilled, its words `--ink-4` (P14); an entry the option knocks on (`data-knock`) a dashed
  * `elara.edge` ring 3 out, 3 in on a Sheet's cell (P16); one that breaks a rule (`data-breach`) a `--warn` ring (P15); while stale the
- * proposal dashed on `--paper-3`, no glow (P21); once applied (`data-applied`) the glow settles to nothing over
- * `--dur-slow` and the ghosts go (P22).
+ * proposal dashed on `--paper-3`, no glow (P21); once applied (`data-applied`), over `--dur-slow` while its card stands,
+ * the glow — a when tick's and a chosen line's too — settles into the builder's own fill, and the rings and the ghosts
+ * go (P22).
  *
  * @packageDocumentation
  */
@@ -114,22 +115,17 @@ const GHOST = {
 
 /** The marks over a preview's entries (P13–P22). */
 const MARKS = {
-    "& [data-op=add], & [data-op=chg]": {
-        boxShadow: ELARA_STEADY,
-        transitionProperty: "box-shadow",
+    "& [data-op], & [data-knock], & [data-breach]": {
+        transitionProperty: "box-shadow, opacity, outline-color",
         transitionDuration: "slow",
         transitionTimingFunction: "{easings.out}",
     },
+    "& [data-op=add], & [data-op=chg]": { boxShadow: ELARA_STEADY },
     "& [data-op=add]:not([data-fill=own]):not([data-fill=cell]), & [data-op=chg]:not([data-fill=own]):not([data-fill=cell])": {
         backgroundColor: "brandTint",
     },
     "& [data-fill=cell][data-op=add], & [data-fill=cell][data-op=chg]": { backgroundColor: "brandTint", boxShadow: ELARA_STEADY_INSET },
-    "& [data-op=from], & [data-op=del]": {
-        ...GHOST,
-        transitionProperty: "opacity",
-        transitionDuration: "slow",
-        transitionTimingFunction: "{easings.out}",
-    },
+    "& [data-op=from], & [data-op=del]": GHOST,
     "& [data-op=del]": { textDecoration: "line-through" },
     "& [data-op=from] *, & [data-op=del] *": { color: "inherit" },
     "& [data-knock]": { outline: "1px dashed {colors.elara.edge}", outlineOffset: "3px" },
@@ -144,11 +140,13 @@ const MARKS = {
         boxShadow: "none",
         color: "fg.muted",
     },
-    // Applied (P22): the glow settles, the ghosts go.
+    // Applied (P22): the glow settles into the builder's own fill, the rings and the ghosts go. A cell's inset glow goes
+    // too: its rule ties with this one, which comes later.
     "&[data-applied] [data-op=add], &[data-applied] [data-op=chg]": { boxShadow: "none" },
     "&[data-applied] [data-op=from], &[data-applied] [data-op=del]": { opacity: 0 },
+    "&[data-applied] [data-knock], &[data-applied] [data-breach]": { outlineColor: "transparent" },
     _motionReduce: {
-        "& [data-op]": { transition: "none" },
+        "& [data-op], & [data-knock], & [data-breach]": { transition: "none" },
     },
 } satisfies SystemStyleObject;
 
@@ -416,7 +414,20 @@ export const decisionPreviewSlotRecipe = defineSlotRecipe({
         when: { display: "grid", gridTemplateColumns: "52px minmax(0, 1fr)", alignItems: "center", gap: "4px", paddingTop: "4px" },
         whenLabel: { ...CAPTION, ...ELLIPSIS, letterSpacing: "wider", lineHeight: "12px" },
         whenStrip: { position: "relative", height: "12px", boxSizing: "border-box", borderBottomWidth: "1px", borderBottomStyle: "solid", borderColor: "border.strong" },
-        whenTick: { position: "absolute", top: "2px", bottom: 0, left: "var(--pv-at)", width: "2px", background: "brand.solid", boxShadow: ELARA_STEADY },
+        whenTick: {
+            position: "absolute",
+            top: "2px",
+            bottom: 0,
+            left: "var(--pv-at)",
+            width: "2px",
+            background: "brand.solid",
+            boxShadow: ELARA_STEADY,
+            transitionProperty: "box-shadow",
+            transitionDuration: "slow",
+            transitionTimingFunction: "{easings.out}",
+            "[data-applied] &": { boxShadow: "none" },
+            _motionReduce: { transition: "none" },
+        },
 
         // ── The Roster's map by people (P5) ──
         people: { display: "grid", alignContent: "start", gap: "4px", padding: "8px" },
@@ -609,8 +620,12 @@ export const decisionPreviewSlotRecipe = defineSlotRecipe({
             height: "100%",
             overflow: "visible",
             pointerEvents: "none",
+            transitionProperty: "filter",
+            transitionDuration: "slow",
+            transitionTimingFunction: "{easings.out}",
             "&[data-glow]": { filter: "drop-shadow(0 0 2px {colors.elara.soft})" },
-            "[data-stale] &": { "&[data-glow]": { filter: "none" } },
+            "[data-stale] &, [data-applied] &": { "&[data-glow]": { filter: "none" } },
+            _motionReduce: { transition: "none" },
         },
         line: {
             fill: "none",

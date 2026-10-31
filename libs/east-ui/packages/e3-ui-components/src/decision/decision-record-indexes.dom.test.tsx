@@ -16,7 +16,9 @@
  * opening it as its page lands (R2, R12). The stock rows a reorder changes are
  * read by key through their entries, and nothing is read whole. A reorder
  * applied and saved leaves the waiting ones, the Save notice saying so, and
- * reads back under Judgement's applied as its receipt (R24, R26); a verdict
+ * reads back under Judgement's applied as its receipt (R24, R26); one whose
+ * card the view leaves as its preview settles gives way at once as the view
+ * comes back, its receipt standing with no arrival (P22); a verdict
  * drafted on a case the rail then hides is kept by its key, and Save writes
  * it and its stock row, a request each (R29).
  */
@@ -32,7 +34,7 @@ import * as ex from "@elaraai/e3-ui/examples/decision/decision";
 import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import { layOutList } from "./list.test-utils.js";
 import { decisionQueueMessages as m } from "./messages.js";
-import { action, card, fields, head, heads, history, openCard, press, preview } from "./preview.test-utils.js";
+import { action, card, fields, head, heads, history, openCard, press, preview, settleApplied } from "./preview.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "decision/decision": ex }, { main: "data-decision-main" });
@@ -167,6 +169,7 @@ test("a reorder applied and saved leaves the waiting ones: Save writes its row a
     const was = (await h.read(ex.reorders)).get("101/CD-1001")!;
     const stock = await h.read(ex.chainStock);
     await press(await applyOf(container, "101/CD-1001"));
+    await settleApplied(container, "101/CD-1001");
     expect(receipt(container, "101/CD-1001")).not.toBeNull();
     expect(counted(container)).toBe("20,000");
     await press(history(container, editingMessages.apply()));
@@ -189,11 +192,28 @@ test("a reorder applied and saved leaves the waiting ones: Save writes its row a
     expect(heads(container)).toEqual([]);
 });
 
+test("a reorder applied whose card the view leaves as its preview settles gives way at once as the view comes back: its receipt stands in its place, with no arrival, and takes Undo (P22, R24, R27)", async () => {
+    const { container } = await open();
+    await press(await applyOf(container, "101/CD-1001"));
+    expect(card(container, "101/CD-1001").hasAttribute("data-applied")).toBe(true);
+    // The view sent some 5,000 cases on: the card leaves the list's rows as it settles.
+    await scrollList(container, 1_260_000);
+    expect(container.querySelector('[data-decision-card="101/CD-1001"]')).toBeNull();
+    // Back: drawn applied, it gives way at once, its receipt standing.
+    await scrollList(container, 0);
+    await waitFor(() => expect(receipt(container, "101/CD-1001")).not.toBeNull());
+    expect(container.querySelector('[data-decision-card="101/CD-1001"]')).toBeNull();
+    expect(receipt(container, "101/CD-1001")!.hasAttribute("data-arriving")).toBe(false);
+    expect(within(receipt(container, "101/CD-1001")!).getByRole("button", { name: m.undo() })).toBeDefined();
+    expect(counted(container)).toBe("20,000");
+});
+
 test("a verdict drafted on a case the rail then hides is kept by its key: Store 102 chosen beside Judgement's waiting, its cases show and the draft waits; Save writes the reorder's row and its stock row, a request each, and no case left the view (R26, R29, D4)", async () => {
     const { container } = await open();
     const was = (await h.read(ex.reorders)).get("101/CD-1001")!;
     const stock = await h.read(ex.chainStock);
     await press(await applyOf(container, "101/CD-1001"));
+    await settleApplied(container, "101/CD-1001");
     expect(receipt(container, "101/CD-1001")).not.toBeNull();
     // Store 102 chosen, the judgement kept: Store 101's cases go, the draft with them, kept by its key.
     await narrow(choosing("waiting", "Store 102"));

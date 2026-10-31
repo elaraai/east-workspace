@@ -24,7 +24,9 @@
  *   - footer: the shared footer rail (`builder-footer.ts`), which holds the shared Save notice and loading line.
  *   - cardRow: a row of the list — a card, a receipt or a case not read yet, the shared pending card of a closed card's
  *     height — inset 12 at either side and 8 below the row above, so the row's measured height carries the gap.
- *   - card, head and its parts: the card, `--ink` while open (`data-open`); its head — sticky at the list's top while
+ *   - card, head and its parts: the card, `--ink` while open (`data-open`), standing once applied (`data-applied`) for
+ *     `--dur-slow` while its preview settles — a clock that draws nothing (`decision-applied`), whose end the queue waits
+ *     on to set the receipt in its place; its head — sticky at the list's top while
  *     the card is open, `--paper-3` with a rule under it then, `--brand-tint` once modified (`data-modified`), its
  *     eyebrow, due words in their tone (`data-tone="overdue|today"`), title, chip line and value line with the status
  *     at its end (`data-tone="warn|neg|routine"`).
@@ -43,7 +45,10 @@
  * On a coarse pointer each bare button — Why's toggle, a link, a receipt's Undo — is a 44px tap target by its halo
  * (`coarseHitArea`), its size kept; an option, whose neighbours sit edge to edge, is 44px tall.
  *
- * Under `prefers-reduced-motion` every duration is 0: the body opens, the receipt arrives and the chip settles at once.
+ * Under `prefers-reduced-motion` nothing moves: the body opens, an applied card gives way, the receipt arrives and the
+ * chip settles at once. What the queue waits on — an applied card's clock, the receipt's arrival — keeps its animation,
+ * which the theme runs in a moment (`global-css.ts`) and which still ends; taken away, it would never end, and the card
+ * or the receipt would stay. The receipt arrives from its own 40px then, so no frame draws it at the card's height.
  *
  * @packageDocumentation
  */
@@ -229,6 +234,8 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
             background: "bg.surface",
             overflow: "clip",
             "&[data-open]": { borderColor: "fg" },
+            // Applied (§8): the card stands while its preview settles, then the queue sets the receipt in its place.
+            "&[data-applied]": { animation: "decision-applied {durations.slow} linear" },
             ...RETAINED,
         },
         head: {
@@ -709,7 +716,9 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
             background: "bg.canvas",
             overflow: "hidden",
             "&[data-arriving]": { animation: "decision-receipt-in {durations.normal} {easings.out} both" },
-            _motionReduce: { "&[data-arriving]": { animation: "none" } },
+            // Under reduced motion the arrival runs in the theme's moment, and its first frame would draw the card's
+            // height: it starts from the receipt's own 40px instead, over the card's height the queue sets inline.
+            _motionReduce: { "&[data-arriving]": { "--receipt-from": "40px !important" } },
             ...RETAINED,
         },
         receiptDot: {

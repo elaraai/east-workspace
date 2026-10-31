@@ -130,3 +130,16 @@ export async function press(el: Element) {
     await act(async () => { fireEvent.click(el); });
     await settle();
 }
+
+/**
+ * Ends an applied card's wait while its preview settles (P22): the `decisionQueue` recipe's clock, which jsdom never
+ * runs, ends on the card — under the name React hears an animation's end by in jsdom, which has no `AnimationEvent` —
+ * and the card gives way to its receipt.
+ *
+ * @param container - The page
+ * @param key - The applied case's key
+ */
+export async function settleApplied(container: HTMLElement, key: string) {
+    await act(async () => { card(container, key).dispatchEvent(new Event("webkitAnimationEnd", { bubbles: true })); });
+    await settle();
+}

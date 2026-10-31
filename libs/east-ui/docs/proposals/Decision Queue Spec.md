@@ -952,9 +952,10 @@ padding (312 when the queue is 360 wide). Sizes by kind: P2–P12.
 | A card closing | removed in one frame |
 | The anchor's tween, the reveal | 200 ms, ease-out cubic |
 | The reveal's wait | `--dur-base` after the open |
+| An applied card's wait, its preview settling (P22) | `--dur-slow`, the marks `--ease-out` |
 | The receipt's arrival | the card's height → 40, `--dur-base`, `--ease-out` |
 | The count chip's settle | `--dur-slow`, `--ease-out` |
-| Under `prefers-reduced-motion` | every duration 0; the anchoring applies |
+| Under `prefers-reduced-motion` | every duration 0, and what waits on one goes on at once; the anchoring applies |
 
 ## 9. Behaviour
 
@@ -1014,7 +1015,9 @@ queue's, P the previews'.
   open card; Enter or Space on a head toggles it; ⌘Z, ⇧⌘Z and ⌘Y are the
   history's. Focus moves without scrolling. The queue takes these keys; a key
   typed in a field is the field's.
-- **R13. Reduced motion.** Every duration is 0; the anchoring applies.
+- **R13. Reduced motion.** Every duration is 0, and what waits on one goes on
+  at once — an applied card's wait (P22), the receipt's arrival; the anchoring
+  applies.
 
 ### 9.3 The open card (owner: `decision/card.tsx`; test: DOM on e3-web)
 
@@ -1094,8 +1097,9 @@ off its builder's view is not drawn, and what must hold Apply is the app's
   proposal · override or defer.`); Override and Defer stay.
 - **R24. Receipt.** The card becomes a 40px receipt in the same place: the
   dot, the verdict, the option's title and Undo. The card shrinks to it and
-  the cards below rise. A case read decided — saved, or decided in another
-  session — is the same receipt, with no Undo.
+  the cards below rise — an applied card once its preview has settled (P22).
+  A case read decided — saved, or decided in another session — is the same
+  receipt, with no Undo.
 - **R25. Stays.** The receipt stays in its case's place while the case is in
   the list: no hold and no leaving (ruled 30 Oct 2026, D4). The focus moves to
   the next card's head, which neither opens nor scrolls.
@@ -1194,8 +1198,13 @@ off its builder's view is not drawn, and what must hold Apply is the app's
 - **P21. Stale.** The patch no longer applies to the record — a row moved since
   the run: the frame turns dashed and the proposal a dashed `--paper-3` shape
   with no glow; the case's status reads `Stale`, and Apply is off (R23).
-- **P22. Applied.** As the receipt arrives, the glow settles into the builder's
-  own fill and the ghosts go, over `--dur-slow`.
+- **P22. Applied.** On Apply the card stays where it is for `--dur-slow`
+  while its preview settles — the glow into the builder's own fill, the
+  knock-on and breach rings and the ghosts gone — showing what it showed at
+  the click, then shrinks to its receipt (R24). The verdict counts at the
+  click — its step, the keyboard on the next card's head (R25) — and the card
+  takes nothing more meanwhile: inert, its buttons off. A step of the history
+  ends the wait at once.
 - **P23. Loading.** The preview's rows not read yet are the shared skeleton:
   static `--paper-3` shapes in the final layout, after the reveal clock, no
   shimmer; a read that failed says so once in the preview.
@@ -1346,8 +1355,10 @@ does, and what follows.
   of the cases a Save took out of it; another session's new case and verdict;
   each part of the open card (§9.3); each verdict drafted into the case's row
   as one step across the records it writes, saved, and read back after a
-  remount; Undo, Redo and Discard; a receipt's Undo while its step is the
-  last, and gone after a later one; a conflict, a refusal and an unknown
+  remount; an applied card standing as it was while its preview settles, and
+  a step of the history ending its wait; Undo, Redo and Discard; a receipt's
+  Undo while its step is the last, and gone after a later one; a conflict, a
+  refusal and an unknown
   outcome; choices kept across a remount; Modify through each
   builder's inspector form, its `ready` holding Apply, its edits reaching the
   preview and the record; Stale; the keys; read only; every preview kind and
@@ -1358,7 +1369,8 @@ does, and what follows.
   width, the 28px controls and the history item's fold; the footer's line; the
   same queue in a 294px parent and a 360px one, the row's floor in the first;
   computed styles of the card,
-  the open card, the receipt and the marks in both themes; reduced motion.
+  the open card, the receipt and the marks in both themes, an applied card's
+  marks settling before its receipt arrives; reduced motion.
 - **Examples.** `decisionQueueMinimal` (§3.2: one record of proposals with no
   alternatives, two tags, a target each), `decisionQueueOps` (§3.3: the mock's
   nine cases and its three routine ones over the warehouse's, the print
