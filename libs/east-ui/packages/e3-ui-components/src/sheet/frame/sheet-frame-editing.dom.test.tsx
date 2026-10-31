@@ -249,6 +249,19 @@ test("sheetConflicts: a Qty typed here, then Someone else saves, is one conflict
     expect(toolbar(container).getByRole("button", { name: "Save" }).getAttribute("aria-disabled")).toBe("true");
 });
 
+test("sheetConflicts: Go to from a conflict's card notes it in the footer, its column by its header, and the note goes once the conflict is chosen", async () => {
+    const { container } = await h.mount(ex.sheetConflicts);
+    await typeInto(cells(container, "qty")[0]!, "50");
+    await press(within(container).getByRole("button", { name: "Someone else saves" }));
+    const note = () => container.querySelector('[data-slot="footerMessage"]')?.textContent ?? "";
+    const [card] = await conflictCards(container);
+    await press(card!.goTo());
+    expect(note()).toBe(`Qty: ${editingMessages.issueConflict()}`);
+    const [shown] = await conflictCards(container);
+    await press(shown!.radio("source"));
+    expect(note()).toBe("");
+});
+
 test("a refusal keeps every draft, with its banner and the reason; a revised draft may be saved again (SB28)", async () => {
     // The edge bander is booked that week: its jobs' patch door refuses a job that bands both edges.
     const { container } = await h.mount(bookedJobs);

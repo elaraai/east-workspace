@@ -103,12 +103,12 @@ import {
 } from "@elaraai/east-ui-components";
 import { DensityProvider, useDensityHeights, VirtualRows, devicePixels, kindOfIssue, recordSliceNoun, recordSliceWithinAt, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import type { SeekQueryType } from "@elaraai/east-ui";
-import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
+import { EditingIssueType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import {
     BOTTOM_PAD_PX, DEFAULT_BLANKS, DEFAULT_GUTTER_PX, NEW_LINE_KEY, NULL_CELL, TITLE_KEY,
     blankIdOf, bodyIndexOfId, buildBody, buildLensBody, cellIsBlank, cellText, countNoun, densityOf, drawnPx, driverKeyOf, groupBandPx, indexColumns, indexGroup, indexRegisters, isLooseRow, isRowSpace, itemPx,
     latencyOf, layoutLensRun, layoutRun, lineAddress, lineId, lineRowsOf, parseWidth, resolveMember as resolveRegisterMember, rowIsBlank, segmentOf, stickyRows, withLine, withProposals, withoutLines,
-    type LineGroup, type SheetBodyItem, type SheetColumnMeta, type SheetGeometry,
+    type LineGroup, type SheetBodyItem, type SheetColumnIndex, type SheetColumnMeta, type SheetGeometry,
 } from "./model.js";
 import { SHEET_PAGE_SIZE, useSheetPaging, type SheetViewport } from "./paging.js";
 import { placeInOrder } from "./placement.js";
@@ -210,6 +210,7 @@ const sheetRootDataEqual = equalFor(Sheet.Types.Root);
 const stringEqual = equalFor(StringType);
 const cellEqual = equalFor(Sheet.Types.Cell);
 const readinessEqual = equalFor(SheetBatchReadinessType);
+const issueEqual = equalFor(EditingIssueType);
 const printString = printFor(StringType);
 /** A live source's rows under one narrowing, named apart (#1354): the source and its narrowing, as East prints them. */
 const printNarrowedSource = printFor(StructType({ source: StringType, narrowing: StringType }));
@@ -234,6 +235,17 @@ function narrowingOfSource(source: { query?: (() => string) | undefined } | unde
 function viewTitle(view: SheetSavedView, words: SheetWords): string {
     const q = narrowingQuery(view.narrowing).trim();
     return words.m.viewTitle({ scope: narrowingScope(view.narrowing), query: q });
+}
+
+/** A row as the sheet names it — its first text column's text — where it holds one. */
+function rowNameOf(row: SheetRowValue | undefined, columns: SheetColumnIndex): string | undefined {
+    if (row === undefined) return undefined;
+    for (const column of columns.list) {
+        if (column.kind !== "text") continue;
+        const cell = row.cells.get(column.key);
+        if (cell?.type === "String" && cell.value.trim().length > 0) return cell.value;
+    }
+    return undefined;
 }
 
 /** The decoded rows with the local layer applied — its placements in one linear pass (#859), and a keyed source's rows in key order (#1182). */
@@ -2754,10 +2766,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const column = field === undefined ? -1 : columns.list.findIndex(col => stringEqual(col.key, field));
         dispatch({ t: "select.set", r, c: Math.max(0, column) });
         setScrollTarget({ index, align: "auto" });
-        dispatchStore({ t: "patch", patch: { msg: { id: "issue", where: field ?? issue.entry, message: issue.message } } });
+        // The note names the place as the sheet does: the column by its header, else the row by its first text.
+        const where = column >= 0 ? columns.list[column]!.header : rowNameOf(rows.find((row) => stringEqual(row.id, issue.entry)), columns) ?? issue.entry;
+        dispatchStore({ t: "patch", patch: { msg: { id: "issue", where, issue } } });
         cardRef.current?.focus({ preventScroll: true });
         setPendingIssue(undefined);
-    }, [pendingIssue, body, rowSpace, columns, dispatch]);
+    }, [pendingIssue, body, rowSpace, columns, rows, dispatch]);
 
     // ── The view tabs and the lens's chrome (B§8) ─────────────────────────
     // A grouped sheet counts LINES (#740) — and its loose rows, each a row of its own (#846). A row is
@@ -3889,14 +3903,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     namingNow.current = { rows, columns };
     const rowWhere = useCallback((issue: EditIssue) => {
         const { rows: shown, columns: drawn } = namingNow.current;
-        const row = shown.find((r) => stringEqual(r.id, issue.entry));
-        if (row === undefined) return issue.entry;
-        for (const column of drawn.list) {
-            if (column.kind !== "text") continue;
-            const cell = row.cells.get(column.key);
-            if (cell?.type === "String" && cell.value.trim().length > 0) return cell.value;
-        }
-        return issue.entry;
+        return rowNameOf(shown.find((r) => stringEqual(r.id, issue.entry)), drawn) ?? issue.entry;
     }, []);
     // The issues' rows the narrowing may hide — those the body does not draw — asked of e3 as the Issues tab lists them,
     // and what an issue's line says of one it hides, in the sheet's words for an issue (the hidden pick).
@@ -3923,6 +3930,16 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         return [...(ready.type === "ready" ? [] : ready.value), ...session.issues];
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session.
     }, [session, readiness, draftVersion]);
+    // The footer's note of an issue gone to goes once the session no longer holds the issue: a conflict chosen, a
+    // check met, a refusal answered. The session is mutable: draftVersion moves with its conflicts.
+    const noted = ui.msg?.id === "issue" ? ui.msg.issue : undefined;
+    useEffect(() => {
+        if (noted === undefined || issueList.some((issue) => issueEqual(issue, noted))) return;
+        for (const entry of session.conflicts.values()) {
+            if (stringEqual(entry.id, noted.entry) && entry.points.some((point) => issueEqual(session.conflictIssue(entry.id, point), noted))) return;
+        }
+        dispatchStore({ t: "patch", patch: { msg: null } });
+    }, [noted, issueList, session, draftVersion]);
     const kindOf = useCallback((issue: EditIssue): "incomplete" | "invalid" => {
         const ready = session.readiness;
         // The very issue the readiness raised (identity, not equality): an Apply's look alike and are not its.
