@@ -159,7 +159,7 @@ import { PlanTypingStore, planZooms, type PlanTyping } from "./edit/typing.js";
 import { originOf, unmoved, usePlanCarry, type PlanMoveRequest } from "./edit/use-carry.js";
 import { PlanCarryAnnouncer } from "./edit/announce.js";
 import { PlanSelectableContext, elementKeyOf, holdsElement, selectableOf } from "./rows/element-select.js";
-import { PlanConflictedContext, PlanDraftedContext } from "./rows/element-draft.js";
+import { PlanConflictCellsContext, PlanConflictedContext, PlanDraftedContext } from "./rows/element-draft.js";
 import { PlanOptimisedContext, type PlanOptimisedMarks } from "./rows/element-optimise.js";
 import { rowValueAt, type PlanCanvasInspect } from "./root/inspect.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
@@ -1686,6 +1686,24 @@ export function usePlanCanvas({
         return out;
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version says they moved
     }, [eventSessions, historyVersion]);
+    // The table cells holding a conflict of `data`'s not yet chosen (#1438): each conflict at an instant of the row its path
+    // leads to — a crew's week — by the row's key; the cell holding the instant wears the warn halo.
+    const dataSession = editing.session;
+    const conflictCells = useMemo(() => {
+        const out = new Map<string, Date[]>();
+        for (const [id, entry] of dataSession.conflicts) {
+            for (const point of entry.points) {
+                const place = conflictPlaceOf(index.rows, id, point.at);
+                const row = place?.rows[place.rows.length - 1];
+                if (row === undefined || place?.at === undefined) continue;
+                const held = out.get(row.key);
+                if (held === undefined) out.set(row.key, [place.at]);
+                else held.push(place.at);
+            }
+        }
+        return out;
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the session is mutable: the history's version says it moved
+    }, [dataSession, index, historyVersion]);
     // The canvas's contexts and its declared density wrap everything the
     // frame draws — main, and the toolbar's items, the banners and the
     // footer — so each speaks as the canvas does.
@@ -1725,7 +1743,7 @@ export function usePlanCanvas({
             <PlanCursorContext.Provider value={cursor}>
             <PlanResolversContext.Provider value={resolvers}>
             <PlanSelectableContext.Provider value={selectable}>
-            <PlanDraftedContext.Provider value={drafted}><PlanConflictedContext.Provider value={conflicted}>
+            <PlanDraftedContext.Provider value={drafted}><PlanConflictedContext.Provider value={conflicted}><PlanConflictCellsContext.Provider value={conflictCells}>
             <PlanOptimisedContext.Provider value={optimisedMarks}>
             <PlanGridContext.Provider value={gridCtx}>
             <PlanEditContext.Provider value={editCtx}>
@@ -1733,7 +1751,7 @@ export function usePlanCanvas({
             </PlanEditContext.Provider>
             </PlanGridContext.Provider>
             </PlanOptimisedContext.Provider>
-            </PlanConflictedContext.Provider></PlanDraftedContext.Provider>
+            </PlanConflictCellsContext.Provider></PlanConflictedContext.Provider></PlanDraftedContext.Provider>
             </PlanSelectableContext.Provider>
             </PlanResolversContext.Provider>
             </PlanCursorContext.Provider>

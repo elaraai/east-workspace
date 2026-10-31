@@ -542,6 +542,8 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
             zIndex: -1,
         },
         "&[data-typed]:hover:not(:focus-visible)": { boxShadow: "inset 0 0 0 1px {colors.border.strong}" },
+        // A cell holding a conflict not yet chosen wears the warn halo: a 1px ring just outside it, over its neighbours.
+        "&[data-conflict]": { outline: "1px solid {colors.status.warn}", outlineOffset: "3px", zIndex: 3 },
         // Focused, the ring its input draws while open, and the Sheet's cell: 2px of brand INSIDE the cell. A cell is
         // its row's whole height, so a ring outside it, as other elements draw theirs, lost its top and bottom to the
         // row (#1438).

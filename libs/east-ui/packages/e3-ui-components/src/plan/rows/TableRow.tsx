@@ -47,7 +47,8 @@ import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefVal
 import type { TickFormatOpt } from "@elaraai/east-ui-components";
 import { ToneStrip, type ToneDatum } from "./ToneStrip.js";
 import type { PlanBucket, PlanScale } from "../scale.js";
-import { instantKey } from "../instant.js";
+import { instantKey, timeInstant } from "../instant.js";
+import { usePlanRowConflicts } from "./element-draft.js";
 import { usePlanEdit } from "../edit/store.js";
 import { readTyped, resolutionOfValues, typedText, typesAt, usePlanTypingFocus, usePlanTypingOpen, zoomApart, type PlanTyping } from "../edit/typing.js";
 import type { TimeResolution } from "../../shared/time/calendar-math.js";
@@ -187,6 +188,8 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
     const open = usePlanTypingOpen(typing?.store, rowKey);
     // A focus asked of the row draws it again, to take it as it draws.
     usePlanTypingFocus(typing?.store, rowKey);
+    // The instants its conflicts are at, not yet chosen: the cells holding them wear the warn halo.
+    const conflictsAt = usePlanRowConflicts(rowKey);
     // The cells by their bucket, which a popover of the input anchors to below 480px of main.
     const cellEls = useRef(new Map<string, HTMLElement>());
     // The plot's width, which each cell's share of it says whether its numerals fit: unknown before it is laid out.
@@ -358,8 +361,11 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
                 // Numerals wider than their column draw a dot in their place where the cell holds a value (#1438).
                 const dot = plotPx !== undefined && plotPx > 0 && (b.x1 - b.x0) * plotPx < numeralsPx(printed.map((p) => p.text), split)
                     ? printed.find((p) => p.held) : undefined;
+                const from = scale.toNumber(b.start), to = scale.toNumber(b.end);
+                const conflict = conflictsAt.some((at) => { const n = scale.toNumber(timeInstant(at)); return n >= from && n < to; });
                 return (
                     <Box key={bi} css={styles.tableCellText}
+                        data-conflict={conflict ? "" : undefined}
                         ref={(el: HTMLElement | null) => { if (el !== null) cellEls.current.set(cell, el); else cellEls.current.delete(cell); }}
                         data-plan-bucket={bi}
                         // The BUCKET instant — the same subject its click

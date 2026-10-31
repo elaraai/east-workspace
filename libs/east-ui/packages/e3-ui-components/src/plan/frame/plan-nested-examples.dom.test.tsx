@@ -289,9 +289,15 @@ describe("the nested series example on e3 (#1439)", () => {
         const [card, ...more] = await conflictCards(c);
         expect(more).toEqual([]);
         expect(card!.item).toBe("Works 10001 / Crew 1");
+        // The crew's week wears the warn halo while the conflict waits; the works' sum above it does not.
+        expect([cellOf("W-10001", "C-10001-1")!.hasAttribute("data-conflict"), cellOf("W-10001")!.hasAttribute("data-conflict")]).toEqual([true, false]);
         await act(async () => { fireEvent.click(card!.goTo()); });
         await settle();
         expect(document.activeElement).toBe(cellOf("W-10001", "C-10001-1"));
+        // Chosen, the halo goes.
+        await act(async () => { fireEvent.click(card!.radio("source")); });
+        await settle();
+        expect(cellOf("W-10001", "C-10001-1")!.hasAttribute("data-conflict")).toBe(false);
     });
 
     test("planNestedAll: a crew's hours typed are saved: one commit of the works record, read back with nothing pending", async () => {
