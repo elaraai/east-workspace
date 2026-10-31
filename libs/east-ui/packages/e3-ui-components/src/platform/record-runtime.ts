@@ -287,9 +287,10 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
 
     // Compiled-handle cache (issue #106 perf): buildHandle compiles 8 + (two per
     // mutation) East.functions per bind, and binds re-run every reactive frame.
-    // The method IR is a pure function of the record name (which fixes the handle
-    // type), and the methods resolve cache/api/ws LIVE, so a cached handle still
-    // re-binds. Cleared on clear().
+    // The method IR is a pure function of the record name and the mutations the
+    // handle binds (two binds of one record may bind different ones), and the
+    // methods resolve cache/api/ws LIVE, so a cached handle still re-binds.
+    // Cleared on clear().
     private readonly handleCache = new Map<string, Record<string, unknown>>();
 
     protected createEntry(): RecordEntry {
@@ -605,10 +606,13 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
      * serializable East data (issue #106).
      */
     buildHandle(handleType: EastTypeValue, name: string): Record<string, unknown> {
-        // Compiled-handle cache (issue #106 perf): the name fixes the record's
-        // signature, so the method IRs (incl. nested mutate.*) are identical across
-        // renders; methods resolve cache/api/ws live.
-        const cached = this.handleCache.get(name);
+        // Compiled-handle cache (issue #106 perf): the name and the handle's own
+        // mutations fix its signature, so the method IRs (incl. nested mutate.*)
+        // are identical across renders; methods resolve cache/api/ws live.
+        const fields = (handleType as { value: { name: string; type: EastTypeValue }[] }).value;
+        const key = [name, ...fields.flatMap(f => f.name === "mutate" || f.name === "commit"
+            ? [f.name, ...(f.type.value as { name: string }[]).map(m => m.name)] : [])].join("\u0000");
+        const cached = this.handleCache.get(key);
         if (cached) return cached;
 
         const sig = signatureOfRecordHandleType(handleType);
@@ -616,7 +620,6 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
 
         // Recover each method's exact return type from the handle type, so the
         // compiled wrappers match RecordBindHandleType without re-importing the types.
-        const fields = (handleType as { value: { name: string; type: EastTypeValue }[] }).value;
         const fnOut = (list: { name: string; type: EastTypeValue }[], n: string): EastType =>
             fromEastTypeValue(((list.find(f => f.name === n)!.type).value as { output: EastTypeValue }).output);
         const statusRet = fnOut(fields, "status");
@@ -664,7 +667,7 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
             start: East.compile(East.function([], NullType, ($) => { $.return(P.start(nameExpr)); }), platform),
             binding: { name, mutations: [...sig.mutations.keys()] },
         };
-        this.handleCache.set(name, handle);
+        this.handleCache.set(key, handle);
         return handle;
     }
 
