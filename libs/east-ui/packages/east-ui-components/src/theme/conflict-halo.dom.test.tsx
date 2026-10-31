@@ -62,6 +62,10 @@ describe("the conflict halo", () => {
         expect(plot).toMatch(/overflow-y: visible;/);
     });
 
+    test("a page editor's tile wears it, its corner the frame's plus 4", () => {
+        expect(rulesOf("snapGrid", "tile").get("&[data-conflict]::before")).toMatch(/top: -5px; right: -5px; bottom: -5px; left: -5px;.*border-radius: calc\(var\(--chakra-radii-lg\) \+ 4px\);/);
+    });
+
     test("a Flowchart node's and a Schematic item's stand 4px outside their borders, a selected node's outside its wider one", () => {
         const node = rulesOf("flowchart", "node");
         expect(node.get("&[data-conflict]::before")).toMatch(/top: calc\(-6px\); right: calc\(-6px\); bottom: calc\(-6px\); left: calc\(-6px\);.*border-radius: calc\(var\(--chakra-radii-md\) \+ 4px\);/);

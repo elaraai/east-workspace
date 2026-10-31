@@ -218,6 +218,8 @@ interface TileProps {
     /** The canvas's one tab stop. */
     tabStop: boolean;
     mark: SnapGridDraftMark | undefined;
+    /** It holds a conflict not yet chosen: it wears the warn halo. */
+    conflict: boolean;
     /** It moves: the session takes a gesture. */
     movable: boolean;
     /** Its height is edited. */
@@ -261,6 +263,7 @@ const SnapGridTileBox = memo(function SnapGridTileBox(p: TileProps) {
             data-align={cell.align.type}
             data-selected={p.selected ? "" : undefined}
             data-pending={p.mark === "pending" ? "" : undefined}
+            data-conflict={p.conflict ? "" : undefined}
             data-incomplete={p.mark === "incomplete" ? "" : undefined}
             data-invalid={p.mark === "invalid" ? "" : undefined}
             data-draggable={drag !== undefined ? "" : undefined}
@@ -1064,6 +1067,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                                                     selected={tile.key === selected}
                                                     tabStop={tile.key === tabStop}
                                                     mark={marks.get(tile.key)}
+                                                    conflict={session.conflicts.has(tile.id)}
                                                     movable={available}
                                                     heights={heights}
                                                     preview={preview?.key === tile.key ? preview : undefined}
