@@ -27,7 +27,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SortedMap, StringType, equalFor, none, variant } from "@elaraai/east";
+import { SortedMap, StringType, equalFor, isVariant, none, variant } from "@elaraai/east";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { AllocationComponent } from "@elaraai/e3-ui/internal";
 import {
@@ -60,7 +60,7 @@ import { useAllocationLibrary, type Pick, type ResourceFind } from "./library.js
 import { allocationMessages, type AllocationWords } from "./messages.js";
 import {
     DAY, NARROW_WIDTH, NO_PERIOD, allocationContext, allocationDomain, allocationWords, compareDate, compareFloat, compareString, configError, dayKey, dayStart,
-    editableStatus, focusOf, placeDrafted, placeStored, started, statusText, type AllocationStyles, type AllocationValue, type Day, type DraftedBin,
+    editableStatus, focusOf, placeDrafted, placeStored, started, statusText, type AllocationStyles, type AllocationValue, type Bin, type Day, type DraftedBin,
     type Issue, type PlacedPeriod, type Selection, type StoredBin,
 } from "./model.js";
 import { narrowingPart, narrowingText, useNarrowed } from "./narrowed.js";
@@ -504,10 +504,24 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     // whose read failed, its geometry and the failure said once in its first row in view (CL11) — never "Allocation
     // unavailable" over the board.
     const read = useMemo(() => periodRead({ current, error: data.error, name: dayWords, retry: retryDay }), [current, data.error, dayWords, retryDay]);
+    // A bin of a day not in view, as its draft holds it — its draft removing it, as their save left it — read on its own
+    // day: what a conflict's card names it by, and where its Go to goes.
+    const elsewhere = (id: string): Bin | undefined => {
+        let bin = editing?.bins.get(id);
+        if (bin === undefined) {
+            const theirs = editing?.schedule.sessions.find((held) => held.kind === value.bin.kind.key)?.session.conflicts.get(id)?.source;
+            const row = theirs?.type === "some" && isVariant(theirs.value) && theirs.value.type === "value" ? theirs.value.value : undefined;
+            if (row === undefined) return undefined;
+            const bytes = domain.encodeRow(row);
+            bin = { bytes, roles: value.bin.read(bytes), row };
+        }
+        const read = domain.binOf(bin.roles, bin.row, dayStart(bin.roles.at));
+        return read.type === "some" ? read.value : undefined;
+    };
     /** A session's issue's place: a bin by its arrival and its slot, a day's row by its key. */
     const where = (kind: string) => (issue: { entry: string }) => {
         if (kind === PERIODS) return issue.entry;
-        const bin = plan.bins.get(issue.entry) ?? held.bins.get(issue.entry);
+        const bin = plan.bins.get(issue.entry) ?? held.bins.get(issue.entry) ?? elsewhere(issue.entry);
         return bin === undefined ? issue.entry : `${binCode(context, bin)} · ${value.lanes.find(l => l.key === bin.lane)?.label ?? bin.lane} ${formatDatePattern("HH:mm", bin.at)}`;
     };
     // A conflict's item in the history bar's popover, named as its session's banners name its issues.
@@ -523,14 +537,28 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const conflicted = useCallback((id: string) => scheduleSessions?.some((held) => held.kind !== PERIODS && held.session.conflicts.has(id)) === true,
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version says they moved
         [scheduleSessions, scheduleVersion]);
-    // A conflict's Go to: its bin shown on its day and selected, as its issue's Show does; a day's opens the Issues tab.
+    // A Go to onto another day: its bin, inspected once that day's bins are read — another day clears a selection. The
+    // reader moving to another day drops it.
+    const [going, setGoing] = useState<{ readonly id: string; readonly day: number }>();
+    useEffect(() => {
+        if (going === undefined) return;
+        if (going.day !== dayEpoch) { setGoing(undefined); return; }
+        if (!current) return;
+        setGoing(undefined);
+        inspect({ type: "bin", id: going.id });
+    }, [going, dayEpoch, current, inspect]);
+    // A conflict's Go to: its bin shown on its day and selected, as its issue's Show does — on its own day, where it is a
+    // bin of another; a day's opens the Issues tab.
     const onConflict = (issue: EditIssue) => {
         const key = history?.sourceOf(issue);
         const part = key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key));
-        const bin = part === undefined || part.kind === PERIODS ? undefined : plan.bins.get(issue.entry) ?? held.bins.get(issue.entry);
+        const here = part === undefined || part.kind === PERIODS ? undefined : plan.bins.get(issue.entry) ?? held.bins.get(issue.entry);
+        const bin = here ?? (part === undefined || part.kind === PERIODS ? undefined : elsewhere(issue.entry));
         if (bin === undefined) { onIssues(); return; }
-        window.setView({ ...window.view, date: dayStart(bin.at).getTime() });
-        inspect({ type: "bin", id: issue.entry });
+        const on = dayStart(bin.at).getTime();
+        window.setView({ ...window.view, date: on });
+        if (here !== undefined) inspect({ type: "bin", id: issue.entry });
+        else setGoing({ id: issue.entry, day: on });
     };
     const toolbar = useAllocationToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, onConflict, where: historyWhere, onAction, onPickerWeeks: setPickerWeeks,
         status: value.periods.type === "some" ? statusText(heldPeriod) : undefined, unread: !current, publishing, picker: data.picker,

@@ -312,10 +312,14 @@ describe("the nested series example on e3 (#1439)", () => {
 });
 
 describe("the conflicts example (planConflictsTable)", () => {
-    test("a crew's week typed here, then Someone else saves, is one conflict named by its works and its crew, its cell wearing the ring until it is chosen", async () => {
+    /** The week typed into, its window's second. */
+    const WEEK = new Date("2026-10-05T00:00:00Z");
+
+    /** planConflictsTable mounted, 500 typed into North works' Crew 1 at {@link WEEK}, and Someone else saves. */
+    async function conflicted() {
         const { container: c } = await h.mount(ex.planConflictsTable);
         await settle();
-        const key = instantKey(timeInstant(new Date("2026-10-05T00:00:00Z")));
+        const key = instantKey(timeInstant(WEEK));
         const cellOf = (...path: string[]) => [...c.querySelectorAll<HTMLElement>(`${rowAt(entry(path.length === 1 ? "crews" : "crew", ...path))} [data-cell]`)]
             .find((cell) => cell.getAttribute("data-cell") === key);
         await waitFor(() => expect(cellOf("W-N", "C-1")).toBeDefined());
@@ -327,6 +331,14 @@ describe("the conflicts example (planConflictsTable)", () => {
         // Someone else's save puts 10 more hours on every crew's every week: theirs and the 500 here differ.
         await act(async () => { fireEvent.click(within(c).getByRole("button", { name: "Someone else saves" })); });
         await settle();
+        return { c, cellOf };
+    }
+
+    /** The first day the date navigator shows. */
+    const shownFrom = (c: HTMLElement) => new Date(Number(slot(c, "toolbar")!.querySelector("[data-time-navigation='plan']")!.getAttribute("data-time-anchor")));
+
+    test("a crew's week typed here, then Someone else saves, is one conflict named by its works and its crew, its cell wearing the ring until it is chosen", async () => {
+        const { c, cellOf } = await conflicted();
         const [card, ...more] = await conflictCards(c);
         expect(more).toEqual([]);
         expect(card!.item).toBe("North works / Crew 1");
@@ -335,5 +347,23 @@ describe("the conflicts example (planConflictsTable)", () => {
         await act(async () => { fireEvent.click(card!.radio("source")); });
         await settle();
         expect(cellOf("W-N", "C-1")!.hasAttribute("data-conflict")).toBe(false);
+    });
+
+    test("Go to, its works folded and the dates moved past its week: the dates come back over the week, the works opens, and the crew's week takes the focus, its row selected", async () => {
+        const { c, cellOf } = await conflicted();
+        const [card] = await conflictCards(c);
+        // North works folded, its crews' rows gone; the dates two weeks on, the week before them.
+        await act(async () => { fireEvent.click(c.querySelector<HTMLElement>(`${rowAt(entry("crews", "W-N"))} [role="rowheader"]`)!); });
+        await settle();
+        for (const _ of [1, 2]) {
+            await act(async () => { fireEvent.click(within(slot(c, "toolbar")!.querySelector<HTMLElement>("[data-toolbar-item='time-navigation']")!).getByRole("button", { name: "Next week" })); });
+            await settle();
+        }
+        expect([c.querySelector(rowAt(entry("crew", "W-N", "C-1"))), shownFrom(c) > WEEK]).toEqual([null, true]);
+        await act(async () => { fireEvent.click(card!.goTo()); });
+        await settle();
+        expect(shownFrom(c) <= WEEK).toBe(true);
+        await waitFor(() => expect(document.activeElement).toBe(cellOf("W-N", "C-1")));
+        expect(c.querySelector(rowAt(entry("crew", "W-N", "C-1")))!.getAttribute("aria-selected")).toBe("true");
     });
 });

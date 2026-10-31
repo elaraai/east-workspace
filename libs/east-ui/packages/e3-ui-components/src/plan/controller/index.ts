@@ -271,6 +271,14 @@ export interface PlanController {
      * the events are selected and nothing scrolls.
      */
     selectEvents(keys: readonly string[], row: RowKey | null): void;
+    /**
+     * Open a row's folded ancestors — and the group grain, where it folds the
+     * top group the row sits under — as the user would to see it: a
+     * conflict's Go to does, before it selects the row and shows it.
+     *
+     * @param key - The row
+     */
+    revealRow(key: RowKey): void;
     /** An element click — reported to the root's `onElementClick` (#824). */
     elementClick(ref: PlanElementRefValue): void;
     /** An element's popover / hover card wants to open or close. Opening runs
@@ -1139,6 +1147,16 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 // The selection is what the reader asked for: the folds and the
                 // grain it took are said by the canvas as it draws them.
                 say(announcementOf(e, before, store.ui, labelOf, words));
+            });
+        },
+        revealRow(key) {
+            batch(() => {
+                const current = rows();
+                const row = current.find((r) => r.key === key);
+                if (row === undefined) return;
+                reveal(row, new Map(current.map((r) => [r.key, r])));
+                persistToggles();
+                syncHeights();
             });
         },
         focusItem(key, align) {

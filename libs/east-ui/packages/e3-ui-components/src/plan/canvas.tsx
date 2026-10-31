@@ -1225,6 +1225,8 @@ export function usePlanCanvas({
     const typingStore = useMemo(() => new PlanTypingStore(), []);
     const scaleNow = useRef(scale);
     scaleNow.current = scale;
+    const moveWindowNow = useRef(moveWindow);
+    moveWindowNow.current = moveWindow;
     const onIssue = useCallback((issue: EditIssue, path?: PatchPath) => {
         const source = history.sourceOf(issue);
         const kind = source === undefined ? undefined : kindSessions.find((s) => stringEqual(s.key, source));
@@ -1232,14 +1234,22 @@ export function usePlanCanvas({
             if (issue.entry !== "") selectEvents([printEventRef({ kind: kind.kind, key: issue.entry })]);
             return;
         }
-        // A conflict's Go to: the row its path leads to among the canvas's rows (#1438) selected — a crew's, below its
-        // works' — and the cell holding the instant its path names focused as the row draws, as a zoom's landing focuses it.
+        // A conflict's Go to: the row its path leads to among the canvas's rows (#1438) opened under its folded rows and
+        // selected — a crew's, below its works' — the window moved over the instant its path names where it shows
+        // another, as many buckets as it shows with the instant's in their middle, and the cell holding the instant
+        // focused as the row draws in it, as a zoom's landing focuses it.
         const place = path === undefined ? undefined : conflictPlaceOf(indexRef.current?.rows ?? [], issue.entry, path);
         const row = place?.rows[place.rows.length - 1] ?? rowOfIssueNow.current(issue);
         if (row === undefined) return;
+        controller.revealRow(row.key);
         const shown = scaleNow.current;
         if (place !== undefined && place.at !== undefined && shown !== undefined && shown.kind === "time" && shown.resolution !== undefined) {
-            typingStore.focusOnZoom({ rowKey: row.key, at: shown.toNumber(timeInstant(place.at)), resolution: shown.resolution });
+            const at = timeInstant(place.at);
+            if (shown.bucketOf(at) < 0) {
+                const min = shown.offset(shown.floor(at), -Math.floor(shown.n / 2));
+                moveWindowNow.current(shown.toNumber(min), shown.toNumber(shown.offset(min, shown.n)));
+            }
+            typingStore.focusOnZoom({ rowKey: row.key, at: shown.toNumber(at), resolution: shown.resolution });
             controller.dispatch({ t: "row.select", key: row.key });
             controller.showItem(rowItemKey(row.key), "auto");
             return;

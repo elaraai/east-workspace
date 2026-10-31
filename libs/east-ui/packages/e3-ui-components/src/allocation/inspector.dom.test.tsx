@@ -908,4 +908,25 @@ describe("the conflicts example (allocationConflicts)", () => {
         expect(document.body.textContent).toContain(editingMessages.conflictsSettledNothing({ n: 1, count: "1" }));
         expect(save(c)).toHaveProperty("disabled", true);
     });
+
+    test("from another day, its card names the bin as it does on its own, and Go to goes back to its day and selects it", async () => {
+        const c = await open(ex.allocationConflicts);
+        await press(card(c, "3113"));
+        const user = userEvent.setup();
+        const quantity = within(details(c).querySelector<HTMLElement>('[data-field="quantity"]')!).getByRole("spinbutton");
+        await user.clear(quantity);
+        for (const k of "30") { await user.type(quantity, k); await settle(); }
+        await user.keyboard("{Enter}");
+        await settle();
+        await press(within(c).getByRole("button", { name: "Someone else saves" }));
+        await waitFor(() => expect(c.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
+        const named = (await conflictCards(c))[0]!.item;
+        // The next day: the bin is drawn nowhere, and its card names it as it did.
+        await key(c, "]");
+        expect(c.querySelector('[data-allocation-card="3113"]')).toBeNull();
+        const [conflict] = await conflictCards(c);
+        expect(conflict!.item).toBe(named);
+        await press(conflict!.goTo());
+        await waitFor(() => expect(c.querySelector('[data-allocation-card="3113"]')?.hasAttribute("data-selected")).toBe(true));
+    });
 });

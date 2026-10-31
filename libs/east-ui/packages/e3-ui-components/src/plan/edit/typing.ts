@@ -92,8 +92,9 @@ export class PlanTypingStore {
     /**
      * Focus a row's cell as it draws at a resolution: the cell that holds the
      * instant — once a zoom lands, where a double click or Enter on a coarser
-     * cell zooms to edit it (#1438), or at once, where a conflict's Go to
-     * goes to it. The row hears it, and draws again to take it.
+     * cell zooms to edit it (#1438), or once the window holds it, where a
+     * conflict's Go to moves the window over it. The row hears it, and draws
+     * again to take it.
      *
      * @param focus - The row, the instant and the resolution
      */
@@ -109,15 +110,18 @@ export class PlanTypingStore {
 
     /**
      * The focus a row's cells take as they draw at a resolution, taken once:
-     * the instant its cell holds, where the zoom landed on that row.
+     * the instant its cell holds, where the zoom landed on that row — once
+     * its window holds the instant, where a Go to moved the window over it.
      *
      * @param rowKey - The row drawing
      * @param resolution - The resolution it draws at
+     * @param holds - Whether the row's window holds an instant: until it does, the focus waits
      * @returns The instant, or `undefined` where no focus waits for it
      */
-    takeFocus(rowKey: RowKey, resolution: TimeResolution | undefined): number | undefined {
+    takeFocus(rowKey: RowKey, resolution: TimeResolution | undefined, holds?: (at: number) => boolean): number | undefined {
         const focusing = this.#focusing;
         if (focusing === null || focusing.rowKey !== rowKey || focusing.resolution !== resolution) return undefined;
+        if (holds !== undefined && !holds(focusing.at)) return undefined;
         this.#focusing = null;
         return focusing.at;
     }

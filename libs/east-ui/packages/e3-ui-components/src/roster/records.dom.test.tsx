@@ -309,4 +309,21 @@ describe("the conflicts example (rosterConflicts)", () => {
         // The move whole: its shift, its group and the late shift's times, over theirs.
         expect([saved.shift, saved.team, saved.start.getTime() !== theirs.start.getTime()]).toEqual(["late", "dispatch", true]);
     });
+
+    test("from another week, its card names the duty by whose it is, and Go to goes back to its week, opens its group and selects it", async () => {
+        const { container: c } = await h.mount(ex.rosterConflicts);
+        await drop(assignment(c, "d-1"), cell(c, 0, "dispatch", "late"));
+        await press(within(c).getByRole("button", { name: "Someone else saves" }));
+        await waitFor(() => expect(c.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
+        // Its group folded, and the next week shown: the duty is drawn nowhere.
+        await press(c.querySelector('[data-roster-group="dispatch"]'));
+        await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: "]" }); });
+        await settle();
+        expect(assignment(c, "d-1")).toBeNull();
+        const [card] = await conflictCards(c);
+        expect(card!.item).toBe("Ada Brook");
+        await press(card!.goTo());
+        await waitFor(() => expect(assignment(c, "d-1")?.hasAttribute("data-selected")).toBe(true));
+        expect(c.querySelector('[data-roster-group="dispatch"]')!.getAttribute("aria-expanded")).toBe("true");
+    });
 });

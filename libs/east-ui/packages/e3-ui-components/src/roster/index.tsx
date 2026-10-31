@@ -26,7 +26,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { StringType, equalFor, none, some, variant } from "@elaraai/east";
+import { StringType, equalFor, isVariant, none, some, variant } from "@elaraai/east";
 import { RosterComponent, RosterContextType } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useDataStable,
@@ -53,7 +53,8 @@ import { useRosterLibrary } from "./library.js";
 import { rosterMessages, type RosterWords } from "./messages.js";
 import {
     DAY, NARROW_WIDTH, NO_PAY, NO_PERIOD, RosterPayCache, availableProposals, compareDate, configError, editableStatus, placeDrafted, placeStored, placeTargets,
-    rosterContext, rosterDomain, spanWindow, spanWords, started, statusText, weekBefore, weekKey, weekNumber, weekOf, type DraftedDuty, type Issue, type PlacedDuties, type PlacedPeriod,
+    rosterContext, rosterDomain, spanWindow, spanWords, started, statusText, weekBefore, weekKey, weekNumber, weekOf, weekStart, type Assignment, type DraftedDuty, type Issue,
+    type PlacedDuties, type PlacedPeriod,
     type RosterPayload, type RosterStyles, type RosterValue, type Selection, type StoredDuty, type StoredTarget, type WeekState,
 } from "./model.js";
 import { landRosterOptimise, lockRosterCommands, rosterOptimiseRequest, rosterOptimiseTypes, type RosterOptimiseRequest, type RosterOptimiseResult, type RosterOptimised } from "./optimise.js";
@@ -366,10 +367,30 @@ function RosterFrame(props: FrameProps) {
         const on = active.closest(`[${attribute}]`)?.getAttribute(attribute);
         if (on !== null && on !== undefined && keyEqual(on, key)) board.focus({ preventScroll: true });
     };
+    // A duty of a week not in view, as its draft holds it — its draft removing it, as their save left it — placed in its
+    // own week: what a conflict's card names it by, and where its Go to goes. Its start stands up to twelve hours from its
+    // shift's on a day of its week, so the week either side of it may hold it.
+    const sunday = value.settings.weekStart.type === "sunday";
+    const elsewhere = (key: string): { readonly start: Date; readonly a: Assignment } | undefined => {
+        let duty = dutyDrafts.get(key);
+        if (duty === undefined) {
+            const theirs = editing?.schedule.sessions.find((held) => held.kind === source.duty.kind.key)?.session.conflicts.get(key)?.source;
+            const row = theirs?.type === "some" && isVariant(theirs.value) && theirs.value.type === "value" ? theirs.value.value : undefined;
+            if (row === undefined) return undefined;
+            const bytes = domain.encodeRow(row);
+            duty = { bytes, roles: source.duty.read(bytes, key), row };
+        }
+        for (const at of [duty.roles.start.getTime() - DAY / 2, duty.roles.start.getTime() + DAY / 2]) {
+            const from = weekStart(new Date(at), sunday);
+            const placement = domain.placement(duty.roles, duty.row, key, from, context);
+            if (placement.type === "placed") return { start: from, a: placement.value };
+        }
+        return undefined;
+    };
     /** A session's issue's place: a duty by whose it is, a week's or a target's row as it stands. */
     const where = (kind: string) => (issue: { entry: string }) => {
         if (kind !== source.duty.kind.key) return issue.entry;
-        const a = week.assignments.get(issue.entry) ?? held.assignments.get(issue.entry);
+        const a = week.assignments.get(issue.entry) ?? held.assignments.get(issue.entry) ?? elsewhere(issue.entry)?.a;
         return a === undefined ? issue.entry : assignmentName(value, a);
     };
     // A conflict's item in the history bar's popover, named as its session's banners name its issues.
@@ -378,19 +399,32 @@ function RosterFrame(props: FrameProps) {
         const part = key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key));
         return part === undefined ? issue.entry : where(part.kind)(issue);
     };
-    // A conflict's Go to: its duty shown on its day and selected, as its issue's click in the Issues tab does; a week's or
-    // a target's, or a duty of another week, opens the Issues tab.
+    // A Go to into another week: its duty, selected once that week's duties are read — another week clears a selection.
+    // The reader moving to a span without its week drops it.
+    const [going, setGoing] = useState<{ readonly key: string; readonly week: Date }>();
+    useEffect(() => {
+        if (going === undefined) return;
+        if (!span.weeks.some((at) => compareDate(at, going.week) === 0)) { setGoing(undefined); return; }
+        if (!current) return;
+        setGoing(undefined);
+        select({ type: "assignment", key: going.key });
+    }, [going, span, current, select]);
+    // A conflict's Go to: its duty shown on its day and selected, as its issue's click in the Issues tab does — in its
+    // own week, where it is a duty of another; a week's or a target's opens the Issues tab.
     const onConflict = (issue: EditIssue) => {
         const key = history?.sourceOf(issue);
         const part = key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key));
-        const a = part?.kind !== source.duty.kind.key ? undefined : week.assignments.get(issue.entry) ?? held.assignments.get(issue.entry);
+        const here = part?.kind !== source.duty.kind.key ? undefined : week.assignments.get(issue.entry) ?? held.assignments.get(issue.entry);
+        const there = part?.kind !== source.duty.kind.key || here !== undefined ? undefined : elsewhere(issue.entry);
+        const a = here ?? there?.a;
         if (a === undefined) { onIssues(); return; }
         // Its group opened where it is folded: its shift's on the board, its person's in the People layout.
         groups.open(a.slot.group);
         const person = a.who.type === "person" ? value.people.find((p) => keyEqual(p.key, a.who.value)) : undefined;
         if (person !== undefined) groups.open(person.group);
-        window.setView({ ...window.view, date: start.getTime() + Number(a.slot.day) * DAY });
-        select({ type: "assignment", key: issue.entry });
+        window.setView({ ...window.view, date: (there?.start ?? start).getTime() + Number(a.slot.day) * DAY });
+        if (there === undefined) select({ type: "assignment", key: issue.entry });
+        else setGoing({ key: issue.entry, week: there.start });
     };
     const toolbar = useRosterToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, onConflict, where: historyWhere, onAction, onPickerDates: setPickerDates, narrow,
         optimise: optimiseParts.toolbarItem, optimiseEntry: optimiseParts.entry, locked, issuesFlash: landing.lit && optimised !== undefined,

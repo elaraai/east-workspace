@@ -170,9 +170,10 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
     // each cell is a summary, which takes none.
     const types = typesAt(scale.resolution, zooms);
     const takesAt = (t: Typeable, bucket: number): boolean => types && (t.held.get(bucket) ?? 0) <= 1;
-    // A zoom from a coarser cell of this row lands on its cell holding the period's middle, once it draws.
+    // A zoom from a coarser cell of this row lands on its cell holding the period's middle, once it draws; a conflict's
+    // Go to on its cell holding the conflict's instant, once the window it moved holds it.
     useLayoutEffect(() => {
-        const at = typing?.store.takeFocus(rowKey, scale.resolution);
+        const at = typing?.store.takeFocus(rowKey, scale.resolution, (n) => scale.bucketOf(scale.fromNumber(n)) >= 0);
         if (at === undefined) return;
         const b = scale.renderBucketOf(scale.fromNumber(at));
         if (b !== undefined) cellEls.current.get(instantKey(b.start))?.focus({ preventScroll: true });
