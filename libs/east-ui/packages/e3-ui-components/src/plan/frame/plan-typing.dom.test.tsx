@@ -15,9 +15,9 @@
  * - While the ledger is read whole, the leaf and every row above it draw in
  *   flight.
  * - Cleared, the value goes; typed into the empty bucket, it comes back.
- * - Enter, F2, a double click or a digit opens the input; Tab and Shift+Tab
- *   move along the row, ↑ and ↓ to the rows above and below that take typing,
- *   and Esc writes nothing.
+ * - Enter, F2, a double click or a digit opens the input: the Sheet's number
+ *   field at its column's width, with no stepper. ↑ and ↓ step the number,
+ *   Tab and Shift+Tab move along the row, and Esc writes nothing.
  * - A parent's cell takes none, and nor does a bucket folding several values,
  *   whose tooltip names the resolution they are at and the Plan's zoom showing
  *   them apart, where it has one.
@@ -272,7 +272,7 @@ describe("a number typed into a table cell (#1438)", () => {
         await waitFor(() => expect([printed(c, LEAF, JAN_12), printed(c, MIDDLE, JAN_12)]).toEqual(["4", "11"]));
     });
 
-    test("Enter, F2 and a digit open the input; Tab and Shift+Tab move along the row, ↑ and ↓ across the rows that take typing, and Esc writes nothing", async () => {
+    test("Enter, F2 and a digit open the input; Tab and Shift+Tab move along the row, ↑ and ↓ step the number in place, and Esc writes nothing", async () => {
         const { container: c } = await h.mount(ledgersTyped("week"));
         await settle();
         const cell = cellAt(c, LEAF, JAN_12)!;
@@ -282,12 +282,11 @@ describe("a number typed into a table cell (#1438)", () => {
         expect([inputRow(c), inputOf(c)!.value]).toEqual([cellRowKey(LEAF), "3"]);
         await press(c, "Tab", true);
         expect(inputOf(c)!.value).toBe("2");
+        // ↑ and ↓ are the field's own, as the Sheet's: the input stays on its cell.
         await press(c, "ArrowDown");
-        expect([inputRow(c), inputOf(c)!.value]).toEqual([cellRowKey(LEAF_2), "3"]);
         await press(c, "ArrowUp");
-        expect([inputRow(c), inputOf(c)!.value]).toEqual([cellRowKey(LEAF), "2"]);
-        // Above the first leaf, its parents take none, and nor does any row above them.
-        await press(c, "ArrowUp");
+        expect(inputRow(c)).toBe(cellRowKey(LEAF));
+        await press(c, "Escape");
         expect(inputOf(c)).toBeNull();
         await act(async () => { fireEvent.keyDown(cell, { key: "F2" }); });
         await typeIn(c, "99");
@@ -300,6 +299,21 @@ describe("a number typed into a table cell (#1438)", () => {
         // Nothing was written: every cell as it was, and nothing read whole.
         expect([printed(c, LEAF, JAN_12), printed(c, MIDDLE, JAN_12)]).toEqual(["2", "9"]);
         expect(h.requests("rows", LEDGERS)).toEqual([]);
+    });
+
+    test("the input is the Sheet's number field at its column's width, with no stepper: ↑ steps it through the field's own handler, and Enter writes the stepped number", async () => {
+        const { container: c } = await h.mount(ledgersTyped("week"));
+        await settle();
+        await openOn(c, LEAF, JAN_12);
+        const field = c.querySelector<HTMLElement>("[data-plan-typing]")!;
+        const cell = cellAt(c, LEAF, JAN_12)!;
+        expect([field.style.left, field.style.width]).toEqual([cell.style.left, cell.style.width]);
+        expect(field.querySelector('[data-scope="number-input"][data-part="control"]')).toBeNull();
+        expect(inputOf(c)!.value).toBe("2");
+        await press(c, "ArrowUp");
+        await press(c, "Enter");
+        await settle();
+        await waitFor(() => expect(printed(c, LEAF, JAN_12)).toBe("3"));
     });
 
     test("a parent's cell takes no typing; at the month of a Plan with no slice, its one zoom however its axis names the week, a leaf's cell folding its weeks takes none either, its tooltip saying no zoom of this Plan's shows them apart", async () => {

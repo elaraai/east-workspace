@@ -50,7 +50,7 @@ import type { PlanBucket, PlanScale } from "../scale.js";
 import { instantKey, timeInstant } from "../instant.js";
 import { usePlanRowConflicts } from "./element-draft.js";
 import { usePlanEdit } from "../edit/store.js";
-import { readTyped, resolutionOfValues, typedText, typesAt, usePlanTypingFocus, usePlanTypingOpen, zoomApart, type PlanTyping } from "../edit/typing.js";
+import { readTyped, resolutionOfValues, typedText, typesAt, usePlanTypingFocus, usePlanTypingOpen, zoomApart } from "../edit/typing.js";
 import type { TimeResolution } from "../../shared/time/calendar-math.js";
 import { PlanCellInput, type PlanCellInputMove } from "./CellInput.js";
 import { cellName, tablePartsText } from "../a11y.js";
@@ -119,40 +119,6 @@ function positionAt(target: EventTarget, here: readonly Typeable[]): number {
     const part = target instanceof Element ? target.closest("[data-part]")?.getAttribute("data-part") : undefined;
     const hit = part !== undefined && part !== null ? here.find((t) => t.position === Number(part)) : undefined;
     return (hit ?? here[0]!).position;
-}
-
-/** The row holding an element — a desktop row, or a narrow card. */
-const rowOf = (el: Element) => el.closest<HTMLElement>("[data-plan-row],[data-plan-card]");
-/** A row element's key. */
-const keyOfRow = (row: Element) => row.getAttribute("data-plan-row") ?? row.getAttribute("data-plan-card") ?? "";
-/** A row's cell at a bucket that takes typing, and the positions it takes. */
-function typedCellOf(row: Element, cell: string): { el: HTMLElement; positions: number[] } | undefined {
-    const el = [...row.querySelectorAll<HTMLElement>("[data-typed]")].find((c) => c.getAttribute("data-cell") === cell);
-    return el === undefined ? undefined : { el, positions: el.getAttribute("data-typed")!.split(" ").map(Number) };
-}
-
-/**
- * Move the input to the row above or below that takes a number at the same
- * bucket — the same position where it takes that one — among the rows
- * mounted; none there, it closes.
- *
- * @param typing - The canvas's typing
- * @param from - The cell the input is open on
- * @param cell - Its bucket, as `data-cell` names it
- * @param position - The position typed into
- * @param step - Down (`1`) or up (`-1`)
- */
-function moveAcross(typing: PlanTyping, from: HTMLElement, cell: string, position: number, step: 1 | -1): void {
-    const row = rowOf(from);
-    const frame = row?.closest("[data-virtual-rows],[data-plan-narrow]") ?? from.ownerDocument;
-    const rows = [...frame.querySelectorAll<HTMLElement>("[data-plan-row],[data-plan-card]")];
-    for (let i = row !== null ? rows.indexOf(row) + step : -1; i >= 0 && i < rows.length; i += step) {
-        const there = typedCellOf(rows[i]!, cell);
-        if (there === undefined) continue;
-        typing.store.openAt({ rowKey: keyOfRow(rows[i]!), position: there.positions.includes(position) ? position : there.positions[0]!, cell });
-        return;
-    }
-    typing.store.close();
 }
 
 /** The table-row plot content — per-bucket cells of series-joined parts. */
@@ -281,7 +247,7 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
         // The cell it is open on: where focus goes back to, and where a move across the rows starts — the input itself
         // may be in a popover, outside the rows.
         const cellOf = () => cellEls.current.get(open.cell);
-        const onWrite = (value: number | undefined, move: PlanCellInputMove, el: HTMLElement) => {
+        const onWrite = (value: number | undefined, move: PlanCellInputMove) => {
             const unchanged = value === undefined ? current === undefined : current !== undefined && sameNumber(value, current);
             if (!unchanged) {
                 // Over the one value the bucket held, at its date, so the number replaces it.
@@ -298,9 +264,6 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
                     typing.store.openAt({ rowKey, ...next });
                     return;
                 }
-            } else if (move === "up" || move === "down") {
-                moveAcross(typing, cellOf() ?? el, open.cell, position, move === "down" ? 1 : -1);
-                return;
             }
             const back = move !== "leave" ? cellOf() : undefined;
             typing.store.close();

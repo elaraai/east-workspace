@@ -6,14 +6,14 @@
 /**
  * The canvas's one input over a table cell (#1436, #1438): the common number
  * field, as the Sheet's cells use it, at the cell's column and the row's
- * height, the brand ring its chrome, its text in the table's numerals.
+ * height, the brand ring its chrome, its text in the table's numerals. It
+ * draws no stepper: a column holds the number and little more.
  *
  * - Enter writes it; Esc leaves the cell as it was; a blur writes it, and so
  *   does its unmounting with a number unwritten — its series hidden, its row
  *   gone — where a browser sends no blur (#1440).
- * - Tab and Shift+Tab write it and move along the row's cells that take a
- *   number; ↑ and ↓ write it and move to the rows above and below that take
- *   one — the field's own stepping never sees them.
+ * - ↑ and ↓ step the number, as the Sheet's field steps one; Tab and
+ *   Shift+Tab write it and move along the row's cells that take a number.
  * - Text that reads as no number, or a fraction where the values are whole, is
  *   refused, in words under the field and the ring in the neg tone; a field
  *   over whole numbers takes digits and a leading minus alone, as the common
@@ -30,8 +30,8 @@ import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
-/** Where the input goes once it writes: back to its cell (Enter), nowhere (a blur), or along or across the rows. */
-export type PlanCellInputMove = "stay" | "leave" | "next" | "previous" | "up" | "down";
+/** Where the input goes once it writes: back to its cell (Enter), nowhere (a blur), or along the row. */
+export type PlanCellInputMove = "stay" | "leave" | "next" | "previous";
 
 /**
  * The field's own format, in the viewer's language (#852): the bare edit
@@ -41,13 +41,11 @@ const NUMBER_FORMAT: Intl.NumberFormatOptions = { useGrouping: false, maximumSig
 /** A field over whole numbers: every digit, none after the point. */
 const INTEGER_FORMAT: Intl.NumberFormatOptions = { useGrouping: false, maximumFractionDigits: 0 };
 
-/** The keys that write the field, and where each moves it. */
+/** The keys that write the field, and where each moves it; ↑ and ↓ are the field's own, which step it. */
 function moveOf(e: KeyboardEvent<HTMLInputElement>): PlanCellInputMove | undefined {
     switch (e.key) {
         case "Enter": return "stay";
         case "Tab": return e.shiftKey ? "previous" : "next";
-        case "ArrowUp": return "up";
-        case "ArrowDown": return "down";
         default: return undefined;
     }
 }
@@ -107,7 +105,7 @@ export function PlanCellInput({ styles, x0, x1, text, seed, whole, name, read, o
         return true;
     };
     const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-        // The canvas takes no key typed here, and the field's own stepping none of these.
+        // The canvas takes no key typed here.
         e.stopPropagation();
         if (e.key === "Escape") {
             e.preventDefault();
