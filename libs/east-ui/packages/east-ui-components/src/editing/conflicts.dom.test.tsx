@@ -140,6 +140,8 @@ test("each conflict as the collection names it, with both sides and what both be
     // Every one chosen: it says so — Theirs taken, nothing is left to save — and the card folds to how it is chosen,
     // which opens it again.
     await waitFor(() => expect(ui.getByText("The conflict is chosen. Nothing is left to save.")).toBeTruthy());
+    // So does the button, to a screen reader: Save is not on.
+    expect(button()!.getAttribute("aria-label")).toBe("The conflict is chosen. Nothing is left to save.");
     expect(cards()[0]!.querySelector("input")).toBeNull();
     fireEvent.click(ui.getByRole("button", { name: "End · used theirs: 7" }));
     expect(radio(cards()[0]!, "source").checked).toBe(true);

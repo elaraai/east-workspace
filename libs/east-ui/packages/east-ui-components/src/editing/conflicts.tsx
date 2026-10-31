@@ -387,9 +387,10 @@ export function ConflictsControl<W>({ session, words, onIssue, where, item, issu
 
     const n = cards.length;
     const count = waiting > MOST_COUNTED ? `${words.number(MOST_COUNTED)}+` : words.number(waiting);
+    // Every one chosen: Save is on only where something is left to save — each choice of the newer value leaves nothing.
     const tip = waiting > 0
         ? (locked ? m.conflictsLockedTip({ n: waiting, count: words.number(waiting) }) : m.conflictsTip({ n: waiting, count: words.number(waiting) }))
-        : m.conflictsSettled({ n: chosen, count: words.number(chosen) });
+        : (session.pending > 0 ? m.conflictsSettled : m.conflictsSettledNothing)({ n: chosen, count: words.number(chosen) });
     // The cards whose long values are open in place.
     const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
     const close = () => { setOpen(false); setReopened(new Set()); setOpened(new Set()); };
