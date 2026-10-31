@@ -173,12 +173,17 @@ repeat stack_count times:
   repeat: varint(filename_len) utf8  varint(line)  varint(column)
 ```
 
-Filenames are inline UTF-8 (no string table). The section carries the map
-that is known before encoding starts (an explicit `sourceMap` option, or the
-root value's attached map). Maps discovered mid-stream travel as inline
-deltas on function values (below). Stack ids are positions (header section
-first, inline deltas appended in stream order), so `loc_id` integers inside
-IR data round-trip unchanged.
+Filenames are inline UTF-8 (no string table). A blob has **one map**: the
+stacks of this section, then those of each function value's inline delta
+(below), in stream order. Stack ids are positions in it, and every function
+decoded from the blob resolves its `loc_id` integers against it. The section
+carries a map the writer is given — an explicit `sourceMap` option, a root
+function value's map, or the header map a stream writer is opened with — and
+otherwise nothing, the map then travelling in deltas.
+
+A writer never writes a stack the blob already holds: TypeScript's reader
+keeps each stack's content once, east-c's appends every stack it reads, and
+the two agree on ids only while no stack repeats.
 
 ## Value stream — frames
 
@@ -360,17 +365,35 @@ IR                                 the FunctionIR/AsyncFunctionIR value,
 varint(capture_count)  captures    values typed by the IR's capture types
 ```
 
-The source-map delta carries stacks of the stream's map that are not yet on
-the wire — the map is adopted from the first function value that carries one
-(header map first, if present). Location ids inside IR are plain integer
-data; ids index the accumulated stack list (header + deltas, in order).
-Functions whose attached map is not the stream's map emit a delta of 0 (their
-locations resolve against the stream map, as in v4). Data values without
-functions pay nothing; function values without new stacks pay one byte.
+A closure carries its IR, its captures, and its program's whole map, and a
+blob holds closures of any number of programs under its one map. A closure
+of the blob's map writes its location ids as they stand. A closure of any
+other map writes each id where its stack, found by content, stands in the
+blob's map: a stack the blob lacks is added to it, in that map's order, and
+the IR is written with its ids so placed — so it names its own lines, never
+another program's. Location ids inside IR are otherwise plain integer data.
+The blob's map starts as the header section's; with no header map, it is the
+map of the first function value that carries one.
 
-Self-contained streams (below) MUST NOT emit non-zero deltas — stacks are
-whole-stream state. Writers fail loudly if a function would need one; pass
-the map up front instead.
+- **A whole value** writes the blob's map once the value is encoded: in the
+  header section when the writer has a header map, else in the first function
+  value's delta, every other delta being 0. A closure of another map adds the
+  stacks it brings to the blob's map, and they reach the first delta, which
+  is written again before the logical bytes are framed (nothing in them is a
+  byte offset). A value whose closures share one map is written as before,
+  and a decoded value, whose closures share the blob's map, is written again
+  as the bytes it was read from.
+- **A stream that is not self-contained** writes, in each function value's
+  delta, the stacks of the blob's map not yet on the wire.
+- **A self-contained stream** (below) writes every delta as 0: a segment
+  decoded on its own sees only the header's stacks. A closure whose stacks the
+  header holds keeps its ids; one whose stacks it lacks writes each of those
+  ids as 0, no location. A writer of a collection that holds functions takes
+  the map its closures name as its header map — a runner, its program's — so
+  they keep their lines.
+
+Data values without functions pay nothing; function values without new
+stacks pay one byte.
 
 ## Index section and footer (optional)
 
@@ -741,10 +764,14 @@ a runner's `--decode whole`).
 
 1. Resolve the header source map (explicit option, else the root value's
    attached map, else none).
-2. Write magic, type section, source map section.
-3. Encode the value into logical bytes with a fresh definition table
-   (single pass, no pre-walk); frame and append them. Container roots may
-   split content across segments; non-container roots are one frame.
+2. Encode the value into logical bytes with a fresh definition table
+   (single pass, no pre-walk). Container roots may split content across
+   segments; non-container roots are one frame. A closure of another map adds
+   the stacks it brings to the blob's map (*Functions*).
+3. Write magic, type section, and the source map section — the blob's map
+   when a header map was resolved, else empty, the blob's map being in the
+   first function value's delta, written again if a later closure brought
+   stacks — then frame and append the logical bytes.
 4. If indexed (container roots): emit tag / segment(s) / terminator as
    separate frames and append the index + footer.
 

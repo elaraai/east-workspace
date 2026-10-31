@@ -12,7 +12,7 @@ import {
     Beast2ElementWriter, Beast2ManifestWriter, Beast2RunSorter, RUN_MAX_BYTES, UnitOutcomeType, UnitType, InMemoryUnitIO, executeUnit,
     decodeBeast2For, decodeCollectionManifest, encodeBeast2FenceFor, encodeBeast2For, encodeBeast2PagedFor, encodeBeast2SegmentsFor, encodeEastIR,
     intakeBeast2For, mergeBeast2For, openBeast2LazyFor, readBeast2Extents, spliceBeast2, spliceBeast2Tail,
-    type Beast2ManifestSource, type Beast2RunSorterOptions, type EastIR, type EastType, type UnitDecode, type ValueTypeOf,
+    type Beast2ManifestSource, type Beast2RunSorterOptions, type EastIR, type EastType, type UnitDecode, type UnitOutput, type ValueTypeOf,
 } from "../src/index.js";
 
 /* The runner protocol's conformance corpus: units, each with the outputs and
@@ -59,21 +59,23 @@ const cases: RunnerCase[] = [];
 type Program = EastIR<any[], any>;
 
 /** Adds the manifest directory of a collection to `files`: the manifest at
- *  `path`, every object it names in `<path>.segments/`. */
-function addManifest(files: Map<string, Uint8Array>, path: string, type: EastType, elements: Iterable<unknown>): void {
+ *  `path`, every object it names in `<path>.segments/`, under the source map
+ *  given — a runner's, for a collection holding functions. */
+function addManifest(files: Map<string, Uint8Array>, path: string, type: EastType, elements: Iterable<unknown>, sourceMap: Program["source_map"] = null): void {
     const writer = new Beast2ManifestWriter(type, {
         object: (hash, bytes) => { files.set(`${path}.segments/${hash}.beast2`, bytes.slice()); },
         manifest: (bytes) => { files.set(path, bytes.slice()); },
-    });
+    }, { sourceMap });
     for (const element of elements) writer.add(element as never);
     writer.finish();
 }
 
 /** Adds a value output to `files` as a unit writes it: a collection as a
- *  manifest directory, anything else as one blob. */
-function addValue(files: Map<string, Uint8Array>, path: string, type: EastType, value: unknown): void {
-    if (type.type === "Dict") addManifest(files, path, type, (value as SortedMap<unknown, unknown>).entries());
-    else if (type.type === "Array" || type.type === "Set") addManifest(files, path, type, value as Iterable<unknown>);
+ *  manifest directory, under the source map given, anything else as one
+ *  blob. */
+function addValue(files: Map<string, Uint8Array>, path: string, type: EastType, value: unknown, sourceMap: Program["source_map"] = null): void {
+    if (type.type === "Dict") addManifest(files, path, type, (value as SortedMap<unknown, unknown>).entries(), sourceMap);
+    else if (type.type === "Array" || type.type === "Set") addManifest(files, path, type, value as Iterable<unknown>, sourceMap);
     else files.set(path, encodeBeast2For(type)(value as never));
 }
 
@@ -114,6 +116,17 @@ function errorOf(program: Program, inputs: unknown[]): EastError {
         throw err;
     }
     throw new Error("the program did not fail");
+}
+
+/** The error a closure raises when called on `x`. */
+function closureErrorOf(fn: (x: bigint) => bigint, x: bigint): EastError {
+    try {
+        fn(x);
+    } catch (err) {
+        if (err instanceof EastError) return err;
+        throw err;
+    }
+    throw new Error("the closure did not fail");
 }
 
 /** The corrupt input's type. */
@@ -560,6 +573,122 @@ describe("runner protocol corpus", () => {
                     dir,
                     files,
                     expected: { name: `a fold of arrays, from a zero written as a manifest directory: ${named}`, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
+                });
+            }
+        });
+
+        test("closures emitted into an Array and into a Dict, and returned in an Array, each keeping the line it was written at", () => {
+            // A collection holding functions is written under the program's
+            // source map: every segment's header holds its stacks, so a
+            // closure decoded from any segment errors where it was written.
+            const Lookup = FunctionType([IntegerType], IntegerType);
+            const emitArray = East.function([FunctionType([Lookup], NullType)], NullType, ($, emit) => {
+                $.for(East.Array.range(0n, 3_000n), ($, i) => {
+                    $(emit(East.function([IntegerType], IntegerType, (_$, x) => East.value([10n, 20n]).get(x.add(i)))));
+                });
+            }).toIR();
+            const emitDict = East.function([FunctionType([StringType, Lookup], NullType)], NullType, ($, emit) => {
+                $.for(East.Array.range(0n, 3_000n), ($, i) => {
+                    $(emit(East.str`k${i.multiply(7919n).remainder(3_000n)}`, East.function([IntegerType], IntegerType, (_$, x) => East.value([10n, 20n]).get(x.add(i)))));
+                });
+            }).toIR();
+            const returnArray = East.function([], ArrayType(Lookup), (_$) =>
+                East.Array.range(0n, 3_000n).map(($, i) => East.function([IntegerType], IntegerType, (_$, x) => East.value([10n, 20n]).get(x.add(i))))).toIR();
+
+            const arrayOut = new Map<string, Uint8Array>();
+            const arrayEmitted = emissionsOf(emitArray, [], false) as ((x: bigint) => bigint)[];
+            addManifest(arrayOut, "out/0.beast2", ArrayType(Lookup), arrayEmitted, emitArray.source_map);
+            const dictOut = new Map<string, Uint8Array>();
+            const dictEmitted = emissionsOf(emitDict, [], true) as [string, (x: bigint) => bigint][];
+            assert.equal(addRuns(dictOut, "out", DictType(StringType, Lookup), dictEmitted, { sourceMap: emitDict.source_map }), 1);
+            const valueOut = new Map<string, Uint8Array>();
+            const returned = returnArray.compile([])() as ((x: bigint) => bigint)[];
+            addValue(valueOut, "output.beast2", ArrayType(Lookup), returned, returnArray.source_map);
+
+            const outputs: [dir: string, name: string, program: Program, output: UnitOutput, out: Map<string, Uint8Array>, path: string, type: EastType, first: (x: bigint) => bigint, absent: string[]][] = [
+                ["closures-array", "closures emitted into an Array", emitArray, variant("array", "out"), arrayOut, "out/0.beast2", ArrayType(Lookup), arrayEmitted[0]!, ["out/1.beast2"]],
+                ["closures-dict", "closures emitted into a Dict, as sorted runs", emitDict, variant("dict", { dir: "out", merge: none }), dictOut, "out/0.beast2", DictType(StringType, Lookup), new Map(dictEmitted).get("k0")!, ["out/1.beast2"]],
+                ["closures-value", "closures returned in an Array", returnArray, variant("value", "output.beast2"), valueOut, "output.beast2", ArrayType(Lookup), returned[0]!, []],
+            ];
+            for (const [dir, name, program, output, out, path, type, first, absent] of outputs) {
+                const manifest = decodeCollectionManifest(out.get(path)!);
+                assert.ok(manifest.entries.length > 1, `${name}: the output spans segments`);
+                // The first segment's first closure, decoded from that segment
+                // alone, errors where the closure was written.
+                const segment = decodeBeast2For(type)(out.get(`${path}.segments/${manifest.entries[0]!.hash}.beast2`)!) as unknown;
+                const decoded = (segment instanceof SortedMap ? segment.get("k0") : (segment as unknown[])[0]) as (x: bigint) => bigint;
+                const written = closureErrorOf(first, 5n);
+                assert.ok(written.location.length > 0, `${name}: the closure has a location`);
+                assert.deepEqual(closureErrorOf(decoded, 5n).location, written.location, `${name}: decoded, it errors where it was written`);
+                cases.push({
+                    dir,
+                    files: new Map([
+                        ["program.beast2", encodeEastIR(program)],
+                        ["unit.beast2", encodeBeast2For(UnitType)({
+                            work: variant("run", { program: "program.beast2", inputs: [], output, decode: variant("lazy", null) }),
+                            platforms: [],
+                            threads: 1n,
+                            fetch: false,
+                            result: "result.beast2",
+                        })],
+                    ]),
+                    expected: { name: `${name}, each keeping the line it was written at`, outcome: variant("ok", null), outputs: [...out].map(([p, bytes]) => ({ path: p, bytes })), absent },
+                });
+            }
+        });
+
+        test("closures of two programs, an input's beside the program's own, in one blob and in a collection", () => {
+            // In one blob, the first closure's delta holds both programs'
+            // stacks, and each closure decoded names its own lines. In a
+            // collection the header holds the program's map alone, so the
+            // input's closure is written with no location — never the
+            // program's.
+            const Lookup = FunctionType([IntegerType], IntegerType);
+            const Pair = StructType({ theirs: Lookup, ours: Lookup });
+            const other = East.function([], Lookup, (_$) => East.function([IntegerType], IntegerType, (_$, x) => East.value([10n]).get(x))).toIR();
+            const input = encodeBeast2For(Lookup)(other.compile([])());
+            const theirs = decodeBeast2For(Lookup)(input);
+            const pair = East.function([Lookup], Pair, (_$, f) => ({
+                theirs: f,
+                ours: East.function([IntegerType], IntegerType, (_$, x) => East.value([20n, 30n]).get(x)),
+            })).toIR();
+            const both = East.function([Lookup], ArrayType(Lookup), (_$, f) => [f, East.function([IntegerType], IntegerType, (_$, x) => East.value([20n, 30n]).get(x))]).toIR();
+
+            const pairOut = new Map<string, Uint8Array>();
+            const returned = pair.compile([])(theirs) as { theirs: (x: bigint) => bigint; ours: (x: bigint) => bigint };
+            addValue(pairOut, "output.beast2", Pair, returned);
+            const decoded = decodeBeast2For(Pair)(pairOut.get("output.beast2")!);
+            assert.notDeepEqual(closureErrorOf(returned.theirs, 5n).location, closureErrorOf(returned.ours, 5n).location, "two lines");
+            assert.deepEqual(closureErrorOf(decoded.theirs, 5n).location, closureErrorOf(returned.theirs, 5n).location, "the input's closure names its lines");
+            assert.deepEqual(closureErrorOf(decoded.ours, 5n).location, closureErrorOf(returned.ours, 5n).location, "the program's closure names its own");
+
+            const bothOut = new Map<string, Uint8Array>();
+            const listed = both.compile([])(theirs) as ((x: bigint) => bigint)[];
+            addValue(bothOut, "output.beast2", ArrayType(Lookup), listed, both.source_map);
+            const manifest = decodeCollectionManifest(bothOut.get("output.beast2")!);
+            const segment = decodeBeast2For(ArrayType(Lookup))(bothOut.get(`output.beast2.segments/${manifest.entries[0]!.hash}.beast2`)!);
+            assert.deepEqual(closureErrorOf(segment[0]!, 5n).location, [], "the input's closure has no stack in the program's map");
+            assert.deepEqual(closureErrorOf(segment[1]!, 5n).location, closureErrorOf(listed[1]!, 5n).location, "the program's closure names its own");
+
+            const outputs: [dir: string, name: string, program: Program, out: Map<string, Uint8Array>][] = [
+                ["closures-two-programs", "a value holding a closure an input brought beside the program's own", pair, pairOut],
+                ["closures-two-programs-collection", "a collection holding a closure an input brought beside the program's own", both, bothOut],
+            ];
+            for (const [dir, name, program, out] of outputs) {
+                cases.push({
+                    dir,
+                    files: new Map([
+                        ["program.beast2", encodeEastIR(program)],
+                        ["input-0.beast2", input],
+                        ["unit.beast2", encodeBeast2For(UnitType)({
+                            work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2"), decode: variant("lazy", null) }),
+                            platforms: [],
+                            threads: 1n,
+                            fetch: false,
+                            result: "result.beast2",
+                        })],
+                    ]),
+                    expected: { name, outcome: variant("ok", null), outputs: [...out].map(([p, bytes]) => ({ path: p, bytes })), absent: [] },
                 });
             }
         });

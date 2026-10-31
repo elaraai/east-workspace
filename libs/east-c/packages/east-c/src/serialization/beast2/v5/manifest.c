@@ -339,6 +339,12 @@ static bool manifest_writer_segment(void *ctx, const uint8_t *blob, size_t len, 
 Beast2ManifestWriter *east_beast2_manifest_writer_new(EastType *type, int32_t codec_id,
                                                       const Beast2ManifestSink *sink)
 {
+    return east_beast2_manifest_writer_new_with_source_map(type, codec_id, sink, NULL);
+}
+
+Beast2ManifestWriter *east_beast2_manifest_writer_new_with_source_map(
+    EastType *type, int32_t codec_id, const Beast2ManifestSink *sink, EastSourceMap *source_map)
+{
     if (!sink || !sink->object || !sink->manifest) {
         east_builtin_error(
             "beast2 v5: a manifest writer needs a sink for its objects and manifest");
@@ -354,7 +360,7 @@ Beast2ManifestWriter *east_beast2_manifest_writer_new(EastType *type, int32_t co
     w->entry_type = manifest_entry_type();
     w->entries = east_array_new(w->entry_type);
     Beast2SegmentSink segments = {w, manifest_writer_segment};
-    w->writer = east_beast2_element_writer_new_segments(type, codec_id, &segments);
+    w->writer = b2v5_element_writer_new_segments(type, codec_id, &segments, source_map);
     if (!w->entries || !w->writer) {
         east_beast2_manifest_writer_free(w);
         return NULL;
@@ -418,6 +424,14 @@ static void dir_target_free(DirTarget *dir)
 Beast2ManifestWriter *east_beast2_manifest_writer_new_dir(EastType *type, int32_t codec_id,
                                                           const char *path)
 {
+    return east_beast2_manifest_writer_new_dir_with_source_map(type, codec_id, path, NULL);
+}
+
+Beast2ManifestWriter *east_beast2_manifest_writer_new_dir_with_source_map(EastType *type,
+                                                                          int32_t codec_id,
+                                                                          const char *path,
+                                                                          EastSourceMap *source_map)
+{
     if (!path) {
         east_builtin_error("beast2 v5: a manifest directory needs a path");
         return NULL;
@@ -443,7 +457,8 @@ Beast2ManifestWriter *east_beast2_manifest_writer_new_dir(EastType *type, int32_
         return NULL;
     }
     Beast2ManifestSink sink = {dir, dir_object, dir_manifest};
-    Beast2ManifestWriter *w = east_beast2_manifest_writer_new(type, codec_id, &sink);
+    Beast2ManifestWriter *w =
+        east_beast2_manifest_writer_new_with_source_map(type, codec_id, &sink, source_map);
     if (!w) {
         dir_target_free(dir);
         return NULL;
@@ -536,12 +551,20 @@ void east_beast2_manifest_writer_free(Beast2ManifestWriter *w)
 bool east_beast2_write_manifest_dir(EastValue *value, EastType *type, int32_t codec_id,
                                     const char *path)
 {
+    return east_beast2_write_manifest_dir_with_source_map(value, type, codec_id, path, NULL);
+}
+
+bool east_beast2_write_manifest_dir_with_source_map(EastValue *value, EastType *type,
+                                                    int32_t codec_id, const char *path,
+                                                    EastSourceMap *source_map)
+{
     if (!value || !type) return false;
     if (!b2v5_is_segmented_root(type)) {
         east_builtin_error("beast2 v5: a manifest holds an Array, Set or Dict value");
         return false;
     }
-    Beast2ManifestWriter *w = east_beast2_manifest_writer_new_dir(type, codec_id, path);
+    Beast2ManifestWriter *w =
+        east_beast2_manifest_writer_new_dir_with_source_map(type, codec_id, path, source_map);
     if (!w) return false;
     /* Frames deflate on worker threads, as a paged encode's do; the objects
      * never depend on it. */

@@ -359,8 +359,10 @@ def _run_work(unit: dict[str, Any], platform_fns: list[PlatformFunction],
         if output["kind"] == "fold":
             combine = _compile_ir_file(Path(output["combine"]), platform_fns)[0]
             zero = _load_frozen_whole(emit_types[0], Path(output["zero"]), emit_types[0])
+        # A collection holding functions is written under the program's
+        # source map, so the closures it emits keep their lines.
         sink = _UnitSinkCore(output["kind"], emit_types, output["path"], merge=merge,
-                             combine=combine, zero=zero)
+                             combine=combine, zero=zero, program=compiled)
     lap("compile")
 
     paths = [Path(p) for p in unit["inputs"]]
@@ -382,7 +384,7 @@ def _run_work(unit: dict[str, Any], platform_fns: list[PlatformFunction],
         if sink is not None:
             sink.finish()
         else:
-            _write_unit_value(handle.get_output_type(), output["path"], returned)
+            _write_unit_value(handle.get_output_type(), output["path"], returned, program=compiled)
         lap("output")
     finally:
         # What reading each lazy input came to, the output's writing included

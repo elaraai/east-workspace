@@ -29,7 +29,8 @@ import { ArrayType, BooleanType, NullType, OptionType, StringType, StructType, t
 import { EastTypeType, isTypeValueEqual, toEastTypeValue, type EastTypeValue } from "./type_of_type.js";
 import { IRType, LocationType, type IR, type FunctionIR, type AsyncFunctionIR, type PlatformIR, type VariableIR } from "./ir.js";
 import { walkIR, literalValueOf } from "./walker.js";
-import { variant, some, none, isVariant } from "./containers/variant.js";
+import { variant, some, none } from "./containers/variant.js";
+import { mapLocIds } from "./ir_locations.js";
 import { printTypeValue } from "./compile.js";
 import { encodeBeast2For, decodeBeast2For, readBeast2Type } from "./serialization/beast2/index.js";
 import { Expr } from "./expr/expr.js";
@@ -275,10 +276,8 @@ export function exportFunctions(pkg: string, version: string, functions: Record<
 }
 
 /**
- * The IR with every `loc_id` — each node's, each loop label's, each
- * variable's — naming its stack in `from` re-interned into `to`; an id
- * `from` cannot place becomes 0. Nodes are rebuilt once each, so a node the
- * IR shares (a parameter its body reads) stays shared.
+ * The IR with every loc_id naming its stack in `from` re-interned into `to`,
+ * in the walk's order ({@link mapLocIds}); an id `from` cannot place becomes 0.
  *
  * @param ir - The IR whose loc_ids index `from`
  * @param from - The stacks the IR's loc_ids index, entry 0 the empty one
@@ -286,36 +285,10 @@ export function exportFunctions(pkg: string, version: string, functions: Record<
  * @returns The IR, its loc_ids indexing `to`
  */
 function remapLocations(ir: IR, from: readonly (readonly Location[])[], to: SourceMap): IR {
-  const done = new Map<object, unknown>();
-  const loc = (id: bigint): bigint => {
+  return mapLocIds(ir, (id) => {
     const stack = id > 0n ? from[Number(id)] : undefined;
     return stack === undefined ? 0n : to.intern_stack([...stack]);
-  };
-  // A struct inside a node — a label, a case, a field, an entry — holds
-  // child nodes and, for a label, a loc_id of its own.
-  const child = (item: unknown): unknown => {
-    if (Array.isArray(item)) return item.map(child);
-    if (isVariant(item)) return node(item as IR);
-    if (item === null || typeof item !== "object") return item;
-    const out: Record<string, unknown> = {};
-    for (const [key, sub] of Object.entries(item)) out[key] = key === "loc_id" ? loc(sub as bigint) : child(sub);
-    return out;
-  };
-  const node = (n: IR): IR => {
-    const hit = done.get(n);
-    if (hit !== undefined) return hit as IR;
-    const out: Record<string, unknown> = {};
-    for (const [key, item] of Object.entries(n.value as Record<string, unknown>)) {
-      // Types hold no locations, and a Value node's value is data.
-      if (key === "loc_id") out[key] = loc(item as bigint);
-      else if (key === "type" || key === "type_parameters" || (n.type === "Value" && key === "value")) out[key] = item;
-      else out[key] = child(item);
-    }
-    const result = variant(n.type, out) as IR;
-    done.set(n, result);
-    return result;
-  };
-  return node(ir);
+  });
 }
 
 // The codec is built on first use, not at import: building a beast2 codec

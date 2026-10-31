@@ -154,7 +154,8 @@ static void b2v5_pool_free(B2V5FramePool *pool)
 /* ================================================================== */
 
 struct Beast2StreamWriter {
-    EastType *type; /* retained root collection type */
+    EastType *type;    /* retained root collection type */
+    EastSourceMap *sm; /* one reference: the header's map, or NULL */
     int32_t codec;
     bool with_index;
     bool finished;
@@ -179,6 +180,12 @@ struct Beast2StreamWriter {
 Beast2StreamWriter *east_beast2_writer_new(EastType *type, int32_t codec_id, bool self_contained,
                                            bool with_index)
 {
+    return b2v5_writer_new(type, codec_id, self_contained, with_index, NULL);
+}
+
+Beast2StreamWriter *b2v5_writer_new(EastType *type, int32_t codec_id, bool self_contained,
+                                    bool with_index, EastSourceMap *sm)
+{
     if (!type) return NULL;
     if (!b2v5_is_segmented_root(type)) {
         east_builtin_error("beast2 v5 streams hold Array, Set or Dict values");
@@ -196,21 +203,25 @@ Beast2StreamWriter *east_beast2_writer_new(EastType *type, int32_t codec_id, boo
     east_type_retain(type);
     w->codec = codec_id;
     w->with_index = with_index;
-    b2v5_enc_ctx_init(&w->ctx, NULL, self_contained);
+    w->sm = sm;
+    east_source_map_retain(sm);
+    b2v5_enc_ctx_init(&w->ctx, sm, self_contained);
     w->pending = byte_buffer_new(256);
     if (!w->pending) {
+        east_source_map_release(w->sm);
         east_type_release(w->type);
         free(w);
         return NULL;
     }
 
-    /* Header: magic + type section + (empty) source map section, then the
-     * root tag as its own frame so every segment frame is pure. The root
-     * container consumes definition 0 (no root object exists on the encode
-     * side — batches are independent values, so nothing can alias it). */
+    /* Header: magic + type section + source map section — the map closures
+     * in the stream are written against, or none — then the root tag as its
+     * own frame so every segment frame is pure. The root container consumes
+     * definition 0 (no root object exists on the encode side — batches are
+     * independent values, so nothing can alias it). */
     byte_buffer_write_bytes(w->pending, BEAST2_MAGIC_V5, 8);
     b2v5_write_type_section(w->pending, type);
-    b2v5_write_source_map_section(NULL, w->pending);
+    b2v5_write_source_map_section(sm, w->pending);
     static const uint8_t tag_new = B2V5_TAG_NEW;
     b2v5_write_frame(w->pending, &tag_new, 1, EAST_BEAST2_CODEC_NONE);
     w->ctx.def_count = 1;
@@ -532,6 +543,7 @@ void east_beast2_writer_free(Beast2StreamWriter *w)
     if (w->type) east_type_release(w->type);
     if (w->last_key) east_value_release(w->last_key);
     b2v5_enc_ctx_free(&w->ctx);
+    east_source_map_release(w->sm);
     if (w->pending) byte_buffer_free(w->pending);
     free(w->seg_offsets);
     free(w->seg_counts);
@@ -578,7 +590,12 @@ struct Beast2ElementWriter {
 
 Beast2ElementWriter *east_beast2_element_writer_new(EastType *type, int32_t codec_id)
 {
-    Beast2StreamWriter *stream = east_beast2_writer_new(type, codec_id, true, true);
+    return b2v5_element_writer_new(type, codec_id, NULL);
+}
+
+Beast2ElementWriter *b2v5_element_writer_new(EastType *type, int32_t codec_id, EastSourceMap *sm)
+{
+    Beast2StreamWriter *stream = b2v5_writer_new(type, codec_id, true, true, sm);
     if (!stream) return NULL;
     Beast2ElementWriter *w = calloc(1, sizeof(*w));
     ByteBuffer *open = byte_buffer_new(4096);
@@ -592,7 +609,8 @@ Beast2ElementWriter *east_beast2_element_writer_new(EastType *type, int32_t code
     w->stream = stream;
     w->type = stream->type;
     w->open = open;
-    b2v5_enc_ctx_init(&w->ctx, NULL, true);
+    /* Elements are encoded here, against the header's map the stream holds. */
+    b2v5_enc_ctx_init(&w->ctx, stream->sm, true);
     w->ctx.def_count = 1;
     w->ctx.segment_base_def = 1;
     return w;
@@ -601,11 +619,18 @@ Beast2ElementWriter *east_beast2_element_writer_new(EastType *type, int32_t code
 Beast2ElementWriter *east_beast2_element_writer_new_segments(EastType *type, int32_t codec_id,
                                                              const Beast2SegmentSink *sink)
 {
+    return b2v5_element_writer_new_segments(type, codec_id, sink, NULL);
+}
+
+Beast2ElementWriter *b2v5_element_writer_new_segments(EastType *type, int32_t codec_id,
+                                                      const Beast2SegmentSink *sink,
+                                                      EastSourceMap *sm)
+{
     if (!sink || !sink->segment) {
         east_builtin_error("beast2 v5: a segment writer needs a sink");
         return NULL;
     }
-    Beast2ElementWriter *w = east_beast2_element_writer_new(type, codec_id);
+    Beast2ElementWriter *w = b2v5_element_writer_new(type, codec_id, sm);
     if (!w) return NULL;
     /* Nothing has been written yet, so what the stream holds is the header
      * every segment is written under. */
