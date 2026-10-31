@@ -325,13 +325,20 @@ or call it (a `Call`; in an `East.asyncFunction`, calling an async one is a
 
 **Error locations.** A build records the python frames that built each node,
 so a runtime error names its authoring site: `EastError.location` is the stack —
-the lambda's `file:line:column` first, then the `East.function(...)` call and
-its callers — and a platform-signature mismatch at `East.compile` names the call
-the same way. The map rides the function's beast2 encoding, so the error reads
-the same on east-c or east-node. Paths are relative to the working directory;
-`set_location_base_path(dir)` (from `east`) pins the base for reproducible
-fixtures. An error inside a callback a builtin invokes (`arr.map(...)` and
-friends) resolves to the builtin's call site, on every runner.
+the lambda's `file:line:column` first, then any helper between, then the
+`East.function(...)` call — and a platform-signature mismatch at `East.compile`
+names the call the same way. The stack stops at that call: the code that
+imported or called the module is not recorded. A recorded path is relative to
+its file's project root, the nearest directory above it holding a
+`pyproject.toml`, so a function's IR is the same whichever module imported it
+and whatever directory the process ran in. A file in no project is relative to
+the working directory, and `set_location_base_path(dir)` (from `east`) pins one
+base for every path, for reproducible fixtures (`None` restores the default);
+`east-py check` names a refusal's frames relative to the working directory, as
+an editor opens them. The map rides the function's beast2 encoding, so the
+error reads the same on east-c or east-node. An error inside a callback a
+builtin invokes (`arr.map(...)` and friends) resolves to the builtin's call
+site, on every runner.
 `set_location_capture(False)` (from `east`) builds without recording any
 locations: there is then no stack walk per node, and an error raised by such a
 function carries no location. Binding names are read separately and keep
@@ -853,6 +860,13 @@ east_functions = {"score": score}          # name -> East.function artifact. CLO
 const score = East.importFunction("pricing", "score", FunctionType([RowType], FloatType));
 await e3.export(pkg, "out.zip");
 ```
+
+e3 exports each workspace package in one `east-py export-functions --batch`
+process, however many tasks import from it, and keeps the manifests, so a
+redeploy whose python has not changed runs no export (the **e3** skill). A
+function's manifest entry is its own: the same bytes whatever else the process
+built first and whatever directory it ran in, so a task embedding it keeps its
+hash until the function, or a line it was written at, changes.
 
 For a package built elsewhere (published, another repo), or to link
 in-process, write the manifest where the package lives and pass it:
@@ -1598,7 +1612,7 @@ east-py version -p east-py-std                  # the runner's version, and each
 | `exec <unit> [-v] [--profile]` | The runner protocol: one unit file says what to run — a program over its inputs, read as its `decode` says (as `run --decode`), or a merge of an output's parts — and where; the output is written by its kind and a result recorded. Exit 0 when it succeeded, 1 when it failed (the message and locations also go to stderr), 2 when the unit cannot be read or the result written. Relative paths in the unit are relative to its directory |
 | `convert <file> [-o FILE.east] [-v]` | Decodes a beast2 value (its header names the type) and prints it as East text, or writes it to a `.east` file |
 | `transpile <ir> [-o FILE] [--name NAME] [-p PACKAGE]…` | IR as a python module rebuilding it (`--name` binds it, default `main`; each `-p` prints its calls as that package's own functions) — [IR ↔ python](#ir--python-east-py-transpile-and-the-east-c-ir-toolbox) |
-| `export-functions <module> -o FILE [-p PACKAGE]… [--name NAME] [--package-version V] [--only NAME]…` | A module's (a dotted name, or a `.py` path) `east_functions` as a function manifest; every platform call must be provided by a `-p` package; `--name` defaults to the module's top-level name, the version to the installed distribution's (else `0.0.0`); `--only` exports just those. `--batch FILE` in place of `-o`/`-p`/`--only` writes several manifests from one import, FILE a beast2 batch (`FunctionExportBatchType`: each entry's `output`, `packages` and `only`) — what `e3.export` runs per workspace package — [Cross-language functions](#cross-language-functions-east-py-export-functions-and-eastimport_function) |
+| `export-functions <module> -o FILE [-p PACKAGE]… [--name NAME] [--package-version V] [--only NAME]…` | A module's (a dotted name, or a `.py` path) `east_functions` as a function manifest; every platform call must be provided by a `-p` package; `--name` defaults to the module's top-level name, the version to the installed distribution's (else `0.0.0`); `--only` exports just those, building only them and what they call (a sibling that does not build fails nothing). `--batch FILE` in place of `-o`/`-p`/`--only` writes several manifests from one import, FILE a beast2 batch (`FunctionExportBatchType`: each entry's `output`, `packages` and `only`) — what `e3.export` runs per workspace package — [Cross-language functions](#cross-language-functions-east-py-export-functions-and-eastimport_function) |
 | `lint [paths…] [--format text\|json] [--disable RULE]… [--exclude DIR]… [--list-rules]` | The rules (default path `.`); exit 1 on any finding, a warning included, 2 on a usage error — [Diagnostics](#diagnostics-at-edit-time--east-py-lint-east-py-check-flake8-east-py-lsp) |
 | `check <targets…> [--format text\|json] [--only-if-enabled]` | The build's own errors; exit 1 on any |
 | `lsp [--probe]` | The Language Server over stdio (needs `pygls`); `--probe` reports whether it can start here |
@@ -1997,6 +2011,12 @@ out = EastMatrix(FloatType, model(t).detach().cpu().numpy())   # bridge canonica
 - **Read a captured East collection with `.get(expr)` /
   `.get_or_default(expr, d)` / `.try_get(expr)`** — `[expr]` on a captured
   constant does not build IR (python coerces the index via `__index__`).
+- **A python set has no order of its own.** Under a Set type
+  (`b.const({"a", "b"}, SetType(StringType))`, `East.new_set(T, {…})`) its
+  elements are built in East's order of `T`, the order an `EastSet` keeps, so
+  the IR is the same in every process; a list keeps the order it is written in.
+  A python set holding a traced value (`{some(x)}`) has nothing to order by and
+  is refused — write a list.
 - **Genuinely-python loops cross the boundary once** — `to_columns()` /
   `EastArray.from_columns` / `map_batches`, never a platform call or a decode per
   element.
