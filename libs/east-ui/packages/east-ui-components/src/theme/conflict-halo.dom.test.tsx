@@ -62,6 +62,17 @@ describe("the conflict halo", () => {
         expect(plot).toMatch(/overflow-y: visible;/);
     });
 
+    test("a phone's cards wear it, the Roster's and the Allocation's as the Calendar's, and a bin on a card outside its rule", () => {
+        for (const [recipe, slot] of [["calendar", "card"], ["rosterBuilder", "card"], ["allocationBuilder", "agendaCard"]] as const) {
+            expect(rulesOf(recipe, slot).get("&[data-conflict]")).toMatch(/outline: 1px solid .*outline-offset: 4px;/);
+        }
+        expect(rulesOf("allocationBuilder", "agendaBin").get("&[data-conflict]::before")).toMatch(/top: calc\(-6px\); right: -5px; bottom: -5px; left: -5px;/);
+    });
+
+    test("a Plan mark's label stands clear of the mark's", () => {
+        expect(rulesOf("plan", "markLabel").get("[data-conflict]+&")).toMatch(/^margin-left: 6px;$/);
+    });
+
     test("a page editor's tile wears it, its corner the frame's plus 4", () => {
         expect(rulesOf("snapGrid", "tile").get("&[data-conflict]::before")).toMatch(/top: -5px; right: -5px; bottom: -5px; left: -5px;.*border-radius: calc\(var\(--chakra-radii-lg\) \+ 4px\);/);
     });

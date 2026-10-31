@@ -467,6 +467,8 @@ export const elementsBase = {
         zIndex: 3,
         pointerEvents: "none",
         "&[data-ctx]": { display: "none" },
+        // Beside a mark holding a conflict, clear of its halo.
+        "[data-conflict] + &": { marginLeft: "6px" },
     },
     // ── Moves (#825) ──
     // A run's or a chip's end handle — the element's first / last 6px, where

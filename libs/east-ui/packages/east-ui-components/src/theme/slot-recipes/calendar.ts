@@ -184,7 +184,7 @@ export const calendarSlotRecipe = defineSlotRecipe({
         },
         // The narrow agenda: the shared part the Roster and the Allocation take too, a card in an overlap pair ringed in warn.
         agenda: scheduleAgenda, agendaGroup: scheduleAgendaGroup, agendaHead: scheduleAgendaHead,
-        card: { ...scheduleCard, "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING }, ...planElementConflict, "[data-calendar-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },
+        card: { ...scheduleCard, "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING }, "[data-calendar-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },
         cardHead: scheduleCardHead, cardTitle: scheduleCardTitle, actions: scheduleCardActions,
         section: { display: "flex", flexDirection: "column", gap: "12px", padding: "16px", borderBottomWidth: "1px", borderColor: "border.subtle", minWidth: 0 },
         status: INSPECTOR_STATUS,

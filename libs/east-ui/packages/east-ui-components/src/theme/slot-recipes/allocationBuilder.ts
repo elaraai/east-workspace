@@ -70,6 +70,7 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
+import { conflictHalo } from "../conflict-halo.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { INSPECTOR_STATUS } from "./inspector.js";
 import { heldToolbarSlot, retainedColumn, retainedRow } from "./loading.js";
@@ -715,8 +716,12 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "&[data-tone=danger]": { color: "fg.danger", fontWeight: "semibold" },
             "&[data-tone=warning]": { color: "fg.warning", fontWeight: "semibold" },
         },
-        // A bin on a resource's card: its line over its actions, under the rule; a draft's in the brand, the selected one in the ink.
-        agendaBin: { display: "flex", flexDirection: "column", gap: "8px", minWidth: 0, paddingTop: "8px", borderTopWidth: "1px", borderColor: "border.subtle" },
+        // A bin on a resource's card: its line over its actions, under the rule; a draft's in the brand, the selected one in the ink;
+        // one holding a conflict not yet chosen in the warn halo, outside its rule.
+        agendaBin: {
+            position: "relative", display: "flex", flexDirection: "column", gap: "8px", minWidth: 0, paddingTop: "8px", borderTopWidth: "1px", borderColor: "border.subtle",
+            ...conflictHalo("none", { top: "1px" }),
+        },
         agendaBinHead: {
             display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: "8px", minWidth: 0, textAlign: "left", textStyle: "mono.sm", color: "fg.strong",
             "[data-draft] > &": { color: "brandPressed" }, "[data-selected] > &": { color: "fg", fontWeight: "semibold" }, ...planElementFocus,
