@@ -8,18 +8,32 @@
  * (merge.ts): which entry, where in it, and each side's value there, in plain
  * words. Yes or No; a number or a date in the reader's locale; text as it is;
  * a choice by its name, then its details; a list or a map by its size;
- * absence said in words. Two values that would read the same — numbers alike
- * to the digits shown, dates alike to the day — are written in full, so the
- * sides read apart.
+ * absence said in words. Where two of the three — Yours, Theirs and what both
+ * began from — would read the same — numbers alike to the digits shown, dates
+ * alike to the day — all three are written in full, so they read apart. A
+ * range written in full writes its date once where it falls in one day, and a
+ * moment, its two ends the same, once.
  *
  * @packageDocumentation
  */
-import { StringType, equalFor, parseFor, printFor, toEastTypeValue, type EastType, type PatchPath, type option, type variant } from "@elaraai/east";
+import { DateTimeType, StringType, equalFor, parseFor, printFor, toEastTypeValue, type EastType, type PatchPath, type option, type variant } from "@elaraai/east";
 import { isDraftField } from "./merge.js";
 import type { EditingWords } from "./messages.js";
 import type { ConflictRange } from "./session.js";
 
 const textEqual = equalFor(StringType);
+const instantEqual = equalFor(DateTimeType);
+
+/** Whether any two of the texts read the same. */
+function anyAlike(texts: readonly string[]): boolean {
+    return texts.some((text, i) => texts.slice(i + 1).some((other) => textEqual(text, other)));
+}
+
+/** Two instants as a range written in full: a moment once, and the date once where both fall in one day — `Oct 1, 2026, 11:15 – 16:15`. */
+function fullRange(from: Date, to: Date, words: EditingWords): string {
+    if (instantEqual(from, to)) return words.dateTime(from);
+    return textEqual(words.date(from), words.date(to)) ? `${words.dateTime(from)} – ${words.time(to)}` : `${words.dateTime(from)} – ${words.dateTime(to)}`;
+}
 
 /**
  * How a value reads in its row: numbers, dates and ids in mono, tabular;
@@ -271,8 +285,11 @@ export function conflictViewOf(draftType: EastType, conflict: ConflictValues, wo
     // A part one side does not hold is removed there: the entry, an item or a key of it.
     const side = (at: { part: Part }, full: boolean): string =>
         at.part.value === undefined ? words.m.conflictRemoved() : describe(at.part.type, at.part.value, words, full);
-    // Two that read alike are written in full, what both began from beside them.
-    const alike = side(yoursAt, false) === side(theirsAt, false);
+    const wasOf = (full: boolean): string | undefined => (wasAt.part.value !== undefined ? describe(wasAt.part.type, wasAt.part.value, words, full)
+        : conflict.was.type === "some" ? words.m.conflictEmpty() : undefined);
+    // Any two of the three that read alike — Yours, Theirs, what both began from — and all three are written in full.
+    const began = wasOf(false);
+    const alike = anyAlike([side(yoursAt, false), side(theirsAt, false), ...(began === undefined ? [] : [began])]);
     const { path, label } = splitSteps(yoursAt.steps);
     const { keyType, key } = conflict;
     return {
@@ -283,8 +300,7 @@ export function conflictViewOf(draftType: EastType, conflict: ConflictValues, wo
         theirs: side(theirsAt, alike),
         yoursForm: formOf(yoursAt.part),
         theirsForm: formOf(theirsAt.part),
-        was: wasAt.part.value !== undefined ? describe(wasAt.part.type, wasAt.part.value, words, alike)
-            : conflict.was.type === "some" ? words.m.conflictEmpty() : undefined,
+        was: wasOf(alike),
     };
 }
 
@@ -338,9 +354,10 @@ function endOf(draftType: EastType, value: option<unknown>, field: string, words
 
 /**
  * A range's conflict in words — an item's start and end as one value, its
- * dates: `Nov 16 – 20, 2026` on each side, written in full where the two
- * sides read alike to the day, so they read apart. A side that does not hold
- * the entry reads removed.
+ * dates: `Nov 16 – 20, 2026` on each side, written in full where two of the
+ * sides and what both began from read alike to the day, so they read apart —
+ * the date once within one day, a moment once. A side that does not hold the
+ * entry reads removed.
  *
  * @param draftType - The entry's draft type
  * @param range - The range's two fields
@@ -355,13 +372,14 @@ export function rangeViewOf(draftType: EastType, range: ConflictRange, values: R
         const end = endOf(draftType, pick(values.end), range.end, words);
         if (start === undefined || end === undefined) return undefined;
         if (start.date !== undefined && end.date !== undefined) {
-            return full ? `${words.dateTime(start.date)} – ${words.dateTime(end.date)}` : words.range(start.date, end.date);
+            return full ? fullRange(start.date, end.date, words) : words.range(start.date, end.date);
         }
         // An end with no date reads as its value does — cleared, say — and two that read alike, once.
         const from = describe(start.part.type, start.part.value, words, full), to = describe(end.part.type, end.part.value, words, full);
         return from === to ? from : `${from} – ${to}`;
     };
-    const alike = side((end) => end.yours, false) === side((end) => end.theirs, false);
+    const began = side((end) => end.was, false);
+    const alike = anyAlike([side((end) => end.yours, false) ?? m.conflictRemoved(), side((end) => end.theirs, false) ?? m.conflictRemoved(), ...(began === undefined ? [] : [began])]);
     // A side's range reads in mono where both its ends hold a date, absent where it holds no entry or no date at all.
     const rangeForm = (pick: (end: RangeEnd) => option<unknown>): ValueForm => {
         const start = endOf(draftType, pick(values.start), range.start, words);

@@ -77,6 +77,12 @@ describe("a conflict in words", () => {
         expect([view.yours, view.theirs, view.was]).toEqual([WORDS.float(1.2341), WORDS.float(1.2342), WORDS.float(1.2)]);
     });
 
+    test("one side reading alike to what both began from writes all three in full, so it reads apart from it", () => {
+        const view = viewOf(draft(row({ hours: 1.2341 })), draft(row({ hours: 1.5 })), draft(row({ hours: 1.2342 })));
+        expect(WORDS.number(1.2342)).toBe(WORDS.number(1.2341));
+        expect([view.yours, view.theirs, view.was]).toEqual([WORDS.float(1.5), WORDS.float(1.2342), WORDS.float(1.2341)]);
+    });
+
     test("text as it is, empty text in words; a flag as Yes or No; a field emptied reads Cleared", () => {
         const note = viewOf(draft(row()), draft(row({ note: "" })), draft(row({ note: "Waiting on parts" })));
         expect([note.label, note.yours, note.theirs, note.was]).toEqual([["Note"], "Empty", "Waiting on parts", "On track"]);
@@ -168,6 +174,19 @@ describe("an item's start and end, read as one range", () => {
     test("two sides alike to the day are written with their times, so they read apart", () => {
         const { view } = viewOf(RunDraft, run(at(16), at(20)), run(at(16, 9), at(20)), run(at(16, 10), at(20)));
         expect([view.yours, view.theirs]).toEqual([`${WORDS.dateTime(at(16, 9))} – ${WORDS.dateTime(at(20))}`, `${WORDS.dateTime(at(16, 10))} – ${WORDS.dateTime(at(20))}`]);
+    });
+
+    test("one side alike to the day to what both began from writes all three with their times, a range within one day its date once", () => {
+        // There the run moved within its day; here, to another day.
+        const { view } = viewOf(RunDraft, run(at(16), at(16, 14)), run(at(18), at(18, 14)), run(at(16, 7), at(16, 15)));
+        expect([view.yours, view.theirs, view.was]).toEqual([
+            `${WORDS.dateTime(at(18))} – ${WORDS.time(at(18, 14))}`, `${WORDS.dateTime(at(16, 7))} – ${WORDS.time(at(16, 15))}`, `${WORDS.dateTime(at(16))} – ${WORDS.time(at(16, 14))}`,
+        ]);
+    });
+
+    test("a moment, its start and end the same, reads once — with its time where two read alike to the day", () => {
+        const { view } = viewOf(RunDraft, run(at(16), at(16)), run(at(16, 9), at(16, 9)), run(at(16, 10), at(16, 10)));
+        expect([view.yours, view.theirs, view.was]).toEqual([WORDS.dateTime(at(16, 9)), WORDS.dateTime(at(16, 10)), WORDS.dateTime(at(16))]);
     });
 
     test("an item unscheduled reads cleared once; one the source removed reads removed", () => {
