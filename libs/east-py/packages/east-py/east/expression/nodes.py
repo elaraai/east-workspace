@@ -170,9 +170,10 @@ def _builtin_slots(name: str, type_params: list) -> list | None:
     when the table does not know the builtin or its type parameters. The
     list is shared: read it, never change it."""
     key = (name, tuple(type_params))
-    hit = _slots_memo.get(key, _slots_memo)
-    if hit is not _slots_memo:
-        return hit
+    try:
+        return _slots_memo[key]  # a cached None is an answer: only a KeyError is a miss
+    except KeyError:
+        pass
     global _signatures
     if _signatures is None:
         from east.runtime.builtin_signatures import FN, builtin_inputs
