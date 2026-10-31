@@ -40,8 +40,8 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-    NullType, decodeBeast2For, encodeBeast2For, equalFor, equivalentFor, none, some, toEastTypeValue, variant,
-    type ValueTypeOf,
+    DateTimeType, NullType, StringType, decodeBeast2For, encodeBeast2For, equalFor, equivalentFor, none, parseFor, printFor, some, toEastTypeValue,
+    variant, type PatchPath, type ValueTypeOf,
 } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import {
@@ -204,6 +204,56 @@ const NO_DRAFTS: ReadonlyMap<string, Uint8Array> = new Map();
 /** The entry a row came from — the first segment of its id's path; none for a top-level section's header. */
 export function entryOf(id: PlanRowId): string | undefined {
     return id.value.path[0];
+}
+
+const textEqual = equalFor(StringType);
+const printText = printFor(StringType);
+const readInstant = parseFor(DateTimeType);
+
+/** Where a conflict is among the Plan's rows ({@link conflictPlaceOf}). */
+export interface PlanConflictPlace {
+    /** The rows down to it, its entry's first: a works' row, then a crew's below it. */
+    readonly rows: readonly PlanRowValue[];
+    /** How many of its path's keys and places those rows name, below its entry. */
+    readonly keys: number;
+    /** The instant a key past them names — the cell of a table row that holds it (#1438); `undefined` for none. */
+    readonly at: Date | undefined;
+}
+
+/**
+ * Where a conflict is among the Plan's rows: the deepest row its path's keys
+ * lead to from its entry — a crew's below its works', a measure's below its
+ * ledger's — with every row above it, and the instant a key past it names.
+ * A row's id names each step below its entry by the key itself (a String) or
+ * its text; a path names it by its text, a String's quoted.
+ *
+ * @param rows - The rows the session's entries placed
+ * @param entry - The conflict's entry
+ * @param path - Its path in the entry's draft
+ * @returns Its place; `undefined` where no row is the entry's
+ */
+export function conflictPlaceOf(rows: readonly PlanRowValue[], entry: string, path: PatchPath): PlanConflictPlace | undefined {
+    const keys = path.flatMap((step) => (step.kind === "key" ? [step.key] : step.kind === "index" ? [String(step.index)] : []));
+    const names = (segment: string, key: string) => textEqual(segment, key) || textEqual(printText(segment), key);
+    const byKey = new Map(rows.map((row) => [row.key, row] as const));
+    for (let depth = keys.length; depth >= 0; depth--) {
+        const deepest = rows.find((row) => {
+            if (row.id.type !== "entry") return false;
+            const segments = row.id.value.path;
+            return segments.length === depth + 1 && textEqual(segments[0]!, entry) && keys.slice(0, depth).every((key, i) => names(segments[i + 1]!, key));
+        });
+        if (deepest === undefined) continue;
+        const chain = [deepest];
+        for (let up = deepest.parent; up.type === "some";) {
+            const row = byKey.get(up.value);
+            if (row === undefined) break;
+            chain.unshift(row);
+            up = row.parent;
+        }
+        const instant = keys.slice(depth).map((key) => readInstant(key)).find((read) => read.success);
+        return { rows: chain, keys: depth, at: instant?.success === true ? instant.value : undefined };
+    }
+    return undefined;
 }
 
 const idOfRef = (ref: PlanEntryRef): string => ref.id;

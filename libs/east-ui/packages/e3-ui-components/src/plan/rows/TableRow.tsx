@@ -49,7 +49,7 @@ import { ToneStrip, type ToneDatum } from "./ToneStrip.js";
 import type { PlanBucket, PlanScale } from "../scale.js";
 import { instantKey } from "../instant.js";
 import { usePlanEdit } from "../edit/store.js";
-import { readTyped, resolutionOfValues, typedText, typesAt, usePlanTypingOpen, zoomApart, type PlanTyping } from "../edit/typing.js";
+import { readTyped, resolutionOfValues, typedText, typesAt, usePlanTypingFocus, usePlanTypingOpen, zoomApart, type PlanTyping } from "../edit/typing.js";
 import type { TimeResolution } from "../../shared/time/calendar-math.js";
 import { PlanCellInput, type PlanCellInputMove } from "./CellInput.js";
 import { cellName, tablePartsText } from "../a11y.js";
@@ -185,6 +185,8 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
     const edit = usePlanEdit();
     const typing = ctx === true ? undefined : edit?.typing;
     const open = usePlanTypingOpen(typing?.store, rowKey);
+    // A focus asked of the row draws it again, to take it as it draws.
+    usePlanTypingFocus(typing?.store, rowKey);
     // The cells by their bucket, which a popover of the input anchors to below 480px of main.
     const cellEls = useRef(new Map<string, HTMLElement>());
     // The plot's width, which each cell's share of it says whether its numerals fit: unknown before it is laid out.

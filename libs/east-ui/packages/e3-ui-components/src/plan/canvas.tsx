@@ -81,7 +81,7 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Box, VisuallyHidden, useSlotRecipe } from "@chakra-ui/react";
-import { StringType, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, printFor, type PatchPath, type ValueTypeOf } from "@elaraai/east";
 import { Plan, ScheduleEventRefType, planKeys, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import {
     getSomeorUndefined, optimiseMessages, useCoarsePointer, useContainerBelow, useDataStable, useFormatters, useLanding, useLandingStyles, usePersistedState,
@@ -108,7 +108,8 @@ import {
 } from "./model.js";
 import { PLAN_PAGE_SIZE, bandElements } from "./use-plan-paging.js";
 import type { RowKey } from "./plan-state.js";
-import { entryOf, usePlanEditing, type PlanEntryRef } from "./use-plan-editing.js";
+import { conflictPlaceOf, entryOf, usePlanEditing, type PlanEntryRef } from "./use-plan-editing.js";
+import { timeInstant } from "./instant.js";
 import { usePlanEventEditing } from "./edit/events.js";
 import { drawnKinds, usePlanEventDrag, type PlanEventCanDropFn } from "./edit/event-drag.js";
 import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
@@ -1220,16 +1221,40 @@ export function usePlanCanvas({
     const rowOfIssueNow = useRef(rowOfIssue);
     rowOfIssueNow.current = rowOfIssue;
     const kindSessions = eventEditing.sessions;
-    const onIssue = useCallback((issue: EditIssue) => {
+    // The canvas's one table input (#1436, #1438) — and the cell focus a zoom, or a conflict's Go to, lands on.
+    const typingStore = useMemo(() => new PlanTypingStore(), []);
+    const scaleNow = useRef(scale);
+    scaleNow.current = scale;
+    const onIssue = useCallback((issue: EditIssue, path?: PatchPath) => {
         const source = history.sourceOf(issue);
         const kind = source === undefined ? undefined : kindSessions.find((s) => stringEqual(s.key, source));
         if (kind !== undefined) {
             if (issue.entry !== "") selectEvents([printEventRef({ kind: kind.kind, key: issue.entry })]);
             return;
         }
-        const row = rowOfIssueNow.current(issue);
-        if (row !== undefined) controller.focusItem(rowItemKey(row.key), "auto");
-    }, [history, kindSessions, selectEvents, controller]);
+        // A conflict's Go to: the row its path leads to among the canvas's rows (#1438) selected — a crew's, below its
+        // works' — and the cell holding the instant its path names focused as the row draws, as a zoom's landing focuses it.
+        const place = path === undefined ? undefined : conflictPlaceOf(indexRef.current?.rows ?? [], issue.entry, path);
+        const row = place?.rows[place.rows.length - 1] ?? rowOfIssueNow.current(issue);
+        if (row === undefined) return;
+        const shown = scaleNow.current;
+        if (place !== undefined && place.at !== undefined && shown !== undefined && shown.kind === "time" && shown.resolution !== undefined) {
+            typingStore.focusOnZoom({ rowKey: row.key, at: shown.toNumber(timeInstant(place.at)), resolution: shown.resolution });
+            controller.dispatch({ t: "row.select", key: row.key });
+            controller.showItem(rowItemKey(row.key), "auto");
+            return;
+        }
+        controller.focusItem(rowItemKey(row.key), "auto");
+    }, [history, kindSessions, selectEvents, controller, typingStore]);
+    // A conflict below its entry's row named by the rows down to it — `Works 10001 / Crew 1`, never the crew's key —
+    // then any steps below them, in words; an event kind's as its banners name it.
+    const conflictItem = useCallback((issue: EditIssue, path: PatchPath, steps: readonly string[]) => {
+        const source = history.sourceOf(issue);
+        if (source === undefined || kindSessions.some((s) => stringEqual(s.key, source))) return undefined;
+        const place = conflictPlaceOf(indexRef.current?.rows ?? [], issue.entry, path);
+        if (place === undefined || place.keys === 0) return undefined;
+        return [...place.rows.map((row) => row.gutter.label), ...steps.slice(place.keys)].join(" / ");
+    }, [history, kindSessions]);
     // A run's highlight ends with Undo, Apply and Discard; a Redo of its step replays its landing (R9, R16) — and no
     // history action runs while a run's call is out (R2).
     const onHistory = useCallback((action: HistoryAction) => {
@@ -1278,9 +1303,9 @@ export function usePlanCanvas({
     // of its sessions — or as its words and actions do, never as a window lands: the frame's toolbar is handed the
     // same history item, and draws and measures nothing again for it (#1398, CL9).
     const historyProps = useMemo(
-        () => (edits ? { session: history, words, editing: false, onAction: onHistory, onIssue, where: historyWhere, locked } : undefined),
+        () => (edits ? { session: history, words, editing: false, onAction: onHistory, onIssue, conflictItem, where: historyWhere, locked } : undefined),
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the history is mutable: its version says it moved
-        [edits, history, historyVersion, words, onHistory, onIssue, historyWhere, locked]);
+        [edits, history, historyVersion, words, onHistory, onIssue, conflictItem, historyWhere, locked]);
 
     // ── The treegrid (#819) ───────────────────────────────────────────────
     // Every item's place in the grid — the pinned rows first, a run not read
@@ -1581,7 +1606,6 @@ export function usePlanCanvas({
         [narrow, rowDrop, index]);
     // Typing a number into a table cell (#1436, #1438): the canvas's one input, while `data`'s rows take a gesture — in
     // a popover anchored to its cell below 480px of main — each typed number one step of the session's history.
-    const typingStore = useMemo(() => new PlanTypingStore(), []);
     const { typeValue: draftValue } = editing;
     const typing = useMemo<PlanTyping | undefined>(() => (rowDrop?.data === true
         ? {

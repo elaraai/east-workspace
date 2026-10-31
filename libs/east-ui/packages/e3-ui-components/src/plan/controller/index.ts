@@ -320,6 +320,15 @@ export interface PlanController {
      * needs none).
      */
     focusItem(key: string, align?: PlanNavAlign): void;
+    /**
+     * Scroll an item into view, the focus left where it is: for a cell of the
+     * item to take the focus as it draws, as a conflict's Go to focuses a
+     * table row's cell.
+     *
+     * @param key - The item's key
+     * @param align - Where the view puts it
+     */
+    showItem(key: string, align: PlanNavAlign): void;
     /** DOM focus landed in an item (a click, a Tab) — it holds the tab stop. */
     itemFocused(key: string): void;
     /** The item a focus request named has taken focus. */
@@ -1138,6 +1147,12 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 navSeq += 1;
                 nav = { active: key, request: { key, seq: navSeq } };
                 if (align !== undefined) scroll = { ...scroll, owner: "nav", nav: { key, align, seq: navSeq } };
+            });
+        },
+        showItem(key, align) {
+            batch(() => {
+                navSeq += 1;
+                scroll = { ...scroll, owner: "nav", nav: { key, align, seq: navSeq } };
             });
         },
         itemFocused(key) {

@@ -90,14 +90,21 @@ export class PlanTypingStore {
     readonly #listeners = new Set<() => void>();
 
     /**
-     * Focus a row's cell once a zoom lands: the cell of the resolution zoomed
-     * to that holds the instant, where a double click or Enter on a coarser
-     * cell zooms to edit it (#1438).
+     * Focus a row's cell as it draws at a resolution: the cell that holds the
+     * instant — once a zoom lands, where a double click or Enter on a coarser
+     * cell zooms to edit it (#1438), or at once, where a conflict's Go to
+     * goes to it. The row hears it, and draws again to take it.
      *
      * @param focus - The row, the instant and the resolution
      */
     focusOnZoom(focus: PlanTypingFocus): void {
         this.#focusing = focus;
+        this.#emit();
+    }
+
+    /** The focus a row's cells wait to take, if any ({@link takeFocus}). */
+    get focusing(): PlanTypingFocus | null {
+        return this.#focusing;
     }
 
     /**
@@ -166,6 +173,19 @@ const NO_SUBSCRIPTION = () => () => {};
 export function usePlanTypingOpen(store: PlanTypingStore | undefined, rowKey: RowKey): PlanTypingOpen | null {
     const subscribe = useCallback((listener: () => void) => store?.subscribe(listener) ?? (() => {}), [store]);
     return useSyncExternalStore(store !== undefined ? subscribe : NO_SUBSCRIPTION, () => (store?.open?.rowKey === rowKey ? store.open : null));
+}
+
+/**
+ * The focus a row's cells wait to take: what draws the row again as a focus
+ * is asked of it, so it takes it as it draws ({@link PlanTypingStore.takeFocus}).
+ *
+ * @param store - The canvas's input, or `undefined` while it takes no typing
+ * @param rowKey - The row
+ * @returns The focus asked of the row, or `null`
+ */
+export function usePlanTypingFocus(store: PlanTypingStore | undefined, rowKey: RowKey): PlanTypingFocus | null {
+    const subscribe = useCallback((listener: () => void) => store?.subscribe(listener) ?? (() => {}), [store]);
+    return useSyncExternalStore(store !== undefined ? subscribe : NO_SUBSCRIPTION, () => (store?.focusing?.rowKey === rowKey ? store.focusing : null));
 }
 
 /** A percent prints its value a hundred times over, so its text reads back divided. */

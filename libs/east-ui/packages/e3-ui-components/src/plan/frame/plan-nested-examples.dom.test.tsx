@@ -17,7 +17,7 @@
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { DateTimeType, East, FloatType, compareFor } from "@elaraai/east";
+import { DateTimeType, East, FloatType, SortedMap, StringType, compareFor, equalFor } from "@elaraai/east";
 import { StateRuntime, UIStore, editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-nested";
 import type { TreePath } from "@elaraai/e3-types";
@@ -26,6 +26,7 @@ import { instantKey, timeInstant } from "../instant.js";
 import { planMessages } from "../messages.js";
 import { axisFormatter } from "../rows/chart-geometry.js";
 import { act, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import { conflictCards } from "../../e3-web-mount.test-utils.js";
 import { keptName } from "@elaraai/east-ui-components/internal";
 
 const h = planHarness({ "plan/plan-nested": ex });
@@ -136,7 +137,7 @@ async function typedCrewHours({ enter = true }: { enter?: boolean } = {}) {
     await act(async () => { fireEvent.input(input, { target: { value: "500" } }); });
     if (enter) await act(async () => { fireEvent.keyDown(input, { key: "Enter" }); });
     await settle();
-    return { c, cellOf, printed };
+    return { c, cellOf, printed, week };
 }
 
 describe("the nested series example on e3 (#1439)", () => {
@@ -273,6 +274,24 @@ describe("the nested series example on e3 (#1439)", () => {
         await act(async () => { c.querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!.scrollTo({ top: 0 }); });
         await settle();
         await waitFor(() => expect(printed(cellOf("W-10001", "C-10001-1"))).toBe("500"));
+    });
+
+    test("planNestedAll: a crew's week typed here and otherwise by another planner is a conflict named by its works and its crew, and its Go to focuses the week's cell", async () => {
+        const { c, cellOf, week } = await typedCrewHours();
+        // Another planner types 700 into the same week of the same crew.
+        const sameDay = equalFor(DateTimeType);
+        const works = await h.read(ex.planWorks);
+        const first = works.get("W-10001")!;
+        const crews = new SortedMap([...first.crews].map(([key, crew]) => [key, key !== "C-10001-1" ? crew
+            : { ...crew, hours: new SortedMap([...crew.hours].map(([at, hours]) => [at, sameDay(at, week) ? 700 : hours] as const), compareFor(DateTimeType)) }] as const),
+        compareFor(StringType));
+        await h.commit(ex.planWorks, new SortedMap([...works].map(([key, w]) => [key, key === "W-10001" ? { ...w, crews } : w] as const), compareFor(StringType)));
+        const [card, ...more] = await conflictCards(c);
+        expect(more).toEqual([]);
+        expect(card!.item).toBe("Works 10001 / Crew 1");
+        await act(async () => { fireEvent.click(card!.goTo()); });
+        await settle();
+        expect(document.activeElement).toBe(cellOf("W-10001", "C-10001-1"));
     });
 
     test("planNestedAll: a crew's hours typed are saved: one commit of the works record, read back with nothing pending", async () => {
