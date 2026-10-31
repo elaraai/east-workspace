@@ -77,7 +77,7 @@ test("a Save's conflict names each issue's place, the first three of them and a 
     const { container } = mount(session, { where: (i) => `Run ${i.entry}`, issueText: (message) => message.toUpperCase() });
     expect(kinds(container)).toEqual(["conflict"]);
     const conflict = banner(container, "conflict")!;
-    expect(conflict.textContent).toContain("Save stopped — 5 conflicts with the source");
+    expect(conflict.textContent).toContain(editingMessages.bannerConflict({ n: 5, count: "5" }));
     expect([...conflict.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
         "Run a: CHANGED SINCE THIS EDIT BEGAN — LAST CHANGED BY OPS",
         "Run b: CHANGED SINCE THIS EDIT BEGAN — LAST CHANGED BY OPS",
@@ -91,7 +91,7 @@ test("a refusal gives its reasons; an issue about the source as a whole names no
     await act(() => session.apply());
     const { container } = mount(session);
     expect(kinds(container)).toEqual(["rejected"]);
-    expect(banner(container, "rejected")!.textContent).toContain("The source refused these changes");
+    expect(banner(container, "rejected")!.textContent).toContain(editingMessages.bannerRejected());
     expect([...banner(container, "rejected")!.querySelectorAll("li")].map((li) => li.textContent))
         .toEqual(["The write ran out of time after 30000 ms and wrote nothing"]);
 });
@@ -101,7 +101,7 @@ test("a write with no answer says so with its error, and its Retry sends the sam
     await act(() => session.apply());
     const { container, actions } = mount(session);
     expect(kinds(container)).toEqual(["unknown"]);
-    expect(banner(container, "unknown")!.textContent).toContain("No answer from the source — the changes may have been saved");
+    expect(banner(container, "unknown")!.textContent).toContain(editingMessages.bannerUnknown());
     expect(banner(container, "unknown")!.textContent).toContain("The write got no answer");
     fireEvent.click(banner(container, "unknown")!.querySelector("[data-banner-action]")!);
     expect(actions).toEqual(["apply"]);
@@ -131,7 +131,7 @@ test("drafts the source moved under, in a session that does not carry them over,
     act(() => session.observeBase(variant("snapshot", [{ ...a, end: 9n }])));
     const { container, actions } = mount(session);
     expect(kinds(container)).toEqual(["conflict", "stale"]);
-    expect(banner(container, "stale")!.textContent).toContain("The source changed under these drafts");
+    expect(banner(container, "stale")!.textContent).toContain(editingMessages.bannerStale());
     fireEvent.click(banner(container, "stale")!.querySelector("[data-banner-action]")!);
     expect(actions).toEqual(["discard"]);
 });

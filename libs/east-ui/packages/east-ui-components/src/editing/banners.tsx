@@ -61,8 +61,8 @@ export interface SessionBannersProps<W> {
     issueText?: ((message: string) => string) | undefined;
     /**
      * The source's name, for a host whose history holds several (#1194): each
-     * banner's title then names the source it reports on — `Print job: Save
-     * stopped — 1 conflict with the source`. Left out, the titles name none.
+     * banner's title then names the source it reports on — `Print job: Not
+     * saved — 1 conflict with newer changes`. Left out, the titles name none.
      */
     name?: string | undefined;
 }

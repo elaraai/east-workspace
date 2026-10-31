@@ -18,7 +18,7 @@ import type { ReactNode } from "react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { East, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
-import { UIStore, formatters, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
+import { UIStore, editingMessages, formatters, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
@@ -277,7 +277,7 @@ describe("the banners and the keys (PB20, PB24)", () => {
         // drop on Press 1 too would not: e3 checks what a patch touches, and two drops onto a press both land.)
         canvas.race(new Map([...SEED].filter(([press]) => press !== "p1")));
         await history(canvas, "Save");
-        expect(banner(c, "conflict")!.textContent).toContain("Save stopped — 1 conflict with the source");
+        expect(banner(c, "conflict")!.textContent).toContain(editingMessages.bannerConflict({ n: 1, count: "1" }));
         expect(slot(c, "toolbar")!.querySelector('[role="alert"]')).toBeNull();
         expect(statusLine(canvas)).not.toBeNull();
         await history(canvas, "Discard");

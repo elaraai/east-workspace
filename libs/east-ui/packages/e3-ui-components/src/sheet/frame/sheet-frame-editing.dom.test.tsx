@@ -19,6 +19,7 @@
 import { test, expect } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import { East, SortedMap, StringType, compareFor, some, type ValueTypeOf } from "@elaraai/east";
+import { editingMessages } from "@elaraai/east-ui-components";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { Record, Sheet } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
@@ -240,10 +241,10 @@ test("a refusal keeps every draft, with its banner and the reason; a revised dra
     await press(toolbar(container).getByRole("button", { name: "Save" }));
     expect(banners(container)).toEqual(["rejected"]);
     const refused = slot(container, "banners")!.querySelector('[data-session-banner="rejected"]')!;
-    expect(refused.textContent).toContain("The source refused these changes");
+    expect(refused.textContent).toContain(editingMessages.bannerRejected());
     expect(refused.textContent).toContain("The write failed: ");
     expect(refused.textContent).toContain("the edge bander is booked that week");
-    expect(statusLine(container)).toBe("Changes rejected — revise the draft before saving");
+    expect(statusLine(container)).toBe(editingMessages.historyStatus({ status: "rejected" }));
     expect(tasks(container)[1]).toBe("Edge banding, both edges");
     expect(drafted(container)).toBe(1);
     // The same request is never sent again: Save waits for a revision.
@@ -264,7 +265,7 @@ test("a write with no answer leaves the session unknown: Save turns into Retry, 
     const losing = h.e3.fail((request) => request.kind === "mutate" && request.record === JOBS.name, "lost");
     await act(async () => { click(toolbar(container).getByRole("button", { name: "Save" })); });
     await waitFor(() => expect(banners(container)).toEqual(["unknown"]), { timeout: 15_000 });
-    expect(statusLine(container)).toBe("Awaiting confirmation — retry the same request");
+    expect(statusLine(container)).toBe(editingMessages.historyStatus({ status: "unknown" }));
     expect(toolbar(container).queryByRole("button", { name: "Save" })).toBeNull();
     // No gesture while the request is unresolved.
     expect(disabled(toolbar(container).getByRole("button", { name: "Undo" }))).toBe(true);

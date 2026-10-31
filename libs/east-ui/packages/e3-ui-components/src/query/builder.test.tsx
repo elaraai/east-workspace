@@ -23,7 +23,7 @@ import {
     East, JqType, PatchType, SortedMap, checkJq, equalFor, none, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
-import { Toolbar, getRegisteredPlatformImplementations, historyToolbarItem, system, useTrackedEvaluation } from "@elaraai/east-ui-components";
+import { Toolbar, editingMessages, getRegisteredPlatformImplementations, historyToolbarItem, system, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { Query, QueriesHandleType, Record, RecordBindHandleType, queryKeys } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/query/query";
 import { TreePathType } from "@elaraai/e3-types";
@@ -221,7 +221,7 @@ describe("<Query.Builder> — the editing session (#935)", () => {
         expect(state().session.issues.map(i => i.message)).toEqual([
             "Big orders changed since this edit began — last changed by another session. Discard your changes to see it, or save under another name.",
         ]);
-        expect(container.querySelector("[data-slot=history]")!.textContent).toContain("Source changed — review or discard these drafts");
+        expect(container.querySelector("[data-slot=history]")!.textContent).toContain(editingMessages.historyStatus({ status: "stale" }));
         expect(enabled("Save")).toBe(false);
     });
 

@@ -422,10 +422,10 @@ give way to [Review removed (#1260)](#review-removed-1260).
 - **The base is the source's state.** An inline `Dict` is checked by its
   snapshot, a paged source by its revision. A paged `onApply` needs the
   source's `revision` and `refresh`; without them the canvas is refused at
-  build. A batch against a source that moved is refused, never rebased, and
-  the drafts say "Source changed — review or discard these drafts". An Apply
-  that throws retries the same request. Drafts retire only once the source
-  reads back at the committed revision.
+  build. Drafts the source moved under are carried over to it: a change made
+  apart combines with them, and one both made waits as a conflict to choose
+  before Save. An Apply that throws retries the same request. Drafts retire
+  only once the source reads back with the Save in it.
 - **The entries are the source's top-level entries.** A gesture on a row at
   any depth drafts the entry the row came from, and the series that made the
   row writes it. The write reaches a nested row through the series'

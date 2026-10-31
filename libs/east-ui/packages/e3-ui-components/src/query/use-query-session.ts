@@ -149,9 +149,11 @@ export function useQuerySession(options: QuerySessionOptions): QuerySessionState
     // The query as its drafts stand, this moment: while a gesture may be
     // recorded, and while a save of them goes — from Apply until the record
     // reads back as it left it, the drafts it saves are the query, never the
-    // record as it stood before them.
+    // record as it stood before them. Out of date under another save, the
+    // person's own edits still show, over the query they began from, until
+    // they discard them.
     const drafts = useCallback((): readonly QueryEntry[] | undefined => {
-        const drafted = available || edit.session.locked ? edit.session.applied() as readonly QueryEntry[] | undefined : undefined;
+        const drafted = available || edit.session.locked || edit.session.stale ? edit.session.applied() as readonly QueryEntry[] | undefined : undefined;
         return drafted ?? base?.entries;
     }, [edit.session, available, base]);
     const entries = useMemo(() => drafts(),

@@ -56,7 +56,7 @@ import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { StringType, checkJq, equalFor, equivalentFor, none, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import { QueryBuilderComponent, QueryBuilderPayloadType, queryKeys } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, EmptyStateView, historyShortcut, historyToolbarItem, implementUIComponent, sessionErrorText, typedInto, usePersistedState,
+    BannerView, BuilderFrame, EmptyStateView, SessionBanners, historyShortcut, historyToolbarItem, implementUIComponent, sessionErrorText, typedInto, usePersistedState,
     useTrackedEvaluation,
     type BuilderFrameDock, type EditIssue, type EditSession, type EditingWords,
 } from "@elaraai/east-ui-components";
@@ -481,7 +481,11 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
                 <BuilderFrame
                     storageKey={`${storageKey}.frame`}
                     toolbar={toolbar}
-                    banners={<ResultStrips state={run} stale={stale} note={note} onDismissNote={onDismissNote} onRunAgain={onRun} words={words} />}
+                    banners={<>
+                        {/* The session's: a query saved elsewhere under these edits, which its Discard takes; a Save refused. */}
+                        <SessionBanners session={session} words={editingWords} onAction={onAction} />
+                        <ResultStrips state={run} stale={stale} note={note} onDismissNote={onDismissNote} onRunAgain={onRun} words={words} />
+                    </>}
                     start={queryPane}
                     footer={<QueryStatusLine check={editor.check} gives={editor.gives} save={save} name={editor.header.name} />}
                 >

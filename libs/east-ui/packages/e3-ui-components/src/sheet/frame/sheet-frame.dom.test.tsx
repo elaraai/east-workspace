@@ -208,7 +208,7 @@ test("a write with no answer is a banner with Retry, which sends the same reques
     await act(async () => { press(getByRole("button", { name: "Save" })); });
     await waitFor(() => expect(banners(container)).toEqual(["unknown"]), { timeout: 15_000 });
     const unknown = slot(container, "banners")!.querySelector('[data-session-banner="unknown"]')!;
-    expect(unknown.textContent).toContain("No answer from the source — the changes may have been saved");
+    expect(unknown.textContent).toContain(editingMessages.bannerUnknown());
     expect(unknown.textContent).toContain("fetch failed: the test lost e3's answer");
     expect(slot(container, "toolbar")!.querySelector('[role="alert"]')).toBeNull();
 

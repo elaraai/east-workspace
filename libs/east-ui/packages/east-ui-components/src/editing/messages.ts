@@ -150,7 +150,7 @@ export interface EditingMessages {
     issueChanged: () => string;
     /** A Save's conflict where the session read no entry changed, and its source said nothing of itself (#1199). */
     issueSourceChanged: () => string;
-    /** The banner over a Save the source found conflicts in — `Save stopped — 2 conflicts with the source`. */
+    /** The banner over a Save the source found conflicts in — `Not saved — 2 conflicts with newer changes`. */
     bannerConflict: (p: { n: number; count: string }) => string;
     /** The banner over a Save the source refused. */
     bannerRejected: () => string;
@@ -164,7 +164,7 @@ export interface EditingMessages {
     bannerIssue: (p: { where: string; message: string }) => string;
     /** The issues a banner leaves out — `and 4 more`. */
     bannerMore: (p: { n: number; count: string }) => string;
-    /** A banner's title naming the source it reports on, where a history holds several (#1194) — `Print job: Save stopped — 1 conflict with the source`. */
+    /** A banner's title naming the source it reports on, where a history holds several (#1194) — `Print job: Not saved — 1 conflict with newer changes`. */
     bannerSource: (p: { source: string; title: string }) => string;
 }
 
@@ -174,13 +174,13 @@ const plural = (n: number, one: string, many: string): string => (n === 1 ? one 
 export const editingMessages: EditingMessages = {
     historyStatus: ({ status }) => {
         switch (status) {
-            case "stale": return "Source changed — review or discard these drafts";
+            case "stale": return "Changed elsewhere — discard your changes to go on";
             case "carrying": return "Checking your changes against the newest data";
             case "applying": return "Saving…";
-            case "unknown": return "Awaiting confirmation — retry the same request";
+            case "unknown": return "No answer yet — retry to find out whether it saved";
             case "reconciling": return "Saved — reading it back…";
-            case "rejected": return "Changes rejected — revise the draft before saving";
-            case "conflict": return "Source conflict — review or discard these drafts";
+            case "rejected": return "Not saved — change what's flagged, then save again";
+            case "conflict": return "Conflicts — choose which changes to keep";
         }
     },
     issues: ({ n, count }) => `${count} ${plural(n, "issue", "issues")}`,
@@ -194,7 +194,7 @@ export const editingMessages: EditingMessages = {
     retryRefresh: () => "Retry refresh",
     retryRequest: () => "Retry request",
     apply: () => "Save",
-    applyNoRevision: () => "The source saved the batch without its committed revision; recover this request before continuing",
+    applyNoRevision: () => "Saved, but it could not be confirmed — reload to see the newest",
     applySettleFirst: ({ n, count }) => `Choose ${count} ${plural(n, "conflict", "conflicts")} to save`,
     conflicts: ({ n, count }) => `${count} ${plural(n, "conflict", "conflicts")}`,
     conflictsTip: ({ n, count }) => `${count} ${plural(n, "conflict", "conflicts")} · Choose which changes to keep`,
@@ -222,7 +222,7 @@ export const editingMessages: EditingMessages = {
     bannerLost: ({ reason }) => (reason === "schema" ? "Changes from before the reload could not be restored: the data's shape has changed since."
         : "Changes from before the reload could not be restored."),
     bannerConflicts: ({ n, count }) => `${count} of your ${plural(n, "changes conflicts", "changes conflict")} with newer changes`,
-    bannerWord: ({ kind }) => ({ conflict: "Conflict", rejected: "Rejected", unconfirmed: "Unconfirmed", stale: "Stale", unkept: "Not kept" })[kind],
+    bannerWord: ({ kind }) => ({ conflict: "Conflict", rejected: "Rejected", unconfirmed: "Unconfirmed", stale: "Out of date", unkept: "Not kept" })[kind],
     conflictsChoose: () => "Choose",
     conflictsLocked: () => "Choices are off while the optimiser runs",
     conflictKept: ({ value }) => `kept yours: ${value}`,
@@ -243,12 +243,12 @@ export const editingMessages: EditingMessages = {
     issueInvalid: ({ value }) => `Invalid input: ${value}`,
     issueRequired: () => "A value is required",
     issueChanged: () => "Changed since this edit began",
-    issueSourceChanged: () => "The source changed since this edit began",
-    bannerConflict: ({ n, count }) => `Save stopped — ${count} ${plural(n, "conflict", "conflicts")} with the source`,
-    bannerRejected: () => "The source refused these changes",
-    bannerUnknown: () => "No answer from the source — the changes may have been saved",
+    issueSourceChanged: () => "Someone else changed this since you started editing",
+    bannerConflict: ({ n, count }) => `Not saved — ${count} ${plural(n, "conflict", "conflicts")} with newer changes`,
+    bannerRejected: () => "These changes weren't saved",
+    bannerUnknown: () => "No answer — your changes may have been saved",
     bannerConfirmFailed: () => "Saved — the result could not be read back",
-    bannerStale: () => "The source changed under these drafts — Save is off, and nothing is rebased",
+    bannerStale: () => "Someone else saved this while you were editing, and your changes can't be combined with theirs. Discard them to go on.",
     bannerIssue: ({ where, message }) => (where === "" ? message : `${where}: ${message}`),
     bannerMore: ({ n, count }) => `and ${count} more ${plural(n, "issue", "issues")}`,
     bannerSource: ({ source, title }) => `${source}: ${title}`,

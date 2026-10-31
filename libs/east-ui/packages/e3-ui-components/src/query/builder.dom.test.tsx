@@ -30,7 +30,7 @@
 import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { JqType, SortedMap, checkJq, equalFor, none, some, variant } from "@elaraai/east";
-import { system } from "@elaraai/east-ui-components";
+import { editingMessages, system } from "@elaraai/east-ui-components";
 import { faIcons } from "@elaraai/east-ui-components/testing";
 import { Query } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/query/query";
@@ -574,10 +574,27 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
         await act(async () => { fireEvent.click(container.querySelector("[data-query-save-open]")!); });
         await settle();
         await press("Save", screen.getByRole("dialog"));
-        expect(within(screen.getByRole("dialog")).getByRole("alert").textContent).toBe("Source changed — review or discard these drafts");
+        expect(within(screen.getByRole("dialog")).getByRole("alert").textContent).toBe(editingMessages.historyStatus({ status: "stale" }));
         // The other session's save, and nothing of these drafts'.
         expect(await h.commits()).toEqual(["patch", ...before]);
         expect(savedEqual((await h.saved()).get(BIG.name)!, other)).toBe(true);
+    });
+
+    test("a query saved elsewhere under these edits goes out of date: its banner says so, the edits still show until its Discard takes the newer query", async () => {
+        const { container } = await mount();
+        await openQuery(variant("saved", BIG.name));
+        const steps = cardsOf(container).length;
+        await quickAdd("Keep the first");
+        expect(cardsOf(container)).toHaveLength(steps + 1);
+        // Another operator's save of the query lands while these edits stand.
+        const other = { ...BIG, description: some("Orders of 1,000 or more."), saved_at: new Date(Date.UTC(2026, 9, 1, 8, 0)) };
+        await h.patch(ex.queries, withOther(other)(await h.saved()));
+        await waitFor(() => expect(container.querySelector('[data-session-banner="stale"]')).not.toBeNull());
+        expect(cardsOf(container)).toHaveLength(steps + 1);
+        await act(async () => { fireEvent.click(container.querySelector('[data-session-banner="stale"] [data-banner-action="discard"]')!); });
+        await settle();
+        expect(container.querySelector('[data-session-banner="stale"]')).toBeNull();
+        expect(cardsOf(container)).toHaveLength(steps);
     });
 
     test("a new query's Apply opens the save popover to name it, and its save opens the saved query", async () => {
