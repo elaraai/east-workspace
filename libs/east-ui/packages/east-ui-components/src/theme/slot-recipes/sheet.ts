@@ -205,6 +205,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
             "& [data-row][data-invalid] > [data-slot=cell][data-invalid]": {
                 background: "color-mix(in srgb, var(--chakra-colors-status-neg) 17%, var(--chakra-colors-bg-surface))",
             },
+            // A row holding a cell's conflict halo rides over the rows beside it, each mounted in a layer of its own, so the
+            // halo shows whole, 4px outside the cell; under the sticky header still.
+            "& [data-slot=virtualRow]:has([data-conflict])": { zIndex: "1" },
             // for a moment after a gesture that folds or opens, the rows slide to their new places rather than jump; never where the viewer asks for less motion.
             "&[data-moving] [data-slot=virtualRow]": {
                 transition: "transform 240ms cubic-bezier(0.2, 0, 0, 1)",
@@ -823,8 +826,11 @@ export const sheetSlotRecipe = defineSlotRecipe({
             minWidth: "0",
             // A cell's hover, but not on the row a drag rests on: the row's wash shows through (#1187).
             "&:is(:hover, [data-hover]):not([data-drop-active] > *, [data-drop-invalid] > *)": { background: "bg.panel" },
-            // A conflict not yet chosen: the warn halo, 4px outside the cell.
-            ...conflictHalo("sm"),
+            // A conflict not yet chosen: the warn halo, 4px outside the cell, over the grid. Where the sticky header or
+            // gutter stands beside the cell, which would cover the halo's side, that side runs along the cell's own edge.
+            ...conflictHalo("none", { right: "1px" }),
+            "[data-first] > &": { "&[data-conflict]::before": { top: "0" } },
+            "[data-slot=gutter] + &": { "&[data-conflict]::before": { left: "0" } },
             "&[data-invalid]": { background: "color-mix(in srgb, var(--chakra-colors-status-neg) 17%, var(--chakra-colors-bg-surface))", "& [data-slot=cellText]": { color: "fg.danger" } },
         },
         cellIssue: {
@@ -1448,8 +1454,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
         groupCell: {
             position: "relative", display: "flex", alignItems: "center", minWidth: "0", minHeight: "28px",
             cursor: "default", overflow: "visible",
-            // A conflict not yet chosen: the warn halo, 4px outside the cell.
-            ...conflictHalo("sm"),
+            // A conflict not yet chosen: the warn halo, 4px outside the cell; its top along the cell's own under the header.
+            ...conflictHalo("none"),
+            "[data-first] &": { "&[data-conflict]::before": { top: "0" } },
             '& > span': { fontSize: "10px", fontFamily: "mono", color: "fg.muted" },
             '&[data-editable]': { cursor: "text" },
             '&:last-child': { marginLeft: "auto" },

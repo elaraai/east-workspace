@@ -289,8 +289,12 @@ describe("the nested series example on e3 (#1439)", () => {
         const [card, ...more] = await conflictCards(c);
         expect(more).toEqual([]);
         expect(card!.item).toBe("Works 10001 / Crew 1");
-        // The crew's week wears the warn halo while the conflict waits; the works' sum above it does not.
+        // The crew's week wears the warn halo while the conflict waits, drawn at its place; the works' sum above it does not.
         expect([cellOf("W-10001", "C-10001-1")!.hasAttribute("data-conflict"), cellOf("W-10001")!.hasAttribute("data-conflict")]).toEqual([true, false]);
+        const halos = () => [...c.querySelectorAll<HTMLElement>("[data-plan-cell-halo]")];
+        // The week is the first the plot shows: the halo's start runs along the plot's edge, which clips what stands outside it.
+        expect(halos().map((halo) => [halo.closest(rowAt(entry("crew", "W-10001", "C-10001-1"))) !== null, halo.style.left, halo.style.width, halo.hasAttribute("data-start")]))
+            .toEqual([[true, cellOf("W-10001", "C-10001-1")!.style.left, cellOf("W-10001", "C-10001-1")!.style.width, true]]);
         await act(async () => { fireEvent.click(card!.goTo()); });
         await settle();
         expect(document.activeElement).toBe(cellOf("W-10001", "C-10001-1"));
@@ -298,6 +302,7 @@ describe("the nested series example on e3 (#1439)", () => {
         await act(async () => { fireEvent.click(card!.radio("source")); });
         await settle();
         expect(cellOf("W-10001", "C-10001-1")!.hasAttribute("data-conflict")).toBe(false);
+        expect(halos()).toEqual([]);
     });
 
     test("planNestedAll: a crew's hours typed are saved: one commit of the works record, read back with nothing pending", async () => {

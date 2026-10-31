@@ -153,9 +153,10 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             "&[data-selected]": {
                 borderWidth: "1.5px",
                 borderColor: "brand.600",
+                ...conflictHalo("md", "1.5px"),
             },
             /* A conflict not yet chosen: the warn halo, 4px outside the node at --r-lg; a selection keeps its edge under it. */
-            ...conflictHalo("lg"),
+            ...conflictHalo("md", "1px"),
             /* The state an author's card sets (#1249, FB33): the brand's tint and rule. */
             "&[data-drop-target]": {
                 [`${TAKEN} > &`]: {

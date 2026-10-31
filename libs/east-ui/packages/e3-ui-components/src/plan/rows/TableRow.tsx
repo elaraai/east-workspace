@@ -257,6 +257,11 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
         }
     }
     const multi = series.length > 1;
+    /** Whether a bucket holds a conflict not yet chosen: its period holds an instant one names. */
+    const holdsConflict = (b: PlanBucket): boolean => {
+        const from = scale.toNumber(b.start), to = scale.toNumber(b.end);
+        return conflictsAt.some((at) => { const n = scale.toNumber(timeInstant(at)); return n >= from && n < to; });
+    };
     /** The cells along the row that take typing, in order: each bucket's positions, left to right. */
     const along = (): { cell: string; position: number }[] => [...bucketByIndex.values()]
         .sort((a, b) => a.index - b.index)
@@ -361,8 +366,7 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
                 // Numerals wider than their column draw a dot in their place where the cell holds a value (#1438).
                 const dot = plotPx !== undefined && plotPx > 0 && (b.x1 - b.x0) * plotPx < numeralsPx(printed.map((p) => p.text), split)
                     ? printed.find((p) => p.held) : undefined;
-                const from = scale.toNumber(b.start), to = scale.toNumber(b.end);
-                const conflict = conflictsAt.some((at) => { const n = scale.toNumber(timeInstant(at)); return n >= from && n < to; });
+                const conflict = holdsConflict(b);
                 return (
                     <Box key={bi} css={styles.tableCellText}
                         data-conflict={conflict ? "" : undefined}
@@ -426,6 +430,14 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
                             data-tone={dot.tone} data-strong={dot.strong ? "" : undefined} />}
                     </Box>
                 );
+            })}
+            {/* The warn halo of each cell holding a conflict, a layer of its own at the cell's place, since the cell clips what
+                it draws: inside the plot, which clips across, so a side at the plot's start or end runs along its edge. */}
+            {[...buckets.keys()].map((bi) => bucketByIndex.get(bi)!).filter(holdsConflict).map((b) => {
+                const x0 = Math.max(b.x0, 0), x1 = Math.min(b.x1, 1);
+                return <Box key={b.index} css={styles.tableCellHalo} data-conflict="" data-plan-cell-halo="" aria-hidden="true"
+                    data-start={b.x0 <= 0 ? "" : undefined} data-end={b.x1 >= 1 ? "" : undefined}
+                    style={{ left: `${x0 * 100}%`, width: `${(x1 - x0) * 100}%` }} />;
             })}
             {input}
         </>

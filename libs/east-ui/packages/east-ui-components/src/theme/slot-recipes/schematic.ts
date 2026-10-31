@@ -310,8 +310,8 @@ export const schematicSlotRecipe = defineSlotRecipe({
                 outlineOffset: "-1px",
                 zIndex: "1",
             },
-            /* Holding a conflict not yet chosen, the conflicts' warn halo: 1px, just outside the card. */
-            ...conflictHalo("sm"),
+            /* Holding a conflict not yet chosen, the conflicts' warn halo: 1px, 4px outside the card. */
+            ...conflictHalo("sm", "1px"),
             /* Emphasis: a matched card gets a brand ring. `halo` is a static
              * ring; `pulse` breathes — its ring width tracks the `--pulse` var
              * (0..1) the animation loop writes on the card layer each frame. */

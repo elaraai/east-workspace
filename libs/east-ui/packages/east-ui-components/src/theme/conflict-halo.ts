@@ -14,37 +14,43 @@
  * @packageDocumentation
  */
 
-/** The halo's corner: a cell's, a bar's or a node's radius plus 4. */
-export type ConflictHaloCorner = "sm" | "md" | "lg";
+/** A part's own corner, `none` for a square one: the halo's is 4px more. */
+export type ConflictHaloCorner = "none" | "sm" | "md" | "lg";
+
+/** A part's own border, which the halo stands outside: one width on every side, or each side's. */
+export type ConflictHaloBorder = string | { readonly top?: string; readonly right?: string; readonly bottom?: string; readonly left?: string };
+
+type Side = "top" | "right" | "bottom" | "left";
 
 /**
- * The halo as a layer of the part's own, 5px outside its edge — for a part
- * positioned to hold it that lets what overflows it show.
+ * The halo as a layer of the part's own, 4px outside it — for a part
+ * positioned to hold it that lets what overflows it show. The layer is placed
+ * from inside the part's border, so the part names its border, which the halo
+ * stands outside.
  *
- * @param corner - Its corner ({@link ConflictHaloCorner})
+ * @param corner - The part's own corner ({@link ConflictHaloCorner})
+ * @param border - The part's own border ({@link ConflictHaloBorder}); none by default
  * @returns The style
  */
-export function conflictHalo(corner: ConflictHaloCorner) {
+export function conflictHalo(corner: ConflictHaloCorner, border: ConflictHaloBorder = {}) {
+    const out = (side: Side): string => {
+        const width = typeof border === "string" ? border : border[side];
+        return width === undefined ? "-5px" : `calc(-5px - ${width})`;
+    };
     return {
         "&[data-conflict]::before": {
             content: '""',
             position: "absolute",
-            inset: "-5px",
+            top: out("top"),
+            right: out("right"),
+            bottom: out("bottom"),
+            left: out("left"),
             borderWidth: "1px",
             borderStyle: "solid",
             borderColor: "status.warn",
-            borderRadius: `{radii.${corner}}`,
+            borderRadius: corner === "none" ? "{radii.sm}" : `calc({radii.${corner}} + 4px)`,
             pointerEvents: "none",
             zIndex: "4",
         },
     } as const;
 }
-
-/**
- * The halo as the part's outline, 4px out — for a part that clips what
- * overflows it, its corner following the part's: what a selection drawn as an
- * outline gives way to, drawn as a ring of its own just outside the part.
- */
-export const CONFLICT_HALO_OUTLINE = {
-    "&[data-conflict]": { outline: "1px solid {colors.status.warn}", outlineOffset: "4px", zIndex: "2" },
-} as const;

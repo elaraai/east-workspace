@@ -103,6 +103,9 @@ export const rowsBase = {
         position: "relative",
         minWidth: 0,
         overflow: "hidden",
+        // Holding a conflict not yet chosen, the plot clips only across: the warn halo stands 4px outside its part,
+        // above and below over the rows beside it.
+        "&:has([data-conflict])": { overflowX: "clip", overflowY: "visible" },
         // R2 `axis` (#591) — the shared grid + now-line are real elements
         // in this cell, so the treatment applies HERE, to the row that
         // declared it. `dim` washes them behind dense render content;

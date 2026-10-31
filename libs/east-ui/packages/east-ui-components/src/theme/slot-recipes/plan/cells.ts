@@ -15,6 +15,7 @@
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { coarseHitArea } from "../../../style/hit-area.js";
+import { conflictHalo } from "../../conflict-halo.js";
 import { fieldInRingedControl } from "../../field-chrome.js";
 import { lifecycleStates } from "./states.js";
 import { PLAN_OVERLAP_RING, planElementConflict, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
@@ -31,7 +32,7 @@ export const BOOKED_FILL = "{colors.brand.solid}";
 /** The slots this part styles. */
 export const cellsSlots = [
     "heatCell", "heatLabel", "weightBar", "segmentTrack", "segmentPart", "cellWash", "cell", "cellTiles",
-    "tile", "tileLabel", "tileMore", "laneLabel", "markerIcon", "cardChip", "cardChipIcon", "cardChipLabel", "tableCellText", "tableCellGroup", "tableCellPart", "tableCellDot", "tableCellMeasure",
+    "tile", "tileLabel", "tileMore", "laneLabel", "markerIcon", "cardChip", "cardChipIcon", "cardChipLabel", "tableCellText", "tableCellHalo", "tableCellGroup", "tableCellPart", "tableCellDot", "tableCellMeasure",
     "tableCellInput", "tableCellField", "tableCellFieldInput", "tableCellRefusal", "tableCellPopover",
 ] as const;
 
@@ -542,12 +543,22 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
             zIndex: -1,
         },
         "&[data-typed]:hover:not(:focus-visible)": { boxShadow: "inset 0 0 0 1px {colors.border.strong}" },
-        // A cell holding a conflict not yet chosen wears the warn halo: a 1px ring just outside it, over its neighbours.
-        "&[data-conflict]": { outline: "1px solid {colors.status.warn}", outlineOffset: "3px", zIndex: 3 },
         // Focused, the ring its input draws while open, and the Sheet's cell: 2px of brand INSIDE the cell. A cell is
         // its row's whole height, so a ring outside it, as other elements draw theirs, lost its top and bottom to the
         // row (#1438).
         _focusVisible: { outline: "none", boxShadow: "inset 0 0 0 2px {colors.brand.solid}" },
+    },
+    // A table cell holding a conflict not yet chosen: the warn halo, 4px outside it, over the rows beside it, drawn by a
+    // layer of its own at the cell's place, since the cell clips what it draws; a focused cell's 2px of brand stays inside it.
+    tableCellHalo: {
+        position: "absolute",
+        top: 0,
+        bottom: 0,
+        pointerEvents: "none",
+        zIndex: 3,
+        ...conflictHalo("none"),
+        "&[data-start]::before": { left: "0" },
+        "&[data-end]::before": { right: "0" },
     },
     // One value position inside a table cell — tone derives per cell
     // (neg / em-dash) or from the SERIES' declaration; `strong` is the
