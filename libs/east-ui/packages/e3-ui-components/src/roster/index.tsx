@@ -38,6 +38,7 @@ import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
 import { useSourceHidden } from "../shared/schedule/hidden.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
+import { useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { publishPeriod } from "../shared/schedule/records.js";
 import { useSourceWindow } from "../shared/schedule/source-window.js";
 import { publishChange, rosterCommands } from "./actions.js";
@@ -285,6 +286,8 @@ function RosterFrame(props: FrameProps) {
         if (pendingSteps === 0 && editing?.history.redoOrigin !== "optimise") setOptimised(undefined);
     }, [pendingSteps, editing?.schedule.version, editing]);
     const drag = useRosterDrag({ value, commands, week, duties: draftedDuties, weeks: weekStates, context, storageKey: key, narrow, start, format, onError: setError });
+    // The groups' folds, the board's and the People layout's: what a conflict's Go to opens.
+    const groups = useGroupCollapse(drag.surface);
     const dutyPart = sourcePart(source.slice.type === "some" ? source.slice.value : undefined, source.duty.kind.key);
     // What the footer's loading line says (#1398, CL3): the week being read, the people's or the activities' new
     // narrowing, or why one could not be read, with Retry — the week's asking again each record the week reads.
@@ -382,6 +385,10 @@ function RosterFrame(props: FrameProps) {
         const part = key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key));
         const a = part?.kind !== source.duty.kind.key ? undefined : week.assignments.get(issue.entry) ?? held.assignments.get(issue.entry);
         if (a === undefined) { onIssues(); return; }
+        // Its group opened where it is folded: its shift's on the board, its person's in the People layout.
+        groups.open(a.slot.group);
+        const person = a.who.type === "person" ? value.people.find((p) => keyEqual(p.key, a.who.value)) : undefined;
+        if (person !== undefined) groups.open(person.group);
         window.setView({ ...window.view, date: start.getTime() + Number(a.slot.day) * DAY });
         select({ type: "assignment", key: issue.entry });
     };

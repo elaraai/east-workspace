@@ -331,6 +331,24 @@ describe("Calendar explicit action forms", () => {
         await act(async () => { fireEvent.click(conflict!.radio("draft")); });
         expect(event(container, "job", "job1").hasAttribute("data-conflict")).toBe(false);
     });
+    test("a conflict's Go to shows its event's day and selects it, wherever the view stood", async () => {
+        const { container } = await h.mount(ex.calendarOperations);
+        await press(event(container, "job", "job1"));
+        const input = slot(container, "end").querySelector<HTMLInputElement>('[data-field="customer"] input')!;
+        const user = userEvent.setup(); await user.clear(input); await user.type(input, "Customer here{Enter}"); await settle();
+        await h.race(ex.calendarJobs, () => { fireEvent.click(history(container, editingMessages.apply())); }, (now) => {
+            const others = new Map(now);
+            others.set("job1", { ...others.get("job1")!, customer: "Customer there" });
+            return others;
+        });
+        await waitFor(() => expect(container.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
+        // The view moved on a week, and another event chosen: the job is not drawn.
+        await press(within(slot(container, "toolbar")).getByRole("button", { name: "Next week" }));
+        expect(event(container, "job", "job1")).toBeNull();
+        const [conflict] = await conflictCards(container);
+        await press(conflict!.goTo());
+        await waitFor(() => expect(event(container, "job", "job1")?.hasAttribute("data-selected")).toBe(true));
+    });
     test("two Saves at once, of different fields of one event: the one that lands first reads its own back beside the other's and is done, never left waiting on it", async () => {
         const { container } = await h.mount(ex.calendarOperations);
         await press(event(container, "job", "job1"));

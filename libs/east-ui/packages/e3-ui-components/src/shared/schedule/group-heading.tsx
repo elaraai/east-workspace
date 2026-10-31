@@ -17,7 +17,9 @@ import { keptRead } from "@elaraai/east-ui-components/internal";
 export function useGroupCollapse(surface: string) {
     const { state: collapsed, setState: setCollapsed } = usePersistedState<string[]>(`${surface}.collapsed-groups`, [], keptRead.array(keptRead.string));
     const toggle = useCallback((group: string) => setCollapsed(current => current.includes(group) ? current.filter(key => key !== group) : [...current, group]), [setCollapsed]);
-    return { collapsed, toggle };
+    // A group opened to show a row of it, as a Go to shows one: an open group stays as it is.
+    const open = useCallback((group: string) => setCollapsed(current => current.includes(group) ? current.filter(key => key !== group) : current), [setCollapsed]);
+    return { collapsed, toggle, open };
 }
 
 /**

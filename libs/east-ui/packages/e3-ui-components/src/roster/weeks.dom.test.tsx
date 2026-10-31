@@ -149,6 +149,13 @@ describe("Roster week lifecycle", () => {
         expect([assignment(container, "s37").hasAttribute("data-selected"), other.hasAttribute("data-selected")]).toEqual([false, true]);
         await press(card!.goTo());
         expect([assignment(container, "s37").hasAttribute("data-selected"), other.hasAttribute("data-selected")]).toEqual([true, false]);
+        // Its group folded, Go to opens it again, the duty shown and selected.
+        await press(container.querySelector('[data-roster-group="inbound"]'));
+        expect(assignment(container, "s37")).toBeNull();
+        const [again] = await conflictCards(container);
+        await press(again!.goTo());
+        expect(container.querySelector('[data-roster-group="inbound"]')!.getAttribute("aria-expanded")).toBe("true");
+        expect(assignment(container, "s37").hasAttribute("data-selected")).toBe(true);
         await press(history(container, editingMessages.discard()));
         expect(assignment(container, "s37").hasAttribute("data-removed")).toBe(false);
         // Its own times differ from its shift's now: the chip says them.

@@ -41,6 +41,16 @@ function kindOfIssue(commands: CalendarCommands, issue: EditIssue): string | und
     return commands.editing.sessions.find(held => held.key === commands.editing.history.sourceOf(issue))?.kind;
 }
 
+/** The instant an issue's event starts, as a gesture reads it; `undefined` for one unplaced, or not read. */
+function startOfIssue(commands: CalendarCommands, kind: string, entry: string): Date | undefined {
+    try {
+        const start = commands.editing.read(kind, entry)?.item.start;
+        return start?.type === "some" ? start.value : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
 interface ToolbarArgs {
     view: CalendarView; setView: (view: CalendarView) => void; range: CalendarRange; now: Date;
     /** The window's events; `undefined` while its period is read: "…", never a count of another period's (#1398, CL13). */
@@ -208,6 +218,13 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
         commands !== undefined && historyToolbarItem({ session: commands.editing.history, words, editing: false, showError: false, onAction, locked: args.locked === true,
             // A conflict's event, named as its kind's banners name it.
             where: issue => { const kind = kindOfIssue(commands, issue); return kind === undefined ? issue.entry : scheduleIssueName(commands.editing, kind, issue.entry); },
-            onIssue: issue => { const kind = kindOfIssue(commands, issue); if (kind !== undefined) select([{ kind, key: issue.entry }]); } }),
+            // An issue's Go to selects its event and shows its day, as a pick of Search Records does, wherever the view stood.
+            onIssue: issue => {
+                const kind = kindOfIssue(commands, issue);
+                if (kind === undefined) return;
+                select([{ kind, key: issue.entry }]);
+                const start = startOfIssue(commands, kind, issue.entry);
+                if (start !== undefined) args.onNavigate(dayStart(start).getTime());
+            } }),
     ];
 }
