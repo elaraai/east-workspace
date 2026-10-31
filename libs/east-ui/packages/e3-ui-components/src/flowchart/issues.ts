@@ -108,14 +108,29 @@ export function issueTarget(issue: EditIssue, flow: FlowchartFlowValue): Flowcha
 
 /**
  * The row a conflict is in, by its path in its flow — the field the row is in
- * and its place there, the draft's own cases passed over.
+ * and its place there, the draft's own cases passed over, and the flow's own
+ * field where a draft holds the flow beside its name.
  *
  * @param path - The conflict's path in its flow's draft
  * @returns The row's field and place; `undefined` for a conflict of the flow's own fields
  */
 function rowOf(path: PatchPath): { readonly field: string; readonly at: number } | undefined {
-    const [field, index] = path.filter((step) => step.kind !== "variant");
+    const steps = path.filter((step) => step.kind !== "variant");
+    const [field, index] = steps[0]?.kind === "field" && keyEqual(steps[0].name, "flow") ? steps.slice(1) : steps;
     return field?.kind === "field" && index?.kind === "index" ? { field: field.name, at: Number(index.index) } : undefined;
+}
+
+/**
+ * The state a conflict is in, by its path in its flow: what wears the warn
+ * halo while it waits.
+ *
+ * @param path - The conflict's path in its flow's draft
+ * @param flow - The open flow, as its drafts stand
+ * @returns The state's key; `undefined` for a conflict of another row, of the flow's own fields, or of a state it no longer has
+ */
+export function conflictStateKey(path: PatchPath, flow: FlowchartFlowValue): string | undefined {
+    const row = rowOf(path);
+    return row !== undefined && keyEqual(row.field, FIELD.state) ? flow.states[row.at]?.key : undefined;
 }
 
 /**

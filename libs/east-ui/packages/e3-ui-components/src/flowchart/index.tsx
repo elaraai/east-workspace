@@ -126,7 +126,7 @@ import { useFindState } from "./find.js";
 import { FlowchartFooter, useLastSave } from "./footer.js";
 import { FlowsCountReader, FlowsTab, PagedFlowsTab, NoFlows, type FlowCard, type FlowsCount, type NewFlowProps } from "./flows.js";
 import { inspectorPane, type FlowchartInspectorEdit } from "./inspector.js";
-import { conflictRowName, conflictTarget, flowIssues, issueTarget, saveIssues } from "./issues.js";
+import { conflictRowName, conflictStateKey, conflictTarget, flowIssues, issueTarget, saveIssues } from "./issues.js";
 import { useFlowchartLibrary } from "./library.js";
 import { flowchartMessages, type FlowchartRefusedWord, type FlowchartWords } from "./messages.js";
 import { missingFlow, openFlowName, useOpenedFlow } from "./open-flow.js";
@@ -413,19 +413,17 @@ function FlowchartFrame({ value, held, storageKey, chrome, flowsPart, followed, 
     // The open flow's states holding a conflict not yet chosen, by their keys as its drafts hold them: their nodes wear
     // the warn halo. A conflict's steps run down the flow to its states and one state's place among them.
     const conflicts = session.conflicts;
-    const shownStates = shown?.flow.states;
+    const shownFlow = shown?.flow;
     const conflictedStates = useMemo((): ReadonlySet<string> => {
         const points = entry === undefined ? undefined : conflicts.get(entry)?.points;
-        if (points === undefined || shownStates === undefined) return NO_STATES;
+        if (points === undefined || shownFlow === undefined) return NO_STATES;
         const out = new Set<string>();
         for (const point of points) {
-            const [field, states, index] = point.at.filter((step) => step.kind !== "variant");
-            if (field?.kind !== "field" || !nameEqual(field.name, "flow") || states?.kind !== "field" || !nameEqual(states.name, "states") || index?.kind !== "index") continue;
-            const state = shownStates[Number(index.index)];
-            if (state !== undefined) out.add(state.key);
+            const key = conflictStateKey(point.at, shownFlow);
+            if (key !== undefined) out.add(key);
         }
         return out;
-    }, [conflicts, entry, shownStates]);
+    }, [conflicts, entry, shownFlow]);
     const flow = shown?.flow ?? NO_FLOW;
     // Whether a flow is there to edit: one its source or its drafts hold — never a new flow before its session holds it, nor one its drafts delete.
     const hasFlow = shown !== undefined;

@@ -20,7 +20,7 @@ import { describe, expect, test } from "vitest";
 import { none, some, variant, type PatchPath, type ValueTypeOf } from "@elaraai/east";
 import { Flowchart } from "@elaraai/e3-ui/internal";
 import * as edits from "./edits.js";
-import { conflictRowName, conflictTarget, flowIssues, issueTarget, saveIssues } from "./issues.js";
+import { conflictRowName, conflictStateKey, conflictTarget, flowIssues, issueTarget, saveIssues } from "./issues.js";
 import { flowchartMessages as m } from "./messages.js";
 
 type Flow = ValueTypeOf<typeof Flowchart.Types.Flow>;
@@ -91,6 +91,19 @@ describe("the open flow's issues (FB37)", () => {
             .toEqual(["Sort chutes", "Induct", "Inducting → Sort chutes", "route"]);
         // A state with no label by its key; a row the flow no longer has, none.
         expect([conflictRowName(into("states", 3n), TROUBLED), conflictRowName(into("states", 9n), TROUBLED)]).toEqual(["STR", undefined]);
+    });
+
+    test("a conflict's state, its node wearing the halo: a state's path in a flow of a record, or in a draft holding the flow beside its name; none for another row", () => {
+        const step = { kind: "variant", tag: "value" } as const;
+        const field = (name: string) => ({ kind: "field", name }) as const;
+        const index = (at: bigint) => ({ kind: "index", index: at }) as const;
+        const some = { kind: "variant", tag: "some" } as const;
+        // A flow of a record of flows by name: its draft the flow itself.
+        expect(conflictStateKey([step, field("states"), index(1n), field("label"), some], CLEAN)).toBe("CH*");
+        // A draft holding the flow beside its name.
+        expect(conflictStateKey([field("flow"), field("states"), index(1n), field("label")], CLEAN)).toBe("CH*");
+        expect([conflictStateKey([step, field("lanes"), index(0n), field("label")], CLEAN), conflictStateKey([step, field("states"), index(9n)], CLEAN),
+            conflictStateKey([step, field("notes")], CLEAN)]).toEqual([undefined, undefined, undefined]);
     });
 
     test("a Save's conflict or refusal lists each of its issues in the source's words, blocking", () => {
