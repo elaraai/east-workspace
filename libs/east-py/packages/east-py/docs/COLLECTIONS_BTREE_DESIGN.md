@@ -87,14 +87,14 @@ for event:
 use(m)
 ```
 
-Real example — `east-twe/src/transformation/snapshot.ts:314`:
+Real example — a downstream project's snapshot transformation:
 
 ```typescript
 $.if(snapshot.has(key).not(), $ => {
     $(snapshot.insert(key, { …seed… }));        // first event for this key
 }).else($ => {
     const curr = $.let(snapshot.get(key));       // read current
-    /* per-field: sum kl, MIN chill, LAST set_temp, OR air, count n_events … */
+    /* per-field: a sum, a minimum, a last value, an OR, a count … */
     $(snapshot.update(key, { …merged… }));        // write merged back
 });
 ```
@@ -102,7 +102,7 @@ $.if(snapshot.has(key).not(), $ => {
 This is **interleaved**: the loop queries the growing map every iteration to decide
 insert-vs-merge. On the flat array each `insert` is an O(n) shift → building a K-key
 map is **O(K²)**. The "builder trick" (append unsorted, sort once at the end) **cannot
-apply** — a mid-loop `has`/`get` needs the structure sorted *now*. `snapshot.ts` is
+apply** — a mid-loop `has`/`get` needs the structure sorted *now*. That transformation is
 saturated with this pattern; it is how developers naturally aggregate, and for complex
 per-field merges a hand-rolled loop is clearer than any single fold. So this is the
 common case, not a corner.
@@ -466,7 +466,7 @@ performance fix even if phase 2 is deferred.
 - **B-tree fanout / node size** — the de-facto spec (`sorted-btree`, the lib the TS reference
   runs) defaults to **32** items/node (valid range 4..256); `tidwall` defaults similarly. Start
   at 32 and tune for the cache line and the typical key (struct keys like `{day}` vs scalar
-  keys). Bench against real `snapshot.ts`-shaped workloads.
+  keys). Bench against real snapshot-shaped (group-by/upsert) workloads.
 - **Small-collection inline** — keep a tiny set/dict (≤ N) as an inline sorted array
   inside the value, promoting to a tree only past a threshold, to erase FFI/allocation
   overhead for the common small case (§3.3). **This matters more than first credited:** a
@@ -650,8 +650,8 @@ To expose new/changed east-c functions to Python and route proxy ops:
 
 - This design + its rationale live in this file; the **two-forms memory model** and the
   full reasoning are in the conversation that produced it (the bare-vs-proxy distinction,
-  the O(n²) interleaved-upsert analysis grounded in `east-twe/src/transformation/snapshot.ts`).
-- The motivating workload is `snapshot.ts`-shaped group-by/upsert (§1.4) — use it (or a
+  the O(n²) interleaved-upsert analysis grounded in a downstream project's snapshot transformation).
+- The motivating workload is snapshot-shaped group-by/upsert (§1.4) — use it (or a
   synthetic K-key aggregation loop) as the performance benchmark to prove O(K²) → O(K log K).
 - Current branch: `east-py-value-production` (the values.py→package refactor + the
   `union_in_place` fix are already there; PR #15).
