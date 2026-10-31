@@ -206,7 +206,7 @@ test("Save is one commit through the record's patch door: the history item says 
     await settle();
     expect((await readJobs()).get("J-0001")!.task).toBe("Panel cutting, oak");
     expect(await commits(JOBS)).toEqual(["patch", ...deployed]);
-    expect(statusLine(container)).toBe("Saved — loading the confirmed revision…");
+    expect(statusLine(container)).toBe("Saved — reading it back…");
     expect(drafted(container)).toBe(1);
     // The rows read back: the drafts retire, and the history item says nothing.
     await act(async () => { readBack.release(); });

@@ -178,7 +178,7 @@ export const editingMessages: EditingMessages = {
             case "carrying": return "Checking your changes against the newest data";
             case "applying": return "Saving…";
             case "unknown": return "Awaiting confirmation — retry the same request";
-            case "reconciling": return "Saved — loading the confirmed revision…";
+            case "reconciling": return "Saved — reading it back…";
             case "rejected": return "Changes rejected — revise the draft before saving";
             case "conflict": return "Source conflict — review or discard these drafts";
         }

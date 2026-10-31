@@ -1413,7 +1413,8 @@ export class EditSession<W> {
         }
         const request = this.submission;
         if (request !== undefined && this.status === "reconciling") {
-            if (request.revision === undefined || !stringEqual(revision, request.revision)) return [];
+            // At the revision it committed, or a later one: never the one it was drafted at, which holds nothing of it.
+            if (request.revision === undefined || request.base.type !== "revision" || stringEqual(revision, request.base.value)) return [];
             return [...request.targets.keys()].filter(id => !request.checked.has(id)).slice(0, limit);
         }
         const conflict = this.conflicted;
@@ -1427,7 +1428,10 @@ export class EditSession<W> {
      * left it: an inline positional source's whole collection, its order
      * included; an inline keyed source's own entries, whatever another write
      * did to the others (#1185); a source that names its revisions, the
-     * request's entries read at the revision it committed.
+     * request's entries read at the revision it committed or a later one — an
+     * entry another write changed since, acknowledged with its newer value,
+     * and one still as its edit began, read before the commit landed, judged
+     * by a later read.
      *
      * An entry reads back as the request left it when the source holds it
      * otherwise than its edit began, with what the request set — the change,
@@ -1443,7 +1447,9 @@ export class EditSession<W> {
     reconcile(base: Base, read: (id: string) => option<unknown> | undefined): boolean {
         const request = this.submission;
         if (!request || this.status !== "reconciling") return false;
-        if (request.base.type === "revision" && (base.type !== "revision" || (request.revision === undefined || !stringEqual(base.value, request.revision)))) return false;
+        // At a revision: the one the request committed, or a later one — another write may land before the session reads
+        // its own (two Saves at once) — never the one it was drafted at.
+        if (request.base.type === "revision" && (base.type !== "revision" || request.revision === undefined || stringEqual(base.value, request.base.value))) return false;
         if (request.base.type === "snapshot" && base.type !== "snapshot") return false;
         // Whether every entry reads back as the session's versions hold it.
         let exact = true;
@@ -1460,7 +1466,11 @@ export class EditSession<W> {
             for (const [id, target] of request.targets) {
                 if (request.checked.has(id)) continue;
                 const now = read(id);
-                if (now !== undefined && this.leftAs(now, target)) request.checked.set(id, this.domainEqual(now, target.after));
+                if (now === undefined) continue;
+                if (this.leftAs(now, target)) request.checked.set(id, this.domainEqual(now, target.after));
+                // Another write changed it since the request landed: acknowledged, the newer value the source's. One the
+                // change still applies to was read before the request landed: a later read judges it.
+                else if (!this.applies(now, target)) request.checked.set(id, false);
             }
             if (request.checked.size !== request.targets.size) {
                 // Advancing schedules the next bounded batch, even when the
@@ -1479,8 +1489,8 @@ export class EditSession<W> {
         }
         this.changed();
         if (request.confirmed !== undefined) {
-            const confirmed = request.base.type === "revision" && request.revision !== undefined
-                ? this.heldAt(request.revision, request.targets, "after", request.checked) : undefined;
+            const confirmed = request.base.type === "revision" && base.type === "revision"
+                ? this.heldAt(base.value, request.targets, "after", request.checked) : undefined;
             queueMicrotask(() => request.confirmed!(confirmed));
         }
         return true;

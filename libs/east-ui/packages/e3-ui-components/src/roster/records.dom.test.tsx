@@ -159,6 +159,21 @@ describe("one history over the Roster's records (#1369)", () => {
         expect((await h.read(ex.rosterDuties)).get("s10")!.note).toBe("covering for Tuesday");
     });
 
+    test("B9 — two Saves at once, of different fields of one duty: the one that lands first reads its own back beside the other's and is done, never left waiting on it", async () => {
+        const { container: c } = await h.mount(ex.rosterWarehouse);
+        await drop(assignment(c, "s37"), cell(c, 4, "picking", "late"));
+        // The other session's note on the same duty commits just after this Save, before this session has read its own back.
+        await h.followed(ex.rosterDuties, () => { fireEvent.click(history(c, editingMessages.apply())); },
+            now => { now.set("s37", { ...now.get("s37")!, note: "asked to swap" }); return now; });
+        const saved = (await h.read(ex.rosterDuties)).get("s37")!;
+        expect([saved.team, saved.shift, saved.note]).toEqual(["picking", "late", "asked to swap"]);
+        await waitFor(() => {
+            expect(slot(c, "toolbar").textContent).not.toContain(editingMessages.historyStatus({ status: "reconciling" }));
+            expect(assignment(c, "s37").hasAttribute("data-drafted")).toBe(false);
+        });
+        expect(c.querySelector("[data-session-banner]")).toBeNull();
+    });
+
     test("B11 — coverage, pay, checks and fits read every duty of the week, whatever the rail shows", async () => {
         const { container: c, store } = await open(ex.rosterWarehouse);
         const coverage = marks(c), cost = stat(c, "Cost"), issues = issueCount(c);

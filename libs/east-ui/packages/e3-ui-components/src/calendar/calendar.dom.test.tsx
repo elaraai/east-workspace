@@ -331,6 +331,25 @@ describe("Calendar explicit action forms", () => {
         await act(async () => { fireEvent.click(conflict!.radio("draft")); });
         expect(event(container, "job", "job1").hasAttribute("data-conflict")).toBe(false);
     });
+    test("two Saves at once, of different fields of one event: the one that lands first reads its own back beside the other's and is done, never left waiting on it", async () => {
+        const { container } = await h.mount(ex.calendarOperations);
+        await press(event(container, "job", "job1"));
+        const input = slot(container, "end").querySelector<HTMLInputElement>('[data-field="customer"] input')!;
+        const user = userEvent.setup(); await user.clear(input); await user.type(input, "Customer here{Enter}"); await settle();
+        // The other session's hours on the same job commit just after this Save, before this session has read its own back.
+        await h.followed(ex.calendarJobs, () => { fireEvent.click(history(container, editingMessages.apply())); }, (now) => {
+            const others = new Map(now);
+            others.set("job1", { ...others.get("job1")!, hours: 6.0 });
+            return others;
+        });
+        const saved = (await jobs()).get("job1")!;
+        expect([saved.customer, saved.hours]).toEqual(["Customer here", 6.0]);
+        await waitFor(() => {
+            expect(slot(container, "toolbar").textContent).not.toContain(editingMessages.historyStatus({ status: "reconciling" }));
+            expect(event(container, "job", "job1").hasAttribute("data-drafted")).toBe(false);
+        });
+        expect(container.querySelector("[data-session-banner]")).toBeNull();
+    });
     test("a reload keeps each kind's drafts in this tab: the events deleted stay deleted, still to save, and Save sends each kind's", async () => {
         const first = await h.mount(ex.calendarOperations);
         for (const [kind, key] of [["job", "job1"], ["service", "service1"]]) {

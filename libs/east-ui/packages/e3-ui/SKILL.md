@@ -1406,8 +1406,9 @@ const onPatch = $.const(East.function([Plan.Types.PatchEvent(Hall)], NullType, (
   over with nothing to choose it is sent again by itself — three times in a
   row at most, then the person's Save sends it; with a conflict, the person
   saves once it is chosen. A Save whose outcome is unknown retries the SAME request ("Retry
-  request"), and drafts retire only once the source reads back at the
-  committed revision ("Saved — loading the confirmed revision…").
+  request"), and drafts retire only once the source reads back with the
+  Save in it ("Saved — reading it back…"): at the revision it committed or
+  a later one, so another Save landing just after it holds nothing up.
 - **Kept through a reload.** The drafts are kept in the tab's storage as
   each gesture is made, and a reload of the tab brings them back, carried
   over to what the source holds then: as they were where it has not moved,

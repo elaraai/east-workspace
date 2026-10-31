@@ -267,6 +267,30 @@ describe("a bin (A56–A59)", () => {
         expect([saved.m3, [...saved.kilns]]).toEqual([30, [["K-108", 30]]]);
     });
 
+    test("two Saves at once, of different fields of one bin: the one that lands first reads its own back beside the other's and is done, never left waiting on it", async () => {
+        const c = await open();
+        await press(card(c, "3113"));
+        const user = userEvent.setup();
+        const quantity = within(details(c).querySelector<HTMLElement>('[data-field="quantity"]')!).getByRole("spinbutton");
+        await user.clear(quantity);
+        for (const k of "30") { await user.type(quantity, k); await settle(); }
+        await user.keyboard("{Enter}");
+        await settle();
+        // The other session's loading instruction on the same bin commits just after this Save, before this session has read its own back.
+        await h.followed(ex.kilnBins, () => { fireEvent.click(save(c)); }, (now) => {
+            const others = new SortedMap(now, compareFor(StringType));
+            others.set("3113", { ...others.get("3113")!, instruction: some("Turn the stacks") });
+            return others;
+        });
+        const saved = (await h.read(ex.kilnBins)).get("3113")!;
+        expect([saved.m3, saved.instruction]).toEqual([30, some("Turn the stacks")]);
+        await waitFor(() => {
+            expect(slot(c, "toolbar").textContent).not.toContain(editingMessages.historyStatus({ status: "reconciling" }));
+            expect(headOf(c).status).not.toBe("Edited · unsaved");
+        });
+        expect(c.querySelector("[data-session-banner]")).toBeNull();
+    });
+
     test("A58 — Assigned to: the field, the fill and its meter with the min tick, the group line, Before · Hold · Next fill, its bins today and the batch line", async () => {
         const c = await open();
         await press(card(c, "3113"));

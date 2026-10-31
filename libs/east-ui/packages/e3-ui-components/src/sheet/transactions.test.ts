@@ -153,19 +153,21 @@ test("an old inline snapshot cannot acknowledge a move; undo after apply submits
     expect(requests[1]!.changes[0]!.place).toEqual(start);
 });
 
-test("paged overlays require the acknowledged hash and affected entries; refresh retry never reapplies", async () => {
+test("paged overlays settle at the revision their commit made or a later one, never the one drafted at, once their entries read as the edit left them; refresh retry never reapplies", async () => {
     const apply = vi.fn(() => variant("applied", { revision: some("r2") }));
     const refresh = vi.fn(() => { throw new Error("refresh offline"); });
     const session = new SheetTransactions(binding({ apply, refresh }));
     session.observeBase(variant("revision", "r1")); editA(session); await session.apply();
     expect(session.status).toBe("reconciling");
     expect(refresh).toHaveBeenCalledWith(some("r2"));
-    expect(session.reconcile(variant("revision", "r3"), () => some({ ...a, qty: 9n }))).toBe(false);
+    // The revision drafted at holds nothing of the commit, whatever it reads: not acknowledged.
+    expect(session.reconcile(variant("revision", "r1"), () => some({ ...a, qty: 9n }))).toBe(false);
     // Not read yet at the committed revision, or read there as its edit began: not acknowledged.
     expect(session.reconcile(variant("revision", "r2"), () => undefined)).toBe(false);
     expect(session.reconcile(variant("revision", "r2"), () => some(a))).toBe(false);
     session.refresh(); await session.apply(); expect(apply).toHaveBeenCalledTimes(1);
-    expect(session.reconcile(variant("revision", "r2"), () => some({ ...a, qty: 9n }))).toBe(true);
+    // Another write landed on top before the read: the later revision, holding the edit, acknowledges it.
+    expect(session.reconcile(variant("revision", "r3"), () => some({ ...a, qty: 9n }))).toBe(true);
     expect(session.pending).toBe(0);
 });
 

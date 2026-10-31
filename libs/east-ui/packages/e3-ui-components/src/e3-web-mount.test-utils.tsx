@@ -200,6 +200,18 @@ export interface E3Harness {
      */
     race<T extends EastType>(record: E3Record<T>, save: () => void, next: (now: ValueTypeOf<T>) => ValueTypeOf<T>): Promise<void>;
     /**
+     * Two Saves at once, this one landing first: the record's next mutation
+     * commits, and another session's write commits just after it, before what
+     * is mounted reads its own change back — so the poll that hears its commit
+     * hears the other's too, and it reads its change back beside the other's.
+     * Then settles.
+     *
+     * @param record - The record both write, which declares a patch mutation
+     * @param save - What sends the Save: a press of its button, say
+     * @param next - The record's state as the other session leaves it, from its state once the Save has committed
+     */
+    followed<T extends EastType>(record: E3Record<T>, save: () => void, next: (now: ValueTypeOf<T>) => ValueTypeOf<T>): Promise<void>;
+    /**
      * Writes a dataset as another session would, then settles.
      *
      * @param dataset - The dataset
@@ -401,6 +413,19 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
             await saving.holding;
             await patchRecord(e3(), workspace(), record, next(await readDataset(e3(), workspace(), record)));
             await act(async () => { saving.release(); });
+            await settle();
+        },
+        async followed(record, save, next) {
+            // The Save's answer held on its way back, its commit made; then what reads the record after it held, so the
+            // other session's commit lands first.
+            const answer = e3().holdAnswers((request) => request.kind === "mutate" && request.record === record.name);
+            await act(async () => { save(); });
+            await answer.holding;
+            const reading = e3().hold((request) => request.kind === "status" || (request.kind !== "mutate" && request.dataset === `records.${record.name}`));
+            await act(async () => { answer.release(); });
+            await reading.holding;
+            await patchRecord(e3(), workspace(), record, next(await readDataset(e3(), workspace(), record)));
+            await act(async () => { reading.release(); });
             await settle();
         },
         async write(dataset, value) {

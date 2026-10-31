@@ -171,6 +171,30 @@ test("a source at a revision confirms at the one the commit made, its entries re
     expect(session.entries.size).toBe(0);
 });
 
+test("two Saves at once: one reads its own back at the later revision the other made — its change beside the other's, or changed again since, is acknowledged; still as its edit began, it waits", async () => {
+    const saved = async () => {
+        const session = keyed("r1");
+        session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+        await session.apply();
+        return session;
+    };
+    // Its change beside another write's, read at r3: never at r1, where it was drafted.
+    const beside = await saved();
+    expect([beside.readIdsAt("r1"), beside.readIdsAt("r3")]).toEqual([[], ["J1"]]);
+    expect(beside.reconcile(variant("revision", "r1"), () => some({ ...cut, qty: 5n }))).toBe(false);
+    expect(beside.reconcile(variant("revision", "r3"), () => some({ task: "Panel cutting, maple", qty: 5n }))).toBe(true);
+    expect([beside.status, beside.entries.size]).toEqual(["idle", 0]);
+    // Its quantity changed again by another write since: acknowledged, the newer value the source's.
+    const again = await saved();
+    expect(again.reconcile(variant("revision", "r3"), () => some({ ...cut, qty: 9n }))).toBe(true);
+    expect([again.status, again.entries.size, again.pending]).toEqual(["idle", 0, 0]);
+    // Still as its edit began — read before the commit landed: a later read judges it.
+    const early = await saved();
+    expect(early.reconcile(variant("revision", "r3"), () => some(cut))).toBe(false);
+    expect(early.status).toBe("reconciling");
+    expect(early.reconcile(variant("revision", "r4"), () => some({ ...cut, qty: 5n }))).toBe(true);
+});
+
 test("a positional snapshot confirms only once its whole collection reads back, its order included", async () => {
     const session = create();
     const b: RunValue = { id: "b", start: 4n, end: 6n };

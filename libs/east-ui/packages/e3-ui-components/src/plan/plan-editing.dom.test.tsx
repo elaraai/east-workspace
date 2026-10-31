@@ -143,7 +143,7 @@ for (const arm of ["inline", "paged"] as const) {
             expect([...stored.get("p1")!.jobs.keys()]).toEqual(["job-1"]);
             expect([...stored.get("p2")!.jobs.keys()]).toEqual(["job-2"]);
             // Committed — but not read back yet: the drafts stand.
-            expect(statusLine(canvas)).toBe("Saved — loading the confirmed revision…");
+            expect(statusLine(canvas)).toBe("Saved — reading it back…");
             expect(marks(c)).toEqual({ p1: "pending", p2: "pending" });
             await canvas.confirm();
             // Read back: the source's own rows, as the drafts drew them — no longer drafts.
