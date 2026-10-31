@@ -82,7 +82,7 @@ export interface TimelineProps {
     held: Day | undefined;
     /** Whether two bins are the same: one unlike the record's is a draft. */
     sameBin: (a: Bin, b: Bin) => boolean;
-    /** Whether a bin holds a conflict not yet chosen: it wears the warn halo. None by default. */
+    /** Whether a bin holds a conflict not yet chosen: it wears the warn ring. None by default. */
     conflicted?: ((id: string) => boolean) | undefined;
     /** Every resource's load. */
     loads: SortedMap<string, Load>;

@@ -50,7 +50,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
-import { conflictHalo } from "../conflict-halo.js";
+import { CONFLICT_RING } from "../conflict-ring.js";
 
 /** The shared drag stages the canvas's own indicators replace — the candidate and active frames and the active wash. */
 const OWN_INDICATORS = {
@@ -333,8 +333,6 @@ export const snapGridSlotRecipe = defineSlotRecipe({
             "&[data-align='stretch']": { alignSelf: "stretch" },
             // The drag layer dims a moved tile's origin.
             "&[data-dragging]": { cursor: "grabbing" },
-            // A conflict not yet chosen: the warn halo, 4px outside the tile's frame.
-            ...conflictHalo("lg"),
         },
         frame: {
             height: "100%",
@@ -362,6 +360,10 @@ export const snapGridSlotRecipe = defineSlotRecipe({
             // edge takes the valence base, never its text step.
             "[data-incomplete] > &": { borderColor: "status.warn" },
             "[data-invalid] > &": { borderColor: "status.neg" },
+            // A tile holding a conflict not yet chosen: the warn ring at its frame's edge — selected, its edge kept and its
+            // focus ring under the warn.
+            "[data-conflict] > &": { boxShadow: CONFLICT_RING },
+            "[data-selected][data-conflict] > &": { boxShadow: `${CONFLICT_RING}, {shadows.focus}` },
         },
         handle: {
             position: "absolute",

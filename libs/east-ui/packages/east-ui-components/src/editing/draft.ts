@@ -196,13 +196,13 @@ export interface DraftPresentation {
     issues: ReadonlyMap<string, string>;
     /** It was never applied, so discarding it drops it. */
     discardable: boolean;
-    /** Where it holds a conflict not yet chosen — what the warn halo rings ({@link conflictMarks}); none for none. */
+    /** Where it holds a conflict not yet chosen — the parts that wear the warn ring ({@link conflictMarks}); none for none. */
     conflicts?: ConflictMarks | undefined;
 }
 
 const nameEqual = equalFor(StringType);
 
-/** Where an entry, or one child row of it, holds a conflict not yet chosen: the parts the warn halo rings. */
+/** Where an entry, or one child row of it, holds a conflict not yet chosen: the parts that wear the warn ring. */
 export interface ConflictMarks {
     /** Each field a conflict is in. */
     readonly fields: ReadonlySet<string>;
@@ -213,7 +213,7 @@ export interface ConflictMarks {
 /**
  * Where an entry's conflicts are, field by field — or, given a child row
  * (its group's children field and its index), that row's: what the warn
- * halo rings on a canvas, a field's part for each conflict in it and the
+ * ring marks on a canvas, a field's part for each conflict in it and the
  * whole for one at the entry itself. A choice of a variant on the way down
  * (a group or a row of a sheet with loose rows) is passed over.
  *

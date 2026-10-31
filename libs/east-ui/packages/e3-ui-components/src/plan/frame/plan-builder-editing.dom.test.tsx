@@ -600,7 +600,7 @@ describe("Save per kind (PB45–PB48)", () => {
         const [card, ...more] = await conflictCards(container);
         expect(more).toEqual([]);
         expect([card!.item, card!.yours]).toEqual(["Spring catalogue", "Yours, Alder & Finch Ltd"]);
-        // Its bar wears the warn halo while the conflict waits.
+        // Its bar wears the warn ring while the conflict waits.
         expect(bar(container, "J-1001")!.hasAttribute("data-conflict")).toBe(true);
         expect(card!.theirs).toBe("Theirs, Alder & Finch Group, Changed since this edit began — last changed by another session · was Alder & Finch");
         // The stop committed; the job did not, and its draft stands over the other planner's, waiting to be chosen.
@@ -934,7 +934,7 @@ describe("data's rows, their items written by id (#1436)", () => {
 });
 
 describe("the conflicts example (planConflicts)", () => {
-    test("a bar carried two days later here, then Someone else saves, is one conflict named by its job, its dates one card, the bar wearing the halo", async () => {
+    test("a bar carried two days later here, then Someone else saves, is one conflict named by its job, its dates one card, the bar wearing the ring", async () => {
         const { container: c } = await h.mount(ex.planConflicts, { drag: true });
         await settle();
         // Its presses are rows of their own, in no hall.

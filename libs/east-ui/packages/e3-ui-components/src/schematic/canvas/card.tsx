@@ -61,7 +61,7 @@ export interface SchematicCardProps {
     readonly observe: (el: HTMLElement | null) => (() => void) | undefined;
     /** Whether it is selected, or a marquee in flight would select it. */
     readonly selected: boolean;
-    /** Whether it holds a conflict not yet chosen: it wears the conflicts' warn halo. */
+    /** Whether it holds a conflict not yet chosen: it wears the conflicts' warn ring. */
     readonly conflict: boolean;
     /** Whether its layer is locked: it takes no pointer, and selects by no path (SC27). */
     readonly locked: boolean;

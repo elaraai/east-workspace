@@ -150,7 +150,7 @@ test("a Save another session's write beat carries the draft over to the row as i
     // Nothing goes out of date: the draft's task stands where both changed it, and Save waits for it to be chosen.
     expect(slot(container, "banners")!.textContent).toContain(editingMessages.bannerConflicts({ n: 1, count: "1" }));
     expect(container.querySelector('[data-slot="row"] [data-key="task"]')!.textContent).toBe("Panel cutting, maple");
-    // The cell both changed wears the warn halo; the row's other cells do not.
+    // The cell both changed wears the warn ring; the row's other cells do not.
     const ringed = () => [...container.querySelectorAll('[data-slot="row"] [data-conflict]')].map((cell) => cell.getAttribute("data-key"));
     expect(ringed()).toEqual(["task"]);
     // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
@@ -167,7 +167,7 @@ test("a Save another session's write beat carries the draft over to the row as i
         "Panel cutting, maple", "Yours, Panel cutting, maple",
         "Theirs, Panel cutting, walnut, Changed since this edit began — last changed by another session · was Panel cutting",
     ]);
-    // Kept, the draft's task saves over the newer one; chosen, the halo goes.
+    // Kept, the draft's task saves over the newer one; chosen, the ring goes.
     await act(async () => { fireEvent.click(card!.radio("draft")); });
     expect(banners(container)).toEqual([]);
     expect(ringed()).toEqual([]);

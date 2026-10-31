@@ -1114,7 +1114,7 @@ describe("a net is culled by the box its bus spans (hand retest, 27 Oct 2026)", 
     });
 });
 
-describe("the conflicts' halo", () => {
+describe("the conflicts' rings", () => {
     const T = Schematic.Types;
     const at = (key: string, x: number) => drawnItem({ kind: "racks", key }, {
         ...defaultValue<typeof T.Item>(T.Item), position: some({ x, y: 2 }), label: key,
@@ -1123,20 +1123,37 @@ describe("the conflicts' halo", () => {
     /** The palette's warn (`statusWarn`). */
     const WARN = "rgb(14,14,14)";
 
-    /** The warn strokes a frame paints at 10 px a unit — A a labelled pin, B a dot, C a card — each as its arcs. */
+    /** What a frame paints in warn at 10 px a unit — A a labelled pin, B a dot, C a card: each arc, each pill and the glow. */
     function rings(conflicted?: ReadonlySet<string>) {
         const { ctx, drawn } = recorder();
+        const pills: number[][] = [];
+        const glows: number[] = [];
+        Object.assign(ctx, {
+            roundRect(x: number, y: number, w: number, h: number, r: number) { if (ctx.strokeStyle === WARN) pills.push([x, y, w, h, r]); },
+            shadowColor: "",
+        });
+        // A setter of its own: `Object.assign` would copy the value a setter reads, not the setter.
+        Object.defineProperty(ctx, "shadowBlur", { configurable: true, get: () => 0, set: (blur: number) => { if (blur > 0) glows.push(blur); } });
         paintSchematic({
             ctx, value: { items: [a, b, c], zones: [], links: [], nets: [] }, cam: { ppu: 10, tx: 0, ty: 0 }, width: 300, height: 200,
             visibleItems: [a, b, c], tiers: new Map([[a.key, "label"], [b.key, "dot"], [c.key, "card"]]), selected: new Set(), selectedZones: new Set(),
             centers: new Map([[a.key, { x: 2, y: 2 }], [b.key, { x: 12, y: 2 }], [c.key, { x: 22, y: 2 }]]), palette: PALETTE, tints: new Map(),
             ...(conflicted === undefined ? {} : { conflicted }),
         });
-        return drawn.filter((d) => d.op === "stroke" && d.style === WARN).map((d) => [d.width, ...d.arcs.map((arc) => [arc.x, arc.y, arc.r])]);
+        const arcs = drawn.filter((d) => d.op === "stroke" && d.style === WARN && d.arcs.length > 0).map((d) => [d.width, ...d.arcs.map((arc) => [arc.x, arc.y, arc.r])]);
+        return { arcs, pills, glows };
     }
 
-    it("rings each marker holding a conflict not yet chosen in the warn colour, 1px, just outside it; a card's is its element's", () => {
-        expect(rings(new Set([a.key, b.key, c.key]))).toEqual([[1, [20, 20, 23]], [1, [120, 20, 16]]]);
-        expect(rings()).toEqual([]);
+    it("rings each marker holding a conflict not yet chosen in the warn colour, 1px at its edge with a soft glow: a dot round its paper edge, a pin round its pill; a card's is its element's", () => {
+        const { arcs, pills, glows } = rings(new Set([a.key, b.key, c.key]));
+        // B's dot, 5px with 1.5px of paper: the ring's 1px just outside it.
+        expect(arcs).toEqual([[1, [120, 20, 6.25]]]);
+        // A's pill, the ring 1px outside its border on every side, its ends rounder by as much.
+        expect(pills).toHaveLength(1);
+        const [x, y, w, h, r] = pills[0]!;
+        expect([w! - 2 > 0, h! - 2, r]).toEqual([true, 16, (h! - 2) / 2 + 1]);
+        expect([x! + 1, y! + 1 + (h! - 2) / 2]).toEqual([expect.any(Number), 20]);
+        expect(glows).toEqual([8]);
+        expect(rings()).toEqual({ arcs: [], pills: [], glows: [] });
     });
 });

@@ -218,7 +218,7 @@ interface TileProps {
     /** The canvas's one tab stop. */
     tabStop: boolean;
     mark: SnapGridDraftMark | undefined;
-    /** It holds a conflict not yet chosen: it wears the warn halo. */
+    /** It holds a conflict not yet chosen: it wears the warn ring. */
     conflict: boolean;
     /** It moves: the session takes a gesture. */
     movable: boolean;

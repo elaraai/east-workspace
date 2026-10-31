@@ -1119,7 +1119,7 @@ describe("<Studio.Builder> — the toolbar on a row short of room (#1229)", () =
 });
 
 describe("the conflicts example (studioConflicts)", () => {
-    test("a tile narrowed here, then Someone else saves, is one conflict named by the tile's title, the tile wearing the halo until it is chosen", async () => {
+    test("a tile narrowed here, then Someone else saves, is one conflict named by the tile's title, the tile wearing the ring until it is chosen", async () => {
         const { container } = await h.mount(ex.studioConflicts, { storageKey: "studio-conflicts" });
         await settle();
         await waitFor(() => expect(container.querySelector('[data-snap-grid-tile="a-orders"]')).not.toBeNull());

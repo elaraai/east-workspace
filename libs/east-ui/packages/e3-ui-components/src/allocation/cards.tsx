@@ -53,7 +53,7 @@ export interface CardsProps extends ChoiceScene {
     /** The day as the record holds it: what a draft differs from. */
     held: Day | undefined;
     sameBin: (a: Bin, b: Bin) => boolean;
-    /** Whether a bin holds a conflict not yet chosen: it wears the warn halo. None by default. */
+    /** Whether a bin holds a conflict not yet chosen: it wears the warn ring. None by default. */
     conflicted?: ((id: string) => boolean) | undefined;
     loads: SortedMap<string, Load>;
     /** Each resource's line on the day (A19). */

@@ -97,7 +97,7 @@ test("each card's size is written in place as it moves — the same map across b
     expect([sizes.current.has(a.key), sizes.current.get(b.key)]).toEqual([false, { w: 60, h: 40 }]);
 });
 
-test("a card holding a conflict not yet chosen wears the conflicts' halo; one chosen, or none, does not", () => {
+test("a card holding a conflict not yet chosen wears the conflicts' ring; one chosen, or none, does not", () => {
     const sizes: RefObject<Map<string, { w: number; h: number }>> = { current: new Map() };
     const { container, rerender } = render(layer([a, b], sizes, () => undefined, new Set([a.key])));
     expect([cardOf(container, a).hasAttribute("data-conflict"), cardOf(container, b).hasAttribute("data-conflict")]).toEqual([true, false]);

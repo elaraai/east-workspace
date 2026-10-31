@@ -49,7 +49,7 @@ import {
 
 export interface RosterViewsProps {
     value: RosterValue; week: Week; held: Week; start: Date; day: number; view: RosterView; setView: (view: RosterView) => void;
-    /** Whether a duty holds a conflict not yet chosen: its chip, tile and card wear the warn halo. None by default. */
+    /** Whether a duty holds a conflict not yet chosen: its chip, tile and card wear the warn ring. None by default. */
     conflicted?: ((id: string) => boolean) | undefined;
     /** The span in view (#1406, D2), and each of its weeks drafts in place: what the month draws, and what a pattern dropped on one applies to. */
     span: RosterSpan; weeks: readonly WeekState[];

@@ -157,7 +157,7 @@ export interface FlowchartCanvasHandle {
 export interface FlowchartCanvasViewProps {
     /** What the canvas draws its flow with. */
     readonly canvas: FlowchartCanvasValue;
-    /** The keys of the states holding a conflict not yet chosen: their nodes wear the warn halo. None by default. */
+    /** The keys of the states holding a conflict not yet chosen: their nodes wear the warn ring. None by default. */
     readonly conflicted?: ReadonlySet<string> | undefined;
     /** The open flow's view model. */
     readonly model: FlowchartModel;

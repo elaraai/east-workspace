@@ -194,7 +194,7 @@ export interface PaintInput {
     /** The set of selected item keys (single/multiple/range all share it). */
     selected: ReadonlySet<string>;
     /**
-     * The items holding a conflict not yet chosen, by key: each marker wears the conflicts' warn halo, a 1px ring just
+     * The items holding a conflict not yet chosen, by key: each marker wears the conflicts' warn ring, a 1px ring just
      * outside it — a card's is its element's. None by default.
      */
     conflicted?: ReadonlySet<string>;
@@ -1218,23 +1218,32 @@ export function paintSchematic(input: PaintInput): void {
         }
     }
 
-    // ---- the conflicts' halo: a 1px warn ring just outside each marker holding a conflict not yet chosen ----
-    // A card's is CSS, as its selection's is.
+    // ---- the conflicts' rings: 1px of warn at the edge of each marker holding a conflict not yet chosen, and a soft
+    // glow, as a card's CSS draws its own: round a dot, the edge it draws; round a labelled pin, its pill's border. ----
     const conflicted = input.conflicted;
     if (conflicted !== undefined && conflicted.size > 0) {
+        ctx.save();
+        ctx.font = p.labelFont;
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = css(p.statusWarn);
+        ctx.shadowColor = css(p.statusWarn, 0.45);
+        ctx.shadowBlur = 8;
         for (const item of visibleItems) {
             if (!conflicted.has(item.key)) continue;
             const tier = tiers.get(item.key) ?? "dot";
             if (tier === "card") continue;
-            const baseR = tier === "label" ? 18 : 11;
-            ctx.save();
             ctx.beginPath();
-            ctx.arc(wx(item.x), wy(item.y), baseR + 5, 0, Math.PI * 2);
-            ctx.lineWidth = 1;
-            ctx.strokeStyle = css(p.statusWarn);
+            if (tier === "dot") {
+                ctx.arc(wx(item.x), wy(item.y), dotDrawnRadius(item) + 0.5, 0, Math.PI * 2);
+            } else {
+                const box = markerHitbox(item, "label", cam, (t) => ctx.measureText(t).width);
+                if (box.kind !== "rect") continue;
+                if (ctx.roundRect) ctx.roundRect(box.left - 1, box.top - 1, box.w + 2, box.h + 2, box.h / 2 + 1);
+                else ctx.rect(box.left - 1, box.top - 1, box.w + 2, box.h + 2);
+            }
             ctx.stroke();
-            ctx.restore();
         }
+        ctx.restore();
     }
 
     // ---- item footprints (close zoom only — semantic zoom) ------------------

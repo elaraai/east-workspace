@@ -16,6 +16,7 @@
  */
 
 import type { SystemStyleObject } from "@chakra-ui/react";
+import { CONFLICT_RING } from "../../conflict-ring.js";
 
 // `satisfies`, not an annotation: the parts spread these into their base
 // objects, and a `SystemStyleObject`-typed value would carry that whole type
@@ -34,17 +35,14 @@ export const planElementFocus = {
 } satisfies SystemStyleObject;
 
 /**
- * An event holding a conflict not yet chosen (the conflicts design's canvas
- * marks): the warn halo, 1px `--warn` 4px outside its mark, over its
- * neighbours — its outline, so a mark that clips what overflows it still
- * shows it, its corner the mark's plus 4. Its selection and a keyboard focus
- * give the outline up to it, each a ring of its own just outside the mark.
- * Spread AFTER {@link planElementFocus}.
+ * An event holding a conflict not yet chosen: the warn ring at its mark's edge,
+ * drawn as the optimiser's highlight draws its own, over the marks beside it.
+ * Its selection and a keyboard focus keep their own outlines just outside it.
+ * Spread AFTER the lifecycle looks and the overlap ring, whose box shadows it
+ * takes the place of while the conflict waits.
  */
 export const planElementConflict = {
-    "&[data-conflict]": { outline: "1px solid {colors.status.warn}", outlineOffset: "4px", zIndex: 3 },
-    "&[data-conflict][data-selected]": { boxShadow: "0 0 0 1.5px {colors.brand.solid}" },
-    "&[data-conflict]:focus-visible": { boxShadow: "0 0 0 2px {colors.border.focus}" },
+    "&[data-conflict]": { boxShadow: CONFLICT_RING, zIndex: 3 },
 } satisfies SystemStyleObject;
 
 /** A selected event's mark (#1197) — a 1.5px brand ring just outside it (the

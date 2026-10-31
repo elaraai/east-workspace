@@ -744,22 +744,22 @@ describe("an Apply a screen asks for (#998)", () => {
         expect(document.querySelector("[data-conflict-card] [data-conflict-item]")!.textContent).toBe("Revenue trend");
     }, 30_000);
 
-    test("a tile holding a conflict not yet chosen wears the warn halo, and no other tile does; choosing takes it off, and Undo puts it back", async () => {
+    test("a tile holding a conflict not yet chosen wears the warn ring, and no other tile does; choosing takes it off, and Undo puts it back", async () => {
         const canvas = await mountSnapGrid({ applies: true });
         const c = canvas.container;
-        const haloed = () => SEED.filter((t) => tileEl(c, t.id).hasAttribute("data-conflict")).map((t) => t.id);
+        const ringed = () => SEED.filter((t) => tileEl(c, t.id).hasAttribute("data-conflict")).map((t) => t.id);
         await clickTile(c, "trend");
         await key(c, { key: "[" }, "trend");
-        expect(haloed()).toEqual([]);
+        expect(ringed()).toEqual([]);
         hostWrites(SEED.map((t) => (t.id === "trend" ? { ...t, span: 5n } : t)));
         await canvas.confirm();
-        await waitFor(() => expect(haloed()).toEqual(["trend"]));
+        await waitFor(() => expect(ringed()).toEqual(["trend"]));
         await act(async () => { fireEvent.click(c.querySelector('[data-session-banner="conflicts"] [data-banner-action="choose"]')!); });
         await waitFor(() => expect(document.querySelectorAll("[data-conflict-card]")).toHaveLength(1));
         await act(async () => { fireEvent.click(document.querySelector<HTMLInputElement>("[data-conflict-card] [data-choice=source] input")!); });
-        await waitFor(() => expect(haloed()).toEqual([]));
+        await waitFor(() => expect(ringed()).toEqual([]));
         await history(canvas, "Undo");
-        await waitFor(() => expect(haloed()).toEqual(["trend"]));
+        await waitFor(() => expect(ringed()).toEqual(["trend"]));
     }, 30_000);
 
     test("drafts the source moved under are carried over — another write's change of another tile beside them — and the Apply asked saves them", async () => {

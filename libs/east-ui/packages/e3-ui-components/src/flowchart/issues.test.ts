@@ -93,7 +93,7 @@ describe("the open flow's issues (FB37)", () => {
         expect([conflictRowName(into("states", 3n), TROUBLED), conflictRowName(into("states", 9n), TROUBLED)]).toEqual(["STR", undefined]);
     });
 
-    test("a conflict's state, its node wearing the halo: a state's path in a flow of a record, or in a draft holding the flow beside its name; none for another row", () => {
+    test("a conflict's state, its node wearing the ring: a state's path in a flow of a record, or in a draft holding the flow beside its name; none for another row", () => {
         const step = { kind: "variant", tag: "value" } as const;
         const field = (name: string) => ({ kind: "field", name }) as const;
         const index = (at: bigint) => ({ kind: "index", index: at }) as const;

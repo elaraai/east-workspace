@@ -1677,7 +1677,7 @@ export function usePlanCanvas({
         for (const [kind, byId] of eventDrafts) for (const id of byId.keys()) out.add(printEventRef({ kind, key: id }));
         return out;
     }, [eventDrafts]);
-    // The events holding a conflict not yet chosen, by their elements' keys: each element of one wears the warn halo.
+    // The events holding a conflict not yet chosen, by their elements' keys: each element of one wears the warn ring.
     // Read again as the history moves (its version), which every choice and every carry-over moves.
     const eventSessions = eventEditing.sessions;
     const conflicted = useMemo(() => {
@@ -1687,7 +1687,7 @@ export function usePlanCanvas({
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version says they moved
     }, [eventSessions, historyVersion]);
     // The table cells holding a conflict of `data`'s not yet chosen (#1438): each conflict at an instant of the row its path
-    // leads to — a crew's week — by the row's key; the cell holding the instant wears the warn halo.
+    // leads to — a crew's week — by the row's key; the cell holding the instant wears the warn ring.
     const dataSession = editing.session;
     const conflictCells = useMemo(() => {
         const out = new Map<string, Date[]>();

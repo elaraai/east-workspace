@@ -411,7 +411,7 @@ function FlowchartFrame({ value, held, storageKey, chrome, flowsPart, followed, 
     // Its drafts delete it (#1250): main and the inspector say so.
     const deleted = pending && drafted === null;
     // The open flow's states holding a conflict not yet chosen, by their keys as its drafts hold them: their nodes wear
-    // the warn halo. A conflict's steps run down the flow to its states and one state's place among them.
+    // the warn ring. A conflict's steps run down the flow to its states and one state's place among them.
     const conflicts = session.conflicts;
     const shownFlow = shown?.flow;
     const conflictedStates = useMemo((): ReadonlySet<string> => {

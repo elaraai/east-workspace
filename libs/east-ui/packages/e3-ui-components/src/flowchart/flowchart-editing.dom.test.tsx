@@ -846,7 +846,7 @@ describe("Save's commit (FB22, FB23)", () => {
 });
 
 describe("the conflicts example (flowchartConflicts)", () => {
-    test("a step renamed here, then Someone else saves, is one conflict named in its flow, the step wearing the halo until it is chosen", async () => {
+    test("a step renamed here, then Someone else saves, is one conflict named in its flow, the step wearing the ring until it is chosen", async () => {
         const { container } = await h.mount(ex.flowchartConflicts);
         await settle();
         await waitFor(() => expect(container.querySelector('[data-flowchart-node="SCN"]')).not.toBeNull());

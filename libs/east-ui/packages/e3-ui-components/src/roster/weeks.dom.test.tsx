@@ -141,7 +141,7 @@ describe("Roster week lifecycle", () => {
         expect(assignment(container, "s37").hasAttribute("data-removed")).toBe(true);
         const [card] = await conflictCards(container);
         expect([card!.item, card!.yours]).toEqual(["C. Clover", "Yours, Removed"]);
-        // The duty wears the warn halo while the conflict waits.
+        // The duty wears the warn ring while the conflict waits.
         expect(assignment(container, "s37").hasAttribute("data-conflict")).toBe(true);
         // Another duty selected, its Go to selects this one, as its issue's click in the Issues tab does.
         const other = [...container.querySelectorAll<HTMLElement>("[data-roster-assignment]")].find((el) => el.getAttribute("data-roster-assignment") !== "s37")!;

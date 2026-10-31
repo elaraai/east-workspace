@@ -16,6 +16,7 @@
  * the Patterns tab's strip of marks on each card.
  */
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { CONFLICT_RING } from "../conflict-ring.js";
 import { fontAwesomeSize } from "../icon-size.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { planElementConflict, planElementDrafted, planElementFocus, planElementSelected, planRowFocus } from "./plan/focus.js";
@@ -180,6 +181,9 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             "&[data-preview]": { borderStyle: "dashed", borderColor: "brand.solid", background: "transparent", color: "brand.fg" },
             "&[data-preview][data-off]": { borderColor: "fg.subtle", color: "fg.subtle", textDecoration: "line-through" },
             "&[data-selected]": { outline: "1px solid", outlineColor: "fg", outlineOffset: "0" }, ...planElementFocus, ...planElementConflict, "&[data-dragging]": { opacity: 0.4 },
+            // Holding a conflict: a drafted tile's brand ring inside the warn, and a selection's ring just outside it.
+            "&[data-drafted][data-conflict]:not([data-added]):not([data-moved])": { boxShadow: `inset 0 0 0 1.5px {colors.brand.solid}, ${CONFLICT_RING}` },
+            "&[data-selected][data-conflict]": { outlineOffset: "1px" },
             "&:hover [data-roster-chip-action], &:focus-within [data-roster-chip-action]": { opacity: 1 },
             "[data-roster-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },
         tileLabel: { textStyle: "body.sm", fontWeight: "medium", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },

@@ -243,7 +243,7 @@ test("sheetConflicts: a Qty typed here, then Someone else saves, is one conflict
     expect(more).toEqual([]);
     expect(card!.item).toBe("Panel cutting");
     expect([card!.yours, card!.theirs?.split(",").slice(0, 2).join(",")]).toEqual(["Yours, 50", "Theirs, 60"]);
-    // The cell wears the halo; the job's start, which only they changed, reads theirs and holds no conflict.
+    // The cell wears the ring; the job's start, which only they changed, reads theirs and holds no conflict.
     expect([cells(container, "qty")[0]!.hasAttribute("data-conflict"), cells(container, "start")[0]!.hasAttribute("data-conflict")]).toEqual([true, false]);
     expect(cells(container, "start")[0]!.textContent).not.toBe(started);
     expect(toolbar(container).getByRole("button", { name: "Save" }).getAttribute("aria-disabled")).toBe("true");

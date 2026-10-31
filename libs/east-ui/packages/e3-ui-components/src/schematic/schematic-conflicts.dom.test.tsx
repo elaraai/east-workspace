@@ -6,7 +6,7 @@
  *
  * The Schematic's conflicts example, on e3 itself: a rack moved here, then
  * Someone else saves — every rack half a metre to the right — is one conflict
- * to choose, named by the rack, the rack wearing the halo until it is chosen.
+ * to choose, named by the rack, the rack wearing the ring until it is chosen.
  */
 
 import { expect, test } from "vitest";
@@ -40,7 +40,7 @@ function pointer(canvas: Element, type: "pointerDown" | "pointerMove" | "pointer
     fireEvent[type](canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: type === "pointerUp" ? 0 : 1, ...at(CAM, x, y) });
 }
 
-test("a rack moved sideways here, then Someone else saves, is one conflict named by the rack, the rack wearing the halo until it is chosen", async () => {
+test("a rack moved sideways here, then Someone else saves, is one conflict named by the rack, the rack wearing the ring until it is chosen", async () => {
     const { container } = await h.mount(ex.schematicConflicts);
     await settle();
     await waitFor(() => expect(card(container, "racks", "A03")).not.toBeNull());

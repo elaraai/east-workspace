@@ -188,7 +188,7 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
     const open = usePlanTypingOpen(typing?.store, rowKey);
     // A focus asked of the row draws it again, to take it as it draws.
     usePlanTypingFocus(typing?.store, rowKey);
-    // The instants its conflicts are at, not yet chosen: the cells holding them wear the warn halo.
+    // The instants its conflicts are at, not yet chosen: the cells holding them wear the warn ring.
     const conflictsAt = usePlanRowConflicts(rowKey);
     // The cells by their bucket, which a popover of the input anchors to below 480px of main.
     const cellEls = useRef(new Map<string, HTMLElement>());
@@ -430,14 +430,6 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
                             data-tone={dot.tone} data-strong={dot.strong ? "" : undefined} />}
                     </Box>
                 );
-            })}
-            {/* The warn halo of each cell holding a conflict, a layer of its own at the cell's place, since the cell clips what
-                it draws: inside the plot, which clips across, so a side at the plot's start or end runs along its edge. */}
-            {[...buckets.keys()].map((bi) => bucketByIndex.get(bi)!).filter(holdsConflict).map((b) => {
-                const x0 = Math.max(b.x0, 0), x1 = Math.min(b.x1, 1);
-                return <Box key={b.index} css={styles.tableCellHalo} data-conflict="" data-plan-cell-halo="" aria-hidden="true"
-                    data-start={b.x0 <= 0 ? "" : undefined} data-end={b.x1 >= 1 ? "" : undefined}
-                    style={{ left: `${x0 * 100}%`, width: `${(x1 - x0) * 100}%` }} />;
             })}
             {input}
         </>

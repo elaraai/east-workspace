@@ -38,12 +38,18 @@
 
 import { defineSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
-import { conflictHalo } from "../conflict-halo.js";
+import { CONFLICT_RING, conflictRing } from "../conflict-ring.js";
 import { fontAwesomeSize } from "../icon-size.js";
 import { semanticTokens } from "../semantic-tokens.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { linkRibbons } from "./links/ribbons.js";
 import { schedulePaneBase } from "./schedule-pane.js";
+
+/** A matched card's ring (`data-emphasis`): 2px of the brand, a third seen. */
+const EMPHASIS_RING = "0 0 0 2px color-mix(in oklch, {colors.brand.solid} 35%, transparent)";
+
+/** A pulsing match's ring: its width and its strength track the `--pulse` the card layer writes each frame (0..1). */
+const PULSE_RING = "0 0 0 calc(2px + var(--pulse, 0) * 5px) color-mix(in oklch, {colors.brand.solid} calc(45% - var(--pulse, 0) * 25%), transparent)";
 
 /** The theme's colour groups that hold no design-system role: Chakra's own hues' hovers, and the translucent overlays. */
 const NO_ROLE: ReadonlySet<string> = new Set(["gray", "red", "orange", "yellow", "green", "teal", "blue", "cyan", "purple", "pink", "overlay"]);
@@ -310,18 +316,23 @@ export const schematicSlotRecipe = defineSlotRecipe({
                 outlineOffset: "-1px",
                 zIndex: "1",
             },
-            /* Holding a conflict not yet chosen, the conflicts' warn halo: 1px, 4px outside the card. */
-            ...conflictHalo("sm", "1px"),
+            /* Holding a conflict not yet chosen, the conflicts' warn ring at the card's edge. */
+            ...conflictRing,
             /* Emphasis: a matched card gets a brand ring. `halo` is a static
              * ring; `pulse` breathes — its ring width tracks the `--pulse` var
              * (0..1) the animation loop writes on the card layer each frame. */
             "&[data-emphasis]": {
                 borderColor: "{colors.brand.solid}",
-                boxShadow: "0 0 0 2px color-mix(in oklch, {colors.brand.solid} 35%, transparent)",
+                boxShadow: EMPHASIS_RING,
             },
             "&[data-emphasis=pulse]": {
-                boxShadow: "0 0 0 calc(2px + var(--pulse, 0) * 5px) color-mix(in oklch, {colors.brand.solid} calc(45% - var(--pulse, 0) * 25%), transparent)",
+                boxShadow: PULSE_RING,
             },
+            /* Holding a conflict too, the warn ring stays at the card's edge: a match's ring under it, a selection's
+             * outline just outside it. */
+            "&[data-emphasis][data-conflict]": { boxShadow: `${CONFLICT_RING}, ${EMPHASIS_RING}` },
+            "&[data-emphasis=pulse][data-conflict]": { boxShadow: `${CONFLICT_RING}, ${PULSE_RING}` },
+            "&[data-selected][data-conflict]": { outlineOffset: "1px" },
             /* canConnect veto (#176): the hovered FORBIDDEN target rings danger
              * while a connect draft is over it (dot/label rings are canvas). */
             "&[data-forbidden]": {

@@ -22,7 +22,7 @@ const NONE: ReadonlySet<string> = new Set();
 /** The events a draft changed, by their elements' keys — none outside a Plan of event kinds. */
 export const PlanDraftedContext = createContext<ReadonlySet<string>>(NONE);
 
-/** The events holding a conflict not yet chosen, by their elements' keys — the warn halo's; none outside a Plan of event kinds. */
+/** The events holding a conflict not yet chosen, by their elements' keys — the warn ring's; none outside a Plan of event kinds. */
 export const PlanConflictedContext = createContext<ReadonlySet<string>>(NONE);
 
 /** No table cell holding a conflict. */
@@ -32,7 +32,7 @@ const NO_INSTANTS: readonly Date[] = [];
 
 /**
  * The table cells holding a conflict not yet chosen (#1438), by their rows' keys: the instants each row's conflicts are
- * at — a crew's week — whose cells wear the warn halo; none outside a Plan whose rows a session drafts.
+ * at — a crew's week — whose cells wear the warn ring; none outside a Plan whose rows a session drafts.
  */
 export const PlanConflictCellsContext = createContext<ReadonlyMap<string, readonly Date[]>>(NO_CELLS);
 
@@ -48,7 +48,7 @@ export function usePlanRowConflicts(rowKey: string): readonly Date[] {
 
 /**
  * Whether an element's event holds a conflict not yet chosen: the element
- * wears the warn halo (the conflicts design's canvas marks).
+ * wears the warn ring (the conflicts design's canvas marks).
  *
  * @param key - The element's key
  * @returns Whether its event holds one

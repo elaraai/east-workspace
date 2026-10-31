@@ -216,7 +216,7 @@ export interface SchematicCanvasProps {
     readonly layers: SchematicLayerState;
     /** What the rail's narrowing does (#1392): what draws as context, what never selects, and the matches. */
     readonly narrowing: SchematicCanvasNarrowing;
-    /** The items holding a conflict not yet chosen, by key: each wears the conflicts' warn halo. None by default. */
+    /** The items holding a conflict not yet chosen, by key: each wears the conflicts' warn ring. None by default. */
     readonly conflicted?: ReadonlySet<string> | undefined;
     /** The tool held. */
     readonly tool: SchematicTool;

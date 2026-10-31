@@ -1009,7 +1009,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const wholeItems = useMemo(() => new Set(value.items.filter((kind) => kind.entries.type === "none").map((kind) => kind.key)), [value.items]);
     const heldItems = useMemo(() => new Set([...drawing.items.map((item) => item.key), ...backlog.map((entry) => entry.id)]), [drawing.items, backlog]);
     const historyVersion = editing.version;
-    // The items holding a conflict not yet chosen, by their ids: each wears the conflicts' warn halo. Read again as the
+    // The items holding a conflict not yet chosen, by their ids: each wears the conflicts' warn ring. Read again as the
     // history moves (its version), which every choice and every carry-over moves.
     const conflicted = useMemo(() => {
         const out = new Set<string>();

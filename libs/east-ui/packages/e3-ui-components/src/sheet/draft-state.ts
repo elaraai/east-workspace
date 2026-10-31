@@ -70,7 +70,7 @@ export function draftPresentation(session: SheetTransactions, type: EastType, fi
         type, current, before, entry: id, row, readiness, writable: session.writable,
         text: (message) => issueText(message, words),
     });
-    // Where it holds a conflict not yet chosen: its cells the warn halo rings, or the row whole.
+    // Where it holds a conflict not yet chosen: the cells that wear the warn ring, or the row whole.
     const conflicts = conflictMarks(points, child === undefined || field === undefined || row === undefined ? undefined : { field, index: row });
     return conflicts === undefined ? presented : { ...presented, conflicts };
 }

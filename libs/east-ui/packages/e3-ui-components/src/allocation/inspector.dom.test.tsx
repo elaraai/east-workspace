@@ -864,7 +864,7 @@ describe("a conflict's Go to", () => {
         await waitFor(() => expect(c.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
         const [conflict, ...more] = await conflictCards(c);
         expect(more).toEqual([]);
-        // The bin wears the warn halo while the conflict waits.
+        // The bin wears the warn ring while the conflict waits.
         expect(card(c, "3113").hasAttribute("data-conflict")).toBe(true);
         await press(conflict!.goTo());
         expect([card(c, "3113").hasAttribute("data-selected"), card(c, "3101").hasAttribute("data-selected"), activeTab(c)?.startsWith("Details")]).toEqual([true, false, true]);
@@ -872,7 +872,7 @@ describe("a conflict's Go to", () => {
 });
 
 describe("the conflicts example (allocationConflicts)", () => {
-    test("an m³ typed here, then Someone else saves, is one card under the board's word for a quantity, its split going with it, the bin wearing the halo", async () => {
+    test("an m³ typed here, then Someone else saves, is one card under the board's word for a quantity, its split going with it, the bin wearing the ring", async () => {
         const c = await open(ex.allocationConflicts);
         await press(card(c, "3113"));
         const user = userEvent.setup();

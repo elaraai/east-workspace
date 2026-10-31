@@ -177,7 +177,7 @@ export interface ScheduleEditing<I extends Item = Item> {
     available(kind: string): boolean;
     /**
      * Whether an event — or a row of a record a builder writes — holds a
-     * conflict not yet chosen: what wears the warn halo on a canvas.
+     * conflict not yet chosen: what wears the warn ring on a canvas.
      *
      * @param kind - The kind's slot, or the record's key
      * @param id - The event's key's text

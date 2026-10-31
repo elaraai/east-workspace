@@ -516,7 +516,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         const part = key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key));
         return part === undefined ? issue.entry : where(part.kind)(issue);
     };
-    // A bin holding a conflict not yet chosen wears the warn halo: asked again as the history moves, which every choice and
+    // A bin holding a conflict not yet chosen wears the warn ring: asked again as the history moves, which every choice and
     // every carry-over moves.
     const scheduleSessions = editing?.schedule.sessions;
     const scheduleVersion = editing?.schedule.version;

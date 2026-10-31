@@ -70,7 +70,7 @@ export interface TableProps {
     plan: Day;
     held: Day | undefined;
     sameBin: (a: Bin, b: Bin) => boolean;
-    /** Whether a bin holds a conflict not yet chosen: it wears the warn halo. None by default. */
+    /** Whether a bin holds a conflict not yet chosen: it wears the warn ring. None by default. */
     conflicted?: ((id: string) => boolean) | undefined;
     loads: SortedMap<string, Load>;
     slots: readonly Slot[];

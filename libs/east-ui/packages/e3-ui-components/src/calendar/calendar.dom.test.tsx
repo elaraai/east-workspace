@@ -326,7 +326,7 @@ describe("Calendar explicit action forms", () => {
         const [conflict, ...more] = await conflictCards(container);
         expect(more).toEqual([]);
         expect([conflict!.item, conflict!.yours]).toEqual(["Mounting brackets · batch 42", "Yours, Customer here"]);
-        // The event wears the warn halo until the conflict is chosen.
+        // The event wears the warn ring until the conflict is chosen.
         expect(event(container, "job", "job1").hasAttribute("data-conflict")).toBe(true);
         await act(async () => { fireEvent.click(conflict!.radio("draft")); });
         expect(event(container, "job", "job1").hasAttribute("data-conflict")).toBe(false);
@@ -410,7 +410,7 @@ describe("Calendar explicit action forms", () => {
 });
 
 describe("the conflicts example (calendarConflicts)", () => {
-    test("a job moved here, then Someone else saves, is one conflict named by its title, its card wearing the halo until it is chosen", async () => {
+    test("a job moved here, then Someone else saves, is one conflict named by its title, its card wearing the ring until it is chosen", async () => {
         const { container } = await h.mount(ex.calendarConflicts); await width(390);
         const job = () => card(container, "job", "job1");
         const move = within(job()).getByRole("button", { name: "Move" });

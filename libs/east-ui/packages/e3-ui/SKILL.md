@@ -1392,7 +1392,9 @@ const onPatch = $.const(East.function([Plan.Types.PatchEvent(Hall)], NullType, (
   Undo takes back. While one waits, the history item leads with the
   conflicts button (≠ and how many, before Issues), Save waits
   aria-disabled (its tooltip says why), each item holding one wears the warn
-  halo (1px, 4px outside it) until it is chosen, and the banner band under
+  ring until it is chosen (the optimiser's highlight in the warn colour: 1px
+  at its edge, inside a cell, and a soft glow, over the highlight where an
+  item has both), and the banner band under
   the toolbar — the ≠ mark, the word Conflict — says how many changes
   conflict, its Choose opening the same popover: a card for each conflict —
   the item as the banners name it (an event by its title), with Go to, which

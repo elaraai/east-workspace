@@ -309,7 +309,7 @@ function RosterFrame(props: FrameProps) {
     // Where the People views rest (#1398): saved under the Roster's key, so each comes back to it as it mounts.
     const { state: anchor, setState: setAnchor } = usePersistedState<RosterAnchor>(`${key}.anchor`, NO_ANCHOR, readRosterAnchor);
     const onAnchor = useCallback((next: Partial<RosterAnchor>) => setAnchor(was => ({ ...was, ...next })), [setAnchor]);
-    // A duty holding a conflict not yet chosen wears the warn halo: asked again as the history moves, which every choice
+    // A duty holding a conflict not yet chosen wears the warn ring: asked again as the history moves, which every choice
     // and every carry-over moves.
     const schedule = editing?.schedule;
     const scheduleVersion = schedule?.version;

@@ -583,7 +583,7 @@ interface EventFacts {
     readonly selected: boolean;
     readonly overlap: boolean;
     readonly drafted: boolean;
-    /** Whether it holds a conflict not yet chosen: the warn halo. */
+    /** Whether it holds a conflict not yet chosen: the warn ring. */
     readonly conflict: boolean;
     /** What a run of the optimiser did to it while it is the run's draft (#1409, R7, R17): its mark, and its provenance on hover. */
     readonly op: "add" | "chg" | undefined;

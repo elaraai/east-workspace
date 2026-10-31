@@ -80,7 +80,7 @@ function MarkGlyph({ mark, x, rowKey, rowId, styles, ctx, move }: {
     const overlap = usePlanElementOverlap(mark.key);
     // An event its drafts changed wears the brand tint's ring (#1196).
     const drafted = usePlanElementDrafted(mark.key);
-    // An event holding a conflict not yet chosen wears the warn halo.
+    // An event holding a conflict not yet chosen wears the warn ring.
     const conflict = usePlanElementConflicted(mark.key);
     // What a run of the optimiser did to its event (#1409, R17), while it is still the run's draft.
     const op = usePlanElementOp(mark.key);
