@@ -15,7 +15,7 @@
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { coarseHitArea } from "../../../style/hit-area.js";
-import { CONFLICT_RING, CONFLICT_RING_INSET, CONFLICT_RING_INSIDE_FOCUS, conflictRingInset } from "../../conflict-ring.js";
+import { CONFLICT_RING, CONFLICT_RING_INSET, CONFLICT_RING_INSIDE_FOCUS } from "../../conflict-ring.js";
 import { fieldInRingedControl } from "../../field-chrome.js";
 import { lifecycleStates } from "./states.js";
 import { PLAN_OVERLAP_RING, planElementConflict, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
@@ -548,8 +548,9 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         },
         "&[data-typed]:hover:not(:focus-visible)": { boxShadow: "inset 0 0 0 1px {colors.border.strong}" },
         // A cell holding a conflict not yet chosen wears the warn ring inside it, hovered too; focused, just inside the
-        // focus's 2px of brand.
-        ...conflictRingInset,
+        // focus's 2px of brand. It sits on its row's plain surface: the row's selection tint under it greyed the ring's
+        // warm glow, where the Sheet's cell, on its paper, reads warm.
+        "&[data-conflict]": { boxShadow: CONFLICT_RING_INSET, background: "bg.surface" },
         "&[data-conflict][data-typed]:hover:not(:focus-visible)": { boxShadow: CONFLICT_RING_INSET },
         "&[data-conflict]:focus-visible": { boxShadow: `inset 0 0 0 2px {colors.brand.solid}, ${CONFLICT_RING_INSIDE_FOCUS}` },
         // Focused, the ring its input draws while open, and the Sheet's cell: 2px of brand INSIDE the cell. A cell is

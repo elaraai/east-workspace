@@ -49,6 +49,10 @@ describe("the conflict ring", () => {
         expect(shadow(cell, "&[data-conflict][data-typed]:hover:not(:focus-visible)")).toBe(CONFLICT_RING_INSET);
     });
 
+    test("a Plan table cell holding a conflict sits on its row's plain surface, so a row's selection tint under it never greys the glow, and it reads warm as the Sheet's cell does on its paper", () => {
+        expect((slot(planSlotRecipe, "tableCellText")["&[data-conflict]"] as Styles).background).toBe("bg.surface");
+    });
+
     test("beside a selection or a keyboard focus, never under it: a cell's 2px of brand at its edge, the warn just inside it; a ring a part draws at its own edge just outside the warn", () => {
         expect(CONFLICT_RING_INSIDE_FOCUS).toBe("inset 0 0 0 3px {colors.status.warn}, inset 0 0 8px 2px color-mix(in oklch, {colors.status.warn} 45%, transparent)");
         // The Sheet's selection is a layer of its own over the cell, 2px of brand inside its edge.
