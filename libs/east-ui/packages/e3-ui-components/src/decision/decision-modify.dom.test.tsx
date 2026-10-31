@@ -28,7 +28,9 @@ import * as ex from "@elaraai/e3-ui/examples/decision/decision";
 import { e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import { layOutList } from "./list.test-utils.js";
 import { decisionQueueMessages as m } from "./messages.js";
-import { action, card, chipLine, head, heads, history, measure, press, preview, previewRow, previewRows, sheetCells } from "./preview.test-utils.js";
+import {
+    action, card, chipLine, head, heads, history, measure, press, preview, previewRow, previewRows, settleApplied, sheetCells,
+} from "./preview.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "decision/decision": ex }, { main: "data-decision-main" });
@@ -115,10 +117,11 @@ async function retype(el: HTMLElement, text: string) {
     await settle();
 }
 
-/** Applies a case as edited, once its Apply is on, and saves. */
+/** Applies a case as edited, once its Apply is on, lets its card give way to its receipt, and saves. */
 async function applyAndSave(container: HTMLElement, key: string) {
     await waitFor(() => expect(apply(container, key, true).getAttribute("aria-disabled")).toBeNull());
     await press(apply(container, key, true));
+    await settleApplied(container, key);
     expect(container.querySelector(`[data-decision-receipt="${key}"]`)).not.toBeNull();
     await press(history(container, editingMessages.apply()));
 }

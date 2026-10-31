@@ -22,7 +22,7 @@ import type { SlotStyles } from "@elaraai/east-ui-components/internal";
 import { colorTokenCss } from "../../roster/model.js";
 import { appliedRows, draftedRows, type DecisionTarget } from "../editing.js";
 import type { DecisionQueueWords } from "../messages.js";
-import { PreviewFailed, PreviewFrame, PreviewPending, leftBy, staleNames, type PreviewProps } from "./frame.js";
+import { PreviewFailed, PreviewFrame, PreviewPending, leftBy, staleNames, useHeld, type PreviewProps } from "./frame.js";
 import { ZONE_COLUMNS, zonesPreview, type ZoneAreaInput, type ZoneTile, type ZonesModel } from "./zones-model.js";
 
 /** A zones target's kind, decoded. */
@@ -55,7 +55,7 @@ export interface ZonesPreviewProps extends PreviewProps {
  * @param props - The case, its target and record, the rows its change leaves and the queue's editing ({@link ZonesPreviewProps})
  * @returns The preview
  */
-export function ZonesPreview({ c, view, target, kind, record, rows, changed, schedule, words, styles }: ZonesPreviewProps) {
+export function ZonesPreview({ c, view, target, kind, record, rows, changed, schedule, words, styles, applied }: ZonesPreviewProps) {
     const option = view.option;
     const read = useCallback((): ZonesRead => {
         if (rows === "reading" || rows === "failed") return PENDING;
@@ -92,7 +92,8 @@ export function ZonesPreview({ c, view, target, kind, record, rows, changed, sch
         }
         return { state: "ready", model: zonesPreview(areas, kind.zones.map(zone => zone.key), marked), names: [...touched.keys()], marked };
     }, [rows, changed, option, c.options, view.recommended, record, target, schedule, kind]);
-    const { result } = useTrackedEvaluation(read);
+    const { result: live } = useTrackedEvaluation(read);
+    const result = useHeld(live, applied);
     const stale = rows === "stale";
     if (rows === "failed" || !result.ok) {
         if (!result.ok) console.error(`[DecisionQueue] case ${c.key}'s preview could not read its areas:`, result.error);
@@ -100,7 +101,7 @@ export function ZonesPreview({ c, view, target, kind, record, rows, changed, sch
     }
     const got = result.value;
     if (got.state === "pending") return <PreviewPending kind="zones" layout="zones" rows={PENDING_ROWS} cells={ZONE_COLUMNS} words={words} styles={styles} />;
-    if (got.state === "empty") return <PreviewFrame kind="zones" layout="zones" label={option?.detail ?? ""} stale={stale} styles={styles} />;
+    if (got.state === "empty") return <PreviewFrame kind="zones" layout="zones" label={option?.detail ?? ""} stale={stale} applied={applied} styles={styles} />;
     const { m } = words;
     const model = got.model;
     const zoneOf = (key: string) => kind.zones.find(zone => stringEqual(zone.key, key));
@@ -118,7 +119,7 @@ export function ZonesPreview({ c, view, target, kind, record, rows, changed, sch
         return zone === undefined ? undefined : { "--pv-zone": colorTokenCss(zone.color).fill } as CSSProperties;
     };
     return (
-        <PreviewFrame kind="zones" layout="zones" label={label} stale={stale} styles={styles}>
+        <PreviewFrame kind="zones" layout="zones" label={label} stale={stale} applied={applied} styles={styles}>
             <Box css={styles.zones}>
                 <Box css={styles.zoneKey}>
                     {model.counts.map(count => (

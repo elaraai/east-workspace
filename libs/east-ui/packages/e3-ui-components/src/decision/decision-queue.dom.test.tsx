@@ -13,7 +13,9 @@
  * time, by a click, Enter or the keys, Escape closing it (R7, R12); a verdict
  * is one step of one history over the cases' record and the record its change
  * lands in, its card becoming a receipt in its place whose Undo is the
- * history's while its step is the last (R23–R25, R27); Save writes each
+ * history's while its step is the last (R23–R25, R27) — an applied one once
+ * its preview has settled, standing meanwhile as it was, taking nothing, a
+ * step of the history ending the wait at once (P22); Save writes each
  * record through its patch door, a request each, and a decided case read
  * whole stays its receipt, with no Undo, across a remount — an Undo past the
  * Save bringing it back (R24, R26, R29, D1); another session's verdict reads
@@ -33,6 +35,7 @@ import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/decision/decision";
 import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import { decisionQueueMessages as m, type DecisionVerdictWord } from "./messages.js";
+import { settleApplied } from "./preview.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "decision/decision": ex }, { main: "data-decision-main" });
@@ -170,11 +173,27 @@ test("a click on a head opens its card and closes the open one; Escape closes it
 
 // ── A verdict is one step (R23–R25, R27) ────────────────────────────────────
 
-test("Apply is one step over the verdict and the price it sets: the card becomes its receipt in its place, the count holds and the keyboard goes to the next waiting case's head, which neither opens nor scrolls; the receipt's Undo brings the case back open, and Redo is the history's (R23–R25, R27)", async () => {
+test("Apply is one step over the verdict and the price it sets, counted at the click — the keyboard on the next waiting case's head, which neither opens nor scrolls — while the card stands where it was, as it was and taking nothing, its preview settling with its marks as they were; then it becomes its receipt in its place, arriving, and the count holds; the receipt's Undo brings the case back open, and Redo is the history's (R23–R25, R27, P22)", async () => {
     const { container } = await open();
+    const marks = card(container, "prop-north")!.querySelectorAll("[data-decision-preview] [data-op]").length;
+    expect(marks).toBeGreaterThan(0);
     await press(await applyOf(container, "prop-north"));
+    // The card stands, open as it was and inert, its preview settling, its marks as they were at the click; no receipt
+    // yet, and the verdict already one step.
+    const applied = card(container, "prop-north")!;
+    expect([applied.hasAttribute("data-applied"), applied.hasAttribute("inert"), applied.hasAttribute("data-open")]).toEqual([true, true, true]);
+    const settling = applied.querySelector<HTMLElement>("[data-decision-preview]")!;
+    expect(settling.hasAttribute("data-applied")).toBe(true);
+    expect(settling.querySelectorAll("[data-op]")).toHaveLength(marks);
+    expect(receipt(container, "prop-north")).toBeNull();
+    expect(unsaved(container)).toBe(true);
+    expect(container.ownerDocument.activeElement).toBe(head(container, "prop-wo1005"));
+    expect(card(container, "prop-wo1005")!.hasAttribute("data-open")).toBe(false);
+    // Settled, it gives way to its receipt, which arrives from the card's height.
+    await settleApplied(container, "prop-north");
     const left = receipt(container, "prop-north")!;
     expect(left).not.toBeNull();
+    expect(left.hasAttribute("data-arriving")).toBe(true);
     expect(within(left).getByText(m.verdict({ verdict: "applied" }))).toBeDefined();
     expect(within(left).getByText("Raise the North list price to $11.50")).toBeDefined();
     expect(card(container, "prop-north")).toBeNull();
@@ -184,6 +203,9 @@ test("Apply is one step over the verdict and the price it sets: the card becomes
     expect(container.ownerDocument.activeElement).toBe(head(container, "prop-wo1005"));
     expect(openCard(container)).toBeUndefined();
     expect(unsaved(container)).toBe(true);
+    // Arrived, it stands.
+    await act(async () => { left.dispatchEvent(new Event("webkitAnimationEnd", { bubbles: true })); });
+    expect(receipt(container, "prop-north")!.hasAttribute("data-arriving")).toBe(false);
     // Its Undo, the history's while its step is the last: the case is back, open, and nothing waits on Save.
     await press(undoOf(container, "prop-north")!);
     expect(receipt(container, "prop-north")).toBeNull();
@@ -198,6 +220,22 @@ test("Apply is one step over the verdict and the price it sets: the card becomes
     expect(heads(container)).toEqual(["prop-north", "prop-wo1005"]);
 });
 
+test("a step of the history ends an applied card's wait at once: ⌘Z as its preview settles brings the case back to wait, live and taking choices again, and ⌘⇧Z stands its receipt at once, with no arrival, taking Undo (P22, R27)", async () => {
+    const { container } = await open();
+    await press(await applyOf(container, "prop-north"));
+    expect(card(container, "prop-north")!.hasAttribute("data-applied")).toBe(true);
+    await key(container, { key: "z", metaKey: true });
+    const back = card(container, "prop-north")!;
+    expect([back.hasAttribute("data-applied"), back.hasAttribute("inert")]).toEqual([false, false]);
+    expect(back.querySelector("[data-decision-preview][data-applied]")).toBeNull();
+    expect(receipt(container, "prop-north")).toBeNull();
+    expect(unsaved(container)).toBe(false);
+    await key(container, { key: "z", metaKey: true, shiftKey: true });
+    expect(card(container, "prop-north")).toBeNull();
+    expect(receipt(container, "prop-north")!.hasAttribute("data-arriving")).toBe(false);
+    expect(undoOf(container, "prop-north")).not.toBeNull();
+});
+
 // ── Save (R24, R26, R29) ────────────────────────────────────────────────────
 
 test("Save writes the verdict into the case's own row and the scheduled order through their doors, a request each; read whole, the decided case stays its receipt, with no Undo, and a remount reads it back so (R24, R26, R29)", async () => {
@@ -205,6 +243,7 @@ test("Save writes the verdict into the case's own row and the scheduled order th
     const orders = await h.read(ex.optimiseWorkOrders);
     await press(head(container, "prop-wo1005"));
     await press(await applyOf(container, "prop-wo1005"));
+    await settleApplied(container, "prop-wo1005");
     expect(undoOf(container, "prop-wo1005")).not.toBeNull();
     await press(history(container, editingMessages.apply()));
     expect(mutated()).toEqual([ex.optimiseWorkOrders.name, ex.proposals.name].sort());
