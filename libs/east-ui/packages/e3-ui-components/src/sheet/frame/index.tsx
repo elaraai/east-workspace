@@ -79,6 +79,7 @@ import {
     SheetGrid, SheetProvider, SheetRoot, useSheetFooter, useSheetHistory, useSheetLoading, useSheetOptimise, useSheetToolbarItems, useSheetToolbarRef, type SheetHost,
 } from "../index.js";
 import { todayUtc } from "../parse/date.js";
+import { authorOf } from "../../shared/records/author.js";
 import { issueText, useSheetWords, type SheetWords } from "../words.js";
 import { useSheetInspector, type SheetLastCommit } from "./inspector.js";
 import { tabLibrary, templateCardKey, templatesLibrary, useSheetLibrary } from "./library.js";
@@ -161,8 +162,9 @@ function useLastCommit(history: SheetValue["history"], words: SheetWords): Sheet
     const { result } = useTrackedEvaluation(read);
     const last = result.ok && result.value.type === "some" ? result.value.value[0] : undefined;
     const when = last === undefined ? undefined : stringEqual(words.date(last.at), words.date(todayUtc())) ? words.time(last.at) : words.dateTime(last.at);
-    // The platform's own commits — the deploy's (`system:deploy`) — name no one.
-    const by = last === undefined ? undefined : last.actor.startsWith("system:") ? "" : last.actor;
+    // The person who made it; the platform's own commits — the deploy's (`system:deploy`) — and a write that named no
+    // one name no one.
+    const by = last === undefined ? undefined : authorOf(last.actor) ?? "";
     // Held by its words: a render that reads the same commit hands the inspector the same one.
     return useMemo(() => (when === undefined || by === undefined ? undefined : { when, by }), [when, by]);
 }

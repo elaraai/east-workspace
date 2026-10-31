@@ -193,14 +193,15 @@ test("given `inspector`, the end pane holds Details and Issues; nothing selected
         ["racks", "5", "Rack"], ["network", "3", "Network frame"], ["cooling", "3", "Cooling unit"], ["pdus", "2", "Power distribution unit"],
         ["zones", "5", "Zones"], ["links", "6", "Links"], ["nets", "2", "Nets"],
     ]);
-    // A rack's owner changed and saved: the drawing says when its record was saved, and by whom.
+    // A rack's owner changed and saved: the drawing says when its record was saved — and by no one, where no one signed
+    // in made the save (e3 writes it as `api`), never by that word.
     await tap(canvasOf(container), CAM, 9.6, 2.9);
     await retype(container, "row", "owner", "Harbour Labs");
     await history(container, SAVE);
     await act(async () => { fireEvent.keyDown(window, { key: "Escape" }); });
     await settle();
     expect(showing(container)).toBe("drawing");
-    await waitFor(() => expect(panel(container).querySelector("[data-inspector-saved='racks']")?.textContent).toMatch(/^Rack saved .+ by \S/u));
+    await waitFor(() => expect(panel(container).querySelector("[data-inspector-saved='racks']")?.textContent).toMatch(/^Rack saved \d\d:\d\d$/u));
 });
 
 // ============================================================================

@@ -114,6 +114,7 @@ import type { HiddenPicks } from "../shared/schedule/hidden-pick.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { draftedRow, rowCodec } from "../shared/schedule/records.js";
 import { kindPlural } from "../shared/schedule/words.js";
+import { authorOf } from "../shared/records/author.js";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
 import type { SchematicCounts, SchematicDrawingCount, SchematicSavedRecord, SchematicUncounted } from "./counts.js";
 import type { SchematicValue } from "./data.js";
@@ -1015,7 +1016,7 @@ function DrawingView({ styles, words, counts, records }: ViewProps) {
         try {
             const commits = record.history();
             const newest = commits.type === "some" ? commits.value[0] : undefined;
-            return newest === undefined ? [] : [{ slot: record.slot, name: record.name, at: newest.at, by: newest.actor }];
+            return newest === undefined ? [] : [{ slot: record.slot, name: record.name, at: newest.at, by: authorOf(newest.actor) }];
         } catch {
             return [];
         }
