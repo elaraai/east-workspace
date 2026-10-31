@@ -1140,10 +1140,10 @@ static EvalResult exec_run(const EastUnit *unit, ExecClock *clock, bool verbose)
         }
     }
     if (r.status != EVAL_ERROR) {
-        sink =
-            east_unit_sink_new(&unit->output, emitted ? emit_type : fn_type->data.function.output,
-                               unit->output.kind == EAST_UNIT_DICT ? fold.fn : NULL,
-                               unit->output.kind == EAST_UNIT_FOLD ? fold.fn : NULL, zero);
+        sink = east_unit_sink_new(
+            &unit->output, emitted ? emit_type : fn_type->data.function.output,
+            unit->output.kind == EAST_UNIT_DICT ? fold.fn : NULL,
+            unit->output.kind == EAST_UNIT_FOLD ? fold.fn : NULL, zero, fn->source_map);
         if (!sink) r = exec_error("exec: the output cannot be opened");
     }
     if (r.status != EVAL_ERROR && emitted) {
@@ -1256,7 +1256,8 @@ static EvalResult exec_merge(const EastUnit *unit, ExecClock *clock)
             eval_result_free(&c);
         }
         exec_lap(clock, &clock->execute);
-        if (r.status != EVAL_ERROR && !east_unit_write_value(unit->output.path, acc, value_type)) {
+        if (r.status != EVAL_ERROR &&
+            !east_unit_write_value(unit->output.path, acc, value_type, NULL)) {
             eval_result_free(&r);
             r = exec_error("exec: the output cannot be written");
         }

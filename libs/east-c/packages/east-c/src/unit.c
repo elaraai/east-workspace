@@ -411,7 +411,8 @@ bool east_unit_write_result(const char *path, const EastUnitResult *result)
 /*  Writing an output                                                  */
 /* ================================================================== */
 
-bool east_unit_write_value(const char *path, EastValue *value, EastType *type)
+bool east_unit_write_value(const char *path, EastValue *value, EastType *type,
+                           EastSourceMap *source_map)
 {
     if (value && value->kind == EAST_VAL_PAGED) {
         value = east_paged_hydrated(value);
@@ -419,7 +420,9 @@ bool east_unit_write_value(const char *path, EastValue *value, EastType *type)
     }
     if (type->kind == EAST_TYPE_ARRAY || type->kind == EAST_TYPE_SET ||
         type->kind == EAST_TYPE_DICT)
-        return east_beast2_write_manifest_dir(value, type, EAST_BEAST2_CODEC_DEFLATE, path);
+        return east_beast2_write_manifest_dir_with_source_map(
+            value, type, EAST_BEAST2_CODEC_DEFLATE, path,
+            east_type_holds_function(type) ? source_map : NULL);
     ByteBuffer *bytes = east_beast2_encode_full(value, type);
     if (!bytes) return false;
     bool ok = write_file(path, bytes->data, bytes->len);
@@ -459,6 +462,7 @@ static bool output_directory(const char *dir)
 struct EastUnitSink {
     EastUnitOutputKind kind;
     EastType *type;              /* value and fold: the value's type; else the collection's */
+    EastSourceMap *sm;           /* one reference: the program's map, or NULL */
     char *path;                  /* value and fold: the output file */
     Beast2ManifestWriter *array; /* array: <dir>/0.beast2 */
     Beast2RunSorter *runs;       /* set and dict: <dir>/<n>.beast2 */
@@ -473,6 +477,7 @@ void east_unit_sink_free(EastUnitSink *s)
     east_beast2_manifest_writer_free(s->array);
     east_beast2_run_sorter_free(s->runs);
     if (s->acc) east_value_release(s->acc);
+    east_source_map_release(s->sm);
     free(s);
 }
 
@@ -500,7 +505,7 @@ static char *run_path(const char *dir, size_t n)
 
 EastUnitSink *east_unit_sink_new(const EastUnitOutput *output, EastType *type,
                                  EastCompiledFn *merge_fn, EastCompiledFn *combine_fn,
-                                 EastValue *zero)
+                                 EastValue *zero, EastSourceMap *source_map)
 {
     static const char *kinds[5] = {"value", "array", "set", "dict", "fold"};
     EastUnitSink *s = calloc(1, sizeof(*s));
@@ -509,6 +514,8 @@ EastUnitSink *east_unit_sink_new(const EastUnitOutput *output, EastType *type,
         return NULL;
     }
     s->kind = output->kind;
+    s->sm = source_map;
+    east_source_map_retain(source_map);
     if (output->kind == EAST_UNIT_VALUE) {
         s->type = type;
         s->path = strdup(output->path);
@@ -525,9 +532,10 @@ EastUnitSink *east_unit_sink_new(const EastUnitOutput *output, EastType *type,
     case EAST_UNIT_ARRAY: {
         char *path = output_directory(output->path) ? run_path(output->path, 0) : NULL;
         s->type = east_array_type(element);
-        s->array =
-            path ? east_beast2_manifest_writer_new_dir(s->type, EAST_BEAST2_CODEC_DEFLATE, path)
-                 : NULL;
+        s->array = path ? east_beast2_manifest_writer_new_dir_with_source_map(
+                              s->type, EAST_BEAST2_CODEC_DEFLATE, path,
+                              east_type_holds_function(s->type) ? source_map : NULL)
+                        : NULL;
         free(path);
         if (!s->array) {
             east_unit_sink_free(s);
@@ -553,6 +561,8 @@ EastUnitSink *east_unit_sink_new(const EastUnitOutput *output, EastType *type,
             return NULL;
         }
         east_beast2_run_sorter_set_parallel(s->runs, true);
+        if (east_type_holds_function(s->type))
+            east_beast2_run_sorter_set_source_map(s->runs, source_map);
         return s;
     default: {
         EastType *t = combine_fn ? combine_fn->fn_type : NULL;
@@ -628,14 +638,14 @@ bool east_unit_sink_finish(EastUnitSink *s, EastValue *result)
 {
     switch (s->kind) {
     case EAST_UNIT_VALUE:
-        return east_unit_write_value(s->path, result, s->type);
+        return east_unit_write_value(s->path, result, s->type, s->sm);
     case EAST_UNIT_ARRAY:
         return east_beast2_manifest_writer_finish(s->array);
     case EAST_UNIT_SET:
     case EAST_UNIT_DICT:
         return east_beast2_run_sorter_finish(s->runs);
     default:
-        return east_unit_write_value(s->path, s->acc, s->type);
+        return east_unit_write_value(s->path, s->acc, s->type, s->sm);
     }
 }
 

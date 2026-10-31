@@ -29,12 +29,13 @@ import { type EastTypeValue } from "../../../type_of_type.js";
 import type { EastType } from "../../../types.js";
 import { printFor } from "../../east.js";
 import { compareFor } from "../../../comparison.js";
-import { BufferWriter } from "../../binary-utils.js";
+import { BufferReader, BufferWriter } from "../../binary-utils.js";
+import { SourceMap } from "../../../location.js";
+import { buildPlatformContext } from "../shared.js";
 import { asTypeValue } from "./type-section.js";
-import { type V5EncodeContext, buildV5Encoder, createV5EncodeContext } from "./codec.js";
+import { type V5EncodeContext, buildV5Decoder, buildV5Encoder, createV5EncodeContext } from "./codec.js";
 import { Beast2ElementWriter, type Beast2ElementOf, type Beast2ElementWriterOptions } from "./stream.js";
 import { Beast2ManifestWriter, type Beast2ManifestSink } from "./manifest-writer.js";
-import { decodeBeast2FenceFor } from "./boundary.js";
 
 /** Elements a run holds before it closes (pairs, for a Dict). */
 export const RUN_MAX_COUNT = 131_072;
@@ -195,7 +196,17 @@ export class Beast2RunSorter<T extends EastType = EastType> {
         return keyLength;
       };
       this.encodeValue = value;
-      this.decodeValue = merge !== undefined ? decodeBeast2FenceFor(dict.value) : null;
+      // A value folds decoded under the runs' map, which its bytes were
+      // written against, so a closure in it names the lines it was written at
+      // — and is written again as it was.
+      const decode = buildV5Decoder(dict.value);
+      const sourceMap = writerOptions.sourceMap ?? new SourceMap();
+      this.decodeValue = merge === undefined ? null : (bytes) => {
+        const reader = new BufferReader(bytes, 0);
+        const decoded = decode(reader, { containers: [], sourceMap, frozen: false, ...buildPlatformContext() });
+        if (reader.offset !== bytes.length) throw new Error(`beast2 v5: ${bytes.length - reader.offset} bytes after the encoded value`);
+        return decoded;
+      };
       this.cmp = compareFor(dict.key) as (a: unknown, b: unknown) => number;
       this.printKey = printFor(dict.key);
     } else {

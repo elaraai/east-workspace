@@ -851,14 +851,17 @@ cdef extern from "east/unit.h":
         double output_ms
 
     bint east_unit_write_result(const char *path, const EastUnitResult *result)
-    bint east_unit_write_value(const char *path, EastValue *value, EastType *type)
+    # A collection holding functions is written under `source_map` (the
+    # program's; NULL for none), so its closures keep their lines.
+    bint east_unit_write_value(const char *path, EastValue *value, EastType *type,
+                               EastSourceMap *source_map)
 
     ctypedef struct EastUnitSink:
         pass
 
     EastUnitSink *east_unit_sink_new(const EastUnitOutput *output, EastType *type,
                                      EastCompiledFn *merge_fn, EastCompiledFn *combine_fn,
-                                     EastValue *zero)
+                                     EastValue *zero, EastSourceMap *source_map)
     EastValue *east_unit_sink_function(EastUnitSink *sink, EastType *fn_type)
     bint east_unit_sink_finish(EastUnitSink *sink, EastValue *result)
     void east_unit_sink_free(EastUnitSink *sink)

@@ -184,6 +184,11 @@ bool east_type_equal(EastType *a, EastType *b);
 // is not yet set, answers true. Memoised on the type (see gc_can_cycle).
 bool east_type_can_cycle(EastType *t);
 
+// Whether a value of this type can hold a function: the type transitively
+// contains a Function or AsyncFunction (TypeScript's !isDataTypeValue). A
+// NULL type, or a recursive wrapper whose node is not yet set, holds none.
+bool east_type_holds_function(EastType *t);
+
 // Printing (writes to buffer, returns chars written)
 int east_type_print(EastType *t, char *buf, size_t buf_size);
 
