@@ -25,7 +25,7 @@
  * @packageDocumentation
  */
 
-import { StringType, equalFor } from "@elaraai/east";
+import { StringType, equalFor, type PatchPath } from "@elaraai/east";
 import { getSomeorUndefined, type EditIssue } from "@elaraai/east-ui-components";
 import { FIELD, duplicateKeys, linkKeyOf, type FlowKeyKind } from "./edits.js";
 import type { FlowchartFlowValue } from "./model.js";
@@ -103,7 +103,67 @@ export function issueTarget(issue: EditIssue, flow: FlowchartFlowValue): Flowcha
     const field = getSomeorUndefined(issue.field);
     const row = getSomeorUndefined(issue.row);
     if (field === undefined || row === undefined) return null;
-    const at = Number(row);
+    return targetAt(field, Number(row), flow);
+}
+
+/**
+ * The row a conflict is in, by its path in its flow — the field the row is in
+ * and its place there, the draft's own cases passed over.
+ *
+ * @param path - The conflict's path in its flow's draft
+ * @returns The row's field and place; `undefined` for a conflict of the flow's own fields
+ */
+function rowOf(path: PatchPath): { readonly field: string; readonly at: number } | undefined {
+    const [field, index] = path.filter((step) => step.kind !== "variant");
+    return field?.kind === "field" && index?.kind === "index" ? { field: field.name, at: Number(index.index) } : undefined;
+}
+
+/**
+ * What a conflict's Go to selects: the row of the flow its path is in — a
+ * lane, a state, a transition or a decision.
+ *
+ * @param path - The conflict's path in its flow's draft
+ * @param flow - The open flow, as its drafts stand
+ * @returns The row; `null`, the flow — a conflict of its own fields, or of a row it no longer has
+ */
+export function conflictTarget(path: PatchPath, flow: FlowchartFlowValue): FlowchartSelection | null {
+    const row = rowOf(path);
+    return row === undefined ? null : targetAt(row.field, row.at, flow);
+}
+
+/**
+ * A conflict's row as the flow shows it: a lane's or a state's label, else
+ * its key; a transition by its ends; a decision by its label.
+ *
+ * @param path - The conflict's path in its flow's draft
+ * @param flow - The open flow, as its drafts stand
+ * @returns Its name; `undefined` for a conflict of the flow's own fields, or of a row it no longer has
+ */
+export function conflictRowName(path: PatchPath, flow: FlowchartFlowValue): string | undefined {
+    const row = rowOf(path);
+    if (row === undefined) return undefined;
+    const stateName = (key: string) => {
+        const state = flow.states.find((s) => keyEqual(s.key, key));
+        return state === undefined ? key : getSomeorUndefined(state.label) ?? key;
+    };
+    if (keyEqual(row.field, FIELD.lane)) {
+        const lane = flow.lanes[row.at];
+        return lane === undefined ? undefined : getSomeorUndefined(lane.label) ?? lane.key;
+    }
+    if (keyEqual(row.field, FIELD.state)) {
+        const state = flow.states[row.at];
+        return state === undefined ? undefined : stateName(state.key);
+    }
+    if (keyEqual(row.field, FIELD.transition)) {
+        const link = flow.links[row.at];
+        return link === undefined ? undefined : `${stateName(link.from)} → ${stateName(link.to)}`;
+    }
+    if (keyEqual(row.field, FIELD.decision)) return flow.triggers[row.at]?.label;
+    return undefined;
+}
+
+/** The row of a flow under a field, by its place there; `null` for none. */
+function targetAt(field: string, at: number, flow: FlowchartFlowValue): FlowchartSelection | null {
     if (keyEqual(field, FIELD.lane)) {
         const lane = flow.lanes[at];
         return lane === undefined ? null : { kind: "lane", key: lane.key };

@@ -18,6 +18,7 @@ import { Box, chakra, Portal, Text, Tooltip, useRecipe, useSlotRecipe } from "@c
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRotateLeft, faArrowRotateRight, faCheck, faRotate, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
+import type { PatchPath } from "@elaraai/east";
 import type { EditHistory } from "./history.js";
 import type { EditIssue, EditSession } from "./session.js";
 import { ConflictsControl } from "./conflicts.js";
@@ -48,7 +49,16 @@ export interface HistoryBarProps<W> {
      * selects it, where the collection's issue click opens a list of its
      * issues instead. `onIssue` by default.
      */
-    onConflict?: ((issue: EditIssue) => void) | undefined;
+    onConflict?: ((issue: EditIssue, at: PatchPath) => void) | undefined;
+    /**
+     * A conflict's item in the collection's words, its steps included — a
+     * step's own name (`Scanned`), where the steps in words would name it by
+     * its place (`Item 2`) or its key: what its card names it. Handed the
+     * conflict's path, and the steps in words the card would name it by after
+     * the entry's name, to keep those it does not name otherwise.
+     * {@link where}'s name, then the steps in words, by default.
+     */
+    conflictItem?: ((issue: EditIssue, at: PatchPath, steps: readonly string[]) => string | undefined) | undefined;
     /**
      * Where an issue is, in the collection's words — its row (`J-0002`,
      * `row 4`), as its banners name it ({@link SessionBanners}): what the
@@ -116,7 +126,7 @@ function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onC
  * @param props - The session, the collection's words, and its callbacks
  * @returns The bar
  */
-export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onConflict, where, issueText, buttonsOnly = false, showError = true, locked = false }: HistoryBarProps<W>) {
+export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onConflict, conflictItem, where, issueText, buttonsOnly = false, showError = true, locked = false }: HistoryBarProps<W>) {
     const recipe = useSlotRecipe({ key: "editHistory" });
     const styles = useMemo(() => recipe({}) as unknown as Styles, [recipe]);
     const { m } = words;
@@ -141,7 +151,7 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onCo
         <Box css={styles.actions}>
             {!buttonsOnly && message !== undefined && <Text role="status" aria-live="polite" css={styles.status}>{message}</Text>}
             {/* The conflicts button first, before Issues: it is what turns Save back on. */}
-            <ConflictsControl session={session} words={words} onIssue={onConflict ?? onIssue} where={where} issueText={issueText} locked={locked} />
+            <ConflictsControl session={session} words={words} onIssue={onConflict ?? onIssue} where={where} item={conflictItem} issueText={issueText} locked={locked} />
             {!buttonsOnly && <Box data-slot="historyIssues" data-empty={n === 0 ? "" : undefined} css={styles.issues}>
                 <HistoryButton styles={styles} label={m.issues({ n, count: words.number(n) })}
                     tip={m.issuesTip({ n, count: words.number(n) })} locked={false}

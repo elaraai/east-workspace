@@ -17,10 +17,10 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { none, some, variant, type PatchPath, type ValueTypeOf } from "@elaraai/east";
 import { Flowchart } from "@elaraai/e3-ui/internal";
 import * as edits from "./edits.js";
-import { flowIssues, issueTarget, saveIssues } from "./issues.js";
+import { conflictRowName, conflictTarget, flowIssues, issueTarget, saveIssues } from "./issues.js";
 import { flowchartMessages as m } from "./messages.js";
 
 type Flow = ValueTypeOf<typeof Flowchart.Types.Flow>;
@@ -73,6 +73,24 @@ describe("the open flow's issues (FB37)", () => {
         expect(issueTarget(at("states", 9n), CLEAN)).toBeNull();
         expect(issueTarget(at("notes", 0n), CLEAN)).toBeNull();
         expect(issueTarget({ entry: "Sort", row: none, field: none, message: "Changed since this edit began" }, CLEAN)).toBeNull();
+    });
+
+    test("a conflict's Go to selects the row its path is in, the draft's own cases passed over; its card names the row as the flow shows it", () => {
+        const step = { kind: "variant", tag: "value" } as const;
+        const field = (name: string) => ({ kind: "field", name }) as const;
+        const index = (at: bigint) => ({ kind: "index", index: at }) as const;
+        const into = (name: string, at: bigint, ...rest: PatchPath): PatchPath => [step, field(name), index(at), ...rest];
+        expect(conflictTarget(into("states", 1n, field("label")), CLEAN)).toEqual({ kind: "state", key: "CH*" });
+        expect(conflictTarget(into("lanes", 0n, field("label")), CLEAN)).toEqual({ kind: "lane", key: "induct" });
+        expect(conflictTarget(into("links", 1n, field("to")), CLEAN)).toEqual({ kind: "link", key: "CH*→CH*#1" });
+        expect(conflictTarget(into("triggers", 0n, field("queue")), CLEAN)).toEqual({ kind: "trigger", key: "route" });
+        // A row the flow no longer has, or a field of the flow's own: the flow.
+        expect(conflictTarget(into("states", 9n), CLEAN)).toBeNull();
+        expect(conflictTarget([step, field("notes")], CLEAN)).toBeNull();
+        expect([into("states", 1n, field("label")), into("lanes", 0n), into("links", 0n), into("triggers", 0n)].map((path) => conflictRowName(path, CLEAN)))
+            .toEqual(["Sort chutes", "Induct", "Inducting → Sort chutes", "route"]);
+        // A state with no label by its key; a row the flow no longer has, none.
+        expect([conflictRowName(into("states", 3n), TROUBLED), conflictRowName(into("states", 9n), TROUBLED)]).toEqual(["STR", undefined]);
     });
 
     test("a Save's conflict or refusal lists each of its issues in the source's words, blocking", () => {

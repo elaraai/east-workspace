@@ -47,6 +47,7 @@ import { initializeStore, resetKept } from "@elaraai/east-ui-components/internal
 import { Flowchart } from "@elaraai/e3-ui/internal";
 import * as edits from "./edits.js";
 import { act, enabled, flowchartHarness, press, settle, toolbar } from "./flowchart.test-utils.js";
+import { conflictCards } from "../e3-web-mount.test-utils.js";
 import { EastChakraFlowchart, type FlowchartValue } from "./index.js";
 import { flowchartMessages } from "./messages.js";
 
@@ -650,6 +651,25 @@ describe("Save's outcomes (FB23)", () => {
         expect(laneHeads(container)).toEqual(["INDUCT", "SORT", "HOLDING", laneLabel(4).toUpperCase()]);
         expect(pending(container)).toBe(` · ${m.footerPending({ n: 1, count: "1" })}`);
         expect(enabled(SAVE)).toBe(true);
+    });
+
+    test("a lane renamed here and otherwise by another write is a conflict named by the lane as the flow shows it, and its Go to selects the lane", async () => {
+        const { source } = captured(() => FLOWS);
+        const { container, rerender } = await mount(payload(source));
+        await renameLane(container, "sort", "Sortation");
+        const moved = withFlow(FLOWS, "Sort", edits.renameLane(SORT, "sort", "Sorting"));
+        rerender(
+            <ChakraProvider value={system}>
+                <EastChakraFlowchart value={payload(captured(() => moved).source)} storageKey="flowchart.editing" />
+            </ChakraProvider>,
+        );
+        await settle();
+        const [card, ...more] = await conflictCards(container);
+        expect(more).toEqual([]);
+        expect(card!.item).toBe("Sort / Sortation");
+        expect(container.querySelector("[data-flowchart-lane-selected]")).toBeNull();
+        await gesture(() => { fireEvent.click(card!.goTo()); });
+        expect(container.querySelector('[data-flowchart-lane-selected="sort"]')).not.toBeNull();
     });
 });
 

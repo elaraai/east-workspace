@@ -17,7 +17,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useSyncExternalStore } from "react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { DateTimeType, IntegerType, StringType, StructType, none, some, variant } from "@elaraai/east";
+import { DateTimeType, IntegerType, StringType, StructType, none, some, variant, type PatchPath } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
 import { system } from "../theme/index.js";
 import { formatters } from "../format/index.js";
@@ -75,7 +75,7 @@ function Bar(props: HistoryBarProps<string>) {
 }
 
 function mount(session: EditSession<string> | EditHistory<string>, extra: Partial<HistoryBarProps<string>> = {}) {
-    const onIssue = vi.fn<(issue: EditIssue) => void>();
+    const onIssue = vi.fn<(issue: EditIssue, at?: PatchPath) => void>();
     const onAction = vi.fn<(action: HistoryAction) => void>();
     const ui = render(
         <ChakraProvider value={system}>
@@ -178,14 +178,29 @@ test("Go to goes to a conflict's item as an issue's click does: a history finds 
     await opened(2);
     expect(cards().map((card) => card.querySelector("[data-conflict-item]")!.textContent)).toEqual(["Run a", "Run c"]);
     fireEvent.click(cards()[1]!.querySelector("button")!);
-    const [issue] = ui.onIssue.mock.calls[0]!;
+    // Handed the conflict's issue, and where the conflict is in its entry.
+    const [issue, at] = ui.onIssue.mock.calls[0]!;
     expect(issue).toEqual({ entry: "c", row: none, field: some("end"), message: editingMessages.issueConflict() });
+    expect(at).toEqual([{ kind: "field", name: "end" }, { kind: "variant", tag: "value" }]);
     expect(history.sourceOf(issue)).toBe("shifts");
     // A choice is one step of the history, in its session.
     fireEvent.click(radio(cards()[1]!, "source"));
     expect([history.unsettled, history.session("shifts")!.unsettled, history.canUndo]).toEqual([1, 0, true]);
     act(() => history.undo());
     expect(history.unsettled).toBe(2);
+});
+
+test("a collection that names a conflict's part names its card by it; one it does not name, by its entry and the steps in words", async () => {
+    // Handed the steps the card names it by after the entry's name: none here, the end its label.
+    const steps: (readonly string[])[] = [];
+    const conflictItem = (issue: EditIssue, at: PatchPath, words: readonly string[]) => {
+        steps.push(words);
+        return issue.entry === "b" && at[0]?.kind === "field" ? `The ${issue.entry} run's ${at[0].name}` : undefined;
+    };
+    mount(conflicted(["a", "b"]), { conflictItem });
+    await opened(2);
+    expect(cards().map((card) => card.querySelector("[data-conflict-item]")!.textContent)).toEqual(["Run a", "The b run's end"]);
+    expect(steps.every((words) => words.length === 0)).toBe(true);
 });
 
 test("in a narrow frame Go to closes the popover, which would cover the item, and the button stays", async () => {

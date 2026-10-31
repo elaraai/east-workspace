@@ -95,7 +95,7 @@
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Box, Button, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { StringType, compareFor, equalFor, equivalentFor, none, type ValueTypeOf } from "@elaraai/east";
+import { StringType, compareFor, equalFor, equivalentFor, none, type PatchPath, type ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType, RecordSlicesChromeType } from "@elaraai/east-ui/internal";
 import { Flowchart, flowchartKeys } from "@elaraai/e3-ui/internal";
 import {
@@ -125,7 +125,7 @@ import { useFindState } from "./find.js";
 import { FlowchartFooter, useLastSave } from "./footer.js";
 import { FlowsCountReader, FlowsTab, PagedFlowsTab, NoFlows, type FlowCard, type FlowsCount, type NewFlowProps } from "./flows.js";
 import { inspectorPane, type FlowchartInspectorEdit } from "./inspector.js";
-import { flowIssues, issueTarget, saveIssues } from "./issues.js";
+import { conflictRowName, conflictTarget, flowIssues, issueTarget, saveIssues } from "./issues.js";
 import { useFlowchartLibrary } from "./library.js";
 import { flowchartMessages, type FlowchartRefusedWord, type FlowchartWords } from "./messages.js";
 import { missingFlow, openFlowName, useOpenedFlow } from "./open-flow.js";
@@ -547,17 +547,26 @@ function FlowchartFrame({ value, held, storageKey, chrome, flowsPart, followed, 
             }
         }
     }, [session, currentEntry, entry]);
-    // An issue on the open flow selects what it names (#1250); another flow's opens it; one of the record's as a whole — or the host's one flow's — names none.
-    const onIssue = useCallback((issue: EditIssue) => {
+    // An issue on the open flow selects what it names (#1250) — a conflict's Go to, the row its path is in; another flow's
+    // opens it; one of the record's as a whole — or the host's one flow's — names none.
+    const onIssue = useCallback((issue: EditIssue, path?: PatchPath) => {
         const at = currentEntry();
         const ours = (at !== undefined && nameEqual(issue.entry, at.name)) || (entry !== undefined && nameEqual(issue.entry, entry));
         if (ours) {
-            revealSelection(at === undefined ? null : issueTarget(issue, at.flow));
+            revealSelection(at === undefined ? null : issueTarget(issue, at.flow) ?? (path === undefined ? null : conflictTarget(path, at.flow)));
             return;
         }
         if (held.many && !nameEqual(issue.entry, "")) openStored(issue.entry);
     }, [currentEntry, entry, held.many, openStored, revealSelection]);
-    const history = edits ? historyToolbarItem({ session, words, editing: false, onIssue, onAction, showError: false }) : undefined;
+    // A conflict in the open flow's row, named as the flow shows the row — `Inbound parcels / Scanned`, never its place —
+    // then any steps below it, in words.
+    const conflictItem = useCallback((issue: EditIssue, path: PatchPath, steps: readonly string[]) => {
+        const at = currentEntry();
+        if (at === undefined || !nameEqual(issue.entry, at.name)) return undefined;
+        const row = conflictRowName(path, at.flow);
+        return row === undefined ? undefined : [issue.entry, row, ...steps.slice(1)].join(" / ");
+    }, [currentEntry]);
+    const history = edits ? historyToolbarItem({ session, words, editing: false, onIssue, conflictItem, onAction, showError: false }) : undefined;
     // The history keys from anywhere in the frame (FB21): never a field being typed into, which keeps its own undo; and
     // the canvas's keys, Esc, as they leave the frame. Each key acted on goes no further than the Flowchart (#1398).
     const canvasRef = useRef<FlowchartCanvasHandle>(null);

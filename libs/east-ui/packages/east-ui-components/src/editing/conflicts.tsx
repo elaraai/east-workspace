@@ -30,7 +30,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faNotEqual } from "@fortawesome/free-solid-svg-icons";
 import { SliceEditPopover } from "../slice/edit/index.js";
 import { useSlotStyles } from "../theme/slot-styles.js";
-import { StringType, equalFor } from "@elaraai/east";
+import { StringType, equalFor, type PatchPath } from "@elaraai/east";
 import { conflictViewOf, rangeViewOf, wordRuns, type ConflictView, type RangeEnd } from "./conflict-view.js";
 import { EditHistory } from "./history.js";
 import type { ConflictPoint } from "./merge.js";
@@ -109,6 +109,8 @@ interface Card {
     readonly key: string;
     /** The conflict as an issue of its entry: what Go to goes to, and what names its item. */
     readonly issue: EditIssue;
+    /** Where it is in its entry: the steps from the entry to the part — for a range, to its first end. */
+    readonly at: PatchPath;
     /** Its item: the entry, as the collection names it, then the steps down to the part's label. */
     readonly item: string;
     /** It, in words. */
@@ -130,11 +132,17 @@ interface Card {
  * @param where - How the collection names an issue's place
  * @returns The cards
  */
-function cardsOf<W>(held: EditSession<W> | EditHistory<W>, words: EditingWords, where: ((issue: EditIssue) => string) | undefined): Card[] {
+function cardsOf<W>(
+    held: EditSession<W> | EditHistory<W>, words: EditingWords, where: ((issue: EditIssue) => string) | undefined,
+    item: ((issue: EditIssue, at: PatchPath, steps: readonly string[]) => string | undefined) | undefined,
+): Card[] {
     const cards: Card[] = [];
     const history = held instanceof EditHistory ? held : undefined;
     for (const [sessionKey, session] of heldSessions(held)) {
-        const itemOf = (issue: EditIssue, view: ConflictView) => {
+        // The collection's name for the item, its steps included, where it gives one; else its entry's, then the steps.
+        const itemOf = (issue: EditIssue, view: ConflictView, at: PatchPath) => {
+            const own = item?.(issue, at, view.path);
+            if (own !== undefined && own.length > 0) return own;
             const named = where?.(issue);
             return [named === undefined || named.length === 0 ? view.name : named, ...view.path].join(" / ");
         };
@@ -146,7 +154,7 @@ function cardsOf<W>(held: EditSession<W> | EditHistory<W>, words: EditingWords, 
                 id, key, keyType: session.keyType, at: point.at, was: values.was, draft: values.draft, source: values.source,
             }, words);
             const issue = session.conflictIssue(id, point);
-            return { key: `${sessionKey}\u0000${id}\u0000${point.path}`, issue, item: itemOf(issue, view), view, choice, said: values.said, settle: settleAt(id, [point.path]) };
+            return { key: `${sessionKey}\u0000${id}\u0000${point.path}`, issue, at: point.at, item: itemOf(issue, view, point.at), view, choice, said: values.said, settle: settleAt(id, [point.path]) };
         };
         // A range's card: each end read from its own conflict — as it read before it was chosen — else from the draft as
         // it stands, which a choice leaves there; chosen once every one of its conflicts is chosen alike.
@@ -160,8 +168,9 @@ function cardsOf<W>(held: EditSession<W> | EditHistory<W>, words: EditingWords, 
             const issue = session.conflictIssue(id, points[0]!.point);
             const first = points[0]!.choice;
             const choice = points.every((at) => at.choice !== undefined && at.choice === first) ? first : undefined;
+            const at = points[0]!.point.at;
             return {
-                key: `${sessionKey}\u0000${id}\u0000${range.start}\u0000${range.end}`, issue, item: itemOf(issue, view), view, choice, said: current.said,
+                key: `${sessionKey}\u0000${id}\u0000${range.start}\u0000${range.end}`, issue, at, item: itemOf(issue, view, at), view, choice, said: current.said,
                 settle: settleAt(id, points.map((at) => at.point.path)),
             };
         };
@@ -236,10 +245,18 @@ export interface ConflictsControlProps<W> {
     session: EditSession<W> | EditHistory<W>;
     /** The collection's words. */
     words: EditingWords;
-    /** Go to an issue — the collection shows where it is: a conflict's Go to. */
-    onIssue: (issue: EditIssue) => void;
+    /** Go to a conflict — the collection shows where it is: its issue, and where it is in its entry. */
+    onIssue: (issue: EditIssue, at: PatchPath) => void;
     /** Where an issue is, in the collection's words — a conflict's item; its entry's key in words by default. */
     where?: ((issue: EditIssue) => string) | undefined;
+    /**
+     * A conflict's item in the collection's words, its steps included — a
+     * step's own name (`Scanned`), where the steps in words would name it by
+     * its place (`Item 2`) or its key; handed the steps in words the card
+     * names it by after the entry's name, to keep those it does not name
+     * otherwise. `undefined` for {@link where}'s name, then the steps.
+     */
+    item?: ((issue: EditIssue, at: PatchPath, steps: readonly string[]) => string | undefined) | undefined;
     /** An issue's text as the collection shows it — what the source said of a conflict's entry; as written by default. */
     issueText?: ((message: string) => string) | undefined;
     /** Locked while a run of the app's optimiser is out: it opens, and its choices are off. */
@@ -254,7 +271,7 @@ export interface ConflictsControlProps<W> {
  * @param props - The session, the collection's words, and how it goes to and names an issue
  * @returns The button while a conflict waits, or while its popover is open; else nothing
  */
-export function ConflictsControl<W>({ session, words, onIssue, where, issueText, locked }: ConflictsControlProps<W>) {
+export function ConflictsControl<W>({ session, words, onIssue, where, item, issueText, locked }: ConflictsControlProps<W>) {
     const serial = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
     const { m } = words;
     const bar = useSlotStyles("editHistory");
@@ -308,11 +325,11 @@ export function ConflictsControl<W>({ session, words, onIssue, where, issueText,
             return [];
         }
         const seen = order.current;
-        const all = cardsOf(session, words, where);
+        const all = cardsOf(session, words, where, item);
         for (const card of all) if (!seen.has(card.key)) seen.set(card.key, seen.size);
         return all.sort((a, b) => seen.get(a.key)! - seen.get(b.key)!);
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the session is mutable: its serial says it moved
-    }, [open, session, serial, words, where]);
+    }, [open, session, serial, words, where, item]);
     const done = cards.length > 0 && cards.every((card) => card.choice !== undefined);
     // The lines a person opened again, once every one was chosen.
     const [reopened, setReopened] = useState<ReadonlySet<string>>(() => new Set());
@@ -340,7 +357,7 @@ export function ConflictsControl<W>({ session, words, onIssue, where, issueText,
     const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
     const close = () => { setOpen(false); setReopened(new Set()); setOpened(new Set()); };
     const goTo = (card: Card) => {
-        onIssue(card.issue);
+        onIssue(card.issue, card.at);
         // In a narrow frame the popover would cover the item: it closes, and the button stays. A frame not laid out has no width.
         const frame = anchor.current?.closest<HTMLElement>("[data-toolbar]") ?? anchor.current?.parentElement;
         const width = frame?.getBoundingClientRect().width ?? 0;
