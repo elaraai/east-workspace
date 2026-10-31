@@ -28,8 +28,9 @@
  * whose type the kind fixes: (T) -> Null, or (K, V) -> Null for a dict.
  *
  * A collection that holds functions is written under the program's source
- * map, so the closures in it keep their lines; any other output's bytes never
- * depend on where the program was written.
+ * map — a merge unit's, under its first part's, which a unit wrote so — so the
+ * closures in it keep their lines; any other output's bytes never depend on
+ * where the program was written.
  *
  * A run unit says how its collection inputs are read: lazily, a segment at a
  * time as the program reads them, or decoded whole before it runs (`whole`).

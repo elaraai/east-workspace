@@ -270,6 +270,11 @@ void east_beast2_writer_set_parallel(Beast2StreamWriter *w, bool parallel);
 // An add that fails leaves the writer as it was, with the message posted.
 typedef struct Beast2ElementWriter Beast2ElementWriter;
 Beast2ElementWriter *east_beast2_element_writer_new(EastType *type, int32_t codec_id);
+// The same, the header holding `source_map` (the writer takes a reference;
+// NULL for none), as east_beast2_manifest_writer_new_with_source_map.
+Beast2ElementWriter *east_beast2_element_writer_new_with_source_map(EastType *type,
+                                                                    int32_t codec_id,
+                                                                    EastSourceMap *source_map);
 void east_beast2_element_writer_set_parallel(Beast2ElementWriter *w, bool parallel);
 bool east_beast2_element_writer_add(Beast2ElementWriter *w, EastValue *element);
 bool east_beast2_element_writer_add_pair(Beast2ElementWriter *w, EastValue *key, EastValue *value);

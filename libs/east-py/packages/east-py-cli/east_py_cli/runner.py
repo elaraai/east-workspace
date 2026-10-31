@@ -430,7 +430,10 @@ def _merge_work(unit: dict[str, Any], platform_fns: list[PlatformFunction],
     for part in unit["inputs"]:
         acc = combine(acc, _load_frozen_whole(value_type, Path(part), value_type))
     lap("execute")
-    _write_unit_value(value_type, output["path"], acc)
+    # An accumulator holding functions is written under the partials' map, as
+    # the units that wrote them wrote them.
+    _write_unit_value(value_type, output["path"], acc,
+                      part=unit["inputs"][0] if unit["inputs"] else None)
     lap("output")
 
 

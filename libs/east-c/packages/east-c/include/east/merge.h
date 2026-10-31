@@ -34,6 +34,11 @@
  * manifest's, read through the manifest pager, whose fences seek without
  * opening a segment — and the output may be one too (`output_manifest`).
  *
+ * An output whose type holds functions is written under the source map input
+ * 0's header holds: a task's parts are written under its program's, so the
+ * closures keep their lines, and the merge writes what one unit writing the
+ * whole would have.
+ *
  * This is the fan-in of a split task's set and dict parts: e3 runs it as a
  * merge unit on the task's runner, one per key range of a group of parts, and
  * never decodes a part itself. It lives in the core library so the east-c CLI
@@ -82,5 +87,12 @@ typedef struct {
 
 /* Merges the inputs into the output. False with the message posted. */
 bool east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out);
+
+/* The source map the header of the part at `path` holds — a blob's, or a
+ * manifest directory's header object's — or NULL when it holds no stack or is
+ * no v5 collection, its merge then saying why: what a merge of a task's parts
+ * writes an output holding functions under, a fold of partials included. One
+ * reference, the caller's. */
+EastSourceMap *east_merge_part_source_map(const char *path);
 
 #endif

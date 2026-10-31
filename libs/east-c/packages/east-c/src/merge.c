@@ -495,6 +495,53 @@ static EastValue *merge_fold(Merge *m, EastValue *key, EastValue *acc, EastValue
     return out;
 }
 
+EastSourceMap *east_merge_part_source_map(const char *path)
+{
+    size_t len = 0;
+    void *ctx = NULL;
+    uint8_t *data = path ? map_input_file(path, &len, &ctx) : NULL;
+    if (!data) return NULL;
+    EastSourceMap *sm = NULL;
+    EastValue *manifest = NULL;
+    int found = east_beast2_read_manifest(data, len, &manifest);
+    B2V5Header h;
+    if (found == 1) {
+        /* A manifest directory's segments share the header object it names. */
+        EastValue *hash = east_struct_get_field_idx(manifest, 4);
+        size_t need =
+            strlen(path) + sizeof(".segments/") + hash->data.string.len + sizeof(".beast2");
+        char *header_path = malloc(need);
+        size_t header_len = 0;
+        void *header_ctx = NULL;
+        uint8_t *header = NULL;
+        if (header_path) {
+            snprintf(header_path, need, "%s.segments/%.*s.beast2", path, (int)hash->data.string.len,
+                     hash->data.string.data);
+            header = map_input_file(header_path, &header_len, &header_ctx);
+        }
+        if (header && b2v5_read_header(header, header_len, &h)) {
+            sm = h.sm;
+            h.sm = NULL;
+            b2v5_header_dispose(&h);
+        }
+        if (header) input_release_mapping(header_ctx, header, header_len);
+        free(header_path);
+        east_value_release(manifest);
+    } else if (found == 0 && b2v5_read_header(data, len, &h)) {
+        sm = h.sm;
+        h.sm = NULL;
+        b2v5_header_dispose(&h);
+    }
+    input_release_mapping(ctx, data, len);
+    /* A part that does not read is its merge's to refuse, in its own words. */
+    free(east_builtin_get_error());
+    if (sm && sm->num_stacks <= 1) {
+        east_source_map_release(sm);
+        sm = NULL;
+    }
+    return sm;
+}
+
 /* Merges the open cursors: a binary min-heap ordered by (key, input index),
  * so equal keys leave in input order. Entries are decoded values, encoded by
  * the canonical element writer — one aliasing scope per entry, so a container
@@ -640,15 +687,21 @@ bool east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
         opened++;
         ok = cursor_open(&m, &cur[i], i, cfg->input_paths[i]);
     }
+    /* An output holding functions is written under input 0's map: the parts
+     * are one task's, under its program's, so the closures keep their lines. */
+    EastSourceMap *sm = ok && east_type_holds_function(type)
+                            ? east_merge_part_source_map(cfg->input_paths[0])
+                            : NULL;
     bool writer_open = false;
     if (ok) {
-        ok = cfg->output_manifest ? emit_writer_open_manifest(&m.out, m.type, cfg->output_path)
-                                  : emit_writer_open(&m.out, m.type, cfg->output_path);
+        ok = cfg->output_manifest ? emit_writer_open_manifest(&m.out, m.type, cfg->output_path, sm)
+                                  : emit_writer_open(&m.out, m.type, cfg->output_path, sm);
         writer_open = ok;
     }
     if (ok) ok = merge_sources(&m, cur, cfg->num_inputs);
     if (ok) ok = emit_writer_finish(&m.out);
     if (writer_open) emit_writer_close(&m.out);
+    east_source_map_release(sm);
     for (size_t i = 0; i < opened; i++)
         cursor_close(&cur[i]);
     free(cur);
