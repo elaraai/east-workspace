@@ -29,7 +29,10 @@ export {
     type EntryConflicts,
     type ConflictChoice,
     type ConflictRange,
+    type ConflictTogether,
+    type ConflictPart,
     type SettledConflict,
+    conflictPartOf,
 } from "./session.js";
 export { EntryMerger, conflictSteps, type ConflictKind, type ConflictPoint, type ConflictStep, type MergedEntry } from "./merge.js";
 export { EditHistory, type EditHistoryPart } from "./history.js";

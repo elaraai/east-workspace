@@ -15,8 +15,9 @@
 
 import { describe, test, expect, beforeEach } from "vitest";
 import { renderHook } from "@testing-library/react";
-import { IntegerType, StringType, StructType, none, some, toEastTypeValue, variant, type option } from "@elaraai/east";
+import { IntegerType, StringType, StructType, none, some, toEastTypeValue, variant, type option, type ValueTypeOf } from "@elaraai/east";
 import { EditingDraftFieldType } from "@elaraai/east-ui/internal";
+import type { ScheduleKindType } from "@elaraai/e3-ui/internal";
 import { UIStore } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { usePlanEventEditing, type PlanEventEditingArgs } from "./events.js";
@@ -43,8 +44,8 @@ function windowed(last: option<option<string>>): PlanEventEditingArgs["kinds"] {
         entries: some({ revision: () => some("r1"), refresh: () => null, entry: () => some(none), last: () => last }),
         planEvent: () => none,
         write: () => [],
-        // Its dates' fields, as every kind names them: a conflict at either is one of its dates.
-        schedule: { start: "start", end: "end" },
+        // Its fields' roles, as every kind names them: a conflict at its start or end is one of its dates.
+        schedule: { title: "title", start: "start", end: "end", resource: none, status: none, quantity: none, parts: none } satisfies ValueTypeOf<typeof ScheduleKindType>["schedule"],
     }] as unknown as PlanEventEditingArgs["kinds"];
 }
 

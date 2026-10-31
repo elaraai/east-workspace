@@ -35,7 +35,7 @@ import { conflictViewOf, rangeViewOf, wordRuns, type ConflictView, type RangeEnd
 import { EditHistory } from "./history.js";
 import type { ConflictPoint } from "./merge.js";
 import type { EditingWords } from "./messages.js";
-import type { ConflictChoice, ConflictRange, EditIssue, EditSession, EntryConflicts, SettledConflict } from "./session.js";
+import { conflictFieldOf, conflictPartOf, type ConflictChoice, type ConflictRange, type ConflictTogether, type EditIssue, type EditSession, type EntryConflicts, type SettledConflict } from "./session.js";
 
 /** Below this width the frame a history bar sits in is narrow: Go to closes the popover, which would cover the item. */
 const NARROW_PX = 480;
@@ -97,10 +97,18 @@ interface RangeGroup {
     readonly points: { readonly point: ConflictPoint; readonly values: EntryConflicts | SettledConflict; readonly choice: ConflictChoice | undefined }[];
 }
 
-/** The field a conflict's first step names, if it names one. */
+/** The conflicts at fields of one entry that change together, gathered for their one card. */
+interface TogetherGroup {
+    readonly id: string;
+    readonly key: unknown;
+    readonly together: ConflictTogether;
+    /** Each conflict at one of the fields: where, its entry's values, and how it is chosen — `undefined` while it waits. */
+    readonly points: { readonly point: ConflictPoint; readonly values: EntryConflicts | SettledConflict; readonly choice: ConflictChoice | undefined }[];
+}
+
+/** The entry's field a conflict is in, past the draft's own cases, if it is in one. */
 function fieldOf(point: ConflictPoint): string | undefined {
-    const first = point.at[0];
-    return first !== undefined && first.kind === "field" ? first.name : undefined;
+    return conflictFieldOf(point);
 }
 
 /** One conflict, as the popover lists it. */
@@ -174,17 +182,35 @@ function cardsOf<W>(
                 settle: settleAt(id, points.map((at) => at.point.path)),
             };
         };
-        // Each conflict in turn, one at an item's start or end gathered into its range's card where its first one shows.
-        const items: (Card | RangeGroup)[] = [];
-        const groups = new Map<string, RangeGroup>();
+        // Fields that change together: one card, the lead's conflict as it reads — or, the lead not in conflict, the first
+        // one's — under the value's own name; chosen once every one of its conflicts is chosen alike.
+        const togetherCard = ({ id, key, together, points }: TogetherGroup): Card => {
+            const shown = points.find((p) => { const name = fieldOf(p.point); return name !== undefined && textEqual(name, together.lead); }) ?? points[0]!;
+            const read = conflictViewOf(session.draftType, {
+                id, key, keyType: session.keyType, at: shown.point.at, was: shown.values.was, draft: shown.values.draft, source: shown.values.source,
+            }, words);
+            const shownField = fieldOf(shown.point);
+            const lead = shownField !== undefined && textEqual(shownField, together.lead);
+            const view = lead && together.label !== undefined ? { ...read, label: [together.label] } : read;
+            const issue = session.conflictIssue(id, shown.point);
+            const first = points[0]!.choice;
+            const choice = points.every((at) => at.choice !== undefined && at.choice === first) ? first : undefined;
+            return {
+                key: `${sessionKey}\u0000${id}\u0000together\u0000${together.lead}`, issue, at: shown.point.at, item: itemOf(issue, view, shown.point.at), view, choice,
+                said: shown.values.said, settle: settleAt(id, points.map((at) => at.point.path)),
+            };
+        };
+        // Each conflict in turn, one at an item's start or end gathered into its range's card, and one at fields that change
+        // together into theirs, where the first of them shows.
+        const items: (Card | RangeGroup | TogetherGroup)[] = [];
+        const groups = new Map<string, RangeGroup | TogetherGroup>();
         const add = (id: string, key: unknown, point: ConflictPoint, values: EntryConflicts | SettledConflict, choice: ConflictChoice | undefined) => {
-            const field = fieldOf(point);
-            const range = field === undefined ? undefined : session.ranges.find((r) => textEqual(r.start, field) || textEqual(r.end, field));
-            if (range === undefined) { items.push(card(id, key, point, values, choice)); return; }
-            const at = `${id}\u0000${range.start}\u0000${range.end}`;
+            const part = conflictPartOf(point, session.ranges, session.together);
+            if (part === undefined) { items.push(card(id, key, point, values, choice)); return; }
+            const at = `${id}\u0000${part.key}`;
             let group = groups.get(at);
             if (group === undefined) {
-                group = { id, key, range, points: [] };
+                group = "range" in part ? { id, key, range: part.range, points: [] } : { id, key, together: part.together, points: [] };
                 groups.set(at, group);
                 items.push(group);
             }
@@ -192,7 +218,7 @@ function cardsOf<W>(
         };
         for (const entry of session.conflicts.values()) for (const point of entry.points) add(entry.id, entry.key, point, entry, undefined);
         for (const settled of session.settled) add(settled.id, settled.key, settled.point, settled, settled.choice);
-        for (const item of items) cards.push("view" in item ? item : rangeCard(item));
+        for (const item of items) cards.push("view" in item ? item : "range" in item ? rangeCard(item) : togetherCard(item));
     }
     return cards;
 }

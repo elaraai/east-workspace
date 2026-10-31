@@ -17,8 +17,8 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useSyncExternalStore } from "react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { DateTimeType, IntegerType, StringType, StructType, none, some, variant, type PatchPath } from "@elaraai/east";
-import { Editing } from "@elaraai/east-ui/internal";
+import { DateTimeType, DictType, IntegerType, SortedMap, StringType, StructType, compareFor, equalFor, none, some, variant, type PatchPath, type ValueTypeOf } from "@elaraai/east";
+import { Editing, EditingDraftFieldType } from "@elaraai/east-ui/internal";
 import { system } from "../theme/index.js";
 import { formatters } from "../format/index.js";
 import { liftDraft } from "./draft.js";
@@ -298,6 +298,58 @@ test("an item moved both ways is one card — its dates whole on each side — a
     expect(session.entries.get("B1")!.draft).toEqual(booking(23, 27).draft);
     act(() => session.undo());
     expect([session.unsettled, session.chosen, session.conflicts.get("B1")!.points.length]).toEqual([1, 0, 2]);
+});
+
+
+test("an entry drafted whole, as a schedule's kinds draft their rows, reads its dates on one card all the same", async () => {
+    const WholeDraft = EditingDraftFieldType(Booking);
+    const whole = (from: number, to: number): EntryVersion<string> => ({ draft: liftDraft(WholeDraft, { id: "B1", start: day(from), end: day(to) }), wire: "B1", place: start });
+    const session = new EditSession<string>({
+        sourceId: "bookings", entryType: Booking, draftType: WholeDraft, idField: "id", auto: false, ranges: [{ start: "start", end: "end" }],
+        apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
+    });
+    session.observeBase(variant("snapshot", [{ id: "B1", start: day(16), end: day(20) }]));
+    session.record([{ id: "B1", before: whole(16, 20), after: whole(17, 21) }], "drop", "Move B1");
+    session.observeBase(variant("snapshot", [{ id: "B1", start: day(23), end: day(27) }]));
+    expect(session.unsettled).toBe(1);
+    const ui = mount(session);
+    await opened(1);
+    const [card] = cards();
+    expect(card!.textContent).toContain("Dates");
+    expect(ui.getByRole("radio", { name: `Yours, ${WORDS.range(day(17), day(21))}` })).toBe(radio(card!, "draft"));
+});
+
+const Bin = StructType({ id: StringType, m3: IntegerType, kilns: DictType(StringType, IntegerType) });
+const BinDraft = Editing.Types.Draft(Bin);
+type BinDraftValue = ValueTypeOf<typeof BinDraft>;
+const sameBinDraft = equalFor(BinDraft);
+/** A bin of its quantity, all of it on one kiln. */
+const binOf = (m3: bigint) => ({ id: "b1", m3, kilns: new SortedMap([["K-209", m3]], compareFor(StringType)) });
+const bin = (m3: bigint): EntryVersion<string> => ({ draft: liftDraft(BinDraft, binOf(m3)), wire: "b1", place: start });
+
+test("a quantity changed both ways is one card under its own name — the split that follows it on it — and one choice settles both", async () => {
+    const session = new EditSession<string>({
+        sourceId: "bins", entryType: Bin, draftType: BinDraft, idField: "id", auto: false, together: [{ lead: "m3", with: ["kilns"], label: "Quantity" }],
+        apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
+    });
+    session.observeBase(variant("snapshot", [binOf(20n)]));
+    session.record([{ id: "b1", before: bin(20n), after: bin(30n) }], "typed", "Set quantity");
+    // Another write sets it to 45: its quantity and its split both clash, and wait as one.
+    session.observeBase(variant("snapshot", [binOf(45n)]));
+    expect(session.conflicts.get("b1")!.points).toHaveLength(2);
+    expect(session.unsettled).toBe(1);
+    const ui = mount(session);
+    expect(button()!.textContent).toBe("1");
+    await opened(1);
+    const [card] = cards();
+    expect(card!.textContent).toContain("Quantity");
+    expect(ui.getByRole("radio", { name: "Yours, 30" })).toBe(radio(card!, "draft"));
+
+    fireEvent.click(radio(card!, "source"));
+    expect([session.unsettled, session.chosen]).toEqual([0, 1]);
+    expect(sameBinDraft(session.entries.get("b1")!.draft as BinDraftValue, bin(45n).draft as BinDraftValue)).toBe(true);
+    act(() => session.undo());
+    expect([session.unsettled, session.chosen, session.conflicts.get("b1")!.points.length]).toEqual([1, 0, 2]);
 });
 
 

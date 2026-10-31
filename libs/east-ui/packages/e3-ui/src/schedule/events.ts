@@ -1662,7 +1662,9 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             // A kind with no title names none: the Calendar and Plan, whose inspectors draw it, refuse one.
             schedule: { title: titleField ?? "", start: startField, end: endField,
                 resource: resource === undefined ? none : some(resource.field),
-                status: config.status === undefined ? none : some(config.status.field) },
+                status: config.status === undefined ? none : some(config.status.field),
+                quantity: quantityField === undefined ? none : some(quantityField),
+                parts: partsField === undefined ? none : some(partsField) },
             overlaps: variant(overlaps, null),
             inspector: inspector === undefined ? none : some(inspector),
             seriesKey,

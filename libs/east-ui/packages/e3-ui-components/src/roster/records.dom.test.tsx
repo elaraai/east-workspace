@@ -174,6 +174,18 @@ describe("one history over the Roster's records (#1369)", () => {
         expect(c.querySelector("[data-session-banner]")).toBeNull();
     });
 
+    test("B9 — a duty moved here and to other times there is one conflict, its dates whole on each side", async () => {
+        const { container: c } = await h.mount(ex.rosterWarehouse);
+        await drop(assignment(c, "s37"), cell(c, 4, "picking", "late"));
+        // Another session moves the same duty to other times of its day.
+        const duties = await h.read(ex.rosterDuties);
+        duties.set("s37", { ...duties.get("s37")!, start: at("2028-03-09T07:00:00"), end: at("2028-03-09T15:00:00") });
+        await h.patch(ex.rosterDuties, duties);
+        await waitFor(() => expect(c.querySelector('[data-session-banner="conflicts"]')?.textContent).toContain(editingMessages.bannerConflicts({ n: 1, count: "1" })));
+        expect(await conflictCards(c)).toHaveLength(1);
+        expect(document.querySelector("[data-conflict-card]")!.textContent).toContain(editingMessages.conflictDates());
+    });
+
     test("B11 — coverage, pay, checks and fits read every duty of the week, whatever the rail shows", async () => {
         const { container: c, store } = await open(ex.rosterWarehouse);
         const coverage = marks(c), cost = stat(c, "Cost"), issues = issueCount(c);

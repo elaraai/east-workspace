@@ -161,6 +161,61 @@ export interface ConflictRange {
 }
 
 /**
+ * Fields of an entry that change together: a value, and the fields that
+ * follow it — a quantity, and its split across resources. The conflicts
+ * popover shows a conflict at any of them as one card, the value's, and
+ * settles them together.
+ */
+export interface ConflictTogether {
+    /** The field of the value the card shows. */
+    readonly lead: string;
+    /** The fields that change with it. */
+    readonly with: readonly string[];
+    /** What the card calls the value — `Quantity`; the lead's name in words by default. */
+    readonly label?: string | undefined;
+}
+
+/**
+ * The entry's field a conflict is in: its path's first field, past the cases
+ * of the draft's own — an entry drafted whole is a case of its draft.
+ *
+ * @param point - The conflict
+ * @returns The field's name; `undefined` for a conflict of the entry as a whole
+ */
+export function conflictFieldOf(point: ConflictPoint): string | undefined {
+    for (const step of point.at) {
+        if (step.kind === "field") return step.name;
+        if (step.kind !== "variant") return undefined;
+    }
+    return undefined;
+}
+
+/** The card a conflict shares with others of its entry ({@link conflictPartOf}): its key within the entry, and why. */
+export type ConflictPart =
+    | { readonly key: string; readonly range: ConflictRange }
+    | { readonly key: string; readonly together: ConflictTogether };
+
+/**
+ * The card a conflict shows on, where it shares one: its range's — an item's
+ * start or end ({@link ConflictRange}) — or the fields' that change together
+ * ({@link ConflictTogether}), by its first field; `undefined` for a conflict
+ * on a card of its own.
+ *
+ * @param point - The conflict
+ * @param ranges - The entry's ranges
+ * @param together - The entry's fields that change together
+ * @returns The shared card, or `undefined`
+ */
+export function conflictPartOf(point: ConflictPoint, ranges: readonly ConflictRange[], together: readonly ConflictTogether[]): ConflictPart | undefined {
+    const first = conflictFieldOf(point);
+    if (first === undefined) return undefined;
+    const range = ranges.find((r) => stringEqual(r.start, first) || stringEqual(r.end, first));
+    if (range !== undefined) return { key: `range\u0000${range.start}\u0000${range.end}`, range };
+    const joined = together.find((t) => stringEqual(t.lead, first) || t.with.some((field) => stringEqual(field, first)));
+    return joined === undefined ? undefined : { key: `together\u0000${joined.lead}`, together: joined };
+}
+
+/**
  * A drafted entry as a reload keeps it (keep.ts): what both began from, the
  * draft, the collection's projection of each, and where each stands — what
  * the session needs to carry the draft over to the source as a reload finds
@@ -292,6 +347,8 @@ export interface EditSessionBinding<W> {
     carryOver?: boolean | undefined;
     /** The entry's fields that read as one, each an item's start and end ({@link ConflictRange}); none by default. */
     ranges?: readonly ConflictRange[] | undefined;
+    /** The entry's fields that change together, each a value and those that follow it ({@link ConflictTogether}); none by default. */
+    together?: readonly ConflictTogether[] | undefined;
     /**
      * The collection's projection of a draft the session made itself — one
      * carried over to a newer base, or settled — where it draws drafts from
@@ -714,17 +771,20 @@ export class EditSession<W> {
         return n;
     }
 
-    /** How many cards one entry's conflicts make: each on its own, but those at one range's start and end together. */
+    /**
+     * How many cards one entry's conflicts make: each on its own, but those at
+     * one range's start and end, or at fields that change together, one.
+     */
     private cardsOf(points: readonly ConflictPoint[]): number {
         const ranges = this.binding.ranges ?? [];
-        if (ranges.length === 0) return points.length;
-        const hit = new Set<number>();
+        const together = this.binding.together ?? [];
+        if (ranges.length === 0 && together.length === 0) return points.length;
+        const hit = new Set<string>();
         let n = 0;
         for (const point of points) {
-            const first = point.at[0];
-            const at = first?.kind === "field" ? ranges.findIndex((range) => stringEqual(range.start, first.name) || stringEqual(range.end, first.name)) : -1;
-            if (at < 0) n++;
-            else if (!hit.has(at)) { hit.add(at); n++; }
+            const part = conflictPartOf(point, ranges, together);
+            if (part === undefined) n++;
+            else if (!hit.has(part.key)) { hit.add(part.key); n++; }
         }
         return n;
     }
@@ -740,6 +800,8 @@ export class EditSession<W> {
     get draftType(): EastType { return this.binding.draftType; }
     /** The entry's fields that read as one ({@link ConflictRange}). */
     get ranges(): readonly ConflictRange[] { return this.binding.ranges ?? []; }
+    /** The entry's fields that change together ({@link ConflictTogether}). */
+    get together(): readonly ConflictTogether[] { return this.binding.together ?? []; }
 
     /**
      * The drafts as a reload keeps them (keep.ts): each entry drafted away

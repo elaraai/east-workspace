@@ -319,7 +319,9 @@ export interface RangeValues {
  */
 function endOf(draftType: EastType, value: option<unknown>, field: string, words: EditingWords): { part: Part; date: Date | undefined } | undefined {
     if (value.type !== "some") return undefined;
-    const { part } = walk(draftType, value, [{ kind: "field", name: field }], words);
+    // An entry drafted whole holds its fields in its draft's own case.
+    const at: PatchPath = isDraftField(draftType) ? [{ kind: "variant", tag: "value" }, { kind: "field", name: field }] : [{ kind: "field", name: field }];
+    const { part } = walk(draftType, value, at, words);
     let type = part.type;
     let held = part.value?.held;
     while (type?.type === "Variant" && held !== undefined) {

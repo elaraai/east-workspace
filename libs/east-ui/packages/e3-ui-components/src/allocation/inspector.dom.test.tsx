@@ -267,6 +267,27 @@ describe("a bin (A56–A59)", () => {
         expect([saved.m3, [...saved.kilns]]).toEqual([30, [["K-108", 30]]]);
     });
 
+    test("a quantity typed here and otherwise by another session is one conflict — its split across kilns changes with it — under the board's word for a quantity", async () => {
+        const c = await open();
+        await press(card(c, "3113"));
+        const user = userEvent.setup();
+        const quantity = within(details(c).querySelector<HTMLElement>('[data-field="quantity"]')!).getByRole("spinbutton");
+        await user.clear(quantity);
+        for (const k of "30") { await user.type(quantity, k); await settle(); }
+        await user.keyboard("{Enter}");
+        await settle();
+        // Another session books the same bin at 45 m³, on its one kiln.
+        const bins = await h.read(ex.kilnBins);
+        const next = new SortedMap(bins, compareFor(StringType));
+        next.set("3113", { ...next.get("3113")!, m3: 45, kilns: new SortedMap([["K-108", 45]], compareFor(StringType)) });
+        await h.patch(ex.kilnBins, next);
+        await waitFor(() => expect(c.querySelector('[data-session-banner="conflicts"]')?.textContent).toContain(editingMessages.bannerConflicts({ n: 1, count: "1" })));
+        const [conflict, ...more] = await conflictCards(c);
+        expect(more).toEqual([]);
+        expect(document.querySelector("[data-conflict-card]")!.textContent).toContain("QTY");
+        expect([conflict!.yours, conflict!.theirs?.split(",").slice(0, 2).join(",")]).toEqual(["Yours, 30", "Theirs, 45"]);
+    });
+
     test("two Saves at once, of different fields of one bin: the one that lands first reads its own back beside the other's and is done, never left waiting on it", async () => {
         const c = await open();
         await press(card(c, "3113"));

@@ -312,10 +312,21 @@ export const ScheduleReadType = StructType({ item: ScheduleItemType, row: BlobTy
 /** Type representing ScheduleReadType. */
 export type ScheduleReadType = typeof ScheduleReadType;
 
-/** The fields whose edits are owned by the schedule section of an inspector. */
+/**
+ * The fields whose edits are owned by the schedule section of an inspector.
+ *
+ * @property title - The field of an event's title
+ * @property start - The field of its start
+ * @property end - The field of its end
+ * @property resource - The field naming its resource, if it is on one
+ * @property status - The field of its status, if it has one
+ * @property quantity - The field of the quantity it books, if it books one
+ * @property parts - The field of its quantity's split across resources, if it splits one: what changes with its quantity
+ */
 export const ScheduleRolesType = StructType({
     title: StringType, start: StringType, end: StringType,
     resource: OptionType(StringType), status: OptionType(StringType),
+    quantity: OptionType(StringType), parts: OptionType(StringType),
 });
 
 /**
