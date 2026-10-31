@@ -538,23 +538,23 @@ describe("a resource (A62)", () => {
 });
 
 describe("the summary (A63, A89)", () => {
-    test("A63 — `Plan · Tue 11 May`, the title, `3 lanes · 33 resources`; Bins, Loading, Issues and Drafts; A89 — the three hints", async () => {
+    test("A63 — `Plan · Tue 11 May`, the title, `3 lanes · 33 resources`; Bins, Loading, Issues and Changes; A89 — the three hints", async () => {
         const c = await open();
         expect(headOf(c)).toMatchObject({ kind: "Plan · Tue 11 May", title: "Kiln loading", when: "3 lanes · 33 resources" });
         const stats = () => [...details(c).querySelectorAll<HTMLElement>("[data-allocation-stat]")].map(s => [...s.children].map(e => e.textContent).concat([s.children[1]!.getAttribute("data-tone") ?? ""]));
         expect(stats()).toEqual([
             ["Bins", "26", "556 m³ · 0 reserved", ""], ["Loading", "21 of 33", "10 free · 2 busy", ""],
-            ["Issues", "3", "2 overlaps · 1 over max", "warning"], ["Drafts", "0", "all saved", ""],
+            ["Issues", "3", "2 overlaps · 1 over max", "warning"], ["Changes", "0", "all saved", ""],
         ]);
         expect([...details(c).querySelectorAll("[data-allocation-hints] li")].map(li => li.textContent)).toEqual([
-            "Select a bin or a resource to inspect it.", "Use the Library to book arrivals and reserve resources.", "Every change is a draft until Save. Undo and Redo are in the toolbar.",
+            "Select a bin or a resource to inspect it.", "Use the Library to book arrivals and reserve resources.", "Changes wait for Save. Undo and Redo are in the toolbar.",
         ]);
         expect(details(c).querySelector("[data-allocation-scope]")).toBeNull();
         // A draft is counted, and Save is named.
         await press(card(c, "3113"));
         await key(c, "Delete");
         await key(c, "Escape");
-        expect(stats()[3]).toEqual(["Drafts", "1", "unsaved · Save is in the toolbar", "brand"]);
+        expect(stats()[3]).toEqual(["Changes", "1", "unsaved · Save is in the toolbar", "brand"]);
     });
 
     test("A63 — the narrowing's note: `10 of 33 resources visible · fits, checks and totals include all`", async () => {

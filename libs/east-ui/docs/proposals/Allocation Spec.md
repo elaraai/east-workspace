@@ -828,7 +828,7 @@ Rules marked *ruled* follow a decision of §2; *product* rules are not in the mo
   row.`, busy `Busy resources take no load until their current job is released.`).
 - **A63.** Nothing selected: `Plan · Tue 11 May`, the title, `3 lanes · 33
   resources`; four stats — Bins (`26`, `556 m³ · 0 reserved`), Loading (`21 of
-  33`, `10 free · 2 busy`), Issues (`3`, `2 overlaps · 1 over max`), Drafts (`0`,
+  33`, `10 free · 2 busy`), Issues (`3`, `2 overlaps · 1 over max`), Changes (`0`,
   `all saved`, or `N`, `unsaved · Save is in the toolbar`); the narrowing note
   `21 of 33 kilns visible · fits, checks and totals include all`; three hints.
 - **A64.** Issues: grouped Not linked (fix `Choose a resource`), Partly allocated
@@ -974,8 +974,8 @@ controls) are the shared part's.
 - **A88. Refusal words.** `Not booked`, `Not allocated`, `Not moved`, `Not reserved`,
   each before its sentence (A40).
 - **A89. Summary hints.** `Select a bin or a resource to inspect it.` · `Use the
-  Library to book events and reserve resources.` · `Every change is a draft until
-  Save. Undo and Redo are in the toolbar.`
+  Library to book events and reserve resources.` · `Changes wait for Save. Undo
+  and Redo are in the toolbar.`
 - **A90. Marks.** The app's flag's tooltip is its issue's title; ⚠ `Overlaps the
   next job`; ● `Over max`; ↓ `Under minimum`; a check `Current` and a ×
   `Doesn't fit` in the Chooser.

@@ -402,7 +402,7 @@ export interface SummaryStat { label: string; value: string; sub: string; tone: 
 /**
  * The summary's four counts (A63): Bins (`26`, `556 m³ · 0 reserved`), Loading
  * (`21 of 33`, `10 free · 2 busy`), Issues (`3`, `2 overlaps · 1 over max`, or
- * `none`) and Drafts (`0`, `all saved`, or `N`, `unsaved · Save is in the
+ * `none`) and Changes (`0`, `all saved`, or `N`, `unsaved · Save is in the
  * toolbar`).
  *
  * @param args - The day as drafted and as the record holds it, every load, every issue and the words
@@ -422,7 +422,7 @@ export function summaryStats(args: { plan: Day; held: Day | undefined; sameBin: 
         { label: "Bins", value: `${booked.length}`, sub: `${words.quantity(Math.round(booked.reduce((n, bin) => n + bin.quantity, 0)))} · ${bins.length - booked.length} reserved`, tone: undefined },
         { label: "Loading", value: `${count("loading")} of ${states.length}`, sub: `${count("free")} free · ${count("busy")} busy`, tone: undefined },
         { label: "Issues", value: `${issueCount}`, sub: issueCount > 0 ? issueParts(issues).join(" · ") : "none", tone: issueCount > 0 ? "warning" : undefined },
-        { label: "Drafts", value: `${drafts}`, sub: drafts > 0 ? "unsaved · Save is in the toolbar" : "all saved", tone: drafts > 0 ? "brand" : undefined },
+        { label: "Changes", value: `${drafts}`, sub: drafts > 0 ? "unsaved · Save is in the toolbar" : "all saved", tone: drafts > 0 ? "brand" : undefined },
     ];
 }
 
@@ -450,7 +450,7 @@ export function summaryHints(nouns: Nouns): string[] {
     return [
         `Select a bin or ${a(nouns.resource)} to inspect it.`,
         `Use the Library to book ${other(nouns.arrival)} and reserve ${other(nouns.resource)}.`,
-        "Every change is a draft until Save. Undo and Redo are in the toolbar.",
+        "Changes wait for Save. Undo and Redo are in the toolbar.",
     ];
 }
 

@@ -229,7 +229,7 @@ test("with nothing selected, Details counts the rows, the pending drafts and the
         expect([...panel(container).querySelectorAll("li")].map((li) => li.textContent)).toEqual([
             "Click a cell to see its row's every field here",
             "Click a row number to select it — shift-click to select several",
-            "Changes stay drafts until Save; the history item undoes each one",
+            "Changes wait for Save; Undo takes back each one",
         ]);
         // A draft counts as pending.
         await select(cell(container, 1, "task"));
@@ -438,7 +438,7 @@ test("Issues lists every issue of the batch by row, and a click puts the ring on
     // No issues yet: the empty state.
     fireEvent.click(within(pane(container)).getByRole("tab", { name: /Issues/ }));
     await settle();
-    expect(panel(container).querySelector("[data-inspector-no-issues]")!.textContent).toBe("No issuesEvery draft is complete — nothing stands in the way of Save.");
+    expect(panel(container).querySelector("[data-inspector-no-issues]")!.textContent).toBe("No issuesEvery change is complete — nothing stands in the way of Save.");
     fireEvent.click(within(pane(container)).getByRole("tab", { name: "Details" }));
     await settle();
     for (const row of [0, 1]) {
