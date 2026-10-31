@@ -63,6 +63,7 @@ import type { ToolbarItem } from "../../toolbar/index.js";
 import { ChipMenu } from "../../toolbar/chip-menu.js";
 import { BuilderFrame, type BuilderFramePane } from "../builder-frame/index.js";
 import { historyToolbarItem } from "../../editing/history-item.js";
+import { SessionBanners } from "../../editing/banners.js";
 import type { HistoryAction } from "../../editing/HistoryBar.js";
 import { historyShortcut } from "../../editing/shortcuts.js";
 import type { EditIssue, EditSession } from "../../editing/session.js";
@@ -845,7 +846,9 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         select(tile.key);
         focusTile(tile.key);
     }, [select, focusTile]);
-    const history = historyToolbarItem({ session, words, editing: false, onAction: action, onIssue });
+    // A tile as the page shows it, in the frame's banners and its conflicts' cards: its label — `Breakdown bars` — else its id.
+    const tileWhere = useCallback((issue: EditIssue) => tilesRef.current.find((t) => t.id === issue.entry)?.label ?? issue.entry, []);
+    const history = historyToolbarItem({ session, words, editing: false, onAction: action, onIssue, where: tileWhere });
 
     // ── The ruler: the selected tile's columns ───────────────────────────
     const guides = value.guides;
@@ -1006,7 +1009,8 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
             height={parseCssSize(getSomeorUndefined(value.height))}
             maxHeight={parseCssSize(getSomeorUndefined(value.maxHeight))}
         >
-            <BuilderFrame storageKey={`${storageKey}.frame`} toolbar={items} start={paneStart} end={paneEnd} onKeyDown={onFrameKeyDown}>
+            <BuilderFrame storageKey={`${storageKey}.frame`} toolbar={items} start={paneStart} end={paneEnd} onKeyDown={onFrameKeyDown}
+                banners={<SessionBanners session={session} words={words} onAction={action} where={tileWhere} />}>
                 <Box css={styles.column} data-snap-grid-main="">
                     <Box css={styles.selectionBar} data-snap-grid-selection="">
                         {selectedCell !== undefined ? (

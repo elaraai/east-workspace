@@ -457,7 +457,10 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
 
     test("B13: the palette and the inspector sit either side of the canvas under the toolbar, and the palette collapses to its rail", async () => {
         const { container } = await mountBuilder();
-        const body = container.querySelector("[data-frame-slot=toolbar]")!.nextElementSibling!;
+        // Under the toolbar the session's banners, then the panes.
+        const banners = container.querySelector("[data-frame-slot=toolbar]")!.nextElementSibling!;
+        expect(banners.getAttribute("data-frame-slot")).toBe("banners");
+        const body = banners.nextElementSibling!;
         expect([...body.children].map((el) => el.getAttribute("data-frame-slot"))).toEqual(["start", "main", "end"]);
         expect(body.querySelector('[data-frame-slot="main"] > [data-snap-grid-main]')).not.toBeNull();
         await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Collapse Components" })); });

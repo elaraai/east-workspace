@@ -529,8 +529,10 @@ describe("the builder's frame (#995)", () => {
         // The canvas's frame is the builder frame (#1125), the editor's first child.
         const frame = editor.firstElementChild as HTMLElement;
         expect(frame.hasAttribute("data-builder-frame")).toBe(true);
-        const [row, body] = [...frame.children] as HTMLElement[];
+        const [row, banners, body] = [...frame.children] as HTMLElement[];
         expect(row!.getAttribute("data-frame-slot")).toBe("toolbar");
+        // The session's banners under the toolbar, the frame's full width.
+        expect(banners!.getAttribute("data-frame-slot")).toBe("banners");
         expect([...body!.children].map((el) => el.getAttribute("data-frame-slot"))).toEqual(["start", "main", "end"]);
         // The SnapGrid's own East panes, each placed as it is.
         expect(body!.querySelector('[data-frame-slot="start"]')!.textContent).toBe("Palette");
@@ -727,6 +729,19 @@ describe("an Apply a screen asks for (#998)", () => {
         await canvas.hostAsksApply("ask-3");
         expect(canvas.boundApply()).toEqual(variant("refused", { id: "ask-3", reason: "A tile spans 3 columns at least" }));
         expect(canvas.applies).toHaveLength(0);
+    }, 30_000);
+
+    test("a tile changed here and otherwise by another write is a conflict: the frame's banner says so, and its Choose opens the card, which names the tile as the page shows it", async () => {
+        const canvas = await mountSnapGrid({ applies: true });
+        const c = canvas.container;
+        await clickTile(c, "trend");
+        await key(c, { key: "[" }, "trend");
+        hostWrites(SEED.map((t) => (t.id === "trend" ? { ...t, span: 5n } : t)));
+        await canvas.confirm();
+        await waitFor(() => expect(c.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
+        await act(async () => { fireEvent.click(c.querySelector('[data-session-banner="conflicts"] [data-banner-action="choose"]')!); });
+        await waitFor(() => expect(document.querySelectorAll("[data-conflict-card]")).toHaveLength(1));
+        expect(document.querySelector("[data-conflict-card] [data-conflict-item]")!.textContent).toBe("Revenue trend");
     }, 30_000);
 
     test("drafts the source moved under are carried over — another write's change of another tile beside them — and the Apply asked saves them", async () => {
