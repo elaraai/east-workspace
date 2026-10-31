@@ -1377,17 +1377,26 @@ cdef _eastc.EastSourceMap* _program_source_map(object program):
     return fn.source_map if fn != NULL else NULL
 
 
-def _write_unit_value(object py_type, object path, object value, object program=None):
+def _write_unit_value(object py_type, object path, object value, object program=None,
+                      object part=None):
     """Write a value output: a collection as a manifest directory at
     ``path``, anything else as one blob there — east-c's writer, so the bytes
     are the east-c CLI's for the same value. A collection that holds
     functions is written under ``program``'s source map, so its closures keep
-    their lines. A frozen or paged hold passes its C value through. Raises
-    OSError with east-c's message."""
+    their lines — or, for a merge of fold partials, under the map the header
+    of ``part``, the first partial, holds. A frozen or paged hold passes its C
+    value through. Raises OSError with east-c's message."""
     _ensure_eastc_runtime()
     cdef bytes c_path = _c_path(path)
     cdef _eastc.EastType* c_type = py_type_to_c(py_type)
     cdef _eastc.EastValue* c_val = NULL
+    cdef _eastc.EastSourceMap* sm = _program_source_map(program)
+    cdef _eastc.EastSourceMap* part_sm = NULL
+    cdef bytes c_part
+    if part is not None and _eastc.east_type_holds_function(c_type):
+        c_part = _c_path(part)
+        part_sm = _eastc.east_merge_part_source_map(<const char*>c_part)
+        sm = part_sm
     try:
         hold = getattr(value, "_east_c_value", None)
         if hold is None:
@@ -1397,12 +1406,13 @@ def _write_unit_value(object py_type, object path, object value, object program=
             _eastc.east_value_retain(c_val)
         else:
             c_val = py_value_to_c(value, c_type)
-        if not _eastc.east_unit_write_value(<const char*>c_path, c_val, c_type,
-                                            _program_source_map(program)):
+        if not _eastc.east_unit_write_value(<const char*>c_path, c_val, c_type, sm):
             _consume_eastc_error("the output cannot be written", OSError)
     finally:
         if c_val != NULL:
             _eastc.east_value_release(c_val)
+        if part_sm != NULL:
+            _eastc.east_source_map_release(part_sm)
         _eastc.east_type_release(c_type)
 
 

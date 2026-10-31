@@ -1256,11 +1256,17 @@ static EvalResult exec_merge(const EastUnit *unit, ExecClock *clock)
             eval_result_free(&c);
         }
         exec_lap(clock, &clock->execute);
+        /* An accumulator holding functions is written under the partials'
+         * map, as the units that wrote them wrote them. */
+        EastSourceMap *sm = r.status != EVAL_ERROR && east_type_holds_function(value_type)
+                                ? east_merge_part_source_map(unit->inputs[0])
+                                : NULL;
         if (r.status != EVAL_ERROR &&
-            !east_unit_write_value(unit->output.path, acc, value_type, NULL)) {
+            !east_unit_write_value(unit->output.path, acc, value_type, sm)) {
             eval_result_free(&r);
             r = exec_error("exec: the output cannot be written");
         }
+        east_source_map_release(sm);
         if (acc) east_value_release(acc);
         exec_lap(clock, &clock->output);
     } else if (r.status != EVAL_ERROR) {

@@ -970,6 +970,67 @@ describe("runner protocol corpus", () => {
                 expected: { name: "fold partials of arrays, each a manifest directory, folded in order from zero", outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
             });
         });
+
+        test("Dict parts and fold partials holding closures, merged under the map their program wrote them under", () => {
+            // A merge unit has no program, and writes an output holding
+            // functions under part 0's header map: a task's parts are written
+            // under its program's, so the closures keep their lines, and the
+            // merge writes what one unit writing the whole would have.
+            const Lookup = FunctionType([IntegerType], IntegerType);
+            const Lookups = ArrayType(Lookup);
+            const program = East.function([], Lookups, (_$) =>
+                East.Array.range(0n, 3_000n).map(($, i) => East.function([IntegerType], IntegerType, (_$, x) => East.value([10n, 20n]).get(x.add(i))))).toIR();
+            const closures = program.compile([])() as ((x: bigint) => bigint)[];
+            const sourceMap = program.source_map;
+            const keyed = closures.map((fn, i) => [`k${String(i).padStart(7, "0")}`, fn] as [string, (x: bigint) => bigint]);
+
+            const Table = DictType(StringType, Lookup);
+            const dictFiles = new Map<string, Uint8Array>();
+            [0, 1].forEach((j) => addManifest(dictFiles, `part-${j}.beast2`, Table, keyed.slice(j * 1_500, (j + 1) * 1_500), sourceMap));
+            dictFiles.set("unit.beast2", encodeBeast2For(UnitType)({
+                work: variant("merge", { parts: ["part-0.beast2", "part-1.beast2"], range: none, output: variant("dict", { dir: "out", merge: none }) }),
+                platforms: [],
+                threads: 1n,
+                fetch: false,
+                result: "result.beast2",
+            }));
+            const dictOut = new Map<string, Uint8Array>();
+            mergeBeast2For(Table, { sourceMap })([0, 1].map((j) => manifestSource(dictFiles, `part-${j}.beast2`)), {
+                object: (hash, bytes) => { dictOut.set(`out/0.beast2.segments/${hash}.beast2`, bytes.slice()); },
+                manifest: (bytes) => { dictOut.set("out/0.beast2", bytes.slice()); },
+            });
+            const whole = new Map<string, Uint8Array>();
+            addManifest(whole, "out/0.beast2", Table, keyed, sourceMap);
+            assert.deepEqual(dictOut, whole, "the merge writes what one unit writing the whole would have");
+            const merged = decodeCollectionManifest(dictOut.get("out/0.beast2")!);
+            const segment = decodeBeast2For(Table)(dictOut.get(`out/0.beast2.segments/${merged.entries[0]!.hash}.beast2`)!);
+            assert.deepEqual(closureErrorOf(segment.get("k0000000")!, 5n).location, closureErrorOf(closures[0]!, 5n).location, "a merged closure names its line");
+
+            const concat = East.function([Lookups, Lookups], Lookups, (_$, acc, value) => acc.concat(value)).toIR();
+            const foldFiles = new Map<string, Uint8Array>([["concat.beast2", encodeEastIR(concat)]]);
+            addValue(foldFiles, "zero.beast2", Lookups, []);
+            [0, 1].forEach((j) => addValue(foldFiles, `part-${j}.beast2`, Lookups, closures.slice(j * 1_500, (j + 1) * 1_500), sourceMap));
+            foldFiles.set("unit.beast2", encodeBeast2For(UnitType)({
+                work: variant("merge", { parts: ["part-0.beast2", "part-1.beast2"], range: none, output: variant("fold", { path: "lookups.beast2", zero: "zero.beast2", combine: "concat.beast2" }) }),
+                platforms: [],
+                threads: 1n,
+                fetch: false,
+                result: "result.beast2",
+            }));
+            const foldOut = new Map<string, Uint8Array>();
+            addValue(foldOut, "lookups.beast2", Lookups, closures, sourceMap);
+
+            cases.push({
+                dir: "merge-dicts-closures",
+                files: dictFiles,
+                expected: { name: "Dict parts holding closures, merged under their program's map", outcome: variant("ok", null), outputs: [...dictOut].map(([path, bytes]) => ({ path, bytes })), absent: ["out/1.beast2"] },
+            });
+            cases.push({
+                dir: "merge-folds-closures",
+                files: foldFiles,
+                expected: { name: "fold partials holding closures, folded under their program's map", outcome: variant("ok", null), outputs: [...foldOut].map(([path, bytes]) => ({ path, bytes })), absent: [] },
+            });
+        });
     });
 
     describe("intake", () => {
