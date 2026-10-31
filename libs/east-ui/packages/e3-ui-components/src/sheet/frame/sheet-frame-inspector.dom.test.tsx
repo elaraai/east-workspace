@@ -202,6 +202,14 @@ test("the inspector has two tabs, Details and Issues, Issues with its count; col
     expect(within(rail).getByText("1")).toBeTruthy();
 });
 
+test("a last commit the platform made itself — the deploy's — names no one", async () => {
+    const { container } = await h.mountPayload(jobsPayload);
+    await select(cell(container, 4, "task"));
+    const commit = panel(container).querySelector("[data-inspector-commit]")!.textContent!;
+    expect(commit.startsWith("saved ")).toBe(true);
+    expect(commit).not.toContain(" by ");
+});
+
 test("with nothing selected, Details counts the rows, the pending drafts and the issues, says the last commit and who made it, and gives three hints (SB51)", async () => {
     // A clock from 14:02 of one day, running, so e3 stamps another session's save on the day the sheet calls today.
     vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
