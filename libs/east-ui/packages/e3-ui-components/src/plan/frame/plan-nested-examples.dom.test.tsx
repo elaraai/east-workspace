@@ -315,3 +315,31 @@ describe("the nested series example on e3 (#1439)", () => {
         expect(printed(cellOf("W-10001", "C-10001-1"))).toBe("500");
     });
 });
+
+describe("the conflicts example (planConflictsTable)", () => {
+    test("a crew's week typed here, then Someone else saves, is one conflict named by its works and its crew, its cell wearing the halo until it is chosen", async () => {
+        const { container: c } = await h.mount(ex.planConflictsTable);
+        await settle();
+        const key = instantKey(timeInstant(new Date("2026-10-05T00:00:00Z")));
+        const cellOf = (...path: string[]) => [...c.querySelectorAll<HTMLElement>(`${rowAt(entry(path.length === 1 ? "crews" : "crew", ...path))} [data-cell]`)]
+            .find((cell) => cell.getAttribute("data-cell") === key);
+        await waitFor(() => expect(cellOf("W-N", "C-1")).toBeDefined());
+        await act(async () => { fireEvent.doubleClick(cellOf("W-N", "C-1")!); });
+        const input = c.querySelector<HTMLInputElement>("[data-plan-typing] input")!;
+        await act(async () => { fireEvent.input(input, { target: { value: "500" } }); });
+        await act(async () => { fireEvent.keyDown(input, { key: "Enter" }); });
+        await settle();
+        // Someone else's save puts 10 more hours on every crew's every week: theirs and the 500 here differ.
+        await act(async () => { fireEvent.click(within(c).getByRole("button", { name: "Someone else saves" })); });
+        await settle();
+        const [card, ...more] = await conflictCards(c);
+        expect(more).toEqual([]);
+        expect(card!.item).toBe("North works / Crew 1");
+        expect([card!.yours, card!.theirs?.split(",").slice(0, 2).join(",")]).toEqual(["Yours, 500", "Theirs, 452"]);
+        const halos = () => [...c.querySelectorAll<HTMLElement>(`${rowAt(entry("crew", "W-N", "C-1"))} [data-plan-cell-halo]`)];
+        expect(halos()).toHaveLength(1);
+        await act(async () => { fireEvent.click(card!.radio("source")); });
+        await settle();
+        expect(halos()).toEqual([]);
+    });
+});

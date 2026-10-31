@@ -18,7 +18,7 @@ import {
     example, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import {
-    BarStrip, Box, Chart, Format, HStack, MetricChip, Reactive, Table, Sparkline, Stat, Text, UIComponentType,
+    BarStrip, Box, Button, Chart, Format, HStack, MetricChip, Reactive, Table, Sparkline, Stat, Text, UIComponentType, VStack,
 } from "@elaraai/east-ui";
 import { Data, Record, Studio, fingerprintOf } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -429,6 +429,66 @@ export const studioBuilder = example({
                     <Studio.Builder pages={pages} components={components} project="Ops console" id="studio"
                         env="Staging" audience="Field ops · 24 users" rollout="Immediate" />
                 </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** A page's tiles each a column narrower, one three columns wide or less as it was: what someone else's save changes. */
+const tilesNarrower = East.function([Studio.Types.Page], Studio.Types.Page, (_$, page) => ({
+    title: page.title,
+    cells: page.cells.map((_$2, cell) => ({
+        key: cell.key, row: cell.row,
+        span: cell.span.greater(3n).ifElse(() => cell.span.subtract(1n), () => cell.span),
+        height: cell.height, align: cell.align, title: cell.title, component: cell.component, fingerprint: cell.fingerprint,
+    })),
+}));
+
+/** The pages the conflicts example edits, as the builder's start, in a record of their own so no other example's edits meet them. */
+export const studioConflictPages = e3.record("studio_conflict_pages", Studio.Types.Pages, {
+    initial: studioPages.default!,
+    mutations: (mutation) => ({
+        // The record's one write.
+        patch: mutation.patch(),
+        // Someone else's save: every page's tiles a column narrower in its draft, its templates as they were.
+        elsewhere: mutation.reduce(East.function([Studio.Types.Pages], Studio.Types.Pages, ($, pages) => {
+            const narrower = $.const(tilesNarrower);
+            return pages.map((_$2, entry) => entry.match({
+                page: (_$3, held) => East.value(variant("page", { draft: narrower(held.draft), live: held.live }), Studio.Types.Entry),
+                template: (_$3, page) => East.value(variant("template", page), Studio.Types.Entry),
+            }));
+        })),
+    }),
+});
+
+/**
+ * Your edits meeting someone else's save, in one window: edit, then press
+ * Someone else saves, which saves another person's change to the same pages —
+ * every tile a column narrower. A tile you made wider or narrower too is a
+ * conflict, waiting for you to choose; a tile you moved, aligned or made
+ * taller combines with theirs. Each press saves their change again.
+ */
+export const studioConflicts = example({
+    keywords: ["Studio", "Studio.Builder", "conflict", "conflicts", "combine", "someone else", "Choose", "tile", "span", "Record.bind", "mutate", "Button", "Save"],
+    description: "Your edits meeting someone else's save, in one window — make a tile wider or narrower, then press Someone else saves, which saves another person's change to the same pages (every tile a column narrower), so yours conflict and wait to be chosen; a tile you move, align or make taller combines with theirs",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const components = $.let([kpiRail, breakdownBars, revenueTrend, ordersByWeek, visitsSparkline, assignmentBoard, shiftRoster]);
+            const pages = $.let(Record.bind(studioConflictPages, ["patch"]));
+            const others = $.let(Record.bind(studioConflictPages, ["elsewhere"]));
+            const theirs = $.const(East.function([], NullType, ($) => { $(others.mutate.elsewhere()); }));
+            return (
+                <VStack gap="3" align="stretch">
+                    <HStack gap="3">
+                        <Button variant="outline" onClick={theirs} loading={others.mutate.pending()}>Someone else saves</Button>
+                        <Text color="fg.muted">Their change: every tile a column narrower</Text>
+                    </HStack>
+                    <Box height="760px">
+                        <Studio.Builder pages={pages} components={components} project="Ops console" id="conflicts"
+                            env="Staging" audience="Field ops · 24 users" rollout="Immediate" />
+                    </Box>
+                </VStack>
             );
         }}</Reactive>
     )),

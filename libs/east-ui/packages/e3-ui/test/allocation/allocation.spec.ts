@@ -31,7 +31,7 @@ describeEast("Allocation — inline bound examples", test => {
         allocationMinimal: ex.allocationMinimal, allocationKilnYard: ex.allocationKilnYard, allocationTable: ex.allocationTable, allocationLabels: ex.allocationLabels,
         allocationPublished: ex.allocationPublished, allocationNoPublish: ex.allocationNoPublish, allocationSplit: ex.allocationSplit,
         allocationWindowed: ex.allocationWindowed, allocationMobile: ex.allocationMobile, allocationCustomBin: ex.allocationCustomBin,
-        allocationFitRule: ex.allocationFitRule,
+        allocationFitRule: ex.allocationFitRule, allocationConflicts: ex.allocationConflicts,
     });
 }, { platformFns: TestImpl });
 

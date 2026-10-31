@@ -117,6 +117,17 @@ describe("the Plan over them (#1439)", () => {
         assert.equal(decodeBeast2For(UIComponentType)(encodeBeast2For(UIComponentType)(component)).type, component.type);
     });
 
+    test(ex.planConflictsTable.description, () => {
+        const manifest = deriveManifest(ex.planConflictsTable.fn);
+        // Its rows are read a page or a cell at a time, never whole; it writes through the patch door, and its button another
+        // person's change through the record's own mutation.
+        assert.deepEqual(manifest.pages, [ex.planConflictWorks.path]);
+        assert.equal(manifest.paths.length, 0, "the Plan never reads the works whole");
+        assert.deepEqual(manifest.records, [ex.planConflictWorks.name]);
+        const component = (ex.planConflictsTable.fn.toIR() as EastIR<[], typeof UIComponentType>).compile([])();
+        assert.equal(decodeBeast2For(UIComponentType)(encodeBeast2For(UIComponentType)(component)).type, component.type);
+    });
+
     test("its program writes each expression out once: under 20,000 IR nodes, where its pick and its Save's restatement, written out at every read, made 1.35 million, its editing session, read a field at a time, 75,000, and its index's entries, bound for a Save's keys beside the index's maintenance, 22,400", () => {
         let nodes = 0;
         walkIR(ex.planNestedAll.fn.toIR().ir, () => { nodes++; });

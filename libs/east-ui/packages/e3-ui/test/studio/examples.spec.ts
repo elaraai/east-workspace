@@ -15,5 +15,6 @@ describeEast("Studio examples (#991–#1000)", (test) => {
         studioBuilder: studio.studioBuilder,
         studioLibrary: studio.studioLibrary,
         studioOpsConsole: studio.studioOpsConsole,
+        studioConflicts: studio.studioConflicts,
     });
 }, { platformFns: TestImpl });

@@ -932,3 +932,27 @@ describe("data's rows, their items written by id (#1436)", () => {
         }
     });
 });
+
+describe("the conflicts example (planConflicts)", () => {
+    test("a bar carried two days later here, then Someone else saves, is one conflict named by its job, its dates one card, the bar wearing the halo", async () => {
+        const { container: c } = await h.mount(ex.planConflicts, { drag: true });
+        await settle();
+        // Its presses are rows of their own, in no hall.
+        const job = () => bar(c, "J-3001", entry("presses.span", "a1"));
+        job()!.focus();
+        await keyOn({ key: " " });
+        await keyOn({ key: "ArrowRight" });
+        await keyOn({ key: "ArrowRight" });
+        await keyOn({ key: " " });
+        expect(job()!.hasAttribute("data-draft")).toBe(true);
+        // Someone else's save moves every job a day later: theirs and the carry here differ.
+        await act(async () => { fireEvent.click(within(c).getByRole("button", { name: "Someone else saves" })); });
+        await settle();
+        await waitFor(() => expect(banners(c).map((b) => b.kind)).toEqual(["conflicts"]));
+        const [card, ...more] = await conflictCards(c);
+        expect(more).toEqual([]);
+        expect(card!.item).toBe("Spring catalogue");
+        expect(document.querySelector("[data-conflict-card]")!.textContent).toContain(editingMessages.conflictDates());
+        expect(job()!.hasAttribute("data-conflict")).toBe(true);
+    });
+});

@@ -274,3 +274,18 @@ describe("one history over the Roster's records (#1369)", () => {
         expect(within(slot(c, "end").querySelector<HTMLElement>('[data-roster-inspector="details"]')!).getByText("Overtime not agreed")).toBeTruthy();
     });
 });
+
+describe("the conflicts example (rosterConflicts)", () => {
+    test("a duty moved to another shift here, then Someone else saves, is one conflict, its times whole on each side, named by whose it is", async () => {
+        const { container: c } = await h.mount(ex.rosterConflicts);
+        await drop(assignment(c, "d-1"), cell(c, 0, "dispatch", "late"));
+        // Someone else's save moves every duty half an hour later: theirs and the move here differ.
+        await press(within(c).getByRole("button", { name: "Someone else saves" }));
+        await waitFor(() => expect(c.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
+        const [card, ...more] = await conflictCards(c);
+        expect(more).toEqual([]);
+        expect(card!.item).toBe("Ada Brook");
+        expect(document.querySelector("[data-conflict-card]")!.textContent).toContain(editingMessages.conflictDates());
+        expect(assignment(c, "d-1").hasAttribute("data-conflict")).toBe(true);
+    });
+});

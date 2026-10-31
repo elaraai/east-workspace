@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/e3-ui */
 
 import { DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from "@elaraai/east";
-import { Box, Input, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
+import { Box, Button, HStack, Input, Reactive, Slice, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Calendar, Data, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -453,5 +453,62 @@ export const calendarCustomInspector = example({
         return <Box height="640px"><Calendar inspector view={{ period: "day", date: new Date("2026-10-01T00:00:00Z") }}
             events={{ appointment: Calendar.events(appointments, { name: "Appointment", icon: "calendar", title: "title", start: "start", end: "end", inspector: inspect }) }} />
         </Box>;
+    }}</Reactive>),
+});
+
+/** The jobs the conflicts example edits, in a record of their own, so no other example's edits meet them. */
+export const calendarConflictJobs = e3.record("calendar_conflict_jobs", DictType(StringType, CalendarJob), {
+    initial: new Map([
+        ["job1", { title: "Mounting brackets", start: some(new Date("2026-10-01T06:00:00Z")), end: some(new Date("2026-10-01T10:00:00Z")), machine: some("press1"), status: variant("active", null), hours: 4.0, customer: "Alder Works", due: none }],
+        ["job2", { title: "Pump housings", start: some(new Date("2026-10-01T08:00:00Z")), end: some(new Date("2026-10-01T13:00:00Z")), machine: some("lathe1"), status: variant("planned", null), hours: 5.0, customer: "Birch Engineering", due: none }],
+        ["job3", { title: "Mounting plates", start: some(new Date("2026-10-01T11:00:00Z")), end: some(new Date("2026-10-01T12:30:00Z")), machine: some("press2"), status: variant("planned", null), hours: 1.5, customer: "Cedar Fabrication", due: none }],
+        ["job4", { title: "Bearing collars", start: some(new Date("2026-10-01T09:00:00Z")), end: some(new Date("2026-10-01T12:00:00Z")), machine: some("lathe2"), status: variant("planned", null), hours: 3.0, customer: "Alder Works", due: none }],
+    ]),
+    mutations: (mutation) => ({
+        // The jobs' patch door — every Save commits through it.
+        patch: mutation.patch(),
+        // Someone else's save: every job an hour later, its length and its other fields as they were.
+        elsewhere: mutation.reduce(East.function([DictType(StringType, CalendarJob)], DictType(StringType, CalendarJob), (_$, jobs) =>
+            jobs.map((_$2, job) => ({
+                title: job.title,
+                start: job.start.match({
+                    some: (_$3, at) => East.value(some(at.addHours(1n)), OptionType(DateTimeType)),
+                    none: (_$3) => East.value(none, OptionType(DateTimeType)),
+                }),
+                end: job.end.match({
+                    some: (_$3, at) => East.value(some(at.addHours(1n)), OptionType(DateTimeType)),
+                    none: (_$3) => East.value(none, OptionType(DateTimeType)),
+                }),
+                machine: job.machine, status: job.status, hours: job.hours, customer: job.customer, due: job.due,
+            })))),
+    }),
+});
+
+/**
+ * Your edits meeting someone else's save, in one window: edit, then press
+ * Someone else saves, which saves another person's change to the same jobs —
+ * every job an hour later. A job you moved or resized too is a conflict, its
+ * dates one card to choose; a customer or hours you changed in the panel
+ * combines with theirs. Each press saves their change again.
+ */
+export const calendarConflicts = example({
+    inputs: [],
+    description: "Your edits meeting someone else's save, in one window — move or resize a job, then press Someone else saves, which saves another person's change to the same jobs (every job an hour later), so yours conflict, its dates one card to choose; a customer or hours you change in the panel combines with theirs",
+    keywords: ["Calendar", "conflict", "conflicts", "combine", "someone else", "Choose", "dates", "Record.bind", "mutate", "Button", "inspector", "Save"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const machines = $.let(Record.bind(calendarMachines, []));
+        const jobs = $.let(Record.bind(calendarConflictJobs, ["patch"]));
+        const others = $.let(Record.bind(calendarConflictJobs, ["elsewhere"]));
+        const theirs = $.const(East.function([], NullType, ($) => { $(others.mutate.elsewhere()); }));
+        return <VStack gap="3" align="stretch">
+            <HStack gap="3">
+                <Button variant="outline" onClick={theirs} loading={others.mutate.pending()}>Someone else saves</Button>
+                <Text color="fg.muted">Their change: every job an hour later</Text>
+            </HStack>
+            <Box height="680px"><Calendar id="conflicts" inspector view={{ period: "week", date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}
+                resources={{ machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) }}
+                events={{ job: Calendar.events(jobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" } }) }} />
+            </Box>
+        </VStack>;
     }}</Reactive>),
 });

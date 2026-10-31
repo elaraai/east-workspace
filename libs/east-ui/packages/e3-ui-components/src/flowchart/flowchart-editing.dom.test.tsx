@@ -45,6 +45,7 @@ import { Editing, Reactive, State, UIComponentType } from "@elaraai/east-ui/inte
 import { EastChakraComponent, UIStore, editingMessages, formatters, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import { initializeStore, resetKept } from "@elaraai/east-ui-components/internal";
 import { Flowchart } from "@elaraai/e3-ui/internal";
+import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
 import * as edits from "./edits.js";
 import { act, enabled, flowchartHarness, press, settle, toolbar } from "./flowchart.test-utils.js";
 import { conflictCards } from "../e3-web-mount.test-utils.js";
@@ -841,5 +842,24 @@ describe("Save's commit (FB22, FB23)", () => {
         expect(flowEqual(readHostFlow(), edits.editState(SORT, "IND", "INX", "Inducted"))).toBe(true);
         await waitFor(() => expect(pending(container)).toBe(` · ${m.footerPending({ n: 0, count: "0" })}`));
         expect([stateKeys(container), enabled(SAVE)]).toEqual([["INX", "CH*", "SRD"], false]);
+    });
+});
+
+describe("the conflicts example (flowchartConflicts)", () => {
+    test("a step renamed here, then Someone else saves, is one conflict named in its flow, the step wearing the halo until it is chosen", async () => {
+        const { container } = await h.mount(ex.flowchartConflicts);
+        await settle();
+        await waitFor(() => expect(container.querySelector('[data-flowchart-node="SCN"]')).not.toBeNull());
+        await editState(container, "SCN", "SCN", "Scanned here");
+        // Someone else's save renames every step: theirs and the name here differ.
+        await act(async () => { fireEvent.click(within(container).getByRole("button", { name: "Someone else saves" })); });
+        await settle();
+        const [card, ...more] = await conflictCards(container);
+        expect(more).toEqual([]);
+        expect(card!.item).toMatch(/^Inbound parcels \/ /);
+        expect(node(container, "SCN").hasAttribute("data-conflict")).toBe(true);
+        await act(async () => { fireEvent.click(card!.radio("source")); });
+        await settle();
+        expect(node(container, "SCN").hasAttribute("data-conflict")).toBe(false);
     });
 });

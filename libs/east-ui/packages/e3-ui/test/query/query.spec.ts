@@ -27,6 +27,7 @@ describeEast("Query examples (#940)", (test) => {
         queryBuilderEmpty: ex.queryBuilderEmpty,
         queryBuilderHistory: ex.queryBuilderHistory,
         queryLibrary: ex.queryLibrary,
+        queryConflicts: ex.queryConflicts,
     });
 }, { platformFns: TestImpl });
 

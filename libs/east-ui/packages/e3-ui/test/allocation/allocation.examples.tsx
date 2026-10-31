@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/e3-ui */
 import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, PatchType, StringType, example, none, some, variant } from "@elaraai/east";
 import e3 from "@elaraai/e3";
-import { Box, Field, Reactive, Slice, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Box, Button, Field, HStack, Reactive, Slice, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Allocation, Data, Func, Record, Schedule } from "@elaraai/e3-ui";
 import {
     Bay, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,
@@ -784,5 +784,60 @@ export const allocationFitRule = example({
                 { key: "grade", label: "Grade", text: b => b.gradeMeasured.startsWith(b.gradeBooked).ifElse(() => b.gradeMeasured, () => East.str`booked ${b.gradeBooked} · measured ${b.gradeMeasured}`), table: false },
             ]} />
         </Box>;
+    }}</Reactive>),
+});
+
+/** The bins the conflicts example edits, in a record of their own, so no other example's edits meet them. */
+export const conflictBins = e3.record("kiln_conflict_bins", DictType(StringType, MinimalBin), {
+    initial: yardMinimalBinRows,
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+        // Someone else's save: every bin a quarter hour later, and 1 m³ more on each of its kilns, its m³ with them.
+        elsewhere: mutation.reduce(East.function([DictType(StringType, MinimalBin)], DictType(StringType, MinimalBin), (_$, bins) =>
+            bins.map((_$2, bin) => ({
+                bay: bin.bay, at: bin.at.addMinutes(15n), load: bin.load,
+                m3: bin.m3.add(bin.kilns.size().toFloat()),
+                kilns: bin.kilns.map((_$3, share) => share.add(1.0)),
+                dryFor: bin.dryFor,
+            })))),
+    }),
+});
+
+/**
+ * Your edits meeting someone else's save, in one window: edit, then press
+ * Someone else saves, which saves another person's change to the same bins —
+ * every bin a quarter hour later, and 1 m³ more on each of its kilns. A bin you
+ * moved is a conflict on its time; a bin's m³ you changed is one card, its
+ * split across kilns going with it. Each press saves their change again.
+ */
+export const allocationConflicts = example({
+    description: "Your edits meeting someone else's save, in one window — move a bin or change its m³ in the panel, then press Someone else saves, which saves another person's change to the same bins (every bin a quarter hour later, 1 m³ more on each of its kilns), so yours conflict and wait to be chosen, an m³ and its split across kilns one card",
+    keywords: ["Allocation", "conflict", "conflicts", "someone else", "Choose", "quantity", "split", "Schedule.events", "Record.bind", "mutate", "Button", "inspector", "Save"], inputs: [],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const bins = $.let(Record.bind(conflictBins, ["patch"]));
+        const others = $.let(Record.bind(conflictBins, ["elsewhere"]));
+        const theirs = $.const(East.function([], NullType, ($) => { $(others.mutate.elsewhere()); }));
+        const loads = $.let(Data.bind(arrivals));
+        const yard = $.let(Data.bind(kilns));
+        const bays = $.let(Data.bind(yardBays));
+        const fit = $.let(Func.bind(minimalFit));
+        return <VStack gap="3" align="stretch">
+            <HStack gap="3">
+                <Button variant="outline" onClick={theirs} loading={others.mutate.pending()}>Someone else saves</Button>
+                <Text color="fg.muted">Their change: every bin a quarter hour later, 1 m³ more on each of its kilns</Text>
+            </HStack>
+            <Box width="100%" height="760px"><Allocation id="allocationConflicts" fit={fit} inspector view={{ date: yardDay }}
+                events={{ bin: Schedule.events(bins, {
+                    name: "Bin", icon: "box",
+                    at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
+                    quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor",
+                }) }}
+                resources={{
+                    bays: Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),
+                    kilns: Schedule.resources(yard.read(), { name: "Kilns", icon: "fire", label: k => k.name, min: k => k.min, max: k => k.max, jobs: k => k.charges }),
+                }}
+                arrivals={Allocation.arrivals(loads.read(), { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays) })} />
+            </Box>
+        </VStack>;
     }}</Reactive>),
 });

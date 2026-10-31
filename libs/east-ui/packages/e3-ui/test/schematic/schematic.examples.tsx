@@ -7,7 +7,7 @@ import {
     ArrayType, BooleanType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, StringType, StructType, VariantType, example,
     none, some, variant,
 } from "@elaraai/east";
-import { Box, Button, Reactive, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Box, Button, HStack, Reactive, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Record, Schematic } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -582,6 +582,74 @@ export const schematicDataCentre = example({
                         ]}
                     />
                 </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ----------------------------------------------------------------------------
+// Conflicts: your edits meeting someone else's save
+// ----------------------------------------------------------------------------
+
+/** The racks the conflicts example edits, in a record of their own, so no other example's edits meet them. */
+export const schematicConflictRacks = e3.record("schematic_conflict_racks", DictType(StringType, FloorRack), {
+    initial: new Map([
+        ["A01", { name: "A01", x: 2.4, y: 2.9, w: 3.2, h: 1.2, model: "42U · 8 kW", kw: 5.2, capacity: 8.0 }],
+        ["A02", { name: "A02", x: 6.0, y: 2.9, w: 3.2, h: 1.2, model: "42U · 8 kW", kw: 7.4, capacity: 8.0 }],
+        ["A03", { name: "A03", x: 9.6, y: 2.9, w: 3.2, h: 1.2, model: "42U · 8 kW", kw: 3.9, capacity: 8.0 }],
+        ["B01", { name: "B01", x: 2.4, y: 8.6, w: 3.2, h: 1.2, model: "42U · 8 kW", kw: 6.1, capacity: 8.0 }],
+        ["B02", { name: "B02", x: 6.0, y: 8.6, w: 3.2, h: 1.2, model: "42U · 8 kW", kw: 2.8, capacity: 8.0 }],
+    ]),
+    mutations: (mutation) => ({
+        // The racks' patch door — every Save commits through it.
+        patch: mutation.patch(),
+        // Someone else's save: every rack half a metre to the right, its other fields as they were.
+        elsewhere: mutation.reduce(East.function([DictType(StringType, FloorRack)], DictType(StringType, FloorRack), (_$, racks) =>
+            racks.map((_$2, rack) => ({
+                name: rack.name, x: rack.x.add(0.5), y: rack.y, w: rack.w, h: rack.h, model: rack.model, kw: rack.kw, capacity: rack.capacity,
+            })))),
+    }),
+});
+
+/**
+ * Your edits meeting someone else's save, in one window: edit, then press
+ * Someone else saves, which saves another person's change to the same racks —
+ * every rack half a metre to the right. A rack you moved sideways too is a
+ * conflict, waiting for you to choose; a rack you moved only up or down, or
+ * whose fields you changed in the panel, combines with theirs. Each press
+ * saves their change again.
+ */
+export const schematicConflicts = example({
+    keywords: ["Schematic", "conflict", "conflicts", "combine", "someone else", "Choose", "Move", "Schematic.items", "Record.bind", "mutate", "Button", "inspector", "Save"],
+    description: "Your edits meeting someone else's save, in one window — move a rack sideways, then press Someone else saves, which saves another person's change to the same racks (every rack half a metre to the right), so yours conflict and wait to be chosen; a rack moved only up or down, or a field changed in the panel, combines with theirs",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const racks = $.let(Record.bind(schematicConflictRacks, ["patch"]));
+            const others = $.let(Record.bind(schematicConflictRacks, ["elsewhere"]));
+            const theirs = $.const(East.function([], NullType, ($) => { $(others.mutate.elsewhere()); }));
+            return (
+                <VStack gap="3" align="stretch">
+                    <HStack gap="3">
+                        <Button variant="outline" onClick={theirs} loading={others.mutate.pending()}>Someone else saves</Button>
+                        <Text color="fg.muted">Their change: every rack half a metre to the right</Text>
+                    </HStack>
+                    <Box height="440px">
+                        <Schematic
+                            id="conflicts"
+                            extent={{ width: 18, height: 12 }}
+                            scaleUnit="m"
+                            items={{
+                                racks: Schematic.items(racks, {
+                                    name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name",
+                                    sublabel: (r) => r.model,
+                                    meter: (r) => ({ value: r.kw, max: r.capacity }),
+                                }),
+                            }}
+                            inspector
+                        />
+                    </Box>
+                </VStack>
             );
         }}</Reactive>
     )),

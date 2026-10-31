@@ -629,3 +629,93 @@ export const flowchartRecordIndexes = example({
     )),
     inputs: [],
 });
+
+// ============================================================================
+// flowchartConflicts — your edits meeting someone else's save
+// ============================================================================
+
+/** The flows the conflicts example edits, in a record of their own, so no other example's edits meet them. */
+export const conflictFlows = e3.record("flowchart_conflict_flows", Flowchart.Types.Flows, {
+    initial: Flowchart.values({
+        "Inbound parcels": {
+            description: "From the trailer to the van",
+            lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "load", label: "Load" }],
+            states: [
+                { key: "ARV", label: "Arrived", lane: "intake" },
+                { key: "SCN", label: "Scanned", lane: "intake" },
+                { key: "CH*", label: "Sort chutes", lane: "sort", members: 12n },
+                { key: "LDD", label: "Loaded", lane: "load" },
+            ],
+            links: [
+                { from: "ARV", to: "SCN" },
+                { from: "SCN", to: "CH*", trigger: "route" },
+                { from: "CH*", to: "LDD" },
+            ],
+            triggers: [{ key: "route", label: "route", owner: "sort-planner" }],
+        },
+        "Returns": {
+            description: "From the counter back to the sender",
+            lanes: [{ key: "counter", label: "Counter" }, { key: "check", label: "Check" }, { key: "out", label: "Out" }],
+            states: [
+                { key: "RCV", label: "Received", lane: "counter" },
+                { key: "INS", label: "Inspected", lane: "check" },
+                { key: "RSD", label: "Resent", lane: "out" },
+            ],
+            links: [{ from: "RCV", to: "INS" }, { from: "INS", to: "RSD" }],
+        },
+    }),
+    mutations: (mutation) => ({
+        // The flows' patch door — every Save commits through it.
+        patch: mutation.patch(),
+        // Someone else's save: every step of every flow renamed, " (theirs)" put on its name, or taken off again; its lane
+        // and its other fields as they were.
+        elsewhere: mutation.reduce(East.function([Flowchart.Types.Flows], Flowchart.Types.Flows, (_$, flows) =>
+            flows.map((_$2, flow) => ({
+                description: flow.description,
+                lanes: flow.lanes,
+                states: flow.states.map(($3, state) => {
+                    const named = $3.let(state.label.match({ some: (_$4, label) => label, none: (_$4) => state.key }));
+                    return {
+                        key: state.key,
+                        label: East.value(some(named.endsWith(" (theirs)").ifElse(() => named.replace(" (theirs)", ""), () => named.concat(" (theirs)"))), OptionType(StringType)),
+                        lane: state.lane,
+                        members: state.members,
+                        notes: state.notes,
+                    };
+                }),
+                links: flow.links,
+                triggers: flow.triggers,
+            })))),
+    }),
+});
+
+/**
+ * Your edits meeting someone else's save, in one window: edit, then press
+ * Someone else saves, which saves another person's change to the same flows —
+ * every step renamed. A step you renamed too is a conflict, waiting for you to
+ * choose; a step you moved to another lane combines with theirs. Each press
+ * saves their change again.
+ */
+export const flowchartConflicts = example({
+    keywords: ["Flowchart", "conflict", "conflicts", "combine", "someone else", "Choose", "rename", "step", "Record.bind", "mutate", "Button", "Save"],
+    description: "Your edits meeting someone else's save, in one window — rename a step, then press Someone else saves, which saves another person's change to the same flows (every step renamed, \"(theirs)\" put on its name or taken off), so yours conflict and wait to be chosen; a step moved to another lane combines with theirs",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const flows = $.let(Record.bind(conflictFlows, ["patch"]));
+            const others = $.let(Record.bind(conflictFlows, ["elsewhere"]));
+            const theirs = $.const(East.function([], NullType, ($) => { $(others.mutate.elsewhere()); }));
+            return (
+                <VStack gap="3" align="stretch">
+                    <HStack gap="3">
+                        <Button variant="outline" onClick={theirs} loading={others.mutate.pending()}>Someone else saves</Button>
+                        <Text color="fg.muted">Their change: every step renamed</Text>
+                    </HStack>
+                    <Box height="500px">
+                        <Flowchart name="conflicts" record={flows} flow="Inbound parcels" library={[Flowchart.library.flows()]} />
+                    </Box>
+                </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});

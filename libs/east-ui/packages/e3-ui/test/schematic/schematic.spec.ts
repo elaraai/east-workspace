@@ -38,6 +38,7 @@ describeEast("Schematic", (test) => {
         schematicHandover: ex.schematicHandover,
         schematicShapes: ex.schematicShapes,
         schematicDataCentre: ex.schematicDataCentre,
+        schematicConflicts: ex.schematicConflicts,
     });
 }, { platformFns: TestImpl });
 

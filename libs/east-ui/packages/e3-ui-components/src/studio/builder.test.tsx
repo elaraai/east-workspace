@@ -32,7 +32,7 @@ import { StateRuntime } from "@elaraai/east-ui-components";
 import { foreignIcons, markOf } from "@elaraai/east-ui-components/testing";
 import { Record, Studio, StudioKeyType, StudioPagesType, builderKeys, fingerprintOf } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/studio/studio";
-import { act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
+import { conflictCards, act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import { studioMessages } from "./messages.js";
 // The builder is an extension: its renderer registers as it loads.
 import "./builder.js";
@@ -1115,5 +1115,25 @@ describe("<Studio.Builder> — the toolbar on a row short of room (#1229)", () =
         await waitFor(() => expect(stateOf(container).get("more")).toBe(0));
         expect(["save-template", "preview", "publish"].map((key) => stateOf(container).get(key))).toEqual([0, 0, 0]);
         expect(await commits()).toEqual(before);
+    });
+});
+
+describe("the conflicts example (studioConflicts)", () => {
+    test("a tile narrowed here, then Someone else saves, is one conflict named by the tile's title, the tile wearing the halo until it is chosen", async () => {
+        const { container } = await h.mount(ex.studioConflicts, { storageKey: "studio-conflicts" });
+        await settle();
+        await waitFor(() => expect(container.querySelector('[data-snap-grid-tile="a-orders"]')).not.toBeNull());
+        // Two columns narrower, 6: someone else's save makes it 7, a column narrower.
+        await keyOn(container, "a-orders", { key: "[" });
+        await keyOn(container, "a-orders", { key: "[" });
+        await act(async () => { fireEvent.click(within(container).getByRole("button", { name: "Someone else saves" })); });
+        await settle();
+        const [card, ...more] = await conflictCards(container);
+        expect(more).toEqual([]);
+        expect(card!.item).toBe("Orders by week");
+        expect(tile(container, "a-orders").hasAttribute("data-conflict")).toBe(true);
+        await act(async () => { fireEvent.click(card!.radio("source")); });
+        await settle();
+        expect(tile(container, "a-orders").hasAttribute("data-conflict")).toBe(false);
     });
 });

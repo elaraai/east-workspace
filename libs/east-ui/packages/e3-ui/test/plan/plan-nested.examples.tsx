@@ -14,7 +14,9 @@
  * - `planNestedAll`, every series kind over the works — span, heat, table,
  *   group, and, switched off to start, chart, events, cards and buckets —
  *   paged by rows and by time, each series switched on and off from the
- *   library's Series tab, a crew's hours typed into.
+ *   library's Series tab, a crew's hours typed into;
+ * - `planConflictsTable`, three works' crews' hours typed into, meeting
+ *   someone else's save in one window.
  *
  * The records the Plan's tests read besides are `plan-nested.fixtures.ts`'s,
  * on no page of the showcase.
@@ -23,9 +25,9 @@
  */
 
 import {
-    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, RecursiveType, StringType, StructType, example, some, variant,
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example, some, variant,
 } from "@elaraai/east";
-import { Box, EventStateType, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
+import { Box, Button, EventStateType, HStack, Reactive, Slice, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Plan, Record } from "@elaraai/e3-ui";
 import * as e3 from "@elaraai/e3";
 
@@ -289,6 +291,93 @@ export const planNestedAll = example({
                 editing={{ onApply: Record.onApply(works, { keyed: true }) }}
                 style={{ height: "fill" }} />
             </Box>;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** A works of the conflicts example: its name and its crews' hours. */
+export const ConflictWorks = StructType({ name: StringType, crews: DictType(StringType, WorksCrew) });
+
+/** Each week's Monday from 28 Sep 2026, thirteen of them: the weeks a crew's hours are booked in. */
+const CONFLICT_WEEKS = Array.from({ length: 13 }, (_, i) => new Date(Date.UTC(2026, 8, 28 + 7 * i)));
+
+/** A crew's hours: its base each week, a little more each week after. */
+const crewHours = (base: number) => new Map(CONFLICT_WEEKS.map((week, i) => [week, base + 2 * i] as const));
+
+/** The works the conflicts example edits, in a record of their own, so no other example's edits meet them. */
+export const planConflictWorks = e3.record("plan_conflict_works", DictType(StringType, ConflictWorks), {
+    initial: new Map([
+        ["W-N", { name: "North works", crews: new Map([["C-1", { name: "Crew 1", hours: crewHours(440) }], ["C-2", { name: "Crew 2", hours: crewHours(420) }]]) }],
+        ["W-S", { name: "South works", crews: new Map([["C-1", { name: "Crew 1", hours: crewHours(400) }], ["C-2", { name: "Crew 2", hours: crewHours(380) }]]) }],
+        ["W-E", { name: "East works", crews: new Map([["C-1", { name: "Crew 1", hours: crewHours(460) }], ["C-2", { name: "Crew 2", hours: crewHours(450) }]]) }],
+    ]),
+    indexes: (index) => ({
+        // The works by name: the rail's order.
+        plan_conflict_works_by_name: index.on(["name"]),
+        // The crews' hours at their instants, the works keeping their crews' sums.
+        plan_conflict_works_in_time: index.nested({
+            collections: { crews: index.nested.rows({ hours: index.nested.values({ rollup: "sum" }) }) },
+            tile: "week",
+            summary: "month",
+        }),
+    }),
+    mutations: (mutation) => ({
+        // The works' patch door: the canvas's Save commits through it, by the works' key and each item's.
+        patch: mutation.patch(),
+        // Someone else's save: every crew's hours 10 more in every week.
+        elsewhere: mutation.reduce(East.function([DictType(StringType, ConflictWorks)], DictType(StringType, ConflictWorks), (_$, works) =>
+            works.map((_$2, w) => ({
+                name: w.name,
+                crews: w.crews.map((_$3, crew) => ({ name: crew.name, hours: crew.hours.map((_$4, hours) => hours.add(10.0)) })),
+            })))),
+    }),
+});
+
+/**
+ * Your edits meeting someone else's save, in one window: type a crew's hours
+ * for a week, then press Someone else saves, which saves another person's
+ * change to the same works — every crew's hours 10 more in every week. The
+ * week you typed is a conflict, named by its works and its crew, waiting for
+ * you to choose. Each press saves their change again.
+ */
+export const planConflictsTable = example({
+    keywords: ["Plan", "conflict", "conflicts", "someone else", "Choose", "table", "typed", "crew", "hours", "Plan.series.table", "Plan.children", "Record.onApply", "mutate", "Button", "Save"],
+    description: "Your edits meeting someone else's save, in one window — type a crew's hours for a week, then press Someone else saves, which saves another person's change to the same works (every crew's hours 10 more in every week), so yours conflict, named by the works and the crew, and wait to be chosen",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const works = $.let(Record.bind(planConflictWorks, ["patch"]));
+            const others = $.let(Record.bind(planConflictWorks, ["elsewhere"]));
+            const theirs = $.const(East.function([], NullType, ($) => { $(others.mutate.elsewhere()); }));
+            const slice = $.let(Slice.bindRecords("ex.planConflictsTable", {
+                rows: {
+                    source: Data.bindPaged(planConflictWorks, { indexes: ["plan_conflict_works_by_name", "plan_conflict_works_in_time"] }),
+                    label: "Works", icon: { prefix: "fas", name: "industry" },
+                    fields: { name: { label: "Name" } },
+                    search: ["name"],
+                },
+            }));
+            return <VStack gap="3" align="stretch">
+                <HStack gap="3">
+                    <Button variant="outline" onClick={theirs} loading={others.mutate.pending()}>Someone else saves</Button>
+                    <Text color="fg.muted">Their change: every crew's hours 10 more in every week</Text>
+                </HStack>
+                <Box width="100%" height="560px"><Plan id="planConflictsTable" slice={{ slice }}
+                    axis={Plan.axis({ window: { min: new Date("2026-09-28T00:00:00Z"), max: new Date("2026-12-28T00:00:00Z") }, resolution: "week", resolutions: ["week", "month", "quarter"] })}
+                    series={[
+                        Plan.series.table(ConflictWorks, {
+                            key: "crews", title: "Crew hours", label: (w) => w.name, aggregate: "sum",
+                            // A crew's hours are typed into, a week at a time: the works' sum above moves at once.
+                            children: Plan.children("crews", [Plan.series.table(WorksCrew, {
+                                key: "crew", title: "Crew", label: (c) => c.name,
+                                cells: Plan.tableCells(Plan.values("hours", (h) => ({ value: some(h) }))), edit: true,
+                            })]),
+                        }),
+                    ]}
+                    editing={{ onApply: Record.onApply(works, { keyed: true }) }}
+                    style={{ height: "fill" }} />
+                </Box>
+            </VStack>;
         }}</Reactive>
     )),
     inputs: [],

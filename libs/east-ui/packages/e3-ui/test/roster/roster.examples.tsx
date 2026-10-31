@@ -8,7 +8,7 @@ import {
     example, none, some, variant,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
-import { Box, Field, Reactive, Slice, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Box, Button, Field, HStack, Reactive, Slice, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Func, Record, Roster, Schedule } from "@elaraai/e3-ui";
 import {
     WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,
@@ -751,5 +751,58 @@ export const rosterCustomInspector = example({
                 drop: (_p, key) => Schedule.patch(WarehouseDuty, { role: key }),
             })]} />
         </Box>;
+    }}</Reactive>),
+});
+
+/** The duties the conflicts example edits, in a record of their own, so no other example's edits meet them. */
+export const rosterConflictDuties = e3.record("rota_conflict_duties", DictType(StringType, MinimalDuty), {
+    initial: new Map([
+        ["d-1", { person: "w-01", start: new Date("2028-03-06T06:00:00Z"), end: new Date("2028-03-06T14:00:00Z"), shift: "early", team: "inbound" }],
+        ["d-2", { person: "w-02", start: new Date("2028-03-06T14:00:00Z"), end: new Date("2028-03-06T22:00:00Z"), shift: "late", team: "dispatch" }],
+        ["d-3", { person: "w-01", start: new Date("2028-03-07T06:00:00Z"), end: new Date("2028-03-07T14:00:00Z"), shift: "early", team: "inbound" }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+        // Someone else's save: every duty half an hour later, its person, shift and team as they were.
+        elsewhere: mutation.reduce(East.function([DictType(StringType, MinimalDuty)], DictType(StringType, MinimalDuty), (_$, duties) =>
+            duties.map((_$2, duty) => ({
+                person: duty.person, start: duty.start.addMinutes(30n), end: duty.end.addMinutes(30n), shift: duty.shift, team: duty.team,
+            })))),
+    }),
+});
+
+/**
+ * Your edits meeting someone else's save, in one window: edit, then press
+ * Someone else saves, which saves another person's change to the same duties —
+ * every duty half an hour later. A duty you moved to another day or shift is a
+ * conflict, its times one card to choose; a duty you gave to another person
+ * combines with theirs. Each press saves their change again.
+ */
+export const rosterConflicts = example({
+    inputs: [], description: "Your edits meeting someone else's save, in one window — move a duty to another day or shift, then press Someone else saves, which saves another person's change to the same duties (every duty half an hour later), so yours conflict, its times one card to choose; a duty you give to another person combines with theirs",
+    keywords: ["Roster", "conflict", "conflicts", "combine", "someone else", "Choose", "dates", "Schedule.events", "Record.bind", "mutate", "Button", "Save"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const rota = $.let(Record.bind(rosterConflictDuties, ["patch"]));
+        const others = $.let(Record.bind(rosterConflictDuties, ["elsewhere"]));
+        const theirs = $.const(East.function([], NullType, ($) => { $(others.mutate.elsewhere()); }));
+        const staff = $.let(Data.bind(minimalWorkers));
+        const times = $.let(Data.bind(minimalShiftTimes));
+        const groups = $.let(Data.bind(minimalTeams));
+        return <VStack gap="3" align="stretch">
+            <HStack gap="3">
+                <Button variant="outline" onClick={theirs} loading={others.mutate.pending()}>Someone else saves</Button>
+                <Text color="fg.muted">Their change: every duty half an hour later</Text>
+            </HStack>
+            <Box width="100%" height="760px"><Roster id="rosterConflicts" view={{ date: new Date("2028-03-06T00:00:00Z") }}
+                events={{ duty: Schedule.events(rota, {
+                    name: "Duty", icon: "user-clock",
+                    start: "start", end: "end", resource: { field: "person", of: "people" },
+                    shift: "shift", group: "team",
+                }) }}
+                resources={{ people: Schedule.resources(staff.read(), { name: "People", icon: "user", label: w => w.name, group: w => w.team }) }}
+                shifts={Roster.shifts(times.read(), { label: s => s.name, code: s => s.code, start: s => s.starts, hours: s => s.hours, order: s => s.order })}
+                groups={Roster.groups(groups.read(), { label: t => t.name })} />
+            </Box>
+        </VStack>;
     }}</Reactive>),
 });

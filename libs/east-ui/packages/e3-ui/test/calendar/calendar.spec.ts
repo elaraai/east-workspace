@@ -14,7 +14,8 @@ import * as ex from "./calendar.examples.js";
 
 describeEast("Calendar — bound examples", test => {
     Assert.examples(test, { calendarMinimal: ex.calendarMinimal, calendarOperations: ex.calendarOperations,
-        calendarMobile: ex.calendarMobile, calendarReadOnly: ex.calendarReadOnly, calendarWindowed: ex.calendarWindowed, calendarQuickstart: ex.calendarQuickstart, calendarCustomInspector: ex.calendarCustomInspector });
+        calendarMobile: ex.calendarMobile, calendarReadOnly: ex.calendarReadOnly, calendarWindowed: ex.calendarWindowed, calendarQuickstart: ex.calendarQuickstart, calendarCustomInspector: ex.calendarCustomInspector,
+        calendarConflicts: ex.calendarConflicts });
 }, { platformFns: TestImpl });
 
 // What the payload and its kinds read of e3 — the machines, the jobs and their templates, a window, the backlog, an

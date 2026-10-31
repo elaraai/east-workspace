@@ -17,7 +17,7 @@ import {
     ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType,
     StructType, VariantType, compareFor, example, none, some, variant,
 } from "@elaraai/east";
-import { Box, Reactive, UIComponentType } from "@elaraai/east-ui";
+import { Box, Button, HStack, Reactive, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Query, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -475,6 +475,61 @@ export const queryBuilderEmpty = example({
 // ============================================================================
 // The order history's saved queries, and its builder (#1132)
 // ============================================================================
+
+/** The saved queries the conflicts example edits, as the builder's start, in a record of their own so no other example's edits meet them. */
+export const conflictQueries = e3.record("query_conflict_queries", Query.Types.Saved, {
+    initial: queries.default!,
+    mutations: (mutation) => ({
+        // The record's one write.
+        patch: mutation.patch(),
+        // Someone else's save: every query saved again, its description theirs and saved a minute after it was.
+        elsewhere: mutation.reduce(East.function([Query.Types.Saved], Query.Types.Saved, (_$, saved) =>
+            saved.map((_$2, query) => ({
+                name: query.name,
+                description: East.value(some("Saved again by someone else"), OptionType(StringType)),
+                program: query.program,
+                root: query.root,
+                saved_at: query.saved_at.addMinutes(1n),
+            })))),
+    }),
+});
+
+/**
+ * Your edits meeting someone else's save, in one window: change the query,
+ * then press Someone else saves, which saves the same query again from
+ * elsewhere. The query builder keeps no drafts to carry over: your edit goes
+ * out of date, a banner saying so with Discard, and stays shown until you
+ * discard it; nothing of it is kept through a reload.
+ */
+export const queryConflicts = example({
+    keywords: ["Query", "Query.Builder", "out of date", "someone else", "Discard", "banner", "saved queries", "Record.bind", "mutate", "Button", "Save"],
+    description: "Your edits meeting someone else's save, in one window — change the query, then press Someone else saves, which saves the same query again from elsewhere; the query builder has no conflicts to choose: your edit goes out of date, its banner saying so with Discard, your edit shown until you discard it",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const saved = $.let(Record.bind(conflictQueries, ["patch"]));
+            const others = $.let(Record.bind(conflictQueries, ["elsewhere"]));
+            const theirs = $.const(East.function([], NullType, ($) => { $(others.mutate.elsewhere()); }));
+            const orderRows = $.let(Data.bind(orders));
+            const customerRows = $.let(Data.bind(customers));
+            const weekly = $.let(Data.bind(forecast));
+            const demand = $.let(Data.bind(model));
+            const parts = $.let(Data.bind(bom));
+            return (
+                <VStack gap="3" align="stretch">
+                    <HStack gap="3">
+                        <Button variant="outline" onClick={theirs} loading={others.mutate.pending()}>Someone else saves</Button>
+                        <Text color="fg.muted">Their change: the same query, saved again</Text>
+                    </HStack>
+                    <Box height="760px">
+                        <Query.Builder queries={saved} query="Top shipped orders, 2026" id="conflicts"
+                            datasets={{ orders: orderRows, customers: customerRows, forecast: weekly, model: demand, bom: parts }} />
+                    </Box>
+                </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
 
 /**
  * The saved queries over the order history, one of each way a query too large

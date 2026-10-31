@@ -409,6 +409,33 @@ describe("Calendar explicit action forms", () => {
 
 });
 
+describe("the conflicts example (calendarConflicts)", () => {
+    test("a job moved here, then Someone else saves, is one conflict named by its title, its card wearing the halo until it is chosen", async () => {
+        const { container } = await h.mount(ex.calendarConflicts); await width(390);
+        const job = () => card(container, "job", "job1");
+        const move = within(job()).getByRole("button", { name: "Move" });
+        move.focus();
+        await press(move);
+        const dialog = within(document.body).getByRole("dialog");
+        // A day later: the start's day stepped up, taken as the focus leaves its field.
+        const start = dialog.querySelector<HTMLElement>('[data-field="start"]')!;
+        const user = userEvent.setup();
+        await user.click(start.querySelector<HTMLElement>('[role="spinbutton"][aria-label^="day"]')!);
+        await user.keyboard("{ArrowUp}");
+        while (start.contains(document.activeElement)) await user.tab();
+        await settle();
+        await press(within(dialog).getByRole("button", { name: "Move" }));
+        // Someone else's save moves every job an hour later: theirs and the move here differ.
+        await press(within(container).getByRole("button", { name: "Someone else saves" }));
+        const [conflict, ...more] = await conflictCards(container);
+        expect(more).toEqual([]);
+        expect(conflict!.item).toBe("Mounting brackets");
+        expect(job().hasAttribute("data-conflict")).toBe(true);
+        await act(async () => { fireEvent.click(conflict!.radio("source")); });
+        expect(job().hasAttribute("data-conflict")).toBe(false);
+    });
+});
+
 describe("the agenda keeps the keyboard as a card's action takes its card away (#1398)", () => {
     /** A card's control the focus is put on, then pressed: what holds the focus after. */
     async function pressFocused(control: HTMLElement): Promise<Element> {

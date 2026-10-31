@@ -809,3 +809,24 @@ describe("<Query.Builder> — the toolbar on a row short of room (#1229)", () =>
         expect(await h.commits()).toEqual(before);
     });
 });
+
+describe("the conflicts example (queryConflicts)", () => {
+    test("a step added here, then Someone else saves, goes out of date: its banner says so, the step still shows until Discard takes the newer query", async () => {
+        h.refuseRuns();
+        const { container } = await h.mount(ex.queryConflicts);
+        await settle();
+        await waitFor(() => expect(cardsOf(container).length).toBeGreaterThan(0));
+        const steps = cardsOf(container).length;
+        await quickAdd("Keep the first");
+        expect(cardsOf(container)).toHaveLength(steps + 1);
+        // Someone else saves the same query again.
+        await act(async () => { fireEvent.click(within(container).getByRole("button", { name: "Someone else saves" })); });
+        await settle();
+        await waitFor(() => expect(container.querySelector('[data-session-banner="stale"]')).not.toBeNull());
+        expect(cardsOf(container)).toHaveLength(steps + 1);
+        await act(async () => { fireEvent.click(container.querySelector('[data-session-banner="stale"] [data-banner-action="discard"]')!); });
+        await settle();
+        expect(container.querySelector('[data-session-banner="stale"]')).toBeNull();
+        expect(cardsOf(container)).toHaveLength(steps);
+    });
+});

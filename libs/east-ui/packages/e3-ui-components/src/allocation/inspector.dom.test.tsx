@@ -870,3 +870,25 @@ describe("a conflict's Go to", () => {
         expect([card(c, "3113").hasAttribute("data-selected"), card(c, "3101").hasAttribute("data-selected"), activeTab(c)?.startsWith("Details")]).toEqual([true, false, true]);
     });
 });
+
+describe("the conflicts example (allocationConflicts)", () => {
+    test("an m³ typed here, then Someone else saves, is one card under the board's word for a quantity, its split going with it, the bin wearing the halo", async () => {
+        const c = await open(ex.allocationConflicts);
+        await press(card(c, "3113"));
+        const user = userEvent.setup();
+        const quantity = within(details(c).querySelector<HTMLElement>('[data-field="quantity"]')!).getByRole("spinbutton");
+        await user.clear(quantity);
+        for (const k of "30") { await user.type(quantity, k); await settle(); }
+        await user.keyboard("{Enter}");
+        await settle();
+        // Someone else's save puts 1 m³ more on each of the bin's kilns, its m³ with them.
+        const before = (await h.read(ex.conflictBins)).get("3113")!;
+        await press(within(c).getByRole("button", { name: "Someone else saves" }));
+        await waitFor(() => expect(c.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
+        const [conflict, ...more] = await conflictCards(c);
+        expect(more).toEqual([]);
+        expect(document.querySelector("[data-conflict-card]")!.textContent).toContain("QTY");
+        expect([conflict!.yours, conflict!.theirs?.split(",").slice(0, 2).join(",")]).toEqual(["Yours, 30", `Theirs, ${before.m3 + before.kilns.size}`]);
+        expect(card(c, "3113").hasAttribute("data-conflict")).toBe(true);
+    });
+});

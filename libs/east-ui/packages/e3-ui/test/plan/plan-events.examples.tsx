@@ -25,7 +25,7 @@ import {
     some,
     variant,
 } from "@elaraai/east";
-import { Chart, EventStateType, Format, Reactive, SegmentGroup, Slice, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Box, Button, Chart, EventStateType, Format, HStack, Reactive, SegmentGroup, Slice, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -1165,6 +1165,90 @@ export const planEventLinks = example({
                     ]}
                     style={{ height: "400px" }}
                 />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** The jobs the conflicts example edits, in a record of their own, so no other example's edits meet them. */
+export const planConflictJobs = e3.record("plan_conflict_jobs", DictType(StringType, PrintJob), {
+    initial: new Map([
+        ["J-3001", { title: "Spring catalogue", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T14:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 96000.0, customer: "Alder & Finch", stock: variant("coated", null), due: some(new Date("2026-10-08T00:00:00Z")) }],
+        ["J-3002", { title: "Course handbook", start: some(new Date("2026-10-12T06:00:00Z")), end: some(new Date("2026-10-12T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 144000.0, customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+        ["J-3003", { title: "Annual report", start: some(new Date("2026-10-08T06:00:00Z")), end: some(new Date("2026-10-08T12:00:00Z")), press: some("a2"), state: variant("confirmed", null), sheets: 60000.0, customer: "Harbour Arts Society", stock: variant("coated", null), due: some(new Date("2026-10-10T00:00:00Z")) }],
+        ["J-3005", { title: "Store flyers", start: some(new Date("2026-10-09T06:00:00Z")), end: some(new Date("2026-10-09T16:00:00Z")), press: some("b1"), state: variant("confirmed", null), sheets: 150000.0, customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-12T00:00:00Z")) }],
+        ["J-3006", { title: "Market posters", start: some(new Date("2026-10-13T06:00:00Z")), end: some(new Date("2026-10-13T12:00:00Z")), press: some("b2"), state: variant("confirmed", null), sheets: 72000.0, customer: "Orchard Street Market", stock: variant("coated", null), due: some(new Date("2026-10-15T00:00:00Z")) }],
+    ]),
+    mutations: (mutation) => ({
+        // The jobs' patch door — every Save commits through it.
+        patch: mutation.patch(),
+        // Someone else's save: every job a day later, its press and its other fields as they were.
+        elsewhere: mutation.reduce(East.function([DictType(StringType, PrintJob)], DictType(StringType, PrintJob), (_$, jobs) =>
+            jobs.map((_$2, job) => ({
+                title: job.title,
+                start: job.start.match({
+                    some: (_$3, at) => East.value(some(at.addDays(1n)), OptionType(DateTimeType)),
+                    none: (_$3) => East.value(none, OptionType(DateTimeType)),
+                }),
+                end: job.end.match({
+                    some: (_$3, at) => East.value(some(at.addDays(1n)), OptionType(DateTimeType)),
+                    none: (_$3) => East.value(none, OptionType(DateTimeType)),
+                }),
+                press: job.press, state: job.state, sheets: job.sheets, customer: job.customer, stock: job.stock, due: job.due,
+            })))),
+    }),
+});
+
+/**
+ * Your edits meeting someone else's save, in one window: edit, then press
+ * Someone else saves, which saves another person's change to the same jobs —
+ * every job a day later. A bar you moved or resized too is a conflict, its
+ * dates one card to choose; a customer or stock you changed in the panel
+ * combines with theirs. Each press saves their change again.
+ */
+export const planConflicts = example({
+    keywords: ["Plan", "conflict", "conflicts", "combine", "someone else", "Choose", "dates", "bars", "Schedule.events", "Record.bind", "mutate", "Button", "inspector", "Save"],
+    description: "Your edits meeting someone else's save, in one window — move or resize a job's bar, then press Someone else saves, which saves another person's change to the same jobs (every job a day later), so yours conflict, its dates one card to choose; a customer or stock you change in the panel combines with theirs",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const presses = $.let(Record.bind(planPrintPresses, []));
+            const jobs = $.let(Record.bind(planConflictJobs, ["patch"]));
+            const others = $.let(Record.bind(planConflictJobs, ["elsewhere"]));
+            const theirs = $.const(East.function([], NullType, ($) => { $(others.mutate.elsewhere()); }));
+            const axis = $.let(Plan.axis({
+                window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-10-19T00:00:00Z") },
+                resolution: "day", now: new Date("2026-10-07T09:00:00Z"),
+            }));
+            return (
+                <VStack gap="3" align="stretch">
+                    <HStack gap="3">
+                        <Button variant="outline" onClick={theirs} loading={others.mutate.pending()}>Someone else saves</Button>
+                        <Text color="fg.muted">Their change: every job a day later</Text>
+                    </HStack>
+                    <Box height="560px">
+                        <Plan
+                            id="conflicts"
+                            axis={axis}
+                            resources={{
+                                presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: p => p.name }),
+                            }}
+                            events={{
+                                job: Schedule.events(jobs, {
+                                    name: "Print job", icon: "file-lines",
+                                    title: "title", start: "start", end: "end",
+                                    resource: { field: "press", of: "presses" },
+                                    state: "state",
+                                    fields: {
+                                        customer: Schedule.field.text({ label: "Customer" }),
+                                        stock: Schedule.field.select({ labels: { coated: "Coated", uncoated: "Uncoated", board: "Board" } }),
+                                    },
+                                }),
+                            }}
+                            inspector
+                        />
+                    </Box>
+                </VStack>
             );
         }}</Reactive>
     )),
