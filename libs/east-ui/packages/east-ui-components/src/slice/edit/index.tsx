@@ -75,6 +75,13 @@ export type SliceEditPopoverProps = SliceEditPopoverAnchor & {
     /** The element the focus goes to as it opens — the first focusable in it
      *  (its head's ×) when omitted, or when this finds none. */
     initialFocusEl?: (() => HTMLElement | null) | undefined;
+    /**
+     * Whether it stays open as the focus leaves it — for one whose action
+     * moves the focus to what it is about, as a conflict's Go to does — while
+     * a press outside it, Escape and its × still close it. It closes as the
+     * focus leaves it by default.
+     */
+    keepOnFocusOut?: boolean | undefined;
     /** The editor body. */
     children: ReactNode;
 };
@@ -101,7 +108,7 @@ export type SliceEditPopoverProps = SliceEditPopoverAnchor & {
  * where there is no room below ({@link frameBounds}).
  */
 export function SliceEditPopover({
-    open, onOpenChange, trigger, anchor, label, size = "sm", flush, footLeft, footActions, initialFocusEl, children,
+    open, onOpenChange, trigger, anchor, label, size = "sm", flush, footLeft, footActions, initialFocusEl, keepOnFocusOut = false, children,
 }: SliceEditPopoverProps) {
     // Its styles made once for the theme and its variants (#1398, CL9): its trigger draws again with what it shows — a
     // timeline's date navigator's with each day its view crosses — and its recipe would work every slot out again.
@@ -184,6 +191,7 @@ export function SliceEditPopover({
                 const target = e.detail.originalEvent?.target as Element | null | undefined;
                 if (target?.closest?.('[data-scope="select"], [data-scope="combobox"]')) e.preventDefault();
             }}
+            {...(keepOnFocusOut && { onFocusOutside: (e: { preventDefault: () => void }) => { e.preventDefault(); } })}
         >
             {anchored
                 ? <ChakraPopover.Anchor ref={anchorRef} css={styles.anchor}>{anchor}</ChakraPopover.Anchor>

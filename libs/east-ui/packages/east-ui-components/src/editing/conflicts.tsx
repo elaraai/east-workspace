@@ -468,6 +468,8 @@ export function ConflictsControl<W>({ session, words, onIssue, where, item, issu
             <VisuallyHidden aria-live="polite" data-conflicts-said="">{waiting > 0 ? m.conflictsAppeared({ n: waiting, count: words.number(waiting) }) : ""}</VisuallyHidden>
             {shown && (
                 <SliceEditPopover open={open} onOpenChange={(next) => (next ? setOpen(true) : close())} label={session.carrying ? m.conflictsTitle() : <>{m.conflictsTitle()} · <Box as="span" css={styles.headCount}>{words.number(n)}</Box></>} size="lg" flush
+                    // Go to moves the focus to the item: the popover stays open beside it, but in a narrow frame.
+                    keepOnFocusOut
                     initialFocusEl={() => {
                         // The first conflict still waiting, else the first card.
                         const at = document.getElementById(bodyId);
