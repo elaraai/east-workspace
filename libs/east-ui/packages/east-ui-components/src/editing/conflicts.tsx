@@ -256,10 +256,14 @@ type ConflictsButtonProps = {
     anchor: { current: HTMLButtonElement | null };
 } & Omit<ComponentPropsWithRef<"button">, "children" | "color">;
 
-/** The button: the popover's trigger, and a tooltip's — the popover's props land on it last, so the toolbar reads its state. */
+/**
+ * The button: the popover's trigger, and a tooltip's — the popover's props land on it last, so the toolbar reads its
+ * state. Its id is the popover's, so the tooltip is told it too: it finds the button it hangs from by its id, and
+ * with its own it found none, and hung at the page's top.
+ */
 function ConflictsButton({ tip, label, count, chrome, countChrome, anchor, ref, ...trigger }: ConflictsButtonProps) {
     return (
-        <Tooltip.Root openDelay={250}>
+        <Tooltip.Root openDelay={250} ids={trigger.id === undefined ? undefined : { trigger: trigger.id }}>
             <Tooltip.Trigger asChild>
                 <chakra.button type="button" {...trigger} css={chrome} aria-label={label} data-conflicts="" data-settled={count === undefined ? "" : undefined}
                     ref={(node: HTMLButtonElement | null) => { anchor.current = node; assign(ref, node); }}>

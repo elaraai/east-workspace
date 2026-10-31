@@ -88,11 +88,29 @@ function mount(session: EditSession<string> | EditHistory<string>, extra: Partia
 const button = () => document.querySelector<HTMLButtonElement>("[data-conflicts]");
 const cards = () => [...document.querySelectorAll<HTMLElement>("[data-conflict-card]")];
 const radio = (card: HTMLElement, choice: "draft" | "source") => card.querySelector<HTMLInputElement>(`[data-choice=${choice}] input`)!;
-/** The popover, opened from the button. */
+/** The popover, opened from the button, and the focus in it, as it lands a frame after the popover opens. */
 async function opened(count: number) {
     fireEvent.click(button()!);
     await waitFor(() => expect(cards()).toHaveLength(count));
+    await waitFor(() => expect(document.activeElement?.closest('[data-scope="popover"][data-part="content"]')).not.toBeNull());
 }
+
+test("the button's tooltip hangs from the button: the popover and the tooltip know it by one id, so the tooltip finds it", async () => {
+    // The tooltip follows its button as the page moves, as the browser tells it; jsdom tells nothing.
+    vi.stubGlobal("IntersectionObserver", class { observe() {} unobserve() {} disconnect() {} takeRecords() { return []; } });
+    mount(conflicted(["a"]));
+    const at = button()!;
+    vi.spyOn(at, "getBoundingClientRect").mockReturnValue({ x: 600, y: 300, left: 600, top: 300, right: 651, bottom: 328, width: 51, height: 28, toJSON() {} } as DOMRect);
+    fireEvent.pointerMove(at, { pointerType: "mouse" });
+    const tip = () => document.querySelector<HTMLElement>('[data-scope="tooltip"][data-part="content"][data-state="open"]');
+    await waitFor(() => expect(tip()?.textContent).toBe("1 conflict · Choose which changes to keep"));
+    // By the button's box, at (600, 300) — never at the page's corner, as a tooltip that finds no trigger is.
+    await waitFor(() => {
+        const style = tip()!.parentElement!.style;
+        const [x, y] = [Number.parseFloat(style.getPropertyValue("--x")), Number.parseFloat(style.getPropertyValue("--y"))];
+        expect([x > 500 && x < 700, y > 250 && y < 350]).toEqual([true, true]);
+    });
+});
 
 test("nothing waits: no conflicts button", () => {
     mount(drafted(["a"]));
