@@ -383,13 +383,13 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         expect(status()).toBe("Template");
     });
 
-    test("B9: the selection bar names the selected placement — its component's icon and name, its key and what it reads; with none, what to do", async () => {
+    test("B9: the selection bar names the selected placement — its component's icon and name, and what it reads, never its key; with none, what to do", async () => {
         const { container } = await mountBuilder();
         const bar = () => container.querySelector<HTMLElement>("[data-snap-grid-selection]")!;
         expect(bar().textContent).toBe("No selectionClick a component on the grid to arrange it");
         await select(container, "c-trend");
         expect(bar().querySelector("svg")!.getAttribute("data-icon")).toBe("chart-area");
-        expect([...bar().children].slice(1).map((el) => el.textContent)).toEqual(["Revenue trend", `revenue_trend · ${RECORD}`]);
+        expect([...bar().children].slice(1).map((el) => el.textContent)).toEqual(["Revenue trend", RECORD]);
     });
 
     test("B10: the grid panel holds the page's cells on the editing canvas — each its component's own UI — with its guides and its end zone", async () => {
@@ -539,12 +539,13 @@ describe("<Studio.Builder> — the inspector (#996)", () => {
         expect(rail.querySelector("svg[data-icon=sliders]")).not.toBeNull();
     });
 
-    test("B16–B18, B21: the selected placement's name and its component's key, what its code reads, its description fixed by its developer, and the footer", async () => {
+    test("B16–B18, B21: the selected placement's name, never its component's key, what its code reads, its description fixed by its developer, and the footer", async () => {
         const { container } = await mountBuilder();
         await select(container, "c-trend");
         const b = inspector(container);
         expect(b.querySelector("[data-inspector-name]")!.textContent).toBe("Revenue trend");
-        expect(b.querySelector("[data-inspector-meta]")!.textContent).toBe("revenue_trend");
+        expect(b.querySelector("[data-inspector-meta]")).toBeNull();
+        expect(b.querySelector('[data-inspector="selection"]')!.textContent).not.toContain("revenue_trend");
         expect(b.querySelector("[data-inspector-changed]")).toBeNull();
         // Each path its code reads, as e3 prints a keypath.
         expect([...b.querySelectorAll('[data-inspector="data"] li')].map((li) => li.textContent)).toEqual([`.records.${RECORD}`]);

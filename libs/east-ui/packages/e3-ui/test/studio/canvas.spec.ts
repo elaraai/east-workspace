@@ -32,10 +32,10 @@ const kpiRail = Studio.component("kpi_rail", { name: "KPI rail", category: "Disp
     East.function([], UIComponentType, (_$) => Text.Root("KPIs")));
 
 describeEast("The builder's canvas — what a placement's tile shows (#995)", (test) => {
-    test("B9: a tile's meta line is its component's key and what it reads; one that reads nothing is its key alone", $ => {
+    test("B9: a tile's meta line is what its component reads, never its key; one that reads nothing has none", $ => {
         const tiles = $.let(canvasTiles([revenueTrend, kpiRail]));
-        $(Assert.equal(tiles.get("revenue_trend").meta, "revenue_trend · canvas_sales_daily"));
-        $(Assert.equal(tiles.get("kpi_rail").meta, "kpi_rail"));
+        $(Assert.equal(tiles.get("revenue_trend").meta, "canvas_sales_daily"));
+        $(Assert.equal(tiles.get("kpi_rail").meta, ""));
         $(Assert.equal(tiles.get("revenue_trend").icon, "chart-area"));
         $(Assert.equal(tiles.get("revenue_trend").name, "Revenue trend"));
     });

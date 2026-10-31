@@ -796,8 +796,8 @@ export const builder = ui("builder", [], East.function([], UIComponentType, _$ =
   refused, and the drafts are carried over to the newer page, a part both
   changed waiting to be chosen before Save — with none, the Save goes again
   by itself. The selection bar
-  names the selected placement: its component's icon and name, its key and
-  what its code reads.
+  names the selected placement: its component's icon and name, and what its
+  code reads, never its key.
 - **The toolbar**, one row: the page's status — `Draft` with an open ring until
   its first publish, `Live` while its draft is its live layout, `Live · edited`
   once they differ, `Template` for a template — the grid chip and the time of
@@ -818,7 +818,7 @@ export const builder = ui("builder", [], East.function([], UIComponentType, _$ =
   key order with their status (`LIVE · Vn`, `DRAFT · Vn LIVE` or `DRAFT`); a
   click opens one.
 - **The inspector**, the pane after the canvas: the selected placement's name
-  and its component's key, with a warning when the component's code changed
+  (never its component's key), with a warning when the component's code changed
   since the page went live; what its code reads, as keypaths
   (`.inputs.sales_daily`); its description, under a lock; and its layout — its
   span, held to its row's room, its row, its height (Auto or a preset in px)

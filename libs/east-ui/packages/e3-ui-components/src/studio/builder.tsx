@@ -204,7 +204,8 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
             frame: tile === undefined ? true : tile.frame,
             label: cell.title.type === "some" ? cell.title : tile === undefined ? none : some(tile.name),
             icon: tile === undefined ? none : some(tile.icon),
-            meta: tile === undefined ? some(cell.component) : some(tile.meta),
+            // What its code reads, never its key; a component the surface does not list is known by its key alone.
+            meta: tile === undefined ? some(cell.component) : tile.meta.length === 0 ? none : some(tile.meta),
         };
     }, [tiles]);
     const snapshot = useMemo(() => encodeCells([...saved]), [saved]);

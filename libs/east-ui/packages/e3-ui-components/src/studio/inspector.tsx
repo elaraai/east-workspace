@@ -168,7 +168,6 @@ export const StudioInspector = memo(function StudioInspector({ value }: StudioIn
             <Box css={styles.selection} data-inspector="selection">
                 <Box as="span" css={styles.eyebrow}>{m.selectedComponent()}</Box>
                 <Box as="span" css={styles.name} data-inspector-name="">{selection.name}</Box>
-                <Box as="span" css={styles.meta} data-inspector-meta="">{selection.component}</Box>
                 {selection.changed && (
                     <Box as="span" css={styles.warning} data-inspector-changed="">
                         <FontAwesomeIcon icon={faTriangleExclamation} />

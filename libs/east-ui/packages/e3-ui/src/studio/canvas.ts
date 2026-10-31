@@ -35,7 +35,7 @@ import { StudioComponentType } from "./component.js";
  * @property frame - Drawn in a tile frame, or bare
  * @property name - Its name — a placement's label when it has no title of its own
  * @property icon - Its icon, in the selection bar
- * @property meta - Its key and the datasets it reads, in the selection bar
+ * @property meta - The datasets it reads, in the selection bar
  */
 export const CanvasTileType = StructType({
     frame: BooleanType,
@@ -46,8 +46,9 @@ export const CanvasTileType = StructType({
 
 /**
  * Each listed component's tile, by key: framed or bare, its name and icon,
- * and its meta line — its key and the datasets and records its code reads,
- * joined with ` · ` ("revenue_trend · sales_daily"). A key two components
+ * and its meta line — the datasets and records its code reads, joined with
+ * ` · ` ("sales_daily"), empty for one that reads nothing; never its key,
+ * which is no word for the people who build pages. A key two components
  * share keeps the first one's tile.
  */
 export const canvasTiles = East.function(
@@ -58,10 +59,7 @@ export const canvasTiles = East.function(
         $.for(components, ($2, component) => {
             const reads = $2.let(component.reads.paths.concat(component.reads.pages)
                 .map((_$3, path) => path.get(path.size().subtract(1n)).unwrap("field")));
-            const meta = $2.let(reads.size().equal(0n).ifElse(
-                () => component.key,
-                () => East.str`${component.key} · ${reads.stringJoin(" · ")}`,
-            ));
+            const meta = $2.let(reads.stringJoin(" · "));
             $2(tiles.insertOrUpdate(component.key, {
                 frame: component.frame.hasTag("card"),
                 name: component.name,
