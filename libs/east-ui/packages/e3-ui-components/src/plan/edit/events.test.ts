@@ -43,6 +43,8 @@ function windowed(last: option<option<string>>): PlanEventEditingArgs["kinds"] {
         entries: some({ revision: () => some("r1"), refresh: () => null, entry: () => some(none), last: () => last }),
         planEvent: () => none,
         write: () => [],
+        // Its dates' fields, as every kind names them: a conflict at either is one of its dates.
+        schedule: { start: "start", end: "end" },
     }] as unknown as PlanEventEditingArgs["kinds"];
 }
 
