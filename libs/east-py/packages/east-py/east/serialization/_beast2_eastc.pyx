@@ -1367,11 +1367,23 @@ def _write_unit_result(object path, bint ok, object message, object locations,
         _consume_eastc_error("the result cannot be written", OSError)
 
 
-def _write_unit_value(object py_type, object path, object value):
+cdef _eastc.EastSourceMap* _program_source_map(object program):
+    """The source map of ``program``, a compiled East function: what a
+    collection output that holds functions is written under, so the closures
+    the program returns keep their lines. NULL for None."""
+    if program is None:
+        return NULL
+    cdef _eastc.EastCompiledFn* fn = <_eastc.EastCompiledFn*><uintptr_t>program._eastc_handle._compiled
+    return fn.source_map if fn != NULL else NULL
+
+
+def _write_unit_value(object py_type, object path, object value, object program=None):
     """Write a value output: a collection as a manifest directory at
     ``path``, anything else as one blob there — east-c's writer, so the bytes
-    are the east-c CLI's for the same value. A frozen or paged hold passes
-    its C value through. Raises OSError with east-c's message."""
+    are the east-c CLI's for the same value. A collection that holds
+    functions is written under ``program``'s source map, so its closures keep
+    their lines. A frozen or paged hold passes its C value through. Raises
+    OSError with east-c's message."""
     _ensure_eastc_runtime()
     cdef bytes c_path = _c_path(path)
     cdef _eastc.EastType* c_type = py_type_to_c(py_type)
@@ -1385,7 +1397,8 @@ def _write_unit_value(object py_type, object path, object value):
             _eastc.east_value_retain(c_val)
         else:
             c_val = py_value_to_c(value, c_type)
-        if not _eastc.east_unit_write_value(<const char*>c_path, c_val, c_type):
+        if not _eastc.east_unit_write_value(<const char*>c_path, c_val, c_type,
+                                            _program_source_map(program)):
             _consume_eastc_error("the output cannot be written", OSError)
     finally:
         if c_val != NULL:
@@ -1430,8 +1443,11 @@ cdef class _UnitSinkCore:
     directory, or a fold's file. A dict's equal keys fold with ``merge``, a
     compiled ``(K, V, V) -> V``; a fold folds every emitted value into an
     accumulator with ``combine``, a compiled ``(T, T) -> T``, starting at
-    ``zero``. Raises ValueError with east-c's message when a function does
-    not fit the output, or an output directory holds anything already.
+    ``zero``. A collection that holds functions is written under
+    ``program``'s source map, the compiled program emitting it, so its
+    closures keep their lines. Raises ValueError with east-c's message when a
+    function does not fit the output, or an output directory holds anything
+    already.
     """
 
     cdef _eastc.EastUnitSink* _sink
@@ -1441,7 +1457,7 @@ cdef class _UnitSinkCore:
     cdef object _combine             # borrowed by the sink for its lifetime
 
     def __cinit__(self, str kind, object emit_types, object path, object merge=None,
-                  object combine=None, object zero=None):
+                  object combine=None, object zero=None, object program=None):
         from east.types.types import FunctionType, NullType
 
         _ensure_eastc_runtime()
@@ -1470,7 +1486,7 @@ cdef class _UnitSinkCore:
                 c_zero = py_value_to_c(zero, self._fn_t.data.function.inputs[0])
         try:
             self._sink = _eastc.east_unit_sink_new(&output, self._fn_t, merge_fn, combine_fn,
-                                                   c_zero)
+                                                   c_zero, _program_source_map(program))
         finally:
             # The sink retains the zero it keeps.
             if c_zero != NULL:

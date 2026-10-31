@@ -89,6 +89,17 @@ bool b2v5_writer_pooled(const Beast2StreamWriter *w);
 size_t b2v5_element_writer_peak_inflight(const Beast2ElementWriter *w);
 bool b2v5_element_writer_pooled(const Beast2ElementWriter *w);
 
+/* The writers, their header holding `sm` (each takes a reference; NULL for
+ * none): the map closures in the collection are written against — a closure
+ * of it keeps its loc_ids, one of another map has each where its stack stands
+ * in `sm`, or 0 (v5/codec.c). The public constructors pass NULL. */
+Beast2StreamWriter *b2v5_writer_new(EastType *type, int32_t codec_id, bool self_contained,
+                                    bool with_index, EastSourceMap *sm);
+Beast2ElementWriter *b2v5_element_writer_new(EastType *type, int32_t codec_id, EastSourceMap *sm);
+Beast2ElementWriter *b2v5_element_writer_new_segments(EastType *type, int32_t codec_id,
+                                                      const Beast2SegmentSink *sink,
+                                                      EastSourceMap *sm);
+
 /* Append one frame carrying `logical` to buf. codec_id degrades to none for
  * tiny or incompressible payloads. */
 void b2v5_write_frame(ByteBuffer *buf, const uint8_t *logical, size_t logical_len,
@@ -153,6 +164,32 @@ void b2v5_write_index_footer(ByteBuffer *buf, size_t index_offset, const size_t 
 /*  Value codec (v5/codec.c)                                            */
 /* ================================================================== */
 
+/* How the loc_ids of a closure map other than the stream's stand in the
+ * blob's map: `ids[id]` for each id of `map` (0 where the blob holds none of
+ * its stack), any id past `n` 0. A closure with no map translates every id
+ * to 0. */
+typedef struct {
+    EastSourceMap *map; /* retained; NULL for a closure with no map */
+    int64_t *ids;       /* owned */
+    size_t n;
+} B2V5Translation;
+
+/* A closure's IR as written translated, kept so a closure written many times
+ * is translated once. */
+typedef struct {
+    EastValue *ir;                      /* retained: the closure's own IR */
+    const B2V5Translation *translation; /* the context's */
+    EastValue *translated;              /* owned */
+} B2V5TranslatedIR;
+
+/* Where a whole-value encode writes the blob's map, once the value is
+ * encoded: the header, or the first closure's delta. */
+typedef enum {
+    B2V5_BLOB_MAP_NOWHERE, /* no closure written yet, and no header map */
+    B2V5_BLOB_MAP_HEADER,
+    B2V5_BLOB_MAP_DELTA,
+} B2V5BlobMapAt;
+
 typedef struct {
     /* Identity map: EastValue* → definition index. A container with
      * ref_count == 1 at encode time, reached through unshared inline values
@@ -185,10 +222,55 @@ typedef struct {
     EastSourceMap *sm;   /* stream source map (borrowed; adopted from the
                             first function value carrying one) */
     size_t sm_emitted;   /* stacks on the wire, incl. the empty sentinel */
-    bool failed;         /* an error has been posted */
+    /* The blob's map, once a closure of another program brings stacks the
+     * stream's map lacks: the stream map's stacks, then each one brought, by
+     * content, in its own map's order. NULL while every stack a closure
+     * names is the stream map's. Owned. */
+    EastSourceMap *merged;
+    /* The stacks of the blob's map by content — hash → id, an id of 0 an
+     * empty slot — covering ids [1, stacks_indexed). Built when a closure of
+     * another map is first written. */
+    struct B2V5StackSlot *stack_index;
+    size_t stack_index_mask;
+    size_t stack_index_count;
+    size_t stacks_indexed;
+    /* Each closure map other than the stream's, translated once — each on
+     * its own, so the IRs translated by it can name it. */
+    B2V5Translation **translations;
+    size_t translations_count;
+    size_t translations_cap;
+    /* Each closure IR written translated, by IR and translation (open
+     * addressing; mask + 1 slots). */
+    B2V5TranslatedIR *translated;
+    size_t translated_mask;
+    size_t translated_count;
+    /* A whole-value encode writes the blob's map once the value is encoded:
+     * in the header, or else in the first closure's delta, whose place in the
+     * logical bytes is [blob_map_start, blob_map_end), written from a map of
+     * blob_map_written stacks. */
+    bool deferred;
+    B2V5BlobMapAt blob_map_at;
+    size_t blob_map_start;
+    size_t blob_map_end;
+    size_t blob_map_written;
+    bool failed; /* an error has been posted */
 } B2V5EncodeCtx;
 
 void b2v5_enc_ctx_init(B2V5EncodeCtx *ctx, EastSourceMap *header_sm, bool self_contained);
+/* Makes the context a whole-value encode's (v5/container.c): the blob's map
+ * is written once the value is — in the header when `header_sm` was given,
+ * else in the first closure's delta — so a closure of another program adds
+ * the stacks it brings to it rather than writing a delta of its own. */
+void b2v5_enc_ctx_defer(B2V5EncodeCtx *ctx);
+/* The blob's map as a deferred encode leaves it: the stream's, with every
+ * stack another closure brought (NULL when no closure carried one). */
+EastSourceMap *b2v5_enc_ctx_blob_map(const B2V5EncodeCtx *ctx);
+/* The logical bytes of a deferred encode, the first closure's delta holding
+ * the blob's map: `logical` itself when the header holds the map, or the map
+ * is the one the delta was written from; otherwise a buffer of its own (the
+ * caller frees both), the delta written again with every stack the value's
+ * closures brought. NULL on OOM. */
+ByteBuffer *b2v5_enc_ctx_finish_blob_map(B2V5EncodeCtx *ctx, ByteBuffer *logical);
 void b2v5_enc_ctx_free(B2V5EncodeCtx *ctx);
 /* Scope aliasing to the next root element of a segmented collection: forget
  * every container the previous element defined, so no REF reaches past the

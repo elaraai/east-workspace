@@ -346,6 +346,11 @@ export function get_location(): Location[] {
 /** Reserved sentinel: resolve(0n) returns [], the "no/unknown location" id. */
 export const UNKNOWN_LOC_ID: bigint = 0n;
 
+/** A stack's content, which a map holds once. */
+function stackKey(stack: readonly Location[]): string {
+  return stack.map(l => `${l.filename}|${l.line}|${l.column}`).join('\n');
+}
+
 export class SourceMap {
   /** Location stacks, indexed by Number(loc_id). stacks[0] is always []. */
   private readonly stacks: Location[][] = [[]];
@@ -356,13 +361,27 @@ export class SourceMap {
    *  Equal content returns the same id. Empty stack → UNKNOWN_LOC_ID. */
   intern_stack(stack: Location[]): bigint {
     if (stack.length === 0) return UNKNOWN_LOC_ID;
-    const key = stack.map(l => `${l.filename}|${l.line}|${l.column}`).join('\n');
+    const key = stackKey(stack);
     const existing = this.intern.get(key);
     if (existing !== undefined) return existing;
     const id = BigInt(this.stacks.length);
     this.stacks.push(stack);
     this.intern.set(key, id);
     return id;
+  }
+
+  /**
+   * The loc_id of a stack this map holds, found by its content, without adding
+   * it: what an encode reads another program's map by, since the map is that
+   * program's own.
+   *
+   * @param stack - The stack
+   * @returns Its loc_id, `UNKNOWN_LOC_ID` for the empty stack, or `undefined`
+   *   when the map holds no stack of that content
+   */
+  find(stack: readonly Location[]): bigint | undefined {
+    if (stack.length === 0) return UNKNOWN_LOC_ID;
+    return this.intern.get(stackKey(stack));
   }
 
   /** Resolve a loc_id to its stack. Returns [] for UNKNOWN_LOC_ID or out-of-range. */

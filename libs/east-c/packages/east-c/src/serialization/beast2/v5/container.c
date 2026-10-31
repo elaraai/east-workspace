@@ -561,27 +561,23 @@ static ByteBuffer *encode_v5(EastValue *value, EastType *type, int32_t codec_id,
 
     B2V5EncodeCtx ctx;
     b2v5_enc_ctx_init(&ctx, header_sm, false);
+    /* The value is encoded before the header is written: the blob's map is
+     * known once every closure in it has been. */
+    b2v5_enc_ctx_defer(&ctx);
 
     ByteBuffer *buf = byte_buffer_new(256);
-    if (!buf) {
+    ByteBuffer *logical = byte_buffer_new(256);
+    if (!buf || !logical) {
+        byte_buffer_free(buf);
+        byte_buffer_free(logical);
         b2v5_enc_ctx_free(&ctx);
         return NULL;
     }
-    byte_buffer_write_bytes(buf, BEAST2_MAGIC_V5, 8);
-    b2v5_write_type_section(buf, type);
-    b2v5_write_source_map_section(header_sm, buf);
 
     bool indexed = with_index && b2v5_is_segmented_root(type);
+    size_t n = 0;
     if (!indexed) {
-        ByteBuffer *logical = byte_buffer_new(256);
-        if (!logical) {
-            byte_buffer_free(buf);
-            b2v5_enc_ctx_free(&ctx);
-            return NULL;
-        }
         b2v5_encode_value(logical, value, type, &ctx);
-        if (!ctx.failed) b2v5_write_frame(buf, logical->data, logical->len, codec_id);
-        byte_buffer_free(logical);
     } else {
         /* Indexed layout: tag frame, one segment frame, terminator frame —
          * every indexed segment frame holds exactly varint(n) + n elements.
@@ -589,30 +585,13 @@ static ByteBuffer *encode_v5(EastValue *value, EastType *type, int32_t codec_id,
          * the identity map (refcount-1 roots are elided as usual). */
         b2v5_enc_ctx_register(&ctx, value);
         ctx.segment_base_def = 1;
-
-        static const uint8_t tag_new = B2V5_TAG_NEW;
-        static const uint8_t terminator = 0x00;
-        b2v5_write_frame(buf, &tag_new, 1, EAST_BEAST2_CODEC_NONE);
-
-        size_t n = 0;
         if (type->kind == EAST_TYPE_ARRAY)
             n = value->data.array.len;
         else if (type->kind == EAST_TYPE_SET)
             n = value->data.set.len;
         else
             n = value->data.dict.len;
-
-        size_t seg_offsets[1];
-        size_t seg_counts[1];
-        size_t seg_n = 0;
-
         if (n > 0) {
-            ByteBuffer *logical = byte_buffer_new(256);
-            if (!logical) {
-                byte_buffer_free(buf);
-                b2v5_enc_ctx_free(&ctx);
-                return NULL;
-            }
             write_varint(logical, (uint64_t)n);
             /* Aliasing is scoped per root element, as in the streaming
              * writer; the root stays registered across the resets. */
@@ -636,20 +615,39 @@ static ByteBuffer *encode_v5(EastValue *value, EastType *type, int32_t codec_id,
                                       &ctx);
                 }
             }
-            if (!ctx.failed) {
+        }
+    }
+
+    /* The blob's map: in the header when one was given, else in the first
+     * closure's delta, written again if a later closure brought stacks. */
+    ByteBuffer *framed = ctx.failed ? NULL : b2v5_enc_ctx_finish_blob_map(&ctx, logical);
+    if (!ctx.failed && !framed) east_builtin_error("beast2 v5 encode: out of memory");
+    if (framed) {
+        byte_buffer_write_bytes(buf, BEAST2_MAGIC_V5, 8);
+        b2v5_write_type_section(buf, type);
+        b2v5_write_source_map_section(header_sm ? b2v5_enc_ctx_blob_map(&ctx) : NULL, buf);
+        if (!indexed) {
+            b2v5_write_frame(buf, framed->data, framed->len, codec_id);
+        } else {
+            static const uint8_t tag_new = B2V5_TAG_NEW;
+            static const uint8_t terminator = 0x00;
+            b2v5_write_frame(buf, &tag_new, 1, EAST_BEAST2_CODEC_NONE);
+            size_t seg_offsets[1];
+            size_t seg_counts[1];
+            size_t seg_n = 0;
+            if (n > 0) {
                 seg_offsets[0] = buf->len;
                 seg_counts[0] = n;
                 seg_n = 1;
-                b2v5_write_frame(buf, logical->data, logical->len, codec_id);
+                b2v5_write_frame(buf, framed->data, framed->len, codec_id);
             }
-            byte_buffer_free(logical);
-        }
-        if (!ctx.failed) {
             b2v5_write_frame(buf, &terminator, 1, EAST_BEAST2_CODEC_NONE);
             b2v5_write_index_footer(buf, buf->len, seg_offsets, seg_counts, seg_n,
                                     !ctx.cross_segment_ref);
         }
     }
+    if (framed && framed != logical) byte_buffer_free(framed);
+    byte_buffer_free(logical);
 
     b2v5_enc_ctx_free(&ctx);
 

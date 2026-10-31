@@ -20,7 +20,9 @@
  * through the Writer as a manifest directory (`intakeBeast2For`).
  *
  * Collections are written as manifest directories, which a store takes in by
- * linking their files. The result (`UnitResultType`) records the outcome —
+ * linking their files. A collection that holds functions is written under the
+ * program's source map, so the closures in it keep their lines; any other's
+ * bytes never depend on where the program was written. The result (`UnitResultType`) records the outcome —
  * `ok`, or the failure's message and source locations — with where the time
  * went and the host's peak memory. east-c and east-py implement the same
  * protocol, and the conformance corpus holds the three to the same output
@@ -34,12 +36,13 @@
  * is library code and its CLI wires it to files.
  */
 
-import { type EastTypeValue, EastTypeValueType, isTypeValueEqual } from "./type_of_type.js";
+import { type EastTypeValue, EastTypeValueType, isDataTypeValue, isTypeValueEqual } from "./type_of_type.js";
 import { variant } from "./containers/variant.js";
 import { SortedMap } from "./containers/sortedmap.js";
 import { SortedSet } from "./containers/sortedset.js";
 import { compareFor } from "./comparison.js";
 import { EastError } from "./error.js";
+import type { SourceMap } from "./location.js";
 import type { PlatformFunction } from "./platform.js";
 import type { EastIR } from "./eastir.js";
 import { printTypeValue } from "./compile/runtime.js";
@@ -242,7 +245,7 @@ async function runWork(work: RunWork, host: Host): Promise<void> {
   });
   lap("load");
   const compiled = (program as EastIR<unknown[], unknown>).compile(platforms);
-  const output = openOutput(work.output, emitted ? signature.inputs.at(-1)! : signature.output, host);
+  const output = openOutput(work.output, emitted ? signature.inputs.at(-1)! : signature.output, host, program.source_map);
   lap("compile");
   try {
     const result = await compiled(...inputs, ...(output.emit !== undefined ? [output.emit] : []));
@@ -279,16 +282,18 @@ interface OutputSink {
  *   type otherwise
  * @param host - the unit's files, and the platforms a fold's functions
  *   compile with
+ * @param sourceMap - the program's source map, which a collection holding
+ *   functions is written under
  * @returns the sink
  * @throws {Error} When the emit parameter does not fit the kind, a fold's
  *   function does not fit the emitted type, or an output directory holds
  *   anything already.
  */
-function openOutput(output: UnitOutput, type: EastTypeValue, host: Host): OutputSink {
+function openOutput(output: UnitOutput, type: EastTypeValue, host: Host, sourceMap: SourceMap | null): OutputSink {
   const { io, platforms } = host;
   if (output.type === "value") {
     const path = output.value;
-    return { finish: (result) => writeValue(io, path, type, result) };
+    return { finish: (result) => writeValue(io, path, type, result, sourceMap) };
   }
   const arity = output.type === "dict" ? 2 : 1;
   const emitInputs = type.type === "Function" ? (type.value as { inputs: EastTypeValue[] }).inputs : null;
@@ -298,7 +303,8 @@ function openOutput(output: UnitOutput, type: EastTypeValue, host: Host): Output
   const element = emitInputs[0]!;
   switch (output.type) {
     case "array": {
-      const writer = new Beast2ManifestWriter(variant("Array", element) as EastTypeValue, manifestDirectory(io, `${outputDirectory(io, output.value)}/0.beast2`), { parallel: true });
+      const array = variant("Array", element) as EastTypeValue;
+      const writer = new Beast2ManifestWriter(array, manifestDirectory(io, `${outputDirectory(io, output.value)}/0.beast2`), { parallel: true, sourceMap: isDataTypeValue(array) ? null : sourceMap });
       return {
         emit: (value) => { writer.add(value); return null; },
         finish: () => writer.finish(),
@@ -318,7 +324,8 @@ function openOutput(output: UnitOutput, type: EastTypeValue, host: Host): Output
         ? loadUnitMergeFunction(io, output.value.merge.value, element, value, platforms, "the emit parameter")
         : undefined;
       const dir = outputDirectory(io, output.value.dir);
-      const sorter = new Beast2RunSorter(variant("Dict", { key: element, value }) as EastTypeValue, (run) => manifestDirectory(io, `${dir}/${run}.beast2`), { ...(merge !== undefined && { merge }), parallel: true });
+      const dict = variant("Dict", { key: element, value }) as EastTypeValue;
+      const sorter = new Beast2RunSorter(dict, (run) => manifestDirectory(io, `${dir}/${run}.beast2`), { ...(merge !== undefined && { merge }), parallel: true, sourceMap: isDataTypeValue(dict) ? null : sourceMap });
       return {
         emit: (key, entry) => { sorter.add([key, entry]); return null; },
         finish: () => sorter.finish(),
@@ -330,7 +337,7 @@ function openOutput(output: UnitOutput, type: EastTypeValue, host: Host): Output
       let acc = loadUnitInput(io, output.value.zero, element, host.fetch);
       return {
         emit: (value) => { acc = combine(acc, value); return null; },
-        finish: () => writeValue(io, path, element, acc),
+        finish: () => writeValue(io, path, element, acc, sourceMap),
       };
     }
   }
@@ -361,7 +368,7 @@ function mergeWork(work: MergeWork, host: Host): void {
       lap("compile");
       for (const part of work.parts) acc = combine(acc, loadUnitInput(io, part, type, host.fetch));
       lap("execute");
-      writeValue(io, output.value.path, type, acc);
+      writeValue(io, output.value.path, type, acc, null);
       lap("output");
       return;
     }
@@ -437,8 +444,11 @@ function loadCombineFunction(io: UnitIO, path: string, type: EastTypeValue | nul
  * @param path - the output's file
  * @param type - the value's type
  * @param value - the value
+ * @param sourceMap - the source map a collection holding functions is written
+ *   under, so the closures in it keep their lines; `null` writes them with
+ *   none
  */
-function writeValue(io: UnitIO, path: string, type: EastTypeValue, value: unknown): void {
+function writeValue(io: UnitIO, path: string, type: EastTypeValue, value: unknown, sourceMap: SourceMap | null): void {
   if (type.type !== "Array" && type.type !== "Set" && type.type !== "Dict") {
     io.write(path, encodeBeast2For(type)(value));
     return;
@@ -450,7 +460,7 @@ function writeValue(io: UnitIO, path: string, type: EastTypeValue, value: unknow
   const elements: Iterable<unknown> = type.type === "Array" ? value as unknown[]
     : type.type === "Set" ? (value instanceof SortedSet ? value : [...(value as Set<unknown>)].sort(cmp))
     : value instanceof SortedMap ? value.entries() : [...(value as Map<unknown, unknown>).entries()].sort((a, b) => cmp(a[0], b[0]));
-  const writer = new Beast2ManifestWriter(type, manifestDirectory(io, path), { parallel: true });
+  const writer = new Beast2ManifestWriter(type, manifestDirectory(io, path), { parallel: true, sourceMap: isDataTypeValue(type) ? null : sourceMap });
   for (const element of elements) writer.add(element);
   writer.finish();
 }

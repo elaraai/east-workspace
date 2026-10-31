@@ -31,7 +31,8 @@ typedef struct {
 } B2V5RunEntry;
 
 struct Beast2RunSorter {
-    EastType *type; /* retained: the Set or Dict type the runs hold */
+    EastType *type;    /* retained: the Set or Dict type the runs hold */
+    EastSourceMap *sm; /* one reference: the runs' header map, or NULL */
     int32_t codec;
     bool parallel;
     Beast2RunSink sink;
@@ -160,6 +161,20 @@ void east_beast2_run_sorter_set_parallel(Beast2RunSorter *s, bool parallel)
     if (s) s->parallel = parallel;
 }
 
+void east_beast2_run_sorter_set_source_map(Beast2RunSorter *s, EastSourceMap *source_map)
+{
+    /* Only before the first element: an element's bytes are written against
+     * the map its run's header holds. */
+    if (!s || s->count > 0 || s->runs > 0) return;
+    east_source_map_retain(source_map);
+    east_source_map_release(s->sm);
+    s->sm = source_map;
+    b2v5_enc_ctx_free(&s->ctx);
+    b2v5_enc_ctx_init(&s->ctx, source_map, true);
+    s->ctx.def_count = 1;
+    s->ctx.segment_base_def = 1;
+}
+
 size_t east_beast2_run_sorter_runs(const Beast2RunSorter *s)
 {
     return s ? s->runs : 0;
@@ -213,12 +228,14 @@ static bool run_out_add(Beast2RunSorter *s, B2V5RunOut *out, const uint8_t *elem
 }
 
 /* A Dict value, decoded from its bytes alone: a key holds no container, so
- * nothing in the value refers back into it. Returns NULL with the message
- * posted. */
+ * nothing in the value refers back into it. A closure in it resolves against
+ * the runs' map, which its bytes were written against, so it names the lines
+ * it was written at — and is written again as it was. Returns NULL with the
+ * message posted. */
 static EastValue *run_sorter_decode_value(Beast2RunSorter *s, const uint8_t *bytes, size_t len)
 {
     B2V5DecodeCtx ctx;
-    b2v5_dec_ctx_init(&ctx, NULL);
+    b2v5_dec_ctx_init(&ctx, s->sm);
     size_t offset = 0;
     EastValue *value = b2v5_decode_value(bytes, len, &offset, s->type->data.dict.value, &ctx);
     b2v5_dec_ctx_free(&ctx);
@@ -338,13 +355,14 @@ static bool run_sorter_open_run(Beast2RunSorter *s, B2V5RunOut *out)
             return false;
         }
         snprintf(path, need, "%s/%zu.beast2", s->dir, s->runs);
-        out->dir = east_beast2_manifest_writer_new_dir(s->type, s->codec, path);
+        out->dir =
+            east_beast2_manifest_writer_new_dir_with_source_map(s->type, s->codec, path, s->sm);
         free(path);
         if (!out->dir) return false;
         east_beast2_manifest_writer_set_parallel(out->dir, s->parallel);
         return true;
     }
-    out->blob = east_beast2_element_writer_new(s->type, s->codec);
+    out->blob = b2v5_element_writer_new(s->type, s->codec, s->sm);
     if (!out->blob) return false;
     east_beast2_element_writer_set_parallel(out->blob, s->parallel);
     return s->sink.open(s->sink.ctx, s->runs);
@@ -468,6 +486,7 @@ void east_beast2_run_sorter_free(Beast2RunSorter *s)
     byte_buffer_free(s->arena);
     byte_buffer_free(s->folded);
     b2v5_enc_ctx_free(&s->ctx);
+    east_source_map_release(s->sm);
     east_type_release(s->type);
     free(s->dir);
     free(s);
