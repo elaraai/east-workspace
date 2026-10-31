@@ -8,7 +8,7 @@ import {
     example, none, some, variant,
 } from "@elaraai/east";
 import {
-    Badge, Box, Configurator, Field, Format, HStack, Input, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Switch, Text, UIComponentType, VStack,
+    Badge, Box, Button, Configurator, Field, Format, HStack, Input, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Switch, Text, UIComponentType, VStack,
 } from "@elaraai/east-ui";
 import { Data, Record, Sheet } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -36,7 +36,8 @@ import e3 from "@elaraai/e3";
 //   narrows;
 // - `sheetLoose`, loose rows between the groups (#846);
 // - `sheetPaged`, a record read a window at a time;
-// - `sheetUpkeep`, the inspector's every field kind (#1220).
+// - `sheetUpkeep`, the inspector's every field kind (#1220);
+// - `sheetConflicts`, your edits meeting someone else's save, in one window.
 //
 // Its panes are optional props, and the examples show each combination:
 // none (`sheetBasic`, `sheetVariants`, `sheetStress`, `sheetLoose`,
@@ -1553,6 +1554,76 @@ export const sheetUpkeep = example({
                         ready={{ row: readyMachine }}
                     />
                 </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// sheetConflicts — your edits meeting someone else's save
+// ============================================================================
+
+/** The jobs the conflicts example edits, in a record of their own, so no other example's edits meet them. */
+export const sheetConflictJobs = e3.record("sheet_conflict_jobs", DictType(StringType, SheetJob), {
+    initial: new Map([
+        ["J-0001", { task: "Panel cutting", start: some(new Date("2026-10-12T00:00:00Z")), qty: some(48.0) }],
+        ["J-0002", { task: "Edge banding", start: some(new Date("2026-10-13T00:00:00Z")), qty: some(120.0) }],
+        ["J-0003", { task: "CNC routing", start: some(new Date("2026-10-14T00:00:00Z")), qty: some(48.0) }],
+        ["J-0004", { task: "Spray finish", start: some(new Date("2026-10-15T00:00:00Z")), qty: some(36.0) }],
+    ]),
+    mutations: (mutation) => ({
+        // The jobs' patch door — every Save commits through it.
+        patch: mutation.patch(),
+        // Someone else's save: every job's quantity 12 more and its start a day later, its task as it was.
+        elsewhere: mutation.reduce(East.function([DictType(StringType, SheetJob)], DictType(StringType, SheetJob), (_$, jobs) =>
+            jobs.map((_$2, job) => ({
+                task: job.task,
+                start: job.start.match({
+                    some: (_$3, at) => East.value(some(at.addDays(1n)), OptionType(DateTimeType)),
+                    none: (_$3) => East.value(none, OptionType(DateTimeType)),
+                }),
+                qty: job.qty.match({
+                    some: (_$3, n) => East.value(some(n.add(12.0)), OptionType(FloatType)),
+                    none: (_$3) => East.value(none, OptionType(FloatType)),
+                }),
+            })))),
+    }),
+});
+
+/**
+ * Your edits meeting someone else's save, in one window: edit, then press
+ * Someone else saves, which saves another person's change to the same jobs —
+ * every Qty 12 more and every Start a day later. A Qty or a Start you changed
+ * too is a conflict, waiting for you to choose; a Task you changed combines
+ * with theirs. Each press saves their change again.
+ */
+export const sheetConflicts = example({
+    keywords: ["Sheet", "conflict", "conflicts", "combine", "someone else", "carry over", "Choose", "record", "Record.bind", "mutate", "Button", "patch"],
+    description: "Your edits meeting someone else's save, in one window — edit a Qty or a Start, then press Someone else saves, which saves another person's change to the same jobs (every Qty 12 more, every Start a day later), so yours conflict and wait to be chosen; a Task you change combines with theirs",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const jobs = $.let(Record.bind(sheetConflictJobs, ["patch"]));
+            const others = $.let(Record.bind(sheetConflictJobs, ["elsewhere"]));
+            const theirs = $.const(East.function([], NullType, ($) => { $(others.mutate.elsewhere()); }));
+            return (
+                <VStack gap="3" align="stretch">
+                    <HStack gap="3">
+                        <Button variant="outline" onClick={theirs} loading={others.mutate.pending()}>Someone else saves</Button>
+                        <Text color="fg.muted">Their change: every Qty 12 more, every Start a day later</Text>
+                    </HStack>
+                    <Box height="560px">
+                        <Sheet
+                            name="conflicts"
+                            record={jobs}
+                            columns={{
+                                task:  Sheet.column.text(SheetJob, { header: "Task", width: "240px" }),
+                                start: Sheet.column.date(SheetJob, { header: "Start", width: "96px" }),
+                                qty:   Sheet.column.quantity(SheetJob, { header: "Qty", width: "96px" }),
+                            }}
+                        />
+                    </Box>
+                </VStack>
             );
         }}</Reactive>
     )),

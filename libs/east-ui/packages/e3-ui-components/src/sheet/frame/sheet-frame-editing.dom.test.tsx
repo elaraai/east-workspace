@@ -234,6 +234,21 @@ test("a Save another write overtakes on the same cell is a conflict: the draft s
     expect((await readJobs()).get("J-0001")!.task).toBe("Panel cutting, walnut");
 });
 
+test("sheetConflicts: a Qty typed here, then Someone else saves, is one conflict on its cell, named by the row; the Start only they changed is carried in beside it", async () => {
+    const { container } = await h.mount(ex.sheetConflicts);
+    const started = cells(container, "start")[0]!.textContent;
+    await typeInto(cells(container, "qty")[0]!, "50");
+    await press(within(container).getByRole("button", { name: "Someone else saves" }));
+    const [card, ...more] = await conflictCards(container);
+    expect(more).toEqual([]);
+    expect(card!.item).toBe("Panel cutting");
+    expect([card!.yours, card!.theirs?.split(",").slice(0, 2).join(",")]).toEqual(["Yours, 50", "Theirs, 60"]);
+    // The cell wears the halo; the job's start, which only they changed, reads theirs and holds no conflict.
+    expect([cells(container, "qty")[0]!.hasAttribute("data-conflict"), cells(container, "start")[0]!.hasAttribute("data-conflict")]).toEqual([true, false]);
+    expect(cells(container, "start")[0]!.textContent).not.toBe(started);
+    expect(toolbar(container).getByRole("button", { name: "Save" }).getAttribute("aria-disabled")).toBe("true");
+});
+
 test("a refusal keeps every draft, with its banner and the reason; a revised draft may be saved again (SB28)", async () => {
     // The edge bander is booked that week: its jobs' patch door refuses a job that bands both edges.
     const { container } = await h.mount(bookedJobs);
