@@ -33,6 +33,37 @@ void b2v5_enc_ctx_free(B2V5EncodeCtx *ctx)
     ctx->touched = NULL;
     ctx->touched_count = 0;
     ctx->touched_cap = 0;
+    for (size_t i = 0; ctx->translated && i <= ctx->translated_mask; i++) {
+        if (!ctx->translated[i].ir) continue;
+        east_value_release(ctx->translated[i].ir);
+        east_value_release(ctx->translated[i].translated);
+    }
+    free(ctx->translated);
+    ctx->translated = NULL;
+    ctx->translated_mask = 0;
+    ctx->translated_count = 0;
+    for (size_t i = 0; i < ctx->translations_count; i++) {
+        east_source_map_release(ctx->translations[i]->map);
+        free(ctx->translations[i]->ids);
+        free(ctx->translations[i]);
+    }
+    free(ctx->translations);
+    ctx->translations = NULL;
+    ctx->translations_count = 0;
+    ctx->translations_cap = 0;
+    free(ctx->stack_index);
+    ctx->stack_index = NULL;
+    ctx->stack_index_mask = 0;
+    ctx->stack_index_count = 0;
+    ctx->stacks_indexed = 0;
+    east_source_map_release(ctx->merged);
+    ctx->merged = NULL;
+}
+
+void b2v5_enc_ctx_defer(B2V5EncodeCtx *ctx)
+{
+    ctx->deferred = true;
+    ctx->blob_map_at = ctx->sm ? B2V5_BLOB_MAP_HEADER : B2V5_BLOB_MAP_NOWHERE;
 }
 
 /* Records that slot `i` was filled, for the next element reset. */
@@ -181,6 +212,517 @@ static bool b2v5_enter_container(B2V5EncodeCtx *ctx)
     bool saved = ctx->shared_inline;
     ctx->shared_inline = false;
     return saved;
+}
+
+/* ================================================================== */
+/*  Closures' source maps                                               */
+/* ================================================================== */
+
+/* A blob has one map — its header's stacks, then each closure's delta — which
+ * every closure decoded from it resolves against. A closure carries its IR
+ * and its program's whole map: one of the stream's map writes its loc_ids as
+ * they stand; one of another map is written with each where its stack stands
+ * in the blob's map, found by content, the stacks the blob lacks added to it.
+ * A self-contained stream writes its header before its elements, so a stack
+ * its header lacks is written as 0, no location: a closure names its own
+ * lines or none, never another program's. The mirror of TypeScript's
+ * v5/codec.ts, byte for byte. */
+
+/* A stack of the blob's map, by content. */
+struct B2V5StackSlot {
+    uint64_t hash;
+    size_t id; /* 0: an empty slot */
+};
+
+/* A map's stacks, the empty sentinel included: a fresh map holds none until
+ * its first stack lands. */
+static size_t sm_size(const EastSourceMap *sm)
+{
+    return sm && sm->num_stacks > 0 ? sm->num_stacks : 1;
+}
+
+/* The blob's map: the stream's, or the copy closures of other maps added
+ * their stacks to. */
+static EastSourceMap *blob_map(const B2V5EncodeCtx *ctx)
+{
+    return ctx->merged ? ctx->merged : ctx->sm;
+}
+
+EastSourceMap *b2v5_enc_ctx_blob_map(const B2V5EncodeCtx *ctx)
+{
+    return blob_map(ctx);
+}
+
+static uint64_t fnv_mix(uint64_t h, uint8_t byte)
+{
+    return (h ^ byte) * 0x100000001b3ULL;
+}
+
+static uint64_t stack_hash(const EastLocation *frames, size_t count)
+{
+    uint64_t h = 0xcbf29ce484222325ULL;
+    for (size_t i = 0; i < count; i++) {
+        for (const char *p = frames[i].filename ? frames[i].filename : ""; *p; p++)
+            h = fnv_mix(h, (uint8_t)*p);
+        h = fnv_mix(h, 0);
+        for (int b = 0; b < 8; b++)
+            h = fnv_mix(h, (uint8_t)((uint64_t)frames[i].line >> (8 * b)));
+        for (int b = 0; b < 8; b++)
+            h = fnv_mix(h, (uint8_t)((uint64_t)frames[i].column >> (8 * b)));
+    }
+    return h;
+}
+
+static bool stack_equal(const EastLocation *a, size_t na, const EastLocation *b, size_t nb)
+{
+    if (na != nb) return false;
+    for (size_t i = 0; i < na; i++) {
+        if (a[i].line != b[i].line || a[i].column != b[i].column) return false;
+        if (strcmp(a[i].filename ? a[i].filename : "", b[i].filename ? b[i].filename : "") != 0)
+            return false;
+    }
+    return true;
+}
+
+/* The id of the blob's stack of this content: 0 for the empty stack, -1 when
+ * the blob holds none — the first of two of one content, as TypeScript's map,
+ * which holds each content once, gives it. */
+static int64_t stack_find(const B2V5EncodeCtx *ctx, const EastLocation *frames, size_t count,
+                          uint64_t hash)
+{
+    if (count == 0) return 0;
+    const EastSourceMap *map = blob_map(ctx);
+    if (!map || !ctx->stack_index) return -1;
+    size_t j = (size_t)hash & ctx->stack_index_mask;
+    while (ctx->stack_index[j].id) {
+        const struct B2V5StackSlot *s = &ctx->stack_index[j];
+        if (s->hash == hash &&
+            stack_equal(map->stacks[s->id], map->stack_counts[s->id], frames, count))
+            return (int64_t)s->id;
+        j = (j + 1) & ctx->stack_index_mask;
+    }
+    return -1;
+}
+
+static bool stack_index_insert(B2V5EncodeCtx *ctx, uint64_t hash, size_t id)
+{
+    if (!ctx->stack_index || (ctx->stack_index_count + 1) * 2 > ctx->stack_index_mask + 1) {
+        size_t cap = ctx->stack_index ? (ctx->stack_index_mask + 1) * 2 : 64;
+        struct B2V5StackSlot *slots = calloc(cap, sizeof(*slots));
+        if (!slots) return false;
+        for (size_t i = 0; ctx->stack_index && i <= ctx->stack_index_mask; i++) {
+            if (!ctx->stack_index[i].id) continue;
+            size_t j = (size_t)ctx->stack_index[i].hash & (cap - 1);
+            while (slots[j].id)
+                j = (j + 1) & (cap - 1);
+            slots[j] = ctx->stack_index[i];
+        }
+        free(ctx->stack_index);
+        ctx->stack_index = slots;
+        ctx->stack_index_mask = cap - 1;
+    }
+    size_t j = (size_t)hash & ctx->stack_index_mask;
+    while (ctx->stack_index[j].id)
+        j = (j + 1) & ctx->stack_index_mask;
+    ctx->stack_index[j].hash = hash;
+    ctx->stack_index[j].id = id;
+    ctx->stack_index_count++;
+    return true;
+}
+
+/* Indexes the stacks of the blob's map not yet indexed, each content once.
+ * False on OOM. */
+static bool stack_index_catch_up(B2V5EncodeCtx *ctx)
+{
+    const EastSourceMap *map = blob_map(ctx);
+    size_t size = sm_size(map);
+    for (size_t id = ctx->stacks_indexed > 1 ? ctx->stacks_indexed : 1; id < size; id++) {
+        size_t count = map->stack_counts[id];
+        if (count == 0) continue;
+        uint64_t hash = stack_hash(map->stacks[id], count);
+        if (stack_find(ctx, map->stacks[id], count, hash) < 0 && !stack_index_insert(ctx, hash, id))
+            return false;
+    }
+    ctx->stacks_indexed = size;
+    return true;
+}
+
+/* Appends a copy of a stack to `sm`, which gives it its next id. False on
+ * OOM, `sm` as it was. */
+static bool source_map_append(EastSourceMap *sm, const EastLocation *frames, size_t count)
+{
+    size_t n = sm_size(sm);
+    EastLocation *copy = count > 0 ? calloc(count, sizeof(*copy)) : NULL;
+    if (count > 0 && !copy) return false;
+    for (size_t i = 0; i < count; i++) {
+        copy[i].filename = strdup(frames[i].filename ? frames[i].filename : "");
+        copy[i].line = frames[i].line;
+        copy[i].column = frames[i].column;
+        if (!copy[i].filename) {
+            for (size_t j = 0; j < i; j++)
+                free(copy[j].filename);
+            free(copy);
+            return false;
+        }
+    }
+    EastLocation **stacks = realloc(sm->stacks, (n + 1) * sizeof(*stacks));
+    if (stacks) sm->stacks = stacks;
+    size_t *counts = stacks ? realloc(sm->stack_counts, (n + 1) * sizeof(*counts)) : NULL;
+    if (counts) sm->stack_counts = counts;
+    if (!stacks || !counts) {
+        for (size_t j = 0; j < count; j++)
+            free(copy[j].filename);
+        free(copy);
+        return false;
+    }
+    if (sm->num_stacks == 0) {
+        sm->stacks[0] = NULL;
+        sm->stack_counts[0] = 0;
+    }
+    sm->stacks[n] = copy;
+    sm->stack_counts[n] = count;
+    sm->num_stacks = n + 1;
+    return true;
+}
+
+/* A map of the same stacks under the same ids, which an encode may add to.
+ * NULL on OOM. */
+static EastSourceMap *source_map_copy(const EastSourceMap *sm)
+{
+    EastSourceMap *copy = east_source_map_new();
+    if (!copy) return NULL;
+    for (size_t id = 1; id < sm_size(sm); id++) {
+        if (!source_map_append(copy, sm->stacks[id], sm->stack_counts[id])) {
+            east_source_map_release(copy);
+            return NULL;
+        }
+    }
+    return copy;
+}
+
+/* How a closure's loc_ids stand in the blob's map: NULL when they stand
+ * where they are, as a closure of the stream's map's do; else the
+ * translation, made once per map. A stack the blob holds is found by its
+ * content. One it lacks is added, in its map's order, unless the stream is
+ * self-contained: a segment decoded on its own sees only the header's
+ * stacks, so the id is written as 0. A closure with no map was compiled from
+ * a program whose map held no stack — TypeScript's empty map, whose loc_ids
+ * stand as they are. NULL with ctx->failed set on OOM. */
+static const B2V5Translation *blob_locations_of(B2V5EncodeCtx *ctx, EastSourceMap *sm)
+{
+    if (!sm || sm == ctx->sm) return NULL;
+    for (size_t i = 0; i < ctx->translations_count; i++)
+        if (ctx->translations[i]->map == sm)
+            return ctx->translations[i]->ids ? ctx->translations[i] : NULL;
+
+    if (ctx->translations_count == ctx->translations_cap) {
+        size_t cap = ctx->translations_cap ? ctx->translations_cap * 2 : 4;
+        B2V5Translation **grown = realloc(ctx->translations, cap * sizeof(*grown));
+        if (!grown) goto oom;
+        ctx->translations = grown;
+        ctx->translations_cap = cap;
+    }
+    B2V5Translation *t = calloc(1, sizeof(*t));
+    size_t n = sm_size(sm);
+    int64_t *ids = calloc(n, sizeof(*ids));
+    if (!t || !ids || !stack_index_catch_up(ctx)) {
+        free(t);
+        free(ids);
+        goto oom;
+    }
+    bool identity = true;
+    for (size_t id = 1; id < n; id++) {
+        const EastLocation *frames = sm->stacks[id];
+        size_t count = sm->stack_counts[id];
+        uint64_t hash = stack_hash(frames, count);
+        int64_t held = stack_find(ctx, frames, count, hash);
+        if (held < 0 && (ctx->self_contained || !ctx->sm)) {
+            held = 0;
+        } else if (held < 0) {
+            if (!ctx->merged) ctx->merged = source_map_copy(ctx->sm);
+            held = ctx->merged ? (int64_t)sm_size(ctx->merged) : -1;
+            if (held < 0 || !source_map_append(ctx->merged, frames, count) ||
+                !stack_index_insert(ctx, hash, (size_t)held)) {
+                free(t);
+                free(ids);
+                goto oom;
+            }
+            ctx->stacks_indexed = sm_size(ctx->merged);
+        }
+        ids[id] = held;
+        if (held != (int64_t)id) identity = false;
+    }
+    t->map = sm;
+    east_source_map_retain(sm);
+    if (identity) {
+        free(ids);
+    } else {
+        t->ids = ids;
+        t->n = n;
+    }
+    ctx->translations[ctx->translations_count++] = t;
+    return t->ids ? t : NULL;
+
+oom:
+    east_builtin_error("beast2 v5 encode: out of memory placing a closure's source map");
+    ctx->failed = true;
+    return NULL;
+}
+
+/* Where a closure's id stands in the blob's map. */
+static int64_t translate_loc_id(const B2V5Translation *t, const EastValue *id)
+{
+    int64_t v = id && id->kind == EAST_VAL_INTEGER ? id->data.integer : 0;
+    return v > 0 && (size_t)v < t->n ? t->ids[v] : 0;
+}
+
+/* The nodes one translation has copied, by the node: a node the IR shares —
+ * a parameter its body reads — stays shared. */
+typedef struct {
+    const EastValue *node;
+    EastValue *copy; /* one reference */
+} B2V5NodeCopy;
+
+typedef struct {
+    B2V5NodeCopy *slots;
+    size_t mask;
+    size_t count;
+} B2V5NodeCopies;
+
+static EastValue *node_copies_find(const B2V5NodeCopies *done, const EastValue *node)
+{
+    if (!done->slots) return NULL;
+    size_t j = b2_hash_ptr((uintptr_t)node) & done->mask;
+    while (done->slots[j].node) {
+        if (done->slots[j].node == node) return done->slots[j].copy;
+        j = (j + 1) & done->mask;
+    }
+    return NULL;
+}
+
+static bool node_copies_insert(B2V5NodeCopies *done, const EastValue *node, EastValue *copy)
+{
+    if (!done->slots || (done->count + 1) * 2 > done->mask + 1) {
+        size_t cap = done->slots ? (done->mask + 1) * 2 : 64;
+        B2V5NodeCopy *slots = calloc(cap, sizeof(*slots));
+        if (!slots) return false;
+        for (size_t i = 0; done->slots && i <= done->mask; i++) {
+            if (!done->slots[i].node) continue;
+            size_t j = b2_hash_ptr((uintptr_t)done->slots[i].node) & (cap - 1);
+            while (slots[j].node)
+                j = (j + 1) & (cap - 1);
+            slots[j] = done->slots[i];
+        }
+        free(done->slots);
+        done->slots = slots;
+        done->mask = cap - 1;
+    }
+    size_t j = b2_hash_ptr((uintptr_t)node) & done->mask;
+    while (done->slots[j].node)
+        j = (j + 1) & done->mask;
+    done->slots[j].node = node;
+    done->slots[j].copy = copy;
+    east_value_retain(copy);
+    done->count++;
+    return true;
+}
+
+static void node_copies_free(B2V5NodeCopies *done)
+{
+    for (size_t i = 0; done->slots && i <= done->mask; i++)
+        if (done->slots[i].node) east_value_release(done->slots[i].copy);
+    free(done->slots);
+}
+
+static EastValue *copy_ir_child(B2V5NodeCopies *done, EastValue *item, const B2V5Translation *t);
+
+/* A struct's copy, its loc_id where the translation puts it: a node's
+ * fields, or a struct inside a node — a label, a case, a field. A node keeps
+ * its type, its type parameters and a literal's value as they stand: types
+ * hold no locations, and a literal is data. NULL on OOM. */
+static EastValue *copy_ir_struct(B2V5NodeCopies *done, EastValue *s, const B2V5Translation *t,
+                                 bool node, bool literal)
+{
+    size_t nf = s->data.struct_.num_fields;
+    const char **names = malloc((nf ? nf : 1) * sizeof(*names));
+    EastValue **values = calloc(nf ? nf : 1, sizeof(*values));
+    bool ok = names && values;
+    for (size_t i = 0; ok && i < nf; i++) {
+        names[i] = east_struct_field_name(s, i);
+        EastValue *field = s->data.struct_.field_values[i];
+        if (strcmp(names[i], "loc_id") == 0) {
+            values[i] = east_integer(translate_loc_id(t, field));
+        } else if (node &&
+                   (strcmp(names[i], "type") == 0 || strcmp(names[i], "type_parameters") == 0 ||
+                    (literal && strcmp(names[i], "value") == 0))) {
+            east_value_retain(field);
+            values[i] = field;
+        } else {
+            values[i] = copy_ir_child(done, field, t);
+        }
+        ok = values[i] != NULL;
+    }
+    EastValue *copy = ok ? east_struct_new_owned(names, values, nf, s->data.struct_.type) : NULL;
+    if (!copy && values) {
+        for (size_t i = 0; i < nf; i++)
+            if (values[i]) east_value_release(values[i]);
+    }
+    free(names);
+    free(values);
+    return copy;
+}
+
+/* A node's copy, made once per node. NULL on OOM. */
+static EastValue *copy_ir_node(B2V5NodeCopies *done, EastValue *node, const B2V5Translation *t)
+{
+    EastValue *hit = node_copies_find(done, node);
+    if (hit) {
+        east_value_retain(hit);
+        return hit;
+    }
+    EastValue *fields = node->data.variant.value;
+    if (!fields || fields->kind != EAST_VAL_STRUCT) {
+        east_value_retain(node);
+        return node;
+    }
+    bool literal = strcmp(east_variant_case_name(node), "Value") == 0;
+    EastValue *copied = copy_ir_struct(done, fields, t, true, literal);
+    if (!copied) return NULL;
+    EastValue *copy =
+        node->data.variant.case_idx != SIZE_MAX
+            ? east_variant_new_idx(node->data.variant.case_idx, copied, node->data.variant.type)
+            : east_variant_new(east_variant_case_name(node), copied, node->data.variant.type);
+    east_value_release(copied);
+    if (copy && !node_copies_insert(done, node, copy)) {
+        east_value_release(copy);
+        copy = NULL;
+    }
+    return copy;
+}
+
+static EastValue *copy_ir_child(B2V5NodeCopies *done, EastValue *item, const B2V5Translation *t)
+{
+    switch (item->kind) {
+    case EAST_VAL_ARRAY: {
+        size_t n = item->data.array.len;
+        EastValue *arr = east_array_new_with_capacity(item->data.array.elem_type, n);
+        for (size_t i = 0; arr && i < n; i++) {
+            EastValue *copy = copy_ir_child(done, item->data.array.items[i], t);
+            if (!copy) {
+                east_value_release(arr);
+                return NULL;
+            }
+            east_array_push(arr, copy);
+            east_value_release(copy);
+        }
+        return arr;
+    }
+    case EAST_VAL_VARIANT:
+        return copy_ir_node(done, item, t);
+    case EAST_VAL_STRUCT:
+        return copy_ir_struct(done, item, t, false, false);
+    default:
+        east_value_retain(item);
+        return item;
+    }
+}
+
+/* A closure's IR with its loc_ids where its stacks stand in the blob's map,
+ * made once per IR and translation (borrowed: the context holds it). NULL
+ * with ctx->failed set on OOM. */
+static EastValue *translated_ir(B2V5EncodeCtx *ctx, EastValue *ir, const B2V5Translation *t)
+{
+    uintptr_t key = (uintptr_t)ir ^ ((uintptr_t)t << 1);
+    if (ctx->translated) {
+        size_t j = b2_hash_ptr(key) & ctx->translated_mask;
+        while (ctx->translated[j].ir) {
+            if (ctx->translated[j].ir == ir && ctx->translated[j].translation == t)
+                return ctx->translated[j].translated;
+            j = (j + 1) & ctx->translated_mask;
+        }
+    }
+    if (!ctx->translated || (ctx->translated_count + 1) * 2 > ctx->translated_mask + 1) {
+        size_t cap = ctx->translated ? (ctx->translated_mask + 1) * 2 : 64;
+        B2V5TranslatedIR *slots = calloc(cap, sizeof(*slots));
+        if (!slots) goto oom;
+        for (size_t i = 0; ctx->translated && i <= ctx->translated_mask; i++) {
+            if (!ctx->translated[i].ir) continue;
+            uintptr_t k =
+                (uintptr_t)ctx->translated[i].ir ^ ((uintptr_t)ctx->translated[i].translation << 1);
+            size_t j = b2_hash_ptr(k) & (cap - 1);
+            while (slots[j].ir)
+                j = (j + 1) & (cap - 1);
+            slots[j] = ctx->translated[i];
+        }
+        free(ctx->translated);
+        ctx->translated = slots;
+        ctx->translated_mask = cap - 1;
+    }
+    B2V5NodeCopies done = {0};
+    EastValue *copy = copy_ir_node(&done, ir, t);
+    node_copies_free(&done);
+    if (!copy) goto oom;
+    size_t j = b2_hash_ptr(key) & ctx->translated_mask;
+    while (ctx->translated[j].ir)
+        j = (j + 1) & ctx->translated_mask;
+    east_value_retain(ir);
+    ctx->translated[j] = (B2V5TranslatedIR){ir, t, copy};
+    ctx->translated_count++;
+    return copy;
+
+oom:
+    east_builtin_error("beast2 v5 encode: out of memory placing a closure's source map");
+    ctx->failed = true;
+    return NULL;
+}
+
+/* Writes a closure's source-map delta. A self-contained stream writes none.
+ * A deferred encode writes its first closure's — every stack the blob's map
+ * holds so far — and none after it, the stacks later closures bring being
+ * left to b2v5_enc_ctx_finish_blob_map; with a header holding the map, none
+ * at all. Any other stream writes the stacks of the blob's map not yet
+ * written. */
+static void write_stacks_delta(B2V5EncodeCtx *ctx, ByteBuffer *buf)
+{
+    EastSourceMap *map = blob_map(ctx);
+    size_t size = sm_size(map);
+    if (ctx->self_contained || (ctx->deferred && ctx->blob_map_at != B2V5_BLOB_MAP_NOWHERE)) {
+        write_varint(buf, 0);
+        return;
+    }
+    if (ctx->deferred) {
+        ctx->blob_map_start = buf->len;
+        write_varint(buf, (uint64_t)(size - 1));
+        if (map) b2v5_write_stacks(buf, map, 1, size);
+        ctx->blob_map_end = buf->len;
+        ctx->blob_map_written = size;
+        ctx->blob_map_at = B2V5_BLOB_MAP_DELTA;
+        ctx->sm_emitted = size;
+        return;
+    }
+    if (size <= ctx->sm_emitted) {
+        write_varint(buf, 0);
+        return;
+    }
+    write_varint(buf, (uint64_t)(size - ctx->sm_emitted));
+    b2v5_write_stacks(buf, map, ctx->sm_emitted, size);
+    ctx->sm_emitted = size;
+}
+
+ByteBuffer *b2v5_enc_ctx_finish_blob_map(B2V5EncodeCtx *ctx, ByteBuffer *logical)
+{
+    EastSourceMap *map = blob_map(ctx);
+    size_t size = sm_size(map);
+    if (ctx->blob_map_at != B2V5_BLOB_MAP_DELTA || !map || size == ctx->blob_map_written)
+        return logical;
+    ByteBuffer *out = byte_buffer_new(logical->len + 256);
+    if (!out) return NULL;
+    byte_buffer_write_bytes(out, logical->data, ctx->blob_map_start);
+    write_varint(out, (uint64_t)(size - 1));
+    b2v5_write_stacks(out, map, 1, size);
+    byte_buffer_write_bytes(out, logical->data + ctx->blob_map_end,
+                            logical->len - ctx->blob_map_end);
+    return out;
 }
 
 /* ================================================================== */
@@ -388,30 +930,32 @@ void b2v5_encode_value(ByteBuffer *buf, EastValue *value, EastType *type, B2V5En
         if (!east_ir_type) east_type_of_type_init();
         bool outer = b2v5_enter_inline(ctx, value);
 
-        /* Source-map delta: adopt the stream map from the first function that
-         * carries one, then emit any stacks not yet on the wire. */
-        if (fn->source_map && !ctx->sm) {
+        /* A stream with no map yet takes the first closure's that carries one,
+         * whose stacks then stand where they are; any other closure's loc_ids
+         * are written where its stacks stand in the blob's map. */
+        if (fn->source_map && !ctx->sm && !ctx->self_contained) {
             ctx->sm = fn->source_map;
             ctx->sm_emitted = 1; /* only the implicit empty sentinel is "on the wire" */
         }
-        if (ctx->sm && fn->source_map == ctx->sm && ctx->sm->num_stacks > ctx->sm_emitted) {
-            if (ctx->self_contained) {
-                east_builtin_error("beast2 v5: self-contained streams cannot add function "
-                                   "source maps mid-stream; encode without self-contained "
-                                   "segments or strip source maps");
-                ctx->failed = true;
-                return;
-            }
-            write_varint(buf, (uint64_t)(ctx->sm->num_stacks - ctx->sm_emitted));
-            b2v5_write_stacks(buf, ctx->sm, ctx->sm_emitted, ctx->sm->num_stacks);
-            ctx->sm_emitted = ctx->sm->num_stacks;
-        } else {
-            write_varint(buf, 0);
-        }
+        const B2V5Translation *translation = blob_locations_of(ctx, fn->source_map);
+        if (ctx->failed) return;
+        write_stacks_delta(ctx, buf);
 
         /* IR as a plain EastValue variant tree, then captures (same shapes as
-         * the v4 encoder — Function struct: type=0, loc_id=1, captures=2). */
-        b2v5_encode_value(buf, fn->source_ir, east_ir_type, ctx);
+         * the v4 encoder — Function struct: type=0, loc_id=1, captures=2). A
+         * translated IR is written for every closure of its IR and map alike,
+         * so its containers are tracked: the next closure REFs them, as it
+         * would its own IR's. */
+        if (translation) {
+            EastValue *ir = translated_ir(ctx, fn->source_ir, translation);
+            if (!ir) return;
+            bool inside = ctx->shared_inline;
+            ctx->shared_inline = true;
+            b2v5_encode_value(buf, ir, east_ir_type, ctx);
+            ctx->shared_inline = inside;
+        } else {
+            b2v5_encode_value(buf, fn->source_ir, east_ir_type, ctx);
+        }
         if (ctx->failed) return;
 
         EastValue *fn_struct = fn->source_ir->data.variant.value;

@@ -335,17 +335,26 @@ const shout = e3.task('shout', [greet.output],
 - **An East function written in python, or in another node package**:
   `East.importFunction(pkg, name, FunctionType(...))` in the body. `e3.export`
   resolves it and embeds its IR, so the task is pure IR on any runner, its
-  locations kept so an error or a profile names the function's own lines. A uv
+  locations kept so an error or a profile names the function's own lines (so
+  moving them re-runs the task: **Caching**, below). A uv
   workspace member is found by name in `uv.lock`, and its root module's
-  `east_functions` dict is exported with `east-py export-functions` (from the
-  project's `.venv`, else `EAST_PY` or PATH); an npm member is found by its
-  `package.json` name, and its built `./functions` export's `eastFunctions` is
-  exported with `east-node export-functions` (`EAST_NODE`). A package built
-  elsewhere is passed as its manifest — `{ functions: [...] }` / `--functions` —
-  which wins. The declared type must equal the exported one exactly, and each
-  platform function it calls must be provided by the task's runner, by name or
-  by family (`east-py-std` ≡ `@elaraai/east-node-std` ≡ `east-c-std`;
-  `east-py-io` ≡ `@elaraai/east-node-io`).
+  `east_functions` dict is exported with `east-py export-functions` (`EAST_PY`
+  when set, else the project's `.venv`, else PATH); an npm member is found by
+  its `package.json` name, and its built `./functions` export's `eastFunctions`
+  is exported with `east-node export-functions` (`EAST_NODE`). Each member is
+  exported in one process however many tasks import from it, the members side
+  by side, as many at once as the export has cores (a deploy's `-j`,
+  `e3.export`'s `cores`). A python member's manifests are kept in
+  `node_modules/.cache/e3/functions` under the directory the export runs in,
+  keyed on its sources and those of the local packages it depends on, the
+  workspace's `uv.lock` and `pyproject.toml`, the east-py exporting it and the
+  functions and providers each manifest is for, so a redeploy whose python has
+  not changed runs no export; deleting the directory clears it, and a node
+  member is exported every time. A package built elsewhere is passed as its
+  manifest — `{ functions: [...] }` / `--functions` — which wins. The declared
+  type must equal the exported one exactly, and each platform function it calls
+  must be provided by the task's runner, by name or by family (`east-py-std` ≡
+  `@elaraai/east-node-std` ≡ `east-c-std`; `east-py-io` ≡ `@elaraai/east-node-io`).
 - **Environments** are derived at export from each `{ custom }` platform: the
   providing workspace package's closure (`pyproject.toml` + `uv.lock` + sdists,
   or `package.json` + lockfile + `npm pack`) is captured into the package and
@@ -501,7 +510,7 @@ const change = e3.streamTask('change', {
 | `e3.customTask(name, inputs, outputType, command, { environment? })` | A task that runs a bash script: `command($, inputPaths, outputPath)` builds it from the staged beast2 input files, and it writes the output as a beast2 file. |
 | `e3.function(name, fn, { runner?, environment? })` | A named function, called by name with arguments (`e3 call`, the API) and its result returned inline: not in the dataflow, and a call persists nothing. An argument is a value, or in a call through a workspace one of its datasets, read where it is stored. A server bounds a call by a timeout and a 1 MiB result, so long work belongs in a task. A `custom` runner must speak the runner CLI (`<command> -i <arg>… -o <out> <ir>`). |
 | `e3.package(name, version, ...items)` | Bundles the items and everything they depend on — pass the last tasks, records and functions; a package passed in contributes its contents. The name and version must be valid file names. |
-| `e3.export(pkg, zipPath, { functions? })` | Writes the package zip, resolving every `East.importFunction` (a workspace package is exported by the export itself; `functions` lists manifests built elsewhere). |
+| `e3.export(pkg, zipPath, { functions?, cores? })` | Writes the package zip, resolving every `East.importFunction` (a workspace package is exported by the export itself, `cores` packages at once, the CPUs by default; `functions` lists manifests built elsewhere). |
 
 ```typescript
 const process = e3.customTask('process', [rawData], StringType,
@@ -815,7 +824,7 @@ a task is `<ws>.<task>` and a mutation `<record>.<mutation>`.
 | `e3 workspace copy [repo] <from> <to>` | Make `<to>` what `<from>` is now — its package and every input, record and task output, so nothing runs again — made, or replaced whole with its runs. It writes refs only, so its cost follows the number of datasets, never their size; a write to either afterwards leaves the other as it was. Refused while a dataflow runs in `<to>`. |
 | `e3 workspace deploy [repo] <ws> <pkg[@ver]>` | Deploy an imported package. |
 | `… --from-zip <zip>` · `… --from-source <src.ts> [--functions <manifest…>]` | Import the zip (or bundle the source) and deploy, creating the workspace. |
-| `… [--schema <policy>] [--inputs <policy>] [--allow-drop-records] [--plan] [--skip-file-sources] [-j <n>] [--memory <size>] [--quiet]` | A record's policy, an input's, and `file` sources; says how far it has got (below), `--quiet` aside. `-j`: the `file` sources taken in at once, and the runner processes their intake units, the migrations and the index builds run on; `--memory`: what those may reserve (local). |
+| `… [--schema <policy>] [--inputs <policy>] [--allow-drop-records] [--plan] [--skip-file-sources] [-j <n>] [--memory <size>] [--quiet]` | A record's policy, an input's, and `file` sources; says how far it has got (below), `--quiet` aside. `-j`: the `file` sources taken in at once, and the runner processes their intake units, the migrations and the index builds run on, and with `--from-source` the workspace packages exporting their functions at once; `--memory`: what those may reserve (local). |
 | `e3 workspace export [repo] <ws> <zip> [--name <n>] [--version <v>]` | The workspace's state as a package. |
 | **Datasets** | |
 | `e3 dataset get [repo] <ws.name> [-f east\|json\|beast2]` | Print a value. |
@@ -849,7 +858,10 @@ peak a unit of its stage has reached in the run, so a stage runs its first unit
 alone and then fans out; on Linux and macOS a guard stops the newest unit when
 the runners together pass the budget, and runs it again once it fits. A deploy
 takes its `file` sources in `-j` at a time, their pieces' intake units running
-under the same budget. The commands that run East — `workspace deploy`,
+under the same budget. A source deploy, or a `watch`, exports the workspace
+packages its imported functions come from `-j` at a time, a process each, on
+this machine; against a server, as many at once as this machine has CPUs. The
+commands that run East — `workspace deploy`,
 `dataset set --from-file`, `dataflow run`, `run`, `call`, `mutate`, `seed`,
 `reindex` and `watch` — take the flags for a local repository; against a server the CLI
 refuses them, since the server runs the work under its own budget
@@ -860,7 +872,11 @@ line once it is in: its size, time and rate, and how it was taken in
 (`unchanged, already in the store`, `taken in by east-c`, or `carried` for a
 value that is not a collection), with why the first time a runner fell back to
 another. A terminal also keeps a live line for the files in flight, with their
-pieces, the rate and the time left across them. Against a server, the deploy line
+pieces, the rate and the time left across them. A source deploy prints a line
+for each workspace package whose functions it links: `exported <n> function(s)
+of <pkg> (east-py export-functions)`, or `reused <n> function(s) of <pkg>,
+unchanged since its last export` when the export cache held them. Against a
+server, the deploy line
 says what the job is doing, such as migrating a record or building an index;
 the deliveries then upload a few at a time, each printing a line once it is in,
 and the live line says what the server's commit is doing with each in flight.
@@ -1071,7 +1087,14 @@ not had, in place; one a newer e3 upgraded is refused, naming that release.
 environment — and its inputs' hashes, so a task re-runs only when one of those
 changes (`--force` bypasses the cache, and `--force-task <task>` for the tasks
 it names: a task whose code e3 cannot see changed, such as a platform
-function's, or one reading data from outside e3). A change to an input re-runs its
+function's, or one reading data from outside e3). A task's program holds the
+source locations of its body and of every function it embeds, an imported
+python or node function's too, since its errors, a caught error's `stack` and
+the closures it returns name them: an edit that moves one of those lines — a
+comment or an import added above a function — re-runs the task. One that leaves
+them where they were — another function, the end of a module, another package —
+re-runs only the tasks whose environment it is in, their runner's `{ custom }`
+packages. A change to an input re-runs its
 consumers, even during a run. A split task is cached a unit at a time: each piece
 and each merge is its own execution, and pieces are cut by content, so an append
 or an insertion re-runs only the pieces it reaches and the merges above them.

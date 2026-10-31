@@ -122,7 +122,7 @@ def _lift(value: Any, hint: EastType | None = None) -> Expression:
     if isinstance(value, (set, frozenset, list, tuple)) and hint is not None \
             and hint.type == "Set":
         elem_t = hint.value
-        nodes = [_coerce(_lift(v, hint=elem_t), elem_t).ir for v in value]
+        nodes = _set_elements(value, elem_t, lambda v: _coerce(_lift(v, hint=elem_t), elem_t).ir)
         return Expression(_k_new_set(hint, nodes), hint)
     embedded = _lift_artifact(value)
     if embedded is not None:
@@ -230,6 +230,33 @@ def _lift_python_dict(value: dict, hint: EastType) -> Expression:
     return Expression(_k_new_dict(hint, entries), hint)
 
 
+def _set_elements(values: Any, elem_t: EastType, lift: Any) -> list:
+    """The IR of a Set's elements, each lifted by ``lift``: a list's in the
+    order it is written, a python set's in East's order of ``elem_t`` — the
+    order an ``EastSet`` keeps. python iterates a set by hash, and a string's
+    hash differs between processes, so a set built in python's order built
+    one IR per process, and an export of it was never the same twice (#1459).
+    Every element lifts before any is placed, so a bad one raises as it would
+    alone; a traced value has no value to place, so a python set holding one
+    is refused."""
+    if not isinstance(values, (set, frozenset)):
+        return [lift(v) for v in values]
+    if any(_holds_traced(v) for v in values):
+        raise ExpressionError(
+            "a python set holding a traced value has no order to build its elements "
+            "in: python orders a set by hash, which differs between processes, and a "
+            "traced value has no value to sort by — write the elements as a list "
+            "(b.const([...], SetType(T)) or East.new_set(T, [...])), which keeps the "
+            "order it is written in")
+    from east.types.coercion import coerce_to
+    from east.utils.ordering import make_east_key
+
+    key = make_east_key(elem_t)
+    lifted = [(lift(v), v) for v in values]
+    lifted.sort(key=lambda pair: key(coerce_to(pair[1], elem_t)))
+    return [ir for ir, _v in lifted]
+
+
 def _lift_artifact(value: Any) -> Expression | None:
     """A built ``East.function`` referenced as a VALUE inside another body
     embeds as its Function node — a Function-typed expression that can be
@@ -252,7 +279,16 @@ def _lift_artifact(value: Any) -> Expression | None:
 
     node = _rehome_ir(ir, getattr(value, "_east_source_map", None), current_source_map())
     node = _rename_apart(node)
+    if _trusted_frames and getattr(value, "_east_analyzed", False):
+        _trusted_frames[-1][id(node)] = node
     return Expression(node, node.value["type"])
+
+
+# The functions each open build embedded from a built function, by id, the
+# node kept alive beside it (see ``_rehome_ir``): their bodies were analyzed
+# when they were built, so the build's analysis checks only their boundary
+# (#1459). One frame per build being analyzed, innermost last.
+_trusted_frames: list[dict[int, Any]] = []
 
 
 def value(v: Any, typ: EastType | None = None) -> Any:
@@ -260,7 +296,8 @@ def value(v: Any, typ: EastType | None = None) -> Any:
 
     Args:
         v: The value — a python literal, a dict (a struct, or a Dict under a
-            Dict type), a list/set (an Array/Set under that type), a
+            Dict type), a list/set (an Array/Set under that type; a python
+            set's elements are placed in East's order), a
             ``variant``/``some``/``none``, an East value, a built
             ``East.function``, or an expression (returned as is).
         typ: The East type to build under. Required for anything a python

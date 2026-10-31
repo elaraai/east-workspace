@@ -50,9 +50,11 @@ raises instead of running per element.
 Every build records an authoring-frame source map (``location.py``, #626):
 a runtime error inside a python-built function names the python
 ``file:line:column`` of the expression that raised it, on every runner the
-function is exported to. ``set_location_base_path`` fixes the directory the
-recorded paths are relativized against (the working directory by default),
-and ``set_location_capture(False)`` builds without recording them (#834).
+function is exported to. A recorded stack ends at the ``East.function`` call
+and its paths are relative to the file's project root, so the IR is the
+program's alone (#1460); ``set_location_base_path`` fixes the directory the
+recorded paths are relativized against instead, and
+``set_location_capture(False)`` builds without recording them (#834).
 """
 
 from east.expression.capture import _eligible, _trace_out_type, capture_callback

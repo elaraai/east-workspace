@@ -28,11 +28,11 @@
  *
  * **Read by structure.** The bytes may come from another build than the
  * package's — an app's UI deployed apart from its package, any client — and
- * each build numbers its recursive types by its own counter, so a recursive
- * type edited between two builds can keep its id. `isTypeValueEqual` takes one
- * id as one type without reading it; `isTypeValueStructurallyEqual`, the
- * relation here, reads it, at under a millisecond for a type as large as a UI
- * component's.
+ * the package may be an earlier release's, which numbered its recursive types
+ * by its process's counter, so a recursive type edited between two of its
+ * exports could keep its id. `isTypeValueEqual` takes one id as one type
+ * without reading it; `isTypeValueStructurallyEqual`, the relation here, reads
+ * it, at under a millisecond for a type as large as a UI component's.
  *
  * @packageDocumentation
  */

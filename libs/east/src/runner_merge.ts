@@ -28,22 +28,30 @@
  * that range's share of each part, plus at most one segment. An absent bound
  * is open; both absent is the whole merge.
  *
+ * An output whose type holds functions is written under the source map part
+ * 0's header holds: a task's parts are written under its program's, so the
+ * closures keep their lines, and the merge writes what one unit writing the
+ * whole would have.
+ *
  * This is the fan-in of a split task's set and dict parts: e3 runs it as a
  * merge unit on the task's runner, one per key range of a group of parts, and
  * never decodes a part itself. east-c and east-py merge through the same
  * contract, so the three runners write the same bytes.
  */
 
-import { type EastTypeValue, fromEastTypeValue, isTypeValueEqual, toEastTypeValue } from "./type_of_type.js";
+import { type EastTypeValue, fromEastTypeValue, isDataTypeValue, isTypeValueEqual, toEastTypeValue } from "./type_of_type.js";
+import type { SourceMap } from "./location.js";
 import { OptionType, StructType } from "./types.js";
 import type { option } from "./containers/variant.js";
 import type { PlatformFunction } from "./platform.js";
 import type { EastIR } from "./eastir.js";
 import { printTypeValue } from "./compile/runtime.js";
 import {
+  MAGIC_BYTES_V5,
   decodeBeast2For,
   mergeBeast2For,
   readBeast2Extents,
+  readBeast2ExtentsSync,
   readBeast2HeaderType,
   readBeast2Manifest,
   readBeast2Type,
@@ -53,6 +61,9 @@ import {
   type Beast2SyncRangeReader,
   type CollectionManifest,
 } from "./serialization/beast2/index.js";
+import { readSourceMapSectionV5 } from "./serialization/beast2/v5/codec.js";
+import { readTypeSection } from "./serialization/beast2/v5/type-section.js";
+import { BufferReader } from "./serialization/binary-utils.js";
 import { type UnitIO, loadUnitProgram, readUnitRange, segmentPath } from "./runner_io.js";
 
 /** A compiled `(K, V, V) -> V` fold of equal keys. */
@@ -96,6 +107,31 @@ export function loadUnitMergeFunction(
     );
   }
   return (bundle as EastIR<unknown[], unknown>).compile(platforms) as UnitMergeFunction;
+}
+
+/**
+ * The source map the header of part `path` holds — a blob's, or a manifest
+ * directory's header object's: what a merge of a task's parts writes an
+ * output holding functions under, a fold of partials included.
+ *
+ * @param io - the unit's files
+ * @param path - the part's file
+ * @returns the map, or `null` when the part holds no v5 collection, its merge
+ *   then saying why
+ * @internal
+ */
+export function loadUnitPartSourceMap(io: UnitIO, path: string): SourceMap | null {
+  try {
+    const reader: Beast2SyncRangeReader = { size: io.size(path), read: (offset, length) => readUnitRange(io, path, offset, length) };
+    // A manifest directory's segments share the header object it names.
+    const manifest = readBeast2Manifest(reader);
+    const head = manifest !== null ? io.read(segmentPath(path, manifest.header)) : readBeast2ExtentsSync(reader).head;
+    const header = new BufferReader(head, MAGIC_BYTES_V5.length);
+    readTypeSection(header);
+    return readSourceMapSectionV5(header);
+  } catch {
+    return null;
+  }
 }
 
 /** Options accepted by {@link mergeUnitParts}. */
@@ -295,5 +331,6 @@ export function mergeUnitParts(
     labels: parts,
     // Frames deflate on worker threads, where the host has them (#763).
     parallel: true,
+    ...(!isDataTypeValue(type) && { sourceMap: loadUnitPartSourceMap(io, parts[0]!) }),
   })(opened.map((part) => part.source), output);
 }

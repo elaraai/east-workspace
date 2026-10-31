@@ -138,7 +138,7 @@ test("silent on a genericPlatform definition call (A7)", () => {
   assert.equal(rule(src).length, 0);
 });
 
-test("silent on a platform call nested as an argument to an East constructor (the east-twe shape)", () => {
+test("silent on a platform call nested as an argument to an East constructor (a downstream project's shape)", () => {
   // `$.let(some(run(frame, q)), …)` — `some(…)` is A5, the inner platform call A7.
   const src = `${PRELUDE}const run = East.platform("proj.run", [IntegerType], IntegerType);\nexport const f = East.function([ArrayType(IntegerType)], ArrayType(IntegerType), ($, xs) =>\n  $.return(xs.map(($, q) => {\n    const r = $.let(some(run(q)));\n    return q;\n  })));\n`;
   assert.equal(rule(src).length, 0);

@@ -760,6 +760,61 @@ class TestCoercedValueLifts:
         assert both(0) == 2
 
 
+# ── a python set builds in East's order (#1459) ─────────────────────────────
+
+
+def _new_set_elements(ir) -> list[list]:
+    """The literal elements of every NewSet in ``ir``, in the order the IR
+    builds them."""
+    from east.expression.finalize import _node_children
+
+    found, stack = [], [ir]
+    while stack:
+        node = stack.pop()
+        if node.type == "NewSet":
+            found.append([v.value["value"].value for v in node.value["values"]])
+        stack.extend(_node_children(node))
+    return found
+
+
+class TestPythonSetOrder:
+    """python iterates a set by hash, and a string's hash differs between
+    processes, so a set literal built in python's order built one IR per
+    process, and a package exported twice was never the same twice. A python
+    set's elements are placed in East's order of the element type, the order
+    an ``EastSet`` keeps; a list keeps the order it is written in, as
+    TypeScript keeps a ``Set``'s insertion order."""
+
+    INT_SET = SetType(IntegerType)
+
+    def test_a_python_set_builds_in_east_order(self):
+        # an int hashes to itself, so this set iterates 8 first in every
+        # process: python's own order, and not East's
+        elements = {8, 1}
+        assert list(elements) != sorted(elements)
+
+        def via_const(b):
+            s = b.const(elements, self.INT_SET)
+            return s
+
+        via_new_set = East.function([], self.INT_SET, lambda b: East.new_set(IntegerType, elements))
+        written = East.function([], self.INT_SET, lambda b: East.new_set(IntegerType, [8, 1]))
+        assert _new_set_elements(East.function([], self.INT_SET, via_const)._east_ir) == [[1, 8]]
+        assert _new_set_elements(via_new_set._east_ir) == [[1, 8]]
+        assert _new_set_elements(written._east_ir) == [[8, 1]]
+
+    def test_a_python_set_holding_a_traced_value_is_refused(self):
+        # a variant around a proxy hashes by id, so python orders it by address
+        opt_set = SetType(OptionType(IntegerType))
+
+        def holds_a_traced_value(b, x):
+            s = b.const({some(x)}, opt_set)
+            return s
+
+        with pytest.raises(ExpressionError, match="python set holding a traced value"):
+            East.function([IntegerType], opt_set, holds_a_traced_value)
+
+
 # ── bind() type-checks by SUBSUMPTION, not content inference (#558 B) ───────
 
 

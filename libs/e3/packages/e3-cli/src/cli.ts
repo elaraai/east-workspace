@@ -199,7 +199,7 @@ program
       .option('--allow-drop-records', 'Drop a record the package no longer declares, with its state and history')
       .option('--plan', 'Say what the deploy would do to each record, index and input, and write nothing')
       .option('--quiet', 'Suppress progress and success output (errors only)')
-      .option('-j, --jobs <n>', "Cores: the package's file sources taken in at once, and runner processes for their intake units and its migrations and index builds (local repositories; default: $E3_JOBS, else the CPUs available to e3)")
+      .option('-j, --jobs <n>', "Cores: the package's file sources taken in at once, and runner processes for their intake units and its migrations and index builds, and with --from-source the workspace packages exporting their functions at once (local repositories; default: $E3_JOBS, else the CPUs available to e3)")
       .option(...MEMORY)
       .action(withDefaultRepo(workspaceCommand.deploy))
   )

@@ -1140,10 +1140,10 @@ static EvalResult exec_run(const EastUnit *unit, ExecClock *clock, bool verbose)
         }
     }
     if (r.status != EVAL_ERROR) {
-        sink =
-            east_unit_sink_new(&unit->output, emitted ? emit_type : fn_type->data.function.output,
-                               unit->output.kind == EAST_UNIT_DICT ? fold.fn : NULL,
-                               unit->output.kind == EAST_UNIT_FOLD ? fold.fn : NULL, zero);
+        sink = east_unit_sink_new(
+            &unit->output, emitted ? emit_type : fn_type->data.function.output,
+            unit->output.kind == EAST_UNIT_DICT ? fold.fn : NULL,
+            unit->output.kind == EAST_UNIT_FOLD ? fold.fn : NULL, zero, fn->source_map);
         if (!sink) r = exec_error("exec: the output cannot be opened");
     }
     if (r.status != EVAL_ERROR && emitted) {
@@ -1256,10 +1256,17 @@ static EvalResult exec_merge(const EastUnit *unit, ExecClock *clock)
             eval_result_free(&c);
         }
         exec_lap(clock, &clock->execute);
-        if (r.status != EVAL_ERROR && !east_unit_write_value(unit->output.path, acc, value_type)) {
+        /* An accumulator holding functions is written under the partials'
+         * map, as the units that wrote them wrote them. */
+        EastSourceMap *sm = r.status != EVAL_ERROR && east_type_holds_function(value_type)
+                                ? east_merge_part_source_map(unit->inputs[0])
+                                : NULL;
+        if (r.status != EVAL_ERROR &&
+            !east_unit_write_value(unit->output.path, acc, value_type, sm)) {
             eval_result_free(&r);
             r = exec_error("exec: the output cannot be written");
         }
+        east_source_map_release(sm);
         if (acc) east_value_release(acc);
         exec_lap(clock, &clock->output);
     } else if (r.status != EVAL_ERROR) {

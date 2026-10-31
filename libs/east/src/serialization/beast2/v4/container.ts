@@ -742,11 +742,11 @@ interface BaseTypeTableEntry {
 
 const baseTypeTableCache = new WeakMap<object, BaseTypeTableEntry>();
 
-function baseTypeTableFor(type: EastTypeValue | EastType, eastType: EastType | undefined, typeValue: EastTypeValue): BaseTypeTableEntry {
+function baseTypeTableFor(type: EastTypeValue | EastType, typeValue: EastTypeValue): BaseTypeTableEntry {
   const cached = baseTypeTableCache.get(type as object);
   if (cached) return cached;
   const builder = new TypeTableBuilder();
-  const rootIdx = eastType ? builder.add(eastType) : builder.add(typeValue);
+  const rootIdx = builder.add(typeValue);
   const sw = new BufferWriter();
   writeTypeTableSection(rootIdx, builder.entries, sw);
   const entry: BaseTypeTableEntry = { builder, rootIdx, sectionBytes: sw.toUint8Array() };
@@ -764,14 +764,13 @@ function baseTypeTableFor(type: EastTypeValue | EastType, eastType: EastType | u
 export function encodeBeast2V4For(type: EastTypeValue, options?: { sourceMap?: SourceMap | null }): (value: any) => Uint8Array
 export function encodeBeast2V4For<T extends EastType>(type: T, options?: { sourceMap?: SourceMap | null }): (value: ValueTypeOf<T>) => Uint8Array
 export function encodeBeast2V4For(type: EastTypeValue | EastType, options?: { sourceMap?: SourceMap | null }): (value: any) => Uint8Array {
-  const eastType = isVariant(type) ? undefined : type as EastType;
   const typeValue = isVariant(type) ? type as EastTypeValue : toEastTypeValue(type as EastType);
   // Build encoder tree once at setup — save the typeCtx for reuse by value table entries
   const setupTypeCtx = new Map<bigint, ValueEncoder>();
   const valueEncoder = buildEncoder(typeValue, setupTypeCtx);
 
   // Root-closure type table (stable across encode calls AND closures — #417).
-  const base = baseTypeTableFor(type, eastType, typeValue);
+  const base = baseTypeTableFor(type, typeValue);
   const baseRootIdx = base.rootIdx;
   const baseEntryCount = base.builder.entries.length;
 

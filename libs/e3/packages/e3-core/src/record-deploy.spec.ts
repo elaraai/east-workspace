@@ -18,8 +18,6 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
   ArrayType, DictType, East, EastTypeType, IntegerType, OptionType, RecursiveType, SetType, SortedMap, StringType, StructType,
@@ -121,24 +119,20 @@ function v3(): PackageDef<Record<string, unknown>> {
   return e3.package('planning', '3.0.0', plans, byTitle, ...v2Declarations(plans));
 }
 
-/** A release of `trees`, a record and an input of a tree type, exported by a
- *  process of its own, as each release is built. Each process numbers the tree
- *  type by its own counter, so both releases' trees carry one id, though 2.0.0
+/** A release of `trees`: a record and an input of a tree type, which 2.0.0
  *  gives each node an owner. */
-const RELEASE = `
-const [eastUrl, e3Url, version, zip] = process.argv.slice(2);
-const { ArrayType, RecursiveType, StringType, StructType, variant } = await import(eastUrl);
-const { default: e3 } = await import(e3Url);
-const owned = version === '2.0.0';
-const Tree = RecursiveType((self) => StructType(owned
-  ? { title: StringType, owner: StringType, kids: ArrayType(self) }
-  : { title: StringType, kids: ArrayType(self) }));
-const root = owned ? { title: 'root', owner: '', kids: [] } : { title: 'root', kids: [] };
-await e3.export(e3.package('trees', version, e3.record('tree', Tree, root), e3.input('pinned', Tree, variant('value', root))), zip);
-`;
+function trees(version: '1.0.0' | '2.0.0'): PackageDef<Record<string, unknown>> {
+  const owned = version === '2.0.0';
+  const Tree = RecursiveType((self) => StructType(owned
+    ? { title: StringType, owner: StringType, kids: ArrayType(self) }
+    : { title: StringType, kids: ArrayType(self) }));
+  const root = owned ? { title: 'root', owner: '', kids: [] } : { title: 'root', kids: [] };
+  return e3.package('trees', version, e3.record('tree', Tree, root), e3.input('pinned', Tree, variant('value', root)));
+}
 
-/** A package object with each dataset's type renumbered from 0, as a build
- *  that numbers its recursive types as a header numbers them would export it. */
+/** A package object with each dataset's type renumbered from 0, as a writer
+ *  that numbers its recursive types itself exports it: a build that numbers
+ *  them as a header does, or an earlier release, which counted them. */
 function renumbered(bytes: Uint8Array): Uint8Array {
   const pkg = decodePackageObject(bytes);
   const renumber = (structure: Structure): Structure => structure.type === 'value'
@@ -787,15 +781,18 @@ describe('a deploy\'s record migrations', () => {
     assert.deepEqual(await built(), [['by_owner', false]], 'not held at all');
   });
 
-  it("asks for a migration when a record's type changes inside a recursive type two builds gave one id, and resets an input whose type did", async () => {
-    const script = join(tempDir, 'release.mjs');
-    writeFileSync(script, RELEASE);
-    for (const version of ['1.0.0', '2.0.0']) {
+  it("asks for a migration when a record's type changes inside a recursive type two packages gave one id, and resets an input whose type did", async () => {
+    // A build names each tree by a hash of it, so the two releases' trees have
+    // two ids. A package an earlier release exported numbered them by its
+    // process's counter, so its two releases' trees could carry one: the
+    // repository holds each release as such a package, renumbered.
+    for (const version of ['1.0.0', '2.0.0'] as const) {
       const zip = join(tempDir, `trees-${version}.zip`);
-      const child = spawnSync(process.execPath,
-        [script, import.meta.resolve('@elaraai/east'), import.meta.resolve('@elaraai/e3'), version, zip], { encoding: 'utf8' });
-      assert.equal(child.status, 0, child.stderr);
+      await e3.export(trees(version), zip);
       await packageImport(storage, repo, zip);
+      const hash = (await storage.refs.packageResolve(repo, 'trees', version))!;
+      const counted = await storage.objects.write(repo, renumbered(await storage.objects.read(repo, hash)));
+      await storage.refs.packageWrite(repo, 'trees', version, counted);
     }
     const pinned: TreePath = [variant('field', 'inputs'), variant('field', 'pinned')];
     await workspaceDeploy(storage, repo, ws, 'trees', '1.0.0', { runner });
@@ -803,7 +800,7 @@ describe('a deploy\'s record migrations', () => {
     await workspaceCreate(storage, repo, other);
     await workspaceDeploy(storage, repo, other, 'trees', '2.0.0', { runner });
     assert.ok(isTypeValueEqual((await workspaceResolveDataset(storage, repo, ws, pinned)).type, (await workspaceResolveDataset(storage, repo, other, pinned)).type),
-      'each build numbered its tree alike: one id names both trees, which isTypeValueEqual does not read');
+      'one id names both trees, which isTypeValueEqual does not read');
 
     // Someone pins a tree of their own, at 1.0.0's type
     const Tree = RecursiveType((self) => StructType({ title: StringType, kids: ArrayType(self) }));

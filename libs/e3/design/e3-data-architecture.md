@@ -751,7 +751,7 @@ const pkg = e3.package('planning', '3.0.0', roster, plans, m1, m2, m3, …);
 | present, not in the package | — | `drop`: refused unless `--allow-drop-records` |
 
 - **The chain must start where the workspace is.** The stored state's type must be the first remaining step's input type, so a chain that does not start there fails before anything runs.
-- **Type comparison.** Types compare by their structure (`isTypeValueStructurallyEqual`). The package deployed and the one deploying over it are two builds, each numbering its recursive types by its own counter, so a recursive type edited between them can keep its id; `isTypeValueEqual` takes one id as one type without reading it, which is right within one build, as in the type checker.
+- **Type comparison.** Types compare by their structure (`isTypeValueStructurallyEqual`). A build names a recursive type by a hash of it, but the package deployed may be one an earlier release exported, which numbered its recursive types by its process's counter, so a recursive type edited between two exports could keep its id; `isTypeValueEqual` takes one id as one type without reading it, which is right for the types a build makes, as in the type checker.
 - **Every refusal at once.** A deploy names every record it refuses, each with its fix.
 - **A prior deployment that does not read** is refused, naming the fix: remove the workspace and deploy again.
 

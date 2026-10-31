@@ -483,13 +483,29 @@ const pkg = e3.package('myapp', '1.0.0',
 );
 ```
 
-### `e3.export(pkg, zipPath)`
+### `e3.export(pkg, zipPath, options?)`
 
 Exports a package to a `.zip` file for import into a repository.
 
 ```typescript
 await e3.export(pkg, '/tmp/myapp.zip');
 ```
+
+A body that calls `East.importFunction(pkg, name, type)` has the function's IR
+embedded at export, so the task runs as pure IR on any runner. A package of the
+project's uv or npm workspace is exported by the export itself — `east-py
+export-functions` on a python member's root module, `east-node
+export-functions` on a node member's built `./functions` export — in one
+process per package however many tasks import from it, `cores` packages at once
+(the CPUs by default; a source deploy or a watch passes its `-j`). A python
+member's manifests are kept in `node_modules/.cache/e3/functions` under the
+directory the export runs in, keyed on its sources and those of the local
+packages it depends on, the workspace's `uv.lock` and `pyproject.toml`, and the
+east-py that exports it, so a redeploy whose python has not changed runs no
+export; deleting the directory clears it. A source deploy prints a line for each
+such package: `exported <n> function(s) of <pkg> (east-py export-functions)`, or
+`reused <n> function(s) of <pkg>, unchanged since its last export`. `functions`
+takes manifests built elsewhere, which win for their package.
 
 ---
 
@@ -689,7 +705,10 @@ pass the budget, and runs it again once there is room.
 
 `e3 watch`, `e3 run`, `e3 call`, `e3 mutate`, `e3 reindex` and
 `e3 workspace deploy` take the same two flags for a local repository, a deploy
-taking its file sources in `-j` at a time; `e3 dataset set --from-file` and
+taking its file sources in `-j` at a time, and a source deploy or a watch
+exporting its workspace packages' functions `-j` at a time, a process each (on
+this machine whatever the repository: against a server, as many at once as
+this machine has CPUs); `e3 dataset set --from-file` and
 `e3 seed` take both for their intake units. Against a server the CLI refuses them, since the
 server runs the work under its own budget (`e3-api-server -j` / `--memory`).
 
@@ -1035,8 +1054,9 @@ e3 dataset get . dev.mytask
 ### Caching
 
 Tasks are cached by content hash. A task only re-runs when:
-- Its East function IR changes
+- Its program changes: its East function's IR, or a line it was written at. The program carries the source locations of its body and of every function it embeds, an imported python or node function's too, since its errors, a caught error's stack and the closures it returns name them — so moving one of those lines, as a comment or an import added above a function does, re-runs the task, and an edit that leaves them where they were, in another function, at the end of a module or in another package, does not
 - Its runner changes — its runtime, its platforms, or how it reads its inputs (`decode`)
+- Its environment changes: the code of a `{ custom }` platform package its runner names, or of a local package that one depends on
 - Any of its input values change
 
 Changing one task doesn't invalidate unrelated tasks. A stream task split over

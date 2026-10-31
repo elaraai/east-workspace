@@ -1268,11 +1268,12 @@ export function compareFor(type: EastTypeValue | EastType, typeCtx: TypeContext 
  *
  * @remarks
  * {@link isTypeValueEqual} takes two recursive types with one id as one type,
- * without reading them. That is right within one build, whose process numbers
- * each recursive type once, by its structure, and it keeps the type checker
- * fast over a type as large as a UI component's. Two builds number their
- * recursive types by their own counters, though, so a recursive type edited
- * between two exports can keep its id. Here the two types are walked together:
+ * without reading them. That is right for the types a build makes, whose ids
+ * hash their structure, and it keeps the type checker fast over a type as
+ * large as a UI component's. An id read off the wire is its writer's word,
+ * though: an earlier release numbered its recursive types by its process's
+ * counter, so a recursive type edited between two of its exports could keep
+ * its id, and any writer can give two types one id. Here the two types are walked together:
  * each pair of wrappers is numbered by where it stands, as `canonicalTypeValue`
  * renames a type, and each ref by the wrapper it names, so a difference inside
  * a recursive type is a difference. For two whole types, each ref inside its

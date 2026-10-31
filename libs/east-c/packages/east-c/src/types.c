@@ -805,6 +805,77 @@ bool east_type_can_cycle(EastType *t)
     return result;
 }
 
+/* The walk of east_type_holds_function: `path` the DFS ancestors, whose
+ * cycle is already being checked, `done` the nodes explored that hold none. */
+typedef struct {
+    EastType **path;
+    size_t path_len;
+    size_t path_cap;
+    EastType **done;
+    size_t done_len;
+    size_t done_cap;
+} HoldsFunctionCtx;
+
+static bool type_holds_function_walk(EastType *t, HoldsFunctionCtx *ctx)
+{
+    if (!t) return false;
+    switch (t->kind) {
+    case EAST_TYPE_FUNCTION:
+    case EAST_TYPE_ASYNC_FUNCTION:
+        return true;
+    case EAST_TYPE_ARRAY:
+    case EAST_TYPE_SET:
+    case EAST_TYPE_DICT:
+    case EAST_TYPE_REF:
+    case EAST_TYPE_STRUCT:
+    case EAST_TYPE_VARIANT:
+    case EAST_TYPE_RECURSIVE:
+        break;
+    default:
+        return false;
+    }
+    for (size_t i = 0; i < ctx->path_len; i++)
+        if (ctx->path[i] == t) return false;
+    for (size_t i = 0; i < ctx->done_len; i++)
+        if (ctx->done[i] == t) return false;
+    if (!can_cycle_push(&ctx->path, &ctx->path_len, &ctx->path_cap, t)) return false;
+    bool result = false;
+    switch (t->kind) {
+    case EAST_TYPE_ARRAY:
+    case EAST_TYPE_SET:
+    case EAST_TYPE_REF:
+        result = type_holds_function_walk(t->data.element, ctx);
+        break;
+    case EAST_TYPE_DICT:
+        result = type_holds_function_walk(t->data.dict.key, ctx) ||
+                 type_holds_function_walk(t->data.dict.value, ctx);
+        break;
+    case EAST_TYPE_STRUCT:
+        for (size_t i = 0; !result && i < t->data.struct_.num_fields; i++)
+            result = type_holds_function_walk(t->data.struct_.fields[i].type, ctx);
+        break;
+    case EAST_TYPE_VARIANT:
+        for (size_t i = 0; !result && i < t->data.variant.num_cases; i++)
+            result = type_holds_function_walk(t->data.variant.cases[i].type, ctx);
+        break;
+    default:
+        result = type_holds_function_walk(t->data.recursive.node, ctx);
+        break;
+    }
+    ctx->path_len--;
+    if (!result) can_cycle_push(&ctx->done, &ctx->done_len, &ctx->done_cap, t);
+    return result;
+}
+
+bool east_type_holds_function(EastType *t)
+{
+    HoldsFunctionCtx ctx = {0};
+    bool result = type_holds_function_walk(t, &ctx);
+    free(ctx.path);
+    free(ctx.done);
+    return result;
+}
+
 bool east_type_equal(EastType *a, EastType *b)
 {
     if (a == b) return true;

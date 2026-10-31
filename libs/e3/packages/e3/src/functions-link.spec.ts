@@ -11,7 +11,7 @@
  * embedded functions need.
  */
 
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before, after, beforeEach } from 'node:test';
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -241,9 +241,21 @@ describe('export_ resolves an imported workspace package itself (#652)', () => {
       'def my_log(s):\n' +
       '    print(s)\n\n' +
       'platform = platform_functions(__name__)\n');
+    // A second member, `discount`, which exports beside `pricing`.
+    const other = path.join(ws, 'packages', 'discount');
+    fs.mkdirSync(path.join(other, 'src', 'discount'), { recursive: true });
+    fs.writeFileSync(path.join(other, 'pyproject.toml'),
+      '[project]\nname = "discount"\nversion = "1.0.0"\nrequires-python = ">=3.11"\n\n' +
+      '[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n');
+    fs.writeFileSync(path.join(other, 'src', 'discount', '__init__.py'),
+      'from east import East, IntegerType\n\n' +
+      'bump = East.function([IntegerType], IntegerType, lambda b, x: x + 1)\n\n' +
+      'east_functions = {"bump": bump}\n');
     execFileSync('uv', ['lock'], { cwd: ws, stdio: 'ignore', shell: process.platform === 'win32' });
   });
   after(() => { if (hasTools) fs.rmSync(ws, { recursive: true, force: true }); });
+  // Each test exports afresh: the export cache lives in the workspace's node_modules.
+  beforeEach(() => { if (hasTools) fs.rmSync(path.join(ws, 'node_modules'), { recursive: true, force: true }); });
 
   /** Runs `f` with the workspace as the export's working directory. */
   async function inWorkspace<T>(f: () => Promise<T>): Promise<T> {
@@ -300,8 +312,9 @@ describe('export_ resolves an imported workspace package itself (#652)', () => {
     { skip: hasTools ? false : 'uv and east-py on PATH' }, async () => {
       // A on the default runner imports the pure `triple`; B on an east-py
       // runner listing the workspace's `acme_platform` imports `shout`, whose
-      // `my.log` that package provides. Two exports — one per provider set, of
-      // the functions its owner imports — and each owner links its own.
+      // `my.log` that package provides. One export writes two manifests — one
+      // per provider set, of the functions its owner imports — and each owner
+      // links its own.
       const triple = East.importFunction('pricing', 'triple', FunctionType([IntegerType], IntegerType));
       const shout = East.importFunction('pricing', 'shout', FunctionType([StringType], NullType));
       const n = input('n', IntegerType, variant('value', 4n));
@@ -314,7 +327,7 @@ describe('export_ resolves an imported workspace package itself (#652)', () => {
       const zipPath = path.join(ws, 'importer-two-owners.zip');
       events = [];
       await inWorkspace(() => export_(pkg, zipPath, { onEvent: (e) => { if (e.kind === 'functions') events.push(`${e.package}:${e.count}:${e.tool}`); } }));
-      assert.deepStrictEqual(events, ['pricing:1:east-py export-functions', 'pricing:1:east-py export-functions']);
+      assert.deepStrictEqual(events, ['pricing:2:east-py export-functions']);
       const entries = await readZip(zipPath);
       assert.strictEqual(programOf(entries, 'use_triple').compile([])(4n), 13n);
       assert.strictEqual(countImports(programOf(entries, 'use_shout').ir), 0);
@@ -324,6 +337,143 @@ describe('export_ resolves an imported workspace package itself (#652)', () => {
         inWorkspace(() => export_(package_('importer', '1.0.0', c), path.join(ws, 'unprovided.zip'))),
         /platform function\(s\) no -p package provides: my\.log/,
       );
+    });
+
+  it('one process exports each package, its manifests for every provider set, and the packages export at once (#1459)',
+    { skip: !hasTools ? 'uv and east-py on PATH' : process.platform === 'win32' ? 'the counting east-py is a shell script' : false }, async () => {
+      // An east-py that logs each export and holds it until two are running,
+      // then saying how many were: an export run after another never sees two.
+      // `version`, which the export cache asks, passes straight through.
+      const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-resolve-count-'));
+      const wrapper = path.join(scratch, 'east-py');
+      fs.writeFileSync(wrapper,
+        '#!/bin/sh\n' +
+        'if [ "$1" = version ]; then exec "$REAL_EAST_PY" "$@"; fi\n' +
+        'touch "$COUNT_DIR/running.$$"\n' +
+        'i=0\n' +
+        'while [ "$(ls "$COUNT_DIR" | grep -c "^running\\.")" -lt 2 ] && [ "$i" -lt 300 ]; do sleep 0.1; i=$((i+1)); done\n' +
+        'echo "$(ls "$COUNT_DIR" | grep -c "^running\\.") $*" >> "$COUNT_LOG"\n' +
+        'exec "$REAL_EAST_PY" "$@"\n', { mode: 0o755 });
+      const saved = { EAST_PY: process.env['EAST_PY'], COUNT_DIR: process.env['COUNT_DIR'], COUNT_LOG: process.env['COUNT_LOG'], REAL_EAST_PY: process.env['REAL_EAST_PY'] };
+      Object.assign(process.env, {
+        REAL_EAST_PY: process.env['EAST_PY'] || 'east-py', EAST_PY: wrapper, COUNT_DIR: scratch, COUNT_LOG: path.join(ws, 'exports.log'),
+      });
+      try {
+        const triple = East.importFunction('pricing', 'triple', FunctionType([IntegerType], IntegerType));
+        const shout = East.importFunction('pricing', 'shout', FunctionType([StringType], NullType));
+        const bump = East.importFunction('discount', 'bump', FunctionType([IntegerType], IntegerType));
+        const n = input('n', IntegerType, variant('value', 4n));
+        const s = input('s', StringType, variant('value', 'hi'));
+        const a = task('use_triple', [n], East.function([IntegerType], IntegerType, ($, x) => bump(triple(x))));
+        const b = task('use_shout', [s], East.function([StringType], NullType, ($, x) => { $(shout(x)); }), {
+          runner: { runtime: 'east-py', platforms: [{ custom: 'acme_platform' }, 'east-py-std'] },
+        });
+        const zipPath = path.join(ws, 'importer-at-once.zip');
+        await inWorkspace(() => export_(package_('importer', '1.0.0', a, b), zipPath, { cores: 2 }));
+        const lines = fs.readFileSync(path.join(ws, 'exports.log'), 'utf-8').trim().split('\n').sort();
+        assert.strictEqual(lines.length, 2, lines.join('\n'));
+        assert.match(lines[0]!, /^2 export-functions discount --batch \S+ --name discount --package-version 1\.0\.0$/);
+        assert.match(lines[1]!, /^2 export-functions pricing --batch \S+ --name pricing --package-version 2\.5\.0$/);
+        const entries = await readZip(zipPath);
+        assert.strictEqual(programOf(entries, 'use_triple').compile([])(4n), 13n);
+        assert.strictEqual(countImports(programOf(entries, 'use_shout').ir), 0);
+      } finally {
+        for (const [key, value] of Object.entries(saved)) {
+          if (value === undefined) delete process.env[key];
+          else process.env[key] = value;
+        }
+        fs.rmSync(scratch, { recursive: true, force: true });
+        fs.rmSync(path.join(ws, 'exports.log'), { force: true });
+      }
+    });
+
+  it('a redeploy whose python has not changed runs no export; a source edit in the package exports it again, and the cache keeps one state per package (#1459)',
+    { skip: hasTools ? false : 'uv and east-py on PATH' }, async () => {
+      const triple = East.importFunction('pricing', 'triple', FunctionType([IntegerType], IntegerType));
+      const n = input('n', IntegerType, variant('value', 4n));
+      const pkg = package_('importer', '1.0.0', task('use_triple', [n], East.function([IntegerType], IntegerType, ($, x) => triple(x).add(1n))));
+      const exportTo = async (zip: string): Promise<string[]> => {
+        const seen: string[] = [];
+        await inWorkspace(() => export_(pkg, path.join(ws, zip), {
+          onEvent: (e) => { if (e.kind === 'functions') seen.push(`${e.package}:${e.count}:${e.cached ? 'cached' : 'exported'}`); },
+        }));
+        return seen;
+      };
+      assert.deepStrictEqual(await exportTo('first.zip'), ['pricing:1:exported']);
+      assert.deepStrictEqual(await exportTo('again.zip'), ['pricing:1:cached']);
+      // the manifest the cache kept is the one the export wrote: the same package
+      assert.deepStrictEqual(fs.readFileSync(path.join(ws, 'again.zip')), fs.readFileSync(path.join(ws, 'first.zip')));
+
+      const source = path.join(ws, 'packages', 'pricing', 'src', 'pricing', '__init__.py');
+      const other = path.join(ws, 'packages', 'discount', 'src', 'discount', '__init__.py');
+      const [sourceText, otherText] = [fs.readFileSync(source, 'utf-8'), fs.readFileSync(other, 'utf-8')];
+      try {
+        // a package outside pricing's closure changes nothing for it
+        fs.writeFileSync(other, `${otherText}\n# edited\n`);
+        assert.deepStrictEqual(await exportTo('other-edited.zip'), ['pricing:1:cached']);
+        fs.writeFileSync(source, `${sourceText}\n# edited\n`);
+        assert.deepStrictEqual(await exportTo('edited.zip'), ['pricing:1:exported']);
+        assert.deepStrictEqual(await exportTo('edited-again.zip'), ['pricing:1:cached']);
+        assert.strictEqual(fs.readdirSync(path.join(ws, 'node_modules', '.cache', 'e3', 'functions', 'pricing')).length, 1,
+          'one source state kept per package');
+      } finally {
+        fs.writeFileSync(source, sourceText);
+        fs.writeFileSync(other, otherText);
+      }
+    });
+
+  it('a task that runs pure IR captures no python environment, and keeps its hash across python edits that leave the function it embeds where it was written; a line moved above that function makes it another program (#738)',
+    { skip: hasTools ? false : 'uv and east-py on PATH' }, async () => {
+      const triple = East.importFunction('pricing', 'triple', FunctionType([IntegerType], IntegerType));
+      const n = input('n', IntegerType, variant('value', 4n));
+      const pkg = package_('importer', '1.0.0',
+        task('on_c', [n], East.function([IntegerType], IntegerType, ($, x) => triple(x).add(1n)),
+          { runner: { runtime: 'east-c', platforms: ['east-c-std'] } }),
+        task('on_py', [n], East.function([IntegerType], IntegerType, ($, x) => triple(x).add(1n)),
+          { runner: { runtime: 'east-py', platforms: ['east-py-std'] } }));
+      /** Each task's object hash in the bundle exported to `zip`, each checked to name no environment. */
+      const hashesOf = async (zip: string): Promise<Record<string, string>> => {
+        await inWorkspace(() => export_(pkg, path.join(ws, zip)));
+        const entries = await readZip(path.join(ws, zip));
+        const object = (hash: string) => new Uint8Array(entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`)!);
+        const ref = [...entries.keys()].find((key) => key.startsWith('packages/'))!;
+        const tasks = decodePackageObject(object(decodeBeast2For(StringType)(entries.get(ref)!))).tasks;
+        const hashes: Record<string, string> = {};
+        for (const name of ['on_c', 'on_py']) {
+          assert.strictEqual(decodeTaskObject(object(tasks.get(name)!)).environment.type, 'none', `${name} captures no environment`);
+          hashes[name] = tasks.get(name)!;
+        }
+        return hashes;
+      };
+      const base = await hashesOf('base.zip');
+      const source = path.join(ws, 'packages', 'pricing', 'src', 'pricing', '__init__.py');
+      const other = path.join(ws, 'packages', 'discount', 'src', 'discount', '__init__.py');
+      const [sourceText, otherText] = [fs.readFileSync(source, 'utf-8'), fs.readFileSync(other, 'utf-8')];
+      try {
+        // `triple` stays where it was written: another function grows, the module ends later, another package changes
+        const kept: Array<[string, string, string]> = [
+          [source, sourceText.replace('    b.do(my_log(s))\n', '    b.do(my_log(s))\n    b.do(my_log(s))\n'), 'another-function.zip'],
+          [source, `${sourceText}\n# the end of the module\n`, 'module-end.zip'],
+          [other, `${otherText}\n# another package\n`, 'another-package.zip'],
+        ];
+        for (const [file, text, zip] of kept) {
+          assert.notStrictEqual(text, file === source ? sourceText : otherText, `${zip}: the edit changes the file`);
+          fs.writeFileSync(file, text);
+          try {
+            assert.deepStrictEqual(await hashesOf(zip), base, zip);
+          } finally {
+            fs.writeFileSync(file, file === source ? sourceText : otherText);
+          }
+        }
+        // A comment above it moves its line, which its errors, a caught error's stack and its closures name
+        fs.writeFileSync(source, `# a comment above\n${sourceText}`);
+        const moved = await hashesOf('moved.zip');
+        assert.notStrictEqual(moved['on_c'], base['on_c']);
+        assert.notStrictEqual(moved['on_py'], base['on_py']);
+      } finally {
+        fs.writeFileSync(source, sourceText);
+        fs.writeFileSync(other, otherText);
+      }
     });
 
   it('the functions and packages an IR imports, and the python providers a runner implies', () => {
@@ -429,11 +579,11 @@ describe('export_ resolves an imported npm workspace package itself (#652)', () 
       );
     });
 
-  it('the manifests are served per owner: the export for each provider set, of the functions its owners import', { skip }, () => {
+  it('the manifests are served per owner: the export for each provider set, of the functions its owners import', { skip }, async () => {
     const runnerA: Runner = { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] };
-    const runnerB: Runner = { runtime: 'east-node', platforms: [] };   // another provider set: its own export
+    const runnerB: Runner = { runtime: 'east-node', platforms: [] };   // another provider set: its own manifest
     const given = East.exportFunctions('other', '1.0.0', { double });
-    const resolved = resolveFunctionManifests([
+    const resolved = await resolveFunctionManifests([
       { package: 'pricing', functions: ['triple'], owner: 'task "a"', runner: runnerA },
       { package: 'pricing', functions: ['triple'], owner: 'task "b"', runner: runnerB },
       { package: 'other', functions: ['double'], owner: 'task "a"', runner: runnerA },

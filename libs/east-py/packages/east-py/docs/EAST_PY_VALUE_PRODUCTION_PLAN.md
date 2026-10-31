@@ -364,10 +364,9 @@ The only real, non-trivial support items: construction **dtype/contiguity guards
 (prose) for "model weights as a Blob via `torch.save(BytesIO)`".
 
 ### 4.4 The worked migration (proving ground)
-The reference POC is a torch flow-matching sampler, `flow_sample()`, at
-**`/home/crambelsoupy/src/east-twe/python/flow_poc/flow_matching.py`** (a **separate repo**,
-`east-twe` — not in this monorepo; the implementing agent must clone/path it, or substitute any
-existing torch POC in `east-py-datascience`). It wraps into one decorated function whose body
+The reference POC is a torch flow-matching sampler, `flow_sample()`, in a downstream
+project's repo (**not** in this monorepo — the implementing agent substitutes any existing
+torch POC in `east-py-datascience`). It wraps into one decorated function whose body
 **imports the unmodified POC**. Self-contained example (assumes PR #1's f32 dtype + the `@platform_function`
 decorator from §4.2):
 

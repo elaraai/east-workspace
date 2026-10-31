@@ -270,6 +270,11 @@ void east_beast2_writer_set_parallel(Beast2StreamWriter *w, bool parallel);
 // An add that fails leaves the writer as it was, with the message posted.
 typedef struct Beast2ElementWriter Beast2ElementWriter;
 Beast2ElementWriter *east_beast2_element_writer_new(EastType *type, int32_t codec_id);
+// The same, the header holding `source_map` (the writer takes a reference;
+// NULL for none), as east_beast2_manifest_writer_new_with_source_map.
+Beast2ElementWriter *east_beast2_element_writer_new_with_source_map(EastType *type,
+                                                                    int32_t codec_id,
+                                                                    EastSourceMap *source_map);
 void east_beast2_element_writer_set_parallel(Beast2ElementWriter *w, bool parallel);
 bool east_beast2_element_writer_add(Beast2ElementWriter *w, EastValue *element);
 bool east_beast2_element_writer_add_pair(Beast2ElementWriter *w, EastValue *key, EastValue *value);
@@ -351,6 +356,10 @@ Beast2RunSorter *east_beast2_run_sorter_new_dir(EastType *type, int32_t codec_id
                                                 EastCompiledFn *merge_fn, bool union_mode);
 // Frames of every run deflate on a pool, as east_beast2_writer_set_parallel.
 void east_beast2_run_sorter_set_parallel(Beast2RunSorter *s, bool parallel);
+// The map every run's header holds (the sorter takes a reference; NULL for
+// none), which the closures in the elements are written against — a runner's
+// program's, so they keep their lines. Only before the first element.
+void east_beast2_run_sorter_set_source_map(Beast2RunSorter *s, EastSourceMap *source_map);
 // add() takes a Set element, add_pair() a Dict's key and value. An element
 // that fails to encode leaves the sorter as it was; a run that fails as it is
 // written — a key added twice without a fold, the merge function's error, the
@@ -646,6 +655,17 @@ Beast2ManifestWriter *east_beast2_manifest_writer_new(EastType *type, int32_t co
 // object in `<path>.segments/`, which is created when missing.
 Beast2ManifestWriter *east_beast2_manifest_writer_new_dir(EastType *type, int32_t codec_id,
                                                           const char *path);
+// The two above, the header every segment is written under holding
+// `source_map` (the writer takes a reference; NULL for none): the map the
+// closures in the collection are written against — a closure of it keeps its
+// loc_ids, one of another map has each where its stack stands in it, or 0,
+// no location. A runner gives its program's, so the closures a program
+// returns keep their lines.
+Beast2ManifestWriter *east_beast2_manifest_writer_new_with_source_map(
+    EastType *type, int32_t codec_id, const Beast2ManifestSink *sink, EastSourceMap *source_map);
+Beast2ManifestWriter *
+east_beast2_manifest_writer_new_dir_with_source_map(EastType *type, int32_t codec_id,
+                                                    const char *path, EastSourceMap *source_map);
 // Frames the segments on a pool, as east_beast2_element_writer_set_parallel
 // frames a segment writer's; the objects and the manifest are the same bytes.
 void east_beast2_manifest_writer_set_parallel(Beast2ManifestWriter *w, bool parallel);
@@ -663,6 +683,10 @@ void east_beast2_manifest_writer_free(Beast2ManifestWriter *w);
 // its segments framed on a pool as a paged encode's are.
 bool east_beast2_write_manifest_dir(EastValue *value, EastType *type, int32_t codec_id,
                                     const char *path);
+// The same under `source_map`, as east_beast2_manifest_writer_new_with_source_map.
+bool east_beast2_write_manifest_dir_with_source_map(EastValue *value, EastType *type,
+                                                    int32_t codec_id, const char *path,
+                                                    EastSourceMap *source_map);
 
 // Taking a delivered collection in (the C mirror of TypeScript's
 // intakeBeast2For): a beast2 blob of an Array, Set or Dict whose header names

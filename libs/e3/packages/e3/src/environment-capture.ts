@@ -343,6 +343,50 @@ export function pythonWorkspaceMember(name: string, anchorDir: string, owner: st
   return { dir: local.dir, version };
 }
 
+/**
+ * Where a python workspace member's code can come from (#1459): the governing
+ * workspace's root — whose `uv.lock` and `pyproject.toml` pin everything else
+ * — and the directories of the member and of every local package it depends
+ * on, transitively, as {@link captureAutoEnvironment} walks them. What the
+ * export cache keys a member's manifests on.
+ *
+ * Unlike the environment's walk this refuses nothing: a virtual package's
+ * directory counts, and a registry or archive package is pinned by the lock.
+ *
+ * @param name - The package name as referenced (import-style or canonical)
+ * @param anchorDir - Directory the workspace is resolved from (the export cwd)
+ * @param owner - The referencing task/function name, for error messages
+ * @returns The workspace root and the closure's directories, sorted, or null
+ *   when there is no uv workspace above `anchorDir` or the name is not a
+ *   local member
+ */
+export function pythonMemberSources(name: string, anchorDir: string, owner: string): { root: string; dirs: string[] } | null {
+  const found = findUvLock(anchorDir, owner);
+  if (!found) return null;
+  const { root, lock } = found;
+  const byName = new Map((lock.package ?? []).map((p) => [p.name, p]));
+  const canon = canonicalPythonName(name);
+  const subject = (lock.package ?? []).find((p) => canonicalPythonName(p.name) === canon);
+  if (subject === undefined || localSource(root, subject.source) === null) return null;
+  const dirs = new Set<string>();
+  const seen = new Set<string>();
+  const queue = [subject.name];
+  while (queue.length > 0) {
+    const pkg = byName.get(queue.shift()!);
+    if (pkg === undefined || seen.has(pkg.name)) continue;
+    seen.add(pkg.name);
+    const local = localSource(root, pkg.source);
+    if (local === null) continue;
+    dirs.add(local.dir);
+    for (const edge of [
+      ...(pkg.dependencies ?? []),
+      ...Object.values(pkg['optional-dependencies'] ?? {}).flat(),
+      ...Object.values(pkg['dev-dependencies'] ?? {}).flat(),
+    ]) queue.push(edge.name);
+  }
+  return { root, dirs: [...dirs].sort() };
+}
+
 /** Walk up from `start` to the nearest npm lockfile (not pnpm/yarn); null if none. */
 function findNpmRoot(start: string): { root: string; lock: NpmLock } | null {
   const names = ['package-lock.json', 'npm-shrinkwrap.json'];

@@ -18,9 +18,9 @@ each array boundary. One finalize pass converts those lists to real
 
 from __future__ import annotations
 
-import itertools
 from typing import Any
 
+from east.expression import naming
 from east.expression.errors import ExpressionError
 from east.expression.location import location_id as _loc_id
 from east.ir.builders import ir_value, ir_variable
@@ -136,14 +136,11 @@ def _option_inner(t: EastType) -> EastType:
 
 # ─── Nested lambdas + the eager-builtin funnel (#393) ───────────────────────
 
-_fresh_names = itertools.count()
-
-
-def _fresh_name() -> str:
-    """A trace-unique variable name so nested lambdas never shadow outer
-    parameters (`split(...).map(lambda v: v + r.id)` must keep `r` visible
-    inside the inner function's body)."""
-    return f"__n{next(_fresh_names)}"
+#: A build-unique name for a variable the author did not name, so nested
+#: lambdas never shadow outer parameters (`split(...).map(lambda v: v + r.id)`
+#: must keep `r` visible inside the inner function's body). Numbered per build
+#: (``naming.fresh_name``).
+_fresh_name = naming.fresh_name
 
 # ─── Lazy node construction (identity-preserving, #411) ─────────────────────
 #
@@ -173,9 +170,10 @@ def _builtin_slots(name: str, type_params: list) -> list | None:
     when the table does not know the builtin or its type parameters. The
     list is shared: read it, never change it."""
     key = (name, tuple(type_params))
-    hit = _slots_memo.get(key, _slots_memo)
-    if hit is not _slots_memo:
-        return hit
+    try:
+        return _slots_memo[key]  # a cached None is an answer: only a KeyError is a miss
+    except KeyError:
+        pass
     global _signatures
     if _signatures is None:
         from east.runtime.builtin_signatures import FN, builtin_inputs

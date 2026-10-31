@@ -357,6 +357,13 @@ add_executable(test_sha256 tests/test_sha256.c)
 target_link_libraries(test_sha256 east-c)
 add_test(NAME sha256 COMMAND test_sha256)
 
+# Recursive type ids: a recursive type is written under the first 62 bits of
+# the SHA-256 of its type table, so a type built here gets the id TypeScript's
+# type_of_type.recursive_id.spec.ts and east-py's tests pin for it.
+add_executable(test_recursive_type_id tests/test_recursive_type_id.c)
+target_link_libraries(test_recursive_type_id east-c)
+add_test(NAME recursive_type_id COMMAND test_recursive_type_id)
+
 # Aliasing scoped per root element, pinned against the TypeScript encoder:
 # sharing between elements encodes as copies, sharing inside one is kept, and
 # the reset forgets every container even after the identity table grows. Run

@@ -46,6 +46,8 @@ __all__ = [
     "PlatformDependencyType",
     "FunctionExportType",
     "FunctionManifestType",
+    "FunctionExportBatchEntryType",
+    "FunctionExportBatchType",
     "function_ir",
     "platform_dependencies",
     "export_functions",
@@ -92,6 +94,23 @@ FunctionManifestType = StructType([
     ("package", StringType),
     ("version", StringType),
 ])
+
+#: One manifest an ``export-functions`` process writes from a batch
+#: (``--batch <file>``): the functions it exports (``only``, every one when
+#: empty), the platform packages providing their platform calls
+#: (``packages``, as ``-p`` names them) and the file it is written to
+#: (``output``, relative to the batch's directory). The module is imported
+#: once for the whole batch, and each entry's manifest is byte for byte what
+#: ``-o <output> -p … --only …`` writes alone.
+FunctionExportBatchEntryType = StructType([
+    ("only", ArrayType(StringType)),
+    ("output", StringType),
+    ("packages", ArrayType(StringType)),
+])
+
+#: The batch ``export-functions --batch`` reads: one manifest per entry,
+#: written in order.
+FunctionExportBatchType = ArrayType(FunctionExportBatchEntryType)
 
 
 # ── the IR behind a function ─────────────────────────────────────────────────
@@ -150,7 +169,8 @@ def _walk(node: Any, visit: Any) -> None:
         for _name, child in node.items():
             _walk(child, visit)
         return
-    if is_east_array(node) or isinstance(node, (list, tuple)):
+    # a python list first: EastArray's isinstance is an ABC's, a python call
+    if isinstance(node, (list, tuple)) or is_east_array(node):
         for child in node:
             _walk(child, visit)
 
@@ -268,31 +288,34 @@ def export_functions(package: str, version: str, functions: dict[str, Any],
             raise TypeError(f"export_functions: {name}: {e}") from None
         source_map = getattr(functions[name], "_east_source_map", None)
         root = _root_function(ir, f"export_functions: {name}")
+        ir = _rename_hoisted_constants(ir, package, name)
+        # The final form is read once (#1459) — every read of it materializes
+        # fresh objects — into a copy whose locations index a map of its own
+        # (only the stacks this function names: the build's map may hold its
+        # siblings' too), and every check below walks the copy.
+        own = SourceMap()
+        tree = _rehome_ir(ir, source_map, own)
         # Closed means the exported IR BINDS every name it reads. The Lets an
         # earlier python build hoisted above its function travel with it (the
         # whole Block is what is exported below), so a capture naming one
         # resolves wherever the IR lands; only a name nothing in the IR binds
         # is a closure over an enclosing body (#669).
         free: dict[str, Any] = {}
-        _free_vars(ir, frozenset(), free)
+        _free_vars(tree, frozenset(), free)
         if free:
             raise ValueError(
                 f"export_functions: {name} reads {', '.join(free)}, which its own IR does not "
                 "bind — an exported function is a closed value: it may bind what it reads "
                 "(a Block root's Lets do), but it may not close over an enclosing body")
-        ir = _rename_hoisted_constants(ir, package, name)
-        imports = _count_imports(ir)
+        imports = _count_imports(tree)
         if imports:
             raise ValueError(
                 f"export_functions: {name} holds {imports} unresolved import(s) — link it "
                 "(link_imports) before exporting; exports do not chain")
-        # Only the stacks this function names, in a map of its own: the
-        # build's map may hold its siblings' too.
-        own = SourceMap()
         exports.append(EastStruct({
-            "ir": _arrayify_tree(_rehome_ir(ir, source_map, own)),
+            "ir": _arrayify_tree(tree),
             "name": name,
-            "platforms": platform_dependencies(ir, providers),
+            "platforms": platform_dependencies(tree, providers),
             "source_map": EastArray(ArrayType(LocationType),
                                     [location_stack(*stack) for stack in own.entries()]),
             "type": root.value["type"],

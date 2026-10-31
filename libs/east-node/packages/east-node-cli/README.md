@@ -182,12 +182,17 @@ Write a module's `eastFunctions` export (name → `East.function` result) as a f
 
 ```
 east-node export-functions <module> -o <file> [options]
+east-node export-functions <module> --batch <file> [--name <name>] [--package-version <version>]
 
 Arguments:
   module                       Path to the built module exporting `eastFunctions`
 
 Options:
   -o, --output <file>          The manifest to write (.beast2)
+  --batch <file>               Write several manifests from one import of the module: a beast2
+                               batch (FunctionExportBatchType), each entry its own output, -p
+                               packages and --only functions; the entries run in order, the first
+                               that fails ending the export
   -p, --package <package...>   Platform packages implementing the functions' platform calls
                                (every dependency must be provided by one; recorded as its provider)
   --name <name>                The package name importers use (default: the module file's stem)

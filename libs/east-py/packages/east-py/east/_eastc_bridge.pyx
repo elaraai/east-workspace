@@ -14,6 +14,7 @@ Memory management rules:
 """
 
 from cpython.bytes cimport PyBytes_AS_STRING, PyBytes_GET_SIZE
+from cpython.object cimport PyObject_TypeCheck, PyTypeObject
 from cpython.unicode cimport PyUnicode_AsUTF8AndSize, PyUnicode_DecodeUTF8
 from libc.stddef cimport size_t
 from libc.stdint cimport int64_t, uint8_t, uintptr_t
@@ -116,13 +117,16 @@ cdef void _load_well_known_types():
     global _py_ir_type, _py_east_type_type, _well_known_loaded
     if _well_known_loaded:
         return
-    _well_known_loaded = True
     try:
         from east.types.type_of_type import IRType, EastTypeType
-        _py_ir_type = IRType
-        _py_east_type_type = EastTypeType
     except ImportError:
-        pass
+        # type_of_type is still loading: building these types asks east-c to
+        # name them, which converts them, before the module holds them. A
+        # later call finds them.
+        return
+    _py_ir_type = IRType
+    _py_east_type_type = EastTypeType
+    _well_known_loaded = True
 
 
 # ─── py_type_to_c ─────────────────────────────────────────────────────────
@@ -245,11 +249,17 @@ cdef _eastc.EastType* _py_type_to_c_impl(object py_type) except NULL:
         if payload.type == "wrapper":
             rec_id = payload.value["id"]
             result = _eastc.east_recursive_type_new()
+            # A wrapper inside another of its id (crafted bytes; no writer
+            # nests one) shadows it, and gives the binding back when done.
+            outer = _rec_id_ctx.get(rec_id)
             _rec_id_ctx[rec_id] = <uintptr_t>result
             try:
                 elem = py_type_to_c(payload.value["inner"])
             finally:
-                del _rec_id_ctx[rec_id]
+                if outer is None:
+                    del _rec_id_ctx[rec_id]
+                else:
+                    _rec_id_ctx[rec_id] = outer
             _eastc.east_recursive_type_set(result, elem)
             _eastc.east_type_release(elem)
             return _eastc.east_recursive_type_intern(result)
@@ -869,18 +879,20 @@ cdef object _c_type_tag_to_py_type_inner(_eastc.EastType *c_type):
 cdef object _c_type_tag_to_py_type_impl(_eastc.EastType *c_type, uintptr_t key):
     cdef _eastc.EastTypeKind kind = c_type.kind
 
-    # RECURSIVE wrapper: mint a scope id and emit `wrapper({id, inner})`,
-    # with self-references inside the inner emitted as `ref(id)`. The built
-    # wrapper is interned through types.py's registry so every in-process
-    # route to the same structure converges on one canonical wrapper (and id).
+    # RECURSIVE wrapper: emit `wrapper({id, inner})` under the id east-c
+    # names the type by, a hash of its type table (the id every runtime gives
+    # it), with self-references inside the inner emitted as `ref(id)`. The
+    # built wrapper is interned through types.py's registry so every
+    # in-process route to the same structure converges on one canonical
+    # wrapper.
     if kind == _eastc.EAST_TYPE_RECURSIVE:
         if c_type.data.recursive.node == NULL:
             raise ValueError("recursive wrapper type has no node set")
         existing = _rev_rec_ids.get(key)
         if existing is not None:
             return EastVariant("Recursive", EastVariant("ref", existing))
-        from east.types.types import _intern_recursive_wrapper, _mint_recursive_id
-        rec_id = _mint_recursive_id()
+        from east.types.types import _intern_recursive_wrapper
+        rec_id = _eastc.east_type_structural_id(c_type)
         _rev_rec_ids[key] = rec_id
         try:
             inner = _c_type_tag_to_py_type_inner(c_type.data.recursive.node)
@@ -1041,21 +1053,27 @@ cdef _eastc.EastValue* _py_value_to_c_impl(object val, _eastc.EastType *c_type, 
     # child type(s) — passing a wrong-shaped or mislabelled proxy by raw
     # pointer would hand east-c a union-mismatched value and cause a wild
     # deref at the next typed access (#467).
-    if isinstance(val, EastArrayProxy):
+    #
+    # Each proxy is told by a C type check, not isinstance: the proxy classes
+    # derive from ABCs (MutableSequence and kin), whose isinstance runs a
+    # python-level __instancecheck__, and this asks it of every value
+    # converted — a fifth of a build's time (#1459). No class registers as a
+    # virtual proxy, so the MRO answers the same.
+    if PyObject_TypeCheck(val, <PyTypeObject*>EastArrayProxy):
         if kind != _eastc.EAST_TYPE_ARRAY:
             raise TypeError(f"EastArrayProxy supplied where C type kind {kind} expected")
         _check_proxy_type(<uintptr_t>val._c_elem_type_ptr, c_type.data.element, "Array element")
         result = <_eastc.EastValue*><uintptr_t>val._c_ptr
         _eastc.east_value_retain(result)
         return result
-    if isinstance(val, EastSetProxy):
+    if PyObject_TypeCheck(val, <PyTypeObject*>EastSetProxy):
         if kind != _eastc.EAST_TYPE_SET:
             raise TypeError(f"EastSetProxy supplied where C type kind {kind} expected")
         _check_proxy_type(<uintptr_t>val._c_elem_type_ptr, c_type.data.element, "Set element")
         result = <_eastc.EastValue*><uintptr_t>val._c_ptr
         _eastc.east_value_retain(result)
         return result
-    if isinstance(val, EastDictProxy):
+    if PyObject_TypeCheck(val, <PyTypeObject*>EastDictProxy):
         if kind != _eastc.EAST_TYPE_DICT:
             raise TypeError(f"EastDictProxy supplied where C type kind {kind} expected")
         _check_proxy_type(<uintptr_t>val._c_key_type_ptr, c_type.data.dict.key, "Dict key")
@@ -1063,7 +1081,7 @@ cdef _eastc.EastValue* _py_value_to_c_impl(object val, _eastc.EastType *c_type, 
         result = <_eastc.EastValue*><uintptr_t>val._c_ptr
         _eastc.east_value_retain(result)
         return result
-    if isinstance(val, EastRefProxy):
+    if PyObject_TypeCheck(val, <PyTypeObject*>EastRefProxy):
         if kind != _eastc.EAST_TYPE_REF:
             raise TypeError(f"EastRefProxy supplied where C type kind {kind} expected")
         _check_proxy_type(<uintptr_t>val._c_inner_type_ptr, c_type.data.element, "Ref inner")
@@ -1875,6 +1893,22 @@ def c_function_value_type(uintptr_t fn_val_ptr):
                 _eastc.east_type_of_type_init()
             return c_value_to_py(tv, _eastc.east_type_type)
     return None
+
+
+def recursive_type_id(object py_wrapper):
+    """The id every runtime writes the recursive type ``py_wrapper`` under.
+
+    The first 62 bits of the SHA-256 of its type table — east-c's
+    ``east_type_structural_id``, and TypeScript's ``recursiveTypeId`` — so it
+    does not depend on the ids ``py_wrapper`` carries: ``recursive_type``
+    builds a type under a provisional id and asks for its own here. The
+    wrapper itself is converted uncached, since nothing converts it again.
+    """
+    cdef _eastc.EastType* c_type = _py_type_to_c_impl(py_wrapper)
+    try:
+        return _eastc.east_type_structural_id(c_type)
+    finally:
+        _eastc.east_type_release(c_type)
 
 
 def canonicalize_type(object py_type):
