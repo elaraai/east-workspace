@@ -181,9 +181,10 @@ export interface SchematicCanvasHandle {
     /**
      * Flies to an entity, by its id, and selects it alone: Find's pick and the Index's (#1389) — an item or a zone —
      * and the inspector's (#1391), which also names a link or a net, and a net's leg with it. `undefined` selects
-     * nothing, the camera where it is.
+     * nothing, the camera where it is. `avoid` is a box on the page over the canvas — a conflicts popover open from
+     * the toolbar — the flight lands beside, in the part of the view it leaves clear.
      */
-    reveal(id: string | undefined, leg?: NetLeg): void;
+    reveal(id: string | undefined, leg?: NetLeg, avoid?: DOMRectReadOnly): void;
     /**
      * Selects an entity alone, by its id, once the drawing draws it — the item a drop added or placed (#1390), and what
      * Find's pick or Go to issue finds off the drawing, the choices that hid it cleared (#1404, #1391): an item, a zone,
@@ -620,7 +621,15 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         zoomBy,
         fit: resetView,
         step: (delta) => stepSelection(delta),
-        reveal: (id, leg) => {
+        reveal: (id, leg, avoid) => {
+            // What covers the canvas from its right, kept clear of the flight: a box over the canvas's height, at its side.
+            const clear = (() => {
+                const el = canvasRef.current;
+                if (avoid === undefined || el === null) return 0;
+                const box = el.getBoundingClientRect();
+                if (avoid.right <= box.left || avoid.left >= box.right || avoid.bottom <= box.top || avoid.top >= box.bottom) return 0;
+                return box.right - Math.max(avoid.left, box.left);
+            })();
             // Nothing: the selection let go, the camera where it is (#1391).
             if (id === undefined) {
                 commitSelection(EMPTY_STRING_SET);
@@ -632,14 +641,14 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             const item = items.find(it => stringEqual(it.key, id));
             if (item !== undefined) {
                 const size = renderSnapRef.current.size;
-                if (inertKeys.has(item.key)) flyTo(size === null ? pointFrame(item) : itemFrame(item, size));
-                else flyToItem(item);
+                if (inertKeys.has(item.key)) flyTo(size === null ? pointFrame(item) : itemFrame(item, size), clear);
+                else flyToItem(item, clear);
                 return;
             }
             // A zone: the camera flies to its box, and the zone alone is selected (#1389).
             const zone = shownZones.find(z => stringEqual(z.key, id));
             if (zone !== undefined) {
-                flyTo({ x: zone.x, y: zone.y, w: zone.width, h: zone.height });
+                flyTo({ x: zone.x, y: zone.y, w: zone.width, h: zone.height }, clear);
                 if (inertKeys.has(zone.key)) return;
                 commitSelection(EMPTY_STRING_SET);
                 commitLinkSelection(null);
@@ -657,7 +666,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                 const minX = Math.min(...points.map(p => p.x)), maxX = Math.max(...points.map(p => p.x));
                 const minY = Math.min(...points.map(p => p.y)), maxY = Math.max(...points.map(p => p.y));
                 const w = Math.max(maxX - minX, 8), h = Math.max(maxY - minY, 6);
-                flyTo({ x: (minX + maxX - w) / 2, y: (minY + maxY - h) / 2, w, h });
+                flyTo({ x: (minX + maxX - w) / 2, y: (minY + maxY - h) / 2, w, h }, clear);
             }
             if (inertKeys.has(id)) return;
             commitSelection(EMPTY_STRING_SET);

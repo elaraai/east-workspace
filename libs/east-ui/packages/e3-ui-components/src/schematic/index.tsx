@@ -589,7 +589,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const findKinds = useMemo((): FindKind[] => value.items.map((kind) => ({
         slot: kind.key, name: kind.name, part: sourcePart(chrome, kind.key), rows: kind.rows, read: kind.read, codec: rowCodec(kind.rowType),
     })), [value.items, chrome]);
-    const reveal = useCallback((entity: string) => canvasRef.current?.reveal(entity), []);
+    const reveal = useCallback((entity: string, avoid?: DOMRectReadOnly) => canvasRef.current?.reveal(entity, undefined, avoid), []);
     const hiddenLayers = useMemo(() => new Set(layersNow.flatMap((layer) => (getSomeorUndefined(layer.visible) === false ? [layer.key] : []))), [layersNow]);
     const drawnItems = useMemo(() => new Set(drawing.items.map((item) => item.key)), [drawing.items]);
     const onFound = useCallback((item: FoundItem) => {
@@ -640,12 +640,14 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         if (active instanceof HTMLElement) active.blur();
         history.act(action);
     }, [history]);
-    // An issue a Save raised: the canvas flies to the item it names, and selects it.
+    // An issue a Save raised: the canvas flies to the item it names, and selects it — a conflict's Go to, beside the
+    // conflicts popover open over the canvas, which stays open.
     const sessions = editing.schedule.sessions;
     const onIssue = useCallback((issue: EditIssue) => {
         const key = history.sourceOf(issue);
         const part = key === undefined ? undefined : sessions.find((held) => stringEqual(held.key, key));
-        if (part !== undefined) reveal(entityId({ kind: recordSlot(part.kind), key: issue.entry }));
+        const popover = document.querySelector("[data-conflict-card]")?.closest("[data-part='content']")?.getBoundingClientRect();
+        if (part !== undefined) reveal(entityId({ kind: recordSlot(part.kind), key: issue.entry }), popover);
     }, [history, sessions, reveal]);
     // A conflict's item in the history bar's popover, named as its session's banners name its issues — by the names this
     // render draws, read as the popover draws.
