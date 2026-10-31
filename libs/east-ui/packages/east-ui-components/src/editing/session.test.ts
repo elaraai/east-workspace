@@ -6,7 +6,8 @@
  * projection a collection draws an entry with — here a bar, not a sheet's
  * wire row — and records the collections' own gestures under their origins.
  * An Apply retires its drafts once the source reads back as it left them
- * (#1185): a positional snapshot whole, a keyed one by the batch's own
+ * (#1185): a positional snapshot whole — or, beside another write's, by the
+ * batch's own entries where it placed them — a keyed one by the batch's own
  * entries, and at a revision the entries read there.
  */
 
@@ -195,14 +196,50 @@ test("two Saves at once: one reads its own back at the later revision the other 
     expect(early.reconcile(variant("revision", "r4"), () => some({ ...cut, qty: 5n }))).toBe(true);
 });
 
-test("a positional snapshot confirms only once its whole collection reads back, its order included", async () => {
+test("a positional snapshot confirms once its whole collection reads back as the commit left it, and the history stands", async () => {
     const session = create();
-    const b: RunValue = { id: "b", start: 4n, end: 6n };
     session.record([{ id: "a", before: version(a), after: version({ ...a, end: 5n }) }], "resize", "Resize a");
     await session.apply();
-    // Another entry beside the commit's: the collection is not the one the commit left.
-    expect(session.reconcile(variant("snapshot", [{ ...a, end: 5n }, b]), () => undefined)).toBe(false);
+    // The collection as the edit began: nothing of the commit in it yet.
+    expect(session.reconcile(variant("snapshot", [a]), () => undefined)).toBe(false);
     expect(session.reconcile(variant("snapshot", [{ ...a, end: 5n }]), () => undefined)).toBe(true);
+    expect([session.status, session.pending, session.canUndo]).toEqual(["idle", 0, true]);
+});
+
+test("two Saves at once over a positional snapshot: beside another write's — another field of its entry, another entry — it confirms by its own entries, and its versions go; another write's alone, it waits", async () => {
+    const b: RunValue = { id: "b", start: 4n, end: 6n };
+    const saved = async () => {
+        const session = create();
+        session.record([{ id: "a", before: version(a), after: version({ ...a, end: 5n }) }], "resize", "Resize a");
+        await session.apply();
+        return session;
+    };
+    // Another write's start of the same entry, landed before the commit: nothing of the commit in it yet.
+    const field = await saved();
+    expect(field.reconcile(variant("snapshot", [{ ...a, start: 2n }]), () => undefined)).toBe(false);
+    expect(field.status).toBe("reconciling");
+    // The commit, the other write's start beside it: the collection is the source's, and the session's versions go with their history.
+    expect(field.reconcile(variant("snapshot", [{ ...a, start: 2n, end: 5n }]), () => undefined)).toBe(true);
+    expect([field.status, field.pending, field.entries.size, field.canUndo]).toEqual(["idle", 0, 0, false]);
+    // The commit, and another write's entry beside it.
+    const entry = await saved();
+    expect(entry.reconcile(variant("snapshot", [{ ...a, end: 5n }, b]), () => undefined)).toBe(true);
+    expect([entry.status, entry.pending, entry.entries.size]).toEqual(["idle", 0, 0]);
+});
+
+test("a move alone over a positional snapshot confirms once its entry stands where the commit placed it, beside another write's entry; as the edit began, it waits", async () => {
+    const b: RunValue = { id: "b", start: 4n, end: 6n };
+    const c: RunValue = { id: "c", start: 7n, end: 8n };
+    const session = create();
+    session.observeBase(variant("snapshot", [a, b]));
+    const placed = (place: Placement): EntryVersion<Bar> => ({ ...version(a), place });
+    session.record([{ id: "a", before: placed(some(variant("ordered", variant("before", "b")))), after: placed(some(variant("ordered", variant("after", "b")))) }], "move", "Move a");
+    await session.apply();
+    expect(session.status).toBe("reconciling");
+    // Its value is not the change, its place is: as the edit began, a stands before b.
+    expect(session.reconcile(variant("snapshot", [a, b]), () => undefined)).toBe(false);
+    expect(session.reconcile(variant("snapshot", [c, b, a]), () => undefined)).toBe(true);
+    expect([session.status, session.pending]).toEqual(["idle", 0]);
 });
 
 test("an entry the record still holds as its edit began never confirms, though the change, undone, would apply to it — a line taken out of an order's lines (#1185)", async () => {

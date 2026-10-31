@@ -28,7 +28,7 @@ import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll, vi 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { East, SortedMap, applyFor, compareFor, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, Text, UIComponentType } from "@elaraai/east-ui/internal";
-import { StateRuntime } from "@elaraai/east-ui-components";
+import { StateRuntime, editingMessages } from "@elaraai/east-ui-components";
 import { foreignIcons, markOf } from "@elaraai/east-ui-components/testing";
 import { Record, Studio, StudioKeyType, StudioPagesType, builderKeys, fingerprintOf } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/studio/studio";
@@ -453,6 +453,28 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         const overview = (await readRecord()).get(OVERVIEW)!;
         if (overview.type !== "page") throw new Error("expected a page");
         expect(overview.value.draft.cells.map((c) => c.key)).toEqual(["c-kpi"]);
+    });
+
+    test("B12: two Saves at once, of different fields of one tile: the one that lands first reads its own back beside the other's and is done, never left waiting on it", async () => {
+        const { container } = await mountBuilder();
+        await keyOn(container, "c-trend", { key: "]" });
+        // The other session's alignment of the same tile commits just after this Save, before this session has read its own back.
+        await h.followed(ex.studioPages, () => click(screen.getByRole("button", { name: "Save" })), (now) => {
+            const stored = now.get(OVERVIEW)!;
+            if (stored.type !== "page") throw new Error("expected a page");
+            const cells = stored.value.draft.cells.map((cell) => (cell.key === "c-trend" ? { ...cell, align: variant("center", null) } : cell));
+            return withEntry(OVERVIEW, variant("page", { draft: { title: stored.value.draft.title, cells }, live: stored.value.live }))(now);
+        });
+        const overview = (await readRecord()).get(OVERVIEW)!;
+        if (overview.type !== "page") throw new Error("expected a page");
+        const trend = overview.value.draft.cells.find((c) => c.key === "c-trend")!;
+        expect([trend.span, trend.align.type]).toEqual([9n, "center"]);
+        await waitFor(() => {
+            expect(container.querySelector("[data-frame-slot=toolbar]")!.textContent).not.toContain(editingMessages.historyStatus({ status: "reconciling" }));
+            expect([spanOf(container, "c-trend"), tile(container, "c-trend").getAttribute("data-align")]).toEqual(["9", "center"]);
+        });
+        expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+        expect(container.querySelector("[data-session-banner]")).toBeNull();
     });
 
     test("B13: the palette and the inspector sit either side of the canvas under the toolbar, and the palette collapses to its rail", async () => {

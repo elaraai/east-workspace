@@ -406,6 +406,8 @@ interface Submission<W> {
     revision: string | undefined;
     /** A positional snapshot's whole collection as the request leaves it — its target, order included. */
     expected: Uint8Array | undefined;
+    /** Each entry the request places, and where: what a positional snapshot holds once the request lands. */
+    placed: readonly Pick<Change, "id" | "place">[];
     release: (() => void) | undefined;
 }
 
@@ -1394,8 +1396,9 @@ export class EditSession<W> {
                 const result = this.transform(this.base.value, batch, none);
                 if (result.type === "conflict") { this.status = "conflict"; this.issues = result.value; this.changed(); return; }
                 // A positional source's target is its whole collection, its order
-                // included; a keyed source's order is its keys', so its target is
-                // the batch's own entries (#1185).
+                // included — beside another write's, the batch's own entries where
+                // it placed them; a keyed source's order is its keys', so its
+                // target is the batch's own entries (#1185).
                 if (this.keyOf === undefined) expected = this.encodeCollection(result.value);
             }
             const targets = new Map(batch.changes.map(change => [change.id, {
@@ -1404,7 +1407,8 @@ export class EditSession<W> {
             }]));
             const payload = this.encodeBatch(batch);
             this.binding.gate?.acquire();
-            this.submission = { prepare: this.binding.prepare, release: this.binding.gate?.release, expected, payload, apply: this.binding.apply, refresh: this.binding.refresh, after: new Map(this.current), targets, checked: new Map(), base: this.cloneBase(this.base), revision: undefined };
+            const placed = batch.changes.filter((change) => change.place.type === "some").map(({ id, place }) => ({ id, place }));
+            this.submission = { prepare: this.binding.prepare, release: this.binding.gate?.release, expected, placed, payload, apply: this.binding.apply, refresh: this.binding.refresh, after: new Map(this.current), targets, checked: new Map(), base: this.cloneBase(this.base), revision: undefined };
         }
         const request = this.submission;
         this.status = "applying"; this.error = undefined; this.conflicted = undefined; this.changed();
@@ -1519,12 +1523,13 @@ export class EditSession<W> {
     /**
      * Retire the drafts once the source reads back as the acknowledged request
      * left it: an inline positional source's whole collection, its order
-     * included; an inline keyed source's own entries, whatever another write
-     * did to the others (#1185); a source that names its revisions, the
-     * request's entries read at the revision it committed or a later one — an
-     * entry another write changed since, acknowledged with its newer value,
-     * and one still as its edit began, read before the commit landed, judged
-     * by a later read.
+     * included — or, where another write landed beside the request first, its
+     * own entries, each where it placed them; an inline keyed source's own
+     * entries, whatever another write did to the others (#1185); a source that
+     * names its revisions, the request's entries read at the revision it
+     * committed or a later one — an entry another write changed since,
+     * acknowledged with its newer value, and one still as its edit began, read
+     * before the commit landed, judged by a later read.
      *
      * An entry reads back as the request left it when the source holds it
      * otherwise than its edit began, with what the request set — the change,
@@ -1547,7 +1552,12 @@ export class EditSession<W> {
         // Whether every entry reads back as the session's versions hold it.
         let exact = true;
         if (request.expected !== undefined) {
-            if (!blobEqual(this.encodeCollection(base.value), request.expected)) return false;
+            // Another write may land beside the request before the session reads it back (two Saves at once): then
+            // the collection is not the request's, but holds the request's entries as it left them.
+            if (!blobEqual(this.encodeCollection(base.value), request.expected)) {
+                if (!this.leftIn(base, request)) return false;
+                exact = false;
+            }
         } else if (base.type === "snapshot") {
             for (const [id, target] of request.targets) {
                 const now = this.heldIn(base.value, id);
@@ -1686,6 +1696,34 @@ export class EditSession<W> {
         const key = this.keyOf?.(id);
         const held = key === undefined ? undefined : (collection as ReadonlyMap<unknown, unknown>).get(key);
         return held === undefined ? none : some(held);
+    }
+
+    /**
+     * Whether an inline positional source holds a request's entries as it left
+     * them, whatever another write did beside them: each, found by its identity
+     * field, as the request left it ({@link EditSession.leftAs}), and each it
+     * placed where it placed it — placed again by the same `Editing.apply` that
+     * landed it, the collection stays as it is.
+     *
+     * @param base - The base the source is at now: its whole collection
+     * @param request - The request
+     * @returns Whether the collection holds the request's entries as it left them
+     */
+    private leftIn(base: Base, request: Submission<W>): boolean {
+        if (base.type !== "snapshot" || this.transform === undefined) return false;
+        const collection = base.value;
+        for (const [id, target] of request.targets) {
+            if (!this.leftAs(this.inSnapshot(collection, id), target)) return false;
+        }
+        if (request.placed.length === 0) return true;
+        const changes: Change[] = [];
+        for (const { id, place } of request.placed) {
+            const now = this.inSnapshot(collection, id);
+            if (now.type === "none") return false;
+            changes.push({ id, patch: this.domainDiff(now, now), place });
+        }
+        const again = this.transform(collection, { requestId: "", base, label: "", changes }, none);
+        return again.type === "applied" && blobEqual(this.encodeCollection(again.value), this.encodeCollection(collection));
     }
 
     /**
