@@ -89,6 +89,27 @@
  * moves it — a run not read that a click focused, its rows replacing it —
  * moved the view by itself (#1398).
  *
+ * A gesture HOLDS a row (`hold`, the decision queue's anchor — `Decision Queue
+ * Spec.md` R8): in a bounded keyed frame that measures its rows, the row it
+ * names — or a part of it, a card's head — stays where it was on screen as the
+ * rows around it change in the gesture's commit and for {@link HOLD_WAIT_MS}
+ * after, while what the gesture opened grows: the view scrolls by as much as
+ * the rows above it moved, before paint. Where the view cannot scroll back so
+ * far, a blank of the shortfall above the first row holds it (the
+ * virtualizer's `paddingStart`); once the wait is over the blank closes in one
+ * glide of {@link HOLD_TWEEN_MS}, which goes on, where what the gesture opened
+ * shows less than the hold's `reveal`, until the row's top meets the view's
+ * (R11). The frame's own anchoring waits while a hold stands; a scroll of the
+ * viewer's ends it, its blank closed where the rows show. While a hold stands,
+ * or always with `liveHeights`, a row that changes height moves the rows below
+ * it in the frame it changes: the virtualizer, told by its observer, draws them
+ * again only a task later, after the page has painted them where they were.
+ * Rows that hold a part sticking to the view's top (`stickyParts`, the queue's
+ * card heads, R9) are placed by their `top`, never a transform: the browser
+ * works a sticky part's offset out from the layout, which a transform leaves
+ * where it was, and a row moved by its transform had its head stuck that far
+ * off.
+ *
  * A keyed frame's scroll request (`scrollToIndex`) brings in its ROW, never
  * whichever row holds its index a frame later (#885). TanStack reconciles a
  * `scrollToIndex` by index for a few frames, so a paged window landing above
@@ -143,8 +164,10 @@ import {
     memo, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState,
     type HTMLAttributes, type MutableRefObject, type ReactNode, type RefObject,
 } from "react";
+import { flushSync } from "react-dom";
 import { Box } from "@chakra-ui/react";
 import { debounce, observeElementOffset, useVirtualizer, useWindowVirtualizer, type VirtualItem, type Virtualizer } from "@tanstack/react-virtual";
+import { prefersReducedMotion } from "../contracts/reduced-motion.js";
 import { parseCssSize } from "../style/parse-size.js";
 import { virtualScrollbarCss } from "../style/scrollbar.js";
 import { RowTopContext, RowsScrollContext, createRowsScroll } from "./rows-scroll.js";
@@ -321,6 +344,58 @@ export interface RowsViewport {
     scroller: HTMLElement | Window | null;
 }
 
+/**
+ * How long a hold keeps its row still before it settles (`hold`): the decision
+ * queue's wait after a card opens, the design system's `--dur-base`, in which
+ * its body grows (`Decision Queue Spec.md` R8, R11).
+ */
+export const HOLD_WAIT_MS = 200;
+
+/** How long a hold's settle glides — its blank closing, and its reveal — on an ease-out cubic (R8). */
+export const HOLD_TWEEN_MS = 200;
+
+/**
+ * A gesture's hold on a row (`hold`, `Decision Queue Spec.md` R8): the row — or
+ * a part of it, a card's head — stays where it was on screen as the rows around
+ * it change in the gesture's commit and for {@link HOLD_WAIT_MS} after, the view
+ * scrolling by as much as the rows above it moved. Where the view cannot scroll
+ * back so far, a blank of the shortfall above the rows holds it; once the wait
+ * is over the blank closes in one glide of {@link HOLD_TWEEN_MS}, which —
+ * given `reveal` — goes on to show what the gesture opened. A scroll of the
+ * viewer's ends it.
+ */
+export interface RowsHold {
+    /** The row held, by its key (`getItemKey`): a row not mounted as the gesture commits shows nowhere, and is not held. */
+    readonly key: string | number;
+    /** Which gesture: a hold starts each time it changes. */
+    readonly nonce: number;
+    /**
+     * The part of the row held still, where it is not the row's top — a card's
+     * head, which sticks to the view's top while its open card runs above it,
+     * and stays where it showed: stuck there, or pushed off by its card's end.
+     */
+    readonly part?: RowsHoldPart | undefined;
+    /**
+     * Given where the gesture opens the row (R11): once the wait is over, where
+     * less than this many px of the view show below the part — what the gesture
+     * opened — the rows glide on until the row's top meets the view's.
+     */
+    readonly reveal?: number | undefined;
+}
+
+/** The part of a held row that stays still on screen (`RowsHold.part`). */
+export interface RowsHoldPart {
+    /**
+     * The part's element.
+     *
+     * @param row - The row's element
+     * @returns The part's; `null` where the row draws none
+     */
+    readonly find: (row: Element) => Element | null;
+    /** How far into the row the part stands where nothing sticks it, px: a card's head, below the card's margin and border. */
+    readonly offset: number;
+}
+
 interface VirtualRowsBaseProps {
     /** Raw `height` size string (parsed here; `"fill"` handled). */
     height: string | undefined;
@@ -405,6 +480,29 @@ interface VirtualRowsBaseProps {
      * lands, or a run — so the rows landing around it never move it. Omitted, a run anchors as any item does.
      */
     runs?: RowRuns | undefined;
+    /**
+     * A gesture's hold on a row ({@link RowsHold}), in a bounded frame that
+     * keys and measures its rows: each new `nonce` starts one, and the frame's
+     * own anchoring waits while it stands. Ignored elsewhere.
+     */
+    hold?: RowsHold | undefined;
+    /**
+     * Move the rows below a row whose height changes in the frame it changes
+     * (default false) — a body growing open, a row shrinking away — never a
+     * frame behind it, where they would overlap it or stand short of it for a
+     * frame. A hold does so while it stands.
+     */
+    liveHeights?: boolean | undefined;
+    /**
+     * Whether the rows hold parts that stick to the view's top (`position:
+     * sticky`, default false) — the decision queue's card heads (R9): each
+     * measured row is then placed by its `top`, never a transform. The browser
+     * works a sticky part's offset out from the layout, which a transform
+     * leaves where it was: a row moved by its transform had its part stuck as
+     * far off as the transform moved it. A transform moves a row with no
+     * layout, so it stays the default.
+     */
+    stickyParts?: boolean | undefined;
     /**
      * Whether to measure mounted rows (default true). Pass `false` when rows
      * are FIXED-HEIGHT (the given sizes are exact): rows then sit at exact
@@ -861,6 +959,23 @@ interface ScrollRequest {
  *  reconcile. */
 const FOLLOW_MS = 5_000;
 
+/** A hold standing (`hold`, R8): its row, where it keeps it, the offset it last left the view at, and its timer or glide. */
+interface HeldRow {
+    key: ItemKey;
+    /** Where the row was found last — where to look for it first. */
+    index: number;
+    /** The row's top as the gesture found it on screen: px below the view's top, under a pinned header. */
+    view: number;
+    /** The scroll offset the hold last left the view at: the view found anywhere else is the viewer's scroll. */
+    offset: number;
+    part: RowsHoldPart | undefined;
+    reveal: number | undefined;
+    /** Waiting, its row kept still; gliding; or let go in a commit, its blank's closing still to commit. */
+    phase: "wait" | "glide" | "closing";
+    timer: ReturnType<typeof setTimeout> | undefined;
+    frame: number | undefined;
+}
+
 /**
  * Test-only re-measure probe — lets "a height change re-measures, a selection
  * never does" be asserted as the frame's own `measure()` calls (#812), which
@@ -884,8 +999,8 @@ export function setVirtualRowsMeasureProbe(fn: (() => void) | undefined): void {
  */
 export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const {
-        header, sticky, footer, overlay, count, estimateSize, sizes, getItemKey, anchorable, runs, renderRow, measureRows = true,
-        overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, rootProps, fillParent, scrollElRef,
+        header, sticky, footer, overlay, count, estimateSize, sizes, getItemKey, anchorable, runs, hold, liveHeights, stickyParts, renderRow,
+        measureRows = true, overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, rootProps, fillParent, scrollElRef,
         scrollToIndex, scrollNonce, scrollAlign = "center", onRangeChange, sizeVersion,
         virtualizeUnboundedAt, onAnchorChange, restoreAnchor, rowsProps, rowsRef, onViewport,
     } = props;
@@ -994,6 +1109,33 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // request, wherever the row's index has moved.
     const servedRef = useRef<{ key: ItemKey; nonce: number | undefined; scroller: Rows["scrollElement"] } | null>(null);
 
+    // A gesture's hold (`hold`, R8): the blank above the first row that keeps its row where the view cannot scroll back
+    // to it — the virtualizer's padding before its rows — the hold standing, with its timer or its glide, and the last
+    // gesture seen. Only a bounded frame that keys and measures its rows holds one.
+    const holdable = bounded && getItemKey !== undefined && measureRows;
+    const [spacer, setSpacer] = useState(0);
+    const holding = useRef<HeldRow | null>(null);
+    const seenHold = useRef<number | undefined>(undefined);
+    const [, redraw] = useReducer((n: number) => n + 1, 0);
+    // A row its observer reports at a new height moves the rows below it in that frame (`liveHeights`, or a hold
+    // standing): the virtualizer draws them again only a task later, after the page has painted them where they were —
+    // over a body growing open, or short of a row shrinking away. The rows are drawn again as soon as the report is
+    // taken, once for every row it names.
+    const liveRedraw = useRef(false);
+    const measure = <S extends Element | Window>(el: Element, entry: ResizeObserverEntry | undefined, instance: Virtualizer<S, Element>): number => {
+        const size = measureRect(el, entry, instance);
+        if (entry === undefined || liveRedraw.current || (liveHeights !== true && holding.current === null)) return size;
+        const index = instance.indexFromElement(el);
+        if (size !== (instance.itemSizeCache.get(instance.options.getItemKey(index)) ?? instance.measurementsCache[index]?.size)) {
+            liveRedraw.current = true;
+            queueMicrotask(() => {
+                liveRedraw.current = false;
+                flushSync(redraw);
+            });
+        }
+        return size;
+    };
+
     const estimate = sizes !== undefined
         ? (i: number) => sizes[i] ?? 0
         : estimateSize ?? (() => 0);
@@ -1006,11 +1148,13 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         estimateSize: estimate,
         ...keyed,
         overscan,
+        // A hold's blank (R8), above the first row.
+        paddingStart: holdable ? spacer : 0,
         scrollMargin: bounded ? itemsOffset : 0,
         // The pinned header covers this much of a bounded viewport's top.
         scrollPaddingStart: bounded ? itemsOffset : 0,
         enabled: bounded || ancestorEl !== undefined,
-        measureElement: measureRect,
+        measureElement: measure,
         ...(bounded ? {
             observeElementOffset: (instance: Virtualizer<HTMLElement, Element>, cb: OffsetReport) =>
                 reporting(cb, observeElementOffset(instance, intent.wrap(cb, () => instance.scrollRect?.height ?? 0))),
@@ -1027,7 +1171,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         ...keyed,
         overscan,
         enabled: onWindow,
-        measureElement: measureRect,
+        measureElement: measure,
         observeElementOffset: (instance: Virtualizer<Window, Element>, cb: OffsetReport) =>
             reporting(cb, observeOffsetWithin<Window>(itemsRef, resample)(instance, intent.wrap(cb, () => instance.scrollRect?.height ?? 0))),
         scrollToFn: scrollWithin<Window>(itemsRef),
@@ -1102,7 +1246,20 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // programmatic one, its event still to come) wins: the live offset must
     // still be the virtualizer's.
     const anchoring = virtualized && getItemKey !== undefined && anchorable !== undefined && (bounded || atScale);
-    if (anchoring && anchorTarget.current === null) {
+    // A gesture's hold (`hold`, R8), new at this render: where its row — or its part — shows, read before the commit
+    // moves anything, in px below the view's top under a pinned header. A row not mounted shows nowhere, and is not
+    // held. The frame's own anchoring waits while a hold starts or stands.
+    const heldView = (at: RowsHold): number | undefined => {
+        const row = elementRows.elementsCache.get(at.key);
+        const scroller = scrollRef.current;
+        if (row === undefined || !row.isConnected || scroller === null) return undefined;
+        const top = viewportTop(scroller) + margin;
+        const part = at.part?.find(row) ?? null;
+        return part === null || at.part === undefined ? row.getBoundingClientRect().top - top
+            : part.getBoundingClientRect().top - top - at.part.offset;
+    };
+    const holdView = holdable && hold !== undefined && hold.nonce !== seenHold.current ? heldView(hold) : undefined;
+    if (anchoring && anchorTarget.current === null && holdView === undefined && holding.current === null) {
         const anchor = anchorRef.current;
         const offset = virtualizer.scrollOffset;
         if (anchor !== null && offset !== null && offset === anchor.offset) {
@@ -1121,6 +1278,172 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             }
         }
     }
+    // The hold's scroll (R8): written through the frame's own scroll function and taken by the virtualizer at once,
+    // so the rows it brings into view are drawn before paint — drawn again only where the view moved.
+    const holdScroll = (offset: number): void => {
+        const before = liveOffset();
+        elementRows.options.scrollToFn(offset, {}, elementRows);
+        const now = liveOffset();
+        if (now === undefined || now === before) return;
+        elementRows.scrollOffset = now;
+        redraw();
+    };
+    // A hold let go: its timer and its glide dropped, the virtualizer's own correction for a row above the view
+    // resized back on. Returns the blank it leaves standing.
+    const endHold = (): number => {
+        const held = holding.current;
+        if (held !== null) {
+            if (held.timer !== undefined) clearTimeout(held.timer);
+            if (held.frame !== undefined) cancelAnimationFrame(held.frame);
+        }
+        holding.current = null;
+        elementRows.shouldAdjustScrollPositionOnItemSizeChange = undefined;
+        return elementRows.options.paddingStart;
+    };
+    // A hold the viewer scrolled away from, whose row left, or with nothing left to glide, closes its blank where the
+    // rows show — the view up by as much, so nothing on screen moves. In a commit's own effects the hold stands until
+    // that closing commits, so the frame takes no anchor among rows the blank still moves — it would move the view back
+    // by as much again; elsewhere the hold goes, and the rows are drawn again there and then, the frame taking its own
+    // anchor as they are.
+    const releaseHold = (inEffect: boolean): void => {
+        const held = holding.current;
+        const blank = elementRows.options.paddingStart;
+        if (inEffect && held !== null && blank > 0) {
+            if (held.timer !== undefined) clearTimeout(held.timer);
+            if (held.frame !== undefined) cancelAnimationFrame(held.frame);
+            held.timer = undefined;
+            held.frame = undefined;
+            held.phase = "closing";
+            holdScroll(Math.max(0, (liveOffset() ?? 0) - blank));
+            setSpacer(0);
+            return;
+        }
+        endHold();
+        if (inEffect) return;
+        flushSync(() => {
+            if (blank > 0) {
+                holdScroll(Math.max(0, (liveOffset() ?? 0) - blank));
+                setSpacer(0);
+            }
+            redraw();
+        });
+    };
+    // The wait over (R8, R11): the blank closes — and, where less than `reveal` of the view shows below the part, the
+    // rows go on until the row's top meets the view's — in one glide, its rows moved up by as much as both, on an
+    // ease-out cubic.
+    const settleHold = (held: HeldRow): void => {
+        held.timer = undefined;
+        if (holding.current !== held) return;
+        const live = liveOffset();
+        if (live === undefined || Math.abs(live - held.offset) >= 1) {
+            releaseHold(false);
+            return;
+        }
+        const blank = elementRows.options.paddingStart;
+        let total = blank;
+        const row = elementRows.elementsCache.get(held.key);
+        const scroller = scrollRef.current;
+        if (held.reveal !== undefined && row !== undefined && row.isConnected && scroller !== null) {
+            const top = row.getBoundingClientRect().top - viewportTop(scroller) - margin;
+            const part = held.part?.find(row) ?? null;
+            const foot = part === null ? row.getBoundingClientRect().top : part.getBoundingClientRect().bottom;
+            if (scroller.getBoundingClientRect().bottom - foot < held.reveal) total = Math.max(blank, top);
+        }
+        if (total <= 0) {
+            releaseHold(false);
+            return;
+        }
+        held.phase = "glide";
+        const duration = prefersReducedMotion() ? 0 : HOLD_TWEEN_MS;
+        const t0 = performance.now();
+        const step = (): void => {
+            held.frame = undefined;
+            if (holding.current !== held) return;
+            const at = liveOffset();
+            if (at === undefined || Math.abs(at - held.offset) >= 1) {
+                releaseHold(false);
+                return;
+            }
+            const k = duration === 0 ? 1 : Math.min(1, Math.max(0, (performance.now() - t0) / duration));
+            const moved = total * (1 - Math.pow(1 - k, 3));
+            // The last step lets the hold go first, so the frame takes its own anchor as it draws it.
+            if (k === 1) endHold();
+            flushSync(() => {
+                holdScroll(live + Math.max(0, moved - blank));
+                setSpacer(Math.max(0, blank - moved));
+                if (k === 1) redraw();
+            });
+            held.offset = liveOffset() ?? held.offset;
+            if (k < 1) held.frame = requestAnimationFrame(step);
+        };
+        held.frame = requestAnimationFrame(step);
+    };
+    // A gesture's hold begins (R8): the last one's timer or glide dropped — its blank kept, for this one to keep or
+    // close — and the virtualizer's own correction for a row above the view resized off while it stands: the hold is
+    // the one to move the view.
+    const beginHold = (at: RowsHold, view: number): void => {
+        const prior = holding.current;
+        if (prior !== null) {
+            if (prior.timer !== undefined) clearTimeout(prior.timer);
+            if (prior.frame !== undefined) cancelAnimationFrame(prior.frame);
+        }
+        const row = elementRows.elementsCache.get(at.key);
+        const held: HeldRow = {
+            key: at.key, index: row !== undefined && row.isConnected ? elementRows.indexFromElement(row) : 0, view,
+            offset: liveOffset() ?? 0, part: at.part, reveal: at.reveal, phase: "wait", timer: undefined, frame: undefined,
+        };
+        holding.current = held;
+        elementRows.shouldAdjustScrollPositionOnItemSizeChange = () => false;
+        held.timer = setTimeout(() => settleHold(held), prefersReducedMotion() ? 0 : HOLD_WAIT_MS);
+    };
+    // A hold waiting (R8): its row kept where the gesture found it. Every mounted row is measured as it stands now —
+    // the commit that changed the rows above it moves the view by as much before paint, never a frame after its
+    // observer reports — and the blank is grown or closed where the view cannot scroll back so far. A view that moved
+    // since the hold left it is the viewer's scroll, which lets the hold go; so does its row leaving.
+    const keepHold = (held: HeldRow): void => {
+        const live = liveOffset();
+        if (live === undefined || getItemKey === undefined || !holdable || Math.abs(live - held.offset) >= 1) {
+            releaseHold(true);
+            return;
+        }
+        for (const el of elementRows.elementsCache.values()) {
+            if (el.isConnected) elementRows.resizeItem(elementRows.indexFromElement(el), measureRect(el, undefined, elementRows));
+        }
+        elementRows.getTotalSize();  // this commit's measurements
+        const index = indexOfKey(count, getItemKey, held.key, held.index);
+        const start = index === undefined ? undefined : elementRows.measurementsCache[index]?.start;
+        if (index === undefined || start === undefined) {
+            releaseHold(true);
+            return;
+        }
+        held.index = index;
+        const blank = elementRows.options.paddingStart;
+        // Where the row would start in the view's terms with no blank above the rows.
+        const base = start - margin - blank;
+        holdScroll(Math.max(0, base - held.view));
+        held.offset = liveOffset() ?? held.offset;
+        const next = Math.max(0, held.view - base);
+        if (next !== blank) setSpacer(next);
+    };
+    // After every commit: a new gesture's hold begins where its row showed, and a hold waiting keeps its row there.
+    // Declared before the anchor's effect, which waits while a hold stands.
+    useLayoutEffect(() => {
+        if (hold !== undefined && hold.nonce !== seenHold.current) {
+            seenHold.current = hold.nonce;
+            if (holdView !== undefined) beginHold(hold, holdView);
+        }
+        const held = holding.current;
+        if (held?.phase === "wait") keepHold(held);
+        // Its blank closed in the commit before: the hold is over, and the frame anchors its rows again.
+        else if (held?.phase === "closing") endHold();
+    });
+    useLayoutEffect(() => () => {
+        const held = holding.current;
+        holding.current = null;
+        if (held?.timer !== undefined) clearTimeout(held.timer);
+        if (held?.frame !== undefined) cancelAnimationFrame(held.frame);
+    }, []);
+
     // Write the offset the render anchored to, before paint — through the
     // frame's own scroll function, so a frame at scale moves its ancestor —
     // then take the anchor for the next render. Declared before the effects
@@ -1134,9 +1457,8 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // when the content fits — and a view that did not move sends no scroll
     // event. The virtualizer, which drew the rows for the offset asked for, is
     // told where the view is, and they are drawn again there before paint.
-    const [, redraw] = useReducer((n: number) => n + 1, 0);
     useLayoutEffect(() => {
-        if (!anchoring) {
+        if (!anchoring || holding.current !== null) {
             anchorRef.current = null;
             anchorTarget.current = null;
             return;
@@ -1375,7 +1697,8 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                         top="0"
                         left="0"
                         width="100%"
-                        style={{ transform: `translateY(${item.start - margin}px)` }}
+                        // Placed by its top where it holds a sticky part, which the browser places from the layout.
+                        style={stickyParts === true ? { top: `${item.start - margin}px` } : { transform: `translateY(${item.start - margin}px)` }}
                     >
                         <RowTopContext.Provider value={item.start - margin}><RowContent index={item.index} render={renderRow} /></RowTopContext.Provider>
                     </Box>

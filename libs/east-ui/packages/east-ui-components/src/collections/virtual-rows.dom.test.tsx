@@ -21,7 +21,10 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { system } from "../theme/index.js";
 import type { Virtualizer } from "@tanstack/react-virtual";
 import { useRowsTop } from "./rows-scroll.js";
-import { VirtualRows, devicePixels, observeOffsetWithin, type RowRuns, type RowsViewport } from "./virtual-rows.js";
+import {
+    HOLD_TWEEN_MS, HOLD_WAIT_MS, VirtualRows, devicePixels, observeOffsetWithin, type RowRuns, type RowsHold, type RowsHoldPart,
+    type RowsViewport,
+} from "./virtual-rows.js";
 
 const ROW_H = 32;
 /** What zoomed measurement reports for a nominally 32px row. */
@@ -1020,6 +1023,238 @@ describe("VirtualRows — a row out of the layout keeps its size (#1389)", () =>
         laidOut();
         expect(scrollEl.scrollTop).toBe(0);
         expect(offsets()).toEqual([0, 44, 88]);
+    });
+});
+
+describe("VirtualRows — a gesture holds its row (Decision Queue Spec.md R8, R11, R13)", () => {
+    // A card's row: its 8px margin over a card in a 1px border, the card's head 40px tall 9px into the row; open, the
+    // body below the head. jsdom lays nothing out: here the page lays the list's view 200px tall at the top, a row where
+    // the frame places it — by its transform, or its top — less the scroll, and an open card's head stuck at the view's
+    // top while its card runs above it — pushed off by its card's end. The frame's writes land on scrollTop, as a
+    // browser's do, never above the top.
+    const CLOSED = 56;
+    const OPEN = 856;
+    const HEAD = 40;
+    const VIEW = 200;
+    const proto = HTMLElement.prototype as unknown as { scrollTo?: (options: ScrollToOptions) => void };
+    const realScrollTo = proto.scrollTo;
+    const rect = (top: number, height: number) =>
+        ({ x: 0, y: top, top, left: 0, right: 240, width: 240, height, bottom: top + height, toJSON: () => ({}) }) as DOMRect;
+    /** Where the frame placed a row among the rows: its transform's offset, or its top. */
+    const placed = (row: HTMLElement): number => {
+        const moved = /translateY\((-?[\d.]+)px\)/.exec(row.style.transform);
+        return moved === null ? Number.parseFloat(row.style.top) : Number(moved[1]);
+    };
+    beforeEach(() => {
+        proto.scrollTo = function (this: HTMLElement, options: ScrollToOptions) {
+            if (options.top !== undefined) this.scrollTop = Math.max(0, options.top);
+        };
+        Element.prototype.getBoundingClientRect = function (this: Element) {
+            const list = this.closest<HTMLElement>("[data-virtual-rows]");
+            const row = this.closest<HTMLElement>("[data-index]");
+            if (list === null || row === null) return rect(0, VIEW);
+            const card = row.firstElementChild as HTMLElement;
+            const height = Number(card.dataset["h"]);
+            const top = placed(row) - list.scrollTop;
+            if (this === row) return rect(top, height);
+            const own = top + 9;
+            return rect(card.hasAttribute("data-open") ? Math.min(Math.max(own, 0), top + height - 1 - HEAD) : own, HEAD);
+        };
+    });
+    afterEach(() => {
+        if (realScrollTo === undefined) delete proto.scrollTo;
+        else proto.scrollTo = realScrollTo;
+    });
+
+    /** A card's head: the part of its row a gesture holds still. */
+    const head: RowsHoldPart = { find: (row) => row.querySelector("[data-head]"), offset: 9 };
+    /** The queue's state: the open card, the rows landed above the thirty cards, and the last gesture's hold. */
+    type At = { readonly open?: string | undefined; readonly above?: number; readonly hold?: RowsHold | undefined };
+    let set: ((at: At) => void) | undefined;
+    function Queue({ first, liveHeights, stickyParts }: { first: At; liveHeights?: boolean; stickyParts?: boolean }) {
+        const [at, setAt] = useState<At>(first);
+        set = setAt;
+        const keys = [...Array.from({ length: at.above ?? 0 }, (_u, i) => `n${i}`), ...Array.from({ length: 30 }, (_u, i) => `r${i}`)];
+        return (
+            <ChakraProvider value={system}>
+                <VirtualRows height={`${VIEW}px`} maxHeight={undefined} count={keys.length} estimateSize={() => CLOSED} overscan={2}
+                    getItemKey={(i) => keys[i]!} anchorable={() => true} hold={at.hold} liveHeights={liveHeights} stickyParts={stickyParts}
+                    renderRow={(i) => (
+                        <div data-key={keys[i]} data-h={keys[i] === at.open ? OPEN : CLOSED} {...(keys[i] === at.open ? { "data-open": "" } : {})}>
+                            <div data-head="" />
+                        </div>
+                    )} />
+            </ChakraProvider>
+        );
+    }
+    /** Where a row's top shows in the view, and its head's. */
+    const rowAt = (container: HTMLElement, key: string): number =>
+        container.querySelector(`[data-key="${key}"]`)!.parentElement!.getBoundingClientRect().top;
+    const headAt = (container: HTMLElement, key: string): number =>
+        container.querySelector(`[data-key="${key}"] [data-head]`)!.getBoundingClientRect().top;
+    const extentOf = (container: HTMLElement): number =>
+        Number(container.querySelector("[data-virtual-extent]")!.getAttribute("data-virtual-extent"));
+    /** The viewer scrolls the list, and the virtualizer reads it. */
+    const scrollList = (container: HTMLElement, px: number): HTMLElement => {
+        const list = container.firstElementChild as HTMLElement;
+        list.scrollTop = px;
+        fireEvent.scroll(list);
+        return list;
+    };
+    /**
+     * A gesture — a head clicked — committed on its own, as a click's is; and where the view is, where `key`'s row and
+     * head show and how tall the rows stand once that commit's work is done, before anything it queued runs: what the
+     * page paints next.
+     */
+    const gesture = (container: HTMLElement, at: At, key: string) => {
+        const list = container.firstElementChild as HTMLElement;
+        let seen = { top: 0, row: 0, head: 0, extent: 0 };
+        act(() => {
+            flushSync(() => set!(at));
+            seen = { top: list.scrollTop, row: rowAt(container, key), head: headAt(container, key), extent: extentOf(container) };
+        });
+        return seen;
+    };
+    /** Time passing: the scroll coming to rest, the hold's wait, its glide's frames. */
+    const pass = (ms: number) => act(async () => { await new Promise((resolve) => { setTimeout(resolve, ms); }); });
+    const SETTLED = HOLD_WAIT_MS + HOLD_TWEEN_MS + 200;
+
+    test("a card above closing as the one clicked opens leaves the head clicked where it showed — the view scrolled back by as much in the gesture's own commit; the wait over, the rows glide on until the opened card's row meets the view's top; then the frame anchors its rows again", async () => {
+        const { container } = render(<Queue first={{ open: "r5" }} />);
+        const list = scrollList(container, 1100);
+        await pass(200);
+        // r8's row shows 148px down the view, below r5's open body, its head 157px down.
+        expect(headAt(container, "r8")).toBe(157);
+        // Its head clicked: r5 closes — 800px less above it — and r8 opens.
+        const hold: RowsHold = { key: "r8", nonce: 1, part: head, reveal: 64 };
+        expect(gesture(container, { open: "r8", hold }, "r8")).toEqual({ top: 300, row: 148, head: 157, extent: 30 * CLOSED + OPEN - CLOSED });
+        // The wait over, 3px of its body shows under its head — less than 64 — so the rows glide on, r8's top to the view's.
+        await pass(SETTLED);
+        expect(list.scrollTop).toBe(448);
+        expect(rowAt(container, "r8")).toBe(0);
+        // The hold over, the frame anchors its rows again: ten rows landing above leave r8 where it shows.
+        act(() => { set!({ open: "r8", above: 10, hold }); });
+        expect(list.scrollTop).toBe(448 + 10 * CLOSED);
+        expect(rowAt(container, "r8")).toBe(0);
+    });
+
+    test("rows holding a part that sticks to the view's top are placed by their tops, never a transform — the browser places a sticky part from the layout, which a transform leaves where it was (R9) — and a gesture holds them as it holds rows a transform moves", async () => {
+        const { container } = render(<Queue first={{ open: "r5" }} stickyParts />);
+        const placements = () => [...container.querySelectorAll<HTMLElement>("[data-slot=virtualRow]")].slice(0, 3)
+            .map((row) => ({ transform: row.style.transform, top: row.style.top }));
+        expect(placements()).toEqual([{ transform: "", top: "0px" }, { transform: "", top: `${CLOSED}px` }, { transform: "", top: `${2 * CLOSED}px` }]);
+        // The card above closing as the one clicked opens: the head clicked stays where it showed, and the rows glide on.
+        const list = scrollList(container, 1100);
+        await pass(200);
+        expect(headAt(container, "r8")).toBe(157);
+        const hold: RowsHold = { key: "r8", nonce: 1, part: head, reveal: 64 };
+        expect(gesture(container, { open: "r8", hold }, "r8")).toEqual({ top: 300, row: 148, head: 157, extent: 30 * CLOSED + OPEN - CLOSED });
+        await pass(SETTLED);
+        expect(list.scrollTop).toBe(448);
+        expect(rowAt(container, "r8")).toBe(0);
+    });
+
+    test("where the view cannot scroll back so far, a blank of the shortfall above the rows holds the head in the gesture's commit; the wait over, one glide closes it and goes on to show the opened body", async () => {
+        const { container } = render(<Queue first={{ open: "r0" }} />);
+        const list = scrollList(container, 700);
+        await pass(200);
+        expect(rowAt(container, "r1")).toBe(156);
+        // r1's head clicked: r0 closes, 800px less above it, and the view can go back 700px at most — 100px short.
+        const atCommit = gesture(container, { open: "r1", hold: { key: "r1", nonce: 1, part: head, reveal: 64 } }, "r1");
+        expect(atCommit).toEqual({ top: 0, row: 156, head: 165, extent: 30 * CLOSED + OPEN - CLOSED + 100 });
+        // The wait over: the blank closes and the rows go on — 156px in all, in one glide — r1's top to the view's.
+        await pass(SETTLED);
+        expect(list.scrollTop).toBe(56);
+        expect(rowAt(container, "r1")).toBe(0);
+        expect(extentOf(container)).toBe(30 * CLOSED + OPEN - CLOSED);
+    });
+
+    test("an open card's head, stuck at the view's top while its card runs above it, stays where it showed as its card closes — stuck there, or pushed off by its card's end", () => {
+        const { container } = render(<Queue first={{ open: "r0" }} />);
+        scrollList(container, 300);
+        expect(headAt(container, "r0")).toBe(0);
+        expect(gesture(container, { hold: { key: "r0", nonce: 1, part: head } }, "r0")).toMatchObject({ top: 9, row: -9, head: 0 });
+        cleanup();
+        // 26px of the card left in the view: its head is pushed 15px above the view's top, and stays there.
+        const pushed = render(<Queue first={{ open: "r0" }} />);
+        scrollList(pushed.container, 830);
+        expect(headAt(pushed.container, "r0")).toBe(-15);
+        expect(gesture(pushed.container, { hold: { key: "r0", nonce: 1, part: head } }, "r0")).toMatchObject({ top: 24, row: -24, head: -15 });
+    });
+
+    test("a scroll of the viewer's ends a hold: its blank closes where the rows show, and nothing glides after it", async () => {
+        const { container } = render(<Queue first={{ open: "r0" }} />);
+        const list = scrollList(container, 700);
+        await pass(200);
+        gesture(container, { open: "r1", hold: { key: "r1", nonce: 1, part: head, reveal: 64 } }, "r1");
+        // The 100px blank stands, and the viewer scrolls 150px down before the wait is over.
+        scrollList(container, 150);
+        expect(rowAt(container, "r1")).toBe(6);
+        await pass(SETTLED);
+        expect(rowAt(container, "r1")).toBe(6);
+        expect(list.scrollTop).toBe(50);
+        expect(extentOf(container)).toBe(30 * CLOSED + OPEN - CLOSED);
+    });
+
+    test("under reduced motion a hold still holds the head in the gesture's commit, and settles with no wait and no glide", async () => {
+        const real = Object.getOwnPropertyDescriptor(window, "matchMedia");
+        Object.defineProperty(window, "matchMedia", {
+            configurable: true,
+            writable: true,
+            value: (query: string) => ({
+                matches: query === "(prefers-reduced-motion: reduce)", media: query, onchange: null, addEventListener: () => {},
+                removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false,
+            }),
+        });
+        try {
+            const { container } = render(<Queue first={{ open: "r0" }} />);
+            const list = scrollList(container, 700);
+            await pass(200);
+            expect(gesture(container, { open: "r1", hold: { key: "r1", nonce: 1, part: head, reveal: 64 } }, "r1")).toMatchObject({ top: 0, row: 156 });
+            // Far sooner than the wait, it has settled.
+            await pass(60);
+            expect(list.scrollTop).toBe(56);
+            expect(rowAt(container, "r1")).toBe(0);
+        } finally {
+            if (real === undefined) delete (window as { matchMedia?: unknown }).matchMedia;
+            else Object.defineProperty(window, "matchMedia", real);
+        }
+    });
+
+    test("a row its observer reports at a new height moves the rows below it as the report is taken (liveHeights) — never a task later, after the page has painted them where they were", async () => {
+        // Each ResizeObserver hears its rows' boxes when the test says the page laid one out again.
+        const realRO = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+        const observers: { cb: ResizeObserverCallback; targets: Set<Element>; self: ResizeObserver }[] = [];
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+            private readonly entry: { cb: ResizeObserverCallback; targets: Set<Element>; self: ResizeObserver };
+            constructor(cb: ResizeObserverCallback) {
+                this.entry = { cb, targets: new Set(), self: this as unknown as ResizeObserver };
+                observers.push(this.entry);
+            }
+            observe(target: Element) { this.entry.targets.add(target); }
+            unobserve(target: Element) { this.entry.targets.delete(target); }
+            disconnect() { this.entry.targets.clear(); }
+        };
+        try {
+            const { container } = render(<Queue first={{}} liveHeights />);
+            expect(rowAt(container, "r2")).toBe(2 * CLOSED);
+            // r1's body grows open, as its animation grows it with no render of the queue's: the page lays it out 100px
+            // taller, and its observer reports it.
+            const r1 = container.querySelector<HTMLElement>('[data-key="r1"]')!;
+            const row = r1.parentElement!;
+            r1.dataset["h"] = String(CLOSED + 100);
+            let below = 0;
+            await act(async () => {
+                for (const { cb, targets, self } of observers) {
+                    if (targets.has(row)) cb([{ target: row } as unknown as ResizeObserverEntry], self);
+                }
+                await Promise.resolve();
+                below = rowAt(container, "r2");
+            });
+            expect(below).toBe(2 * CLOSED + 100);
+        } finally {
+            (globalThis as { ResizeObserver?: unknown }).ResizeObserver = realRO;
+        }
     });
 });
 

@@ -28,8 +28,12 @@ export {
 // (the window ledger), which of them are resident, and a key search's query
 // as its `seek` asks it — the paged Plan's and the paged Sheet's (#577).
 // A row's measured height on the device-pixel grid the frame places its rows on — what a collection measures its rows'
-// estimates from (#1398, CL8); and where the rows a collection draws as runs stand, which the frame anchors on (#1424).
-export { VIRTUALIZE_UNBOUNDED_AT, VirtualRows, devicePixels, type RowRuns, type RowsViewport } from "./collections/virtual-rows.js";
+// estimates from (#1398, CL8); where the rows a collection draws as runs stand, which the frame anchors on (#1424); and a
+// gesture's hold on a row — the decision queue's anchor, its blank and its glide (`Decision Queue Spec.md` R8, R11).
+export {
+    HOLD_TWEEN_MS, HOLD_WAIT_MS, VIRTUALIZE_UNBOUNDED_AT, VirtualRows, devicePixels, type RowRuns, type RowsHold, type RowsHoldPart,
+    type RowsViewport,
+} from "./collections/virtual-rows.js";
 // What scrolls a frame's rows, for a row taller than the view — an unloaded run — to draw what of it is in view, and
 // which row shows at the top of the view, for the row that says something once there (#1398).
 export { useRowsScroll, useRowsTop, type RowsScroll } from "./collections/rows-scroll.js";
@@ -115,8 +119,13 @@ export { Chooser, type ChooserOption, type ChooserOptionState, type ChooserProps
 // source's part of the rail (#1340, ruling 11) — and the shared bounded window plan; and a builder's own tab — the
 // Schematic's Index (#1389) — its search box and its empty state.
 export { LibraryCard, LibraryEmptyState, LibrarySearchBox } from "./collections/library/index.js";
-// Its page — what a host whose figures swap with its rows waits on, the Calendar's Backlog count (#1424).
-export { PagedLibrary, PAGED_LIBRARY_PAGE, type LibraryPageSource, type PagedLibrarySearch } from "./collections/library/paged.js";
+export { PagedLibrary, type LibraryPageSource, type PagedLibrarySearch } from "./collections/library/paged.js";
+// Its reading, which a paged collection shares — the windows around the view, the rows that last landed standing in,
+// retained, while a new narrowing's, revision's or count's land: the DecisionQueue's cases (`Decision Queue Spec.md` §6) —
+// and its page, what a host whose figures swap with its rows waits on, the Calendar's Backlog count (#1424).
+export {
+    PAGED_LIBRARY_PAGE, PAGED_RETAINED, readPagedWindows, usePagedRows, type PagedRange, type PagedRows, type PagedRowsRead,
+} from "./collections/library/paged-rows.js";
 // What a search of a record through its source's part reads, the rail's choices kept: a paged tab's, and the
 // Schematic's Index's over a kind read by area (#1393).
 export { pagedSearchFields, pagedSearchTarget, pagedSearchWhere, type PagedSearchTarget } from "./collections/library/paged-search.js";

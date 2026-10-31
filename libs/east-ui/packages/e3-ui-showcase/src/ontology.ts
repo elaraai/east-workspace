@@ -8,7 +8,7 @@
  * tasks and bundled into `east-ui-showcase-ontology@<pkg.version>`.
  *
  * Each example binds an `e3.input(..., OntologyType, ...)` and renders an
- * `Ontology.Root({ binding })` editor (some paired with a Diff panel). The
+ * `Ontology.Root({ binding })` editor. The
  * inputs are forwarded as `extras` so the deployed workspace has them
  * available at render time.
  *

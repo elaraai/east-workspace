@@ -166,8 +166,8 @@ export type BlendAmountEventType = typeof BlendAmountEventType;
  * synonyms of approve / reject in the shared review vocabulary
  * (`contracts/review.ts`) — the foot renders on the shared `commitBar`
  * recipe (Apply = primary, Discard = danger, Reset = plain), the same
- * chrome family as the Planner review foot and the DecisionQueue staged
- * footer. Full `ReviewConfig` unification is an epic #259 candidate,
+ * chrome family as the Table's review foot. Full `ReviewConfig`
+ * unification is an epic #259 candidate,
  * only if per-row review ever lands in Blend.
  *
  * @property target - The target key, or `none` for surface-wide actions

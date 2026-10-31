@@ -132,6 +132,7 @@ export {
 export {
     FieldForm,
     fieldFormMessages,
+    fieldText,
     type FieldFormProps,
     type FieldOption,
     type FieldFormMessages,

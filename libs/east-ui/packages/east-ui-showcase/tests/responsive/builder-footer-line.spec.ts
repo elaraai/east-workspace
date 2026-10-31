@@ -6,7 +6,7 @@
 /**
  * The footer's one loading line (#1398, CL3) in each builder that reads what
  * it shows a part at a time — the Sheet, the Plan, the Roster, the Calendar,
- * the Allocation and the Schematic — on the real in-page e3, at rest, with its frame 1440,
+ * the Allocation, the Schematic and the DecisionQueue — on the real in-page e3, at rest, with its frame 1440,
  * 768, 390 and 360px wide, in both themes: the rail is one line at every
  * width, never wrapped, its height its widest's and nothing past its edge;
  * the items it shows are whole and on its centre line; the units its fit cut
@@ -39,6 +39,8 @@ const BUILDERS = [
     { builder: "Allocation", route: "e3/allocation/allocation/allocationKilnYard", root: "[data-allocation-frame]", rail: "[data-allocation-footer]" },
     // The data centre, nothing live at rest: its notices one item of the rail, which takes the rail's slack.
     { builder: "Schematic", route: "e3/schematic/schematic/schematicDataCentre", root: "[data-schematic]", rail: "[data-schematic-footer]" },
+    // The queue's rail holds the loading line alone.
+    { builder: "DecisionQueue", route: "e3/decision/decision/decisionQueueOps", root: "[data-decision-queue]", rail: "[data-decision-footer]" },
 ] as const;
 
 /** The frame's widths, widest first. */

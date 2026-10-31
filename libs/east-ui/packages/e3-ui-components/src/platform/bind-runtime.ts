@@ -138,8 +138,9 @@ function getBindingHelpers(sourceType: EastTypeValue): BindingHelpers {
 // =============================================================================
 
 /**
- * Per-binding metadata the Diff renderer needs to materialize a
- * binding's tree. Keyed by `datasetCacheKey(workspace, sourcePath)`.
+ * Per-binding metadata a renderer needs to rebuild a binding's handle from
+ * its descriptor alone — the Ontology's and the Experiment's. Keyed by
+ * `datasetCacheKey(workspace, sourcePath)`.
  */
 export interface BindingTypes {
     readonly workspace:  string;
@@ -207,8 +208,8 @@ export class BindRuntime {
     private trackingContext: Map<string, number> | null = null;
 
     // Binding types registry — populated on every `Data.bind` call so
-    // the Diff renderer can decode source/patch bytes and pick the
-    // right commit code path for each binding.
+    // a renderer handed only a binding's descriptor can decode its
+    // source/patch bytes and commit it by its mode and patch.
     private readonly bindingRegistry = new Map<string, BindingTypes>();
 
     // Suppress-set for the stale-patch fallback warning. Module
@@ -462,7 +463,7 @@ export class BindRuntime {
                 + `${typeChanged ? "value types" : "(mode, patch) shapes"}: `
                 + `existing { mode: "${existing.mode}", hasPatch: ${existing.hasPatchDataset} } vs `
                 + `new { mode: "${info.mode}", hasPatch: ${info.hasPatchDataset} }. `
-                + `Diff renderer uses the most-recent metadata; one of the two bindings may render incorrectly.`,
+                + `A renderer reading the descriptor uses the most-recent metadata; one of the two bindings may render incorrectly.`,
             );
         }
         this.bindingRegistry.set(key, info);
@@ -510,8 +511,8 @@ export class BindRuntime {
             }
         }
 
-        // Bind-time registration so the Diff/commit path has the binding types
-        // immediately; the primitives also re-register on first read (decode self-heal).
+        // Bind-time registration so a renderer reading the descriptor has the binding
+        // types immediately; the primitives also re-register on first read (decode self-heal).
         const { patchType } = getBindingHelpers(sourceType);
         this.registerBindingTypes(ws, sourcePath, {
             workspace: ws,
@@ -525,7 +526,7 @@ export class BindRuntime {
         // (sourceType, sourcePath, patch, mode) — skip the N East.compile calls
         // on a hit (the methods resolve cache/workspace live, so the cached
         // handle still re-binds). registerBindingTypes above already ran (cheap +
-        // idempotent), so the Diff/commit path stays correct on hits too.
+        // idempotent), so a renderer reading the descriptor stays correct on hits too.
         const descKey = `${datasetPathToString(sourcePath)} ${patchPath !== undefined ? datasetPathToString(patchPath) : ""} ${mode}`;
         let byDesc = this.handleCache.get(sourceType);
         if (byDesc) {
@@ -655,7 +656,7 @@ export class BindRuntime {
                     fallbackWarningEmitted.add(fallbackKey);
                     console.warn(
                         `[Data.bind] read fell back to source for "${fallbackKey}" — `
-                        + `patch is stale relative to source. Diff card will surface drift as orange badges.`,
+                        + `patch is stale relative to source.`,
                         err,
                     );
                 }

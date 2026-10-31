@@ -10,7 +10,10 @@
  * bridge written into each of its rules made the workshop 73,000 IR nodes, a
  * Plan's editing session read a field at a time made the nested Plan 75,000,
  * and a Schedule kind's reads written into each of its parts made the print
- * works' Plan 37,700. The largest example is that Plan, now 26,000.
+ * works' Plan 37,700. A value written out a node at a time grows them too: the
+ * DecisionQueue's session writing its cases' type out twice made its examples
+ * 45,100. The largest example is the queue over every kind of target, now
+ * 26,800; that Plan is 25,500.
  */
 
 import { describe, test } from "node:test";

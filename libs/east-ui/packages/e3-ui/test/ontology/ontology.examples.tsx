@@ -21,13 +21,11 @@
  *   2. Inside `<Reactive>`, bind via `Data.bind(dataset)`.
  *   3. Pass the handle to `<Ontology value={view} />` — its East type pins the
  *      source to `OntologyType`, so a wrong-typed bind is a compile error.
- *   4. (Optional) Stack a `<Diff bindings={[view.binding]} />` next to it
- *      to surface the pending node/link patch.
  */
 
 import { East, none, some, variant, example } from '@elaraai/east';
-import { Card, Reactive, Text, UIComponentType, VStack } from '@elaraai/east-ui';
-import { Data, Diff, Ontology, OntologyType } from '@elaraai/e3-ui';
+import { Reactive, UIComponentType } from '@elaraai/east-ui';
+import { Data, Ontology, OntologyType } from '@elaraai/e3-ui';
 import * as e3 from '@elaraai/e3';
 
 // ============================================================================
@@ -202,34 +200,6 @@ export const compactDensityOntology = example({
             <Reactive>{$ => {
                 const view = $.let(Data.bind(tradingCycleOntologyInput, { mode: 'direct' }));
                 return <Ontology value={view} density="compact" />;
-            }}</Reactive>
-        );
-    }),
-    inputs: [],
-});
-
-// ============================================================================
-// 4. Ontology + Diff — editor on top, Diff card below shows the in-flight
-//    node/link patch before commit.
-// ============================================================================
-
-export const ontologyWithDiff = example({
-    keywords: ['Ontology', 'Diff', 'bindStaged', 'review'],
-    description: 'Ontology editor + Diff panel — pending node/link patch surfaces in Diff card',
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Reactive>{$ => {
-                const view = $.let(Data.bind(supplyChainOntologyInput));
-                return (
-                    <Card>
-                        <VStack gap="4" align="stretch">
-                            <Text textStyle="heading-md">Fulfilment ontology</Text>
-                            <Text>Edit nodes and links above; review the pending patch below before applying.</Text>
-                            <Ontology value={view} />
-                            <Diff bindings={[view.binding]} hideUnchanged={some(true)} />
-                        </VStack>
-                    </Card>
-                );
             }}</Reactive>
         );
     }),

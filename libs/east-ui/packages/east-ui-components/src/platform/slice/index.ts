@@ -234,31 +234,14 @@ export function resetSlicePersistence(): void {
 const only = (patch: Partial<SliceState>): SliceState => ({ ...DEFAULT_SLICE_STATE, ...patch });
 
 /** Bound data + config + `toMatch` per slice key — what the data-derived methods
- *  narrow from. The rows entry may be a getter so long-lived handles (a
- *  DecisionQueue's handle-owned slice) always see the live collection. Refreshed
- *  on every `Slice.bind`, so the IR-bearing handle methods (which carry only the
- *  key) resolve the current rows / config / `toMatch` live by key. */
+ *  narrow from. Refreshed on every `Slice.bind`, so the IR-bearing handle
+ *  methods (which carry only the key) resolve the current rows / config /
+ *  `toMatch` live by key. */
 const boundByKey = new Map<string, {
-    rows: Row[] | (() => Row[]);
+    rows: Row[];
     config: SliceConfig;
     toMatch: ((r: Row) => Match) | undefined;
 }>();
-
-function boundRows(entry: { rows: Row[] | (() => Row[]) }): Row[] {
-    return typeof entry.rows === "function" ? entry.rows() : entry.rows;
-}
-
-/**
- * The bound slice's decoded config, live from the caller's most recent
- * `Slice.bind` — for components whose rows arrive outside a `Slice.rows`
- * feed (a `DecisionQueue`'s rows come from binding descriptors) and that
- * therefore narrow their own rows with `sliceMatches(state, config, row,
- * now)`. Matching with the caller's config keeps the rail's fields and the
- * component's narrowing in exact agreement.
- */
-export function boundSliceConfig(key: string): SliceConfig | undefined {
-    return boundByKey.get(key)?.config;
-}
 
 /** The field a slice's range narrows on — its spec in the config — or
  *  `undefined` when the config names no range field, or one it lacks. */
@@ -294,8 +277,7 @@ function domainNumber(kind: DomainKind, value: unknown): number | undefined {
 export function boundRangeDomain(key: string): { kind: DomainKind; min: number; max: number } | undefined {
     const bound = boundByKey.get(key);
     if (bound === undefined) return undefined;
-    const boundRowsList = boundRows(bound);
-    if (boundRowsList.length === 0) return undefined;
+    if (bound.rows.length === 0) return undefined;
     const field = rangeFieldOf(bound.config);
     if (field === undefined) return undefined;
     const kind = field.type === "datetime" ? "datetime" as const
@@ -303,7 +285,7 @@ export function boundRangeDomain(key: string): { kind: DomainKind; min: number; 
             : "float" as const;
     let min = Infinity;
     let max = -Infinity;
-    for (const r of boundRowsList) {
+    for (const r of bound.rows) {
         const n = domainNumber(kind, field.value.accessor(r));
         if (n === undefined) continue;
         if (n < min) min = n;
@@ -345,7 +327,7 @@ export function boundRangeHistogram(key: string, buckets: number, extent?: { min
     const hi = extent?.max ?? domain.max;
     const span = hi - lo;
     const counts = new Array<number>(buckets).fill(0);
-    for (const r of boundRows(bound)) {
+    for (const r of bound.rows) {
         if (!sliceMatches(facetState, bound.config, r, now)) continue;
         const n = domainNumber(domain.kind, field.value.accessor(r));
         if (n === undefined || !Number.isFinite(n)) continue;
@@ -359,13 +341,12 @@ export function boundRangeHistogram(key: string, buckets: number, extent?: { min
 }
 
 /**
- * Build a live slice handle outside the platform-function path — for
- * components that own their slice internally (a `DecisionQueue`'s rows
- * arrive via binding descriptors, so the host can't bind one). Same
- * closure construction as the `Slice.bind` impl; the key registers in the
- * shared store, so the rail / editor / `Slice.rows` all interoperate.
+ * Build a live slice handle outside the platform-function path, over rows held
+ * in JavaScript — what a renderer's test binds a slice through. Same closure
+ * construction as the `Slice.bind` impl; the key registers in the shared
+ * store, so the rail / editor / `Slice.rows` all interoperate.
  */
-export function buildSliceHandle(key: unknown, config: unknown, initial: unknown, data: unknown | (() => unknown), toMatch: unknown): Record<string, unknown> {
+export function buildSliceHandle(key: unknown, config: unknown, initial: unknown, data: unknown, toMatch: unknown): Record<string, unknown> {
     return bindImpl(key, config, initial, data, toMatch);
 }
 
@@ -453,21 +434,17 @@ function buildSliceHandleIR(key: string): Record<string, unknown> {
 function bindImpl(key: unknown, config: unknown, initial: unknown, data: unknown, toMatch: unknown): Record<string, unknown> {
     const k = key as string;
     const cfg = config as SliceConfig;
-    const rowsSource = data as Row[] | (() => Row[]) | undefined;
-    const liveRows = (): Row[] => (typeof rowsSource === "function" ? rowsSource() : rowsSource) ?? [];
+    const rows = (data as Row[] | undefined) ?? [];
     // `toMatch` arrives as `option<(row) => Match>`; unwrap the callable.
     const toMatchOpt = toMatch as option<(r: Row) => Match> | undefined;
     const toMatchFn = toMatchOpt?.type === "some" ? toMatchOpt.value : undefined;
 
     /* First bind seeds the key with the caller-supplied initial state. */
     if (!getStore().has(k)) writeState(k, initial as SliceState);
-    /* Refresh the live bound entry EVERY bind (rows getter / config / toMatch),
-     * before the cache check — so a cached handle's primitives always resolve the
-     * current rows + config. */
-    // Store the GUARDED `liveRows` getter (not the raw source) so a getter that
-    // transiently returns undefined (data not yet loaded) yields `[]`, not a
-    // `totalCount` crash — the `?? []` guard must cover both branches.
-    boundByKey.set(k, { rows: (typeof rowsSource === "function" ? liveRows : liveRows()), config: cfg, toMatch: toMatchFn });
+    /* Refresh the bound entry EVERY bind (rows / config / toMatch), before the
+     * cache check — so a cached handle's primitives always resolve the current
+     * rows + config. */
+    boundByKey.set(k, { rows, config: cfg, toMatch: toMatchFn });
 
     const cached = sliceHandleCache.get(k);
     if (cached) return cached;
@@ -551,7 +528,7 @@ export const SliceImpl: PlatformFunction[] = [
         trackKey(k);
         const state = readState(k);
         const now = new Date();
-        return boundRows(bound).filter(r => sliceMatches(state, bound.config, r, now));
+        return bound.rows.filter(r => sliceMatches(state, bound.config, r, now));
     }),
     // The FULL bound rows, each tagged with whether it passes the active
     // narrowing — the "keep the excluded" feed. `Slice.rows` is this filtered to
@@ -564,7 +541,7 @@ export const SliceImpl: PlatformFunction[] = [
         trackKey(k);
         const state = readState(k);
         const now = new Date();
-        return boundRows(bound).map(r => ({ value: r, matched: sliceMatches(state, bound.config, r, now) }));
+        return bound.rows.map(r => ({ value: r, matched: sliceMatches(state, bound.config, r, now) }));
     }),
     Slice.bind.implement((_T: EastTypeValue) => bindImpl),
 
@@ -688,7 +665,7 @@ export const SliceImpl: PlatformFunction[] = [
         // that carry no explicit `hints` (#131) — so picking `in`/`notIn`/`eq` on,
         // e.g., `country` suggests the values actually present. Explicit hints win;
         // free entry stays allowed (suggestions, not an allow-list).
-        const rows = boundRows(e);
+        const rows = e.rows;
         return base.map(f => {
             if (f.hints.length > 0 || f.kind !== "string") return f;
             const accessor = e.config.fields.get(f.fieldId)?.value.accessor;
@@ -708,7 +685,7 @@ export const SliceImpl: PlatformFunction[] = [
     // --- data-derived results (computed over the bound `rows`) ---
     SliceBindPrimitives.totalCount.implement((key) => {
         const e = boundByKey.get(key);
-        return BigInt(e ? boundRows(e).length : 0);
+        return BigInt(e ? e.rows.length : 0);
     }),
     SliceBindPrimitives.resultCount.implement((key) => {
         trackKey(key);
@@ -716,13 +693,13 @@ export const SliceImpl: PlatformFunction[] = [
         if (e === undefined) return 0n;
         const s = readState(key);
         const now = new Date();
-        return BigInt(boundRows(e).filter(r => sliceMatches(s, e.config, r, now)).length);
+        return BigInt(e.rows.filter(r => sliceMatches(s, e.config, r, now)).length);
     }),
     SliceBindPrimitives.groups.implement((key) => {
         trackKey(key);
         const e = boundByKey.get(key);
         if (e === undefined) return [];
-        return sliceBreakdown(readState(key), e.config, boundRows(e), new Date());
+        return sliceBreakdown(readState(key), e.config, e.rows, new Date());
     }),
     // Self-excluding facet options (#188): the breakdown groups computed with
     // the breakdown field's OWN filters stripped from the narrowing — a facet
@@ -737,13 +714,13 @@ export const SliceImpl: PlatformFunction[] = [
         if (s.breakdown.type !== "some") return [];
         const fieldId = s.breakdown.value.fieldId;
         const facetState = { ...s, filters: s.filters.filter(f => f.value.fieldId !== fieldId) };
-        return sliceBreakdown(facetState, e.config, boundRows(e), new Date());
+        return sliceBreakdown(facetState, e.config, e.rows, new Date());
     }),
     SliceBindPrimitives.series.implement((key, xFieldId, valueFieldId) => {
         trackKey(key);
         const e = boundByKey.get(key);
         if (e === undefined) return [];
-        return sliceSeries(readState(key), e.config, boundRows(e), xFieldId, valueFieldId, new Date());
+        return sliceSeries(readState(key), e.config, e.rows, xFieldId, valueFieldId, new Date());
     }),
     SliceBindPrimitives.matches.implement((key) => {
         trackKey(key);
@@ -752,8 +729,8 @@ export const SliceImpl: PlatformFunction[] = [
         const s = readState(key);
         const now = new Date();
         const hits = s.search.type === "some"
-            ? boundRows(e).filter(r => sliceMatches(only({ search: s.search }), e.config, r, now))
-            : boundRows(e);
+            ? e.rows.filter(r => sliceMatches(only({ search: s.search }), e.config, r, now))
+            : e.rows;
         if (e.toMatch !== undefined) return hits.map(e.toMatch);
         // No `toMatch`: auto-derive distinct search options from the config's
         // first searchable string field so search works out of the box (#129).
@@ -767,7 +744,7 @@ export const SliceImpl: PlatformFunction[] = [
         const s = readState(key);
         const now = new Date();
         for (const c of s.cohorts) {
-            counts.set(c.id, BigInt(boundRows(e).filter(r => sliceMatches(only({ filters: c.filters }), e.config, r, now)).length));
+            counts.set(c.id, BigInt(e.rows.filter(r => sliceMatches(only({ filters: c.filters }), e.config, r, now)).length));
         }
         return counts;
     }),

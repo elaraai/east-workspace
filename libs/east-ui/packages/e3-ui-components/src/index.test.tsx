@@ -10,18 +10,11 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { ArrayType, East, OptionType, StringType, equalFor, none, some, variant } from "@elaraai/east";
-import type { DataManifest } from "@elaraai/e3-types";
-import { DecisionConstraintType, DiffBindingType, Flowchart, Schematic, decisionBindPlatformFn } from "@elaraai/e3-ui/internal";
-import {
-    ClipboardImpl, DownloadImpl, OverlayImpl, ShareImpl, SliceApplyImpl, SliceImpl, StateImpl,
-    hasExtensionRenderer,
-} from "@elaraai/east-ui-components";
-import { RecordSliceImpl, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
+import { Flowchart, Schematic } from "@elaraai/e3-ui/internal";
+import { hasExtensionRenderer } from "@elaraai/east-ui-components";
 import * as root from "./index.js";
 import { RECOVERY_FIRST_MS, RECOVERY_MAX_MS, recoveryDelay, useQueryRecovery } from "./platform/recovery.js";
 import { usePreviewControls } from "./components/preview-controls.js";
-import { DecisionBindPlatform } from "./decision/handle-runtime.js";
 
 describe("the package's root", () => {
     test("gives a host the recovery the previews' stages use, so its own reads recover as theirs do (#1062)", () => {
@@ -42,38 +35,5 @@ describe("the package's root", () => {
     test("registers the Schematic's renderer against its carrier as it loads, so a host's `<Schematic>` draws (#1384)", () => {
         expect(root.EastChakraSchematic).toBeDefined();
         expect(hasExtensionRenderer(Schematic.Component.name)).toBe(true);
-    });
-
-    test("gives a host Decision.bind's implementation, so the platforms it lists from the exports bind decisions as UITaskPreview's do (#1222)", () => {
-        expect(root.DecisionBindPlatform).toBe(DecisionBindPlatform);
-
-        // UITaskPreview's list, from what the packages export by name.
-        const manifest: DataManifest = { paths: [], functions: [], records: [], pages: [] };
-        const platforms = [
-            ...StateImpl, ...SliceImpl, ...RecordSliceImpl, ...SliceApplyImpl, ...OverlayImpl,
-            ...ClipboardImpl, ...DownloadImpl, ...ShareImpl, ...root.DecisionBindPlatform,
-            ...root.createScopedBindPlatform(manifest),
-            ...root.createScopedPagedPlatform(manifest.pages),
-            ...root.createScopedFuncPlatform(manifest.functions),
-            ...root.createScopedRecordPlatform(manifest.records),
-        ];
-        const decisions = [{ source: [variant("field", "decisions")], patch: none, mode: variant("direct", null) }];
-        const judgements = { source: [variant("field", "judgements")], patch: none, mode: variant("direct", null) };
-        const opened = East.function([], OptionType(StringType), ($) => {
-            const handle = $.let(decisionBindPlatformFn(
-                [DecisionConstraintType],
-                East.value(decisions, ArrayType(DiffBindingType)),
-                East.value(judgements, DiffBindingType),
-            ));
-            $(handle.select("case-1"));
-            $.return(handle.selected());
-        });
-
-        StateRuntime.initializeStore(new UIStore());
-        expect(equalFor(OptionType(StringType))(East.compile(opened, platforms)(), some("case-1"))).toBe(true);
-
-        // Without it, the same UI has no `decision_bind`.
-        const without = platforms.filter(platform => !root.DecisionBindPlatform.includes(platform));
-        expect(() => East.compile(opened, without)()).toThrow(/'decision_bind' is not available/);
     });
 });

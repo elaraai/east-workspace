@@ -49,7 +49,7 @@ import { Chooser, formatDatePattern } from "@elaraai/east-ui-components/internal
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { Seg } from "../shared/schedule/segments.js";
-import { linkedQuantity, remainderOf, splitOf, type AllocationCommands } from "./actions.js";
+import { linkedQuantity, quantityFloor, remainderOf, splitOf, type AllocationCommands } from "./actions.js";
 import { resourceChoices } from "./choices.js";
 import { dropTarget, landing, placeAsk, rowCoord, type AllocationDrag, type Grip, type Refusal, type Target } from "./drag.js";
 import type { AllocationFit } from "./fit.js";
@@ -60,7 +60,7 @@ import {
 } from "./inspector-model.js";
 import type { AllocationMessages } from "./messages.js";
 import {
-    allocationWords, compareFloat, partsOf, type AllocationDomain, type AllocationValue, type Bin, type Context, type Day, type Issue, type Load,
+    allocationWords, compareFloat, compareString, partsOf, type AllocationDomain, type AllocationValue, type Bin, type Context, type Day, type Issue, type Load,
     type ResourceLine, type Selection, type Slot,
 } from "./model.js";
 import { a, one, other } from "./nouns.js";
@@ -80,6 +80,48 @@ const BIN_FIELDS = StructType({ key: StringType, lane: StringType, at: DateTimeT
 const RESERVATION_FIELDS = StructType({ key: StringType });
 /** A printed field takes no edit. */
 const NO_EDIT = () => {};
+
+/** What the Bin section's form names its fields: its key — none, for a host naming the bin itself — its lane, its time's help and its quantity. */
+export interface BinFormLabels {
+    readonly key?: string | undefined;
+    readonly lane: string;
+    readonly help?: string | undefined;
+    readonly quantity: string;
+}
+
+/**
+ * The Bin section's form (A57) — the DecisionQueue's Modify draws it over a bin its change writes too (D9): its key,
+ * printed — what Search Records finds it by (#1398) — its lane, its time, printed, and its quantity, no less than `min`, in
+ * the bin kind's unit; with the bin kind's own `inspector`, no quantity, the inspector in its place.
+ *
+ * @param labels - Its fields' names, and its time's help
+ * @param min - The least quantity it takes ({@link quantityFloor})
+ * @param unit - The bin kind's unit; `""` for none
+ * @param own - Whether the bin kind gives its own `inspector`
+ * @returns The form's fields
+ */
+export function binFormSpecs(labels: BinFormLabels, min: number, unit: string, own: boolean): readonly FieldSpecValue[] {
+    return Fields.specs(BIN_FIELDS, {
+        key: Fields.readonly({ label: labels.key ?? "" }),
+        lane: Fields.reference({ label: labels.lane, of: "lanes" }),
+        at: Fields.readonly({ label: "Bin time", ...(labels.help === undefined ? {} : { help: labels.help }) }),
+        quantity: Fields.number({ label: labels.quantity, min, step: 1, ...(unit === "" ? {} : { unit }) }),
+    }, [...(labels.key === undefined ? ["key" as const] : []), ...(own ? ["quantity" as const] : [])]);
+}
+
+/**
+ * A bin's lane as the Bin section draws it (A57): the shared segments, a lane a segment — the DecisionQueue's Modify draws
+ * it too (D9).
+ *
+ * @param props - Its label, the lanes it offers, the bin's lane, and what a pick of another sets
+ * @returns The segments
+ */
+export function BinLaneSegments({ label, lanes, lane, onPick }: {
+    label: string; lanes: readonly { readonly key: string; readonly label: string }[]; lane: string; onPick: (lane: string) => void;
+}) {
+    return <Seg fullWidth label={label} scope="allocation" name="inspector-lane" items={lanes.map(l => ({ key: l.key, label: l.label }))} active={lane}
+        onPick={next => { if (compareString(next, lane) !== 0) onPick(next); }} />;
+}
 /** A part's field (A71): its quantity, an Option so its Clear unlinks it. */
 const PART = OptionType(FloatType);
 /** A bin's parts as a struct: a field per part, named by its resource's key, as the bin's parts are keyed — the key the shared field shows. */
@@ -363,19 +405,13 @@ function BinSection({ id, bin, committed, ...part }: Part & { id: string; bin: B
     // The lanes the narrowing shows, and its own (A92).
     const lanes = value.lanes.filter(l => shown.lanes.type === "none" || shown.lanes.value.has(l.key) || l.key === bin.lane);
     // The quantity a split or partly allocated bin keeps is what its parts take; a bin wholly on one resource takes its part with it.
-    const parts = partsOf(bin);
-    const whole = parts.length === 1 && compareFloat(parts[0]!.quantity, bin.quantity) === 0;
-    const min = whole ? 0 : parts.reduce((n, p) => n + p.quantity, 0);
+    const min = quantityFloor(bin);
     // The stepper's help says how it steps: a day that takes no edit has no stepper, and says nothing of it.
     const help = editable ? stepHelp(own, bin.lane, value.every, day, words) : undefined;
     const quantityLabel = nouns.quantity;
     const keyLabel = args.m.binKey();
-    const specs = useMemo(() => Fields.specs(BIN_FIELDS, {
-        key: Fields.readonly({ label: keyLabel }),
-        lane: Fields.reference({ label: nouns.lane.one, of: "lanes" }),
-        at: Fields.readonly({ label: "Bin time", ...(help === undefined ? {} : { help }) }),
-        quantity: Fields.number({ label: quantityLabel, min, step: 1, ...(context.unit === "" ? {} : { unit: context.unit }) }),
-    }, form !== undefined ? ["quantity"] : []), [keyLabel, nouns.lane.one, help, quantityLabel, min, context.unit, form]);
+    const specs = useMemo(() => binFormSpecs({ key: keyLabel, lane: nouns.lane.one, help, quantity: quantityLabel }, min, context.unit, form !== undefined),
+        [keyLabel, nouns.lane.one, help, quantityLabel, min, context.unit, form]);
     // Every lane by its name: what a lane the form prints says.
     const laneNames = useMemo(() => ({ lanes: value.lanes.map(l => ({ key: l.key, label: l.label })) }), [value.lanes]);
     const stepper = useSlotRecipe({ key: "stepper" })({ tone: "neutral", size: "md" }) as unknown as Styles;
@@ -386,8 +422,7 @@ function BinSection({ id, bin, committed, ...part }: Part & { id: string; bin: B
         // segments or stepper, whose controls, though off, looked editable (the hand retest).
         if (!editable) return undefined;
         if (spec.path[0] === "lane") {
-            return <Seg fullWidth label={nouns.lane.one} scope="allocation" name="inspector-lane" items={lanes.map(l => ({ key: l.key, label: l.label, disabled: !editable }))}
-                active={bin.lane} onPick={lane => { if (lane !== bin.lane) toSlot(lane, Math.max(0, index)); }} />;
+            return <BinLaneSegments label={nouns.lane.one} lanes={lanes} lane={bin.lane} onPick={lane => toSlot(lane, Math.max(0, index))} />;
         }
         if (spec.path[0] === "at") {
             return <Box css={stepper.root} data-allocation-stepper="">

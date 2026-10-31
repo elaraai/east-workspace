@@ -1,6 +1,6 @@
 ---
 name: e3-ui
-description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) The Studio — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; the pages operators build are one record of Studio.Types.Pages with one patch write; <Studio.Builder> is the builder — the open page's canvas under one toolbar (its status, the history, Desktop · Tablet, Save as template, Preview and Publish), the palette of the listed components and the project's pages before it, the inspector of the selected placement after it, and the publish preview in its place — every gesture a draft, Save one patch on the page, and a publish stamping each placement with the code it goes live with; <Studio.Library> is a project's templates and pages and where new pages start, opening pages in the builder; <Studio.Page> draws one page's live or draft layout with no chrome, (10) Rendering deployed surfaces in a React app with @elaraai/e3-ui-components — <E3Provider> (E3Config: apiUrl, repo, workspace, token, fetch), <ReactiveDatasetProvider> and <UITaskPreview> — over a server, or over an e3 running in the page (e3-web's createWebE3 and its e3.fetch), (11) Queries — operators build typed jq queries over the datasets a surface binds and save them to one record of Query.Types.Saved with one patch write; <Query.Builder> edits the open query as plain-word steps or as jq, checks it as it is edited, runs it on e3 as a one-shot call — or as a split call over the pieces of a dataset larger than one piece, its plan explained — and shows the result as a Table or a tree; <Query.Library> is the saved queries as a gallery of wireframes and where new queries start, opening them in the builder, (12) The Plan — <Plan>, the one planning canvas, always in its builder frame — one toolbar holding every control it has, the banners, the canvas, the footer's counts: heterogeneous rows on ONE shared { time | number | ordinal } axis from three sources — event kinds over records (Schedule.events placed on Schedule.resources, the kinds a Calendar takes), rows laid out by a series list over local data or a Data.bindPaged source and nested from the data's own structure, and read-only rows (Plan.over a dataset, hand-built rows) — its panes optional props — a library (every event kind's templates, the backlog by when it is due, the series a viewer shows and hides, and cards of the author's own whose drop sets a Schedule.patch) and an inspector of what is selected (one event, several, a row at a bucket, or the window's counts; an event kind's own inspector in place of its form) — with one Slice.bindRecords rail (its rows, each event kind, resource kind and templates record a source, one window; an event kind on paged resources read a cell at a time through a series index and shaded from a summary index zoomed out), key search, links between runs or events, and an editing session — dropped cards and moved or resized runs, chips, tiles and marks as drafts with Undo / Redo and one checked Save — its authoring vocabulary on `Plan` (Plan.axis, Plan.series.*, Plan.over, Plan.eventRef, Plan.library.*, the value builders), (13) The Sheet — <Sheet>, the one planning spreadsheet, always in its builder frame — one toolbar holding every control it has, the banners, the grid with its docked strip, the footer — its panes optional props: a library (templates, columns, the author's cards) and an inspector of the selected row's every field or the author's own; its rows from an e3 record bound with its patch door (the record's entries, one entry's rows or groups with loose rows between them, or a large record a window at a time — Save one patch commit through the record) or the host's (an array, a bind handle, a Data.bindPaged source with a key search), or the `rows` source of its one Slice.bindRecords rail — the record's rows, the source's narrowing drawn over them as the lens (a filtered spreadsheet: only the rows it keeps, one after another, each at its row number, e3 placing them from the index) — the rail narrowing its templates records too; typed columns (dates, quantities with units, register lookups, a directed link between register members, stamped codes), a blank tail that invites the next row, an East-function copilot that fills cells and proposes rows, saved-view tabs over every source's narrowing, groups with loose rows between them and read-only sub rows, drag and drop, Excel round-trip, and an editing session — drafts checked as they are made, Undo / Redo and one checked Save — its authoring vocabulary on `Sheet` (Sheet.column.*, Sheet.register.*, Sheet.driver, Sheet.group, Sheet.subRows, Sheet.library.*, Sheet.field, Sheet.apply). (14) Calendar — the record-backed scheduling builder in e3-ui: Calendar, Resources and Timeline layouts, bound resource and template records, the event record’s unscheduled backlog paged through its source, one Slice.bindRecords rail — a source per event kind, resource kind and templates record, one date window — a resource kind paged a window at a time (Data.bindPaged), the events on it read a cell at a time through a series index and shaded from a summary index past 10,000, shared Toolbar/Library/FieldForm/EditSession behavior, and explicit agenda/card actions below 480px. BuilderFrame remains internal. (15) Roster — weekly staffing over the app's own records: its duties a Schedule.events kind (start, end, resource, shift, group, position?, activity?, hours?), its people and agencies Schedule.resources kinds, its weeks Schedule.periods for Publish, its cover Roster.targets, and its shifts, groups, positions, activities and proposals read through Roster.* accessors; Shifts (Day · Week) and People (Week · Month) layouts — the People week a tile a duty in the shift's colour token (Roster.shifts' color, east-ui's ColorTokenType), the month a column a week, and the app's week patterns (Roster.patterns, Roster.library.patterns()) dropped on a person's week as one step; pure coverage/rules over the duty row type; the app's pay in its own codes, asked a person at a time; Find fixes on the app's fit e3.function (Func.bind, Roster.fit(R)); the week's duties read through the slice's duty source; one Slice.bindRecords rail over the duties, targets, people and activities; one history over a session per record, Save per record and Publish saving first, then the week's status; and explicit mobile actions. (16) The Flowchart — <Flowchart>, the state-transition flowchart, always in its builder frame — one toolbar (find state, LR · TD, the freshness chip, the rail of its one Slice.bindRecords, and where it edits the history item), the canvas filling main, the footer's counts: states as nodes in ordered phase lanes (the layout derived, no coordinates), H/V-routed transitions, decision triggers and evidence-weighted links, over an e3 record of flows by name (Flowchart.Types.Flows, its value written with Flowchart.values and checked at build — a lone flow is a record of one entry) or the host's flows or one flow (data, the value's type picking the arm — Flowchart.over builds one flow from the host's own tables with row mappers); its library pane's Flows tab (Flowchart.library.flows()) lists the flows by name — over a record those its rail's `flows` source narrows it to, counted — and opens one, the open flow kept under the flowchart's name, and '+ New flow' starts one, beside state and transition templates, templates records (Flowchart.library.states / transitions), and the author's own cards (Flowchart.library.tab), each following the source of the rail it names, and each card dropped on the canvas — a state template onto a lane, a transition template onto a transition, an author's card where its drop's type says, ⏎ on a card onto the selection; every gesture on the canvas — '+ LANE', a lane renamed (a double-click on its header) or deleted, a state added, edited, moved or deleted, a handle dragged to connect, Del on the selection — one transaction of the open flow's editing session, each flow keeping its own drafts, with Undo / Redo and one checked Save through the record's patch mutation or the host's onApply; its inspector pane, on by default (inspector={false} takes it away) — Details for the state, transition, decision, lane (a click on its header) or several states selected, or the open flow, each through the shared form, a state's or a transition's own Details in its place with inspector={{ state, transition }}, and Issues, each selecting what it names; with selection and path tracing — its types on Flowchart.Types, a row patch from Flowchart.patch. (17) The Allocation — <Allocation>, a day's arrivals booked into timed lane slots and each bin's quantity allocated to resources with room and time for its hold, always in its builder frame, as a Timeline (lanes, links, resource rows) or a Table (a row per slot), over the app's own records: its bins an instant Schedule.events kind (at, resource, arrival, quantity, parts, hold, kind?), its lanes and resources Schedule.resources kinds (offset; min, max, note, hold, jobs), what it books from Allocation.arrivals (each arrival's values a booked bin's own fields), and its days Schedule.periods for Publish — one history over the bins' and the days' sessions, every gesture a draft, Save per record and Publish saving first, then the day's status — the app's fit an e3.function bound with Func.bind (a place or a take question about the drafted day, FitRequest(R) over the bin row type, built on Allocation.answer / fit / lookahead), split loads and Find a fit, the app's bin fields as columns and its own check over CheckContext(R), one Slice.bindRecords rail over the day's bins, its lanes, resources and arrivals, the shared Library, Inspector and session, explicit-action cards below 480px, and pure loads / candidates / check / slots over Day(R) a task runs too. (18) The Schematic — <Schematic>, the 2D world-coordinate drawing of the app's own records: a kind per record, keyed by String, its fields mapped to the Schematic's roles and its shapes made by accessors over the row's own fields — items (Schematic.items: a centre, a box, a footprint drawn about the centre, a label, a status, a meter, a figure), zones (Schematic.zones: a box, outlined or hatched, a geometry about its centre), links between two items (Schematic.links: from and to naming item slots) and nets joining many to many (Schematic.nets: sources and destinations) — each kind editable bound with its patch door (Record.bind) or read only (Data.bind), read whole or complete through its source of one Slice.bindRecords rail (entries: Data.bindPaged) — a window at a time where that source lists an area index (index.area), its density shaded past 5,000 rows in view — its details a record keyed as it is (Schematic.details), its templates a record (Schematic.templates), its layers the app's rows (Schematic.layers), the library's tabs over every kind (Schematic.library.templates() / backlog() / index() / layers() / tab), each card dropped on the canvas — an item template adds an item at the point, a backlog row is placed there, a link or net template gives a link or a net of its kind its values, an author's card sets its Schematic.patch's fields, ⏎ onto the selection or at the view's centre — the inspector opted into: Details through the shared form over each kind's fields and its details', an item's position, a link's ends and a net's sides, and Issues, each selecting what it names; below 480px of main nothing drags, Details' Connect to… and the Backlog card's Place taking the gestures' place; a camera with a minimap, selection by a tap, Shift and the marquee, and every gesture — Move, Connect and a Shift session growing a net, an end retargeted, a net extended, Del — one step of one history over a session per record it writes, with Undo / Redo and Save sending each record's changes through its patch door, canConnect answering each pair with none or the refusal's words; onSelect hears the whole selection, each entity by its kind's slot and its key — its shapes and types on Schematic (Schematic.circle / polyline / polygon / rect about the anchor, outline / hatch, solid / dashed, Schematic.patch, Schematic.Types)."
+description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes, a staged handle committed or discarded by the app's own controls, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — <DecisionQueue>, the cases an app's models leave to a person, one card open at a time, over the app's own records: its cases one record of the app's, each row a case and its verdict (DecisionQueue.decisions over Record.bind — read whole, or a page at a time through the `decisions` source of one Slice.bindRecords rail, in the source's order, with no cap), every part of a card a role, an East function over the app's row, and each option's change a variant whose tag is the kind of decision and whose value a patch of the record that kind changes, drawn in a target per tag (DecisionQueue.change.roster / plan / calendar / allocation / sheet over that builder's own props, drawn as that builder draws it, or .record / .zones / .projection); the verdict written into the case's own row, the fields its roles name; which cases show, the app's own index on the verdict's tag; Modify in the builder's own form; Apply, Override, Defer and Hand off each one step of one history, Save per record, (9) The Studio — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; the pages operators build are one record of Studio.Types.Pages with one patch write; <Studio.Builder> is the builder — the open page's canvas under one toolbar (its status, the history, Desktop · Tablet, Save as template, Preview and Publish), the palette of the listed components and the project's pages before it, the inspector of the selected placement after it, and the publish preview in its place — every gesture a draft, Save one patch on the page, and a publish stamping each placement with the code it goes live with; <Studio.Library> is a project's templates and pages and where new pages start, opening pages in the builder; <Studio.Page> draws one page's live or draft layout with no chrome, (10) Rendering deployed surfaces in a React app with @elaraai/e3-ui-components — <E3Provider> (E3Config: apiUrl, repo, workspace, token, fetch), <ReactiveDatasetProvider> and <UITaskPreview> — over a server, or over an e3 running in the page (e3-web's createWebE3 and its e3.fetch), (11) Queries — operators build typed jq queries over the datasets a surface binds and save them to one record of Query.Types.Saved with one patch write; <Query.Builder> edits the open query as plain-word steps or as jq, checks it as it is edited, runs it on e3 as a one-shot call — or as a split call over the pieces of a dataset larger than one piece, its plan explained — and shows the result as a Table or a tree; <Query.Library> is the saved queries as a gallery of wireframes and where new queries start, opening them in the builder, (12) The Plan — <Plan>, the one planning canvas, always in its builder frame — one toolbar holding every control it has, the banners, the canvas, the footer's counts: heterogeneous rows on ONE shared { time | number | ordinal } axis from three sources — event kinds over records (Schedule.events placed on Schedule.resources, the kinds a Calendar takes), rows laid out by a series list over local data or a Data.bindPaged source and nested from the data's own structure, and read-only rows (Plan.over a dataset, hand-built rows) — its panes optional props — a library (every event kind's templates, the backlog by when it is due, the series a viewer shows and hides, and cards of the author's own whose drop sets a Schedule.patch) and an inspector of what is selected (one event, several, a row at a bucket, or the window's counts; an event kind's own inspector in place of its form) — with one Slice.bindRecords rail (its rows, each event kind, resource kind and templates record a source, one window; an event kind on paged resources read a cell at a time through a series index and shaded from a summary index zoomed out), key search, links between runs or events, and an editing session — dropped cards and moved or resized runs, chips, tiles and marks as drafts with Undo / Redo and one checked Save — its authoring vocabulary on `Plan` (Plan.axis, Plan.series.*, Plan.over, Plan.eventRef, Plan.library.*, the value builders), (13) The Sheet — <Sheet>, the one planning spreadsheet, always in its builder frame — one toolbar holding every control it has, the banners, the grid with its docked strip, the footer — its panes optional props: a library (templates, columns, the author's cards) and an inspector of the selected row's every field or the author's own; its rows from an e3 record bound with its patch door (the record's entries, one entry's rows or groups with loose rows between them, or a large record a window at a time — Save one patch commit through the record) or the host's (an array, a bind handle, a Data.bindPaged source with a key search), or the `rows` source of its one Slice.bindRecords rail — the record's rows, the source's narrowing drawn over them as the lens (a filtered spreadsheet: only the rows it keeps, one after another, each at its row number, e3 placing them from the index) — the rail narrowing its templates records too; typed columns (dates, quantities with units, register lookups, a directed link between register members, stamped codes), a blank tail that invites the next row, an East-function copilot that fills cells and proposes rows, saved-view tabs over every source's narrowing, groups with loose rows between them and read-only sub rows, drag and drop, Excel round-trip, and an editing session — drafts checked as they are made, Undo / Redo and one checked Save — its authoring vocabulary on `Sheet` (Sheet.column.*, Sheet.register.*, Sheet.driver, Sheet.group, Sheet.subRows, Sheet.library.*, Sheet.field, Sheet.apply). (14) Calendar — the record-backed scheduling builder in e3-ui: Calendar, Resources and Timeline layouts, bound resource and template records, the event record’s unscheduled backlog paged through its source, one Slice.bindRecords rail — a source per event kind, resource kind and templates record, one date window — a resource kind paged a window at a time (Data.bindPaged), the events on it read a cell at a time through a series index and shaded from a summary index past 10,000, shared Toolbar/Library/FieldForm/EditSession behavior, and explicit agenda/card actions below 480px. BuilderFrame remains internal. (15) Roster — weekly staffing over the app's own records: its duties a Schedule.events kind (start, end, resource, shift, group, position?, activity?, hours?), its people and agencies Schedule.resources kinds, its weeks Schedule.periods for Publish, its cover Roster.targets, and its shifts, groups, positions, activities and proposals read through Roster.* accessors; Shifts (Day · Week) and People (Week · Month) layouts — the People week a tile a duty in the shift's colour token (Roster.shifts' color, east-ui's ColorTokenType), the month a column a week, and the app's week patterns (Roster.patterns, Roster.library.patterns()) dropped on a person's week as one step; pure coverage/rules over the duty row type; the app's pay in its own codes, asked a person at a time; Find fixes on the app's fit e3.function (Func.bind, Roster.fit(R)); the week's duties read through the slice's duty source; one Slice.bindRecords rail over the duties, targets, people and activities; one history over a session per record, Save per record and Publish saving first, then the week's status; and explicit mobile actions. (16) The Flowchart — <Flowchart>, the state-transition flowchart, always in its builder frame — one toolbar (find state, LR · TD, the freshness chip, the rail of its one Slice.bindRecords, and where it edits the history item), the canvas filling main, the footer's counts: states as nodes in ordered phase lanes (the layout derived, no coordinates), H/V-routed transitions, decision triggers and evidence-weighted links, over an e3 record of flows by name (Flowchart.Types.Flows, its value written with Flowchart.values and checked at build — a lone flow is a record of one entry) or the host's flows or one flow (data, the value's type picking the arm — Flowchart.over builds one flow from the host's own tables with row mappers); its library pane's Flows tab (Flowchart.library.flows()) lists the flows by name — over a record those its rail's `flows` source narrows it to, counted — and opens one, the open flow kept under the flowchart's name, and '+ New flow' starts one, beside state and transition templates, templates records (Flowchart.library.states / transitions), and the author's own cards (Flowchart.library.tab), each following the source of the rail it names, and each card dropped on the canvas — a state template onto a lane, a transition template onto a transition, an author's card where its drop's type says, ⏎ on a card onto the selection; every gesture on the canvas — '+ LANE', a lane renamed (a double-click on its header) or deleted, a state added, edited, moved or deleted, a handle dragged to connect, Del on the selection — one transaction of the open flow's editing session, each flow keeping its own drafts, with Undo / Redo and one checked Save through the record's patch mutation or the host's onApply; its inspector pane, on by default (inspector={false} takes it away) — Details for the state, transition, decision, lane (a click on its header) or several states selected, or the open flow, each through the shared form, a state's or a transition's own Details in its place with inspector={{ state, transition }}, and Issues, each selecting what it names; with selection and path tracing — its types on Flowchart.Types, a row patch from Flowchart.patch. (17) The Allocation — <Allocation>, a day's arrivals booked into timed lane slots and each bin's quantity allocated to resources with room and time for its hold, always in its builder frame, as a Timeline (lanes, links, resource rows) or a Table (a row per slot), over the app's own records: its bins an instant Schedule.events kind (at, resource, arrival, quantity, parts, hold, kind?), its lanes and resources Schedule.resources kinds (offset; min, max, note, hold, jobs), what it books from Allocation.arrivals (each arrival's values a booked bin's own fields), and its days Schedule.periods for Publish — one history over the bins' and the days' sessions, every gesture a draft, Save per record and Publish saving first, then the day's status — the app's fit an e3.function bound with Func.bind (a place or a take question about the drafted day, FitRequest(R) over the bin row type, built on Allocation.answer / fit / lookahead), split loads and Find a fit, the app's bin fields as columns and its own check over CheckContext(R), one Slice.bindRecords rail over the day's bins, its lanes, resources and arrivals, the shared Library, Inspector and session, explicit-action cards below 480px, and pure loads / candidates / check / slots over Day(R) a task runs too. (18) The Schematic — <Schematic>, the 2D world-coordinate drawing of the app's own records: a kind per record, keyed by String, its fields mapped to the Schematic's roles and its shapes made by accessors over the row's own fields — items (Schematic.items: a centre, a box, a footprint drawn about the centre, a label, a status, a meter, a figure), zones (Schematic.zones: a box, outlined or hatched, a geometry about its centre), links between two items (Schematic.links: from and to naming item slots) and nets joining many to many (Schematic.nets: sources and destinations) — each kind editable bound with its patch door (Record.bind) or read only (Data.bind), read whole or complete through its source of one Slice.bindRecords rail (entries: Data.bindPaged) — a window at a time where that source lists an area index (index.area), its density shaded past 5,000 rows in view — its details a record keyed as it is (Schematic.details), its templates a record (Schematic.templates), its layers the app's rows (Schematic.layers), the library's tabs over every kind (Schematic.library.templates() / backlog() / index() / layers() / tab), each card dropped on the canvas — an item template adds an item at the point, a backlog row is placed there, a link or net template gives a link or a net of its kind its values, an author's card sets its Schematic.patch's fields, ⏎ onto the selection or at the view's centre — the inspector opted into: Details through the shared form over each kind's fields and its details', an item's position, a link's ends and a net's sides, and Issues, each selecting what it names; below 480px of main nothing drags, Details' Connect to… and the Backlog card's Place taking the gestures' place; a camera with a minimap, selection by a tap, Shift and the marquee, and every gesture — Move, Connect and a Shift session growing a net, an end retargeted, a net extended, Del — one step of one history over a session per record it writes, with Undo / Redo and Save sending each record's changes through its patch door, canConnect answering each pair with none or the refusal's words; onSelect hears the whole selection, each entity by its kind's slot and its key — its shapes and types on Schematic (Schematic.circle / polyline / polygon / rect about the anchor, outline / hatch, solid / dashed, Schematic.patch, Schematic.Types)."
 ---
 
 # e3-ui — e3 + UI Bridge
@@ -8,14 +8,14 @@ description: "e3 + UI bridge — build interactive, reactive decision surfaces a
 `@elaraai/e3-ui` connects **east-ui** JSX tags to **e3** workspaces. You author a
 decision surface as a first-class e3 **UI task** whose reads and writes against
 workspace datasets are tracked in a manifest — so the engine knows what data the
-UI depends on and can re-render reactively. With staged writes, `<Diff>` review,
-and commit / discard, a view becomes a place a user commits a decision with its
-evidence — not a read-only report.
+UI depends on and can re-render reactively. With staged writes and commit /
+discard, a view becomes a place a user commits a decision with its evidence —
+not a read-only report.
 
 The public surface is **JSX tags + platform helpers**, all from one import
-(`@elaraai/e3-ui`): the e3-specific tags `<Diff>`, `<Ontology>`, `<Experiment>`, `<Plan>`, `<Sheet>`, `<Calendar>`, `<Roster>`, `<Allocation>`, `<Flowchart>` and `<Schematic>`, the `Data` and `Func`
+(`@elaraai/e3-ui`): the e3-specific tags `<Ontology>`, `<Experiment>`, `<DecisionQueue>`, `<Plan>`, `<Sheet>`, `<Calendar>`, `<Roster>`, `<Allocation>`, `<Flowchart>` and `<Schematic>`, the `Data` and `Func`
 binding helpers, `Studio` and `Query` components, and the `ui()` task factory. Base UI tags (`<VStack>`, `<Text>`,
-`<Stat>`, …) come from `@elaraai/east-ui`. The factories (`Diff.Root(…)`) are an
+`<Stat>`, …) come from `@elaraai/east-ui`. The factories (`Ontology.Root(…)`) are an
 implementation detail under `@elaraai/e3-ui/internal` (also the e3-free,
 browser-safe entry for render-only bundles).
 
@@ -81,7 +81,7 @@ Task → What do you need?
     │   ├─ Write a value           → .write(v)
     │   ├─ Write + kick dataflow   → .writeAndStart(v)
     │   ├─ Current status (variant) → .status()  (e.g. .status().hasTag('stale'))
-    │   ├─ The binding handle       → .binding   (pass to <Diff bindings={[…]} />)
+    │   ├─ The binding descriptor   → .binding   (read by a component the handle is given to)
     │   └─ Staged mode             → { mode: 'staged' } + .commit() / .discard()
     │
     ├─ Read a collection too large to hold whole — Data.bindPaged(dataset, options?)
@@ -101,11 +101,8 @@ Task → What do you need?
     │   ├─ Spinner boolean          → .pending()
     │   └─ Stop waiting             → .cancel() (client-side; server still finishes)
     │
-    ├─ Review pending (staged) changes
-    │   └─ <Diff bindings={[a.binding, b.binding, …]} />
-    │
     ├─ Edit a graph / ontology dataset
-    │   └─ <Ontology binding={view.binding} />   (OntologyType: NodeType / LinkType)
+    │   └─ <Ontology value={view} />   (OntologyType: NodeType / LinkType)
     │
     ├─ Offer components for operators to arrange on pages (Studio)
     │   ├─ Declare one — self-contained, like a ui() body   → Studio.component(key, meta, fn)
@@ -120,11 +117,14 @@ Task → What do you need?
     │   ├─ The builder: steps or jq, checked, run, saved  → <Query.Builder queries datasets query? id? />
     │   └─ The saved queries, and where new ones start    → <Query.Library queries datasets onOpen? id? />
     │
-    ├─ Run the Decide loop over reasoning-task decisions
-    │   ├─ Union the bound decision views into one handle → Decision.bind([Contract]?, { decisions, judgements })
-    │   ├─ The queue (triage → understand → judge → apply) → <DecisionQueue handle={handle} …/>
-    │   ├─ The resolved read-back (Decide↔Trust seam)       → <DecisionJournal handle={handle} />
-    │   └─ Scope the queue (author-owned, Table pattern)    → Slice.bind over Decision.Types.Decision, rows = handle.queue()
+    ├─ Run the Decide loop: the cases the app's models leave to a person (see The Decide loop below)
+    │   ├─ The queue over the app's record of cases         → <DecisionQueue id decisions={DecisionQueue.decisions(Record.bind(cases), {…})} />
+    │   ├─ Each part of a card, read from the app's row     → roles (row, key) => …: scope, due, unit, model, why, routine?, format?, ifWrong?
+    │   ├─ A case's alternatives, or each case one proposal → recommended + options: { from, title, summary, detail, value, change, … } / the option's roles beside the case's
+    │   ├─ Where each kind of decision draws                → change: { from, of: { <tag>: DecisionQueue.change.roster / plan / calendar / allocation / sheet / record / zones / projection } }
+    │   ├─ The verdict, written into the case's own row     → verdict: { field, waiting, applied, overridden, deferred, handedOff } · option? · answer? · reason? · note?
+    │   ├─ Cases narrowed by one rail, a page at a time     → slice={{ slice: Slice.bindRecords(key, { decisions: { source: Data.bindPaged(cases, { indexes }) } }) }} + entries: Data.bindPaged(cases)
+    │   └─ Follow the open case; read only                  → onSelect={fn(Option<String>)} · readOnly
     │
     ├─ Draw what is scheduled on ONE shared axis — the Plan (see The Plan below)
     │   ├─ Rows derived from data by a series list            → <Plan axis={…} data={…} series={[…]} />
@@ -258,7 +258,7 @@ A workspace-scoped reactive binding to a dataset — pass the `e3.input` def
 | `.status()` | binding status variant (e.g. `.status().hasTag('stale')`) |
 | `.commit()` | apply staged edits (staged mode) |
 | `.discard()` | drop staged edits (staged mode) |
-| `.binding` | the binding handle to pass to `<Diff bindings={[…]} />` |
+| `.binding` | the binding descriptor — its source, patch and mode — that a component the handle is given to reads |
 
 **Modes** (`options.mode`):
 - `'direct'` (default) — each `write()` immediately mutates the destination.
@@ -557,17 +557,12 @@ cannot drift from the deployed signature.
 }}</Reactive>
 ```
 
-### `<Diff bindings={[…]} />`
-
-Renders a review of pending changes for any combination of bindings — the
-staged-mode companion for "review before apply" UX. Pass the `.binding`
-accessors.
-
-### `<Ontology binding={view.binding} />`
+### `<Ontology value={view} />`
 
 A graph editor (`NodeType` / `LinkType` / `OntologyType`) bound to a dataset, for
-editing typed node/link graphs. Stack a `<Diff>` beside it to surface the pending
-node/link patch.
+editing typed node/link graphs. Over a staged handle its header says *Unsaved
+changes* until the app commits or discards the handle from a control of its
+own: the editor has no commit control itself.
 
 ### `<Experiment data configs … />`
 
@@ -615,73 +610,249 @@ The render-contract value types are reached via `Experiment.Types.*`
 two refusal verdicts (`adjusted = none`) render explanatory zones instead of a
 number.
 
-### The Decide loop — `Decision.bind` + `<DecisionQueue>` + `<DecisionJournal>`
+### The Decide loop — `<DecisionQueue>`
 
-Reasoning tasks emit decisions as `Array<Decision.Types.Decision>` datasets
-(built with `Decision.make` / `Decision.option` / `Decision.reference` /
-`Decision.judgement`). `Decision.bind` unions the bound views into **one
-per-surface handle** — it owns what no single binding can: the union +
-write-routing by case id, the shared case **selection** (every component on
-the handle stays in sync by construction), and the derived per-case **commit
-gate**. The operator's staged contribution is a judgements dict bound the
-same way.
+The cases an app's models leave to a person, one card open at a time: what
+each option changes, drawn as the builder that edits that record draws it;
+Apply writing the change through its record's own patch door, and every
+verdict into the case's own row. Import `DecisionQueue` from
+`@elaraai/e3-ui`; the renderer is in e3-ui-components, and its BuilderFrame is
+internal — one toolbar over the cards, no side panes. It stores nothing in a
+shape of its own (#1447): its cases are one record of the app's, whatever
+kinds of decision it holds, each row a case and its verdict
+(`DecisionQueue.decisions`, #1458); and each kind of decision draws in a
+target (`DecisionQueue.change.*`) built from the consts the app hands its
+builders.
 
-```tsx
-const roster     = $.let(Data.bind(rosterDecisions, { mode: 'direct' }));   // source ⊕ patch view
-const orders     = $.let(Data.bind(orderDecisions,  { mode: 'direct' }));
-const judgements = $.let(Data.bind(judgementsInput, { mode: 'staged' }));
-const handle     = $.let(Decision.bind([RosterConstraint], { decisions: [roster, orders], judgements }));
+```
+the app's records     what its builders edit — <Roster>, <Plan>, <Calendar>, <Allocation>, <Sheet> — and records none draws
+        │ read by
+the app's models      its tasks: an optimiser, a forecast, a rule
+        │ propose, through the app's own mutation
+one record of cases   every kind of decision, each row a case and its verdict — waiting, as the model
+                      writes it; each option's change a variant, its tag the kind of decision, its
+                      value a patch of the record that kind changes
+        │ read by
+<DecisionQueue>       whole, or a page at a time through the rail's source, in its order; a person
+                      opens a case, answers its question, modifies its change, decides
+        │ writes, at Save
+the case's own row    its verdict, and the option taken, the answer, the reason and the note
+the changed records   on Apply, the option's patch, through each record's patch door
+        │ read by
+the models' next run  leaves a decided case as it is; reads an override's reason and note
 ```
 
-The optional type token is the solution's **constraint contract** (a by-name
-`VariantType` shared with the reasoning task, which `$.matchTag`s injected
-constraints fully typed); omit it for the default primitive op-variant.
-Handle methods: `queue()` (the unioned cases) · `selected()` / `select(id)` /
-`clearSelection()` · `decision()` · `update(d)` (probe edit through the owning
-patch) · `judgement(id)` / `answer(id, promptId, answer)` /
-`addKnowledge(id, text)` / `inject(id, constraint)` · `resolve(id, verdict)`
-(verdict + removal + selection clear) · `commitState(id)` (gated / blocked /
-handoff / ready).
+The cases are one record of the app's, bound with its patch door
+(`Record.bind`). The app's own mutation fills it, each new case waiting: e3's
+tasks read records and never write them, so a task's output is filled into it
+first. The queue writes each verdict into its case's row, the fields its
+roles name and no other. With no `slice` it reads the record whole, in its
+key order; with a rail, the narrowing a page at a time as the list scrolls,
+in the index's order. It sorts nothing and caps nothing: each case stands
+where its source places it — a waiting one as its card, a decided one as its
+receipt — and the toolbar's count is e3's. Which cases show is the app's own
+index on the verdict's tag, the case's judgement, the rail opening on the
+cases waiting. A verdict stands for its key, so a run that proposes again
+writes a new case under a new key.
 
-**`<DecisionQueue handle={handle} …/>`** — *the* Decide surface: one queue over
-the handle's cases, urgency-sorted with the routine tail collapsed; selecting a
-row expands one facet at a time beneath it; Apply / Reject resolve through the
-handle.
-
-| Prop | Meaning |
-|---|---|
-| `handle` | **required** — the `Decision.bind` handle |
-| `heading` | header label (e.g. `"Decisions waiting"`) |
-| `modify` | per-kind probe editor `(decision, update) => UIComponent` — the Modify facet; `update(edited)` writes back through the owning binding |
-| `evidence` | per-decision canvas `(decision) => UIComponent` inside the Evidence facet |
-| `defaultExpanded` | the case shown expanded before any selection (an `Option` — derive from bound data, e.g. a `firstMap`) |
-| `defaultFacet` / `facets` | which facet opens first (`'evidence'` default) / include-list of data facets (`modify` stays callback-gated) |
-| `onApply` / `onReject` | side-effect hooks fired with the decision on resolve |
-| `slice` | author-bound slice handle over the queue (see below) — narrowing applies before the urgency sort whether or not a rail mounts |
-| `affordances` | rail affordances when `slice` is set (default `["filter", "search"]`; `brush` rejected) |
-| `groups` / `groupBy` / `collapsible` | Group-by toolbar: custom label → `(decision) => String` accessors atop built-in Urgency / Kind / None; which opens first; collapsible heads |
-| `maxHeight` / `density` | pinned-header scroll cap / density preset |
-
-**The queue's scope is an ordinary author-owned slice** (the `Table` pattern —
-you own the key and config, so scopes are per-surface over one shared handle,
-and shareable with any other component). Bind it over the decision envelope
-with the handle's own union as the rows feed:
+The smallest queue — a record of proposals, each its own one decision, its
+change landing in the Sheet's work orders or in a price list no builder draws
+(`decisionQueueMinimal`):
 
 ```tsx
-const slice = $.let(Slice.bind('ops.queue.slice', handle.queue(), {
-    fields: { kind: { label: 'Kind' }, title: { label: 'Title' }, value: { label: 'Value' } },
-    search: ['kind', 'title'],
-    initial: { kind: ['roster'] },
+// Module level: the app's own record of proposals, each row a proposal and its verdict, which the queue writes.
+export const ProposalDetails = VariantType({
+    orders: PatchType(DictType(StringType, OptimiseWorkOrder)),  // the shop's work orders
+    pricing: PatchType(DictType(StringType, ListPrice)),         // the price list
+});
+export const Proposal = StructType({
+    site: StringType, deadline: OptionType(DateTimeType), metric: StringType, run: StringType, rationale: StringType,
+    headline: StringType, brief: StringType, description: StringType, saving: FloatType, details: ProposalDetails,
+    // Waiting, as the model writes every new proposal; the queue writes the others.
+    verdict: VariantType({ waiting: NullType, applied: NullType, overridden: NullType, deferred: NullType, handedOff: NullType }),
+});
+// The model's proposals, one decision each, with the patch door the queue writes each verdict through; the work
+// orders and the price list are records of the app's own too.
+export const proposals = e3.record("proposals", DictType(StringType, Proposal), {
+    initial: proposalRows,
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+// Inside Reactive: the proposals, read whole, with their patch door.
+const cases = $.let(Record.bind(proposals));
+// The records the proposals change, each with its patch door.
+const workOrders = $.let(Record.bind(optimiseWorkOrders));
+const priceList = $.let(Record.bind(listPrices));
+return <DecisionQueue id="proposals"
+    decisions={DecisionQueue.decisions(cases, {
+        // Each role: the part of the card on the left, an East function reading it from the proposal on the right.
+        scope: p => p.site, due: p => p.deadline, unit: p => p.metric, model: p => p.run, why: p => p.rationale,
+        // No `options`: each proposal is its own one option, the option's roles read from the proposal.
+        title: p => p.headline, summary: p => p.brief, detail: p => p.description, value: p => p.saving,
+        change: { from: p => p.details, of: {
+            orders: DecisionQueue.change.sheet(workOrders, { name: "Sheet", icon: "table-cells", columns: {
+                reference: Sheet.column.text(OptimiseWorkOrder, { header: "Reference" }),
+                status: Sheet.column.text(OptimiseWorkOrder, { header: "Status" }),
+                due: Sheet.column.date(OptimiseWorkOrder, { header: "Due" }),
+            } }),
+            pricing: DecisionQueue.change.record(priceList, { name: "Pricing", icon: "tag", label: r => r.region }),
+        } },
+        // The verdict: a field of the proposal's, which the queue writes, and which of its cases means what.
+        verdict: { field: "verdict", waiting: "waiting", applied: "applied", overridden: "overridden", deferred: "deferred", handedOff: "handedOff" },
+    })} />;
+```
+
+The full queue — a rail over the models' cases, each case's alternatives,
+every kind of decision landing in every builder and in records no builder
+draws, every verdict role, and the host following the open case
+(`decisionQueueOps`, excerpted):
+
+```tsx
+// Module level: the cases' record, each row a case and its verdict — `verdict` a variant whose `waiting` case holds
+// Null and each other `{ at: DateTime }` — filled by the app's own mutation, with the patch door the queue writes
+// each verdict through.
+const ByJudgementArea = StructType({ judgement: StringType, area: StringType });
+const ByJudgementScope = StructType({ judgement: StringType, scope: StringType });
+export const opsCases = e3.record("ops_cases", DictType(StringType, OpsCase), {
+    initial: opsCaseRows,
+    indexes: (index) => ({
+        // The app's own: whether anyone has judged a case — its verdict's tag — then a field the rail narrows by.
+        ops_cases_by_judgement_area: index.key(East.function([StringType, OpsCase], ByJudgementArea,
+            (_$, _key, c) => ({ judgement: c.verdict.getTag(), area: c.area }))),
+        ops_cases_by_judgement_scope: index.key(East.function([StringType, OpsCase], ByJudgementScope,
+            (_$, _key, c) => ({ judgement: c.verdict.getTag(), scope: c.scope }))),
+    }),
+    mutations: (mutation) => ({
+        ops_propose: mutation.reduce(proposeCases),  // the app's: the decided cases out, a run's cases in, each waiting
+        patch: mutation.patch(),                     // the queue's: the verdicts
+    }),
+});
+// Inside Reactive: the models' cases with the patch door their verdicts are written through, read by key beside the rail's source.
+const cases = $.let(Record.bind(opsCases));
+const caseEntries = $.let(Data.bindPaged(opsCases));
+// The rail: the cases through the app's indexes on their judgement, starting on those waiting.
+const indexed = $.let(Data.bindPaged(opsCases, { indexes: ["ops_cases_by_judgement_area", "ops_cases_by_judgement_scope"] }));
+const slice = $.let(Slice.bindRecords("ex.decisionQueueOps", {
+    decisions: { source: indexed, icon: { prefix: "fas", name: "inbox" }, search: ["scope"],
+        fields: { judgement: { label: "Judgement", hints: ["waiting", "applied", "overridden", "deferred", "handedOff"] },
+            area: { label: "Area" }, scope: { label: "Scope" } },
+        initial: { judgement: ["waiting"] } },
 }));
-return <DecisionQueue handle={handle} heading="Decisions waiting" slice={slice} />;
+// The host's: the case open in the queue, which it follows.
+const open = $.let(State.bind([OptionType(StringType)], "ex.decisionQueueOps.open", none));
+const follow = $.const(East.function([OptionType(StringType)], NullType, ($2, key) => { $2(open.write(key)); }));
+// Each target takes the consts the app's own builders are handed, built as each builder's section shows them: duty,
+// people, agencies, shifts, groups and pay as <Roster> takes them, dutyWeek the duties through their interval index;
+// job and pressRows as <Plan> does; machineJob, service and machineRows as <Calendar> does; bin, bayRows, kilnRows,
+// loadRows and yardDayBins as <Allocation> does; workOrders and priceList bound as in the smallest queue.
+const rotaChange = DecisionQueue.change.roster({ name: "Roster", icon: "users",
+    events: { duty }, resources: { people, agencies }, shifts, groups, week: { start: "sunday" }, source: dutyWeek });
+const rotaCostChange = DecisionQueue.change.roster({ name: "Roster", icon: "users", map: "cost", pay, currency: "USD",
+    events: { duty }, resources: { people, agencies }, shifts, groups, week: { start: "sunday" }, source: dutyWeek });
+const printChange = DecisionQueue.change.plan({ name: "Plan", icon: "bars-progress", events: { job }, resources: { presses: pressRows } });
+// The maintenance the tags patch, named by `event`, beside the jobs its days' overlaps count.
+const workshopChange = DecisionQueue.change.calendar({ name: "Calendar", icon: "calendar-days",
+    events: { job: machineJob, service }, event: "service", resources: { machines: machineRows } });
+const yardChange = DecisionQueue.change.allocation({ name: "Allocation", icon: "fire-flame-curved",
+    events: { bin }, resources: { bays: bayRows, kilns: kilnRows }, arrivals: loadRows, source: yardDayBins });
+const orderChange = DecisionQueue.change.sheet(workOrders, { name: "Sheet", icon: "table-cells", columns: {
+    reference: Sheet.column.text(OptimiseWorkOrder, { header: "Reference" }),
+    due: Sheet.column.date(OptimiseWorkOrder, { header: "Due" }),
+} });
+// A record no builder draws, in a form of its own: the app's check holds Apply while an edit leaves a price off a 5¢ step.
+const pricingChange = DecisionQueue.change.record(priceList, { name: "Pricing", icon: "tag", label: r => r.region,
+    fields: { price: Fields.number({ label: "List price", unit: "$ / unit", min: 10.0, max: 12.5, step: 0.05, help: "In 5¢ steps" }) },
+    ready: r => r.price.subtract(East.Float.roundNearest(r.price, 0.05)).abs().greater(0.000001).ifElse(
+        () => variant("invalid", [{ field: "price", message: "A list price moves in 5¢ steps" }]), () => variant("ready", null)) });
+// …and stockChange, trialChange, coverChange and readyChange: more records no builder draws, each in a form of its own.
+return <DecisionQueue id="opsQueue" slice={{ slice }} onSelect={follow}
+    decisions={DecisionQueue.decisions(cases, {
+        entries: caseEntries,
+        scope: c => c.scope, due: c => c.due, routine: c => c.routine, unit: c => c.unit, model: c => c.model,
+        why: c => c.why, ifWrong: c => c.ifWrong, recommended: c => c.recommended,
+        // Money in dollars, a count as it is.
+        format: c => c.figure.match({ money: () => some(Format.Currency({ currency: "USD", compact: "short" })), count: () => none }),
+        options: { from: c => c.options, label: o => o.label, title: o => o.title, summary: o => o.summary,
+            detail: o => o.detail, note: o => o.note, value: o => o.value, confidence: o => o.confidence,
+            question: o => o.question, warn: o => o.warn, refused: o => o.refused, knockOn: o => o.knockOn, guesses: o => o.guesses,
+            change: { from: o => o.change, of: {
+                rota: rotaChange, rotaCost: rotaCostChange, print: printChange, workshop: workshopChange, yard: yardChange,
+                orders: orderChange, pricing: pricingChange, stock: stockChange, trial: trialChange, cover: coverChange, ready: readyChange,
+            } } },
+        // The verdict's roles: fields of the case's row, which the queue writes.
+        verdict: { field: "verdict", waiting: "waiting", applied: "applied", overridden: "overridden", deferred: "deferred", handedOff: "handedOff" },
+        option: "option",
+        answer: { field: "answer", yes: "yes", no: "no", unsure: "unsure" },
+        reason: { field: "reason", context: "context", data: "data", priorities: "priorities", other: "other" },
+        note: "note",
+    })} />;
 ```
 
-Pass `affordances={[]}` to keep the seeded narrowing with **no** rail — an
-invisible author scope.
+| Signature | Description | Example |
+| --- | --- | --- |
+| **The queue** | | |
+| `<DecisionQueue id decisions slice? onSelect? readOnly? now? />` **❗** | The cases a person decides, filling the box its host gives it: one toolbar row — `Decisions` and its count, e3's count of the narrowing's cases or the record's size read whole (`…` while it is read), the rail, and the history item, its Undo, Redo, Discard and Save — over the cards, each case where its source places it, a waiting one as its card and a decided one as its receipt. Below 480px of its own width the cards stack. `id` names the queue's state: the open card, each card's choices and the session's drafts. Refused at build, each naming the change: an `id` that is no text; `decisions` that are no `DecisionQueue.decisions`; a removed prop (below); and as each target refuses what it was given. | `decisionQueueMinimal`, `decisionQueueOps`, `decisionQueuePhone` |
+| `slice={{ slice: Slice.bindRecords(key, { decisions: { source: Data.bindPaged(record, { indexes }), fields?, search?, initial?, … } }) }}` **❗** | One rail over the cases: its one source, `decisions`, over the cases' own record and its indexes, read a page at a time as the list scrolls, in the index's order — the queue sorts nothing and caps nothing — and `entries: Data.bindPaged(record)` among `DecisionQueue.decisions`' roles beside it, reading a case by key: a case drafted, and Save's confirmation. Which cases show is the narrowing: the app's own index on the verdict's tag, the case's judgement, among the source's indexes, `initial: { judgement: ["waiting"] }` opening the rail on the cases waiting. A case a Save takes out of the narrowing leaves the list, and the footer says how many did (`3 decisions left this view`). Without a slice the cases are read whole, in the record's key order. Refused at build: the bare handle, `Slice.bind`, a single `Slice.bindRecord` and a source of another name; a source paging another record than the cases'; a source with no `entries` beside it, and `entries` with no slice. | `decisionQueueOps`, `decisionQueueRecordIndexes` |
+| `onSelect={fn(Option<String>) => Null}` · `readOnly` · `now` | `onSelect` hears the open case's key, `none` when none is open — the host's to follow, as a builder's `onSelect` hears its selection. Under `readOnly` a card opens and shows all of it, and takes no choice, no answer and no action; the toolbar has no history item. `now` is the time the due words count from, the clock by default; examples and tests pin it. | `decisionQueueOps`, `decisionQueueReadOnly` |
+| **The cases** | | |
+| `DecisionQueue.decisions(Record.bind(record), roles)` **❗** | The cases: one record of the app's, a `Dict<String, C>` of structs, each case under its key, bound with its patch door — its record declaring `patch: mutation.patch()` — which the queue writes each verdict through; read whole, or through the slice's `decisions` source a page at a time, `entries` beside it. Each role is an East function over the case's row and its key, `(row, key) => …`, reified once and held to the type its role takes, so the app's record keeps its own names and shape. Refused at build, naming the role or the binding: `Data.bind` and `Data.bindPaged` — the queue writes each verdict into its case's row, so cases a task outputs, which nothing writes, are filled into a record by the app's own mutation first; a record bound without its patch door; `entries` that is no paged read of the cases' own record; a role that is no function, or returns another type than its role takes; a required role left out. | `decisionQueueMinimal`, `decisionQueueOps` |
+| `scope`, `due`, `unit`, `model`, `why` · `routine?`, `format?`, `ifWrong?` | The case's roles: `scope` the eyebrow after where it lands (`String`); `due` when it is due, the due words and their tone (`Option<DateTime>`, `none` for no deadline); `unit` its value's word (`saved / wk`); `model` Why's line and `why` Why's paragraph; `routine` the Routine mark on its card, the case decided as any other (`Boolean`; without it, no mark); `format` how its values print (an `Option` of east-ui's `Format`; without it, plain numbers); `ifWrong` what it costs if the recommendation is wrong (`Option<Float>`; without it, `no data`). | `decisionQueueOps` |
+| `recommended` + `options: { from, …the option's roles }` **❗** | A case with alternatives: `from` reads them, a `Dict<String, O>` by key, each a struct — give it first, as TypeScript reads `O` from it for the roles after it — and each option's role is `(option, key, row) => …`. `recommended` is the key of the option the card opens on; one naming no option is the case's warning. Refused at build: `recommended` without `options`, `options` without `recommended`, an option's role given both beside the case's and in `options`, and a `from` returning no `Dict<String, O>` of structs. | `decisionQueueOps` |
+| the option's roles: `title`, `summary`, `detail`, `value`, `change` · `label?`, `note?`, `confidence?`, `question?`, `warn?`, `refused?`, `knockOn?`, `guesses?` | `title` the card's title, and a receipt's words; `summary` the line beside Proposed / Modified; `detail` the sentence under Change; `value` the value line's figure (`Float`); `label` its row in Options, its key by default; `note` its line in Options; `confidence` the model's confidence in it, 0 to 1; `question` a question only a person can answer, which gates Apply; `warn` the warning box's words; `refused` why it is refused — off in Options, its reason on its line; `knockOn` the keys of the target's rows moved because of the change, not by it (`Set<String>`); `guesses` the changed rows the model is unsure of, by key, with its confidence in each (`Dict<String, Float>`). Without `options` each case is its own one proposal: these roles sit beside the case's, each `(row, key) => …`, and `title`, `summary`, `detail`, `value` and `change` are required. | `decisionQueueMinimal`, `decisionQueueOps`, `decisionQueuePreviews` |
+| `change: { from, of: { <tag>: DecisionQueue.change.*(…) } }` **❗** | Where an option lands: `from` returns the app's variant — its tag the kind of decision, its value a `PatchType(DictType(K, R))` of the record that kind changes — and `of` gives every tag a target over that record, checked as the code compiles and again at build. Refused, naming the tag: a `from` returning no variant; an `of` missing a tag, or naming one the variant does not have; a value of `of` that is no target; a target over another record than its tag's patch is of; and a projection over another row type than the options'. | `decisionQueueMinimal`, `decisionQueueOps` |
+| **The verdict** | | |
+| `verdict: { field, waiting, applied, overridden, deferred, handedOff }` · `option?` · `answer?` · `reason?` · `note?` **❗** | The verdict's roles, among `DecisionQueue.decisions`' roles: each names a field of the case's row, which the queue writes through the record's patch door; every other field reads back as it was. `verdict` names a variant field, not an Option, and which of its cases means which: `waiting` holds `Null`, as the model writes it on every new case, and each of the four verdicts `Null` or `{ at: DateTime }`, the time it was given; the queue reads every case of the field, so each is one of the five. `option` names an `Option<String>` field: the option taken — for Override, the one the person started from; none for a case that is its own proposal. `answer: { field, yes, no, unsure }` and `reason: { field, context, data, priorities, other }` each name an `Option` of a variant of unit cases: the answer to the option's question — without it the card asks none — and an override's reason — without it Override asks none. `note` names an `Option<String>` field. Refused at build: no `verdict`; a role naming a field the row lacks, or one of another type; a verdict field that is no variant, or is an Option; a case naming none of the field's, two of the queue's naming one, or a case of the field none of the queue's names; a `waiting` case holding anything but `Null`, or a verdict's anything but `Null` or `{ at: DateTime }`; an answer's or a reason's case holding anything but `Null`; two roles naming one field. | `decisionQueueMinimal`, `decisionQueueOps` |
+| **The targets** | | |
+| `DecisionQueue.change.roster({ name, icon, events: { <slot>: duty }, resources, shifts, groups, …, map?, source?, locked? })` **❗** | The duties, as the Roster draws them: the touched people's duties over the change's week — the crop, each person's row with their hours before → after — or the map, by people, or with `map: "cost"` by pay code, the app's own `pay` over the week before and after, in its `currency`. Its other props are `<Roster>`'s own, the same consts: `positions`, `activities`, `rules`, `check`, `pay`, `currency` and `week`. `source` reads the duties through their interval index, as the Roster's slice names it. Refused: `events` holding other than one kind; a `map` other than `"people"` or `"cost"`, or `map: "cost"` without `pay`; and, as the queue builds it, everything `<Roster>` refuses of the same props. | `decisionQueueOps`, `decisionQueuePreviews` |
+| `DecisionQueue.change.plan({ name, icon, events, resources?, event?, source?, locked? })` **❗** | The events, as the Plan draws them: the touched resources' events over the change's span, padded to whole hours — the crop, each lane's resource and its booked share before → after — or the map, the resources as tiles by their kind's `group`. `event` names the kind the tags patch, needed with more than one, the others drawn as context. Refused as `<Plan>` refuses the same kinds. | `decisionQueueOps` |
+| `DecisionQueue.change.calendar({ name, icon, events, resources?, week?, event?, source? })` **❗** | The events, as the Calendar draws them: the touched days' events on the change's resources — the crop, a lane a day with its overlaps before → after — or the map, as the Plan's. `event` as the Plan's. Refused as `<Calendar>` refuses the same kinds. | `decisionQueueOps` |
+| `DecisionQueue.change.allocation({ name, icon, events: { <slot>: bin }, resources, arrivals?, rules?, check?, labels?, every?, source? })` **❗** | The bins, as the Allocation draws them: the touched resources' bins over the change's days — the crop, a lane a resource with its load before → after and a breach by `check`, and with `arrivals` (`Allocation.arrivals`) a Waiting lane — or the map, the resources as tiles by group. Refused as `<Allocation>` refuses the same props. | `decisionQueueOps` |
+| `DecisionQueue.change.sheet(Record.bind(record), { name, icon, columns, entries? })` **❗** | The first three changed rows in the Sheet's columns, `Sheet.column.*` as `<Sheet>` takes them, a guessed row's changed cells marked. `entries: Data.bindPaged(record)` reads the rows a change touches by key, never the record whole. Refused: rows that are no structs, and the columns as `<Sheet>` refuses them. | `decisionQueueMinimal`, `decisionQueueOps` |
+| `DecisionQueue.change.record(Record.bind(record), { name, icon, label?, fields?, ready?, inspector?, measure?, group?, source?, locked?, entries? })` **❗** | A record no builder draws: up to two rows' changed fields, as its form prints them; with `measure` and at most five rows, the mix — a row per key on a shared axis; with `group`, the groups — a row per group, its rows and those the change moves, each group's rows counted through `source`, an indexed read of the record listing a plain index on the `group` field alone, the record read by key through `entries`. Its form is `fields` (east-ui's `Fields` hints), or its own `inspector`, and the app's `ready` holds Apply in its own words while an edit leaves a row it refuses. Refused: `group` naming no String field, or given without such a `source` and `entries`; a `source` without `group`; and its `fields` and `inspector` as an event kind refuses them. | `decisionQueueOps`, `decisionQueuePreviews`, `decisionQueueRecordIndexes` |
+| `DecisionQueue.change.zones(Record.bind(record), { name, icon, zone, x, y, depot?, zones })` **❗** | Areas on a grid, each in a zone: every area of the record a tile by its `x` and `y`, filled by its zone, the changed ones in their new zone's fill, and each zone's count before → after; the record is read whole. `zones` is the app's list, each `{ key, label, color }`, `color` a theme colour token (`Style.ColorToken("teal", "500")`). | `decisionQueuePreviews` |
+| `DecisionQueue.change.projection(Record.bind(record), { name, icon, option, points, x, y, limit?, format? })` **❗** | An option's own series: a line per option, the chosen one glowing, the option that changes nothing a dashed ghost, and `limit: { y, label }` a dashed rule. `option` is the options' row type, which `points` reads (`o => o.forecast`); it reads nothing of the record. | `decisionQueuePreviews` |
+| every target: `name`, `icon` · `locked?` **❗** | `name` is the target's surface, the eyebrow's first word (`Roster`, `Pricing`), and `icon` its Font Awesome solid icon; both are required. `locked` — on the Roster's, the Plan's and a record's — marks a row locked. A builder's target's `source` reads the kind its tags patch through its interval index, as that builder's slice names it; without one the kind reads as it is bound. Modify edits each changed row in its builder's inspector form for one row, the kind's own `inspector` where it has one, the preview following each edit. Apply drafts the change through the kind's own write, or the record's patch door: a Sheet's, a record's, a zones' or a projection's record bound read only is refused. A change that no longer applies to the rows as they stand — another session moved one since the model read it — is marked stale and takes no Apply. | `decisionQueueOps`, `decisionQueuePreviews` |
+| `DecisionQueue.Types.{Payload, Target, Case, Option, Verdict, Zone, Point}` | The queue's East types: its payload, a target, a case and an option as their roles read them, a verdict as the queue writes it, a zone of a zones target and a point of a projection's series. | — |
 
-**`<DecisionJournal handle={handle} />`** — the resolved-cases read-back (the
-Decide↔Trust seam): every staged judgement whose verdict is set, newest first —
-the exact complement of the queue. Options: `heading`, `maxHeight`.
+Each case stands where its source places it — the record's key order read
+whole, the index's order through the rail — and nothing sorts, groups or
+caps them. One card is open at a time: the chosen option's change in its
+target's preview, its figures, Why, the option's question and warning, and
+Your call. Modify edits the change's rows; Override… asks for its reason and a
+note. Apply, Override, Defer and Hand off each draft one step of the queue's
+history across every record it writes: Apply the chosen option's change, as
+Modify left it, and the verdict; Override the verdict with its reason and
+note, and the person's own change where Modify set one; Defer and Hand off
+the verdict alone. The card becomes its receipt where it stood, whose Undo is
+the history's while the verdict is its last step, and the keyboard goes to
+the next waiting case's head, which neither opens nor scrolls; Undo, Redo and
+Discard reach every step. Save writes each record through its patch door, a
+request each; a conflict, a refusal or an unknown outcome is the session's
+banner, with Retry where it applies. A case the Save takes out of the rail's
+narrowing — an applied one, while the rail shows the cases waiting — leaves
+the list, and the footer says how many did (`3 decisions left this view`). A
+case decided in another session shows its receipt, with no Undo. A case's
+question gates Apply: an answer of No blocks it, Don't know turns Defer into
+Hand off. A `routine` case is marked so on its card and decided as any other.
+The choice, the answer, the note and Modify's edits are the viewer's under
+the `id` until a verdict: a card closed and opened again, or the queue
+mounted again, shows them as left.
+
+Removed with #1447, and gone from the package: `Decision.bind` and its handle
+(`queue()`, `select`, `resolve`, `commitState`, …), the stored decision
+envelope `Decision.Types.Decision` and `Decision.make`, `Decision.option`,
+`Decision.reference` and `Decision.judgement`, the judgements and the
+constraint contract, the facets, `<DecisionJournal>` and `<Diff>`, and the
+queue's own sort and grouping: the cases stand in their source's order,
+narrowed by the app's indexes. A journal of the verdicts is the cases'
+record, shown as the app shows any record of its own: a Sheet over it,
+narrowed by the judgement. The queue's removed props — `handle`, `heading`,
+`modify`, `evidence`, `defaultExpanded`, `defaultFacet`, `facets`, `onApply`,
+`onReject`, `affordances`, `maxHeight`, `density`, `groups`, `groupBy` and
+`collapsible` — are refused at build, each naming what replaces it.
+
+The runnable examples are `decisionQueueMinimal`, `decisionQueueOps`,
+`decisionQueueReadOnly`, `decisionQueueRecordIndexes`, `decisionQueuePhone`
+and `decisionQueuePreviews`. Search those names in the example index.
 
 ### Studio components — `Studio.component(key, meta, fn)`
 
@@ -2999,7 +3170,6 @@ createRoot(document.getElementById('root')!).render(
                 <Button variant="outline" onClick={discard}>Discard</Button>
                 <Button variant="solid" onClick={commit}>Apply</Button>
             </HStack>
-            <Diff bindings={[t.binding]} />
         </VStack>
     );
 }}</Reactive>
@@ -3018,16 +3188,14 @@ createRoot(document.getElementById('root')!).render(
 ### Numbers, dates and the locale
 
 Every e3-ui surface prints through east-ui's one formatter:
-- the queue's values and deadlines;
-- the journal's times and the constraint chips;
+- the queue's figures, totals and deadlines;
 - the experiment's effects and its journal;
 - a dataset preview's counts and sizes;
-- a diff's values;
 - the Plan's and the Sheet's numbers, counts and dates.
 
 Numbers follow the viewer's locale, and every date prints its UTC day. A host sets the locale by wrapping the app in `<I18nProvider locale="de-DE">`, re-exported from `@elaraai/east-ui-components`; the browser's language stands in otherwise.
 
-A value that is data prints bare: every digit, never grouped, with the locale's decimal separator (a year stays `2026`). That covers a constraint's number and a diff's integer. A declared spec, such as a decision's `format`, prints as the east-ui skill's Formats branch describes.
+A value that is data prints bare: every digit, never grouped, with the locale's decimal separator (a year stays `2026`). A declared spec, such as a case's `format`, prints as the east-ui skill's Formats branch describes.
 
 ## Examples
 
@@ -3037,14 +3205,21 @@ Tested examples live in `test/*.examples.tsx`:
   rows an `e3.task` generates — a snapshot's revision, and a record read
   through its index.
 - `func.examples.tsx` — `Func.bind` call/status/cancel, shared channels.
-- `diff.examples.tsx` — reviewing pending changes with `<Diff>`.
 - `ontology.examples.tsx` — graph/ontology editing with `<Ontology>`.
 - `experiment/experiment.examples.tsx` — causal-experiment surface with `<Experiment>`.
-- `decision/queue.examples.tsx` — `<DecisionQueue>` facets, probe editors, the
-  author-bound slice scope, grouping.
-- `decision/journal.examples.tsx` — `<DecisionJournal>` read-back.
-- `decision/loop.examples.tsx` — the full loop: two task outputs unioned by one
-  `Decision.bind` handle, queue + journal in lockstep.
+- `decision/decision.examples.tsx` — `<DecisionQueue>` over the app's records:
+  the smallest queue, a record of proposals each its own one decision and its
+  verdict, landing in the Sheet's work orders and a price list
+  (`decisionQueueMinimal`); the full queue, a rail over the models' cases
+  through the app's indexes on their judgement, opening on those waiting,
+  eleven kinds of decision landing in every builder and in records no builder
+  draws, every verdict role and the host following the open case
+  (`decisionQueueOps`), and the same in a phone-width frame
+  (`decisionQueuePhone`); the smallest queue read only
+  (`decisionQueueReadOnly`); 20,000 cases read a page at a time through the
+  rail's indexes on their judgement, in the index's order, a case drafted and
+  the rows a change touches read by key (`decisionQueueRecordIndexes`); and a
+  case for each preview and mark (`decisionQueuePreviews`).
 - `studio/component.examples.tsx` — `Studio.component`: a self-contained
   component placed twice on a page, the two placements sharing its state.
 - `studio/page.examples.tsx` — `<Studio.Page>`: a page's live layout with no

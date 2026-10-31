@@ -22,6 +22,9 @@
  *  - `optimise-*`          — the Optimise run (#1409): the eye's echo, halo
  *    and blink, the banner's fade, and the landing of a run's result on a
  *    builder's entries.
+ *  - `decision-*`          — the decision queue (`Decision Queue Spec.md`
+ *    §8): a card's body opening, an applied card's wait while its preview
+ *    settles, the receipt's arrival, and the count chip's settle.
  *
  * @packageDocumentation
  */
@@ -168,5 +171,25 @@ export const keyframes = defineKeyframes({
         "0%":   { backgroundColor: "transparent" },
         "12%":  { backgroundColor: "var(--chakra-colors-elara-wash)" },
         "100%": { backgroundColor: "transparent" },
+    },
+    // The decision queue (`Decision Queue Spec.md` §8): an open card's body grows down from under its head, its rows
+    // from none to all; an applied card stands while its preview settles — a clock that draws nothing, whose end the
+    // card waits on; the receipt shrinks from the card's height — `--receipt-from`, which the queue sets — to its 40px,
+    // so the rows below rise with no jump; the count chip settles from the tint to its paper as the count changes.
+    "decision-open": {
+        "0%":   { gridTemplateRows: "0fr" },
+        "100%": { gridTemplateRows: "1fr" },
+    },
+    "decision-applied": {
+        "0%":   { "--decision-applied": "0" },
+        "100%": { "--decision-applied": "1" },
+    },
+    "decision-receipt-in": {
+        "0%":   { height: "var(--receipt-from)" },
+        "100%": { height: "40px" },
+    },
+    "decision-settle": {
+        "0%":   { backgroundColor: "var(--chakra-colors-brand-tint)" },
+        "100%": { backgroundColor: "var(--chakra-colors-bg-subtle)" },
     },
 });

@@ -81,6 +81,8 @@ for (const theme of ["light", "dark"] as const) {
         const list = page.locator("[data-chooser]");
         await expect(list.getByRole("option", { name: /K-601/ })).toBeVisible();
         await expect(list.locator("[role=group][aria-label='Gaps that fit']")).toHaveCount(1);
+        // The list opens before the fit answers, every resource "checking fits…" under the same heading: the measure waits for its answer.
+        await expect(list.locator("[role=option][data-state=refused]").first()).toBeVisible();
         await page.locator("[data-chooser]").evaluate(el => Promise.all(el.closest("[data-scope=popover]")!.getAnimations({ subtree: true }).filter(a => a.effect?.getTiming().iterations !== Infinity).map(a => a.finished)));
         const measure = await list.evaluate(root => {
             const r = (el: Element | null) => el === null ? null : Math.round(el.getBoundingClientRect().height);

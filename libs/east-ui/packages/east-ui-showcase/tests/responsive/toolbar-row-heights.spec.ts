@@ -11,8 +11,8 @@
  * tab strip and every button — Find's and the history's height, the design system's toolbar
  * search pill's — and centred on the row. In every builder laid out in a
  * `BuilderFrame`: the Sheet, the Plan, the Roster, the Calendar, the
- * Allocation, the Flowchart, Studio's builder, the query builder and the
- * Schematic, each a test of its own; with room for every item at its widest,
+ * Allocation, the Flowchart, Studio's builder, the query builder, the
+ * Schematic and the DecisionQueue, each a test of its own; with room for every item at its widest,
  * and in a box narrow enough to fold some into their chips; both themes. On a
  * touch screen a control keeps its size and takes its 44px target from its halo
  * (`toolbar-touch.spec.ts`).
@@ -35,6 +35,7 @@ const BUILDERS: readonly (readonly [name: string, hash: string])[] = [
     ["Studio", "e3/studio/studio/studioBuilder"],
     ["Query", "e3/query/query/queryBuilder"],
     ["Schematic", "e3/schematic/schematic/schematicDataCentre"],
+    ["DecisionQueue", "e3/decision/decision/decisionQueueOps"],
 ];
 
 /**

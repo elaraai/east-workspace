@@ -43,6 +43,37 @@ export function remainderOf(bin: Bin): number {
     return compareFloat(left, 0) > 0 ? left : 0;
 }
 
+/**
+ * The quantity a bin's field takes, as the Bin section's sets it (A57) — the DecisionQueue's Modify too, over a bin its
+ * change writes (D9): a reservation takes none, and no bin less than nothing; a bin split or partly allocated keeps its
+ * parts, its remainder changing, and holds no less than they take; a bin wholly on one resource stays wholly there, its
+ * part following.
+ *
+ * @param bin - The bin: its arrival, its quantity and its parts
+ * @param quantity - The quantity set
+ * @returns The part that follows it, by its resource — `undefined` for none — or `false` where the bin takes no such quantity
+ */
+export function quantitySet(bin: Pick<Bin, "arrival" | "quantity" | "parts">, quantity: number): { readonly part: string | undefined } | false {
+    if (bin.arrival.type === "none" || !Number.isFinite(quantity) || compareFloat(quantity, 0) < 0) return false;
+    const parts = partsOf(bin);
+    const whole = parts.length === 1 && compareFloat(parts[0]!.quantity, bin.quantity) === 0;
+    if (!whole && compareFloat(quantity, parts.reduce((n, p) => n + p.quantity, 0)) < 0) return false;
+    return { part: whole ? parts[0]!.key : undefined };
+}
+
+/**
+ * The least quantity a bin's field takes (A57, {@link quantitySet}): what its parts take while it is split or partly
+ * allocated; nothing while it is wholly on one resource, whose part follows it.
+ *
+ * @param bin - The bin: its quantity and its parts
+ * @returns The least quantity
+ */
+export function quantityFloor(bin: Pick<Bin, "quantity" | "parts">): number {
+    const parts = partsOf(bin);
+    const whole = parts.length === 1 && compareFloat(parts[0]!.quantity, bin.quantity) === 0;
+    return whole ? 0 : parts.reduce((n, p) => n + p.quantity, 0);
+}
+
 /** What `Split…` takes of a bin (A71): from where, how much there is, and the quantity's bounds and default. */
 export interface SplitTake {
     /** The part it takes off, or `undefined` for what the parts leave unallocated. */
@@ -338,14 +369,13 @@ export function allocationCommands(state: AllocationState, select: (next: Select
         },
         setQuantity(id, quantity) {
             const bin = plan.bins.get(id);
-            if (bin === undefined || bin.arrival.type === "none" || !Number.isFinite(quantity) || compareFloat(quantity, 0) < 0 || compareFloat(quantity, bin.quantity) === 0) return false;
-            const parts = partsOf(bin);
-            const whole = parts.length === 1 && compareFloat(parts[0]!.quantity, bin.quantity) === 0;
-            if (!whole && compareFloat(quantity, parts.reduce((n, p) => n + p.quantity, 0)) < 0) return false;
+            if (bin === undefined || compareFloat(quantity, bin.quantity) === 0) return false;
+            const set = quantitySet(bin, quantity);
+            if (set === false) return false;
             return write("Edit bin", "typed", next => {
                 const into = next.bins.get(id)!;
                 into.quantity = quantity;
-                if (whole) into.parts.set(parts[0]!.key, quantity);
+                if (set.part !== undefined) into.parts.set(set.part, quantity);
             });
         },
         row(id, bytes) {

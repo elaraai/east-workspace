@@ -11,12 +11,12 @@
  * Duplicate, an overlapping event's link, Remove from selection, Delete selected — leaves the focus on the heading of the
  * view drawn in its place, Nothing selected's included (`../shared/focus-home.ts`), never on the page's body.
  */
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { BlobType, decodeBeast2For, equalFor, fromEastTypeValue, isValueOf, none, some, OptionType, StringType, StructType, type ValueTypeOf } from "@elaraai/east";
 import { Fields, type FieldSpecValue } from "@elaraai/east-ui";
 import { Schedule } from "@elaraai/e3-ui/internal";
-import { BannerView, EastChakraComponent, FieldForm, useFormatters, useTrackedEvaluation, type BuilderFrameDock, type TrackedResult } from "@elaraai/east-ui-components";
+import { BannerView, EastChakraComponent, FieldForm, useFormatters, useTrackedEvaluation, type BuilderFrameDock, type FieldOption, type TrackedResult } from "@elaraai/east-ui-components";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { EMPTY_SCHEDULE_DRAFTS, heldRowOf, type ScheduleHeldRows } from "../shared/schedule/editing.js";
@@ -49,6 +49,72 @@ function referenced(specs: readonly FieldSpecValue[], row: unknown): CalendarRes
         } else if (isValueOf(at, StringType)) key = at as string;
         return key === undefined ? [] : [{ kind: spec.editor.value.of, key }];
     });
+}
+const stringEqual = equalFor(StringType);
+
+/**
+ * The form the inspector draws over one event — the DecisionQueue's Modify draws it over an event its change writes too
+ * (D9): the row's type, the fields its Schedule section shows — the title's and the status's, the roles a field of the row
+ * holds — and the kind's fields but those.
+ */
+export interface CalendarEventForm {
+    /** The event's row's type. */
+    readonly rowType: StructType;
+    /** Its title's field and its status's. */
+    readonly roles: readonly FieldSpecValue[];
+    /** Its kind's fields but those. */
+    readonly fields: readonly FieldSpecValue[];
+}
+
+/**
+ * The form the inspector draws over an event of a kind (see {@link CalendarEventForm}).
+ *
+ * @param kind - The event's kind
+ * @returns Its row's type, its role fields and its kind's other fields
+ */
+export function calendarEventForm(kind: Pick<CalendarKind, "editing" | "schedule" | "fields">): CalendarEventForm {
+    const rowType = fromEastTypeValue(kind.editing.entryType) as StructType;
+    const roles = [kind.schedule.title, ...(kind.schedule.status.type === "some" ? [kind.schedule.status.value] : [])];
+    const role = (field: string) => roles.some(name => stringEqual(name, field));
+    return {
+        rowType,
+        roles: Fields.specs(rowType, {}, Object.keys(rowType.fields).filter(field => !role(field))),
+        fields: kind.fields.filter(field => !role(field.path[0]!)),
+    };
+}
+
+/**
+ * What an event's reference fields' Choosers offer: each resource kind's rows the rail shows, and the resources the row's
+ * fields name whatever it hides (#1343).
+ *
+ * @param resources - Every resource kind, every row
+ * @param shown - Each kind's rows the rail shows
+ * @param specs - The event's kind's fields
+ * @param row - The event's row, decoded
+ * @returns Each resource kind's choices, by its key
+ */
+export function calendarFieldOptions(resources: CalendarValue["resources"], shown: CalendarShownResources, specs: readonly FieldSpecValue[], row: unknown): Readonly<Record<string, readonly FieldOption[]>> {
+    return Object.fromEntries(resourceChoices(resources, shown, referenced(specs, row)).map(kind => [kind.key, kind.rows.map(row => ({ key: row.key, label: row.label }))]));
+}
+
+/**
+ * The control an event's form draws for a reference field to the paged resource kind: the Chooser over that kind (#1424),
+ * the resource the row's field holds chosen, a pick setting it — the inspector's forms draw it, and the DecisionQueue's
+ * Modify (D9). With no kind paged, none: every field the form's own.
+ *
+ * @param row - The event's row, decoded
+ * @param readOnly - Whether the form takes no edit
+ * @param onField - What a pick sets: the field's path and its value
+ * @returns The form's `renderControl`; `undefined` with no kind paged
+ */
+export function useReferenceControl(row: unknown, readOnly: boolean, onField: (path: readonly string[], next: unknown) => void): ((spec: FieldSpecValue) => ReactNode | undefined) | undefined {
+    const chooser = useCalendarChooser();
+    const render = useCallback((spec: FieldSpecValue) => {
+        if (chooser === undefined || spec.editor.type !== "reference" || !stringEqual(spec.editor.value.of, chooser.paged.kind)) return undefined;
+        const held = referenced([spec], row)[0];
+        return <PagedChooser chooser={chooser} chosen={held?.key} readOnly={readOnly} onPick={key => onField(spec.path, spec.optional ? some(key) : key)} />;
+    }, [chooser, row, readOnly, onField]);
+    return chooser === undefined ? undefined : render;
 }
 /** The selection as the inspector shows it: each selected event read, or why the read failed. */
 export type CalendarSelection = TrackedResult<Inspected[]>;
@@ -133,25 +199,16 @@ function OneEvent({ event, value, shown, styles, commands, storageKey, range, ov
     // Its overlaps as the toolbar counts them: on the timeline, those in the days it shows, read as they move.
     const overlaps = useShownOverlaps(all, visible);
     const [error, setError] = useState<string>();
-    const rowType = useMemo(() => fromEastTypeValue(kind.editing.entryType) as StructType, [kind.editing.entryType]);
-    const row = useMemo(() => decodeBeast2For(rowType)(event.row), [rowType, event.row]);
+    const form = useMemo(() => calendarEventForm(kind), [kind]);
+    const row = useMemo(() => decodeBeast2For(form.rowType)(event.row), [form.rowType, event.row]);
     // Each reference field's Chooser offers the rows the rail shows, and the event's own whatever it hides.
-    const options = useMemo(() => Object.fromEntries(resourceChoices(value.resources, shown, referenced(kind.fields, row))
-        .map(kind => [kind.key, kind.rows.map(row => ({ key: row.key, label: row.label }))])), [value.resources, shown, kind.fields, row]);
-    const roleNames = useMemo(() => [kind.schedule.title, ...(kind.schedule.status.type === "some" ? [kind.schedule.status.value] : [])], [kind.schedule]);
-    const roleSpecs = useMemo(() => Fields.specs(rowType, {}, Object.keys(rowType.fields).filter(field => !roleNames.includes(field))), [rowType, roleNames]);
+    const options = useMemo(() => calendarFieldOptions(value.resources, shown, kind.fields, row), [value.resources, shown, kind.fields, row]);
     const drafted = commands?.editing.draftsOf(kind.key).has(item.key) === true;
     const baseline = commands?.editing.held(kind.key, item.key) ?? (drafted ? {} : row);
     const onField = useCallback((path: readonly string[], next: unknown) => commands?.field(item, path, next), [commands, item]);
     // A reference field to the paged resource kind chooses by key, through the kind's own paged read (#1424).
-    const chooser = useCalendarChooser();
     const fieldsReadOnly = commands === undefined || !commands.editing.available(kind.key);
-    const renderReference = useCallback((spec: FieldSpecValue) => {
-        if (chooser === undefined || spec.editor.type !== "reference" || spec.editor.value.of !== chooser.paged.kind) return undefined;
-        const held = referenced([spec], row)[0];
-        return <PagedChooser chooser={chooser} chosen={held?.key} readOnly={fieldsReadOnly}
-            onPick={key => onField(spec.path, spec.optional ? some(key) : key)} />;
-    }, [chooser, row, fieldsReadOnly, onField]);
+    const renderReference = useReferenceControl(row, fieldsReadOnly, onField);
     const update = useCallback((bytes: Uint8Array): null => { commands?.editing.record([{ kind: kind.key, id: item.key, row: bytes }], "typed", `Edit ${item.title}`); return null; }, [commands, kind.key, item]);
     const own = useMemo(() => {
         if (commands === undefined || kind.inspector.type === "none") return undefined;
@@ -171,15 +228,14 @@ function OneEvent({ event, value, shown, styles, commands, storageKey, range, ov
         </Box>}
         {issues.length > 0 && <BannerView status="warning" title={item.title} description={issues.map(issue => `${issue.field.type === "some" ? `${issue.field.value}: ` : ""}${issue.message}`).join("; ")} />}
         <Box css={styles.fields}><Box css={styles.sectionHead}>Schedule</Box>
-        <FieldForm specs={roleSpecs} value={row} baseline={baseline} options={options} onChange={onField} readOnly={fieldsReadOnly} renderControl={chooser === undefined ? undefined : renderReference} />
-        {commands !== undefined && item.start.type === "some" && item.end.type === "some" && <PlacementFields source={{ kind, item }} value={value} shown={shown} readOnly={!commands.editing.available(kind.key)}
+        <FieldForm specs={form.roles} value={row} baseline={baseline} options={options} onChange={onField} readOnly={fieldsReadOnly} renderControl={renderReference} />
+        {commands !== undefined && item.start.type === "some" && item.end.type === "some" && <PlacementFields takes={kind.takes} resources={value.resources} shown={shown} readOnly={!commands.editing.available(kind.key)}
             placement={{ start: item.start.value, end: item.end.value, resource: item.resource }} onChange={at => setError(commands.place({ kind, item }, at))} />}
         {commands === undefined && <Box css={styles.detail}>{item.start.type === "some" ? `${format.dateTime(item.start.value)} – ${item.end.type === "some" ? format.dateTime(item.end.value) : ""}` : "Unscheduled"}</Box>}
         </Box>
         <Box css={styles.fields}><Box css={styles.sectionHead}>{kind.name} fields</Box>
         {own?.value !== undefined ? <EastChakraComponent value={own.value} storageKey={`${storageKey}.inspector.${kind.key}`} />
-            : <FieldForm specs={kind.fields.filter(field => !roleNames.includes(field.path[0]!))} value={row} baseline={baseline} options={options} onChange={onField} readOnly={fieldsReadOnly}
-                renderControl={chooser === undefined ? undefined : renderReference} />}
+            : <FieldForm specs={form.fields} value={row} baseline={baseline} options={options} onChange={onField} readOnly={fieldsReadOnly} renderControl={renderReference} />}
         </Box>
         {own?.error !== undefined && <Box role="alert" css={styles.error}>{own.error}</Box>}
         {error !== undefined && <Box role="alert" css={styles.error}>{error}</Box>}
