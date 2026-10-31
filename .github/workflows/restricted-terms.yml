@@ -1,0 +1,88 @@
+name: Restricted Terms
+
+# Fails when a pull request — its title, body, commit messages, added lines or
+# paths — or an issue, comment or review holds a term from the RESTRICTED_TERMS
+# repository secret: one regular expression per line, case-insensitive, "="
+# first for case-sensitive, "#" for a comment. The terms live only in the
+# secret; a failure names where a term was found and which line of the secret
+# it is, never the term.
+#
+# pull_request_target runs this file as main has it, with the secret, for pull
+# requests from forks too. It checks nothing out and runs none of the pull
+# request's code: the text it reads comes from the API.
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created, edited]
+  pull_request_review:
+    types: [submitted, edited]
+  pull_request_review_comment:
+    types: [created, edited]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}-${{ github.event.comment.id || github.event.review.id || '' }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Scan for restricted terms
+        uses: actions/github-script@v7
+        env:
+          TERMS: ${{ secrets.RESTRICTED_TERMS }}
+        with:
+          script: |
+            const terms = (process.env.TERMS || "").split("\n")
+              .map((line, i) => [i + 1, line.trim()])
+              .filter(([, line]) => line && !line.startsWith("#"))
+              .map(([n, line]) => [n, line.startsWith("=") ? new RegExp(line.slice(1)) : new RegExp(line, "i")]);
+            if (terms.length === 0) {
+              core.notice("RESTRICTED_TERMS is not set: nothing to check");
+              return;
+            }
+            const hits = new Set();
+            const matching = (text) => terms.filter(([, re]) => re.test(text || "")).map(([n]) => n);
+            const scan = (text, where) => {
+              for (const n of matching(text)) hits.add(`line ${n} of the secret, in ${where}`);
+            };
+            const { eventName, payload } = context;
+            if (eventName === "pull_request_target") {
+              const pr = payload.pull_request;
+              scan(pr.title, "the pull request's title");
+              scan(pr.body, "the pull request's body");
+              const commits = await github.paginate(github.rest.pulls.listCommits,
+                { ...context.repo, pull_number: pr.number, per_page: 100 });
+              for (const c of commits) scan(c.commit.message, `the message of commit ${c.sha.slice(0, 9)}`);
+              const files = await github.paginate(github.rest.pulls.listFiles,
+                { ...context.repo, pull_number: pr.number, per_page: 100 });
+              for (const [i, f] of files.entries()) {
+                const pathHit = matching(f.filename).length > 0;
+                scan(f.filename, `the path of changed file ${i + 1}`);
+                const added = (f.patch || "").split("\n")
+                  .filter((l) => l.startsWith("+") && !l.startsWith("+++")).join("\n");
+                scan(added, pathHit ? `the lines changed file ${i + 1} adds` : `the lines ${f.filename} adds`);
+                if (!f.patch && f.status !== "removed") {
+                  core.warning(`${pathHit ? `changed file ${i + 1}` : f.filename}: GitHub gives no diff for it (binary or too large), so its lines were not read`);
+                }
+              }
+            } else if (eventName === "issues") {
+              scan(payload.issue.title, `the title of #${payload.issue.number}`);
+              scan(payload.issue.body, `the body of #${payload.issue.number}`);
+            } else if (eventName === "pull_request_review") {
+              scan(payload.review.body, `a review of #${payload.pull_request.number}`);
+            } else {
+              const number = (payload.issue || payload.pull_request).number;
+              scan(payload.comment.body, `a comment on #${number} (${payload.comment.html_url})`);
+            }
+            if (hits.size > 0) {
+              core.setFailed(`restricted term found — ${[...hits].join("; ")}`);
+            }
