@@ -56,6 +56,7 @@ from east.expression.lift import (
     _lift,
     _pop_loop_frame,
     _push_loop_frame,
+    _set_elements,
     _tracing,
 )
 from east.expression.location import location_id as _loc_id
@@ -777,18 +778,24 @@ def new_set(element_type: EastType, values: Any = ()) -> Any:
 
     Args:
         element_type: The East element type.
-        values: Optional initial elements.
+        values: Optional initial elements — a python set's are placed in
+            East's order of ``element_type``, so one set builds one IR in
+            every process.
 
     Returns:
         A Set expression when tracing, an ``EastSet`` otherwise.
+
+    Raises:
+        ExpressionError: If ``values`` is a python set holding a traced
+            value, which has no value to order by — write a list.
     """
     if not _tracing():
         from east.types.values import EastSet
 
         return EastSet(element_type, list(values))
     t = SetType(element_type)
-    return Expression(
-        _k_new_set(t, [_lift(v, hint=element_type).ir for v in values]), t)
+    nodes = _set_elements(values, element_type, lambda v: _lift(v, hint=element_type).ir)
+    return Expression(_k_new_set(t, nodes), t)
 
 
 def new_dict(key_type: EastType, value_type: EastType, entries: Any = ()) -> Any:
