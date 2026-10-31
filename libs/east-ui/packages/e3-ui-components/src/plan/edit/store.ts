@@ -23,7 +23,7 @@
  */
 
 import { createContext, useContext } from "react";
-import type { MoveMode, Span } from "../../shared/time/drag.js";
+import type { CarrySteps, MoveMode, Span } from "../../shared/time/drag.js";
 import { equalInstants, type PlanInstantValue } from "../instant.js";
 import type { PlanRowValue } from "../model.js";
 import type { RowKey } from "../plan-state.js";
@@ -82,6 +82,8 @@ export interface PlanProposal {
     readonly units?: number | undefined;
     /** Whether `units` are Shift's finer ones. */
     readonly fine?: boolean | undefined;
+    /** A keyboard carry's steps since it was picked up — the whole element's and each end's — its extent counted from them. */
+    readonly steps?: CarrySteps | undefined;
 }
 
 /** A keyboard carry — the element, and where it would land now. */

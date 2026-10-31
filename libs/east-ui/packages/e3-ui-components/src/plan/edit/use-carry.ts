@@ -34,7 +34,7 @@
 import { useCallback, useMemo, useRef } from "react";
 import { none, some, variant } from "@elaraai/east";
 import type { DragEventValue, DropVeto } from "@elaraai/east-ui-components";
-import { stepSpan } from "../../shared/time/drag.js";
+import { NO_STEPS, stepSpan } from "../../shared/time/drag.js";
 import { slotOfEnd, slotOfInstant } from "../../shared/time/slot.js";
 import { equalInstants } from "../instant.js";
 import type { PlanRowValue, VisibleRow } from "../model.js";
@@ -268,7 +268,10 @@ export function usePlanCarry(deps: PlanCarryDeps): PlanCarryKeys {
                 const step = e.key === "ArrowRight" ? 1 : -1;
                 // A step of the whole element is a unit its event's times move by (#1196); an end's is not.
                 const units = mode === "move" ? (carry.to.units ?? 0) + step : carry.to.units;
-                rest(carry, { rowKey: carry.to.rowKey, span: stepSpan(scale, carry.to.span, mode, step), units, fine: false }, false);
+                // Each step counted from the element as it was picked up, so steps taken back land it where it began.
+                const was = carry.to.steps ?? NO_STEPS;
+                const steps = { move: was.move + (mode === "move" ? step : 0), start: was.start + (mode === "start" ? step : 0), end: was.end + (mode === "end" ? step : 0) };
+                rest(carry, { rowKey: carry.to.rowKey, span: stepSpan(scale, carry.movable.span, steps), units, steps, fine: false }, false);
                 return true;
             }
             case "ArrowUp": case "ArrowDown": {
@@ -278,7 +281,7 @@ export function usePlanCarry(deps: PlanCarryDeps): PlanCarryKeys {
                 for (let i = at + dir; at >= 0 && i >= 0 && i < rows.length; i += dir) {
                     const row = rows[i]!.row;
                     if (!takes(row, carry.movable)) continue;
-                    rest(carry, { rowKey: row.key, span: carry.to.span, units: carry.to.units, fine: carry.to.fine }, false);
+                    rest(carry, { rowKey: row.key, span: carry.to.span, units: carry.to.units, steps: carry.to.steps, fine: carry.to.fine }, false);
                     reveal(row.key);
                     break;
                 }

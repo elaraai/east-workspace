@@ -955,4 +955,23 @@ describe("the conflicts example (planConflicts)", () => {
         expect(document.querySelector("[data-conflict-card]")!.textContent).toContain(editingMessages.conflictDates());
         expect(job()!.hasAttribute("data-conflict")).toBe(true);
     });
+
+    test("a job of eight hours carried by the keyboard where it began is not moved: its end out a day and back, its end in or its start on with no room in it — nothing waits to save", async () => {
+        const { container: c } = await h.mount(ex.planConflicts, { drag: true });
+        await settle();
+        const job = () => bar(c, "J-3001", entry("presses.span", "a1"));
+        const carries: { key: string; shiftKey?: boolean; altKey?: boolean }[][] = [
+            [{ key: "ArrowRight", shiftKey: true }, { key: "ArrowLeft", shiftKey: true }],
+            [{ key: "ArrowLeft", shiftKey: true }],
+            [{ key: "ArrowRight", altKey: true }],
+        ];
+        for (const keys of carries) {
+            job()!.focus();
+            await keyOn({ key: " " });
+            for (const key of keys) await keyOn(key);
+            await keyOn({ key: " " });
+            expect(carrySaid(c)).toBe("Spring catalogue was not moved");
+        }
+        expect([pending(c), job()!.hasAttribute("data-draft")]).toEqual(["0 pending", false]);
+    });
 });
