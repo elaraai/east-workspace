@@ -288,4 +288,25 @@ describe("the conflicts example (rosterConflicts)", () => {
         expect(document.querySelector("[data-conflict-card]")!.textContent).toContain(editingMessages.conflictDates());
         expect(assignment(c, "d-1").hasAttribute("data-conflict")).toBe(true);
     });
+
+    test("Theirs takes the duty back to its own shift and group with their times, nothing left to save; Yours keeps it where it was moved, and Save sends the move whole", async () => {
+        const { container: c } = await h.mount(ex.rosterConflicts);
+        await drop(assignment(c, "d-1"), cell(c, 0, "dispatch", "late"));
+        await press(within(c).getByRole("button", { name: "Someone else saves" }));
+        await waitFor(() => expect(c.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
+        const theirs = (await h.read(ex.rosterConflictDuties)).get("d-1")!;
+        await press((await conflictCards(c))[0]!.radio("source"));
+        // Their times, and their shift and group with them: the duty is theirs whole, and nothing is left to save.
+        await waitFor(() => expect(cell(c, 0, "inbound", "early").contains(assignment(c, "d-1"))).toBe(true));
+        expect(document.body.textContent).toContain(editingMessages.conflictsSettledNothing({ n: 1, count: "1" }));
+        // Undo takes the choice back; Yours keeps the duty where it was moved.
+        await press(history(c, "Undo"));
+        await press((await conflictCards(c))[0]!.radio("draft"));
+        await waitFor(() => expect(cell(c, 0, "dispatch", "late").contains(assignment(c, "d-1"))).toBe(true));
+        await press(within(slot(c, "toolbar")).getByRole("button", { name: "Save" }));
+        await waitFor(async () => expect((await h.read(ex.rosterConflictDuties)).get("d-1")!.shift).toBe("late"));
+        const saved = (await h.read(ex.rosterConflictDuties)).get("d-1")!;
+        // The move whole: its shift, its group and the late shift's times, over theirs.
+        expect([saved.shift, saved.team, saved.start.getTime() !== theirs.start.getTime()]).toEqual(["late", "dispatch", true]);
+    });
 });

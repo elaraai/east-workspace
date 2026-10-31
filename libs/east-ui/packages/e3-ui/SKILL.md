@@ -1403,7 +1403,12 @@ const onPatch = $.const(East.function([Plan.Types.PatchEvent(Hall)], NullType, (
   it refused a Save, and what both began from — with Keep all mine and Use
   all theirs at its foot. An event's start and end read as one range: a
   conflict at either is one card, Dates, the range whole on each side, its
-  two chosen together and counted once. It never opens by itself.
+  two chosen together and counted once — and with them the fields a move
+  writes with the times, which place the event with them: a Roster duty's
+  shift and group, an Allocation bin's bay. While it waits each side's place
+  stands whole, and choosing takes one side's whole: Theirs takes their
+  shift back with their times, never their times in your shift. It never
+  opens by itself.
   A Save another write got there first is refused, and once its drafts carry
   over with nothing to choose it is sent again by itself — three times in a
   row at most, then the person's Save sends it; with a conflict, the person

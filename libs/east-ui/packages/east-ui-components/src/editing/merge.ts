@@ -122,9 +122,12 @@ export class EntryMerger {
      * @param was - The value both began from
      * @param draft - The draft
      * @param source - The value the source holds now
+     * @param joined - The places that go with a conflict's, by its place — the fields a move writes with an item's times.
+     *   While the conflict waits, the draft's own value stands at each, as at the conflict, and what both began from is
+     *   put back there with it: one side's whole, never one side's times with the other's shift.
      * @returns The draft carried over, what both began from where a change conflicts, and each conflict
      */
-    merge(was: option<unknown>, draft: option<unknown>, source: option<unknown>): MergedEntry {
+    merge(was: option<unknown>, draft: option<unknown>, source: option<unknown>, joined?: (at: PatchPath) => readonly PatchPath[]): MergedEntry {
         const ours = this.diff(was, draft);
         const theirs = this.diff(was, source);
         const found = this.detect(ours, theirs);
@@ -132,10 +135,11 @@ export class EntryMerger {
         const carried = this.apply(was, this.mergeWith(ours, theirs, keep));
         if (found.length === 0) return { draft: carried, ancestor: undefined, points: [] };
         const at = found.map((conflict) => pathFromString(conflict.path));
-        // The source's value, put back at each conflict to what both began from.
-        const back = this.prune(this.diff(source, was) as never, (leaf) => at.some((place) => related(leaf, place)));
+        const along = joined === undefined ? [] : at.flatMap((place) => joined(place));
+        // The source's value, put back at each conflict, and at each place that goes with one, to what both began from.
+        const back = this.prune(this.diff(source, was) as never, (leaf) => [...at, ...along].some((place) => related(leaf, place)));
         return {
-            draft: carried,
+            draft: along.length === 0 ? carried : this.takeSourceAt(carried, draft, along),
             ancestor: this.apply(source, back),
             points: found.map((conflict, i) => pointOf(conflict.path, at[i]!, was, draft, source)),
         };
@@ -163,8 +167,20 @@ export class EntryMerger {
      * @returns The draft
      */
     takeSource(draft: option<unknown>, source: option<unknown>, path: string): option<unknown> {
-        const at = pathFromString(path);
-        return this.apply(draft, this.prune(this.diff(draft, source) as never, (leaf) => related(leaf, at)));
+        return this.takeSourceAt(draft, source, [pathFromString(path)]);
+    }
+
+    /**
+     * The draft with the source's value taken at each of some places: a
+     * conflict's, and those that go with it.
+     *
+     * @param draft - The draft
+     * @param source - The value its source holds
+     * @param places - The places
+     * @returns The draft
+     */
+    takeSourceAt(draft: option<unknown>, source: option<unknown>, places: readonly PatchPath[]): option<unknown> {
+        return this.apply(draft, this.prune(this.diff(draft, source) as never, (leaf) => places.some((place) => related(leaf, place))));
     }
 
     /**
@@ -177,8 +193,20 @@ export class EntryMerger {
      * @returns What both began from
      */
     keepDraft(was: option<unknown>, source: option<unknown>, path: string): option<unknown> {
-        const at = pathFromString(path);
-        return this.apply(was, this.prune(this.diff(was, source) as never, (leaf) => related(leaf, at)));
+        return this.keepDraftAt(was, source, [pathFromString(path)]);
+    }
+
+    /**
+     * What both began from, moved to the source's value at each of some
+     * places: a conflict's, and those that go with it.
+     *
+     * @param was - What both began from
+     * @param source - The value its source holds
+     * @param places - The places
+     * @returns What both began from
+     */
+    keepDraftAt(was: option<unknown>, source: option<unknown>, places: readonly PatchPath[]): option<unknown> {
+        return this.apply(was, this.prune(this.diff(was, source) as never, (leaf) => places.some((place) => related(leaf, place))));
     }
 }
 

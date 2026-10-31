@@ -45,7 +45,7 @@ function windowed(last: option<option<string>>): PlanEventEditingArgs["kinds"] {
         planEvent: () => none,
         write: () => [],
         // Its fields' roles, as every kind names them: a conflict at its start or end is one of its dates.
-        schedule: { title: "title", start: "start", end: "end", resource: none, status: none, quantity: none, parts: none } satisfies ValueTypeOf<typeof ScheduleKindType>["schedule"],
+        schedule: { title: "title", start: "start", end: "end", resource: none, status: none, quantity: none, parts: none, withTimes: [] } satisfies ValueTypeOf<typeof ScheduleKindType>["schedule"],
     }] as unknown as PlanEventEditingArgs["kinds"];
 }
 

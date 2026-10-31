@@ -891,4 +891,21 @@ describe("the conflicts example (allocationConflicts)", () => {
         expect([conflict!.yours, conflict!.theirs?.split(",").slice(0, 2).join(",")]).toEqual(["Yours, 30", `Theirs, ${before.m3 + before.kilns.size}`]);
         expect(card(c, "3113").hasAttribute("data-conflict")).toBe(true);
     });
+
+    test("a bin moved to another bay here, then Someone else saves, is one conflict at its time: Theirs takes it back to its own bay at their minute, nothing left to save", async () => {
+        const c = await open(ex.allocationConflicts);
+        const was = (await h.read(ex.conflictBins)).get("3113")!;
+        // A free hour of another bay: each bay at its own minute, the move writes the bay and the time.
+        const into = [...c.querySelectorAll<HTMLElement>("[data-allocation-cell]")].find((cell) => !cell.getAttribute("data-allocation-cell")!.startsWith(`${was.bay}|`))!;
+        await hover(card(c, "3113"), into);
+        await release();
+        await press(within(c).getByRole("button", { name: "Someone else saves" }));
+        await waitFor(() => expect(c.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
+        const [conflict, ...more] = await conflictCards(c);
+        expect(more).toEqual([]);
+        await press(conflict!.radio("source"));
+        // Their minute, and its own bay with it: the bin is theirs whole, and nothing is left to save.
+        expect(document.body.textContent).toContain(editingMessages.conflictsSettledNothing({ n: 1, count: "1" }));
+        expect(save(c)).toHaveProperty("disabled", true);
+    });
 });

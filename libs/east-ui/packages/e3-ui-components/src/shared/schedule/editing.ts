@@ -394,10 +394,12 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
         const check = kind.ready.type === "some" ? kind.ready.value : undefined;
         const key = historyKeyOf(storageKey, editing);
         const entryType = fromEastTypeValue(kind.editing.entryType) as EastType;
-        // An event's start and end read as one, its dates: a conflict at either is one card of the popover. So do a quantity
-        // and its split across resources, which change together.
+        // An event's start and end read as one, its dates: a conflict at either is one card of the popover, settled with the
+        // fields that place it with them — a duty's shift and group, a bin's bay. So do a quantity and its split across
+        // resources, which change together.
         const roles = kind.kind?.schedule;
-        const ranges = roles === undefined ? undefined : [{ start: roles.start, end: roles.end }];
+        const ranges = roles === undefined ? undefined
+            : [{ start: roles.start, end: roles.end, ...(roles.withTimes.length === 0 ? {} : { with: roles.withTimes }) }];
         const together = roles !== undefined && roles.quantity.type === "some" && roles.parts.type === "some"
             ? [{ lead: roles.quantity.value, with: [roles.parts.value], label: quantityLabel }] : undefined;
         const ready = check === undefined ? undefined : wholeEntryReadiness(check, () => historyRef.current?.session(key)?.originals, {

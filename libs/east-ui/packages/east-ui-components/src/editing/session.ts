@@ -24,7 +24,7 @@
  *
  * @packageDocumentation
  */
-import { ArrayType, BlobType, ConflictError, DictType, East, EastTypeType, OptionType, StringType, StructType, applyFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, parseFor, some, toEastTypeValue, variant, type EastType, type PatchPath, type ValueTypeOf, type option } from "@elaraai/east";
+import { ArrayType, BlobType, ConflictError, DictType, East, EastTypeType, OptionType, StringType, StructType, applyFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, parseFor, pathFromString, some, toEastTypeValue, variant, type EastType, type PatchPath, type ValueTypeOf, type option } from "@elaraai/east";
 import {
     applyEditing, EditingAppliedTypeFor, EditingApplyResultType, EditingBaseTypeFor, EditingChangeSetTypeFor,
     EditingChangeTypeFor, EditingPlacementType, EditingIssueType, EditingOriginType, EditingPatchEventTypeWith,
@@ -151,13 +151,23 @@ export type ConflictChoice = "draft" | "source";
 /**
  * Two fields of an entry that read as one value: its start and its end — an
  * item's dates. The conflicts popover shows a conflict at either as one card,
- * the range whole, and settles the two together.
+ * the range whole, and settles the two together — and the fields that go with
+ * them ({@link ConflictRange.with}).
  */
 export interface ConflictRange {
     /** The field of its start. */
     readonly start: string;
     /** The field of its end. */
     readonly end: string;
+    /**
+     * The fields a move writes with its times, which place it with them — a
+     * duty's shift and group, a bin's bay at its own minute. While a conflict
+     * at the times waits, the draft's own values stand there too, and choosing
+     * settles them with the times: Theirs takes theirs back, Yours keeps the
+     * draft's. A change there with no conflict at the times combines as any
+     * other. None by default.
+     */
+    readonly with?: readonly string[] | undefined;
 }
 
 /**
@@ -804,6 +814,24 @@ export class EditSession<W> {
     get together(): readonly ConflictTogether[] { return this.binding.together ?? []; }
 
     /**
+     * The places that go with a conflict's place: where it is at a range's
+     * start or end, the fields the range names to go with it ({@link
+     * ConflictRange.with}), under the same cases of the draft's own; none
+     * elsewhere.
+     *
+     * @param at - The conflict's place
+     * @returns The places
+     */
+    private readonly joined = (at: PatchPath): PatchPath[] => {
+        // Its first field, past the cases of the draft's own, as {@link conflictFieldOf} reads it.
+        const first = at.findIndex((step) => step.kind !== "variant");
+        const step = first < 0 ? undefined : at[first];
+        if (step === undefined || step.kind !== "field") return [];
+        const range = this.ranges.find((r) => r.with !== undefined && (stringEqual(r.start, step.name) || stringEqual(r.end, step.name)));
+        return (range?.with ?? []).map((name): PatchPath => [...at.slice(0, first), { kind: "field", name }]);
+    };
+
+    /**
      * The drafts as a reload keeps them (keep.ts): each entry drafted away
      * from what it began as, with what both began from — its original, or
      * what a carried-over conflict rewound it to. An entry back as it began —
@@ -1033,7 +1061,7 @@ export class EditSession<W> {
             const original = this.baseline.get(id) ?? ABSENT;
             const now = carrying.read.get(id)!;
             const source: option<unknown> = now.type === "some" ? some(liftDraft(this.binding.draftType, now.value)) : none;
-            const merged = this.merger.merge(this.ancestors.get(id) ?? draftOf(original), draftOf(mine), source);
+            const merged = this.merger.merge(this.ancestors.get(id) ?? draftOf(original), draftOf(mine), source, this.joined);
             // A draft the source's value holds whole is a draft no more.
             if (this.merger.equal(merged.draft, source)) continue;
             baseline.set(id, this.versionOf(id, source, original));
@@ -1134,13 +1162,16 @@ export class EditSession<W> {
             for (const path of paths) {
                 const key = settledKey(id, path);
                 const prior = this.settledPoints.get(key);
+                // The conflict's place, and those that go with it: a range's, settled with its times.
+                const at = pathFromString(path);
+                const places = [at, ...this.joined(at)];
                 if (prior !== undefined) {
                     // Settled the other way before: settled this way now.
                     if (prior.choice === choice) continue;
-                    if (choice === "source") draft = this.merger.takeSource(draft, source, path);
+                    if (choice === "source") draft = this.merger.takeSourceAt(draft, source, places);
                     else {
-                        draft = this.merger.takeSource(draft, prior.draft, path);
-                        if (next !== undefined) next = this.merger.keepDraft(next, source, path);
+                        draft = this.merger.takeSourceAt(draft, prior.draft, places);
+                        if (next !== undefined) next = this.merger.keepDraftAt(next, source, places);
                     }
                     settledBefore.set(key, prior);
                     settledAfter.set(key, { ...prior, choice });
@@ -1150,8 +1181,8 @@ export class EditSession<W> {
                 if (point === undefined || was === undefined || next === undefined) continue;
                 settledBefore.set(key, undefined);
                 settledAfter.set(key, { id, key: this.keyOf?.(id), point, choice, draft: draftOf(mine), source, was, said: this.said.get(id) });
-                if (choice === "source") draft = this.merger.takeSource(draft, source, path);
-                else next = this.merger.keepDraft(next, source, path);
+                if (choice === "source") draft = this.merger.takeSourceAt(draft, source, places);
+                else next = this.merger.keepDraftAt(next, source, places);
             }
             if (!this.merger.equal(draft, draftOf(mine))) {
                 before.set(id, mine);

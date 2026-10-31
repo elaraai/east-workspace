@@ -731,6 +731,77 @@ test("settling every conflict one way is one step of the history", () => {
     expect(session.unsettled).toBe(2);
 });
 
+// ── The fields that go with a range: a duty's shift with its times ──────────
+
+const Duty = StructType({ start: IntegerType, end: IntegerType, shift: StringType, person: StringType });
+const DutyDraft = Editing.Types.Draft(Duty);
+type DutyValue = ValueTypeOf<typeof Duty>;
+const dutyVersion = (value: DutyValue): EntryVersion<Bar> => ({ draft: liftDraft(DutyDraft, value), wire: { key: "d1", caption: "" }, place: keyOrder });
+/** Whether a version holds a duty: its fields' drafts, as the session holds them. */
+const holds = (version: EntryVersion<Bar> | undefined, value: DutyValue): boolean =>
+    (equalFor(DutyDraft) as (a: unknown, b: unknown) => boolean)(version?.draft, liftDraft(DutyDraft, value));
+/** A late duty, its times in hours: what both began from. */
+const late: DutyValue = { start: 14n, end: 22n, shift: "late", person: "w1" };
+/**
+ * A keyed session over the duties at r1, its times a range its shift goes with: the duty drafted here, then another
+ * write moving the source on to `theirs` at r2, carried over.
+ */
+const carriedDuty = (mine: DutyValue, theirs: DutyValue) => {
+    const session = new EditSession<Bar>({
+        sourceId: "duties", entryType: Duty, draftType: DutyDraft, keyType: StringType, auto: false,
+        apply: () => variant("applied", { revision: some("r3") }), patch: undefined, refresh: undefined,
+        ranges: [{ start: "start", end: "end", with: ["shift"] }],
+    });
+    session.observeBase(variant("revision", "r1"));
+    session.record([{ id: "d1", before: dutyVersion(late), after: dutyVersion(mine) }], "typed", "Move");
+    session.observeBase(variant("revision", "r2"));
+    session.merge(variant("revision", "r2"), () => some(theirs));
+    return session;
+};
+const paths = (session: EditSession<Bar>) => session.conflicts.get("d1")!.points.map((point) => point.path);
+
+test("a duty moved to another shift here, and later there: its times one conflict, Theirs takes their shift with their times — nothing left to save — and Yours keeps mine whole", () => {
+    const early: DutyValue = { start: 6n, end: 14n, shift: "early", person: "w1" };
+    const theirs: DutyValue = { ...late, start: 15n, end: 23n };
+    const session = carriedDuty(early, theirs);
+    // One to choose: its times, start and end.
+    expect([session.unsettled, paths(session).length]).toEqual([1, 2]);
+    // While it waits, the draft is mine whole.
+    expect(holds(session.entries.get("d1"), early)).toBe(true);
+    expect(session.settleTogether("d1", paths(session), "source")).toBe(true);
+    // Their times, and their shift with them: the duty is theirs whole, and nothing is left to save.
+    expect([session.unsettled, session.pending]).toEqual([0, 0]);
+    session.undo();
+    expect(holds(session.entries.get("d1"), early)).toBe(true);
+    expect(session.settleTogether("d1", paths(session), "draft")).toBe(true);
+    expect([session.unsettled, session.canApply]).toEqual([0, true]);
+    const drafted = session.drafts.entries.get("d1")!;
+    expect((equalFor(OptionType(Duty)) as (a: unknown, b: unknown) => boolean)(drafted.before, some(theirs))).toBe(true);
+    expect(holds(drafted.draft, early)).toBe(true);
+});
+
+test("a duty moved to another shift there, and later here: while its times wait, the shift both began from stands with mine, and Yours sends it back", () => {
+    const later: DutyValue = { ...late, start: 16n, end: 23n };
+    const theirs: DutyValue = { start: 6n, end: 14n, shift: "early", person: "w1" };
+    const session = carriedDuty(later, theirs);
+    // Mine whole: my times, and the shift both began from — never their early shift with my late times.
+    expect(holds(session.entries.get("d1"), later)).toBe(true);
+    expect(session.settleTogether("d1", paths(session), "draft")).toBe(true);
+    const drafted = session.drafts.entries.get("d1")!;
+    expect((equalFor(OptionType(Duty)) as (a: unknown, b: unknown) => boolean)(drafted.before, some(theirs))).toBe(true);
+    expect(holds(drafted.draft, later)).toBe(true);
+    session.undo();
+    expect(session.settleTogether("d1", paths(session), "source")).toBe(true);
+    expect([session.unsettled, session.pending]).toEqual([0, 0]);
+});
+
+test("a change to a field that goes with the times, with no conflict at the times, combines as any other", () => {
+    // Moved to the early shift here with its times as they were; a later time there.
+    const session = carriedDuty({ ...late, shift: "early" }, { ...late, start: 15n, end: 23n });
+    expect(session.unsettled).toBe(0);
+    expect(holds(session.entries.get("d1"), { ...late, start: 15n, end: 23n, shift: "early" })).toBe(true);
+});
+
 test("an inline source that moved under the drafts carries them over at once: a change apart combines, one of the same field conflicts", () => {
     const apart = create();
     apart.record([{ id: "a", before: version(a), after: version({ ...a, end: 5n }) }], "resize", "Resize a");

@@ -322,11 +322,15 @@ export type ScheduleReadType = typeof ScheduleReadType;
  * @property status - The field of its status, if it has one
  * @property quantity - The field of the quantity it books, if it books one
  * @property parts - The field of its quantity's split across resources, if it splits one: what changes with its quantity
+ * @property withTimes - The fields a move writes with its times, which place it with them: a duty's shift and group (the
+ *   Roster's), a bin's bay, each at its own minute (the Allocation's); none for a kind whose times stand alone. A conflict
+ *   at its times is settled with them: one side's place whole, never one side's times with the other's shift
  */
 export const ScheduleRolesType = StructType({
     title: StringType, start: StringType, end: StringType,
     resource: OptionType(StringType), status: OptionType(StringType),
     quantity: OptionType(StringType), parts: OptionType(StringType),
+    withTimes: ArrayType(StringType),
 });
 
 /**

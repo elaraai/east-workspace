@@ -1664,7 +1664,10 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 resource: resource === undefined ? none : some(resource.field),
                 status: config.status === undefined ? none : some(config.status.field),
                 quantity: quantityField === undefined ? none : some(quantityField),
-                parts: partsField === undefined ? none : some(partsField) },
+                parts: partsField === undefined ? none : some(partsField),
+                // A duty's shift and group, which place it on the Roster; a bin's bay, each at its own minute.
+                withTimes: shiftField !== undefined && groupField !== undefined ? [shiftField, groupField]
+                    : allocationGiven.length > 0 && resource !== undefined ? [resource.field] : [] },
             overlaps: variant(overlaps, null),
             inspector: inspector === undefined ? none : some(inspector),
             seriesKey,
