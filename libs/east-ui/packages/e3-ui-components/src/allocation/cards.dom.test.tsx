@@ -196,7 +196,7 @@ describe("the Table's cards (A78)", () => {
         const offered = options(allocate, "Gaps that fit");
         expect(offered).toEqual(fitsOf(placed(bin, quantity)!));
         await press(within(allocate).getByRole("option", { name: new RegExp(offered[0]!) }));
-        expect(card().querySelector("[data-status]")!.getAttribute("data-status")).toBe("Draft");
+        expect(card().querySelector("[data-status]")!.getAttribute("data-status")).toBe("Unsaved");
         expect(within(card()).getAllByRole("button").slice(1).map(b => b.textContent)).toEqual(["Allocate…", "Split…", "Unlink", "Back to Arrivals"]);
         await press(button(card(), "Unlink"));
         expect(card().querySelector("[data-status]")!.getAttribute("data-status")).toBe("Not linked");

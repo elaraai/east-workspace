@@ -116,7 +116,7 @@ describe("the bands and the rows", () => {
         const gaps = chooser().sections().find(s => s[0] === "Gaps that fit")?.[1] as string[] | undefined;
         expect(gaps?.length).toBeGreaterThan(0);
         await press(chooser().option(gaps![0]!));
-        expect(status(binRow(c, "3104"))).toBe("Draft");
+        expect(status(binRow(c, "3104"))).toBe("Unsaved");
     });
 
     test("A44 — a click selects its row; a selected resource marks every row of its bins", async () => {
@@ -223,7 +223,7 @@ describe("the Chooser on a cell (A48, A49)", () => {
         offering(["V1"]);
         await press(chooser().option("K-601"));
         const reserved = c.querySelector<HTMLElement>('[data-allocation-row="bin:V1"]')!;
-        expect([arrivalCell(reserved).querySelector("[data-say=idle]")!.textContent, cells(reserved)[3], status(reserved)]).toEqual(["no arrival · reserved", "K-601", "Draft"]);
+        expect([arrivalCell(reserved).querySelector("[data-say=idle]")!.textContent, cells(reserved)[3], status(reserved)]).toEqual(["no arrival · reserved", "K-601", "Unsaved"]);
         expect(within(reserved).getByRole("button", { name: "Remove the reservation" })).not.toBeNull();
         // Its arrival cell books into the reservation, each arrival checked against K-601.
         await choose(arrivalCell(reserved));

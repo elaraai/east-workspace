@@ -186,7 +186,7 @@ function Summary({ props }: { props: Args }) {
         <Box css={props.styles.summary}>{stats.filter(s => s.label !== "Cost" || costed(props.value)).map(stat => <Box key={stat.label} css={props.styles.stat}><Box css={props.styles.statLabel}>{stat.label}</Box><Box css={props.styles.statValue}>{stat.value}</Box><Box css={props.styles.detail}>{stat.sub}</Box></Box>)}</Box>
         {filtered && visible.type === "some" && <Box css={props.styles.section}><Box css={props.styles.detail}>{props.format.number(visible.value.size)} of {props.format.number(props.value.people.length)} people visible · Coverage includes all staff</Box></Box>}
         {props.proposals.length > 0 && <Box css={props.styles.section}><Box css={props.styles.sectionHead}>Proposals</Box>{props.proposals.map(proposal => <ProposalCard key={proposal.key} props={props} proposal={proposal} />)}</Box>}
-        <Box css={props.styles.section}><Box css={props.styles.detail}>Select a person or shift to inspect its details.</Box><Box css={props.styles.detail}>Use the Library to assign people and activities.</Box><Box css={props.styles.detail}>Warnings help plan the week and do not prevent saving.</Box><Box css={props.styles.detail}>Save drafts as you work; publish the week when it is ready.</Box></Box>
+        <Box css={props.styles.section}><Box css={props.styles.detail}>Select a person or shift to inspect its details.</Box><Box css={props.styles.detail}>Use the Library to assign people and activities.</Box><Box css={props.styles.detail}>Warnings help plan the week and do not prevent saving.</Box><Box css={props.styles.detail}>Save as you work; publish the week when it is ready.</Box></Box>
     </>;
 }
 function Details({ props }: { props: Args }) {

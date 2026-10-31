@@ -612,7 +612,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             flex: "none", width: "8px", height: "8px", borderRadius: "full", background: "fg.faint",
             "[data-status='Not linked'] > &": { background: "status.warn" },
             "[data-status=Check] > &": { background: "status.warn" },
-            "[data-status=Draft] > &": { background: "fg.subtle" },
+            "[data-status=Unsaved] > &": { background: "fg.subtle" },
             "[data-status=Reserved] > &": { background: "brandMark" },
             "[data-status=Committed] > &": { background: "status.pos" },
         },

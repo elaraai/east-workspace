@@ -196,12 +196,12 @@ export function narrowBands(bands: readonly TableBand[], plan: Day, lanes: optio
 }
 
 /** A row's status (A43), as its Status cell and its narrow card say it. */
-export type RowStatus = "Free" | "Not linked" | "Check" | "Draft" | "Reserved" | "Committed";
+export type RowStatus = "Free" | "Not linked" | "Check" | "Unsaved" | "Reserved" | "Committed";
 
 /**
  * A row's status (A43): what it holds, and whether a resource of it needs a
  * look — `Free`, `Not linked`, `Check` (a resource of it over max or held into
- * its next job), `Draft`, `Reserved` or `Committed`.
+ * its next job), `Unsaved`, `Reserved` or `Committed`.
  *
  * @param kind - What the row holds
  * @param linked - Whether its bin has a part on a resource
@@ -210,7 +210,7 @@ export type RowStatus = "Free" | "Not linked" | "Check" | "Draft" | "Reserved" |
  * @returns Its status
  */
 export function rowStatus(kind: TableRowKind, linked: boolean, check: boolean, draft: boolean): RowStatus {
-    return kind === "free" ? "Free" : kind === "bin" && !linked ? "Not linked" : check ? "Check" : draft ? "Draft" : kind === "reserved" ? "Reserved" : "Committed";
+    return kind === "free" ? "Free" : kind === "bin" && !linked ? "Not linked" : check ? "Check" : draft ? "Unsaved" : kind === "reserved" ? "Reserved" : "Committed";
 }
 
 /**
