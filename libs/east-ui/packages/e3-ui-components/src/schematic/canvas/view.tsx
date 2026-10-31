@@ -216,6 +216,8 @@ export interface SchematicCanvasProps {
     readonly layers: SchematicLayerState;
     /** What the rail's narrowing does (#1392): what draws as context, what never selects, and the matches. */
     readonly narrowing: SchematicCanvasNarrowing;
+    /** The items holding a conflict not yet chosen, by key: each wears the conflicts' warn halo. None by default. */
+    readonly conflicted?: ReadonlySet<string> | undefined;
     /** The tool held. */
     readonly tool: SchematicTool;
     /** The link kind Connect draws; `undefined` where no link kind is editable. */
@@ -342,7 +344,7 @@ export interface SchematicZoomRange {
  * the editing's history.
  */
 export const SchematicCanvas = memo(function SchematicCanvas({
-    value, data, layers, narrowing, tool, linkKind, words, editing, onRefused, onAction, onSelection, onOpen, onZoneInView, drop, connectValues,
+    value, data, layers, narrowing, conflicted = EMPTY_STRING_SET, tool, linkKind, words, editing, onRefused, onAction, onSelection, onOpen, onZoneInView, drop, connectValues,
     viewport, density = NO_DENSITY, overview = NO_DENSITY, reading = false, standing = NO_STANDING, fit = NO_FIT, unread = NO_UNREAD, failure, stale = false,
     retained = false, onZoomRange, narrow = false, onElement, ref,
 }: SchematicCanvasProps) {
@@ -586,7 +588,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     // The commit-phase snapshot, the paint's identity short-circuit and the painter's call (`use-paint.ts`).
     const paint = usePaint({
         value, data, paintValue, visibleItems, tiers, centers, layerHiddenKeys, layerAlpha, connectDraftWorld, litShown, wasLink, dropMark, paintEffect, fitBox,
-        density, stale, retained, showMinimap, minimapBox, shownZones, minimapDensities, minimapItems, look, matches, camera, canvasSelection, gestureState,
+        density, stale, retained, showMinimap, minimapBox, shownZones, minimapDensities, minimapItems, look, matches, conflicted, camera, canvasSelection, gestureState,
     });
     const {
         drawRef, cardSizesRef, applyCardSizes, cardLayerRef, gridRef, washLayerRef, tintIndex, probeRef, renderSelected, renderSnapRef, onReveal,
@@ -741,7 +743,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                         per-card React re-layout (issue #57, invariant 6). It
                         holds the widest card too, which the recipe reads. */}
                     <SchematicCardLayer cardLayerRef={cardLayerRef} styles={styles} visibleItems={visibleItems} tiers={tiers} lod={lod} context={context}
-                        look={look} matches={matches} renderSelected={renderSelected} lockedKeys={lockedKeys} layerAlpha={layerAlpha}
+                        look={look} matches={matches} conflicted={conflicted} renderSelected={renderSelected} lockedKeys={lockedKeys} layerAlpha={layerAlpha}
                         connectDraft={connectDraft} dropMark={dropMark} centers={centers} cardSizesRef={cardSizesRef} applyCamera={applyCardSizes} />
                     {/* Drag box overlay — zoom (#153) or marquee (#159). The marquee
                         carries a live hit-count badge. Screen-space, host-relative. */}

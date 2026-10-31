@@ -59,12 +59,13 @@ const a = rack("A01", 2), b = rack("A02", 6);
 /** No narrowing's look. */
 const LOOK: SchematicNarrowedLook = { dim: false, opacity: 0.35, desaturate: true, dot: false, emphasis: undefined, frame: false, fit: false };
 
-/** The layer over some cards, its sizes kept in `sizes`. */
-function layer(items: readonly DrawnItem[], sizes: RefObject<Map<string, { w: number; h: number }>>, applyCamera: () => void) {
+/** The layer over some cards, its sizes kept in `sizes`, those `conflicted` names holding a conflict. */
+function layer(items: readonly DrawnItem[], sizes: RefObject<Map<string, { w: number; h: number }>>, applyCamera: () => void, conflicted: ReadonlySet<string> = new Set()) {
     return (
         <ChakraProvider value={system}>
             <SchematicCardLayer cardLayerRef={createRef<HTMLDivElement>()} styles={{}} visibleItems={items}
                 tiers={new Map<string, LodTier>(items.map((item) => [item.key, "card"]))} lod="card" context={new Set()} look={LOOK} matches={new Set()}
+                conflicted={conflicted}
                 renderSelected={new Set()} lockedKeys={new Set()} layerAlpha={new Map()} connectDraft={null} dropMark={undefined} centers={new Map()}
                 cardSizesRef={sizes} applyCamera={applyCamera} />
         </ChakraProvider>
@@ -94,4 +95,12 @@ test("each card's size is written in place as it moves — the same map across b
     rerender(layer([b], sizes, applyCamera));
     expect(observer.observed.size).toBe(1);
     expect([sizes.current.has(a.key), sizes.current.get(b.key)]).toEqual([false, { w: 60, h: 40 }]);
+});
+
+test("a card holding a conflict not yet chosen wears the conflicts' halo; one chosen, or none, does not", () => {
+    const sizes: RefObject<Map<string, { w: number; h: number }>> = { current: new Map() };
+    const { container, rerender } = render(layer([a, b], sizes, () => undefined, new Set([a.key])));
+    expect([cardOf(container, a).hasAttribute("data-conflict"), cardOf(container, b).hasAttribute("data-conflict")]).toEqual([true, false]);
+    rerender(layer([a, b], sizes, () => undefined));
+    expect(cardOf(container, a).hasAttribute("data-conflict")).toBe(false);
 });

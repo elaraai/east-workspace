@@ -1009,6 +1009,14 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const wholeItems = useMemo(() => new Set(value.items.filter((kind) => kind.entries.type === "none").map((kind) => kind.key)), [value.items]);
     const heldItems = useMemo(() => new Set([...drawing.items.map((item) => item.key), ...backlog.map((entry) => entry.id)]), [drawing.items, backlog]);
     const historyVersion = editing.version;
+    // The items holding a conflict not yet chosen, by their ids: each wears the conflicts' warn halo. Read again as the
+    // history moves (its version), which every choice and every carry-over moves.
+    const conflicted = useMemo(() => {
+        const out = new Set<string>();
+        for (const part of sessions) for (const id of part.session.conflicts.keys()) out.add(entityId({ kind: recordSlot(part.kind), key: id }));
+        return out;
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version says they moved
+    }, [sessions, historyVersion]);
     const issues = useMemo(() => [
         ...sessionIssues(sessions, kindName, (id) => names.get(id)),
         ...drawingIssues({
@@ -1075,7 +1083,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
                     liveFooter
                     onKeyDown={onKeyDown}
                 >
-                    <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} narrowing={canvasNarrowing} tool={held.tool} linkKind={held.link}
+                    <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} narrowing={canvasNarrowing} conflicted={conflicted} tool={held.tool} linkKind={held.link}
                         words={words} editing={canvasEditing} onRefused={setRefusal} onAction={refusal === undefined ? undefined : dropRefusal}
                         onSelection={onSelection} onOpen={value.inspector ? openDetails : undefined}
                         onZoneInView={listsIndex ? setInView : undefined} drop={drop.canvas} connectValues={connectValues}

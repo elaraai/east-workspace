@@ -1113,3 +1113,30 @@ describe("a net is culled by the box its bus spans (hand retest, 27 Oct 2026)", 
         expect(drawn.some((d) => d.op === "stroke" && d.style === LINKS.ink)).toBe(true);
     });
 });
+
+describe("the conflicts' halo", () => {
+    const T = Schematic.Types;
+    const at = (key: string, x: number) => drawnItem({ kind: "racks", key }, {
+        ...defaultValue<typeof T.Item>(T.Item), position: some({ x, y: 2 }), label: key,
+    }, undefined)!;
+    const a = at("A", 2), b = at("B", 12), c = at("C", 22);
+    /** The palette's warn (`statusWarn`). */
+    const WARN = "rgb(14,14,14)";
+
+    /** The warn strokes a frame paints at 10 px a unit — A a labelled pin, B a dot, C a card — each as its arcs. */
+    function rings(conflicted?: ReadonlySet<string>) {
+        const { ctx, drawn } = recorder();
+        paintSchematic({
+            ctx, value: { items: [a, b, c], zones: [], links: [], nets: [] }, cam: { ppu: 10, tx: 0, ty: 0 }, width: 300, height: 200,
+            visibleItems: [a, b, c], tiers: new Map([[a.key, "label"], [b.key, "dot"], [c.key, "card"]]), selected: new Set(), selectedZones: new Set(),
+            centers: new Map([[a.key, { x: 2, y: 2 }], [b.key, { x: 12, y: 2 }], [c.key, { x: 22, y: 2 }]]), palette: PALETTE, tints: new Map(),
+            ...(conflicted === undefined ? {} : { conflicted }),
+        });
+        return drawn.filter((d) => d.op === "stroke" && d.style === WARN).map((d) => [d.width, ...d.arcs.map((arc) => [arc.x, arc.y, arc.r])]);
+    }
+
+    it("rings each marker holding a conflict not yet chosen in the warn colour, 1px, just outside it; a card's is its element's", () => {
+        expect(rings(new Set([a.key, b.key, c.key]))).toEqual([[1, [20, 20, 23]], [1, [120, 20, 16]]]);
+        expect(rings()).toEqual([]);
+    });
+});

@@ -38,6 +38,7 @@
 
 import { defineSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { conflictHalo } from "../conflict-halo.js";
 import { fontAwesomeSize } from "../icon-size.js";
 import { semanticTokens } from "../semantic-tokens.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
@@ -309,6 +310,8 @@ export const schematicSlotRecipe = defineSlotRecipe({
                 outlineOffset: "-1px",
                 zIndex: "1",
             },
+            /* Holding a conflict not yet chosen, the conflicts' warn halo: 1px, just outside the card. */
+            ...conflictHalo("sm"),
             /* Emphasis: a matched card gets a brand ring. `halo` is a static
              * ring; `pulse` breathes — its ring width tracks the `--pulse` var
              * (0..1) the animation loop writes on the card layer each frame. */

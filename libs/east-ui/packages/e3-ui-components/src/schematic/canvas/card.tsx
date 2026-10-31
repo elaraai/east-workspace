@@ -61,6 +61,8 @@ export interface SchematicCardProps {
     readonly observe: (el: HTMLElement | null) => (() => void) | undefined;
     /** Whether it is selected, or a marquee in flight would select it. */
     readonly selected: boolean;
+    /** Whether it holds a conflict not yet chosen: it wears the conflicts' warn halo. */
+    readonly conflict: boolean;
     /** Whether its layer is locked: it takes no pointer, and selects by no path (SC27). */
     readonly locked: boolean;
     /** Its layer's opacity, where its layer dims it. */
@@ -82,7 +84,7 @@ export interface SchematicCardProps {
  * the canvas resolves a tap on it as it lets go.
  */
 export const SchematicCard = memo(function SchematicCard({
-    item, styles, observe, selected, locked, layerOpacity, contextOpacity, desaturate, emphasis, forbidden, dropTarget,
+    item, styles, observe, selected, conflict, locked, layerOpacity, contextOpacity, desaturate, emphasis, forbidden, dropTarget,
 }: SchematicCardProps) {
     const sublabel = getSomeorUndefined(item.sublabel);
     const icon = getSomeorUndefined(item.icon);
@@ -102,6 +104,7 @@ export const SchematicCard = memo(function SchematicCard({
             // At its item's own width, a box in the world: the recipe holds it to no widest card (#1393).
             {...(width !== undefined ? { "data-boxed": "" } : {})}
             {...(selected ? { "data-selected": "" } : {})}
+            {...(conflict ? { "data-conflict": "" } : {})}
             {...(locked ? { "data-locked": "" } : {})}
             {...(context ? { "data-context": "", ...(desaturate ? { "data-desaturate": "" } : {}) } : {})}
             {...(emphasis !== undefined ? { "data-emphasis": emphasis } : {})}

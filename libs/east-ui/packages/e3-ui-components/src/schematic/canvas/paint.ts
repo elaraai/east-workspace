@@ -193,6 +193,11 @@ export interface PaintInput {
     tiers: ReadonlyMap<string, LodTier>;
     /** The set of selected item keys (single/multiple/range all share it). */
     selected: ReadonlySet<string>;
+    /**
+     * The items holding a conflict not yet chosen, by key: each marker wears the conflicts' warn halo, a 1px ring just
+     * outside it — a card's is its element's. None by default.
+     */
+    conflicted?: ReadonlySet<string>;
     /** The set of selected ZONE keys (#177); absent/empty ⇒ no zone highlight. */
     selectedZones?: ReadonlySet<string>;
     /** Item key → world centre, for link endpoints. */
@@ -1210,6 +1215,25 @@ export function paintSchematic(input: PaintInput): void {
                 ctx.stroke();
                 ctx.restore();
             }
+        }
+    }
+
+    // ---- the conflicts' halo: a 1px warn ring just outside each marker holding a conflict not yet chosen ----
+    // A card's is CSS, as its selection's is.
+    const conflicted = input.conflicted;
+    if (conflicted !== undefined && conflicted.size > 0) {
+        for (const item of visibleItems) {
+            if (!conflicted.has(item.key)) continue;
+            const tier = tiers.get(item.key) ?? "dot";
+            if (tier === "card") continue;
+            const baseR = tier === "label" ? 18 : 11;
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(wx(item.x), wy(item.y), baseR + 5, 0, Math.PI * 2);
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = css(p.statusWarn);
+            ctx.stroke();
+            ctx.restore();
         }
     }
 

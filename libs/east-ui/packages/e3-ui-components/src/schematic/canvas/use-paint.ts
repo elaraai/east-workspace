@@ -124,6 +124,8 @@ export interface PaintProps {
     readonly look: SchematicNarrowedLook;
     /** The narrowing's matches, by id (#1392). */
     readonly matches: ReadonlySet<string>;
+    /** The items holding a conflict not yet chosen, by key: what wears the conflicts' warn halo. */
+    readonly conflicted: ReadonlySet<string>;
     /** The camera (`use-camera.ts`). */
     readonly camera: Camera;
     /** What is selected, and the report's context the snapshot writes (`use-canvas-selection.ts`). */
@@ -256,7 +258,7 @@ export interface Paint {
  */
 export function usePaint({
     value, data, paintValue, visibleItems, tiers, centers, layerHiddenKeys, layerAlpha, connectDraftWorld, litShown, wasLink, dropMark, paintEffect, fitBox,
-    density, stale, retained, showMinimap, minimapBox, shownZones, minimapDensities, minimapItems, look, matches, camera, canvasSelection, gestureState,
+    density, stale, retained, showMinimap, minimapBox, shownZones, minimapDensities, minimapItems, look, matches, conflicted, camera, canvasSelection, gestureState,
 }: PaintProps): Paint {
     const { size, dpr, cameraRef, cameraSnapshot, fit, home, maxZoom } = camera;
     const { selection, zoneSelection, selected, selectedLink, commitCtx, commitCtxRef } = canvasSelection;
@@ -305,7 +307,7 @@ export function usePaint({
     // there too, from the probe the commit just laid out.
     const renderSnap = {
         value: paintValue, drawn: data, size, fit, home, maxZoom, dpr, camera: cameraSnapshot, visibleItems, tiers,
-        selection, zoneSelection, renderSelected, centers,
+        selection, zoneSelection, renderSelected, centers, conflicted,
         layerHiddenKeys, layerAlpha,
         effectiveTool, isBoxTool,
         connectDraftWorld,
@@ -335,7 +337,7 @@ export function usePaint({
         sel: ReadonlySet<string>; zsel: ReadonlySet<string>; pal: SchematicPalette | null; tints: unknown; w: number; h: number; dpr: number; val: unknown;
         lay: unknown; alp: unknown;
         dl: unknown; cf: number; slk: unknown; sle: boolean; dm: unknown; eff: unknown; phase: number;
-        lit: string | undefined; was: string | undefined; cs: number; den: unknown; ph: boolean; st: boolean;
+        lit: string | undefined; was: string | undefined; cs: number; den: unknown; ph: boolean; st: boolean; cfl: ReadonlySet<string>;
     } | null>(null);
 
     // Apply the LIVE camera to ALL surfaces in one step: card-layer CSS vars +
@@ -389,7 +391,7 @@ export function usePaint({
             && last.slk === snap.selectedLink && last.sle === snap.selectedLinkEditable && last.dm === snap.dropMark
             && last.eff === snap.paintEffect && last.phase === pulsePhaseRef.current
             && last.lit === snap.lit && last.was === snap.wasLink && last.cs === cardSizesVersion && last.den === snap.density
-            && last.ph === placeholdersRef.current && last.st === snap.stale) return;
+            && last.ph === placeholdersRef.current && last.st === snap.stale && last.cfl === snap.conflicted) return;
         lastPaintRef.current = {
             zoom: cam.zoom, tx: cam.tx, ty: cam.ty, vis: snap.visibleItems, tiers: snap.tiers,
             sel: snap.renderSelected, zsel: snap.zoneSelection, pal, tints: snap.tints, w: sz.w, h: sz.h, dpr: dprLive, val: snap.value,
@@ -397,7 +399,7 @@ export function usePaint({
             dl: snap.connectDraftWorld, cf: cfPhase,
             slk: snap.selectedLink, sle: snap.selectedLinkEditable, dm: snap.dropMark,
             eff: snap.paintEffect, phase: pulsePhaseRef.current,
-            lit: snap.lit, was: snap.wasLink, cs: cardSizesVersion, den: snap.density, ph: placeholdersRef.current, st: snap.stale,
+            lit: snap.lit, was: snap.wasLink, cs: cardSizesVersion, den: snap.density, ph: placeholdersRef.current, st: snap.stale, cfl: snap.conflicted,
         };
         const bw = Math.round(sz.w * dprLive), bh = Math.round(sz.h * dprLive);
         if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
@@ -412,6 +414,7 @@ export function usePaint({
                 width: sz.w, height: sz.h,
                 visibleItems: snap.visibleItems, tiers: snap.tiers,
                 selected: snap.renderSelected, selectedZones: snap.zoneSelection, centers: snap.centers, palette: pal, tints: snap.tints,
+                conflicted: snap.conflicted,
                 // Layer masks for the zone / link paint passes (items are already
                 // pre-filtered out of visibleItems); `layerAlpha` dims item markers.
                 layerHiddenKeys: snap.layerHiddenKeys, layerAlpha: snap.layerAlpha,

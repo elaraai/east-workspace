@@ -53,6 +53,8 @@ export interface SchematicCardLayerProps {
     readonly look: SchematicNarrowedLook;
     /** The narrowing's matches, by id. */
     readonly matches: ReadonlySet<string>;
+    /** The items holding a conflict not yet chosen, by key. */
+    readonly conflicted: ReadonlySet<string>;
     /** What draws selected: the selection, or what a marquee in flight would select. */
     readonly renderSelected: ReadonlySet<string>;
     /** What a locked layer holds, by id. */
@@ -79,7 +81,7 @@ export interface SchematicCardLayerProps {
  * @returns The layer
  */
 export function SchematicCardLayer({
-    cardLayerRef, styles, visibleItems, tiers, lod, context, look, matches, renderSelected, lockedKeys, layerAlpha, connectDraft, dropMark, centers,
+    cardLayerRef, styles, visibleItems, tiers, lod, context, look, matches, conflicted, renderSelected, lockedKeys, layerAlpha, connectDraft, dropMark, centers,
     cardSizesRef, applyCamera,
 }: SchematicCardLayerProps) {
     // Each card's size as the page lays it out (#1403): a ResizeObserver hears each card as it is laid out and as its box
@@ -131,6 +133,7 @@ export function SchematicCardLayer({
                         styles={styles}
                         observe={observeCard}
                         selected={renderSelected.has(item.key)}
+                        conflict={conflicted.has(item.key)}
                         // Layer treatment: dim + lock (non-selectable — clicks fall
                         // through to entities beneath, matching the pickAt lock skip).
                         locked={lockedKeys.has(item.key)}
