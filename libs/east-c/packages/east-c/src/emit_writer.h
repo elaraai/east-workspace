@@ -33,14 +33,16 @@ typedef struct {
     EastValue *value; /* owned: the held Dict entry's value */
 } EmitWriter;
 
-/* Opens `path` for writing and a writer of `type` on it. False with the
- * message posted (east_builtin_error); the struct is then closed. */
-bool emit_writer_open(EmitWriter *w, EastType *type, const char *path);
+/* Opens `path` for writing and a writer of `type` on it, its header holding
+ * `source_map` (borrowed; NULL for none). False with the message posted
+ * (east_builtin_error); the struct is then closed. */
+bool emit_writer_open(EmitWriter *w, EastType *type, const char *path, EastSourceMap *source_map);
 
 /* Opens a manifest directory as the output: the manifest at `path`, its
- * objects in `<path>.segments/`. False with the message posted; the struct is
- * then closed. */
-bool emit_writer_open_manifest(EmitWriter *w, EastType *type, const char *path);
+ * objects in `<path>.segments/`, under `source_map` as above. False with the
+ * message posted; the struct is then closed. */
+bool emit_writer_open_manifest(EmitWriter *w, EastType *type, const char *path,
+                               EastSourceMap *source_map);
 
 /* Writes out the held entry and holds `key` (and, for a Dict, `value`) in its
  * place, retaining them. False with the message posted. */

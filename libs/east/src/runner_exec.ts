@@ -21,8 +21,9 @@
  *
  * Collections are written as manifest directories, which a store takes in by
  * linking their files. A collection that holds functions is written under the
- * program's source map, so the closures in it keep their lines; any other's
- * bytes never depend on where the program was written. The result (`UnitResultType`) records the outcome —
+ * program's source map — a merge unit's, under its first part's, which a unit
+ * wrote so — so the closures in it keep their lines; any other's bytes never
+ * depend on where the program was written. The result (`UnitResultType`) records the outcome —
  * `ok`, or the failure's message and source locations — with where the time
  * went and the host's peak memory. east-c and east-py implement the same
  * protocol, and the conformance corpus holds the three to the same output
@@ -68,7 +69,7 @@ import {
   openUnitInputs,
   segmentPath,
 } from "./runner_io.js";
-import { loadUnitMergeFunction, mergeUnitParts } from "./runner_merge.js";
+import { loadUnitMergeFunction, loadUnitPartSourceMap, mergeUnitParts } from "./runner_merge.js";
 
 /** A unit's `run` work. */
 type RunWork = Extract<Unit["work"], { type: "run" }>["value"];
@@ -368,7 +369,9 @@ function mergeWork(work: MergeWork, host: Host): void {
       lap("compile");
       for (const part of work.parts) acc = combine(acc, loadUnitInput(io, part, type, host.fetch));
       lap("execute");
-      writeValue(io, output.value.path, type, acc, null);
+      // An accumulator holding functions is written under the partials' map,
+      // as the units that wrote them wrote them.
+      writeValue(io, output.value.path, type, acc, isDataTypeValue(type) || work.parts.length === 0 ? null : loadUnitPartSourceMap(io, work.parts[0]!));
       lap("output");
       return;
     }

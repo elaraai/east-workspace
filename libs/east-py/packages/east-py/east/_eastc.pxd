@@ -136,6 +136,8 @@ cdef extern from "east/types.h":
 
     # Comparison
     bint east_type_equal(EastType *a, EastType *b)
+    # Whether a value of the type can hold a function.
+    bint east_type_holds_function(EastType *t)
 
 
 # ─── ir.h ────────────────────────────────────────────────────────────────
@@ -787,6 +789,10 @@ cdef extern from "east/merge.h":
         size_t folds
 
     bint east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
+    # The source map a merge part's header holds — what a merge writes an
+    # output holding functions under. One reference, the caller's; NULL for
+    # none.
+    EastSourceMap *east_merge_part_source_map(const char *path)
 
 
 # ─── unit.h ──────────────────────────────────────────────────────────────

@@ -593,6 +593,13 @@ Beast2ElementWriter *east_beast2_element_writer_new(EastType *type, int32_t code
     return b2v5_element_writer_new(type, codec_id, NULL);
 }
 
+Beast2ElementWriter *east_beast2_element_writer_new_with_source_map(EastType *type,
+                                                                    int32_t codec_id,
+                                                                    EastSourceMap *source_map)
+{
+    return b2v5_element_writer_new(type, codec_id, source_map);
+}
+
 Beast2ElementWriter *b2v5_element_writer_new(EastType *type, int32_t codec_id, EastSourceMap *sm)
 {
     Beast2StreamWriter *stream = b2v5_writer_new(type, codec_id, true, true, sm);

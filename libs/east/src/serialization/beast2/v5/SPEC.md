@@ -631,7 +631,11 @@ which east-py binds).
   `[from, to)` merges just those keys. Merging a producer's runs in run order
   folds every key's values in the order they were added, grouped by run, so
   with an associative merge function the result is the value a single run
-  would have held.
+  would have held. A merge writes its output under the header map it is
+  given (*Functions*); a runner merging a task's parts gives its first part's
+  when the collection holds functions, since the parts are written under the
+  task's program's map, so the merge writes what one run of the whole would
+  have.
 
 ## Re-cutting
 
