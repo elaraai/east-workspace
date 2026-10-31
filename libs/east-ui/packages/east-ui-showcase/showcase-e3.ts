@@ -60,8 +60,8 @@ import { pathToString, type TreePath } from "@elaraai/e3-types";
 import {
     MemoryStagedAdapter, StagedStore, formatApiError, initializeStagedStore, type ReactiveDatasetCacheInterface,
 } from "@elaraai/e3-ui-components";
-import bundleUrl from "virtual:e3-showcase-bundles";
-import { SHOWCASE_REPO, sharedE3Workspace, sharedSetFromAddress, showcaseE3Workspace } from "./showcase-config";
+import bundleUrl, { bundlesKey } from "virtual:e3-showcase-bundles";
+import { SHOWCASE_REPO, sharedE3Repo, sharedE3Workspace, sharedSetFromAddress, showcaseE3Workspace } from "./showcase-config";
 import { withFaults } from "./showcase-e3-faults";
 
 // The e3 keeps its repositories in memory, so the edits staged against it are
@@ -73,6 +73,9 @@ initializeStagedStore(new StagedStore(new MemoryStagedAdapter()));
 
 /** The set of tabs the page's address shares its e3 with (`?shared`); `undefined` for a page whose e3 is its own. */
 export const SHARED_SET: string | undefined = typeof location === "undefined" ? undefined : sharedSetFromAddress(location.search);
+
+/** The repository the page's e3 holds its areas' workspaces in: its own, or the one shared tabs keep for the build's bundles. */
+export const SHOWCASE_PAGE_REPO: string = SHARED_SET === undefined ? SHOWCASE_REPO : sharedE3Repo(bundlesKey);
 
 const sameText = equalFor(StringType);
 
@@ -318,13 +321,13 @@ async function startPage(): Promise<WebE3> {
     // (`showcase-e3-faults.ts`); a page a person opens has none.
     const e3 = withFaults(await step("start its e3 worker", () => createWebE3(SHARED_SET === undefined
         ? new Worker(new URL("./e3.worker.ts", import.meta.url), { type: "module" })
-        : new Worker(new URL("./e3-shared.worker.ts", import.meta.url), { type: "module" }))), SHOWCASE_REPO);
+        : new Worker(new URL("./e3-shared.worker.ts", import.meta.url), { type: "module" }))), SHOWCASE_PAGE_REPO);
     try {
         const options: RequestOptions = { token: null, fetch: e3.fetch };
         await alone(async () => {
             // Shared, the set's first tab made it.
-            if (SHARED_SET !== undefined && (await step("find its repository", () => repoList(e3.apiUrl, options))).some((name) => sameText(name, SHOWCASE_REPO))) return;
-            await step("create its repository", () => repoCreate(e3.apiUrl, SHOWCASE_REPO, options));
+            if (SHARED_SET !== undefined && (await step("find its repository", () => repoList(e3.apiUrl, options))).some((name) => sameText(name, SHOWCASE_PAGE_REPO))) return;
+            await step("create its repository", () => repoCreate(e3.apiUrl, SHOWCASE_PAGE_REPO, options));
         });
         return e3;
     } catch (err) {
@@ -349,9 +352,9 @@ async function startArea(area: string): Promise<WebE3> {
     const workspace = showcaseE3PageWorkspace(area);
     await alone(async () => {
         // Shared, a tab of the set may have made it.
-        if (SHARED_SET !== undefined && (await step("find its workspace", () => workspaceList(e3.apiUrl, SHOWCASE_REPO, options))).some((info) => sameText(info.name, workspace))) return;
+        if (SHARED_SET !== undefined && (await step("find its workspace", () => workspaceList(e3.apiUrl, SHOWCASE_PAGE_REPO, options))).some((info) => sameText(info.name, workspace))) return;
         const bundle = await step("fetch its workspace bundle", () => fetchBundle(area));
-        await step("make its workspace", () => workspaceBundleImport(e3.apiUrl, SHOWCASE_REPO, workspace, bundle, options));
+        await step("make its workspace", () => workspaceBundleImport(e3.apiUrl, SHOWCASE_PAGE_REPO, workspace, bundle, options));
     });
     return e3;
 }

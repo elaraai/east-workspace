@@ -74,10 +74,29 @@ export function sharedSetFromAddress(search: string): string | undefined {
  * @returns The workspace's name
  */
 export function sharedE3Workspace(area: string, set: string, bundle: string): string {
-    // FNV-1a over the bundle's address, which the build names by its content.
+    // The bundle's address, which the build names by its content.
+    return `${showcaseE3Workspace(area)}-shared-${set}-${nameHash(bundle)}`;
+}
+
+/**
+ * The repository a page shared with other tabs keeps in the browser, and
+ * every set's workspaces with it: the bundles' it is made from. A build of
+ * other packages starts it afresh — under the same versions, a package of
+ * other contents is one e3 refuses beside the one it holds — while every tab
+ * of a set on the same build finds the one its first tab made.
+ *
+ * @param bundlesKey - What names the bundles (`virtual:e3-showcase-bundles`)
+ * @returns The repository's name
+ */
+export function sharedE3Repo(bundlesKey: string): string {
+    return `shared-${nameHash(bundlesKey)}`;
+}
+
+/** A short name for a text: FNV-1a over it, in base 36. */
+function nameHash(text: string): string {
     let hash = 0x811c9dc5;
-    for (let i = 0; i < bundle.length; i++) hash = Math.imul(hash ^ bundle.charCodeAt(i), 0x01000193) >>> 0;
-    return `${showcaseE3Workspace(area)}-shared-${set}-${hash.toString(36)}`;
+    for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0;
+    return hash.toString(36);
 }
 
 /**

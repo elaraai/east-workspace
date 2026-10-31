@@ -178,6 +178,9 @@ export function e3ShowcasePlugin(opts: E3ShowcaseOptions): Plugin {
     const bundles = new Map<string, Promise<Uint8Array | undefined>>();
     let serving = true;
     let base = "/";
+    // The dev server's bundles, by when it started and how many times the examples changed since: what names them.
+    const startedAt = Date.now();
+    let generation = 0;
 
     /** Forgets the dev server's zips and bundles, and removes their directory. */
     const forget = (): void => {
@@ -245,13 +248,15 @@ export function e3ShowcasePlugin(opts: E3ShowcaseOptions): Plugin {
             // The dev server answers every area's at its name, and says when it has none.
             if (serving) {
                 return `import { e3ShowcaseBundle } from ${JSON.stringify(SHOWCASE_CONFIG)};\n`
-                    + `export default (area) => ${JSON.stringify(base)} + e3ShowcaseBundle(area);\n`;
+                    + `export default (area) => ${JSON.stringify(base)} + e3ShowcaseBundle(area);\n`
+                    + `export const bundlesKey = ${JSON.stringify(`dev-${startedAt}-${generation}`)};\n`;
             }
             // Each named by its content: Rollup gives an asset the hash of its
             // bytes, and writes its URL where the module reads it.
             const urls = [...await buildE3ShowcaseBundles(opts.e3UiDir)].map(([area, source]) =>
                 `[${JSON.stringify(area)}, import.meta.ROLLUP_FILE_URL_${this.emitFile({ type: "asset", name: e3ShowcaseBundle(area), source })}]`);
-            return `const urls = new Map([${urls.join(", ")}]);\nexport default (area) => urls.get(area);\n`;
+            return `const urls = new Map([${urls.join(", ")}]);\nexport default (area) => urls.get(area);\n`
+                + `export const bundlesKey = [...urls.values()].join("\\n");\n`;
         },
 
         configureServer(server) {
@@ -261,6 +266,10 @@ export function e3ShowcasePlugin(opts: E3ShowcaseOptions): Plugin {
             const changed = (file: string) => {
                 if (!watched.some((dir) => under(dir, file))) return;
                 forget();
+                // The bundles made next are others: the module names them anew.
+                generation += 1;
+                const module = server.moduleGraph.getModuleById(RESOLVED_BUNDLES_MODULE);
+                if (module !== undefined) server.moduleGraph.invalidateModule(module);
                 server.ws.send({ type: "full-reload" });
             };
             server.watcher.on("add", changed);

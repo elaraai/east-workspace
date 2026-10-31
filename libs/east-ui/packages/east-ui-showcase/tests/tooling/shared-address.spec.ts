@@ -8,7 +8,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sharedE3Workspace, sharedSetFromAddress, showcaseE3Workspace } from "../../showcase-config";
+import { SHOWCASE_REPO, sharedE3Repo, sharedE3Workspace, sharedSetFromAddress, showcaseE3Workspace } from "../../showcase-config";
 
 test("an address's set of shared tabs: its name's letters and digits, lower case, `1` alone, and none without it", () => {
     assert.equal(sharedSetFromAddress("?shared"), "1");
@@ -24,4 +24,13 @@ test("a set reads an area from a workspace of its own, of the bundle it was made
     assert.equal(sharedE3Workspace("sheet", "1", "/assets/e3/sheet-a1b2.beast2"), one);
     assert.notEqual(sharedE3Workspace("sheet", "2", "/assets/e3/sheet-a1b2.beast2"), one);
     assert.notEqual(sharedE3Workspace("sheet", "1", "/assets/e3/sheet-c3d4.beast2"), one);
+});
+
+test("shared tabs keep a repository of the build's bundles: the same for every set of one build, another for a build of other bundles", () => {
+    const build = ["/assets/e3/sheet-a1b2.beast2", "/assets/e3/plan-c3d4.beast2"].join("\n");
+    const one = sharedE3Repo(build);
+    assert.match(one, /^shared-[0-9a-z]+$/);
+    assert.notEqual(one, SHOWCASE_REPO);
+    assert.equal(sharedE3Repo(build), one);
+    assert.notEqual(sharedE3Repo(["/assets/e3/sheet-e5f6.beast2", "/assets/e3/plan-c3d4.beast2"].join("\n")), one);
 });

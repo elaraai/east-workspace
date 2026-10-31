@@ -85,4 +85,11 @@ declare module "virtual:e3-showcase-bundles" {
      */
     const bundleUrl: (area: string) => string | undefined;
     export default bundleUrl;
+    /**
+     * What names the bundles the page's areas are made from: the build's,
+     * their content-named addresses together; the dev server's, when it
+     * started and how many times the examples changed since. A page shared
+     * with other tabs keeps its repository under it (`sharedE3Repo`).
+     */
+    export const bundlesKey: string;
 }

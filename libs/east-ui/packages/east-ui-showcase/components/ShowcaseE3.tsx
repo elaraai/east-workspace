@@ -20,9 +20,8 @@ import {
     type E3Config, type ReactiveDatasetCacheInterface,
 } from "@elaraai/e3-ui-components";
 import type { LiveEntry } from "../catalog";
-import { SHOWCASE_REPO } from "../showcase-config";
 import {
-    SHOWCASE_POLL_MS, e3AreaOf, exampleReadsLoaded, loadExampleReads, retryShowcaseE3,
+    SHOWCASE_PAGE_REPO, SHOWCASE_POLL_MS, e3AreaOf, exampleReadsLoaded, loadExampleReads, retryShowcaseE3,
     setShowcaseE3Cache, showcaseE3PageWorkspace, showcaseE3Status, shownShowcaseE3, startShowcaseE3,
     subscribeShowcaseE3, type ShowcaseE3Status,
 } from "../showcase-e3";
@@ -50,7 +49,7 @@ function useShowcaseE3Config(area: string | undefined, status: ShowcaseE3Status)
     return useMemo((): E3Config | null => e3 === null || area === undefined ? null : {
         apiUrl: e3.apiUrl,
         fetch: e3.fetch,
-        repo: SHOWCASE_REPO,
+        repo: SHOWCASE_PAGE_REPO,
         workspace: showcaseE3PageWorkspace(area),
         token: null,
     }, [e3, area]);
