@@ -62,8 +62,9 @@ export { dateTimeSlot, numberSlot, stringSlot } from "./dnd/slot-key.js";
 // The date field's parts and its conversions — the Sheet's date editor.
 export { CompoundDateField, CompoundDateInput, CompoundDateSegment } from "./forms/input/date/index.js";
 export { dateToCalendarDate, dateValueToDate } from "./forms/input/index.js";
-// The editing session's parts: its bar, a draft's presentation and checks, and its words.
+// The editing session's parts: its bar, a draft's presentation and checks, its words, and the data set it belongs to.
 export { HistoryBar } from "./editing/HistoryBar.js";
+export { EditingScope } from "./editing/scope.js";
 export {
     CLEAN_DRAFT, conflictMarks, kindOfIssue, normalizeDraft, presentDraft, raiseIssue, wholeEntryReadiness, type ConflictMarks, type DraftPresentation,
 } from "./editing/draft.js";

@@ -33,7 +33,9 @@ import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StringType, StructType, printFor } from "@elaraai/east";
 import type { RequestOptions } from "@elaraai/e3-api-client";
-import { EditingScope } from "@elaraai/east-ui-components";
+// The internal entry, never the main one: the main loads the markdown renderer, which reaches for a document as it
+// loads, and the bind runtimes load this module in Node.
+import { EditingScope } from "@elaraai/east-ui-components/internal";
 import { recoveryDelay } from "./recovery.js";
 
 /**
