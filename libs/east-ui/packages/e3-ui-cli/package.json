@@ -23,6 +23,7 @@
     "build": "tsc && tsc -p app/tsconfig.json && node scripts/build-app.mjs",
     "test": "npm run build && npm run test:built",
     "test:built": "node --enable-source-maps --test-reporter=spec --test 'dist/**/*.spec.js'",
+    "test:queries": "node --enable-source-maps --test-reporter=spec --test dist/query-equivalence.spec.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "dev": "npm run build && node --enable-source-maps dist/cli.js"

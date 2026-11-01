@@ -377,9 +377,11 @@ jobs:
         working-directory: libs/east-ui
         run: make test-group GROUP=node
 
-  # `rest` holds the CLI's specs, and builds their integration runners. It
+  # `rest` holds the CLI's specs but its query equivalence (`queries`). It
   # reads the checked build: the CLI compiles against the renderers'
-  # declarations.
+  # declarations. Its query-plans spec sends its calls to east-node, which the
+  # package holds, and to east-c, the runner the query builder sends (#1093),
+  # built here.
   rest:
     needs: checked
     name: test (rest)
@@ -409,32 +411,91 @@ jobs:
       - name: Restore compiled workspaces
         run: tar -xf "$RUNNER_TEMP/east-ui-checked.tar"
 
-      # e3-ui-cli's query-plans and query-equivalence specs send their calls to
-      # every stock runner on PATH: east-node, which the package holds, east-c,
-      # the runner the query builder sends (#1093), and east-py (#942). Build
-      # this tree's east-c as the east-c workflow does, Release, but its CLI
-      # alone, and put it on PATH.
+      # Build this tree's east-c as the east-c workflow does, Release, but its
+      # CLI alone, and put it on PATH.
       - name: Install east-c build deps
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
 
-      - name: Build east-c (for e3-ui-cli's query plans)
+      - name: Build east-c
         working-directory: libs/east-c
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j --target east-c-cli
           echo "$PWD/build/packages/east-c-cli" >> "$GITHUB_PATH"
 
-      # The spec skips a runner it cannot find: hold here that it will find east-c.
+      # The specs skip a runner they cannot find: hold here that they will find east-c.
+      - name: east-c on PATH
+        run: east-c version
+
+      - name: Run tests
+        working-directory: libs/east-ui
+        env:
+          # e3-ui-cli's integration specs: the terminal UI and the query plans,
+          # each over a real embedded e3 API server and repositories seeded at
+          # test time (e3 is built above).
+          E3_UI_INTEGRATION: "1"
+        run: make test-group GROUP=rest
+
+  # The CLI's query-equivalence spec (#942), a third of its queries a job
+  # (#1466): each query's calls on every stock runner at two -j, some minutes
+  # of calls in all, most of them east-node's, which starts a process a unit.
+  # It reads the checked build, as `rest` does, and runs its calls on
+  # east-node, east-c and east-py, the last two built here.
+  queries:
+    needs: checked
+    name: test (queries ${{ matrix.part }}/3)
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3]
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: east-ui-checked
+          path: ${{ runner.temp }}
+
+      - name: Restore compiled workspaces
+        run: tar -xf "$RUNNER_TEMP/east-ui-checked.tar"
+
+      # Build this tree's east-c as the east-c workflow does, Release, but its
+      # CLI alone, and put it on PATH.
+      - name: Install east-c build deps
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+
+      - name: Build east-c
+        working-directory: libs/east-c
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j --target east-c-cli
+          echo "$PWD/build/packages/east-c-cli" >> "$GITHUB_PATH"
+
+      # The specs skip a runner they cannot find: hold here that they will find east-c.
       - name: east-c on PATH
         run: east-c version
 
       # This tree's east-py, built as the east-py workflow builds it, its CLI
-      # alone put on PATH (not the venv's python): the query-equivalence spec
-      # runs its units on it.
-      - name: Install uv (for e3-ui-cli's query equivalence)
+      # alone put on PATH (not the venv's python): the spec runs its units on it.
+      - name: Install uv
         uses: astral-sh/setup-uv@v3
 
-      - name: Build east-py (for e3-ui-cli's query equivalence)
+      - name: Build east-py
         working-directory: libs/east-py
         env:
           UV_PYTHON: "3.11"
@@ -452,14 +513,11 @@ jobs:
       - name: east-py on PATH
         run: east-py version
 
-      - name: Run tests
+      - name: Query equivalence
         working-directory: libs/east-ui
         env:
-          # e3-ui-cli's integration specs: the terminal UI, the query plans and
-          # their equivalence, each over a real embedded e3 API server and
-          # repositories seeded at test time (e3 is built above).
           E3_UI_INTEGRATION: "1"
-        run: make test-group GROUP=rest
+        run: make test-group GROUP=queries PART=${{ matrix.part }}/3
 
   # Lint reads the declarations the checked build wrote (#1466).
   lint:

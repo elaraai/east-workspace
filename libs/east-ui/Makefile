@@ -59,22 +59,28 @@ test:
 ## The CI groups together run every package's tests once, each over what is
 ## built, never building first (#1466): `components`; `ir`, east-ui's and
 ## e3-ui's; `node`, the e3 renderer's Node specs; `showcase`, the showcase
-## package's; `e3-components`, the renderer's Vitest files, sharded; and
-## `rest`, every other package, the CLI's specs among them, which read the
-## renderers' declarations. New packages land in `rest` automatically.
+## package's; `e3-components`, the renderer's Vitest files, sharded; `rest`,
+## every other package, the CLI's specs among them, which read the renderers'
+## declarations; and `queries`, the CLI's query-equivalence spec, which CI asks
+## in parts side by side. New packages land in `rest` automatically.
 TEST_GROUP_rest := --filter='./packages/*' --filter='./packages/east-ui-extension/webview' \
                    --filter='!@elaraai/east-ui-components' --filter='!@elaraai/east-ui' --filter='!@elaraai/e3-ui' \
                    --filter='!@elaraai/e3-ui-components' --filter='!@elaraai/east-ui-showcase' --filter='!@elaraai/e3-ui-cli'
 
+## The CLI's built specs, relative to its package, but its query equivalence:
+## the `queries` group's.
+CLI_SPECS = $(patsubst packages/e3-ui-cli/%,%,$(filter-out %/query-equivalence.spec.js,$(shell find packages/e3-ui-cli/dist -name '*.spec.js')))
+
 ifneq ($(filter test-group,$(MAKECMDGOALS)),)
-ifeq ($(filter components ir node showcase e3-components rest,$(GROUP)),)
-$(error test-group needs GROUP=components, ir, node, showcase, e3-components or rest)
+ifeq ($(filter components ir node showcase e3-components rest queries,$(GROUP)),)
+$(error test-group needs GROUP=components, ir, node, showcase, e3-components, rest or queries)
 endif
 endif
 
 ## Run one CI group. SHARD=n/count applies to GROUP=e3-components only, its
 ## shards split by recorded time (#1466); REPORT=file writes its JSON report
-## too, the times `scripts/vitest-timings.ts` refreshes them from.
+## too, the times `scripts/vitest-timings.ts` refreshes them from. PART=k/n
+## applies to GROUP=queries only: every n-th query from the k-th (#1466).
 test-group:
 ifeq ($(GROUP),e3-components)
 	pnpm --filter @elaraai/e3-ui-components run test:components $(if $(SHARD),--shard=$(SHARD)) \
@@ -88,9 +94,11 @@ else ifeq ($(GROUP),node)
 	pnpm --filter @elaraai/e3-ui-components run test:node
 else ifeq ($(GROUP),showcase)
 	pnpm --filter @elaraai/east-ui-showcase run test
+else ifeq ($(GROUP),queries)
+	E3_UI_QUERY_PART=$(PART) pnpm --filter @elaraai/e3-ui-cli run test:queries
 else
 	pnpm -r $(TEST_GROUP_rest) run test
-	pnpm --filter @elaraai/e3-ui-cli run test:built
+	pnpm --filter @elaraai/e3-ui-cli exec node --enable-source-maps --test-reporter=spec --test $(CLI_SPECS)
 endif
 
 ## Export east-ui's suites as IR to EAST_UI_TEST_IR, this checkout's
