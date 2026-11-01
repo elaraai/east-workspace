@@ -5,6 +5,7 @@
 """IR and value loading utilities."""
 
 import importlib
+import importlib.metadata
 from pathlib import Path
 from typing import Any
 
@@ -325,8 +326,27 @@ def load_platform(package_name: str) -> list[PlatformFunction]:
     return platform_fns
 
 
+def installed_version(distribution: str) -> str | None:
+    """The version an installed distribution's metadata records, which a
+    release sets — a module's ``__version__`` is not kept in step with it.
+
+    Args:
+        distribution: The distribution's name (e.g., 'elaraai-east-py')
+
+    Returns:
+        Its version, or None when no distribution of that name is installed
+    """
+    try:
+        return importlib.metadata.version(distribution)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
 def get_platform_version(package_name: str) -> str:
-    """Get version string from a platform package.
+    """Get version string from a platform package: its installed
+    distribution's — the one providing its module, else one of its own name —
+    or else the module's ``__version__``, for a source checkout or an install
+    whose metadata names no modules.
 
     Args:
         package_name: Package name (e.g., 'east-py-std')
@@ -338,6 +358,10 @@ def get_platform_version(package_name: str) -> str:
 
     try:
         mod = importlib.import_module(module_name)
-        return getattr(mod, "__version__", "unknown")
     except ImportError:
         return "not installed"
+    for distribution in (*importlib.metadata.packages_distributions().get(module_name, ()), package_name):
+        version = installed_version(distribution)
+        if version is not None:
+            return version
+    return getattr(mod, "__version__", "unknown")
