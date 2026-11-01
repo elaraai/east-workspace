@@ -588,9 +588,29 @@ jobs:
       - name: Restore the showcase
         run: tar -xf "$RUNNER_TEMP/east-ui-showcase.tar"
 
+      # The Chromium this Playwright drives, downloaded once for its version
+      # and restored after (#1466); the system libraries it needs are the
+      # job's own, installed each time.
+      - name: Which Playwright
+        id: playwright
+        working-directory: libs/east-ui/packages/east-ui-showcase
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Chromium
+        id: chromium
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
       - name: Install Chromium
         working-directory: libs/east-ui
-        run: pnpm --filter @elaraai/east-ui-showcase exec playwright install --with-deps chromium
+        run: |
+          if [ "${{ steps.chromium.outputs.cache-hit }}" = true ]; then
+            pnpm --filter @elaraai/east-ui-showcase exec playwright install-deps chromium
+          else
+            pnpm --filter @elaraai/east-ui-showcase exec playwright install --with-deps chromium
+          fi
 
       # Its JSON report too: the test times scripts/responsive-timings.ts
       # refreshes responsive.timings.json from, which the jobs are split by.
