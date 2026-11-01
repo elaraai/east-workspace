@@ -5,9 +5,9 @@
 
 /**
  * A test reporter writing each spec's time, the sum of its top-level tests',
- * in ms, as JSON by the spec's path from the package it runs in (#1466): the
- * reports CI's integration and e3-core shards upload and `dist/spec-timings.js`
- * reads. libs/e3's Makefile adds it beside the spec reporter when given
+ * in ms, as JSON under the system it ran on (`process.platform`) by the spec's
+ * path from the package it runs in (#1466): the reports CI's integration and
+ * e3-core shards upload and `dist/spec-timings.js` reads. libs/e3's Makefile adds it beside the spec reporter when given
  * `REPORT=file`.
  */
 
@@ -36,5 +36,5 @@ export default async function* fileTimes(source: AsyncIterable<TestEvent>): Asyn
       times.set(spec, (times.get(spec) ?? 0) + event.data.details.duration_ms);
     }
   }
-  yield `${JSON.stringify(Object.fromEntries([...times].map(([spec, ms]) => [spec, Math.round(ms)])), null, 1)}\n`;
+  yield `${JSON.stringify({ [process.platform]: Object.fromEntries([...times].map(([spec, ms]) => [spec, Math.round(ms)])) }, null, 1)}\n`;
 }

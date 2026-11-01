@@ -4,15 +4,15 @@
  */
 
 /**
- * CI's integration shards (#1466): the specs split by recorded time, every spec
- * in one shard, the shards level, and a spec with no time recorded counted as
- * the median.
+ * CI's integration shards (#1466): the specs split by recorded time — each
+ * system's by its own — every spec in one shard, the shards level, and a spec
+ * with no time recorded counted as the median.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
-import { splitSpecs } from './shard.js';
+import { readdirSync } from 'node:fs';
+import { TIMINGS, splitSpecs } from './shard.js';
 
 describe('the integration shards', () => {
   it('split by recorded time: longest first, each to the shard with the least so far, an unrecorded spec as the median, each shard in the order given', () => {
@@ -26,12 +26,14 @@ describe('the integration shards', () => {
     assert.deepEqual(splitSpecs(specs, 1, timings), [specs], 'one shard runs every spec, in the order given');
   });
 
-  it('split the specs CI runs into four level shards, every spec in one, each recorded spec a spec of this package', () => {
+  it('split the specs CI runs into four level shards by the times of the system it runs on, every spec in one, each recorded spec a spec of this package', () => {
     const specs = readdirSync(new URL('.', import.meta.url)).filter((name) => name.endsWith('.spec.js')).map((name) => `dist/${name}`);
     const shards = splitSpecs(specs, 4);
     assert.deepEqual(shards.flat().sort(), [...specs].sort());
-    const timings = JSON.parse(readFileSync(new URL('../integration.timings.json', import.meta.url), 'utf8')) as Record<string, number>;
-    assert.deepEqual(Object.keys(timings).filter((spec) => !specs.includes(spec)), [], 'no recorded spec is gone');
+    for (const [system, recorded] of Object.entries(TIMINGS)) {
+      assert.deepEqual(Object.keys(recorded).filter((spec) => !specs.includes(spec)), [], `no spec ${system} recorded is gone`);
+    }
+    const timings = TIMINGS[process.platform] ?? {};
     const recorded = Object.values(timings).sort((a, b) => a - b);
     const timeOf = (spec: string) => timings[spec] ?? recorded[Math.floor(recorded.length / 2)]!;
     const times = shards.map((shard) => shard.reduce((sum, spec) => sum + timeOf(spec), 0));

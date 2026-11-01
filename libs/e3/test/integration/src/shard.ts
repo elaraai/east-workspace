@@ -13,20 +13,23 @@
  *
  * run from the package whose specs they are: the specs given, or those the
  * glob finds there (as a package's test script names them, so a spec in a new
- * directory is never left out), and their times `integration.timings.json`'s,
- * or the file's — e3-core's `spec.timings.json`.
+ * directory is never left out), and their times those of the system it runs on
+ * (`process.platform`) in `integration.timings.json`, or in the file —
+ * e3-core's `spec.timings.json`.
  */
 
 import { globSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+/** Recorded times, in ms, by system (`process.platform`), then by spec path. */
+export type Timings = Readonly<Record<string, Readonly<Record<string, number>>>>;
+
 /**
- * The integration specs' recorded times, in ms, by their paths from this
- * package: `integration.timings.json`, which `dist/spec-timings.js` writes from
- * the reports of a CI run.
+ * The integration specs' recorded times: `integration.timings.json`, which
+ * `dist/spec-timings.js` writes from the reports of a CI run.
  */
-const TIMINGS = JSON.parse(readFileSync(new URL('../integration.timings.json', import.meta.url), 'utf8')) as Record<string, number>;
+export const TIMINGS = JSON.parse(readFileSync(new URL('../integration.timings.json', import.meta.url), 'utf8')) as Timings;
 
 /**
  * Splits the specs into shards of equal recorded time: longest first, each to
@@ -36,10 +39,10 @@ const TIMINGS = JSON.parse(readFileSync(new URL('../integration.timings.json', i
  *
  * @param specs - The compiled specs, by their paths from this package
  * @param count - How many shards
- * @param timings - The recorded times, in ms, by path
+ * @param timings - The recorded times, in ms, by path: this system's, by default
  * @returns Each shard's specs, in the order given
  */
-export function splitSpecs(specs: readonly string[], count: number, timings: Readonly<Record<string, number>> = TIMINGS): string[][] {
+export function splitSpecs(specs: readonly string[], count: number, timings: Readonly<Record<string, number>> = TIMINGS[process.platform] ?? {}): string[][] {
   const recorded = Object.values(timings).sort((a, b) => a - b);
   const median = recorded.length > 0 ? recorded[Math.floor(recorded.length / 2)]! : 1;
   const order = specs.map((spec, index) => ({ spec, index, ms: timings[spec] ?? median }))
@@ -71,6 +74,6 @@ if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(
   const pattern = options.get('glob');
   const specs = pattern === undefined ? listed : globSync(pattern).map((spec) => spec.replaceAll('\\', '/')).sort();
   const file = options.get('timings');
-  const timings = file === undefined ? TIMINGS : JSON.parse(readFileSync(file, 'utf8')) as Record<string, number>;
-  console.log(splitSpecs(specs, total, timings)[shard - 1]!.join('\n'));
+  const timings = file === undefined ? TIMINGS : JSON.parse(readFileSync(file, 'utf8')) as Timings;
+  console.log(splitSpecs(specs, total, timings[process.platform] ?? {})[shard - 1]!.join('\n'));
 }
