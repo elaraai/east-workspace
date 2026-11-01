@@ -65,7 +65,7 @@ test:
 
 ## The CI groups together run every package's tests once, each over what is
 ## built, never building first (#1466): `components`; `ir`, east-ui's and
-## e3-ui's; `node`, the e3 renderer's Node specs; `showcase`, the showcase
+## e3-ui's, side by side, since neither keeps a runner's cores busy alone; `node`, the e3 renderer's Node specs; `showcase`, the showcase
 ## package's; `e3-components`, the renderer's Vitest files, sharded; `rest`,
 ## every other package, the CLI's specs among them, which read the renderers'
 ## declarations; and `queries`, the CLI's query-equivalence spec, which CI asks
@@ -95,8 +95,12 @@ ifeq ($(GROUP),e3-components)
 else ifeq ($(GROUP),components)
 	pnpm --filter @elaraai/east-ui-components run test
 else ifeq ($(GROUP),ir)
-	pnpm --filter @elaraai/east-ui run test:built
-	pnpm --filter @elaraai/e3-ui run test
+	@logs=$$(mktemp -d); \
+	pnpm --filter @elaraai/east-ui run test:built > $$logs/east-ui.log 2>&1 & east=$$!; \
+	pnpm --filter @elaraai/e3-ui run test > $$logs/e3-ui.log 2>&1; e3=$$?; \
+	wait $$east; east=$$?; \
+	cat $$logs/east-ui.log $$logs/e3-ui.log; rm -rf $$logs; \
+	exit $$((east | e3))
 else ifeq ($(GROUP),node)
 	pnpm --filter @elaraai/e3-ui-components run test:node
 else ifeq ($(GROUP),showcase)
