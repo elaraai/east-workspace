@@ -662,10 +662,11 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         // A phone zooms into type under 16 px.
         _coarse: { fontSize: "16px" },
     },
-    // The popover a tap opens the field in below 480px of main, anchored to its cell.
+    // The popover a tap opens the field in below 480px of main, anchored to its cell: the design system's smallest, xs
+    // 240 — the width the frame's bounds weigh before it is drawn (`frameBounds`) the width it is drawn at.
     tableCellPopover: {
         padding: "8px",
-        width: "160px",
+        width: "240px",
     },
     // Why its text was refused: under the field, on the surface, in the neg tone.
     tableCellRefusal: {

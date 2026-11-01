@@ -1497,8 +1497,9 @@ A table position its row says takes a typed number (`edits.values`, each
 React (`plan/edit/typing.ts`); a table row (`rows/TableRow.tsx`) draws it only
 while it holds it, over the cell's column (`rows/CellInput.tsx`: the Sheet's
 number field, the Plan recipe's `tableCellInput` slots), or below 480px of
-main in a popover anchored to the cell, kept inside the builder's frame while
-it fits (east-ui-components' `frameBounds`, #1393). Its bounds are made as Zag
+main in a popover anchored to the cell — the design system's smallest, xs 240
+wide — kept inside the builder's frame while it fits (east-ui-components'
+`frameBounds`, #1393). Its bounds are made as Zag
 places it (`boundary` a function): Zag copies the positioning it is given as
 it renders, which would keep what they read before the popover was there —
 the page's.

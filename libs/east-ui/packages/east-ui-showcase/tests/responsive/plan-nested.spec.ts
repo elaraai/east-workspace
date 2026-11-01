@@ -307,6 +307,10 @@ function defineChecks(theme: "light" | "dark", tag: "@desktop" | "@mobile"): voi
             expect(popoverBox!.x, "the popover's left edge, inside the frame").toBeGreaterThanOrEqual(frameBox!.x);
             expect(popoverBox!.x + popoverBox!.width, "the popover's right edge, inside the frame").toBeLessThanOrEqual(frameBox!.x + frameBox!.width);
             expect(same(fieldBox!.height, 32)).toBe(true);
+            // The design system's smallest popover, xs 240, drawn at the width its styles give it: the width the frame's
+            // bounds weigh before it is drawn.
+            const [drawn, styled] = await popover.evaluate((el) => [el.getBoundingClientRect().width, el.computedStyleMap().get("width")?.toString()] as const);
+            expect([Math.round(drawn), styled]).toEqual([240, "240px"]);
         } else {
             // Over the cell, at its width and the row's height.
             expect(same(fieldBox!.x, cellBox!.x) && same(fieldBox!.width, cellBox!.width)).toBe(true);
