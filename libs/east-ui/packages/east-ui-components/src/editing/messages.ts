@@ -20,6 +20,12 @@
 
 import type { Formatters } from "../format/index.js";
 
+/** A name as a person reads it: `maxWeeklyHours` and `max_weekly_hours` read `Max weekly hours`. */
+export function sentenceOf(name: string): string {
+    const words = name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase();
+    return words.length === 0 ? name : words[0]!.toUpperCase() + words.slice(1);
+}
+
 /** The history bar's states that say something. */
 export type EditHistoryWord = "stale" | "carrying" | "applying" | "unknown" | "reconciling" | "rejected" | "conflict";
 
@@ -128,6 +134,12 @@ export interface EditingMessages {
     conflictYes: () => string;
     /** A flag not set. */
     conflictNo: () => string;
+    /**
+     * A field of an entry, as a conflict's card names it — the collection's
+     * own name for it, as its side panel shows it (`Column span`); by default
+     * the field's name as a sentence (`maxWeeklyHours` reads `Max weekly hours`).
+     */
+    conflictField: (p: { field: string }) => string;
     /** A list's item, counting from one — `Item 3`. */
     conflictItem: (p: { n: number; count: string }) => string;
     /** A list's size — `12 items`. */
@@ -233,6 +245,7 @@ export const editingMessages: EditingMessages = {
     conflictNone: () => "None",
     conflictYes: () => "Yes",
     conflictNo: () => "No",
+    conflictField: ({ field }) => sentenceOf(field),
     conflictItem: ({ count }) => `Item ${count}`,
     conflictItems: ({ n, count }) => `${count} ${plural(n, "item", "items")}`,
     conflictEntries: ({ n, count }) => `${count} ${plural(n, "entry", "entries")}`,

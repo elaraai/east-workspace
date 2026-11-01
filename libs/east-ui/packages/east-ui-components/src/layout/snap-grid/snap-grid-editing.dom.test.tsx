@@ -731,7 +731,7 @@ describe("an Apply a screen asks for (#998)", () => {
         expect(canvas.applies).toHaveLength(0);
     }, 30_000);
 
-    test("a tile changed here and otherwise by another write is a conflict: the frame's banner says so, and its Choose opens the card, which names the tile as the page shows it", async () => {
+    test("a tile changed here and otherwise by another write is a conflict: the frame's banner says so, and its Choose opens the card, which names the tile as the page shows it and its span as a side panel does", async () => {
         const canvas = await mountSnapGrid({ applies: true });
         const c = canvas.container;
         await clickTile(c, "trend");
@@ -742,6 +742,7 @@ describe("an Apply a screen asks for (#998)", () => {
         await act(async () => { fireEvent.click(c.querySelector('[data-session-banner="conflicts"] [data-banner-action="choose"]')!); });
         await waitFor(() => expect(document.querySelectorAll("[data-conflict-card]")).toHaveLength(1));
         expect(document.querySelector("[data-conflict-card] [data-conflict-item]")!.textContent).toBe("Revenue trend");
+        expect(document.querySelector("[data-conflict-card] [data-conflict-label]")!.textContent).toBe("Column span");
     }, 30_000);
 
     test("a tile holding a conflict not yet chosen wears the warn ring, and no other tile does; choosing takes it off, and Undo puts it back", async () => {

@@ -91,6 +91,8 @@ export interface SnapGridMessages extends EditingMessages {
 /** The SnapGrid's English messages — the default table. */
 export const snapGridMessages: SnapGridMessages = {
     ...editingMessages,
+    // A tile's span, as a builder's side panel names it; its other fields read as they are named.
+    conflictField: ({ field }) => (field === "span" ? "Column span" : editingMessages.conflictField({ field })),
     canvasLabel: () => "Page layout",
     endZoneRest: () => "Drag from the library · new 12-col row",
     endZoneDragging: () => "Drop between rows, beside a tile, or here",

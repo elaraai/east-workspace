@@ -18,7 +18,7 @@
  */
 import { DateTimeType, StringType, equalFor, parseFor, printFor, toEastTypeValue, type EastType, type PatchPath, type option, type variant } from "@elaraai/east";
 import { isDraftField } from "./merge.js";
-import type { EditingWords } from "./messages.js";
+import { sentenceOf, type EditingWords } from "./messages.js";
 import type { ConflictRange } from "./session.js";
 
 const textEqual = equalFor(StringType);
@@ -83,12 +83,6 @@ export interface ConflictValues {
 /** A step down to a part, in words: a field's, an item's or a key's, or a choice's. */
 interface Step { readonly kind: "field" | "item" | "choice"; readonly words: string }
 
-/** A name as a person reads it: `maxWeeklyHours` and `max_weekly_hours` read `Max weekly hours`. */
-export function sentenceOf(name: string): string {
-    const words = name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase();
-    return words.length === 0 ? name : words[0]!.toUpperCase() + words.slice(1);
-}
-
 /** Whether a type is an option: none, or some value — a wrapper of its value, no step a person reads. */
 function isOption(type: EastType): boolean {
     return type.type === "Variant" && Object.keys(type.cases).length === 2 && "none" in type.cases && "some" in type.cases;
@@ -114,7 +108,7 @@ function walk(draftType: EastType, value: option<unknown>, at: PatchPath, words:
     for (const segment of at) {
         switch (segment.kind) {
             case "field": {
-                steps.push({ kind: "field", words: sentenceOf(segment.name) });
+                steps.push({ kind: "field", words: words.m.conflictField({ field: segment.name }) });
                 const next: EastType | undefined = type?.type === "Struct" ? type.fields[segment.name] : undefined;
                 held = held === undefined || next === undefined ? undefined : { held: (held.held as Record<string, unknown>)[segment.name] };
                 type = next;
@@ -193,7 +187,7 @@ function describe(type: EastType | undefined, value: { readonly held: unknown } 
         case "Recursive": return m.conflictTree();
         case "Struct": {
             // A block reads as its first fields.
-            const fields = Object.entries(type.fields).map(([name, field]) => `${sentenceOf(name)}: ${describe(field, { held: (held as Record<string, unknown>)[name] }, words, full)}`);
+            const fields = Object.entries(type.fields).map(([name, field]) => `${m.conflictField({ field: name })}: ${describe(field, { held: (held as Record<string, unknown>)[name] }, words, full)}`);
             return fields.length > 3 ? `${fields.slice(0, 3).join(" · ")} · …` : fields.join(" · ");
         }
         case "Variant": {

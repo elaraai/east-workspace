@@ -18,7 +18,8 @@ import {
 } from "@elaraai/east";
 import { EditingDraftTypeFor } from "@elaraai/east-ui/internal";
 import { formatters } from "../format/index.js";
-import { conflictViewOf, rangeViewOf, sentenceOf } from "./conflict-view.js";
+import { conflictViewOf, rangeViewOf } from "./conflict-view.js";
+import { sentenceOf } from "./messages.js";
 import { liftDraft } from "./draft.js";
 import { EntryMerger } from "./merge.js";
 import { editingMessages, type EditingWords } from "./messages.js";

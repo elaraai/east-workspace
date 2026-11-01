@@ -536,7 +536,7 @@ export function ConflictsControl<W>({ session, words, onIssue, where, item, issu
         return (
             <Box key={card.key} css={styles.card} data-conflict-card="" data-conflict-seq={seq} data-waiting={card.choice === undefined ? "" : undefined} {...track}>
                 {head(card, itemId)}
-                {label.length > 0 && <Box id={labelId} css={styles.label}>{label.join(" · ")}</Box>}
+                {label.length > 0 && <Box id={labelId} css={styles.label} data-conflict-label="">{label.join(" · ")}</Box>}
                 <Box role="radiogroup" aria-labelledby={label.length > 0 ? `${itemId} ${labelId}` : itemId} css={styles.choices}>
                     {choiceRow(card, seq, "draft")}
                     {choiceRow(card, seq, "source")}
