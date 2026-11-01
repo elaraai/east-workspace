@@ -83,7 +83,7 @@ make test      # run all tests
 make lint      # lint everything
 ```
 
-See [`docs/conventions/MAKEFILE_TARGETS.md`](docs/conventions/MAKEFILE_TARGETS.md) for the full target list. The monorepo ships under one unified version via the manual `Release` workflow ([`.github/workflows/release.yml`](.github/workflows/release.yml)) — npm, PyPI, the VS Code extension, and native C binaries in a single run.
+See [`docs/conventions/MAKEFILE_TARGETS.md`](docs/conventions/MAKEFILE_TARGETS.md) for the full target list. The monorepo ships under one unified version via the manual `Release` workflow ([`.github/workflows/release.yml`](.github/workflows/release.yml)) — npm, PyPI and native C binaries in a single run.
 
 ## Agent plugins
 
@@ -131,7 +131,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [CLA.md](CLA.md). Contributors sign t
   - [east-py-cli](https://pypi.org/project/east-py-cli/): CLI for running East IR programs in Python
   - [east-py-datascience](https://pypi.org/project/east-py-datascience/) (PyPI) + [@elaraai/east-py-datascience](https://www.npmjs.com/package/@elaraai/east-py-datascience) (npm): Optimization (MADS, Optuna, ALNS, GoogleOR), ML (XGBoost, LightGBM, NGBoost, PyTorch, Lightning, GP), Bayesian inference (PyMC), explainability (SHAP), conformal prediction (MAPIE)
 
-- **[East UI](https://github.com/elaraai/east-workspace/tree/main/libs/east-ui)**: Typed UI component definitions and React renderer, plus VS Code preview.
+- **[East UI](https://github.com/elaraai/east-workspace/tree/main/libs/east-ui)**: Typed UI component definitions and React renderer.
   - [@elaraai/east-ui](https://www.npmjs.com/package/@elaraai/east-ui): 50+ typed UI components for layouts, forms, charts, tables, dialogs
   - [@elaraai/east-ui-components](https://www.npmjs.com/package/@elaraai/east-ui-components): React renderer with Chakra UI v3 styling
   - [@elaraai/e3-ui](https://www.npmjs.com/package/@elaraai/e3-ui): e3 + UI bridge — Data bindings, `e3.ui()` task, manifest

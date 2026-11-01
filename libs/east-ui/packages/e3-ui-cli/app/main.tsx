@@ -163,7 +163,7 @@ function App(): ReactNode {
     }
     if (payload.kind === 'task') {
         // Live e3 task: fetch the already-computed output + bound datasets and
-        // render via the same TaskPreview the VS Code extension uses.
+        // render them with e3-ui-components' TaskPreview.
         return (
             <E3Provider config={{ apiUrl: payload.apiUrl, repo: payload.repo, workspace: payload.workspace }}>
                 <ReactiveDatasetProvider>

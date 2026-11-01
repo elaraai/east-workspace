@@ -7,7 +7,7 @@
  * Paged-preview page retention: loaded pages hold fully materialized
  * ValueTree rows (measured ~10-20MB of heap per 500-row window on
  * GB-scale wide-row datasets), so retention must stay bounded around the
- * current window — unbounded accumulation OOMs the extension webview, and
+ * current window — unbounded accumulation OOMs the page, and
  * re-flattening every retained page on each arrival is what made
  * scrolling degrade over time.
  *

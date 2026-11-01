@@ -2,7 +2,7 @@
 Canonical Ecosystem block — copy verbatim into READMEs that include a cross-link section.
 Source of truth. Update here, then mirror manually into each README.
 
-Covers every published package across the monorepo: npm + PyPI + VS Marketplace + native binary releases.
+Covers every published package across the monorepo: npm + PyPI + native binary releases.
 -->
 
 ### Ecosystem
@@ -27,7 +27,7 @@ Covers every published package across the monorepo: npm + PyPI + VS Marketplace 
   - [east-py-cli](https://pypi.org/project/east-py-cli/): CLI for running East IR programs in Python
   - [east-py-datascience](https://pypi.org/project/east-py-datascience/) (PyPI) + [@elaraai/east-py-datascience](https://www.npmjs.com/package/@elaraai/east-py-datascience) (npm): Optimization (MADS, Optuna, ALNS, GoogleOR), ML (XGBoost, LightGBM, NGBoost, PyTorch, Lightning, GP), Bayesian inference (PyMC), explainability (SHAP), conformal prediction (MAPIE)
 
-- **[East UI](https://github.com/elaraai/east-workspace/tree/main/libs/east-ui)**: Typed UI component definitions and React renderer, plus VS Code preview.
+- **[East UI](https://github.com/elaraai/east-workspace/tree/main/libs/east-ui)**: Typed UI component definitions and React renderer.
   - [@elaraai/east-ui](https://www.npmjs.com/package/@elaraai/east-ui): 50+ typed UI components for layouts, forms, charts, tables, dialogs
   - [@elaraai/east-ui-components](https://www.npmjs.com/package/@elaraai/east-ui-components): React renderer with Chakra UI v3 styling
   - [@elaraai/e3-ui](https://www.npmjs.com/package/@elaraai/e3-ui): e3 + UI bridge — Data bindings, `e3.ui()` task, manifest

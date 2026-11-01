@@ -26,13 +26,10 @@
  * ```
  *
  * @remarks
- * Why a separate subpath?
- *  - Node test runners (`node --import tsx --test`) lack a CSS loader and
- *    cannot resolve `.css` files; importing this from `src/index.ts` would
- *    break every transitive test consumer.
- *  - VS Code extension webviews CSP `font-src ${cspSource}` blocks the
- *    Google Fonts CDN, so self-hosting is the only viable option for the
- *    extension. This module is the canonical way to register them.
+ * Why a separate subpath? Node test runners (`node --import tsx --test`)
+ * lack a CSS loader and cannot resolve `.css` files; importing this from
+ * `src/index.ts` would break every transitive test consumer. This module is
+ * the canonical way to register the fonts.
  *
  * The library build externalises `@fontsource-variable/*` (see
  * `vite.config.ts`) so each consuming app's Vite/Rollup resolves the

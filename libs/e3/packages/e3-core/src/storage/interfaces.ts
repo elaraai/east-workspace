@@ -7,8 +7,8 @@
  * Storage abstraction interfaces for e3 repositories.
  *
  * These interfaces enable e3-core logic to work against different backends:
- * - `LocalStorage`: a repository directory on a filesystem — the CLI, the API
- *   server and the VS Code extension
+ * - `LocalStorage`: a repository directory on a filesystem — the CLI and the
+ *   API server
  * - `InMemoryStorage`: maps in memory, for tests
  * - the cloud's backend, S3 objects and DynamoDB refs, in `elaraai/e3-cloud`
  *
