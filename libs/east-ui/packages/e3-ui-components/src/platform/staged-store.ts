@@ -292,6 +292,8 @@ export class StagedStore implements StagedStoreInterface {
     private adapter: StagedPersistenceAdapter;
     private hydrated: Promise<void>;
     private inFlight: Set<Promise<void>> = new Set();
+    /** A wipe of what is persisted, in flight: what flushes the store waits for it, and it waits on the writes alone. */
+    private wiping: Promise<void> | undefined;
     // Per-key persistence chain — serializes save/remove for a key so they
     // land in IndexedDB in call order (last write wins) instead of racing.
     private saveChains: Map<string, Promise<void>> = new Map();
@@ -311,9 +313,9 @@ export class StagedStore implements StagedStoreInterface {
 
     async flushPending(): Promise<void> {
         // Snapshot the in-flight set; new writes during await are tolerated
-        // by re-checking until idle.
-        while (this.inFlight.size > 0) {
-            await Promise.all([...this.inFlight]);
+        // by re-checking until idle. A wipe in flight is waited for too.
+        while (this.inFlight.size > 0 || this.wiping !== undefined) {
+            await Promise.all([...this.inFlight, ...(this.wiping === undefined ? [] : [this.wiping])]);
         }
     }
 
@@ -409,16 +411,22 @@ export class StagedStore implements StagedStoreInterface {
         for (const key of new Set(keys.map(cacheKeyOf))) this.notify(key);
         // Drain in-flight saves/removes before wiping persistence, so a save
         // that lands after the wipe can't resurrect a discarded entry. The wipe
-        // is in flight itself: what flushes the store waits for it.
-        const wiped: Promise<void> = this.flushPending().then(() => this.adapter.clear()).then(
+        // is in flight itself, apart from the writes: what flushes the store
+        // waits for it, and it waits on the writes alone — never on itself.
+        const wiping: Promise<void> = this.drainWrites().then(() => this.adapter.clear()).then(
             () => undefined,
             (err: unknown) => { this.emitPersistError("", err); },
-        ).then(() => { this.inFlight.delete(wiped); });
-        this.inFlight.add(wiped);
-        return wiped;
+        ).then(() => { if (this.wiping === wiping) this.wiping = undefined; });
+        this.wiping = wiping;
+        return wiping;
     }
 
     // ----- internals -------------------------------------------------------
+
+    /** Waits for every save and remove in flight, those started meanwhile too. */
+    private async drainWrites(): Promise<void> {
+        while (this.inFlight.size > 0) await Promise.all([...this.inFlight]);
+    }
 
     /** The key a path's entry is held under in the current scope. */
     private keyOf(workspace: string, path: TreePath): string {
