@@ -6,8 +6,11 @@
  * the same job, and shards of equal counts are not of equal time: one took 10
  * minutes where another took 18 (#1466). Split its discovered tests by the
  * times CI recorded instead (`responsive.timings.json`), preserving project
- * filters and using the public --test-list format for execution. Tests remain
- * independent (fullyParallel); read-only fixture batches stay inside one test.
+ * filters and using the public --test-list format for execution. A spec file's
+ * tests, at a project, go to one job together where they fit: a job's kept page
+ * (`tests/responsive/kept-page.ts`) serves them one after another, and loads the
+ * showcase once a file. Tests remain independent (fullyParallel); read-only
+ * fixture batches stay inside one test.
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -87,22 +90,79 @@ export function testTimes(timings: Readonly<Record<string, number>> = TIMINGS): 
     return test => timings[testIdentity(test)] ?? median;
 }
 
+/** A listed test's spec file at its project: the tests a worker's kept page serves one after another. */
+export function testFile(test: string): string {
+    return /^(\[[^\]]+\] › [^:]+):\d+:\d+ › /.exec(test)?.[1] ?? testIdentity(test);
+}
+
+/** A listed test, where it was listed, and its share of a job. */
+interface Timed {
+    readonly test: string;
+    readonly index: number;
+    readonly ms: number;
+}
+
+/** A run of tests' time. */
+const timeOfRun = (run: readonly Timed[]): number => run.reduce((sum, entry) => sum + entry.ms, 0);
+
 /**
- * Splits the tests into jobs of equal recorded time: longest first, each to
- * the job with the least time so far, ties by identity, so every job works the
- * same split out. Each job keeps its tests in their listed order.
+ * A run of consecutive tests cut into `parts` runs at most, each ending where
+ * the time so far is nearest its share of the whole, none empty.
+ */
+function cutRun(run: readonly Timed[], parts: number): Timed[][] {
+    if (parts <= 1 || run.length <= 1) return [[...run]];
+    const whole = timeOfRun(run);
+    const runs: Timed[][] = [];
+    let current: Timed[] = [];
+    let sofar = 0;
+    for (const entry of run) {
+        const boundary = (whole * (runs.length + 1)) / parts;
+        if (current.length > 0 && runs.length < parts - 1 && Math.abs(sofar - boundary) <= Math.abs(sofar + entry.ms - boundary)) {
+            runs.push(current);
+            current = [];
+        }
+        current.push(entry);
+        sofar += entry.ms;
+    }
+    runs.push(current);
+    return runs;
+}
+
+/**
+ * Splits the tests into jobs of equal recorded time, a spec file's tests at a
+ * project together where they fit. A file of more than a job's share is cut
+ * into runs of consecutive tests, and while there are fewer runs than jobs the
+ * longest that holds more than one test is cut in two. The runs go longest
+ * first, each to the job with the least time so far, ties by their first test's
+ * identity, so every job works the same split out. Each job keeps its tests in
+ * their listed order.
  */
 export function splitShards(tests: readonly string[], total: number, timings?: Readonly<Record<string, number>>): string[][] {
     const timeOf = testTimes(timings);
-    const order = tests.map((test, index) => ({ test, index, ms: timeOf(test), identity: testIdentity(test) }))
-        .sort((a, b) => b.ms - a.ms || (a.identity < b.identity ? -1 : a.identity > b.identity ? 1 : 0));
+    const files = new Map<string, Timed[]>();
+    for (const [index, test] of tests.entries()) {
+        const file = testFile(test);
+        const run = files.get(file) ?? [];
+        run.push({ test, index, ms: timeOf(test) });
+        files.set(file, run);
+    }
+    const share = tests.reduce((sum, test) => sum + timeOf(test), 0) / total;
+    const runs = [...files.values()].flatMap(run => cutRun(run, share > 0 ? Math.ceil(timeOfRun(run) / share) : 1));
+    const identity = (run: readonly Timed[]) => testIdentity(run[0]!.test);
+    const longestFirst = (a: readonly Timed[], b: readonly Timed[]) =>
+        timeOfRun(b) - timeOfRun(a) || (identity(a) < identity(b) ? -1 : identity(a) > identity(b) ? 1 : 0);
+    while (runs.length < total) {
+        const longest = runs.filter(run => run.length > 1).sort(longestFirst)[0];
+        if (longest === undefined) break;
+        runs.splice(runs.indexOf(longest), 1, ...cutRun(longest, 2));
+    }
     const times = Array.from({ length: total }, () => 0);
-    const jobs: { test: string; index: number }[][] = Array.from({ length: total }, () => []);
-    for (const entry of order) {
+    const jobs: Timed[][] = Array.from({ length: total }, () => []);
+    for (const run of runs.sort(longestFirst)) {
         let least = 0;
         for (let job = 1; job < total; job++) if (times[job]! < times[least]!) least = job;
-        times[least]! += entry.ms;
-        jobs[least]!.push(entry);
+        times[least]! += timeOfRun(run);
+        jobs[least]!.push(...run);
     }
     return jobs.map(job => job.sort((a, b) => a.index - b.index).map(entry => entry.test));
 }
