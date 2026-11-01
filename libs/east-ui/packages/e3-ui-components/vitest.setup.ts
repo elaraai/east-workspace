@@ -61,10 +61,13 @@ afterEach(() => {
 });
 
 // Each test opens a fresh page: what east-ui-components' kept state holds in the page goes, as storage's clearing takes
-// what it stored. Loaded at the first test, after the realm above is set.
-beforeEach(async () => {
+// what it stored, and a test is a tab of its own: what an earlier test's sessions kept in the tab's storage is not its.
+// Only a DOM test has a page. There east-ui-components is loaded here, after the realm above is set — never in the hook,
+// whose ten seconds a cold load on a busy runner ran past — and a Node test loads nothing more.
+if (typeof window !== "undefined") {
     const { resetKept } = await import("@elaraai/east-ui-components/internal");
-    resetKept();
-    // A test is a tab of its own: what an earlier test's sessions kept in the tab's storage is not its.
-    if (typeof sessionStorage !== "undefined") sessionStorage.clear();
-});
+    beforeEach(() => {
+        resetKept();
+        sessionStorage.clear();
+    });
+}
