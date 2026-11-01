@@ -82,6 +82,17 @@ jobs:
           node-version: 22
           cache: "pnpm"
 
+      # Node's compile cache for every process the job starts, the e3 CLI and
+      # each runner among them (#1466); and on Windows the temporary files on
+      # the drive the checkout is on, D:, rather than C:.
+      - name: Point Node's compile cache and the temporary files at the runner's disk
+        run: |
+          echo "NODE_COMPILE_CACHE=$RUNNER_TEMP/node-compile-cache" >> "$GITHUB_ENV"
+          if [ "$RUNNER_OS" = Windows ]; then
+            echo "TEMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+            echo "TMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+          fi
+
       - name: Set up MSVC (Windows)
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
@@ -154,9 +165,9 @@ jobs:
           # east-py-cli + core + std for tests that pin `runner: { runtime:
           # 'east-py', ... }`. io + datascience extras are intentionally
           # omitted: their optional ML/DB deps don't build everywhere, and
-          # no e3 test under this matrix needs them.
+          # no e3 test under this matrix needs them. The tool's environment is
+          # its own: no test reads the workspace's .venv, so none is synced.
           cd libs/east-py
-          uv sync --all-packages
           uv tool install --force --editable packages/east-py-cli \
             --with-editable ./packages/east-py \
             --with-editable ./packages/east-py-std
