@@ -600,13 +600,18 @@ class _Skeleton:
       keeps for the first of them where it is free and suffixes for every
       other — ``__2``, ``__3``…, which are no hints one copy further out;
     - ``stacks``: its expansion's location stacks in the order a copy
-      interns them (post-order, labels after their node, as ``_rehome_ir``).
+      interns them (post-order, labels after their node, as ``_rehome_ir``);
+    - ``calls``: its expansion's ``Platform`` nodes, the first of each name,
+      in the order a walk of the expansion meets them — what
+      ``East.platform_dependencies`` reads, as an export does before it
+      expands the function.
 
-    The last three are read on the function's first embed: a function no
-    build calls never walks for them."""
+    ``unnamed``, ``underscores`` and ``stacks`` are read on the function's
+    first embed, and ``calls`` when its platform functions are asked for: a
+    function no build calls never walks for them."""
 
     __slots__ = ("root", "references", "source_map", "effectful", "platforms", "final",
-                 "_names", "_stacks")
+                 "_names", "_stacks", "_calls")
 
     def __init__(self, root: Any, references: dict[int, _Reference], source_map: Any,
                  effectful: bool, platforms: tuple, final: Any = None) -> None:
@@ -618,6 +623,7 @@ class _Skeleton:
         self.final = final
         self._names: tuple[int, int] | None = None
         self._stacks: tuple | None = None
+        self._calls: dict[str, Any] | None = None
 
     @property
     def unnamed(self) -> int:
@@ -636,6 +642,12 @@ class _Skeleton:
         if self._stacks is None:
             self._stacks = _stacks(self.root, self.references, self.source_map)
         return self._stacks
+
+    @property
+    def calls(self) -> dict[str, Any]:
+        if self._calls is None:
+            self._calls = _calls(self.root)
+        return self._calls
 
 
 def _binders(node: Any) -> Any:
@@ -730,6 +742,50 @@ def _stacks(root: Any, references: dict[int, _Reference], source_map: Any) -> tu
     try:
         visit(root)
         return tuple(stacks)
+    finally:
+        seen.clear()  # freed now, not by the cyclic collector (see _arrayify_tree)
+
+
+def _calls(root: Any) -> dict[str, Any]:
+    """The function's expansion's ``Platform`` nodes by name, the first of each
+    (``_Skeleton``), met as ``functions._walk`` meets them in the expansion: a
+    node, then its fields in order but its type, location and type
+    parameters. A reference's copy stands at its body, which holds the
+    callee's, in the callee's order."""
+    from east.types.values import is_east_array, is_east_struct, is_east_variant
+
+    calls: dict[str, Any] = {}
+    # id -> node: a subtree met again holds no call not met already; kept alive (see _listify)
+    seen: dict[int, Any] = {}
+
+    def walk(node: Any) -> None:
+        if id(node) in seen:
+            return
+        seen[id(node)] = node
+        if isinstance(node, _Callee):
+            for name, call in node.skeleton.calls.items():
+                calls.setdefault(name, call)
+            return
+        if is_east_variant(node):
+            payload = node.value
+            if node.type == "Platform":
+                calls.setdefault(payload["name"], node)
+            if is_east_struct(payload):
+                for name, child in payload.items():
+                    if name not in ("type", "loc_id", "type_parameters"):
+                        walk(child)
+            return
+        if is_east_struct(node):
+            for _name, child in node.items():
+                walk(child)
+            return
+        if isinstance(node, (list, tuple)) or is_east_array(node):
+            for child in node:
+                walk(child)
+
+    try:
+        walk(root)
+        return calls
     finally:
         seen.clear()  # freed now, not by the cyclic collector (see _arrayify_tree)
 

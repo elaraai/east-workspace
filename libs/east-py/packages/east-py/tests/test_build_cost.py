@@ -9,7 +9,9 @@
   costs the same whatever the callee's size.
 - A call of a built function copies nothing: the caller's tree holds a
   reference, the same whatever the callee's size, and an export finalizes
-  each function it exports once and no function they call.
+  each function it exports once and no function they call. The platform
+  functions a built function calls, its callees' included, are read
+  without expanding it.
 - ``analyze_ir`` trusts only a closed function it was told was analyzed.
 - The passes over a build's tree leave no garbage that grows with the tree:
   each keeps a memo of every node it saw, which its recursive closure — a
@@ -21,16 +23,18 @@
 
 from __future__ import annotations
 
+import contextlib
 import gc
 import importlib
 import sys
 
 import pytest
 
-from east import East, IntegerType
+from east import East, IntegerType, NullType
 from east.expression import finalize
 from east.expression.finalize import (
     _arrayify_tree,
+    _calls,
     _expand,
     _finalized,
     _node_children,
@@ -129,6 +133,31 @@ def test_an_export_finalizes_what_it_exports_once_and_nothing_it_calls(monkeypat
         assert inner.resolve()._final is None and outer.resolve()._final is None
 
 
+def test_the_platform_functions_a_built_function_calls_are_read_without_expanding_it(monkeypatch):
+    shown = East.platform("t.cost_show", [IntegerType], NullType)
+    function = importlib.import_module("east.expression.function")
+
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("a function was expanded to read its platform functions")
+
+    for defer in (False, True):
+        with deferred_builds() if defer else contextlib.nullcontext():
+            @East.function([IntegerType], NullType)
+            def inner(b, x):
+                b.do(shown(x))
+
+            @East.function([IntegerType], NullType)
+            def outer(b, x):
+                b.do(inner(x + 1))
+
+            with monkeypatch.context() as m:
+                for name in ("_expand", "_expand_reference", "_arrayify_tree"):
+                    m.setattr(finalize, name, refuse)
+                m.setattr(function, "_finalized", refuse)
+                names = [d["name"] for d in East.platform_dependencies(outer)]
+            assert names == ["t.cost_show"], defer
+
+
 def test_the_analysis_trusts_only_a_closed_function_it_was_told_was_analyzed():
     fn_t = FunctionType([IntegerType], IntegerType)
     # its body reads `y`, which nothing binds
@@ -172,6 +201,7 @@ def test_the_passes_over_a_tree_leave_no_garbage_that_grows_with_it():
          (calling_large.root, calling_large.references)),
         (_stacks, (calling_small.root, calling_small.references, calling_small.source_map),
          (calling_large.root, calling_large.references, calling_large.source_map)),
+        (_calls, (calling_small.root,), (calling_large.root,)),
     ):
         assert _cyclic_garbage(pass_, *on_small) == _cyclic_garbage(pass_, *on_large), pass_.__name__
 

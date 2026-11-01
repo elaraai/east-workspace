@@ -207,6 +207,10 @@ def platform_dependencies(fn_or_ir: Any, providers: dict[str, str] | None = None
     signature and asyncness each ``Platform`` node carries. Unresolved imports
     (:data:`IMPORT_PLATFORM`) are not dependencies and are skipped.
 
+    A built function answers from its skeleton, where the platform calls of
+    the functions it calls are found without expanding it: an export asks
+    before it expands each function, which it does once (#1459).
+
     Args:
         fn_or_ir: An ``East.function`` artifact, expression, or IR value.
         providers: Platform name → the package that implements it, when known.
@@ -214,18 +218,24 @@ def platform_dependencies(fn_or_ir: Any, providers: dict[str, str] | None = None
     Returns:
         An ``EastArray`` of ``PlatformDependencyType`` values.
     """
-    ir = function_ir(fn_or_ir)
-    providers = providers or {}
-    seen: dict[str, Any] = {}
+    skeleton = None if is_east_variant(fn_or_ir) else getattr(fn_or_ir, "_east_skeleton", None)
+    if skeleton is not None:
+        calls = skeleton.calls
+    else:
+        calls = {}
 
-    def visit(node: Any) -> None:
-        if node.type != "Platform":
-            return
+        def visit(node: Any) -> None:
+            if node.type == "Platform":
+                calls.setdefault(node.value["name"], node)
+
+        _walk(function_ir(fn_or_ir), visit)
+    providers = providers or {}
+    dependencies: list[EastStruct] = []
+    for name, node in calls.items():
+        if name == IMPORT_PLATFORM:
+            continue
         p = node.value
-        name = p["name"]
-        if name == IMPORT_PLATFORM or name in seen:
-            return
-        seen[name] = EastStruct({
+        dependencies.append(EastStruct({
             "async": bool(p["async"]),
             "inputs": EastArray(EastTypeType, [a.value["type"] for a in p["arguments"]]),
             "name": name,
@@ -233,10 +243,8 @@ def platform_dependencies(fn_or_ir: Any, providers: dict[str, str] | None = None
             "output": p["type"],
             "provider": some(providers[name]) if name in providers else none,
             "type_parameters": EastArray(EastTypeType, list(p["type_parameters"])),
-        })
-
-    _walk(ir, visit)
-    return EastArray(PlatformDependencyType, list(seen.values()))
+        }))
+    return EastArray(PlatformDependencyType, dependencies)
 
 
 # ── export ───────────────────────────────────────────────────────────────────

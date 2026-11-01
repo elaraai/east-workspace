@@ -20,7 +20,7 @@ from east.runtime._compiler_eastc import diff_ir
 import east.expression.lift as lift
 from east import East, none, some, variant
 from east.expression.function import deferred_builds
-from east.functions import FunctionManifestType
+from east.functions import FunctionManifestType, PlatformDependencyType
 from east.types.types import (
     ArrayType,
     IntegerType,
@@ -37,6 +37,7 @@ Row = StructType([("id", StringType), ("qty", IntegerType)])
 Shape = VariantType([("circle", IntegerType), ("square", IntegerType)])
 log = East.platform("t.ref_log", [StringType], NullType)
 show = East.platform("t.ref_show", [IntegerType], NullType)
+tick = East.platform("t.ref_tick", [IntegerType], NullType)
 
 
 class _Hidden:
@@ -189,17 +190,24 @@ def effects():
 
 
 def platforms():
-    """A callee calling a platform function, after the caller's own."""
+    """Callees calling platform functions, one through a callee of its own,
+    before the caller's own call and after it."""
     @East.function([StringType], NullType)
     def shout(b, s):
         b.do(log(s.upper_case()))
 
+    @East.function([IntegerType], NullType)
+    def count(b, n):
+        b.do(tick(n))
+        b.do(shout(East.String.print(IntegerType, n)))
+
     def caller(b, s, n):
+        b.do(count(n))
         b.do(show(n))
         b.do(shout(s))
         b.do(shout(s + "!"))
 
-    return {"shout": shout, "top": East.function([StringType, IntegerType], NullType, caller)}
+    return {"shout": shout, "count": count, "top": East.function([StringType, IntegerType], NullType, caller)}
 
 
 def stdlib():
@@ -270,8 +278,16 @@ def test_a_reference_builds_the_ir_the_copy_built(program, monkeypatch):
         assert diff_ir(built._east_ir, other._east_ir, normalize=False) is None, name
         assert built._east_source_map.entries() == other._east_source_map.entries(), name
         assert getattr(built, "_east_platforms", ()) == getattr(other, "_east_platforms", ()), name
+        # read from the skeleton, and walked in the copy's final IR
+        assert equal_for(ArrayType(PlatformDependencyType))(
+            East.platform_dependencies(built), East.platform_dependencies(other._east_ir)), name
     assert equal_for(FunctionManifestType)(East.export_functions("p", "1", by_reference),
                                            East.export_functions("p", "1", copied))
+
+
+def test_a_built_function_names_its_callees_platform_functions_where_their_copies_stand():
+    top = platforms()["top"]
+    assert [d["name"] for d in East.platform_dependencies(top)] == ["t.ref_tick", "t.ref_log", "t.ref_show"]
 
 
 def test_what_the_functions_compute_is_what_the_copies_compute(monkeypatch):
