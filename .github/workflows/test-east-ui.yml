@@ -278,9 +278,9 @@ jobs:
         run: make check-apps
 
   # The showcase's bundle, for the browser shards alone (#1466), and the
-  # browser checks the change selects.
+  # browser checks the change selects: built from the start of the run, over a
+  # JavaScript build of its own, so the browser jobs need not wait on `build`.
   showcase:
-    needs: build
     name: showcase build
     outputs:
       responsive_count: ${{ steps.responsive.outputs.count }}
@@ -304,16 +304,69 @@ jobs:
           node-version: 22
           cache: "pnpm"
 
+      # The libraries east-ui builds on, as their sources, the lockfile and the
+      # root config built them: restored where none of those changed since, so
+      # a change to east-ui alone builds east-ui alone (#1466).
+      - name: Restore the dependencies' builds
+        id: deps
+        uses: actions/cache@v4
+        with:
+          key: east-ui-deps-${{ runner.os }}-node22-${{ hashFiles('libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/e3/**', 'libs/east-py/packages/east-py-datascience/**', 'libs/east-diagnostics/**', 'libs/eslint-plugin-east/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', '!**/node_modules/**', '!**/dist/**') }}
+          path: |
+            libs/east/dist
+            libs/east-node/packages/*/dist
+            libs/east-web/packages/*/dist
+            libs/e3/packages/*/dist
+            libs/e3/test/*/dist
+            libs/east-py/packages/east-py-datascience/dist
+            libs/east-diagnostics/dist
+            libs/eslint-plugin-east/dist
+
       - name: Install dependencies
         run: pnpm install
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: east-ui-build
-          path: ${{ runner.temp }}
+      - name: Build east (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: libs/east
+        run: make build
 
-      - name: Restore compiled workspaces
-        run: tar -xf "$RUNNER_TEMP/east-ui-build.tar"
+      - name: Build east-node (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: libs/east-node
+        run: make build
+
+      # e3-web, which e3 builds, runs East programs on east-web-std.
+      - name: Build east-web (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: libs/east-web
+        run: make build
+
+      - name: Build e3 (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: libs/e3
+        run: make build
+
+      - name: Build east-py-datascience TypeScript (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: libs/east-py/packages/east-py-datascience
+        run: pnpm run build
+
+      # Lint runs the East rules through eslint-plugin-east (#963), which loads
+      # east-diagnostics' rules from its dist; the renderer's Studio spec lints
+      # through it too.
+      - name: Build east-diagnostics (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: libs/east-diagnostics
+        run: make build
+
+      - name: Build eslint-plugin-east (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: libs/eslint-plugin-east
+        run: make build
+
+      - name: Build east-ui packages' JavaScript
+        working-directory: libs/east-ui
+        run: make build-js
 
       - name: Select responsive checks
         id: responsive
