@@ -23,8 +23,9 @@ on:
       - "pnpm-workspace.yaml"
       - ".npmrc"
       - ".nvmrc"
+  # Every PR, whatever its base: a PR stacked on another PR's branch is
+  # checked as one into main is.
   pull_request:
-    branches: [main]
     paths:
       - "libs/east-ui/**"
       - "libs/east/**"

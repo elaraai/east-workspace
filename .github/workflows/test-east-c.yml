@@ -8,8 +8,9 @@ on:
       - "libs/east/**"
       - "libs/east-node/**"
       - ".github/workflows/test-east-c.yml"
+  # Every PR, whatever its base: a PR stacked on another PR's branch is
+  # checked as one into main is.
   pull_request:
-    branches: [main]
     paths:
       - "libs/east-c/**"
       - "libs/east/**"

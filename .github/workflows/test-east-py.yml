@@ -11,8 +11,9 @@ on:
       - "libs/east-plugin/index.json"
       - "docker/services/**"
       - ".github/workflows/test-east-py.yml"
+  # Every PR, whatever its base: a PR stacked on another PR's branch is
+  # checked as one into main is.
   pull_request:
-    branches: [main]
     paths:
       - "libs/east-py/**"
       - "libs/east/**"
