@@ -155,7 +155,30 @@ jobs:
         working-directory: libs/e3
         run: make link
 
+      # The East runners' install — east-py's tool environment, its native
+      # extension built against east-c, and its shim — restored where east-py's
+      # and east-c's sources, the Python and the uv that made it are those of a
+      # job before (#1466): 1 to 2 minutes a job otherwise.
+      - name: Where the East runners install
+        id: runners
+        run: |
+          echo "tools=$(uv tool dir)" >> "$GITHUB_OUTPUT"
+          echo "bin=$(uv tool dir --bin)" >> "$GITHUB_OUTPUT"
+          # The interpreter the install takes, uv's default, as the install finds it.
+          echo "python=$("$(uv python find)" -c 'import sys; print(sys.version.split()[0])')" >> "$GITHUB_OUTPUT"
+          echo "uv=$(uv --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the East runners
+        id: runners-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.runners.outputs.tools }}/elaraai-east-py-cli
+            ${{ steps.runners.outputs.bin }}/east-py*
+          key: east-runners-${{ runner.os }}-py${{ steps.runners.outputs.python }}-uv${{ steps.runners.outputs.uv }}-${{ hashFiles('libs/east-py/**', 'libs/east-c/packages/east-c/**', '!**/node_modules/**', '!**/build/**', '!**/.venv/**', '!**/__pycache__/**', '!**/dist/**') }}
+
       - name: Install East runners
+        if: steps.runners-cache.outputs.cache-hit != 'true'
         run: |
           # east-node is e3's default runner — pnpm install above already
           # placed east-node on node_modules/.bin and LocalTaskRunner's
