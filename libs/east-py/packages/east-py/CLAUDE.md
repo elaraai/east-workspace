@@ -74,7 +74,9 @@ make test-file FILE=tests/conformance                    # IR round trip, ~1 min
    `b.return_`, …), `control.py` (the expression forms `East.while_`,
    `East.for_`, `block`/`let`/`ref`/`try_catch`), `nodes.py`/`lift.py`/
    `finalize.py` (IR construction, lifting python values, the final IR —
-   exactly what the body spells, with no optimisation pass, #1312),
+   exactly what the body spells, with no optimisation pass, #1312; a build
+   keeps its traced tree as a skeleton, and a call of a built function is a
+   reference its finalize expands into the copy a call once made, #1459),
    `location.py` (authoring-frame source maps, #626), `naming.py`
    (authoring names for IR variables, #639: parameters from a body's
    signature, `b.let`/`b.const` bindings from the authoring file parsed
