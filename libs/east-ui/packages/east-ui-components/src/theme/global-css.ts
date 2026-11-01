@@ -27,9 +27,8 @@
  *
  * Brand fonts (DM Sans, Inter Tight, JetBrains Mono) are self-hosted via
  * the `@fontsource-variable/*` stylesheets that an app registers with one
- * import of `@elaraai/east-ui-components/fonts` (`src/fonts.ts`). No CDN
- * @import here — the VS Code extension webview's CSP
- * (`font-src ${cspSource}`) would block it.
+ * import of `@elaraai/east-ui-components/fonts` (`src/fonts.ts`), never a
+ * CDN @import here.
  *
  * Keyframes live in `theme.keyframes` (see `theme/keyframes.ts`), not
  * here — Chakra v3's `SystemStyleObject` validator rejects percentage

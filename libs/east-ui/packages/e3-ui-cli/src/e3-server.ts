@@ -5,8 +5,8 @@
 
 /**
  * Start a local e3 API server over a repository so the browser app can fetch a
- * live task's output + bound datasets — the same `@elaraai/e3-api-server`
- * single-repo bootstrap the VS Code extension uses (`startE3Server`).
+ * live task's output + bound datasets — `@elaraai/e3-api-server` in its
+ * single-repo mode (`singleRepoPath`).
  *
  * @packageDocumentation
  */

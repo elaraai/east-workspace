@@ -3,7 +3,7 @@
 React Query hooks and preview React components for the e3 API.
 Renderers specific to e3: `DataTaskPreview`, `TaskPreview`,
 `DatasetPreview`, `EastValueViewer`, `InputPreview`,
-`VirtualizedLogViewer`, the diff component family, the Plan's canvas
+`VirtualizedLogViewer`, the Plan's canvas
 (`src/plan/`, #1177), Sheet (`src/sheet/`, #1179) and Calendar
 (`src/calendar/`, #1159) and Roster (`src/roster/`, #1174), each registered against its e3-ui extension as the package
 loads. Each renders in its `BuilderFrame` wherever it is used — the Plan's

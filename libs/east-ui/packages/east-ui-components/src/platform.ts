@@ -32,7 +32,7 @@ export {
 } from "./reactive/tracker.js";
 
 // Node-safe platform utilities (DOM-free), exposed here so pure-logic handle
-// runtimes — the e3 `Data.bind` / `Decision.bind` runtimes — can register and use
+// runtimes — the e3 `Data.bind` runtimes — can register and use
 // them WITHOUT importing the main component barrel (which touches `document` at
 // import via Chakra / overlays / react-markdown). The `./platform/index.js` graph
 // is impl + store only; clipboard / download / share touch the DOM only inside
@@ -48,7 +48,6 @@ export {
     SliceApplyImpl,
     buildSliceHandle,
     DEFAULT_SLICE_STATE,
-    boundSliceConfig,
 } from "./platform/index.js";
 export {
     UIStore,

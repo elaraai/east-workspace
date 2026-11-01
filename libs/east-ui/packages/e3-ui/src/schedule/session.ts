@@ -15,20 +15,41 @@
  * (`Schedule.periods`) are this one session, so a builder keeps each record it
  * writes in one session of one history, as the Calendar's and Plan's kinds are.
  *
+ * Its wire carries the record's types — its row's, its drafts' and its key's —
+ * as one constant each ({@link scheduleTypeValue}), so a row however large
+ * costs its program a handful of nodes: a decision's case, its change a patch
+ * of another record's rows, was 8,600 nodes written out, twice.
+ *
  * @packageDocumentation
  */
 
 import {
-    BlobType, East, Expr, IntegerType, NullType, OptionType, StringType, none, some, toEastTypeValue, variant,
+    BlobType, East, EastTypeType, Expr, IntegerType, NullType, OptionType, StringType, encodeBeast2For, none, some, toEastTypeValue, variant,
     type DictType, type EastType, type ExprType, type FunctionType, type StructType, type VariantType,
 } from "@elaraai/east";
 import { EditingApplyResultType, EditingChangeSetTypeFor, EditingDraftFieldType, EditingType, EditingWireApplyType } from "@elaraai/east-ui/internal";
 import { Record } from "../bind/record.js";
 import { ScheduleEntriesType } from "./types.js";
-import { scheduleEntryByKey, scheduleLastKey } from "./window.js";
+import { scheduleEntryByKey, scheduleIdOf, scheduleKeyOf, scheduleLastKey } from "./window.js";
 
 /** One entry read by its key: still reading, absent, or held. */
 type KeyRead = VariantType<{ reading: NullType; absent: NullType; held: EastType }>;
+
+/** A type's value as beast2. */
+const encodeTypeValue = encodeBeast2For(EastTypeType);
+
+/**
+ * A type's value as a session's wire carries it: one beast2 constant, decoded
+ * where the wire is built. Written out instead, a value is a node for each of
+ * its parts in every program that builds it, which for a row holding patches of
+ * other records' rows is thousands.
+ *
+ * @param type - The type
+ * @returns Its value, read from the constant
+ */
+export function scheduleTypeValue(type: EastType): ExprType<typeof EastTypeType> {
+    return East.value(encodeTypeValue(toEastTypeValue(type)), BlobType).decodeBeast(EastTypeType, "v2");
+}
 
 /**
  * A record's session, declared (see the module docs): what a builder reads the
@@ -74,12 +95,8 @@ export function scheduleRecordSession(record: unknown, keyType: EastType, rowTyp
     const byKey = entries === undefined ? undefined : scheduleEntryByKey(entries, keyType, rowType);
     const lastKey = entries === undefined ? undefined : scheduleLastKey(entries, keyType);
     // An entry's id is its key's text: a String key as it is, any other key as East prints it.
-    const idOf = (keyType.type === "String"
-        ? East.function([StringType], StringType, (_$, key) => key)
-        : East.function([keyType], StringType, (_$, key) => East.print(key))) as unknown as ExprType<FunctionType<[EastType], StringType>>;
-    const keyOf = (keyType.type === "String"
-        ? East.function([StringType], StringType, (_$, id) => id)
-        : East.function([StringType], keyType, (_$, id) => id.parse(keyType))) as unknown as ExprType<FunctionType<[StringType], EastType>>;
+    const idOf = scheduleIdOf(keyType);
+    const keyOf = scheduleKeyOf(keyType);
     const draftType = EditingDraftFieldType(rowType);
     return {
         readAll,
@@ -115,11 +132,11 @@ export function scheduleRecordSession(record: unknown, keyType: EastType, rowTyp
             });
             const editing = East.value({
                 sourceId: (handle["binding"] as unknown as { name: ExprType<StringType> }).name,
-                entryType: toEastTypeValue(rowType),
+                entryType: scheduleTypeValue(rowType),
                 idField: none,
-                draftType: toEastTypeValue(draftType),
+                draftType: scheduleTypeValue(draftType),
                 children: none,
-                keyType: some(toEastTypeValue(keyType)),
+                keyType: some(scheduleTypeValue(keyType)),
                 snapshot: byKey === undefined ? some(East.Blob.encodeBeast(readAll(), "v2")) : none,
                 readEntry,
                 onPatch: none,
@@ -139,9 +156,10 @@ export function scheduleRecordSession(record: unknown, keyType: EastType, rowTyp
  * A record read by key through a paged read of its own entries (#1199,
  * #1386), as a builder's kind carries it ({@link ScheduleEntriesType}): the
  * read's revision and a move to another, one entry's row as bytes by its
- * key's text, and the record's largest key. A session builds it over its
- * `entries`, and a kind bound read only with `Data.bindPaged(record)` over
- * that binding itself.
+ * key's text, the record's largest key, and the read's `id`, by which a
+ * reader asks many entries in one request (#1454). A session builds it over
+ * its `entries`, and a kind bound read only with `Data.bindPaged(record)`
+ * over that binding itself.
  *
  * @param entries - A paged read of the record's own entries, checked (`checkEntries`)
  * @param byKey - One entry by its key's text through it (`scheduleEntryByKey`)
@@ -154,6 +172,7 @@ export function scheduleEntriesSeam(
     lastKey: ExprType<FunctionType<[], OptionType<OptionType<StringType>>>>,
 ): ExprType<OptionType<typeof ScheduleEntriesType>> {
     const pinned = entries as unknown as ExprType<StructType<{
+        id: StringType;
         revision: FunctionType<[], OptionType<StringType>>;
         refresh: FunctionType<[OptionType<StringType>], NullType>;
     }>>;
@@ -166,7 +185,7 @@ export function scheduleEntriesSeam(
         });
         return result;
     });
-    return East.value(some({ revision: pinned.revision, refresh: pinned.refresh, entry, last: lastKey }) as never, OptionType(ScheduleEntriesType)) as
+    return East.value(some({ revision: pinned.revision, refresh: pinned.refresh, entry, last: lastKey, paged: pinned.id }) as never, OptionType(ScheduleEntriesType)) as
         ExprType<OptionType<typeof ScheduleEntriesType>>;
 }
 

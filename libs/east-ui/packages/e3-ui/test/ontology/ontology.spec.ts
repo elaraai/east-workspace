@@ -21,7 +21,6 @@ describeEast('Ontology', (test) => {
     Assert.examples(test, {
         supplyChainOntology:     ex.supplyChainOntology,
         compactDensityOntology:  ex.compactDensityOntology,
-        ontologyWithDiff:        ex.ontologyWithDiff,
         ontologyTableCycleView:  ex.ontologyTableCycleView,
     });
 

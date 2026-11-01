@@ -34,9 +34,7 @@ npm install --save-dev @elaraai/tsserver-plugin-east
 ```
 
 In VS Code, tsconfig-configured plugins load when the **workspace TypeScript
-version** is selected ("TypeScript: Select TypeScript Version…"). The
-[East UI Preview extension](../east-ui/packages/east-ui-extension) contributes
-the same plugin globally, which also covers VS Code's built-in TypeScript.
+version** is selected ("TypeScript: Select TypeScript Version…").
 
 Projects scaffolded with `npm create @elaraai/e3` / `npm create @elaraai/east`
 ship with the plugin preconfigured, alongside

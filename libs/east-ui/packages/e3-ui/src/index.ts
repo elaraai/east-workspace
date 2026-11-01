@@ -31,7 +31,11 @@
  * - `Schedule` — the event and resource kinds the Calendar and Plan's builder
  *   share (`Schedule.events`, `Schedule.resources`), and what a builder
  *   publishes (`Schedule.periods`).
- * - `<Diff>` — review pending changes for any combination of bindings.
+ * - `<DecisionQueue>` — the cases a model leaves to a person, one card open at
+ *   a time, over the app's own records: its cases, each row carrying the
+ *   verdict it writes, and where each kind of decision draws on
+ *   `DecisionQueue` (`DecisionQueue.decisions`, `DecisionQueue.change.*`,
+ *   `DecisionQueue.Types`).
  * - `<Ontology>` — graph editor over an `OntologyType`-bound dataset.
  * - `Data.bind` — workspace-scoped reactive dataset binding.
  * - `Func.bind` — workspace-scoped named-function (RPC) call binding.
@@ -39,11 +43,11 @@
  *
  * east-ui tags (`<VStack>`, `<Text>`, …) are imported from `@elaraai/east-ui`
  * — this package does not re-export them. The underlying factories
- * (`Diff.Root(…)`) live under `@elaraai/e3-ui/internal` for renderers and tests.
+ * (`Ontology.Root(…)`) live under `@elaraai/e3-ui/internal` for renderers and tests.
  *
  * @remarks
  * `ui()` pulls in `@elaraai/e3` (Node-only). Browser bundles that only need
- * `Data` / `<Diff>` / `<Ontology>` / types should import from
+ * `Data` / `<Ontology>` / types should import from
  * `@elaraai/e3-ui/internal`, which is e3-free.
  *
  * @packageDocumentation
@@ -53,7 +57,7 @@ export {
     Data,
     DataBindModeType,
     type DataBindModeLiteral,
-    DiffBindingType,
+    DataBindingType,
     type BoundValue,
     DataBindHandleType,
     type DataBindOptions,
@@ -230,14 +234,6 @@ export {
 // The handle a Calendar's, a Plan's or a Sheet's `optimise` takes (#1409): any `Func.bind` handle, checked at build.
 export { type OptimiseHandle } from './utils/optimise.js';
 
-// e3 `<Diff>` tag + its types
-export { Diff } from './runtime/diff.js';
-export {
-    DiffPayloadType,
-    DiffStyleType,
-    type DiffOptions,
-} from './diff/index.js';
-
 // e3 `<Ontology>` tag + its types
 export { Ontology } from './runtime/ontology.js';
 export {
@@ -267,48 +263,23 @@ export {
     type ExperimentTabLiteral,
 } from './experiment/index.js';
 
-// Decision platform types + factory
-export { Decision } from './decision/index.js';
-export {
-    DecisionType,
-    DecisionOptionType,
-    UrgencyType,
-    type UrgencyLiteral,
-    StakesLevelType,
-    type StakesLevelLiteral,
-    EvidenceType,
-    AnswerType,
-    type AnswerLiteral,
-    VerdictType,
-    ReferenceType,
-    JudgementInputType,
-    DecisionConstraintType,
-    PromptType,
-    LeverType,
-    judgementInputType,
-    type PromptInput,
-    type LeverInput,
-    type DecisionInput,
-    type DecisionOptionInput,
-    type EvidenceInput,
-    type DecisionReferenceInput,
-    type DecisionJudgementInput,
-} from './decision/types.js';
-export {
-    decisionBind,
-    decisionBindPlatformFn,
-    DecisionHandleType,
-    DecisionHandleRefType,
-    CommitStateType,
-    JudgementsType,
-    type DecisionHandle,
-    type DecisionBindOptions,
-} from './decision/bind.js';
-// e3 `<DecisionQueue>` tag (+ author-facing options type)
-export { DecisionQueue } from './runtime/decision/queue.js';
-export { type DecisionQueueOptions } from './decision/queue.js';
-export { DecisionJournal } from './runtime/decision/journal.js';
-export { type DecisionJournalOptions } from './decision/journal.js';
+// The DecisionQueue (#1447): the cases a model leaves to a person, over the
+// app's own records — its cases, each row carrying the verdict it writes
+// (`DecisionQueue.decisions`), and where each kind of decision draws
+// (`DecisionQueue.change.*`), its types on `DecisionQueue.Types` — and its
+// props.
+export { DecisionQueue, type DecisionQueueNamespace, type DecisionQueueProps } from './decision/queue.js';
+export type {
+    DecisionCaseRole, DecisionCaseRoles, DecisionChangeRole, DecisionChoiceField, DecisionOptionChangeRole, DecisionOptionRole, DecisionOptionRoles,
+    DecisionOptions, DecisionProposalRoles, DecisionQueueDecisions, DecisionRecordOfPatch, DecisionRoles, DecisionStringOptionField, DecisionTargets,
+    DecisionTargetsOf, DecisionVerdictRoles,
+} from './decision/decisions.js';
+export type {
+    DecisionProjectionTargetConfig, DecisionQueueTarget, DecisionRecordTargetConfig, DecisionTargetNames, DecisionZonesTargetConfig,
+} from './decision/targets.js';
+export type {
+    DecisionAllocationTargetConfig, DecisionCalendarTargetConfig, DecisionPlanTargetConfig, DecisionRosterTargetConfig, DecisionSheetTargetConfig,
+} from './decision/builder-targets.js';
 
 export { Calendar, type CalendarProps, type CalendarLibraryTab } from "./calendar/index.js";
 

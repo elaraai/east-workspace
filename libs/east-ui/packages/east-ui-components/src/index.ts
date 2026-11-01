@@ -296,6 +296,10 @@ export {
     toChakraTextarea,
     type TextareaValue,
     type EastChakraTextareaProps,
+    // RadioGroup
+    EastChakraRadioGroup,
+    type RadioGroupValue,
+    type EastChakraRadioGroupProps,
     // TagsInput
     EastChakraTagsInput,
     toChakraTagsInput,
@@ -306,9 +310,10 @@ export {
     toChakraFileUpload,
     type FileUploadValue,
     type EastChakraFileUploadProps,
-    // FieldForm — a builder inspector's typed form (#1147)
+    // FieldForm — a builder inspector's typed form (#1147), and a field's value printed as it prints it
     FieldForm,
     fieldFormMessages,
+    fieldText,
     type FieldFormProps,
     type FieldOption,
     type FieldFormMessages,

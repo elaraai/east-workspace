@@ -596,3 +596,68 @@ Each wire changed under this rule, with the kind it is.
   package declares is rebuilt as the package is deployed, as any changed index
   is, and a deploy builds the nested index its state lacks. An index is
   derived from its record, so no repository upgrade step ships.
+- **e3-ui's `Diff` extension is removed, and the binding a `Data.bind`
+  handle carries is named `DataBindingType` (#1447, #1449)** —
+  package-borne, and no wire changes. `<Diff>` and its renderer go: a staged
+  edit stays pending until the app's own control calls the handle's
+  `commit()` or `discard()`. The binding — its source, its patch and its mode
+  — is the same East type under its new name, so the `data_bind` platform
+  function, the IR that calls it and every payload that carries one keep their
+  forms. A UI value's `Extension` arm holds its kind as a String and its
+  payload as a Blob, so `UIComponentType` keeps its form too: a UI task's
+  output an earlier package computed that holds a `Diff` still decodes, and
+  draws the missing renderer's notice, naming its kind, where the Diff was. A
+  package whose source writes `<Diff>` no longer builds; taking it out before
+  the next export is that source's own change. A UI task's output is not
+  stored state, so no repository upgrade step ships with it.
+- **e3-ui's `DecisionQueue` reads the app's own records, and `Decision.bind`
+  and `DecisionJournal` are removed (#1447, #1450, #1458)** — package-borne.
+  The `DecisionQueue` extension's payload is replaced. It carried a
+  `Decision.bind` handle's ref, the host's `modify` and `evidence` views, the
+  facets, the Apply and Reject hooks, a `Slice.bind` handle and its
+  affordances, and `heading`, `maxHeight`, `density`, `groups`, `groupBy` and
+  `collapsible`. It now carries the cases' kind (`decisions`: the app's record
+  of cases read through their roles — whole, or a page at a time through the
+  slice's `decisions` source — each option's change its tag and its patch as
+  bytes and each case's verdict read from its row; the session over the
+  record, its read by key and how a verdict is written into a case's row),
+  each target and the tags it serves (`targets`, `DecisionQueue.Types.Target`),
+  the chrome of a Slice over several records (`slice`), `onSelect`,
+  `readOnly`, `now` and `id` — closed over beast2 bytes as Schedule's kinds
+  are, so the payload is one type whatever the app's rows hold. A prop the
+  old tag took is refused at build, naming what replaces it. A UI value
+  encoded under either payload type does not decode under the other:
+  packages are re-exported, and the dataflow computes each UI task's output
+  again under the new type. `Decision.bind` goes, and with it the
+  `decision_*` platform functions its handle called (`decision_bind` and its
+  primitives): until a package is re-exported, a UI that calls them fails as
+  it renders. `<DecisionJournal>` and its renderer go: as with the `Diff`
+  above, `UIComponentType` keeps its form, so a UI task's output an earlier
+  package computed that holds a `DecisionJournal` still decodes, and draws
+  the missing renderer's notice, naming its kind, where the journal was. A UI
+  task's output is not stored state, so no repository upgrade step ships with
+  it. `Decision.Types` goes with them — the stored envelope
+  (`Decision.Types.Decision`) and its parts, the judgement input and the
+  constraint contract — so an application's dataset or record that holds
+  them, a reasoning task's decisions or its judgements, changes type: holding
+  its cases in a record of its own, each row carrying its verdict, which
+  `DecisionQueue.decisions` reads and writes through its roles, is that
+  application's own migration, as with any record whose type an application
+  changes.
+- **e3-ui's read of a record by key names its paged read, and the
+  DecisionQueue's record target counts its groups through an index (#1447,
+  #1454)** — package-borne. `ScheduleEntriesType`, the read by key a kind
+  carries beside its session, gains `paged`, after `last`: the `id` of the
+  paged read of the record's own entries the others read through, by which a
+  reader asks many entries in one request — the queue's cases, and a
+  change's rows, a request a record. Every kind read by key carries it — a
+  Schedule kind's, a period kind's, the Roster's targets', the Schematic's
+  kinds' and the DecisionQueue's cases' and targets' — so it travels in the
+  `Calendar`, `Plan`, `Roster`, `Allocation`, `Schematic` and `DecisionQueue`
+  extensions' payloads. The record target's kind on the wire
+  (`DecisionTargetKindType`'s `record`) gains `count` in its `group`, after
+  `of`: a group's rows, counted through the index its `source` lists on the
+  field. A UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. A UI task's output is not stored state, so
+  no repository upgrade step ships with it.

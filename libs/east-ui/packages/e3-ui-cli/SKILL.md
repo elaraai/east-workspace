@@ -7,8 +7,8 @@ description: "Browse an e3 repository in the terminal, and render east-ui / e3-u
 
 Two things in one command. With no subcommand, `e3-ui` is a full-screen
 **terminal UI** over an e3 repository — local (an embedded
-`@elaraai/e3-api-server`, exactly as `e3-ui shot --from-task` and the VS Code
-extension already do) or remote (`https://host/repos/<repo>` with the token
+`@elaraai/e3-api-server`, exactly as `e3-ui shot --from-task` already does)
+or remote (`https://host/repos/<repo>` with the token
 `e3-ui auth login` saved). With `shot` / `shots` it is the **renderer** that
 turns east-ui / e3-ui components — East functions returning a
 `UIComponentType`, or e3 `ui()` tasks — into PNG images (and optionally

@@ -23,6 +23,7 @@ import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
 import * as opt from "@elaraai/e3-ui/examples/calendar/optimise";
 import { act, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
+import { blinks } from "../shared/func/optimise.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "calendar/calendar": ex, "calendar/optimise": opt }, { main: "data-calendar-main" });
@@ -142,11 +143,14 @@ describe("the eye in the Calendar", () => {
         const { container } = await h.mount(opt.calendarOptimise);
         await press(eye(container));
         await landed(container, 4);
-        // The drafts are the next run's input (O5): with every job scheduled, the optimiser changes nothing.
+        // The drafts are the next run's input (O5): with every job scheduled, the optimiser changes nothing. The eye's one
+        // blink is watched from the press on: on a slow machine the banner can land after it has gone again.
+        const blink = blinks(container);
         await press(eye(container));
         await said(container, "none");
+        blink.stop();
         expect(words(banner(container, "none")!)).toEqual(["No changes", `Elara found nothing to improve in ${period(container)}.`]);
-        expect([banner(container, "none")!.querySelector("[role=status]") !== null, eye(container)!.hasAttribute("data-blink"), calls.requests().length]).toEqual([true, true, 2]);
+        expect([banner(container, "none")!.querySelector("[role=status]") !== null, blink.seen(), calls.requests().length]).toEqual([true, true, 2]);
         expect(added(container)).toHaveLength(4);
         const restore = calls.fail();
         await press(eye(container));

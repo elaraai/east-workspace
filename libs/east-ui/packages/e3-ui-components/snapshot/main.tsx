@@ -14,8 +14,8 @@
  */
 
 import '@elaraai/east-ui-components/fonts';
-// Side-effect import: registers the `Data.bind` platform impl + the Diff /
-// Ontology renderers against the global registries. The Ontology renderer
+// Side-effect import: registers the `Data.bind` platform impl + the e3-ui
+// renderers against the global registries. The Ontology renderer
 // self-injects the xyflow stylesheet via emotion, so no separate CSS import
 // is needed here.
 import '@elaraai/e3-ui-components';

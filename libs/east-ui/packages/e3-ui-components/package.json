@@ -29,8 +29,6 @@
     "./src/platform/dataset-runtime.ts",
     "./dist/platform/staged-runtime.js",
     "./src/platform/staged-runtime.ts",
-    "./dist/diff/index.js",
-    "./src/diff/index.tsx",
     "./dist/ontology/index.js",
     "./src/ontology/index.tsx",
     "./dist/experiment/index.js",

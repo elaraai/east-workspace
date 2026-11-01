@@ -15,11 +15,9 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "@vscode/vsce-sign",
       "better-sqlite3",
       "cpu-features",
       "esbuild",
-      "keytar",
       "ssh2"
     ],
     "peerDependencyRules": {

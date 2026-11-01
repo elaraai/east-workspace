@@ -6,8 +6,8 @@
 /**
  * `EastChakraOntology` — Chakra v3 + ReactFlow renderer for the `Ontology`
  * extension component declared in `@elaraai/e3-ui`. Mounts the graph
- * editor over a bound `OntologyType` dataset, with the same staged-buffer
- * + commit machinery `EastChakraDiff` uses.
+ * editor over a bound `OntologyType` dataset, through the shared bind
+ * runtime's staged buffer and commit.
  *
  * Phase 2 wires the read side end-to-end (binding → decode → render);
  * `onMutate` is wired but the canvas mutation paths (add / delete /
@@ -442,7 +442,7 @@ function OntologyEditorBody({
 const EastChakraOntology = memo(function EastChakraOntology({ value }: EastChakraOntologyProps) {
     const binding = value.binding as ValueTypeOf<typeof Ontology.Component.schema>['binding'];
     // The editor mutates the binding directly (direct mode writes through;
-    // staged mode buffers for a paired Diff to review/commit). It has no
+    // staged mode buffers until the app commits the handle). It has no
     // commit affordance of its own, so `commit`/`discard` aren't consumed
     // here — `pending` is surfaced as a header hint only.
     const { ontology, pending, mutate } = useBindingOntology(binding);

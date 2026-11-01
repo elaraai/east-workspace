@@ -49,7 +49,7 @@ import {
 } from '@elaraai/east';
 import { EastUI, type UIComponentType } from '@elaraai/east-ui';
 
-import { DiffBindingType, type BoundValue } from '../bind/data.js';
+import { DataBindingType, type BoundValue } from '../bind/data.js';
 import { FuncBindingType, type BoundFunc } from '../bind/func.js';
 import {
     ExperimentConfigType,
@@ -140,14 +140,14 @@ export type ExperimentSubjectType = typeof ExperimentSubjectType;
  * The `Experiment` component payload — binding descriptors + options. Renderers
  * decode this and resolve each binding to a live, reactive value / call handle.
  *
- * @property data - {@link DiffBindingType} for the input dataset — the renderer
+ * @property data - {@link DataBindingType} for the input dataset — the renderer
  *   introspects its row struct for the pickers and passes it to the function.
- * @property configs - {@link DiffBindingType} for the list of {@link ConfigurationType}
+ * @property configs - {@link DataBindingType} for the list of {@link ConfigurationType}
  *   questions (each carrying its config + optional precomputed result/design). The
  *   only config source; selecting one seeds the working config.
  * @property experiment - Optional {@link FuncBindingType} for the universal estimator
  *   function; omitted when every shown question carries a precomputed result.
- * @property journal - Optional {@link DiffBindingType} for the committed-experiment journal.
+ * @property journal - Optional {@link DataBindingType} for the committed-experiment journal.
  * @property design - Optional {@link FuncBindingType} for the universal `design` function
  *   (the "Validate" tab); applies to any question.
  * @property columnMeta - Optional per-column display metadata.
@@ -156,10 +156,10 @@ export type ExperimentSubjectType = typeof ExperimentSubjectType;
  * @property defaultTab - Initial result tab ({@link ExperimentTabType}).
  */
 export const ExperimentPayloadType = StructType({
-    data: DiffBindingType,
-    configs: DiffBindingType,
+    data: DataBindingType,
+    configs: DataBindingType,
     experiment: OptionType(FuncBindingType),
-    journal: OptionType(DiffBindingType),
+    journal: OptionType(DataBindingType),
     design: OptionType(FuncBindingType),
     columnMeta: OptionType(ColumnMetaType),
     subject: OptionType(ExperimentSubjectType),

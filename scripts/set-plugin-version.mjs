@@ -6,9 +6,8 @@
 // entry's version (plugin.json wins per the spec) and the pin of its npm
 // source, which is what an install added as elaraai/east-workspace fetches.
 //
-// Unlike the VS Marketplace (see set-vsix-version.mjs), Claude Code plugin
-// versions accept full semver including pre-release labels, so this just sets
-// the exact value.
+// Claude Code plugin versions accept full semver, pre-release labels included,
+// so this sets the exact value.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

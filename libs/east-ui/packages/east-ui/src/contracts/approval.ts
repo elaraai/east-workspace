@@ -44,8 +44,9 @@ import {
  * in East — see `deriveApproval` (`contracts/review.ts`) for the canonical
  * "clean ⇒ approved, flagged ⇒ pending" rule.
  *
- * The same three words appear in e3-ui's DecisionQueue at *case* granularity
- * (`Verdict`); this variant is the in-surface (row / batch) resolution.
+ * e3-ui's DecisionQueue resolves a whole *case* with a verdict of its own
+ * (applied, overridden, deferred or handed off); this variant is the
+ * in-surface (row / batch) resolution.
  *
  * @property approved - Pre-approved / accepted (the resting state for a clean subject)
  * @property pending - Undecided — awaits an explicit Approve / Reject

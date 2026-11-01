@@ -1,4 +1,4 @@
-# east-ui — UI packages and VS Code extension
+# east-ui — UI packages
 # Dependencies are managed by pnpm from the monorepo root.
 
 # The checkout's paths: where east-ui's suites are exported (EAST_UI_TEST_IR)
@@ -19,19 +19,19 @@ EAST_UI_EXAMPLE_ITEM_KEYS := $(shell for f in $$(find packages/east-ui/test \( -
                               grep -hoE '^export const [A-Za-z0-9_]+' $$f | sed -e "s|^export const |$$key--|"; done)
 
 ## Discover e3-ui example keys — top-level `packages/e3-ui/test/<key>.examples.ts`
-## files (e3-task-bound components: ontology, diff, ...). Each maps 1:1 to
+## files (e3-task-bound components: ontology, experiment, ...). Each maps 1:1 to
 ## `make e3-ui-examples-html-<key>`, rendered by the e3-ui-components snapshot
 ## harness (seeds a dataset cache from each example's e3.input defaults).
 E3_UI_EXAMPLE_KEYS := $(shell find packages/e3-ui/test \( -name '*.examples.ts' -o -name '*.examples.tsx' \) 2>/dev/null \
                              | sed -e 's|^packages/e3-ui/test/||' -e 's|\.examples\.tsx$$||' -e 's|\.examples\.ts$$||')
 
-.PHONY: build test test-group test-export lint showcase build-showcase design probe-slice probe-collections clean extension extension-install extension-uninstall examples test-responsive \
+.PHONY: build test test-group test-export lint showcase build-showcase design probe-slice probe-collections clean examples test-responsive \
         east-ui-examples-html-all $(EAST_UI_EXAMPLE_KEYS:%=east-ui-examples-html-%) \
         $(EAST_UI_EXAMPLE_ITEM_KEYS:%=east-ui-examples-html-%) \
         e3-ui-examples-html-all $(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%) select-responsive help
 
-## The packages: those under packages/, and the extension's webview
-PACKAGES := --filter='./packages/*' --filter='./packages/east-ui-extension/webview'
+## The packages: those under packages/
+PACKAGES := --filter='./packages/*'
 
 ## Build all packages, in dependency order
 build:
@@ -46,7 +46,7 @@ test:
 ## New packages land in `rest` automatically.
 TEST_GROUP_components := --filter=@elaraai/east-ui-components
 TEST_GROUP_ir := --filter=@elaraai/east-ui --filter=@elaraai/e3-ui
-TEST_GROUP_rest := --filter='./packages/*' --filter='./packages/east-ui-extension/webview' \
+TEST_GROUP_rest := --filter='./packages/*' \
                    --filter='!@elaraai/east-ui-components' --filter='!@elaraai/east-ui' --filter='!@elaraai/e3-ui' \
                    --filter='!@elaraai/e3-ui-components'
 
@@ -166,7 +166,7 @@ $(EAST_UI_EXAMPLE_ITEM_KEYS:%=east-ui-examples-html-%): east-ui-examples-html-%:
 	-pnpm --filter @elaraai/east-ui-components exec playwright install chromium
 	pnpm --filter @elaraai/east-ui-components exec tsx scripts/snapshot.ts --file=$(subst --,:,$*)
 
-## Snapshot every e3-task-bound east-ui example (ontology, diff, ...) to a
+## Snapshot every e3-task-bound east-ui example (ontology, experiment, ...) to a
 ## paired .html + .png under `packages/e3-ui-components/dist-examples/`. The
 ## harness seeds a reactive-dataset cache from each example's e3.input
 ## defaults, then renders via the same Playwright capture east-ui uses.
@@ -179,48 +179,18 @@ e3-ui-examples-html-all:
 ## Snapshot a single e3-ui example file. Usage:
 ##   make e3-ui-examples-html-ontology
 ## The suffix matches a discovered key from
-## `packages/e3-ui/test/<key>.examples.ts` (e.g. ontology, diff).
+## `packages/e3-ui/test/<key>.examples.ts` (e.g. ontology, experiment).
 $(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%): e3-ui-examples-html-%:
 	-pnpm --filter @elaraai/e3-ui-components exec playwright install chromium
 	pnpm --filter @elaraai/e3-ui-components exec tsx scripts/snapshot.ts --file=$*
 
-## Build and package the VSCode extension
-extension:
-	@command -v zip >/dev/null 2>&1 || { echo "  ✗ 'zip' not found — needed to inject the tsserver plugin into the .vsix. Install: apt install zip  /  brew install zip"; exit 1; }
-	rm -f packages/east-ui-extension/*.vsix
-	cd packages/east-ui-extension && pnpm run build && pnpm run package
-
-## Package and install the VSCode extension.
-##
-## The `code` CLI under Remote-SSH needs VSCODE_IPC_HOOK_CLI to point at a
-## live Unix socket. If the current value is stale (e.g. inherited from a
-## prior session), we fall back to the newest socket under /run/user/$UID.
-extension-install: extension
-	@$(MAKE) --no-print-directory _code-run ARGS="--install-extension packages/east-ui-extension/*.vsix"
-
-## Uninstall the VSCode extension
-extension-uninstall:
-	@$(MAKE) --no-print-directory _code-run ARGS="--uninstall-extension elaraai.east-ui-preview" || true
-
-## Internal: run `code` with a valid VSCODE_IPC_HOOK_CLI socket
-_code-run:
-	@sock="$$VSCODE_IPC_HOOK_CLI"; \
-	if [ -z "$$sock" ] || [ ! -S "$$sock" ]; then \
-		sock=$$(ls -t /run/user/$$(id -u)/vscode-ipc-*.sock 2>/dev/null | head -1); \
-	fi; \
-	if [ -z "$$sock" ] || [ ! -S "$$sock" ]; then \
-		echo "error: no live VS Code IPC socket found; open a VS Code terminal and retry" >&2; \
-		exit 1; \
-	fi; \
-	VSCODE_IPC_HOOK_CLI="$$sock" code $(ARGS)
-
 ## Clean build artifacts
 clean:
-	rm -rf packages/*/dist packages/east-ui-extension/*.vsix
+	rm -rf packages/*/dist
 
 ## Show available targets
 help:
-	@echo "east-ui (UI packages + VS Code extension)"
+	@echo "east-ui (UI packages)"
 	@echo ""
 	@echo "  build             - Build all packages"
 	@echo "  test              - Run tests"
@@ -234,9 +204,6 @@ help:
 	@echo "  test-responsive               - The showcase's Playwright suite (desktop + mobile); SHARD=n/total and TEST_LIST=file optional"
 	@echo "  select-responsive BASE=ref OUTPUT_DIR=dir - Select browser checks from the complete diff to HEAD"
 	@echo "  east-ui-examples-html-<pathKey> - Snapshot a single example (e.g. east-ui-examples-html-disclosure/tabs)"
-	@echo "  extension         - Build and package VS Code extension"
-	@echo "  extension-install - Install VS Code extension"
-	@echo "  extension-uninstall - Uninstall VS Code extension"
 	@echo "  clean             - Clean build artifacts"
 	@echo ""
 	@echo "Dependencies are managed by pnpm from the monorepo root."

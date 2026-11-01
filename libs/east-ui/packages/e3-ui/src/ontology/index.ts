@@ -11,8 +11,8 @@
  * the value of a single {@link Data.bind} binding whose source dataset is
  * typed as {@link OntologyType}. Mutations (add / delete / reconnect /
  * update node) write the whole next-ontology back through `binding.write`,
- * so the same staged-buffer + commit / discard / merge machinery that
- * powers `Diff` is reused unchanged.
+ * so the binding's staged buffer and its commit / discard / merge carry
+ * every edit unchanged.
  *
  * Declared via the `EastUI.component` extension API — the React renderer
  * lives in `@elaraai/e3-ui-components` and is wired via
@@ -41,7 +41,7 @@ import {
 } from '@elaraai/east';
 import { EastUI, DensityType, type DensityLiteral, type UIComponentType } from '@elaraai/east-ui';
 
-import { DiffBindingType, type BoundValue } from '../bind/data.js';
+import { DataBindingType, type BoundValue } from '../bind/data.js';
 
 // ============================================================================
 // Ontology value schema — nodes, links, metadata.
@@ -281,11 +281,11 @@ export type OntologyViewType = typeof OntologyViewType;
 export type OntologyViewLiteral = 'graph' | 'table';
 
 // ============================================================================
-// Re-export the binding descriptor — same opaque carrier the Diff card uses.
+// Re-export the binding descriptor — the opaque carrier a bound handle holds.
 // ============================================================================
 
-/** Re-exported from {@link Data}; see {@link DiffBindingType}. */
-export { DiffBindingType } from '../bind/data.js';
+/** Re-exported from {@link Data}; see {@link DataBindingType}. */
+export { DataBindingType } from '../bind/data.js';
 
 // ============================================================================
 // Ontology payload — IR shape consumed by the renderer.
@@ -300,9 +300,9 @@ export { DiffBindingType } from '../bind/data.js';
  *   underlying source dataset must be typed as {@link OntologyType};
  *   this is a developer-side contract (the IR carrier itself is type-erased).
  * @property readonly - Render without per-node / per-link mutation
- *   surfaces. The footer commit-bar and the property drawer still render
- *   but Save / Delete / Add-node are hidden, and the canvas blocks
- *   drag-handles + context menus. Default `false`.
+ *   surfaces. The property drawer still renders but Save / Delete /
+ *   Add-node are hidden, and the canvas blocks drag-handles + context
+ *   menus. Default `false`.
  * @property hideMiniMap - Suppress the minimap overlay. None ⇒ false.
  * @property hideSearch - Suppress the search field in the toolbar.
  *   None ⇒ false.
@@ -316,7 +316,7 @@ export { DiffBindingType } from '../bind/data.js';
  *   {@link OntologyStyleType}.
  */
 export const OntologyPayloadType = StructType({
-    binding:      DiffBindingType,
+    binding:      DataBindingType,
     readonly:     OptionType(BooleanType),
     hideMiniMap:  OptionType(BooleanType),
     hideSearch:   OptionType(BooleanType),
@@ -349,8 +349,8 @@ export const OntologyComponent = EastUI.component('Ontology', OntologyPayloadTyp
  *   {@link Data.bind} handle (`value={view}`) whose source dataset is typed as
  *   {@link OntologyType}. The handle's East type carries the source type, so a
  *   handle bound to any non-`OntologyType` dataset is a compile error here.
- * @property readonly - Render without mutation surfaces. The footer
- *   commit-bar and property drawer still render. Defaults to false.
+ * @property readonly - Render without mutation surfaces. The property
+ *   drawer still renders. Defaults to false.
  * @property hideMiniMap - Suppress the minimap overlay. Defaults to false.
  * @property hideSearch - Suppress the search field. Defaults to false.
  * @property density - Information-density preset (`comfortable` | `compact`
@@ -388,8 +388,8 @@ export interface OntologyOptions {
 
 /**
  * The Ontology component namespace. Surfaces a graph editor over an
- * `OntologyType`-bound dataset, with the same staged-buffer + merge-aware
- * commit pipeline that powers {@link Diff}.
+ * `OntologyType`-bound dataset, through the binding's staged buffer and
+ * merge-aware commit.
  *
  * @remarks
  * Use `Ontology.Root({ value: view })` to render the editor.
@@ -409,13 +409,13 @@ export const Ontology = {
      *
      * @example
      * ```ts
-     * import { East, variant } from '@elaraai/east';
+     * import { East, none, variant } from '@elaraai/east';
      * import { Reactive, UIComponentType } from '@elaraai/east-ui';
      * import { Data, Ontology, OntologyType } from '@elaraai/e3-ui';
      * import * as e3 from '@elaraai/e3';
      *
      * const ontologyInput = e3.input('supply_chain', OntologyType, variant('value', {
-     *   nodes: [], links: [], metadata: { type: 'none', value: null },
+     *   nodes: [], links: [], metadata: none,
      * }));
      *
      * const editor = East.function([], UIComponentType, (_$) =>

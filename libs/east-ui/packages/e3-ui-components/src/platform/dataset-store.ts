@@ -11,7 +11,7 @@
  * bytes (one query per `(workspace, path)`, structured keys, in-flight
  * dedup + cancellation), while a thin subscription shim maintains the
  * string-keyed `subscribe` / `getKeyVersion` contract the platform
- * runtimes (`bind-runtime`, reactive trackers, Diff) consume, with an
+ * runtimes (`bind-runtime`, reactive trackers) consume, with an
  * optional `setScheduler` hook to defer notification flushes out of React
  * render.
  *
@@ -223,7 +223,7 @@ export function createDefaultDatasetApi(
  *
  * @property workspace - The workspace this cache instance renders
  *  against. Used by `Data.bind` to scope cache keys; consumed by
- *  bind-runtime + the Diff renderer via `getConfig().workspace`.
+ *  bind-runtime + the renderers reading a binding via `getConfig().workspace`.
  */
 export interface ReactiveDatasetCacheConfig {
     workspace?: string;

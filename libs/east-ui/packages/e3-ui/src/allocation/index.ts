@@ -471,78 +471,13 @@ export function createAllocationPayload<R extends EastType>(props: AllocationPro
     for (const [prop, refusal] of REMOVED) {
         if (given[prop] !== undefined) throw new Error(`Allocation: ${refusal}`);
     }
-    if (given["resources"] instanceof Expr) {
-        throw new Error("Allocation: `resources` holds Schedule.resources kinds by slot — the lanes' (the bin kind's `resource.of`) and the resources' " +
-            "(its `parts.of`): resources={{ bays: Schedule.resources(rows, { …, offset }), kilns: Schedule.resources(rows, { …, min, max }) }} — " +
-            "Allocation.resources values are gone");
-    }
+    // The bins, the lanes and the resources.
+    const { slot, kind, lanesSlot, lanesKind, partsSlot, resourcesKind } = allocationKinds(props);
     if (props.inspector !== undefined && typeof props.inspector !== "boolean") {
         throw new Error("Allocation: `inspector` is true or false — a bin's own form is the bin kind's `inspector` (Schedule.events(record, { …, inspector }))");
     }
     const labels = allocationLabels(props.labels);
     const bands = allocationBands(props.table?.bands);
-
-    // The bins: exactly one event kind.
-    const events = given["events"];
-    if (events instanceof Expr || (events !== undefined && (typeof events !== "object" || events === null))) {
-        throw new Error(`Allocation: \`events\` holds the bins, one Schedule.events kind — ${BINS}; what the board books from is arrivals={${ARRIVALS}}`);
-    }
-    const kinds = Object.entries(props.events ?? {});
-    if (kinds.length !== 1) {
-        throw new Error(kinds.length === 0
-            ? `Allocation: \`events\` holds the bins — ${BINS}`
-            : `Allocation: \`events\` holds one kind, the bins — and it holds ${kinds.length} (${kinds.map(([slot]) => slot).join(", ")})`);
-    }
-    const [slot, kind] = kinds[0]!;
-    const resources = props.resources ?? {};
-    scheduleCheck(resources, props.events as Readonly<Record<string, ScheduleEventKind<EastType, EastType>>>, "Allocation");
-    // The lanes' slot, the bin kind's `resource.of`; and the resources', its `parts.of`.
-    if (kind.takes.length === 0) {
-        throw new Error(`Allocation: events.${slot} books each bin into one lane — give it a \`resource\`, a String field naming a key of the lanes' kind: ` +
-            "resource: { field, of: \"<lanes>\" }");
-    }
-    if (kind.takes.length > 1) {
-        throw new Error(`Allocation: events.${slot} books each bin into one lane — its \`resource\` is a String field naming a key of the lanes' kind, ` +
-            `and this one names a kind per case (${kind.takes.join(", ")})`);
-    }
-    const lanesSlot = kind.takes[0]!;
-    const partsSlot = kind.partsOf;
-    if (partsSlot === undefined) {
-        throw new Error(`Allocation: events.${slot} allocates each bin to resources — give it \`parts\`, a Dict of String to Float field and the resources' slot: ` +
-            "parts: { field, of: \"<resources>\" }");
-    }
-    // The slice names a source after each: the bins, the lanes, the resources and the arrivals.
-    if (slot === "arrivals" || lanesSlot === "arrivals" || partsSlot === "arrivals" || slot === lanesSlot || slot === partsSlot) {
-        throw new Error(`Allocation: the slice names a source after the bins' slot ("${slot}"), the lanes' ("${lanesSlot}"), the resources' ("${partsSlot}") ` +
-            "and the arrivals (`arrivals`) — give the bins a slot of their own, and none of them `arrivals`");
-    }
-    for (const name of Object.keys(resources)) {
-        if (name !== lanesSlot && name !== partsSlot) {
-            throw new Error(`Allocation: \`resources\` holds the lanes' kind (\`${lanesSlot}\`, the slot events.${slot}'s resource names) and the resources' kind ` +
-                `(\`${partsSlot}\`, the slot its parts name) — and it holds \`${name}\``);
-        }
-    }
-    const resourcesKind = resources[partsSlot];
-    if (resourcesKind === undefined) {
-        throw new Error(`Allocation: events.${slot}'s parts name the slot "${partsSlot}", and \`resources\` has no slot of that name (${Object.keys(resources).join(", ") || "none"})`);
-    }
-    if (!isTypeEqual(resourcesKind.keyType, StringType)) {
-        throw new Error(`Allocation: events.${slot}'s parts hold String keys of resources.${partsSlot}, which is keyed by ${printType(resourcesKind.keyType)} — key the resources by String`);
-    }
-    // The lanes' kind is there and keyed by String: `scheduleCheck` holds the slot the bin kind's resource names to it.
-    const lanesKind = resources[lanesSlot]!;
-    for (const [name, resourceKind, reads] of [
-        [lanesSlot, lanesKind, "the board draws every lane, and slots and checks read every one"],
-        [partsSlot, resourcesKind, "fits, checks and totals read every one"],
-    ] as const) {
-        if (resourceKind.source === undefined) {
-            throw new Error(`Allocation: resources.${name} is read whole — ${reads} — so give the rows as a Dict, usually a record's read(), not a paged read`);
-        }
-    }
-    if (resourcesKind.accessors.min === undefined || resourcesKind.accessors.max === undefined) {
-        throw new Error(`Allocation: resources.${partsSlot} gives each resource's \`min\` and \`max\` — ` +
-            `Schedule.resources(${partsSlot}.read(), { …, min: (k) => k.min, max: (k) => k.max })`);
-    }
     // What the board books from.
     if (!isAllocationArrivals(given["arrivals"])) {
         throw new Error(`Allocation: \`arrivals\` is ${ARRIVALS} over the app's rows — every arrival the day may book` +
@@ -558,8 +493,7 @@ export function createAllocationPayload<R extends EastType>(props: AllocationPro
     const rowType = kind.rowType as EastType;
     const fit = fitBinding(props.fit, rowType);
     const optimise = props.optimise === undefined ? undefined : optimiseBinding(props.optimise, allocationOptimiseContract(rowType));
-    const check = props.check === undefined ? undefined : overBytes(props.check, T.AllocationCheckContextTypeFor(rowType), ArrayType(T.AllocationIssueType),
-        `Allocation: \`check\` is an East function from Allocation.Types.CheckContext(${printType(rowType)}) to Array<Allocation.Types.Issue>`);
+    const check = props.check === undefined ? undefined : allocationCheckOf(props.check, rowType);
     // A booked bin's own fields, the ones no role maps: each arrival's `values`, at the bin kind's (B13).
     const initial = allocationInitial(arrivals, kind.allocationValues);
     // The app's columns over its bin row, as bytes.
@@ -633,6 +567,124 @@ export function createAllocationPayload<R extends EastType>(props: AllocationPro
             table: { bands },
         } as never, AllocationPayloadType);
     }) as ExprType<typeof AllocationPayloadType>;
+}
+
+/** The bin kind and the two resource kinds an Allocation draws: each one's slot and its kind. */
+export interface AllocationKinds {
+    /** The bins' slot. */
+    slot: string;
+    /** The bin kind. */
+    kind: ScheduleEventKind<EastType, EastType>;
+    /** The lanes' slot: the bin kind's `resource.of`. */
+    lanesSlot: string;
+    /** The lanes' kind, read whole and keyed by String. */
+    lanesKind: ScheduleResourceKind<EastType, EastType>;
+    /** The resources' slot: the bin kind's `parts.of`. */
+    partsSlot: string;
+    /** The resources' kind, read whole, keyed by String, with `min` and `max`. */
+    resourcesKind: ScheduleResourceKind<EastType, EastType>;
+}
+
+/**
+ * The bin kind and the two resource kinds `events` and `resources` hold,
+ * checked as `<Allocation>` checks them: exactly one event kind, the bins,
+ * booking each bin into one lane and allocating it to resources; the lanes'
+ * kind and the resources' kind, each read whole and keyed by String, the
+ * resources' with `min` and `max`, and no other.
+ *
+ * @param props - The `events` and `resources` given
+ * @returns Each one's slot and its kind
+ * @throws {Error} Naming the change to make: `resources` as values; `events` that is no kinds by slot, or holds other
+ *   than one kind; a bin kind with no lane (`resource`), a lane per case, or no `parts`, or whose slot, lanes' slot or
+ *   resources' slot names a source of the slice twice; `resources` holding other than the lanes' kind and the resources'
+ *   kind, one read a window at a time, resources keyed by anything but String, or a resources kind with no `min` or
+ *   `max`; and as `Schedule`'s checks do
+ * @internal
+ */
+export function allocationKinds(props: Pick<AllocationProps, "events" | "resources">): AllocationKinds {
+    const given = props as unknown as Readonly<Record<string, unknown>>;
+    if (given["resources"] instanceof Expr) {
+        throw new Error("Allocation: `resources` holds Schedule.resources kinds by slot — the lanes' (the bin kind's `resource.of`) and the resources' " +
+            "(its `parts.of`): resources={{ bays: Schedule.resources(rows, { …, offset }), kilns: Schedule.resources(rows, { …, min, max }) }} — " +
+            "Allocation.resources values are gone");
+    }
+    // The bins: exactly one event kind.
+    const events = given["events"];
+    if (events instanceof Expr || (events !== undefined && (typeof events !== "object" || events === null))) {
+        throw new Error(`Allocation: \`events\` holds the bins, one Schedule.events kind — ${BINS}; what the board books from is arrivals={${ARRIVALS}}`);
+    }
+    const kinds = Object.entries(props.events ?? {});
+    if (kinds.length !== 1) {
+        throw new Error(kinds.length === 0
+            ? `Allocation: \`events\` holds the bins — ${BINS}`
+            : `Allocation: \`events\` holds one kind, the bins — and it holds ${kinds.length} (${kinds.map(([slot]) => slot).join(", ")})`);
+    }
+    const [slot, kind] = kinds[0]!;
+    const resources = props.resources ?? {};
+    scheduleCheck(resources, props.events as Readonly<Record<string, ScheduleEventKind<EastType, EastType>>>, "Allocation");
+    // The lanes' slot, the bin kind's `resource.of`; and the resources', its `parts.of`.
+    if (kind.takes.length === 0) {
+        throw new Error(`Allocation: events.${slot} books each bin into one lane — give it a \`resource\`, a String field naming a key of the lanes' kind: ` +
+            "resource: { field, of: \"<lanes>\" }");
+    }
+    if (kind.takes.length > 1) {
+        throw new Error(`Allocation: events.${slot} books each bin into one lane — its \`resource\` is a String field naming a key of the lanes' kind, ` +
+            `and this one names a kind per case (${kind.takes.join(", ")})`);
+    }
+    const lanesSlot = kind.takes[0]!;
+    const partsSlot = kind.partsOf;
+    if (partsSlot === undefined) {
+        throw new Error(`Allocation: events.${slot} allocates each bin to resources — give it \`parts\`, a Dict of String to Float field and the resources' slot: ` +
+            "parts: { field, of: \"<resources>\" }");
+    }
+    // The slice names a source after each: the bins, the lanes, the resources and the arrivals.
+    if (slot === "arrivals" || lanesSlot === "arrivals" || partsSlot === "arrivals" || slot === lanesSlot || slot === partsSlot) {
+        throw new Error(`Allocation: the slice names a source after the bins' slot ("${slot}"), the lanes' ("${lanesSlot}"), the resources' ("${partsSlot}") ` +
+            "and the arrivals (`arrivals`) — give the bins a slot of their own, and none of them `arrivals`");
+    }
+    for (const name of Object.keys(resources)) {
+        if (name !== lanesSlot && name !== partsSlot) {
+            throw new Error(`Allocation: \`resources\` holds the lanes' kind (\`${lanesSlot}\`, the slot events.${slot}'s resource names) and the resources' kind ` +
+                `(\`${partsSlot}\`, the slot its parts name) — and it holds \`${name}\``);
+        }
+    }
+    const resourcesKind = resources[partsSlot];
+    if (resourcesKind === undefined) {
+        throw new Error(`Allocation: events.${slot}'s parts name the slot "${partsSlot}", and \`resources\` has no slot of that name (${Object.keys(resources).join(", ") || "none"})`);
+    }
+    if (!isTypeEqual(resourcesKind.keyType, StringType)) {
+        throw new Error(`Allocation: events.${slot}'s parts hold String keys of resources.${partsSlot}, which is keyed by ${printType(resourcesKind.keyType)} — key the resources by String`);
+    }
+    // The lanes' kind is there and keyed by String: `scheduleCheck` holds the slot the bin kind's resource names to it.
+    const lanesKind = resources[lanesSlot]!;
+    for (const [name, resourceKind, reads] of [
+        [lanesSlot, lanesKind, "the board draws every lane, and slots and checks read every one"],
+        [partsSlot, resourcesKind, "fits, checks and totals read every one"],
+    ] as const) {
+        if (resourceKind.source === undefined) {
+            throw new Error(`Allocation: resources.${name} is read whole — ${reads} — so give the rows as a Dict, usually a record's read(), not a paged read`);
+        }
+    }
+    if (resourcesKind.accessors.min === undefined || resourcesKind.accessors.max === undefined) {
+        throw new Error(`Allocation: resources.${partsSlot} gives each resource's \`min\` and \`max\` — ` +
+            `Schedule.resources(${partsSlot}.read(), { …, min: (k) => k.min, max: (k) => k.max })`);
+    }
+    return { slot, kind, lanesSlot, lanesKind, partsSlot, resourcesKind };
+}
+
+/**
+ * The app's `check`, held to `Allocation.Types.CheckContext(R)` as
+ * `<Allocation>` holds it, then wrapped so the context crosses as bytes.
+ *
+ * @param check - The `check` given
+ * @param rowType - The bin kind's row type
+ * @returns The check over the context's bytes
+ * @throws {Error} When it asks or answers another type, naming the type it takes
+ * @internal
+ */
+export function allocationCheckOf(check: unknown, rowType: EastType): ExprType<FunctionType<[BlobType], ArrayType<typeof T.AllocationIssueType>>> {
+    return overBytes(check, T.AllocationCheckContextTypeFor(rowType), ArrayType(T.AllocationIssueType),
+        `Allocation: \`check\` is an East function from Allocation.Types.CheckContext(${printType(rowType)}) to Array<Allocation.Types.Issue>`);
 }
 
 // ============================================================================

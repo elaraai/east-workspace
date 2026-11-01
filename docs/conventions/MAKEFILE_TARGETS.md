@@ -74,8 +74,8 @@ Lib-specific extras (run `make help` in each):
 it builds. A package bundled by vite or esbuild strips types without
 checking them, so its `build` script runs `tsc` first — over its sources,
 tests and scripts (`tsconfig.typecheck.json` in `east-ui-components` and
-`e3-ui-components`; `tsconfig.json` in `east-ui-showcase`, the extension
-webview and the `create-*` entries). A type error anywhere in the package
+`e3-ui-components`; `tsconfig.json` in `east-ui-showcase` and the `create-*`
+entries). A type error anywhere in the package
 fails `make build`. A new bundled package does the same (#589).
 
 ---

@@ -121,9 +121,8 @@ if (failure !== null) return <StatusDisplay variant="error" title="Error" messag
 
 A host that renders UI functions itself decodes each with the platforms
 `UITaskPreview` lists. Every one is exported by name: east-ui-components' own,
-`Decision.bind`'s (`DecisionBindPlatform`), and the bindings scoped to the UI's
-manifest. Preload the manifest's `paths` with `usePreloadReactiveDatasets`
-before the UI's first read.
+and the bindings scoped to the UI's manifest. Preload the manifest's `paths`
+with `usePreloadReactiveDatasets` before the UI's first read.
 
 ```tsx
 import { decodeBeast2For } from '@elaraai/east';
@@ -133,13 +132,12 @@ import {
 } from '@elaraai/east-ui-components';
 import { RecordSliceImpl } from '@elaraai/east-ui-components/platform';
 import {
-    DecisionBindPlatform, createScopedBindPlatform, createScopedPagedPlatform,
-    createScopedFuncPlatform, createScopedRecordPlatform,
+    createScopedBindPlatform, createScopedPagedPlatform, createScopedFuncPlatform, createScopedRecordPlatform,
 } from '@elaraai/e3-ui-components';
 
 const platforms = [
     ...StateImpl, ...SliceImpl, ...RecordSliceImpl, ...SliceApplyImpl, ...OverlayImpl,
-    ...ClipboardImpl, ...DownloadImpl, ...ShareImpl, ...DecisionBindPlatform,
+    ...ClipboardImpl, ...DownloadImpl, ...ShareImpl,
     ...createScopedBindPlatform(manifest),
     ...createScopedPagedPlatform(manifest.pages),
     ...createScopedFuncPlatform(manifest.functions),
@@ -338,13 +336,12 @@ Dual-licensed:
   - [east-py-cli](https://pypi.org/project/east-py-cli/): CLI for running East IR programs in Python
   - [east-py-datascience](https://pypi.org/project/east-py-datascience/) (PyPI) + [@elaraai/east-py-datascience](https://www.npmjs.com/package/@elaraai/east-py-datascience) (npm): Optimization (MADS, Optuna, ALNS, GoogleOR), ML (XGBoost, LightGBM, NGBoost, PyTorch, Lightning, GP), Bayesian inference (PyMC), explainability (SHAP), conformal prediction (MAPIE)
 
-- **[East UI](https://github.com/elaraai/east-workspace/tree/main/libs/east-ui)**: Typed UI component definitions and React renderer, plus VS Code preview.
+- **[East UI](https://github.com/elaraai/east-workspace/tree/main/libs/east-ui)**: Typed UI component definitions and React renderer.
   - [@elaraai/east-ui](https://www.npmjs.com/package/@elaraai/east-ui): 50+ typed UI components for layouts, forms, charts, tables, dialogs
   - [@elaraai/east-ui-components](https://www.npmjs.com/package/@elaraai/east-ui-components): React renderer with Chakra UI v3 styling
   - [@elaraai/e3-ui](https://www.npmjs.com/package/@elaraai/e3-ui): e3 + UI bridge — Data bindings, `e3.ui()` task, manifest
   - [@elaraai/e3-ui-components](https://www.npmjs.com/package/@elaraai/e3-ui-components): React Query hooks and preview components for the e3 API
   - [@elaraai/e3-ui-cli](https://www.npmjs.com/package/@elaraai/e3-ui-cli): Browse an e3 repository in the terminal (`e3-ui [repo]`), and render east-ui / e3-ui components to PNG (`e3-ui shot`)
-  - [east-ui-preview](https://marketplace.visualstudio.com/items?itemName=ElaraAI.east-ui-preview): VS Code extension for live East UI component preview
 
 - **[e3 — East Execution Engine](https://github.com/elaraai/east-workspace/tree/main/libs/e3)**: Durable execution engine for running East pipelines at scale. Git-like content-addressable storage, automatic memoization, reactive dataflow, real-time monitoring.
   - [@elaraai/e3](https://www.npmjs.com/package/@elaraai/e3): SDK for authoring e3 packages with typed tasks and pipelines

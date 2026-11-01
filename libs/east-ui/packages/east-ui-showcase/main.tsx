@@ -14,7 +14,7 @@ import {
     DragLayerProvider, OverlayManagerProvider, system, UIStore, UIStoreProvider,
 } from "@elaraai/east-ui-components";
 // Side-effect import: registers the `Data.bind`, `Data.bindPaged`,
-// `Func.bind` and `Record.bind` platform impls + the Diff / Ontology /
+// `Func.bind` and `Record.bind` platform impls + the Ontology /
 // Experiment / decision / Studio / query renderers against the global
 // registries EastFunction renders through, so the e3 Components section runs
 // live.
