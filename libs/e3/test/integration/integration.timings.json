@@ -1,6 +1,9 @@
 {
+ "dist/api-compliance-cli.spec.js": 121722,
+ "dist/api-compliance-dataflow.spec.js": 117533,
  "dist/api-compliance-fetch.spec.js": 436653,
- "dist/api-compliance.spec.js": 455531,
+ "dist/api-compliance-series.spec.js": 117389,
+ "dist/api-compliance.spec.js": 113489,
  "dist/auth.spec.js": 41023,
  "dist/dataflow-runner.spec.js": 3303,
  "dist/dataset-set.spec.js": 102055,

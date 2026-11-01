@@ -4,77 +4,26 @@
  */
 
 /**
- * API Compliance Tests
- *
- * Runs the shared e3-api-tests suites against the local server.
- * One shared server, per-test context for full isolation and concurrency.
- * The server checks every request's token, as a deployed server does: the
- * suites run as an `admin`, and their reader cases as a caller with no role.
+ * API Compliance Tests: repositories, packages, workspaces, datasets and
+ * functions — one part of the shared e3-api-tests suites against the local
+ * server (`compliance-parts.ts`), and the check that the parts run every
+ * suite of `apiTestSuites` once.
  */
 
-import { describe, before, after } from 'node:test';
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
 
-import {
-  createTestContext,
-  allApiTests,
-  cliTests,
-  transferTests,
-  workspaceBundleTests,
-  type TestSetup,
-  type TestContext,
-} from '@elaraai/e3-api-tests';
+import { apiTestSuites } from '@elaraai/e3-api-tests';
 
-import { startComplianceServer, type ComplianceServer } from './compliance-server.js';
+import { COMPLIANCE_PARTS, compliancePart, registerSuites } from './compliance-parts.js';
 
-// Shared server, one per test run: started by the suite's `before` hook, and
-// awaited by every test's setup
-let server: ComplianceServer | undefined;
-let started: Promise<ComplianceServer> | null = null;
-const getServer = (): Promise<ComplianceServer> => (started ??= startComplianceServer().then((running) => (server = running)));
-
-// Per-test setup: creates a fresh repo + context
-const setup: TestSetup<TestContext> = async (t) => {
-  const { baseUrl, adminToken, readerToken } = await getServer();
-  const ctx = await createTestContext({
-    baseUrl,
-    getToken: async () => adminToken,
-    // Any caller the server's key signed for may read any repository here, so
-    // a reader needs no grant
-    getReaderToken: async () => readerToken,
-    cleanup: true,
+describe('API compliance, in parts', () => {
+  it('runs every suite of apiTestSuites in one part', () => {
+    const named = Object.values(COMPLIANCE_PARTS).flat();
+    assert.deepEqual([...named].sort(), Object.keys(apiTestSuites).sort());
   });
-  t.after(() => ctx.cleanup());
-  return ctx;
-};
-
-/** The CLI suites' environment: the admin's credentials, approved as given. */
-const credentialsEnv = (): Record<string, string> => ({
-  E3_CREDENTIALS_PATH: server!.credentialsPath,
-  E3_AUTH_AUTO_APPROVE: 'true',
 });
 
-// GitHub's Windows runners differ in speed by nearly two to one, and the suite
-// takes nearly eight minutes on a fast one: the limit leaves a slow one room.
-describe('API compliance', { timeout: 1_200_000, concurrency: false }, () => {
-  // node:test charges asynchronous activity to the test or hook whose async
-  // context created it, and everything the server does descends from its
-  // start: started here, what a request leaves running is reported against
-  // this hook rather than against whichever test happened to run first.
-  before(() => getServer());
-
-  after(async () => {
-    await server?.stop();
-  });
-
-  // Run all API test suites
-  allApiTests(setup);
-
-  // The bundle routes, which the local server mounts
-  workspaceBundleTests(setup);
-
-  // Run CLI test suite with credentials env
-  cliTests(setup, credentialsEnv);
-
-  // Run cross-repository transfer tests
-  transferTests(setup, credentialsEnv);
+compliancePart('API compliance: repositories, packages, workspaces, datasets and functions', ({ setup }) => {
+  registerSuites(COMPLIANCE_PARTS.rest, setup);
 });
