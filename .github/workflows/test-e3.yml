@@ -43,10 +43,11 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-15, windows-latest]
-        # The unit tests of e3's packages, with lint, and the integration specs
-        # in the three shards libs/e3/Makefile names. The jobs run side by side,
-        # so the longest sets the wall clock rather than their sum.
-        shard: [packages, integration-1, integration-2, integration-3]
+        # e3-core's unit tests, the other packages' with lint, and the
+        # integration specs in four shards split by the times CI recorded
+        # (libs/e3/Makefile, #1466). The jobs run side by side, so the longest
+        # sets the wall clock rather than their sum.
+        shard: [core, packages, integration-1, integration-2, integration-3, integration-4]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     defaults:
@@ -180,6 +181,19 @@ jobs:
           CMAKE_GENERATOR: "Unix Makefiles"
         run: make install-cli
 
+      # The specs this integration shard runs: its share of the split by
+      # recorded time, which the next step reads.
+      - name: Integration specs of this shard
+        id: specs
+        if: startsWith(matrix.shard, 'integration-')
+        working-directory: libs/e3
+        env:
+          MATRIX_SHARD: ${{ matrix.shard }}
+        run: |
+          specs="$(make --no-print-directory integration-shard-specs SHARD=${MATRIX_SHARD#integration-})"
+          echo "$specs"
+          echo "specs=$specs" >> "$GITHUB_OUTPUT"
+
       # The environment e2e materializes an env from a scaffolded project's
       # lockfile. Left to resolve from PyPI/npm that env would contain the LAST
       # RELEASE's East runtime — the repo version always equals the published
@@ -189,7 +203,7 @@ jobs:
       # native-build failure to a named step rather than an opaque skip. Only
       # the shard that runs the environment e2e needs it.
       - name: Build local @elaraai stack (environment e2e)
-        if: matrix.shard == 'integration-3'
+        if: contains(steps.specs.outputs.specs, 'environment-e2e')
         working-directory: libs/e3
         run: make e2e-stack
 
@@ -197,7 +211,7 @@ jobs:
       # delegates to the user, which a runner has only once a user manager
       # runs for it; without one the test skips, and would stay skip-green.
       - name: Start a user systemd manager (Linux)
-        if: runner.os == 'Linux' && matrix.shard == 'packages'
+        if: runner.os == 'Linux' && matrix.shard == 'core'
         run: |
           sudo loginctl enable-linger "$USER"
           echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
@@ -266,7 +280,13 @@ jobs:
         if: matrix.shard == 'packages'
         working-directory: libs/e3
         timeout-minutes: 25
-        run: make test-packages
+        run: make test-packages-rest
+
+      - name: Run e3-core's tests
+        if: matrix.shard == 'core'
+        working-directory: libs/e3
+        timeout-minutes: 25
+        run: make test-packages-core
 
       # A runner whose processes run as another user needs e3 to run as root,
       # so the package tests skip e3-core's spec of one. It runs here under
@@ -274,7 +294,7 @@ jobs:
       # the checkout the runner CLIs are found in. sudo resets PATH, so the
       # job's is passed on, with its node.
       - name: Run the spec of processes run as another user, as root (POSIX)
-        if: matrix.shard == 'packages' && runner.os != 'Windows'
+        if: matrix.shard == 'core' && runner.os != 'Windows'
         working-directory: libs/e3
         timeout-minutes: 10
         run: sudo env "PATH=$PATH" make test-as-another-user
@@ -289,11 +309,22 @@ jobs:
             *) kill "$GO_HTTPBIN_PID" ;;
           esac
 
+      # Its specs' times too: the reports libs/e3/test/integration's
+      # dist/integration-timings.js refreshes integration.timings.json from.
       - name: Run integration tests
-        if: matrix.shard != 'packages'
+        if: startsWith(matrix.shard, 'integration-')
         working-directory: libs/e3
-        # The first shard takes about seventeen minutes on a slow Windows runner.
+        # A shard holds about ten minutes of its specs' slowest-system times.
         timeout-minutes: 30
         env:
           MATRIX_SHARD: ${{ matrix.shard }}
-        run: make test-integration-shard SHARD=${MATRIX_SHARD#integration-}
+        run: make test-integration-shard SHARD=${MATRIX_SHARD#integration-} REPORT="$RUNNER_TEMP/integration-timings.json"
+
+      - name: Upload test times
+        if: always() && startsWith(matrix.shard, 'integration-')
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-timings-${{ matrix.os }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/integration-timings.json
+          if-no-files-found: ignore
+          retention-days: 14

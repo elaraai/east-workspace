@@ -68,7 +68,7 @@ Install deps from the workspace root (`pnpm install` there, not here).
 - **east-node-std's compliance suite, exported.** `make -C libs/east-node test-export-std`, from the workspace root, writes it to `EAST_NODE_STD_IR`, which the root `paths.mk` sets to the checkout's `tmp/east-node-std`. e3-web runs it over east-web-std in Chromium, through `make` (which sets the variable), and fails naming the command when there is nothing there.
 - **httpbin on `:8085`.** The workspace root's `make services-up`. The suite's Fetch tests call it.
 
-CI runs the integration specs in three shards: `make test-integration-shard SHARD=1|2|3`.
+CI runs e3-core's unit tests in a job of their own (`make test-packages-core`), the other packages' in another (`make test-packages-rest`, with lint), and the integration specs in four shards split by the times CI recorded: `make test-integration-shard SHARD=1|2|3|4`, whose specs `make integration-shard-specs SHARD=n` prints. `REPORT=file` writes each spec's time too; `test/integration/integration.timings.json` holds the times, refreshed from a run's `integration-timings-*` artifacts with `node dist/integration-timings.js <dir>` in that package.
 
 ## References
 
