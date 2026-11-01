@@ -11,7 +11,7 @@ from pathlib import Path
 
 from east.runtime.errors import EastError
 
-from east_py_cli.loader import get_platform_version, load_platform
+from east_py_cli.loader import get_platform_version, installed_version, load_platform
 from east_py_cli.runner import execute_unit, print_result, run_program
 
 _EXIT_WITH_PARENT_HELP = (
@@ -380,10 +380,13 @@ def cmd_convert(args: argparse.Namespace) -> int:
 
 
 def cmd_version(args: argparse.Namespace) -> int:
-    """Execute the version command."""
+    """Execute the version command: each package's version as its installed
+    distribution records it. e3's export cache keys a package's manifests on
+    what this prints, so another east-py exports them again (#1459); a source
+    checkout, which installs no metadata, prints the module's ``__version__``."""
     from east_py_cli import __version__ as cli_version
 
-    print(f"east-py-cli {cli_version}")
+    print(f"east-py-cli {installed_version('elaraai-east-py-cli') or cli_version}")
 
     # Try to get east-py version
     try:
@@ -391,7 +394,8 @@ def cmd_version(args: argparse.Namespace) -> int:
 
         cy = east.CYTHON_EXTENSIONS
         accel = f"cython: {', '.join(cy)}" if cy else "pure python"
-        print(f"east-py {getattr(east, '__version__', 'unknown')} ({accel})")
+        version = installed_version("elaraai-east-py") or getattr(east, "__version__", "unknown")
+        print(f"east-py {version} ({accel})")
     except ImportError:
         print("east-py: not installed")
 

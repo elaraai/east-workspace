@@ -420,6 +420,43 @@ describe('export_ resolves an imported workspace package itself (#652)', () => {
       }
     });
 
+  it('an east-py that reports another version exports the package again, as one upgraded where it stands would (#1459)',
+    { skip: !hasTools ? 'uv and east-py on PATH' : process.platform === 'win32' ? 'the east-py that reports a version is a shell script' : false }, async () => {
+      // An east-py at one path whose `version` says what EAST_PY_REPORTS says,
+      // as an east-py upgraded in place would; it runs the real one otherwise.
+      const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-resolve-version-'));
+      const wrapper = path.join(scratch, 'east-py');
+      fs.writeFileSync(wrapper,
+        '#!/bin/sh\n' +
+        'if [ "$1" = version ]; then echo "east-py $EAST_PY_REPORTS"; exit 0; fi\n' +
+        'exec "$REAL_EAST_PY" "$@"\n', { mode: 0o755 });
+      const saved = { EAST_PY: process.env['EAST_PY'], REAL_EAST_PY: process.env['REAL_EAST_PY'], EAST_PY_REPORTS: process.env['EAST_PY_REPORTS'] };
+      Object.assign(process.env, { REAL_EAST_PY: process.env['EAST_PY'] || 'east-py', EAST_PY: wrapper, EAST_PY_REPORTS: '1.0.0' });
+      try {
+        const triple = East.importFunction('pricing', 'triple', FunctionType([IntegerType], IntegerType));
+        const n = input('n', IntegerType, variant('value', 4n));
+        const pkg = package_('importer', '1.0.0', task('use_triple', [n], East.function([IntegerType], IntegerType, ($, x) => triple(x).add(1n))));
+        const exportTo = async (zip: string): Promise<string[]> => {
+          const seen: string[] = [];
+          await inWorkspace(() => export_(pkg, path.join(ws, zip), {
+            onEvent: (e) => { if (e.kind === 'functions') seen.push(`${e.package}:${e.count}:${e.cached ? 'cached' : 'exported'}`); },
+          }));
+          return seen;
+        };
+        assert.deepStrictEqual(await exportTo('reports-1.zip'), ['pricing:1:exported']);
+        assert.deepStrictEqual(await exportTo('reports-1-again.zip'), ['pricing:1:cached']);
+        process.env['EAST_PY_REPORTS'] = '1.0.1';
+        assert.deepStrictEqual(await exportTo('reports-2.zip'), ['pricing:1:exported']);
+        assert.deepStrictEqual(await exportTo('reports-2-again.zip'), ['pricing:1:cached']);
+      } finally {
+        for (const [key, value] of Object.entries(saved)) {
+          if (value === undefined) delete process.env[key];
+          else process.env[key] = value;
+        }
+        fs.rmSync(scratch, { recursive: true, force: true });
+      }
+    });
+
   it('a task that runs pure IR captures no python environment, and keeps its hash across python edits that leave the function it embeds where it was written; a line moved above that function makes it another program (#738)',
     { skip: hasTools ? false : 'uv and east-py on PATH' }, async () => {
       const triple = East.importFunction('pricing', 'triple', FunctionType([IntegerType], IntegerType));
