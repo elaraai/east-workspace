@@ -42,17 +42,27 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        # e3-core's unit tests in two shards and the integration specs in
-        # four, each split by the times CI recorded (libs/e3/Makefile, #1466),
-        # and the other packages' tests, with lint on Linux. The jobs run side by side,
-        # so the longest sets the wall clock rather than their sum.
-        shard: [core-1, core-2, packages, integration-1, integration-2, integration-3, integration-4]
-        # macOS runners are few, five at a time for every run of every
-        # workflow: four jobs here, as before the shards, e3-core's tests in
-        # one, the other packages' in another, and the integration specs in
-        # two shards.
+        # e3-core's unit tests, the other packages' (with lint on Linux) and
+        # the integration specs, each split by the times its system recorded
+        # (libs/e3/Makefile, #1466). The jobs run side by side, so the longest
+        # sets the wall clock: macOS's, whose runners are few, five at a time
+        # for every run of every workflow. Each system runs as few jobs as
+        # finish within it, since every job of every run takes one of the
+        # organisation's runners: Linux and macOS four — e3-core's tests in one,
+        # the other packages' in another, the integration specs in two shards —
+        # and Windows, the slowest, e3-core's in two and the integration specs
+        # in three.
         include:
+          - { os: ubuntu-latest, shard: core, core: true }
+          - { os: ubuntu-latest, shard: packages }
+          - { os: ubuntu-latest, shard: integration-1, shards: 2 }
+          - { os: ubuntu-latest, shard: integration-2, shards: 2 }
+          - { os: windows-latest, shard: core-1 }
+          - { os: windows-latest, shard: core-2 }
+          - { os: windows-latest, shard: packages }
+          - { os: windows-latest, shard: integration-1, shards: 3 }
+          - { os: windows-latest, shard: integration-2, shards: 3 }
+          - { os: windows-latest, shard: integration-3, shards: 3 }
           - { os: macos-15, shard: core, core: true }
           - { os: macos-15, shard: packages }
           - { os: macos-15, shard: integration-1, shards: 2 }
