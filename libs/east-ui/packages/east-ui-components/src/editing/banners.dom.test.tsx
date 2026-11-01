@@ -136,6 +136,31 @@ test("drafts the source moved under, in a session that does not carry them over,
     expect(actions).toEqual(["discard"]);
 });
 
+test("a banner's action that takes the banners away leaves the focus on the frame's main — its first control — never on the page", async () => {
+    const session = drafted({ apply: () => variant("conflict", [issue("a", "Changed since this edit began")]), carryOver: false });
+    await act(() => session.apply());
+    act(() => session.observeBase(variant("snapshot", [{ ...a, end: 9n }])));
+    const { container } = render(
+        <ChakraProvider value={system}>
+            <div data-builder-frame="">
+                <div data-frame-slot="toolbar"><button type="button">Filters</button></div>
+                <div data-frame-slot="banners">
+                    <SessionBanners session={session} words={WORDS} onAction={(action) => { if (action === "discard") session.discard(); }} />
+                </div>
+                <div data-frame-slot="main"><button type="button">Rows</button></div>
+            </div>
+        </ChakraProvider>,
+    );
+    const discard = banner(container, "stale")!.querySelector<HTMLElement>("[data-banner-action]")!;
+    act(() => { discard.focus(); });
+    await act(async () => {
+        fireEvent.click(discard);
+        await new Promise<void>((resolve) => { requestAnimationFrame(() => resolve()); });
+    });
+    expect(kinds(container)).toEqual([]);
+    expect(document.activeElement?.textContent).toBe("Rows");
+});
+
 test("a session one of several in a history titles each banner with its source's name, in the collection's words; with none, the titles name nothing", async () => {
     const session = drafted({ apply: () => variant("conflict", [issue("a", "Changed since this edit began")]), carryOver: false });
     await act(() => session.apply());

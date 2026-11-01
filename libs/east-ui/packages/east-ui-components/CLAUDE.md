@@ -266,7 +266,9 @@ component, nothing in east-ui.
   Every colour is the `elara` tokens'. The `HistoryBar` takes `locked` while
   a run is out: Undo, Redo, Discard and Save `aria-disabled`, their size and
   the focus kept. A button that runs out under the focus — Discard pressed
-  from the keyboard — keeps it the same way until the focus moves on.
+  from the keyboard — keeps it the same way until the focus moves on, and a
+  session banner's action that takes the banners away leaves the focus on
+  the frame's main, its first control: never on the page.
 - **Panes.** A `BuilderFramePane` is either a description the frame draws as
   a `DockPane` (`BuilderFrameDock`: `label`, `body` or `tabs` — each tab's
   `count`, when given, follows its name, the Calendar's and the Sheet

@@ -9,11 +9,9 @@ import { useSliceDensity } from "../density";
 import { useSlotStyles } from "../../theme/slot-styles.js";
 import { POPOVER_GUTTER } from "../../overlays/popover/gutter.js";
 import { frameBounds } from "../../overlays/popover/frame-bounds.js";
+import { FOCUSABLE } from "../../primitives/focusable.js";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
-
-/** A control the focus can go back to, in an anchored popover's anchor. */
-const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /** What a {@link SliceEditPopover} hangs from: its trigger, or an anchor. */
 export type SliceEditPopoverAnchor =

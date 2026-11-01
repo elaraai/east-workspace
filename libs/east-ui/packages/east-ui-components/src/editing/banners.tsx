@@ -25,6 +25,7 @@ import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faNotEqual } from "@fortawesome/free-solid-svg-icons";
 import { BannerView } from "../feedback/banner/index.js";
+import { FOCUSABLE } from "../primitives/focusable.js";
 import type { HistoryAction } from "./HistoryBar.js";
 import type { EditIssue, EditSession } from "./session.js";
 import { useConflictsOpener } from "./conflicts.js";
@@ -80,6 +81,20 @@ export interface SessionBannersProps<W> {
 }
 
 /**
+ * Where the focus goes in a builder's frame once what held it has gone: its
+ * main's first control — the grid, the canvas, the first step — else its
+ * toolbar's. Nothing moves while the focus is still on something.
+ *
+ * @param frame - The builder's frame
+ */
+function keepFocusIn(frame: Element): void {
+    const at = document.activeElement;
+    if (at !== null && at !== document.body && at.isConnected) return;
+    const first = (slot: string) => frame.querySelector(`[data-frame-slot="${slot}"]`)?.querySelector<HTMLElement>(FOCUSABLE) ?? null;
+    (first("main") ?? first("toolbar"))?.focus({ preventScroll: true });
+}
+
+/**
  * The session's banners — see the module docs. They follow the session
  * itself, so they stay current wherever the host draws them.
  *
@@ -111,9 +126,14 @@ export function SessionBanners<W>({ session, words, onAction, where, issueText, 
             </Box>
         );
     };
-    // One Default button at a banner's end.
+    // One Default button at a banner's end. What it does may take the banner away, and the focus with it: the focus then
+    // goes to the frame's main, never to the page.
     const action = (label: string, run: HistoryAction) => (
-        <Button size="md" variant="outline" data-banner-action={run} onClick={() => onAction(run)}>{label}</Button>
+        <Button size="md" variant="outline" data-banner-action={run} onClick={(event) => {
+            const frame = event.currentTarget.closest("[data-builder-frame]");
+            onAction(run);
+            if (frame !== null) requestAnimationFrame(() => keepFocusIn(frame));
+        }}>{label}</Button>
     );
     const word = (kind: Parameters<typeof m.bannerWord>[0]["kind"]) => m.bannerWord({ kind });
     const errorText = error === undefined ? undefined : sessionErrorText(error, words);
