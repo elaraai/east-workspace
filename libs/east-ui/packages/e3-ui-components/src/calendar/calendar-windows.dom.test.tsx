@@ -530,9 +530,10 @@ describe("the inspector's resource Chooser over the paged presses (#1424)", () =
 // ============================================================================
 
 describe("past 10,000 jobs in the cells wanted (#1424)", () => {
-    beforeEach(async () => { await bookProofs(); });
-
     test("none is read: the series index counts them; at Week, which the month's summary does not divide, each press's row is hatched and the banner says how many; at Month, the summary shades each month", async () => {
+        // Booked as part of the test, whose budget e3's work takes: a hook has ten seconds, which e3 applying ten thousand
+        // jobs on a busy runner ran past.
+        await bookProofs();
         const { container: c } = await h.mount(cw.calendarWindows, { storageKey: "windows-cap" });
         await settle();
         // Counted through the series index — a search a cell — and never one of them read.
