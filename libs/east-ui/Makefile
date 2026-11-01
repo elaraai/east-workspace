@@ -71,10 +71,13 @@ $(error test-group needs GROUP=components, ir, e3-components or rest)
 endif
 endif
 
-## Run one CI group; SHARD=n/4 applies to GROUP=e3-components only.
+## Run one CI group. SHARD=n/count applies to GROUP=e3-components only, its
+## shards split by recorded time (#1466); REPORT=file writes its JSON report
+## too, the times `scripts/vitest-timings.ts` refreshes them from.
 test-group:
 ifeq ($(GROUP),e3-components)
-	pnpm --filter @elaraai/e3-ui-components run test:components $(if $(SHARD),--shard=$(SHARD))
+	pnpm --filter @elaraai/e3-ui-components run test:components $(if $(SHARD),--shard=$(SHARD)) \
+		$(if $(REPORT),--reporter=default --reporter=json --outputFile.json=$(REPORT))
 else
 	pnpm -r $(TEST_GROUP_$(GROUP)) run test
 ifeq ($(GROUP),rest)
@@ -247,7 +250,7 @@ help:
 	@echo "  build-checked     - Every package type-checked with its declarations, the showcase unbundled (CI's check)"
 	@echo "  build-showcase-js - The showcase's bundle alone, over build-js (CI's browser shards)"
 	@echo "  test              - Run tests"
-	@echo "  test-group GROUP=components|ir|e3-components|rest - Run a CI group (e3-components supports SHARD=n/4)"
+	@echo "  test-group GROUP=components|ir|e3-components|rest - Run a CI group (e3-components takes SHARD=n/count and REPORT=file)"
 	@echo "  test-export       - Export east-ui's suites as IR to this checkout's tmp/east-ui-tests"
 	@echo "  lint              - Run linters"
 	@echo "  showcase          - Run showcase dev server"
