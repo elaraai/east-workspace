@@ -424,6 +424,12 @@ function DecisionFrame({ value, storageKey: key }: FrameProps) {
         const at = stringEqual(kind, CASES) ? caseAt(issue.entry) : undefined;
         return at === undefined ? issue.entry : verdictTitle(at.c);
     };
+    // A conflict's item in the history item's popover, named as its session's banners name its issues.
+    const historyWhere = (issue: EditIssue) => {
+        const source = editing.history.sourceOf(issue);
+        const held = source === undefined ? undefined : editing.schedule.sessions.find(s => stringEqual(s.key, source));
+        return held === undefined ? issue.entry : where(held.kind)(issue);
+    };
 
     // ── Keys (R12) ────────────────────────────────────────────────────────────
     // `j` and `k` step to the next and the previous waiting case, opening each as a click does — from the open case, else
@@ -462,7 +468,7 @@ function DecisionFrame({ value, storageKey: key }: FrameProps) {
     const slice = useMemo(() => sourcePart(chrome, DECISIONS_SOURCE), [chrome]);
     // e3's count of the narrowing, or the record's size read whole (R3): `…` while a new narrowing's is read.
     const toolbar = useDecisionToolbar({
-        value, styles, words, count: data.filtering ? undefined : read?.count, history: readOnly ? undefined : history, onIssue, onAction,
+        value, styles, words, count: data.filtering ? undefined : read?.count, history: readOnly ? undefined : history, onIssue, where: historyWhere, onAction,
     });
     // What the footer's line says (#1398, CL3): the cases being read, a new narrowing's, or why they could not be.
     const line = useMemo(() => pagedLoadingLine(

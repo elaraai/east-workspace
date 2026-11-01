@@ -23,8 +23,9 @@
  * card with it (R6); Override, where the rows hold no reason and no note,
  * asks for neither (R20); Modify edits the price through the record's form,
  * kept across a remount until the verdict (R19, R21); a Save another session
- * overtakes, or whose answer is lost, is the session's banner (R29); and read
- * only, a card shows all of it and takes nothing (R22).
+ * overtakes carries the verdict over, to wait in the conflicts, its card
+ * naming the case by its title, and one whose answer is lost is the session's
+ * banner (R29); and read only, a card shows all of it and takes nothing (R22).
  */
 
 import { expect, test } from "vitest";
@@ -33,7 +34,7 @@ import userEvent from "@testing-library/user-event";
 import { SortedMap, StringType, compareFor, equalFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/decision/decision";
-import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
+import { conflictCards, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import { decisionQueueMessages as m, type DecisionVerdictWord } from "./messages.js";
 import { settleApplied } from "./preview.test-utils.js";
 import "./index.js";
@@ -382,20 +383,34 @@ test("Modify edits the price the change leaves through the record's form: the ch
 
 // ── Another session's Save, and a lost answer (R29) ─────────────────────────
 
-test("a Save another session overtakes with a verdict on the same case is the cases' conflict, in their banner naming the case by its title; the order's commit stands (R29)", async () => {
+test("a Save another session overtakes with a verdict on the same case carries the verdict over to the case as it stands: it waits to be chosen, named by the case's title, Save waiting on it, and the order's commit stands; kept, it saves (R29)", async () => {
     const { container } = await open();
     await press(head(container, "prop-wo1005"));
     await press(await applyOf(container, "prop-wo1005"));
     await h.race(ex.proposals, () => { fireEvent.click(history(container, editingMessages.apply())); },
         now => new SortedMap<string, ProposalRow>([...now, ["prop-wo1005", { ...now.get("prop-wo1005")!, verdict: variant("deferred", null) }]], byString));
-    const conflict = slot(container, "banners").querySelector('[data-session-banner="conflict"]');
-    expect(conflict, slot(container, "banners").textContent ?? "").not.toBeNull();
-    expect(conflict!.textContent).toContain(m.casesSession());
-    expect(conflict!.textContent).toContain("Schedule WO-1005 for Mon 16 Mar");
+    // Carried over, the cases' banner says one change conflicts; Save waits aria-disabled, and the drafts with it.
+    await waitFor(() => {
+        expect([...slot(container, "banners").querySelectorAll("[data-session-banner]")].map(el => el.getAttribute("data-session-banner")),
+            slot(container, "banners").textContent ?? "").toEqual(["conflicts"]);
+        expect(slot(container, "toolbar").textContent).not.toContain(editingMessages.historyStatus({ status: "carrying" }));
+    });
+    expect(slot(container, "banners").textContent).toContain(m.casesSession());
+    expect(history(container, editingMessages.apply()).getAttribute("aria-disabled")).toBe("true");
     expect(unsaved(container)).toBe(true);
     // The other session's verdict stands, and the order's commit.
     await savedAs("prop-wo1005", "deferred");
     expect((await h.read(ex.optimiseWorkOrders)).get("WO-1005")!.status).toBe("Scheduled");
+    // The banner's Choose opens the conflict: the case by its title, the viewer's verdict and the other session's.
+    await act(async () => { fireEvent.click(slot(container, "banners").querySelector('[data-banner-action="choose"]')!); });
+    const [conflict, ...more] = await conflictCards(container);
+    expect(more).toEqual([]);
+    expect([conflict!.item, conflict!.yours]).toEqual(["Schedule WO-1005 for Mon 16 Mar", "Yours, Applied"]);
+    expect(conflict!.theirs).toContain("Theirs, Deferred");
+    // Kept, the viewer's verdict saves over the other session's.
+    await act(async () => { fireEvent.click(conflict!.radio("draft")); });
+    await press(history(container, editingMessages.apply()));
+    await savedAs("prop-wo1005", "applied");
 });
 
 test("a Save whose answer is lost on the way back is the cases' unknown outcome; Retry resends the same request, and the verdict reads back once (R29)", async () => {

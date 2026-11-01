@@ -31,6 +31,8 @@ export interface DecisionToolbarArgs {
     readonly history: EditHistory<ScheduleEntryRef> | undefined;
     /** Shows where an issue of the history is. */
     readonly onIssue: (issue: EditIssue) => void;
+    /** Where an issue of the history is, in the queue's words — its banners': what the history item's conflicts name their items by. */
+    readonly where: (issue: EditIssue) => string;
     /** Runs a history action. */
     readonly onAction: (action: HistoryAction) => void;
 }
@@ -70,6 +72,6 @@ export function useDecisionToolbar(args: DecisionToolbarArgs): ReadonlyArray<Too
             ],
         },
         ...rail,
-        history !== undefined && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssue, onAction: args.onAction }),
+        history !== undefined && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssue, where: args.where, onAction: args.onAction }),
     ];
 }
