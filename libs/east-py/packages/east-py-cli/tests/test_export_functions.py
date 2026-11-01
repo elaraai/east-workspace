@@ -125,6 +125,37 @@ def test_export_functions_builds_only_the_functions_it_names(tmp_path: Path):
     assert "body produced Integer, declared out is String" in result.stderr
 
 
+def test_export_functions_expands_each_function_once_and_finalizes_none(tmp_path: Path, monkeypatch):
+    # Its -p check reads a function's platform calls from its skeleton, so the
+    # manifest's expansion is the only one (#1459). In-process, to count them.
+    import importlib
+
+    from east.expression import finalize
+
+    from east_py_cli.cli import cmd_export_functions, create_parser
+
+    module = tmp_path / "pricing_fns.py"
+    module.write_text(MODULE, encoding="utf-8")
+    out = tmp_path / "double.beast2"
+    expansions = 0
+    expand = finalize._expand
+
+    def counted(*args):
+        nonlocal expansions
+        expansions += 1
+        return expand(*args)
+
+    def refuse(*_args):
+        raise AssertionError("the export finalized a function")
+
+    monkeypatch.setattr(finalize, "_expand", counted)
+    monkeypatch.setattr(importlib.import_module("east.expression.function"), "_finalized", refuse)
+    args = create_parser().parse_args(["export-functions", str(module), "-o", str(out), "--only", "double"])
+    assert cmd_export_functions(args) == 0
+    assert [f["name"] for f in East.decode_function_manifest(out.read_bytes())["functions"]] == ["double"]
+    assert expansions == 1
+
+
 def test_export_functions_batch_writes_each_manifest_from_one_import(tmp_path: Path):
     # The module says each time it is imported, so one import for the whole batch shows.
     module = tmp_path / "pricing_fns.py"
