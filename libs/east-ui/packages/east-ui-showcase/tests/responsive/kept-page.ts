@@ -23,9 +23,10 @@
  *
  * A test gets a page of its own when its spec file is not the last test's,
  * when the last test failed, or when the last test installed a script before
- * the page loads (`installE3Faults`): that script stays the page's, so a test
- * that installs one loads the page for real at its first visit, and the page
- * goes when the test ends.
+ * the page loads (`installE3Faults`) or added a tag to its document
+ * (`addStyleTag`): the script stays the page's, and the tag stays in its
+ * document through a reset, so a test that does either loads the page for
+ * real at its next visit, and the page goes when the test ends.
  *
  * A spec that holds the clock, routes requests, emulates media, listens to the
  * page's events, reaches its context, reloads, or sets options of its own
@@ -49,24 +50,37 @@ interface Kept {
     page?: KeptPage;
 }
 
-/** The page a spec file's tests share, and whether a test installed a script on it before it loads. */
+/** The page a spec file's tests share, and whether a test changed what a reset keeps: a script installed before it loads, or a tag added to its document. */
 interface KeptPage {
     readonly page: Page;
     readonly file: string;
-    scripted: boolean;
+    altered: boolean;
 }
 
-/** A page for the context, its visits to the showcase's own page served by the reset until a script is installed on it. */
+/** A page for the context, its visits to the showcase's own page served by the reset until a script is installed on it or a tag added to its document. */
 async function keptPage(context: BrowserContext, base: string, file: string): Promise<KeptPage> {
     const page = await context.newPage();
-    const kept: KeptPage = { page, file, scripted: false };
-    // A script installed before the page loads runs at a load: the test's next visit loads the page for real.
+    const kept: KeptPage = { page, file, altered: false };
+    // A script installed before the page loads runs at a load, and a tag added to the document stays in it through a
+    // reset: the test's next visit loads the page for real, as it would a page of its own.
     let load = false;
     const install = page.addInitScript.bind(page);
     page.addInitScript = async (...args: Parameters<Page["addInitScript"]>) => {
-        kept.scripted = true;
+        kept.altered = true;
         load = true;
         return install(...args);
+    };
+    const style = page.addStyleTag.bind(page);
+    page.addStyleTag = async (...args: Parameters<Page["addStyleTag"]>) => {
+        kept.altered = true;
+        load = true;
+        return style(...args);
+    };
+    const script = page.addScriptTag.bind(page);
+    page.addScriptTag = async (...args: Parameters<Page["addScriptTag"]>) => {
+        kept.altered = true;
+        load = true;
+        return script(...args);
     };
     const visit = page.goto.bind(page);
     page.goto = async (address, options) => {
@@ -118,8 +132,9 @@ export const test = base.extend<object, { kept: Kept }>({
         await serve(page);
         // The origin's storage, which a page the context makes next shares.
         await clearStorage(page, kept.base);
-        // A test that failed, or installed a script before the page loads, leaves the next test a page of its own.
-        if (kept.page.scripted || testInfo.status !== testInfo.expectedStatus) {
+        // A test that failed, installed a script before the page loads or added a tag to its document, leaves the next
+        // test a page of its own.
+        if (kept.page.altered || testInfo.status !== testInfo.expectedStatus) {
             await page.close();
             kept.page = undefined;
         }
