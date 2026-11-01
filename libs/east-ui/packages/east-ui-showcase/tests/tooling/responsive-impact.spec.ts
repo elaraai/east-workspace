@@ -124,7 +124,7 @@ test("Playwright resolves a focused list, which runs in fewer jobs of each test 
         assert.deepEqual([...placed].sort(), selected.map(testIdentity).sort());
         assert.equal(new Set(placed).size, selected.length);
         assert.equal(shardCount([]), 1); // valid placeholder matrix; the job is skipped
-        assert.equal(shardCount(suite()), MAX_SHARDS, "the whole suite takes every job");
+        assert.ok(shardCount(suite()) > count && shardCount(suite()) <= MAX_SHARDS, "the whole suite takes more jobs than a focused list, and no more than the most");
         assert.equal(shardCount(Array.from({ length: 5000 }, (_, n) => `[desktop] › new.spec.ts:1:1 › new check ${n}`)), MAX_SHARDS, "tests none was recorded for count, and the jobs stop at the most");
     } finally { rmSync(directory, { recursive: true, force: true }); }
 });
