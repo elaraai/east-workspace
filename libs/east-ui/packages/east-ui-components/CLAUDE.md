@@ -265,7 +265,8 @@ component, nothing in east-ui.
   wrapper there is either no box at all or a box the host's own then scrolls.
   Every colour is the `elara` tokens'. The `HistoryBar` takes `locked` while
   a run is out: Undo, Redo, Discard and Save `aria-disabled`, their size and
-  the focus kept.
+  the focus kept. A button that runs out under the focus — Discard pressed
+  from the keyboard — keeps it the same way until the focus moves on.
 - **Panes.** A `BuilderFramePane` is either a description the frame draws as
   a `DockPane` (`BuilderFrameDock`: `label`, `body` or `tabs` — each tab's
   `count`, when given, follows its name, the Calendar's and the Sheet

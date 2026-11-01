@@ -13,7 +13,7 @@
  *
  * @packageDocumentation
  */
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Box, chakra, Portal, Text, Tooltip, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRotateLeft, faArrowRotateRight, faCheck, faRotate, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
@@ -112,12 +112,17 @@ function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onC
 }) {
     const iconRecipe = useRecipe({ key: "iconButton" });
     const iconStyles = iconRecipe({ size: "sm", variant: "outline" });
+    // Run out under the focus — Discard pressed from the keyboard, leaving nothing to discard — it keeps the focus,
+    // aria-disabled, until the focus moves on: `disabled` under it, the browser drops the focus to the page.
+    const [focused, setFocused] = useState(false);
+    const held = disabled && focused;
     return <Tooltip.Root openDelay={250}>
         <Tooltip.Trigger asChild>
             <span>
                 <chakra.button type="button" css={[iconStyles, styles.button]} aria-label={label}
-                    disabled={disabled} aria-disabled={locked ? true : undefined}
-                    onMouseDown={event => event.preventDefault()} onClick={locked ? undefined : onClick}>
+                    disabled={disabled && !focused} aria-disabled={locked || held ? true : undefined}
+                    onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+                    onMouseDown={event => event.preventDefault()} onClick={locked || disabled ? undefined : onClick}>
                     <FontAwesomeIcon icon={icon} />
                 </chakra.button>
             </span>

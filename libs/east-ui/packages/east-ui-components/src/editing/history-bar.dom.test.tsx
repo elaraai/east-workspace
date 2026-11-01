@@ -9,7 +9,7 @@
  */
 
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { IntegerType, StringType, StructType, none, some, variant } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
@@ -60,6 +60,24 @@ test("the bar speaks the words its collection hands it, and each action is the c
     fireEvent.click(ui.getByRole("button", { name: "⟦Undo" }));
     fireEvent.click(ui.getByRole("button", { name: "⟦Save" }));
     expect(ui.onAction.mock.calls.map(([action]) => action)).toEqual(["undo", "apply"]);
+});
+
+test("a button run out under the focus keeps it, aria-disabled and refusing, until the focus moves on: Discard pressed from the keyboard leaves the focus on Discard, never on the page", () => {
+    const ui = setup();
+    ui.session.record([{ id: "a", before: version(1n), after: version(4n) }], "resize", "Resize a");
+    ui.refresh();
+    const discard = ui.getByRole("button", { name: "⟦Discard" }) as HTMLButtonElement;
+    act(() => { discard.focus(); });
+    fireEvent.click(discard);
+    // The collection discards: nothing is left to discard, and Discard keeps the focus, refusing another press.
+    act(() => { ui.session.discard(); });
+    ui.refresh();
+    expect([document.activeElement === discard, discard.disabled, discard.getAttribute("aria-disabled")]).toEqual([true, false, "true"]);
+    fireEvent.click(discard);
+    expect(ui.onAction.mock.calls.map(([action]) => action)).toEqual(["discard"]);
+    // The focus moved on, it is disabled, out of the tab order.
+    act(() => { discard.blur(); });
+    expect([discard.disabled, discard.getAttribute("aria-disabled")]).toEqual([true, null]);
 });
 
 test("locked while a run of the optimiser is out (#1409, R2): each action aria-disabled and refused, none disabled, the issues still reachable", () => {
