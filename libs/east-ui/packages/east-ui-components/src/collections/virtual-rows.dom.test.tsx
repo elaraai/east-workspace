@@ -552,6 +552,43 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
         expect(inView(container, "r50")).toBe(0);
     });
 
+    test("a view nobody has touched takes no anchor: rows landing above its first row push it down, and it stays at its top (#1469)", () => {
+        // A collection whose sources land one after another opens at its top, never on whichever row landed first.
+        const { container, rerender } = render(frame(ROWS));
+        const scrollEl = container.firstElementChild as HTMLElement;
+        rerender(frame([...keysOf("n", 10), ...ROWS]));
+        expect(scrollEl.scrollTop).toBe(0);
+        expect(inView(container, "n0")).toBe(0);
+    });
+
+    test("a view pressed at its top is the viewer's: rows landing above the row at its top leave that row where it is (#1469)", () => {
+        const { container, rerender } = render(frame(ROWS));
+        const scrollEl = container.firstElementChild as HTMLElement;
+        fireEvent.pointerDown(scrollEl);
+        rerender(frame([...keysOf("n", 10), ...ROWS]));
+        expect(scrollEl.scrollTop).toBe(10 * ROW_H);
+        expect(inView(container, "r0")).toBe(0);
+    });
+
+    test("the row holding the keyboard is the anchor before the first row in view: rows landing between them leave it where it is (#1469)", () => {
+        const focusable = (keys: readonly string[]) => (
+            <ChakraProvider value={system}>
+                <VirtualRows height="200px" maxHeight={undefined} count={keys.length} estimateSize={() => ROW_H} overscan={2}
+                    getItemKey={(i) => keys[i]!} anchorable={() => true}
+                    renderRow={(i) => <div data-key={keys[i]} tabIndex={-1}>{keys[i]}</div>} />
+            </ChakraProvider>
+        );
+        const { container, rerender } = render(focusable(ROWS));
+        const scrollEl = scrollTo(container, 50 * ROW_H);
+        // r53, three rows down the view, holds the keyboard.
+        act(() => { container.querySelector<HTMLElement>('[data-key="r53"]')!.focus(); });
+        expect(inView(container, "r53")).toBe(3 * ROW_H);
+        // Two rows land between the view's top and r53: r53 keeps its place, and r50 at the top gives way.
+        rerender(focusable([...ROWS.slice(0, 52), "x0", "x1", ...ROWS.slice(52)]));
+        expect(inView(container, "r53")).toBe(3 * ROW_H);
+        expect(scrollEl.scrollTop).toBe(52 * ROW_H);
+    });
+
     test("a row above the view growing leaves the row at its top where it is — its heights re-measured after the render", () => {
         // A stable key function and exact sizes: the growth reaches the frame
         // only through its re-measure, after the render that drew the rows.
