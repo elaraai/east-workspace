@@ -144,9 +144,11 @@ jobs:
           compression-level: 1
           retention-days: 1
 
-  # Every package type-checked and its declarations written, beside the tests
-  # (#1466): what `rest` (the CLI compiles against the renderers' declarations)
-  # and lint read. The showcase is type-checked here and bundled in `showcase`.
+  # Every package a test or lint reads type-checked and its declarations
+  # written, beside the tests (#1466): what `node`, `rest`, `queries` (the CLI
+  # compiles against the renderers' declarations) and lint read. `apps` checks
+  # the showcase and the VS Code extension over it, and `showcase` bundles the
+  # showcase.
   checked:
     name: type-check
     runs-on: ubuntu-latest
@@ -239,6 +241,41 @@ jobs:
           path: ${{ runner.temp }}/east-ui-checked.tar
           compression-level: 1
           retention-days: 1
+
+  # What no test reads, over the checked build (#1466): the showcase
+  # type-checked and the VS Code extension built, apart from the type-check the
+  # test jobs wait on.
+  apps:
+    needs: checked
+    name: type-check (showcase, extension)
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: east-ui-checked
+          path: ${{ runner.temp }}
+
+      - name: Restore compiled workspaces
+        run: tar -xf "$RUNNER_TEMP/east-ui-checked.tar"
+
+      - name: Type-check the showcase and build the extension
+        working-directory: libs/east-ui
+        run: make check-apps
 
   # The showcase's bundle, for the browser shards alone (#1466), and the
   # browser checks the change selects.
