@@ -292,7 +292,8 @@ jobs:
       - name: Run integration tests
         if: matrix.shard != 'packages'
         working-directory: libs/e3
-        timeout-minutes: 20
+        # The first shard takes about seventeen minutes on a slow Windows runner.
+        timeout-minutes: 30
         env:
           MATRIX_SHARD: ${{ matrix.shard }}
         run: make test-integration-shard SHARD=${MATRIX_SHARD#integration-}
