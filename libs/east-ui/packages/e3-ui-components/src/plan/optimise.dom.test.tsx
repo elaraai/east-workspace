@@ -42,6 +42,7 @@ import { act, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { MAX_RETAINED_WINDOWS } from "../platform/paged-runtime.js";
 import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
+import { blinks } from "../shared/func/optimise.test-utils.js";
 import { setPlanFrameRenderProbe } from "./frame/index.js";
 import { setPlanRootRenderProbe } from "./index.js";
 import { setPlanOptimiseProbe } from "./optimise.js";
@@ -199,11 +200,14 @@ describe("the eye in the Plan", () => {
         const backlog = backlogCount(container);
         await press(eye(container));
         await landed(container, backlog);
-        // The drafts are the next run's input (O5): with every job placed, the optimiser changes nothing.
+        // The drafts are the next run's input (O5): with every job placed, the optimiser changes nothing. The eye's one
+        // blink is watched from the press on: on a slow machine the banner can land after it has gone again.
+        const blink = blinks(container);
         await press(eye(container));
         await said(container, "none");
+        blink.stop();
         expect(words(banner(container, "none")!)).toEqual(["No changes", `Elara found nothing to improve in ${period(container)}.`]);
-        expect([banner(container, "none")!.querySelector("[role=status]") !== null, eye(container)!.hasAttribute("data-blink"), calls.requests().length]).toEqual([true, true, 2]);
+        expect([banner(container, "none")!.querySelector("[role=status]") !== null, blink.seen(), calls.requests().length]).toEqual([true, true, 2]);
         expect(added(container)).toHaveLength(backlog);
         const restore = calls.fail();
         await press(eye(container));

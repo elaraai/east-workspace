@@ -33,6 +33,7 @@ import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import * as opt from "@elaraai/e3-ui/examples/roster/optimise";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
+import { blinks } from "../shared/func/optimise.test-utils.js";
 import { START, act, at, history, rosterHarness, settle, slot, toolbarAtFloor, weekDuties, width } from "./harness.test-utils.js";
 
 const h = rosterHarness({ "roster/optimise": opt });
@@ -61,21 +62,6 @@ function lineStates(c: HTMLElement): { seen: Set<string>; stop: () => void } {
     observer.observe(c, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-loading-line"] });
     note();
     return { seen, stop: () => observer.disconnect() };
-}
-/**
- * Whether the eye blinks from now on, watched as the DOM moves: its one blink (560 ms) is still seen when the answer's
- * banner lands after it has gone again on a slow machine — an attribute that came and went before the observer heard
- * of it by the old value its removal leaves.
- */
-function blinks(c: HTMLElement): { seen: () => boolean; stop: () => void } {
-    let seen = false;
-    const note = (records: readonly MutationRecord[] = []) => {
-        if (eye(c)?.hasAttribute("data-blink") === true || records.some(record => record.oldValue !== null)) seen = true;
-    };
-    const observer = new MutationObserver(note);
-    observer.observe(c, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-blink"], attributeOldValue: true });
-    note();
-    return { seen: () => seen, stop: () => observer.disconnect() };
 }
 /**
  * Whether a landing draws what `holds` looks for, watched from now on as the DOM moves: the highlight lasts 8 s from the
