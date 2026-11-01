@@ -31,8 +31,10 @@
  * `pnpm exec playwright test plan-frame`.
  */
 
-import { expect, type Locator } from "playwright/test";
-import { test } from "./kept-page";
+// A page of its own each test, not the kept page (`kept-page.ts`): on a page whose e3 runs warm, the print works' rows
+// land source by source, and a canvas at its top anchors on the first to land, rows landing above it then scrolling the
+// view off the rows its tests read.
+import { expect, test, type Locator } from "playwright/test";
 import { editingMessages } from "@elaraai/east-ui-components/testing";
 import { PLAN_EXAMPLES, openExample, planBox, remount, rowSel, sizeBox, toolbarLadderFaults } from "./plan-page";
 import { settled } from "./settle";
