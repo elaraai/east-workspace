@@ -53,7 +53,9 @@ const credentialsEnv = (): Record<string, string> => ({
   E3_AUTH_AUTO_APPROVE: 'true',
 });
 
-describe('API compliance', { timeout: 600_000, concurrency: false }, () => {
+// GitHub's Windows runners differ in speed by nearly two to one, and the suite
+// takes nearly eight minutes on a fast one: the limit leaves a slow one room.
+describe('API compliance', { timeout: 1_200_000, concurrency: false }, () => {
   // node:test charges asynchronous activity to the test or hook whose async
   // context created it, and everything the server does descends from its
   // start: started here, what a request leaves running is reported against
