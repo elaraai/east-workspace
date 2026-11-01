@@ -1424,11 +1424,13 @@ const onPatch = $.const(East.function([Plan.Types.PatchEvent(Hall)], NullType, (
   each gesture is made, and a reload of the tab brings them back, carried
   over to what the source holds then: as they were where it has not moved,
   combined with a change since or a conflict to choose where it has, and
-  none where a Save landed before the reload. Undo starts at them. They go
-  when the tab closes, and at a sign-out; storage that refuses them, or
-  drafts a reload cannot restore, is a banner. The Sheet, the Calendar, the
-  Roster, the Allocation board, the Schematic and the Flowchart keep theirs
-  the same way.
+  none where a Save landed before the reload. They are the workspace's they
+  were made in: the same view over another workspace, repository or server
+  in the tab holds none of them, before a reload or after. Undo starts at
+  them. They go when the tab closes, and at a sign-out; storage that
+  refuses them, or drafts a reload cannot restore, is a banner. The Sheet,
+  the Calendar, the Roster, the Allocation board, the Schematic and the
+  Flowchart keep theirs the same way.
 - **Moves (#825).** A move along its row, or a resize, drafts the item's
   instants in place. A move to another row takes the item out of its list
   and appends it to the target row's, and a batch that takes an item and

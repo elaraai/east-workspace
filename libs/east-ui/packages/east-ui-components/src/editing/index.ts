@@ -63,6 +63,7 @@ export {
     type EditSessionOptions,
 } from "./use-edit-session.js";
 export { HistoryBar, type HistoryAction, type HistoryBarProps } from "./HistoryBar.js";
+export { EditingScope, useEditingScope } from "./scope.js";
 export { historyToolbarItem, HISTORY_RANK } from "./history-item.js";
 export { SessionBanners, type SessionBannersProps } from "./banners.js";
 export { useConflictsOpener } from "./conflicts.js";

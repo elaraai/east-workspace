@@ -27,7 +27,7 @@ type JobDraftValue = ValueTypeOf<typeof JobDraft>;
 const sameDraft = equalFor(JobDraft);
 /** A job, as the session holds its draft. */
 const draftOf = (job: JobValue) => liftDraft(JobDraft, job) as JobDraftValue;
-const KEY = keptDraftsKey("jobs", "jobs.view");
+const KEY = keptDraftsKey("", "jobs", "jobs.view");
 const keyOrder = some(variant("keyOrder", null));
 
 const cut: JobValue = { name: "Panel cutting", qty: 2n };

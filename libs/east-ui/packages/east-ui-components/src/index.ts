@@ -611,6 +611,7 @@ export {
 export {
     EditSession,
     EditHistory,
+    EditingScope,
     useEditSession,
     useEditHistory,
     historyKeyOf,

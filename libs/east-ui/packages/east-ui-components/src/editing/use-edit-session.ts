@@ -21,6 +21,7 @@ import { getStore } from "../platform/state-runtime.js";
 import { useTrackedEvaluation } from "../reactive/index.js";
 import { liftDraft } from "./draft.js";
 import { bindingOf, gateOf, keptSession, sessionKeyOf, sourceSessionsOf } from "./kept.js";
+import { useEditingScope } from "./scope.js";
 import { keepDrafts, keptDraftsKey } from "./keep.js";
 import { EditSession, type EditSessionBinding, type EntryVersion, type Placement } from "./session.js";
 
@@ -97,7 +98,9 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
     const keyType = useMemo((): EastType | undefined =>
         editing.keyType.type === "some" ? fromEastTypeValue(editing.keyType.value) : undefined, [editing.keyType]);
     const sourceId = editing.sourceId;
-    const sourceSessions = useMemo(() => sourceSessionsOf(store, sourceId), [store, sourceId]);
+    // The data set its host names: another's source of the same name holds sessions and drafts of its own.
+    const scope = useEditingScope();
+    const sourceSessions = useMemo(() => sourceSessionsOf(store, scope, sourceId), [store, scope, sourceId]);
     const binding = useMemo(() => ({ ...bindingOf<W>(editing, { entryType, draftType, keyType }, ready, source?.refresh), prepare, wireOf, carryOver }),
         [entryType, draftType, keyType, editing, source, ready, prepare, wireOf, carryOver]);
     const schemaKey = useMemo(() => sessionKeyOf(storageKey, editing.entryType, editing.draftType), [storageKey, editing.entryType, editing.draftType]);
@@ -105,7 +108,7 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         const next = new EditSession<W>(binding);
         entryOffsets.set(next, new Map());
         // Its drafts kept through a reload: what the tab kept restored at its first base.
-        if (wireType !== undefined && carryOver !== false) keepDrafts(next, keptDraftsKey(editing.sourceId, storageKey), wireType);
+        if (wireType !== undefined && carryOver !== false) keepDrafts(next, keptDraftsKey(scope, editing.sourceId, storageKey), wireType);
         return next;
     }),
     // Binding callbacks change independently; the layout effect below

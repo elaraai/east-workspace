@@ -27,6 +27,7 @@ import { liftDraft } from "./draft.js";
 import type { EditHistory } from "./history.js";
 import { bindingOf, gateOf, historyKeyOf, keptHistory, keptSession, sessionKeyOf, sourceSessionsOf, type SourceSessions } from "./kept.js";
 import { keepDrafts, keptDraftsKey } from "./keep.js";
+import { useEditingScope } from "./scope.js";
 import { EditSession, keyReader, type ConflictRange, type ConflictTogether, type EditSessionBinding, type EntryVersion } from "./session.js";
 import type { EditingValue } from "./use-edit-session.js";
 
@@ -164,7 +165,9 @@ export function useEditHistory<W>(
     joined: readonly EditHistoryJoined<W>[] = NO_JOINED as readonly EditHistoryJoined<W>[],
 ): EditHistoryState<W> {
     const store = getStore();
-    const history = useMemo(() => keptHistory<W>(store, storageKey), [store, storageKey]);
+    // The data set its host names: another's sources of the same names hold sessions, drafts and a history of their own.
+    const scope = useEditingScope();
+    const history = useMemo(() => keptHistory<W>(store, scope, storageKey), [store, scope, storageKey]);
     // Each source's session, kept by its source, the view and its schema, as
     // `useEditSession` keeps one: sources that share a session share its key.
     const parts = useMemo(() => sources.map((source): Part<W> => {
@@ -177,18 +180,18 @@ export function useEditHistory<W>(
         const draftType = fromEastTypeValue(editing.draftType);
         const keyType = fromEastTypeValue(editing.keyType.value);
         const binding = { ...bindingOf<W>(editing, { entryType, draftType, keyType }, source.ready, paged?.refresh), prepare: source.prepare, ranges: source.ranges, together: source.together };
-        const kept = sourceSessionsOf(store, editing.sourceId);
+        const kept = sourceSessionsOf(store, scope, editing.sourceId);
         const session = keptSession<W>(kept, sessionKeyOf(storageKey, editing.entryType, editing.draftType), () => {
             const next = new EditSession<W>(binding);
             // Its drafts kept through a reload: what the tab kept restored at its first base.
-            if (source.wireType !== undefined) keepDrafts(next, keptDraftsKey(editing.sourceId, storageKey), source.wireType);
+            if (source.wireType !== undefined) keepDrafts(next, keptDraftsKey(scope, editing.sourceId, storageKey), source.wireType);
             return next;
         });
         return {
             key: historyKeyOf(storageKey, editing), editing, binding, sources: kept, session, draftType,
             keyOf: keyReader(keyType), decodeSnapshot: decodeBeast2For(DictType(keyType, entryType)), paged,
         };
-    }), [store, storageKey, sources]);
+    }), [store, scope, storageKey, sources]);
     const byKey = useMemo(() => new Map(parts.map((part) => [part.key, part] as const)), [parts]);
 
     // Each session's callbacks for its next request, and its gate.

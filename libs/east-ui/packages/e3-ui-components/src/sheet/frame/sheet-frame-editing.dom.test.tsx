@@ -443,6 +443,28 @@ test("a reload keeps a cell's text that could not be read as it was typed: drawn
     expect(toolbar(container).getByRole("button", { name: "1 issue" })).toBeTruthy();
 });
 
+test("drafts are the workspace's they were made in: the same sheet over another workspace in the tab holds none of them, before a reload or after, and the first's come back to it", async () => {
+    const first = await h.mount(ex.sheetBasic);
+    await typeInto(cells(first.container, "task")[0]!, "Panel cutting, maple");
+    expect(drafted(first.container)).toBe(1);
+    first.unmount();
+    // The same sheet in the same tab, over another workspace holding the same records: none of the first's drafts.
+    const other = await h.e3.workspace();
+    const second = await h.mount(ex.sheetBasic, { workspace: other });
+    expect([drafted(second.container), tasks(second.container)[0]]).toEqual([0, "Panel cutting"]);
+    second.unmount();
+    // Reloaded over it: still none.
+    reloadPage();
+    const third = await h.mount(ex.sheetBasic, { workspace: other });
+    expect(drafted(third.container)).toBe(0);
+    third.unmount();
+    // Reloaded over the first: its draft comes back.
+    reloadPage();
+    const fourth = await h.mount(ex.sheetBasic);
+    await waitFor(() => expect(drafted(fourth.container)).toBe(1));
+    expect(tasks(fourth.container)[0]).toBe("Panel cutting, maple");
+});
+
 test("a reload over another session's change to the same task brings the draft back as a conflict to choose", async () => {
     const first = await h.mount(ex.sheetBasic);
     await typeInto(cells(first.container, "task")[0]!, "Panel cutting, maple");

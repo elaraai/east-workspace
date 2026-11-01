@@ -171,7 +171,7 @@ test("a banner leaves when what it reports does, following the session itself", 
 test("drafts a reload would lose say so, and why; drafts a reload kept but could not restore say so too", () => {
     resetKept();
     window.sessionStorage.clear();
-    const key = keptDraftsKey("runs", "runs.view");
+    const key = keptDraftsKey("", "runs", "runs.view");
     const kept = (): EditSession<string> => {
         const session = new EditSession<string>({
             sourceId: "runs", entryType: Run, draftType: Draft, idField: "id", auto: false,

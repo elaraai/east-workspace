@@ -534,6 +534,12 @@ component, nothing in east-ui.
   write's change of what no draft changed stands beside the drafts and Save
   sends only the drafts' changes. One that does not apply leaves the session
   stale; a rebase starts the history over at the drafts.
+- **The data set editing belongs to** (`EditingScope`, `src/editing/scope.ts`).
+  A host whose sources are one data set's names it — e3-ui-components'
+  `E3Provider` names the server, repository and workspace — and each
+  session, history and draft kept through a reload is held under it, so the
+  same view over another data set in the tab, its sources of the same names,
+  never takes them. With none named, a page's sources are its own.
 
 ## Field form
 

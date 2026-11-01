@@ -102,7 +102,7 @@ test("drafts a reload would lose are said under the buttons, where the bar says 
         sourceId: "runs", entryType: Run, draftType: Draft, idField: "id", auto: false,
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
-    keepDrafts(session, keptDraftsKey("runs", "runs.bar"), StringType);
+    keepDrafts(session, keptDraftsKey("", "runs", "runs.bar"), StringType);
     session.observeBase(variant("snapshot", [{ id: "a", end: 1n }]));
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new DOMException("full", "QuotaExceededError"); });
     session.record([{ id: "a", before: version(1n), after: version(4n) }], "resize", "Resize a");

@@ -31,7 +31,9 @@
 
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { StringType, StructType, printFor } from "@elaraai/east";
 import type { RequestOptions } from "@elaraai/e3-api-client";
+import { EditingScope } from "@elaraai/east-ui-components";
 import { recoveryDelay } from "./recovery.js";
 
 /**
@@ -96,9 +98,14 @@ export interface E3ProviderProps {
     queryClient?: QueryClient;
 }
 
+/** A data set's name, as the editing beneath a provider is held under it: its server, repository and workspace. */
+const dataSetName = printFor(StructType({ server: StringType, repo: StringType, workspace: StringType }));
+
 /**
  * Provide e3 server identity + auth + a TanStack-Query client to a
- * React subtree.
+ * React subtree, and name the data set its editing reads and writes — the
+ * server, repository and workspace — so drafts made over one workspace never
+ * reach another's whose records share their names.
  *
  * @example
  * ```tsx
@@ -117,11 +124,15 @@ export function E3Provider({ children, config, queryClient: externalClient }: E3
         }),
         [externalClient],
     );
+    const scope = useMemo(() => dataSetName({ server: config.apiUrl, repo: config.repo ?? "", workspace: config.workspace ?? "" }),
+        [config.apiUrl, config.repo, config.workspace]);
     return (
         <E3ConfigContext.Provider value={config}>
-            <QueryClientProvider client={client}>
-                {children}
-            </QueryClientProvider>
+            <EditingScope.Provider value={scope}>
+                <QueryClientProvider client={client}>
+                    {children}
+                </QueryClientProvider>
+            </EditingScope.Provider>
         </E3ConfigContext.Provider>
     );
 }

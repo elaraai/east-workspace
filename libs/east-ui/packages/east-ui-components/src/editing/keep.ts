@@ -12,7 +12,9 @@
  * a source that has not moved takes them back as they were, a change since
  * combines with them or is a conflict to choose, and a Save that landed
  * before the reload leaves no draft. The tab alone keeps them: they go when
- * it closes, and at a sign-out with everything kept. A session keeps its
+ * it closes, and at a sign-out with everything kept. They are kept by the data
+ * set the host names (`EditingScope`), their source and their view, so another
+ * data set's source of the same name never takes them. A session keeps its
  * drafts where its collection says how its projection is written
  * (`wireType`); one whose drafts storage refuses, or whose kept drafts cannot
  * be restored, says so ({@link useDraftsKeeping}). The history is not kept:
@@ -123,14 +125,16 @@ export function useDraftsKeeping(session: object): DraftsKeeping {
 }
 
 /**
- * A session's key among what the tab keeps: its source and its view.
+ * A session's key among what the tab keeps: its data set, its source and its
+ * view — another data set's source of the same name keeps its own.
  *
+ * @param scope - The data set, as its host names it (the host's `EditingScope`); empty where it names none
  * @param sourceId - The source's identity
  * @param view - The view's key
  * @returns The key
  */
-export function keptDraftsKey(sourceId: string, view: string): string {
-    return `editing.drafts:${encodeURIComponent(sourceId)}:${encodeURIComponent(view)}`;
+export function keptDraftsKey(scope: string, sourceId: string, view: string): string {
+    return `editing.drafts:${encodeURIComponent(scope)}:${encodeURIComponent(sourceId)}:${encodeURIComponent(view)}`;
 }
 
 /** Whether two readings of a session's drafts hold the same versions: each value the same object, so nothing new to write. */
