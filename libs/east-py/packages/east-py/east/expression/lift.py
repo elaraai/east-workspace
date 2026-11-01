@@ -260,12 +260,26 @@ def _set_elements(values: Any, elem_t: EastType, lift: Any) -> list:
 def _lift_artifact(value: Any) -> Expression | None:
     """A built ``East.function`` referenced as a VALUE inside another body
     embeds as its Function node — a Function-typed expression that can be
-    bound, stored, passed as a callback, or called (``Call`` IR). A plain
+    bound, stored, passed as a callback, or called (``Call`` IR). Its
+    locations are re-interned under the open build's map, and its variables
+    renamed apart from the names in scope here (#1279), as a body built in
+    place names its own.
+
+    A function that has a skeleton (``finalize._Skeleton``), embedded by an
+    ``East.function`` build, is not copied here: the build holds a reference
+    to it, and its finalize makes the copy this embed stands for (#1459).
+    Anything else is copied now — a function with no skeleton, or an embed
+    in a trace whose tree is finalized as it is (a captured callback). A plain
     Function/AsyncFunction artifact embeds (an IR value read from a file may
-    still be the ``Block[Let…, Function]`` an earlier python build wrote, whose
-    Lets belong to that build); its locations are re-interned under the open
-    build's map, and its variables renamed apart from the names in scope here
-    (#1279), as a body built in place names its own."""
+    still be the ``Block[Let…, Function]`` an earlier python build wrote,
+    whose Lets belong to that build)."""
+    skeleton = getattr(value, "_east_skeleton", None)
+    if skeleton is not None:
+        if not _tracing():
+            return None
+        frame = _build_frames[-1] if _build_frames else None
+        if frame is not None:
+            return _referenced(skeleton, frame)
     ir = getattr(value, "_east_ir", None)
     if ir is None or not isinstance(ir, EastVariant):
         return None
@@ -279,16 +293,60 @@ def _lift_artifact(value: Any) -> Expression | None:
 
     node = _rehome_ir(ir, getattr(value, "_east_source_map", None), current_source_map())
     node = _rename_apart(node)
-    if _trusted_frames and getattr(value, "_east_analyzed", False):
-        _trusted_frames[-1][id(node)] = node
+    frame = _build_frames[-1] if _build_frames else None
+    if frame is not None and getattr(value, "_east_analyzed", False):
+        frame.trusted[id(node)] = node
     return Expression(node, node.value["type"])
 
 
-# The functions each open build embedded from a built function, by id, the
-# node kept alive beside it (see ``_rehome_ir``): their bodies were analyzed
-# when they were built, so the build's analysis checks only their boundary
-# (#1459). One frame per build being analyzed, innermost last.
-_trusted_frames: list[dict[int, Any]] = []
+def _referenced(skeleton: Any, frame: _BuildFrame) -> Expression:
+    """A reference to the function ``skeleton`` holds, made where a copy of it
+    would have been. What the copy would have read here is recorded with it,
+    and what it would have changed is changed now: the open build draws the
+    generated names the copy would have drawn and interns the copy's
+    locations, so everything it builds after the call is named and located
+    as it was."""
+    from east.expression import naming
+    from east.expression.expr import Expression
+    from east.expression.finalize import _Callee, _Reference
+    from east.expression.location import current_source_map
+
+    scope = naming.names_in_scope()
+    first = naming.reserve_names(skeleton.unnamed)
+    current = current_source_map()
+    if current is not None and current is not skeleton.source_map:
+        for stack in skeleton.stacks:
+            current.intern_stack(stack)
+    root = skeleton.root
+    payload = root.value
+    node: Any = EastVariant(root.type, EastStruct({
+        "type": payload["type"], "loc_id": 0, "captures": [],
+        "parameters": list(payload["parameters"]), "body": _Callee(skeleton),
+    }))
+    frame.trusted[id(node)] = node
+    frame.references[id(node)] = _Reference(node, skeleton, scope, first)
+    return Expression(node, payload["type"])
+
+
+class _BuildFrame:
+    """What one ``East.function`` build embeds while it is traced: the
+    functions it embedded from analyzed builds (``trusted``, by id, each node
+    kept alive beside it — see ``_rehome_ir`` — whose bodies the build's
+    analysis checks only at their boundary, #1459), and the references it
+    made (``references``, by the id of each one's node), which its finalize
+    expands."""
+
+    __slots__ = ("trusted", "references")
+
+    def __init__(self) -> None:
+        self.trusted: dict[int, Any] = {}
+        self.references: dict[int, Any] = {}
+
+
+#: One frame per build being traced, innermost last: an ``East.function``
+#: build's, or ``None`` for a trace whose tree is finalized as it is (a
+#: captured callback, a derived type or field mask), where an embed copies.
+_build_frames: list[_BuildFrame | None] = []
 
 
 def value(v: Any, typ: EastType | None = None) -> Any:

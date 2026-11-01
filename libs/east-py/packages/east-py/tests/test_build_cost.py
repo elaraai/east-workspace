@@ -7,6 +7,9 @@
 - A function another build analyzed, spliced into a body, is analyzed at its
   boundary only: the caller's analysis does not walk the callee's body, so it
   costs the same whatever the callee's size.
+- A call of a built function copies nothing: the caller's tree holds a
+  reference, the same whatever the callee's size, and an export finalizes
+  each function it exports once and no function they call.
 - ``analyze_ir`` trusts only a closed function it was told was analyzed.
 - The passes over a build's tree leave no garbage that grows with the tree:
   each keeps a memo of every node it saw, which its recursive closure — a
@@ -25,8 +28,19 @@ import sys
 import pytest
 
 from east import East, IntegerType
-from east.expression.finalize import _arrayify_tree, _rehome_ir, _rename_apart
+from east.expression import finalize
+from east.expression.finalize import (
+    _arrayify_tree,
+    _expand,
+    _finalized,
+    _node_children,
+    _rehome_ir,
+    _rename_apart,
+    _stacks,
+    _unnamed,
+)
 from east.expression.function import _platform_deps, deferred_builds
+from east.expression.location import SourceMap
 from east.ir import analyze
 from east.ir.analyze import IRAnalysisError, analyze_ir
 from east.ir.builders import ir_function, ir_variable
@@ -67,6 +81,54 @@ def test_a_spliced_function_is_analyzed_at_its_boundary_only(monkeypatch):
     assert _visits_building_a_caller_of(small, monkeypatch) == _visits_building_a_caller_of(large, monkeypatch)
 
 
+def _caller_of(callee):
+    return East.function([IntegerType], IntegerType, lambda b, x: callee(x) + 1)
+
+
+def _tree_size(root) -> int:
+    """The nodes of a skeleton, a reference counted as the node it is."""
+    seen: dict[int, object] = {}
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if id(node) not in seen:
+            seen[id(node)] = node
+            stack.extend(_node_children(node))
+    return len(seen)
+
+
+def test_a_call_of_a_built_function_copies_nothing(monkeypatch):
+    small, large = _callee(2), _callee(200)
+
+    def refuse(*_args):
+        raise AssertionError("a callee was copied at its call")
+
+    with monkeypatch.context() as m:
+        m.setattr(finalize, "_rehome_ir", refuse)
+        m.setattr(finalize, "_rename_apart", refuse)
+        callers = _caller_of(small), _caller_of(large)
+    assert _tree_size(callers[0]._east_skeleton.root) == _tree_size(callers[1]._east_skeleton.root)
+
+
+def test_an_export_finalizes_what_it_exports_once_and_nothing_it_calls(monkeypatch):
+    with deferred_builds():
+        inner = _callee(50)
+        outer = East.function([IntegerType], IntegerType, lambda b, x: inner(x) * 2)
+        calls = 0
+        real = finalize._arrayify
+
+        def counted(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            return real(*args, **kwargs)
+
+        with monkeypatch.context() as m:
+            m.setattr(finalize, "_arrayify", counted)
+            manifest = East.export_functions("p", "1", {"outer": outer})
+        assert calls == _tree_size(manifest["functions"][0]["ir"])
+        assert inner.resolve()._final is None and outer.resolve()._final is None
+
+
 def test_the_analysis_trusts_only_a_closed_function_it_was_told_was_analyzed():
     fn_t = FunctionType([IntegerType], IntegerType)
     # its body reads `y`, which nothing binds
@@ -98,11 +160,18 @@ def _cyclic_garbage(pass_, *args) -> int:
 def test_the_passes_over_a_tree_leave_no_garbage_that_grows_with_it():
     small, large = _callee(2)._east_ir, _callee(200)._east_ir
     lazy_small, lazy_large = _rehome_ir(small, None, None), _rehome_ir(large, None, None)
+    calling_small, calling_large = _caller_of(_callee(2))._east_skeleton, _caller_of(_callee(200))._east_skeleton
     for pass_, on_small, on_large in (
         (_rehome_ir, (small, None, None), (large, None, None)),
         (_arrayify_tree, (lazy_small,), (lazy_large,)),
         (_rename_apart, (lazy_small,), (lazy_large,)),
         (_platform_deps, (small,), (large,)),
+        (_expand, (calling_small, SourceMap()), (calling_large, SourceMap())),
+        (_finalized, (calling_small,), (calling_large,)),
+        (_unnamed, (calling_small.root, calling_small.references),
+         (calling_large.root, calling_large.references)),
+        (_stacks, (calling_small.root, calling_small.references, calling_small.source_map),
+         (calling_large.root, calling_large.references, calling_large.source_map)),
     ):
         assert _cyclic_garbage(pass_, *on_small) == _cyclic_garbage(pass_, *on_large), pass_.__name__
 

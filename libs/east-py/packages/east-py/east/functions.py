@@ -256,7 +256,10 @@ def export_functions(package: str, version: str, functions: dict[str, Any],
     locations its IR names, renumbered into a source map of its own, so the
     frames of an error or a profile name its python source wherever it is
     linked (#1271); a bare IR value, which carries no map, exports without
-    locations.
+    locations. A built function is expanded from its skeleton, once, into the
+    IR its final form holds, so a function only called by the exported ones
+    is never finalized (#1459); and the manifest writes each distinct type
+    once, every node of it sharing the one value.
 
     Args:
         package: The exporting package's name (what importers name).
@@ -275,26 +278,42 @@ def export_functions(package: str, version: str, functions: dict[str, Any],
         manifest = East.export_functions("maths", "1.0.0", {"double": double})
         Path("maths.functions.beast2").write_bytes(East.encode_function_manifest(manifest))
     """
-    from east.expression.finalize import _arrayify_tree, _free_vars, _rehome_ir
+    from east.expression.finalize import (
+        _arrayify_tree,
+        _expand,
+        _free_vars,
+        _rehome_ir,
+        _SharedTypes,
+    )
     from east.expression.location import SourceMap
 
     if not package:
         raise ValueError("export_functions: the package name is empty")
     exports: list[EastStruct] = []
+    types = _SharedTypes()
     for name in sorted(functions):
-        try:
-            ir = function_ir(functions[name])
-        except TypeError as e:
-            raise TypeError(f"export_functions: {name}: {e}") from None
-        source_map = getattr(functions[name], "_east_source_map", None)
-        root = _root_function(ir, f"export_functions: {name}")
-        ir = _rename_hoisted_constants(ir, package, name)
-        # The final form is read once (#1459) — every read of it materializes
-        # fresh objects — into a copy whose locations index a map of its own
-        # (only the stacks this function names: the build's map may hold its
-        # siblings' too), and every check below walks the copy.
+        # Every check below walks one lazy copy of the function whose
+        # locations index a map of its own (only the stacks this function
+        # names: the build's map may hold its siblings' too).
         own = SourceMap()
-        tree = _rehome_ir(ir, source_map, own)
+        skeleton = getattr(functions[name], "_east_skeleton", None)
+        if skeleton is not None:
+            root = skeleton.root
+            tree = _expand(skeleton, own)
+            shared = types
+        else:
+            try:
+                ir = function_ir(functions[name])
+            except TypeError as e:
+                raise TypeError(f"export_functions: {name}: {e}") from None
+            source_map = getattr(functions[name], "_east_source_map", None)
+            root = _root_function(ir, f"export_functions: {name}")
+            ir = _rename_hoisted_constants(ir, package, name)
+            # The final form is read once (#1459): every read of it
+            # materializes fresh objects. Its types already share what its
+            # build's finalize converted.
+            tree = _rehome_ir(ir, source_map, own)
+            shared = None
         # Closed means the exported IR BINDS every name it reads. The Lets an
         # earlier python build hoisted above its function travel with it (the
         # whole Block is what is exported below), so a capture naming one
@@ -313,7 +332,7 @@ def export_functions(package: str, version: str, functions: dict[str, Any],
                 f"export_functions: {name} holds {imports} unresolved import(s) — link it "
                 "(link_imports) before exporting; exports do not chain")
         exports.append(EastStruct({
-            "ir": _arrayify_tree(tree),
+            "ir": _arrayify_tree(tree, types=shared),
             "name": name,
             "platforms": platform_dependencies(tree, providers),
             "source_map": EastArray(ArrayType(LocationType),

@@ -73,9 +73,33 @@ def fresh_name() -> str:
     before it. The ``__`` spelling is never an authored name
     (:func:`authored_name` refuses it as a hint), so the two cannot meet."""
     global _generated
-    name = f"__n{_generated}"
+    name = generated_name(_generated)
     _generated += 1
     return name
+
+
+def generated_name(number: int) -> str:
+    """The generated name numbered ``number`` (:func:`fresh_name`'s spelling)."""
+    return f"__n{number}"
+
+
+def reserve_names(count: int) -> int:
+    """Draw ``count`` generated names for the open build without spelling
+    them, returning the first one's number — what an embed of a function by
+    reference draws now, so the names it gives that function's variables
+    when it expands are the ones a copy made here would have drawn, and the
+    names the build draws after it are unchanged."""
+    global _generated
+    first = _generated
+    _generated += count
+    return first
+
+
+def names_in_scope() -> frozenset[str]:
+    """Every name a hint must not take here: the open bodies' and those
+    registered for the body about to open — what :func:`authored_name`
+    tests a hint against."""
+    return frozenset(_pending).union(*_scopes)
 
 
 def open_scope() -> None:
@@ -112,16 +136,32 @@ def authored_name(hint: str | None, fallback: Any, *, parameter: bool = False) -
     unusable (absent, not an identifier, a keyword, the builder's own
     ``__``-prefixed spelling). ``parameter`` registers the name for the body
     about to open rather than the open one."""
-    if hint is None or not hint.isidentifier() or keyword.iskeyword(hint) or hint.startswith("__"):
+    if not usable(hint):
         return fallback()
-    name, n = hint, 2
-    while _in_scope(name):
-        name = f"{hint}_{n}"
-        n += 1
+    name = unique_name(hint, _in_scope)
     if parameter or not _scopes:
         _pending.add(name)
     else:
         _scopes[-1].add(name)
+    return name
+
+
+def usable(hint: str | None) -> bool:
+    """Whether ``hint`` can name a variable: an identifier, no keyword, and
+    not the builder's own ``__`` spelling. A suffixed name (``kind_2``) is
+    usable whenever its hint is."""
+    return hint is not None and hint.isidentifier() and not keyword.iskeyword(hint) \
+        and not hint.startswith("__")
+
+
+def unique_name(hint: str, taken: Any) -> str:
+    """``hint``, or the first of ``hint_2``, ``hint_3``… that ``taken`` (a
+    name → bool test) does not refuse — the one rule a build and the
+    expansion of an embedded function both name by."""
+    name, n = hint, 2
+    while taken(name):
+        name = f"{hint}_{n}"
+        n += 1
     return name
 
 
