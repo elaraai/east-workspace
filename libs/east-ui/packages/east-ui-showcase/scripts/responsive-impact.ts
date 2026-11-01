@@ -10,7 +10,7 @@ import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { listTests, testTimes } from "./responsive-shards.js";
+import { listTests, splitShards, testTimes } from "./responsive-shards.js";
 
 // Only these reviewed suites belong exclusively to one component. New or
 // cross-component specs remain shared and run with every component change.
@@ -154,6 +154,9 @@ function main(): void {
     const summary = `${selected.length} of ${discovered.length} responsive cases; ${selected.length ? count : 0} jobs. ${impact.reason}.`;
     mkdirSync(values.output, { recursive: true });
     writeFileSync(join(values.output, "responsive-tests.txt"), selected.length ? selected.join("\n") + "\n" : "");
+    // Each job's list, split here once: a job runs its own with no listing of
+    // the suite before it (#1466).
+    if (selected.length) splitShards(selected, count).forEach((job, i) => writeFileSync(join(values.output!, `responsive-job-${i + 1}.txt`), job.join("\n") + "\n"));
     writeFileSync(join(values.output, "responsive-impact.json"), JSON.stringify({ ...impact, selected: selected.length, discovered: discovered.length, shards: selected.length ? shards : [] }, null, 2) + "\n");
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `count=${selected.length}\nshards=${JSON.stringify(shards)}\ntotal=${count}\n`);
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Responsive selection\n\n${summary}\n`);

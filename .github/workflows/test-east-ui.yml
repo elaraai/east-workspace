@@ -298,6 +298,7 @@ jobs:
           path: |
             ${{ runner.temp }}/east-ui-showcase.tar
             ${{ runner.temp }}/responsive-tests.txt
+            ${{ runner.temp }}/responsive-job-*.txt
             ${{ runner.temp }}/responsive-impact.json
           compression-level: 1
           retention-days: 1
@@ -597,7 +598,8 @@ jobs:
         working-directory: libs/east-ui
         env:
           RESPONSIVE_REPORT: ${{ runner.temp }}/responsive-timings-${{ matrix.shard }}.json
-        run: make test-responsive SHARD=${{ matrix.shard }}/${{ needs.showcase.outputs.responsive_total }} TEST_LIST="$RUNNER_TEMP/responsive-tests.txt"
+        # The job's list, split by the selection step: no listing of the suite here.
+        run: make test-responsive TEST_LIST="$RUNNER_TEMP/responsive-job-${{ matrix.shard }}.txt"
 
       - name: Upload test times
         if: always()

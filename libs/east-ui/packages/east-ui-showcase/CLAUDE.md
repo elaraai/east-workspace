@@ -149,8 +149,10 @@ with the least time so far, a test with none recorded counting as the median.
 The public `--test-list` interface selects them. Do not replace this with
 contiguous `playwright --shard`, which concentrates adjacent expensive builder
 cases in one job, nor with jobs of equal counts, which took 10 to 18 minutes.
-In CI each job also writes a JSON report (`RESPONSIVE_REPORT`), uploaded as
-`responsive-timings-<n>`; refresh the times from a full run's reports with
+In CI the selection step writes each job's list, split the same way
+(`responsive-job-<n>.txt`), and each job runs its own (`TEST_LIST`) with no
+listing of the suite before it. Each job also writes a JSON report
+(`RESPONSIVE_REPORT`), uploaded as `responsive-timings-<n>`; refresh the times from a full run's reports with
 `scripts/responsive-timings.ts`, whose header has the commands. A Node check
 splits the real suite into 24 jobs, verifies that every test runs exactly
 once and that the jobs' times are level, and asks Playwright to resolve the
