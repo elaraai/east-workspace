@@ -93,7 +93,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode, type RefObject } from "react";
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { StringType, StructType, equalFor, fromEastTypeValue, none, parseFor, printFor, some, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
+import { StringType, StructType, equalFor, fromEastTypeValue, none, parseFor, printFor, some, variant, type EastType, type PatchPath, type ValueTypeOf, type option } from "@elaraai/east";
 import { Sheet, SheetBatchReadinessType, SheetDraftFieldType } from "@elaraai/e3-ui/internal";
 import {
     focusKeySearch, getSomeorUndefined, optimiseMessages, useCoarsePointer, useLanding, useLandingStyles, useSlicesReactivity, useDataStable, usePersistedState, useDragLayerOptional,
@@ -235,6 +235,26 @@ function narrowingOfSource(source: { query?: (() => string) | undefined } | unde
 function viewTitle(view: SheetSavedView, words: SheetWords): string {
     const q = narrowingQuery(view.narrowing).trim();
     return words.m.viewTitle({ scope: narrowingScope(view.narrowing), query: q });
+}
+
+/**
+ * A record field's value as a column's cell holds it — the case its East type
+ * names, through an option — or `undefined` for none, and for a type no cell
+ * holds.
+ */
+function cellOfValue(value: unknown, type: EastType | undefined): SheetCellValue | undefined {
+    if (type?.type === "Variant" && "some" in type.cases && "none" in type.cases) {
+        const held = value as option<unknown>;
+        return held.type === "some" ? cellOfValue(held.value, type.cases.some) : undefined;
+    }
+    switch (type?.type) {
+        case "Boolean": return variant("Boolean", value as boolean);
+        case "Integer": return variant("Integer", value as bigint);
+        case "Float": return variant("Float", value as number);
+        case "String": return variant("String", value as string);
+        case "DateTime": return variant("DateTime", value as Date);
+        default: return undefined;
+    }
 }
 
 /** A row as the sheet names it — its first text column's text — where it holds one. */
@@ -3905,6 +3925,19 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const { rows: shown, columns: drawn } = namingNow.current;
         return rowNameOf(shown.find((r) => stringEqual(r.id, issue.entry)), drawn) ?? issue.entry;
     }, []);
+    // A conflict's value as its column writes it — a date in the column's format — where the field it is in is a
+    // column's own; else as the card reads it.
+    const conflictValue = useCallback((_issue: EditIssue, path: PatchPath, value: unknown, type: EastType | undefined) => {
+        let field: string | undefined;
+        for (const step of path) {
+            if (step.kind !== "field") continue;
+            if (field !== undefined) return undefined;
+            field = step.name;
+        }
+        const meta = field === undefined ? undefined : namingNow.current.columns.byKey.get(field);
+        const cell = meta === undefined ? undefined : cellOfValue(value, type);
+        return meta === undefined || cell === undefined ? undefined : cellText(cell, meta, words);
+    }, [words]);
     // The issues' rows the narrowing may hide — those the body does not draw — asked of e3 as the Issues tab lists them,
     // and what an issue's line says of one it hides, in the sheet's words for an issue (the hidden pick).
     const drawnEntries = useMemo(() => {
@@ -4234,7 +4267,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         search: pickSearch,
         // The session's error is the frame's banner (#1184), never a line under the item. Its issues button goes to the
         // first issue as the Issues tab's lines do: sought where its row is not drawn, its filters cleared where they hide it.
-        history: !readOnly ? historyToolbarItem({ session, words, editing: ui.edit !== null, onAction: onHistoryAction, onIssue: goToIssue, where: rowWhere, showError: false, locked }) : undefined,
+        history: !readOnly ? historyToolbarItem({ session, words, editing: ui.edit !== null, onAction: onHistoryAction, onIssue: goToIssue, where: rowWhere, conflictValue, showError: false, locked }) : undefined,
         optimise: optimiseParts.toolbarItem,
         flash,
     });

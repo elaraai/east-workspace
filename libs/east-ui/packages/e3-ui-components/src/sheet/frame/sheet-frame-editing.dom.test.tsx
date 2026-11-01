@@ -107,6 +107,18 @@ async function typeInto(cell: Element, text: string) {
     await settle();
 }
 
+/** Opens a date cell's editor, steps its day on by `days` from the keyboard, and commits it. */
+async function stepDay(cell: Element, days: number) {
+    fireEvent.doubleClick(cell);
+    await settle();
+    const day = within(document.querySelector<HTMLElement>('[data-slot="editor"][data-kind="date"]')!).getAllByRole("spinbutton")[0]!;
+    await act(async () => { day.focus(); });
+    for (let i = 0; i < days; i++) fireEvent.keyDown(day, { key: "ArrowUp" });
+    await settle();
+    fireEvent.keyDown(day, { key: "Enter" });
+    await settle();
+}
+
 /** Clicks a button, as a pointer does. */
 function click(button: Element) {
     fireEvent.mouseDown(button, { button: 0 });
@@ -247,6 +259,18 @@ test("sheetConflicts: a Qty typed here, then Someone else saves, is one conflict
     expect([cells(container, "qty")[0]!.hasAttribute("data-conflict"), cells(container, "start")[0]!.hasAttribute("data-conflict")]).toEqual([true, false]);
     expect(cells(container, "start")[0]!.textContent).not.toBe(started);
     expect(toolbar(container).getByRole("button", { name: "Save" }).getAttribute("aria-disabled")).toBe("true");
+});
+
+test("sheetConflicts: a Start typed here, then Someone else saves, is a conflict whose choices read each date as its column writes it", async () => {
+    const { container } = await h.mount(ex.sheetConflicts);
+    await stepDay(cells(container, "start")[0]!, 8);
+    expect(cells(container, "start")[0]!.textContent).toBe("20 Oct 26");
+    await press(within(container).getByRole("button", { name: "Someone else saves" }));
+    const [card, ...more] = await conflictCards(container);
+    expect(more).toEqual([]);
+    expect([card!.item, card!.yours, card!.theirs]).toEqual([
+        "Panel cutting", "Yours, 20 Oct 26", "Theirs, 13 Oct 26, Changed since you started editing · was 12 Oct 26",
+    ]);
 });
 
 test("sheetConflicts: Go to from a conflict's card notes it in the footer, its column by its header, and the note goes once the conflict is chosen", async () => {
