@@ -6,9 +6,8 @@
 /**
  * `Studio.component` (#991): the component's struct, its `reads` from its
  * code, a surface's manifest as the union of its listed components' reads
- * (K2), a fingerprint that follows the code and nothing else (K4), and a
- * component's function as `ui()` takes it (K1), and what it reads named in
- * words, never a keypath (B3, B9, B17). How a placement draws its
+ * (K2), a component's function as `ui()` takes it (K1), and what it reads
+ * named in words, never a keypath (B3, B9, B17). How a placement draws its
  * component — the component, a placeholder naming an unlisted key (K5), an
  * error naming a shared key (K7), two placements sharing its State (K3) — is
  * the renderers', tested in the DOM.
@@ -26,7 +25,7 @@ import { TreePathType } from "@elaraai/e3-types";
 import { input } from "@elaraai/e3";
 import { Reactive, Text, UIComponentType } from "@elaraai/east-ui/internal";
 
-import { Data, DataManifestType, Studio, deriveManifest, fingerprintOf, ui } from "@elaraai/e3-ui";
+import { Data, DataManifestType, Studio, deriveManifest, ui } from "@elaraai/e3-ui";
 import { dataName, readNames } from "@elaraai/e3-ui/internal";
 
 const manifestEqual = equalFor(DataManifestType);
@@ -87,27 +86,6 @@ describe("Studio.component (#991)", () => {
     test("K1: a component's function is exactly what ui() takes", () => {
         const task = ui("studio_component_as_ui", [], salesFn);
         assert.ok(manifestEqual(task.role.value!, East.compile(East.function([], Studio.Types.Component, (_$) => revenue), [])().reads));
-    });
-
-    test("K4: the same code fingerprints the same wherever it is written; changed code does not", () => {
-        // Built apart, with other functions built between them.
-        const again = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-            const rows = $.let(Data.bind(sales));
-            return Text.Root(East.print(rows.read().size()));
-        })));
-        assert.equal(fingerprintOf(again), fingerprintOf(salesFn));
-        assert.equal(
-            East.compile(East.function([], Studio.Types.Component, (_$) =>
-                Studio.component("revenue_again", { name: "Again", category: "Charts", icon: "chart-area" }, again)), [])().fingerprint,
-            East.compile(East.function([], Studio.Types.Component, (_$) => revenue), [])().fingerprint);
-        // One change to the code — a different binding — changes it.
-        assert.notEqual(fingerprintOf(visitsFn), fingerprintOf(salesFn));
-        const counted = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-            const rows = $.let(Data.bind(sales));
-            return Text.Root(East.print(rows.read().size().add(1n)));
-        })));
-        assert.notEqual(fingerprintOf(counted), fingerprintOf(salesFn));
-        assert.match(fingerprintOf(salesFn), /^[0-9a-f]{64}$/);
     });
 });
 

@@ -91,7 +91,6 @@ export {
     StudioPagesType,
     StudioStatusType,
     StudioVersionType,
-    fingerprintOf,
     saveCells,
     type StudioNamespace,
     type StudioInternalNamespace,

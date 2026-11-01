@@ -44,8 +44,8 @@ export const revenueTrend = Studio.component("revenue_trend", {
 
 `meta` is what the palette shows: `name`, `category`, `icon`, and optionally
 `span`, `description`, `frame` (`"card"` or `"none"`), `tags`, `collections` and
-`deprecated`. A component's `reads` (what its code binds) and its
-`fingerprint` (a hash of its IR in canonical form) are derived from `fn`.
+`deprecated`. A component's `reads` (what its code binds) are derived from
+`fn`.
 
 ### The pages record
 
@@ -58,8 +58,8 @@ export const pagesPatch = e3.mutation.patch(pages);
 `Entry` is a `page` — `{ draft, live }`, `live` being `none` until the first
 publish, else `{ version, page }` — or a `template`. A `Page` is
 `{ title, cells }`; a `Cell` is `{ key, row, span, height, align, title,
-component, fingerprint }`. The type never depends on the components, so a
-deploy that adds, changes or removes one runs no migration.
+component }`. The type never depends on the components, so a deploy that adds,
+changes or removes one runs no migration.
 
 ### The surfaces
 
@@ -112,9 +112,11 @@ The public `Studio` namespace is exactly this: `Studio.component`,
    (`@elaraai/e3-ui/internal`).
 3. **Components are code; pages are data.** A component binds its own data;
    different data is a different component, and a component's next version is a
-   deploy. A placement stores its component's key, its layout, and its
-   component's fingerprint — stamped when placed and at every publish — so code
-   changed since a page went live shows.
+   deploy. A placement stores its component's key and its layout, and nothing
+   of its component's code: a deploy that changes a component changes every
+   page that places it, its live version too. Nothing records the code a page
+   went live with, so nothing says the code changed since — the mock's logic
+   banner in the publish preview and the inspector's warning are not built.
 4. **Records first.** Every operator action is one patch commit, computed in
    East as the diff of the one entry it writes. A patch carries what it changes
    as it was, so a write drafted on a stale page is a `conflict`, and nothing is
@@ -192,7 +194,7 @@ measure the built showcase in a real browser.
 
 | Rules | What | Tested in |
 |---|---|---|
-| K1–K5, K7 | A component is exactly what `ui()` takes; a surface's manifest is the union of its components' reads; two placements share a component's State; the fingerprint follows the code and nothing else; an unlisted key is a placeholder, a shared key an error | `component.spec.ts`, `page.test.tsx` |
+| K1–K3, K5, K7 | A component is exactly what `ui()` takes; a surface's manifest is the union of its components' reads; two placements share a component's State; an unlisted key is a placeholder, a shared key an error | `component.spec.ts`, `page.test.tsx` |
 | K8 | `Studio.component` inside an East function passes every East rule | `studio-lint.spec.ts` |
 | R1–R3, R5, R7, R8 | Each write is one patch of one entry, with its actor, time and delta; a stale write is a conflict; publish and revert are exact; the change list is exact; a redeploy runs no migration; a template and a page from it are one commit each | `pages.spec.ts`, `pages.e3.spec.ts` |
 | R4 | Each surface's manifest | `builder.spec.ts`, `library.spec.ts`, `page.spec.ts` |
@@ -201,10 +203,12 @@ measure the built showcase in a real browser.
 | B8–B14 | The canvas: one toolbar and the page's status, the selection bar, the grid panel, a dropped card, Apply and its conflict, the panes, Preview and Publish, Desktop and Tablet | `canvas.spec.ts`, `builder.test.tsx`, `studio-builder.spec.ts` |
 | B15–B21 | The inspector: its pane and rail, the selection, its reads and description, its layout edits as gestures, nothing selected | `inspector.spec.ts`, `builder.test.tsx`, `studio-builder.spec.ts` |
 | D1–D7 | The page library: one toolbar, the pane, Templates, Pages, a new page, search, Sort and Grid · List; Save as template in the builder | `library.spec.ts`, `library.test.tsx`, `builder.test.tsx`, `studio-page-library.spec.ts` |
-| E1–E6 | The publish preview: its bar, the page at each device's width, the aside, the banner, Audience and Rollout, the footer's writes | `publish.spec.ts`, `builder.test.tsx`, `studio-builder.spec.ts` |
+| E1–E3, E5, E6 | The publish preview: its bar, the page at each device's width, the aside, Audience and Rollout, the footer's writes | `publish.spec.ts`, `builder.test.tsx`, `studio-builder.spec.ts` |
 
 Dropped with the catalog and the published site: "used in N" (R6), the site's
-rail (F1), a component's `owner` and `thumbnail`.
+rail (F1), a component's `owner` and `thumbnail`. Dropped since: a component's
+fingerprint (K4), and with it the publish preview's banner on code changed
+since the live version (E4) and the inspector's warning.
 
 ---
 

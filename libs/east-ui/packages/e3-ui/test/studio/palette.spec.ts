@@ -71,9 +71,9 @@ describeEast("The builder's palette — its cards and its pages (#994)", (test) 
 
     test("B4: the selected placement's component is placed, and counts the page's placements of it", $ => {
         const cells = $.let([
-            { key: "c-trend-1", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "" },
-            { key: "c-note", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "note", fingerprint: "" },
-            { key: "c-trend-2", row: "r2", span: 12n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "" },
+            { key: "c-trend-1", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
+            { key: "c-note", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "note" },
+            { key: "c-trend-2", row: "r2", span: 12n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
         ], ArrayType(Studio.Types.Cell));
         const listed = $.let([revenueTrend, note]);
         const cards = $.let(paletteCards(listed, cells, some("c-trend-2")));

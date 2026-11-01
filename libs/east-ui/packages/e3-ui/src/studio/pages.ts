@@ -51,7 +51,6 @@ import {
 import { Editing, SnapGrid } from "@elaraai/east-ui/internal";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { Record, RecordOutcomeType } from "../bind/record.js";
-import { StudioComponentType } from "./component.js";
 
 // ============================================================================
 // Types
@@ -73,9 +72,8 @@ export const StudioKeyType = StructType({
 export type StudioKeyType = typeof StudioKeyType;
 
 /**
- * One placement on a page: a component's key, where it sits on the 12-column
- * grid, and its code's fingerprint when it was placed or the page last
- * published.
+ * One placement on a page: a component's key, and where it sits on the
+ * 12-column grid.
  *
  * @remarks
  * Rows order by their first appearance among the cells, and the cells of a row
@@ -89,7 +87,6 @@ export type StudioKeyType = typeof StudioKeyType;
  * @property align - Where it sits in a taller row
  * @property title - Its title; `none` is its component's name
  * @property component - The key of the component it places
- * @property fingerprint - Its component's fingerprint when it was placed, stamped anew each time the page publishes — so a live version's cells hold the code each went live with
  */
 export const StudioCellType = StructType({
     key: StringType,
@@ -99,7 +96,6 @@ export const StudioCellType = StructType({
     align: SnapGrid.Types.Align,
     title: OptionType(StringType),
     component: StringType,
-    fingerprint: StringType,
 });
 
 /** Type representing one placement on a page. */
@@ -269,23 +265,16 @@ export type StudioStatusType = typeof StudioStatusType;
 
 /**
  * Publishes a page: its live version becomes its draft, numbered one past the
- * version it replaces, or 1 the first time — each placement stamped with the
- * code it goes live with, its component's fingerprint as the surface lists it
- * now.
+ * version it replaces, or 1 the first time.
  *
  * @remarks
- * The stamp is written to the draft too, so the draft is the live version once
- * the patch lands, and the next publish preview names only the components
- * whose code changed since. A placement whose component the surface does not
- * list keeps the fingerprint it has. The patch changes the page's live version
- * and the fingerprints it restamps, and carries both as they were: a publish
- * drafted before another one landed is a conflict naming the page, and so is
- * one drafted before a save that removed or reordered placements it restamps.
+ * The patch changes the page's live version alone, and carries it as it was:
+ * a publish drafted before another one landed is a conflict naming the page.
  */
 export const publishPage = East.function(
-    [StudioPagesType, StudioKeyType, ArrayType(StudioComponentType)],
+    [StudioPagesType, StudioKeyType],
     StudioPagesPatchType,
-    ($, pages, key, components) => {
+    ($, pages, key) => {
         const entry = $.let(pages.tryGet(key).match({
             some: (_$, found) => found,
             none: ($2) => $2.error(East.str`No page ${East.print(key)}`),
@@ -298,33 +287,10 @@ export const publishPage = East.function(
             some: (_$, live) => live.version.add(1n),
             none: (_$) => East.value(1n),
         }));
-        // Each placement's code as it goes live; a key two components share
-        // keeps the first one's, as the surface renders it.
-        const fingerprints = $.let(components.toDict(
-            (_$2, component) => component.key,
-            (_$2, component) => component.fingerprint,
-            (_$2, first) => first,
-        ), DictType(StringType, StringType));
-        const stamped = $.let({
-            title: page.draft.title,
-            cells: page.draft.cells.map((_$2, cell) => ({
-                key: cell.key,
-                row: cell.row,
-                span: cell.span,
-                height: cell.height,
-                align: cell.align,
-                title: cell.title,
-                component: cell.component,
-                fingerprint: fingerprints.tryGet(cell.component).match({
-                    some: (_$3, fingerprint) => fingerprint,
-                    none: (_$3) => cell.fingerprint,
-                }),
-            })),
-        }, StudioPageType);
         const before = $.let(new Map(), StudioPagesType);
         $(before.insert(key, entry));
         const after = $.let(new Map(), StudioPagesType);
-        $(after.insert(key, variant("page", { draft: stamped, live: some({ version, page: stamped }) })));
+        $(after.insert(key, variant("page", { draft: page.draft, live: some({ version, page: page.draft }) })));
         return East.diff(before, after);
     },
 );
@@ -499,9 +465,7 @@ const layoutOf = East.function([StudioPageType], LayoutType, ($, page) => {
  * placements it no longer has. A placement moved when its row changed, or when
  * it left the longest run of placements still in their reading order, so a
  * move reports the placement moved and not the ones around it; which of two
- * placements that swapped places moved is ambiguous, and one is reported. A
- * change to a placement's component's fingerprint is not a layout change and
- * is not listed.
+ * placements that swapped places moved is ambiguous, and one is reported.
  */
 export const pageChanges = East.function(
     [StudioPageType, StudioPageType],
@@ -639,7 +603,7 @@ export const pageStatus = East.function(
 export interface StudioPagesNamespace {
     /** Saves a page's placements — the builder canvas's Apply ({@link saveCells}). */
     save: typeof saveCells;
-    /** Publishes a page, stamping the code it goes live with ({@link publishPage}). */
+    /** Publishes a page ({@link publishPage}). */
     publish: typeof publishPage;
     /** Reverts a page to its live version ({@link revertPage}). */
     revert: typeof revertPage;

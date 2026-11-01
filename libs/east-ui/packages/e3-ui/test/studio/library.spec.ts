@@ -52,9 +52,9 @@ const PAGES = new SortedMap<Key, Entry>([
         draft: {
             title: "Overview",
             cells: [
-                { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "" },
-                { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "" },
-                { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "" },
+                { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
+                { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
+                { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
             ],
         },
         live: some({
@@ -62,9 +62,9 @@ const PAGES = new SortedMap<Key, Entry>([
             page: {
                 title: "Overview",
                 cells: [
-                    { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "" },
-                    { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "" },
-                    { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "" },
+                    { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
+                    { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
+                    { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
                 ],
             },
         }),
@@ -73,7 +73,7 @@ const PAGES = new SortedMap<Key, Entry>([
         draft: {
             title: "Detail",
             cells: [
-                { key: "c-trend", row: "r1", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "" },
+                { key: "c-trend", row: "r1", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
             ],
         },
         live: none,
@@ -85,9 +85,9 @@ const PAGES = new SortedMap<Key, Entry>([
     [{ project: "ops", page: "t-summary" }, variant("template", {
         title: "Summary",
         cells: [
-            { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "" },
-            { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "" },
-            { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "" },
+            { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
+            { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
+            { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
         ],
     })],
     [{ project: "ops", page: "t-empty" }, variant("template", { title: "Empty", cells: [] })],
@@ -107,10 +107,10 @@ describeEast("<Studio.Library> — what it shows (#997)", (test) => {
     test("D3: a layout's summary names each component it places, in the order they first appear, counted when placed more than once; an unlisted one by its key", $ => {
         const listed = $.let([kpiRail, revenueTrend]);
         const cells = $.let([
-            { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "" },
-            { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "" },
-            { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "" },
-            { key: "c-old", row: "r3", span: 4n, height: none, align: variant("top", null), title: none, component: "orders_v0", fingerprint: "" },
+            { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
+            { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
+            { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
+            { key: "c-old", row: "r3", span: 4n, height: none, align: variant("top", null), title: none, component: "orders_v0" },
         ], ArrayType(Studio.Types.Cell));
         $(Assert.equal(layoutSummary(listed, cells), "KPI rail ×2 · Revenue trend · orders_v0"));
         $(Assert.equal(layoutSummary(listed, []), ""));

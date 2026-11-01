@@ -38,7 +38,7 @@ const PAGES = new SortedMap<Key, Entry>([
         draft: {
             title: "Overview",
             cells: [
-                { key: "c-note", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "note", fingerprint: "" },
+                { key: "c-note", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "note" },
             ],
         },
         live: some({
@@ -46,7 +46,7 @@ const PAGES = new SortedMap<Key, Entry>([
             page: {
                 title: "Overview",
                 cells: [
-                    { key: "c-note", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "note", fingerprint: "" },
+                    { key: "c-note", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "note" },
                 ],
             },
         }),

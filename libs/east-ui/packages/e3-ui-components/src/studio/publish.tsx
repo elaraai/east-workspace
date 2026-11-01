@@ -13,8 +13,8 @@
  * - **The page**: its project, its title, and the page as it will publish —
  *   which the builder draws — together at most the device's width.
  * - **The aside**: where the page stands, the version it replaces and the one
- *   it becomes, the change list, the banner, the Audience and Rollout rows,
- *   and what refused a write.
+ *   it becomes, the change list, the Audience and Rollout rows, and what
+ *   refused a write.
  * - **The footer**: Save as draft asks the canvas for an Apply; Publish asks
  *   for one when the canvas has drafts, waits for the canvas's answer, then
  *   commits the publish.
@@ -24,11 +24,9 @@
  * table's; numbers print in the locale. The preview draws no border around
  * itself.
  *
- * Its layout, its bar and its banner are the `studioPublish` recipe's — the
- * banner the design system's, on the theme's banner layer styles — and its
- * buttons the `button` recipe's. Every mark is Font Awesome's, never a text
- * glyph (#1263): a change's sign its plus, minus or plus-minus, the banner's
- * the paired status icon of its tone.
+ * Its layout and its bar are the `studioPublish` recipe's, and its buttons the
+ * `button` recipe's. Every mark is Font Awesome's, never a text glyph (#1263):
+ * a change's sign its plus, minus or plus-minus.
  *
  * @packageDocumentation
  */
@@ -37,7 +35,7 @@ import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "
 import { Box, Button as ChakraButton, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-    faChevronDown, faCircleCheck, faDesktop, faMinus, faMobileScreen, faPlus, faPlusMinus, faTabletScreenButton, faTriangleExclamation,
+    faChevronDown, faDesktop, faMinus, faMobileScreen, faPlus, faPlusMinus, faTabletScreenButton,
 } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf } from "@elaraai/east";
 import { StudioPublishPayloadType } from "@elaraai/e3-ui/internal";
@@ -144,13 +142,11 @@ export const StudioPublishPreview = memo(function StudioPublishPreview({ value, 
     }, [answer, phase, publish]);
 
     const changes = summary.changes;
-    const changed = summary.changed;
     const count = changes.length;
     const head = standing === "ready" ? m.readyToPublish() : standing === "current" ? m.upToDate() : m.templateNotPublished();
     const listHead = live === undefined ? m.changesFirst({ n: count, count: words.number(count) })
         : count === 0 ? m.noChangesSince({ version: liveVersion })
             : m.changesSince({ n: count, count: words.number(count), version: liveVersion });
-    const tone = changed.length === 0 ? "change" : "warning";
     const audience = value.audience.type === "some" ? value.audience.value : undefined;
     const rollout = value.rollout.type === "some" ? value.rollout.value : undefined;
 
@@ -226,17 +222,6 @@ export const StudioPublishPreview = memo(function StudioPublishPreview({ value, 
                                                 </Box>
                                             );
                                         })}
-                                    </Box>
-                                )}
-                                {standing === "ready" && live !== undefined && (
-                                    <Box css={styles.banner} layerStyle={tone === "change" ? "banner.change" : "banner.guard"}
-                                        data-tone={tone} role={tone === "warning" ? "alert" : "status"} data-publish-banner={tone}>
-                                        <Box as="span" css={styles.bannerIcon} aria-hidden>
-                                            <FontAwesomeIcon icon={tone === "change" ? faCircleCheck : faTriangleExclamation} />
-                                        </Box>
-                                        <Box as="span" css={styles.bannerText}>
-                                            {tone === "change" ? m.logicUnchanged() : m.logicChangedIn({ version: liveVersion, components: changed })}
-                                        </Box>
                                     </Box>
                                 )}
                             </>

@@ -9,8 +9,8 @@
  * computed in East for the `StudioBuilder` renderer, which draws the preview
  * in the canvas's place: its bar — "● Preview", the device widths, the
  * environment and Exit — the page at the device's width, and the aside: what
- * changed since the live version, whether the components' code changed since,
- * who sees it and when, and Save as draft and Publish. The page it shows is
+ * changed since the live version, who sees it and when, and Save as draft and
+ * Publish. The page it shows is
  * the one that publishes, the canvas's unsaved drafts in place, and it has the
  * canvas apply them before it publishes, so the canvas stays the only writer
  * of its drafts.
@@ -28,7 +28,6 @@ import {
     IntegerType,
     NullType,
     OptionType,
-    SetType,
     StringType,
     StructType,
     VariantType,
@@ -69,8 +68,8 @@ export type PublishChangeType = typeof PublishChangeType;
 /**
  * Where the open entry stands, as the preview's aside says it.
  *
- * @property ready - Something to publish: a page never published, or one whose layout or components' code changed since its live version
- * @property current - Up to date: published, its layout and its components' code as they went live
+ * @property ready - Something to publish: a page never published, or one whose layout changed since its live version
+ * @property current - Up to date: published, its layout as it went live
  * @property template - A template, which is not published
  */
 export const PublishStandingType = VariantType({
@@ -88,14 +87,12 @@ export type PublishStandingType = typeof PublishStandingType;
  * @property standing - Where it stands ({@link PublishStandingType})
  * @property live - Its live version's number; `none` until it is first published, and for a template
  * @property changes - The changes from its live version — from nothing, the first time — to the layout that publishes; none for a template
- * @property changed - The components it places whose code changed since its live version, by name, in the order they are placed
  * @property unsaved - The canvas draws drafts the page has not saved
  */
 export const PublishSummaryType = StructType({
     standing: PublishStandingType,
     live: OptionType(IntegerType),
     changes: ArrayType(PublishChangeType),
-    changed: ArrayType(StringType),
     unsaved: BooleanType,
 });
 
@@ -139,18 +136,16 @@ export type StudioPublishPayloadType = typeof StudioPublishPayloadType;
 
 /**
  * What the preview shows of the open entry: where it stands, the change list,
- * the components whose code changed, and whether the canvas has drafts.
+ * and whether the canvas has drafts.
  *
  * @remarks
  * `layout` is the layout that publishes — the page's cells as the canvas
  * draws them, its unsaved drafts in place — and `saved` its draft as last
  * saved. A page never published is ready, its changes those from nothing:
  * every placement added. A published one is ready while its layout differs
- * from its live version's, or a component it places has code other than the
- * fingerprint the live version stored for it; otherwise it is current. A
- * change names its placement by its title, else its component's name, else
- * its component's key; a component the surface does not list is never
- * counted as changed.
+ * from its live version's; otherwise it is current. A change names its
+ * placement by its title, else its component's name, else its component's
+ * key.
  */
 export const publishSummary = East.function(
     [ArrayType(StudioComponentType), OptionType(StudioLiveType), StudioPageType, ArrayType(StudioCellType), BooleanType],
@@ -162,7 +157,6 @@ export const publishSummary = East.function(
                 standing: variant("template", null),
                 live: none,
                 changes: [],
-                changed: [],
                 unsaved,
             }, PublishSummaryType));
         });
@@ -201,28 +195,7 @@ export const publishSummary = East.function(
             })),
         })), ArrayType(PublishChangeType));
 
-        // The components whose code is not the code the live version stored
-        // for them, among those the layout places.
-        const stale = $.let(new Set<string>(), SetType(StringType));
-        $.for(before.cells, ($2, cell) => {
-            $2.match(listed.tryGet(cell.component), {
-                some: ($3, component) => {
-                    $3.if(component.fingerprint.notEqual(cell.fingerprint), ($4) => {
-                        $4(stale.tryInsert(cell.component));
-                    });
-                },
-            });
-        });
-        const named = $.let(new Set<string>(), SetType(StringType));
-        const changed = $.let([], ArrayType(StringType));
-        $.for(layout.cells, ($2, cell) => {
-            $2.if(stale.has(cell.component).and(() => named.has(cell.component).not()), ($3) => {
-                $3(named.insert(cell.component));
-                $3(changed.pushLast(listed.get(cell.component).name));
-            });
-        });
-
-        const ready = $.let(live.hasTag("none").or(() => changes.size().greater(0n)).or(() => changed.size().greater(0n)));
+        const ready = $.let(live.hasTag("none").or(() => changes.size().greater(0n)));
         return {
             standing: ready.ifElse(
                 () => East.value(variant("ready", null), PublishStandingType),
@@ -233,7 +206,6 @@ export const publishSummary = East.function(
                 none: (_$2) => East.value(none, OptionType(IntegerType)),
             }),
             changes,
-            changed,
             unsaved,
         };
     },

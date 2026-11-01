@@ -26,7 +26,7 @@ import {
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-    faArrowsToDot, faArrowsUpDown, faArrowsUpToLine, faCheck, faChevronDown, faLock, faMinus, faPlus, faTriangleExclamation,
+    faArrowsToDot, faArrowsUpDown, faArrowsUpToLine, faCheck, faChevronDown, faLock, faMinus, faPlus,
 } from "@fortawesome/free-solid-svg-icons";
 import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { StudioInspectorPayloadType } from "@elaraai/e3-ui/internal";
@@ -167,12 +167,6 @@ export const StudioInspector = memo(function StudioInspector({ value }: StudioIn
             <Box css={styles.selection} data-inspector="selection">
                 <Box as="span" css={styles.eyebrow}>{m.selectedComponent()}</Box>
                 <Box as="span" css={styles.name} data-inspector-name="">{selection.name}</Box>
-                {selection.changed && (
-                    <Box as="span" css={styles.warning} data-inspector-changed="">
-                        <FontAwesomeIcon icon={faTriangleExclamation} />
-                        {m.logicChanged()}
-                    </Box>
-                )}
             </Box>
             <Box css={styles.data} data-inspector="data">
                 <Box as="span" css={styles.eyebrow}>{m.data()}</Box>

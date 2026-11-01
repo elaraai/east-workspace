@@ -176,12 +176,10 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         setUi(NOTHING_SELECTED);
     }, [openName]);
 
-    // The open page's placements as saved, as the canvas draws them (its
-    // drafts in place), and as its live version holds them.
+    // The open page's placements as saved, and as the canvas draws them (its
+    // drafts in place).
     const saved = useMemo((): readonly Cell[] => (entry === undefined ? [] : entry.type === "page" ? entry.value.draft.cells : entry.value.cells), [entry]);
     const cells = drafted !== undefined && drafted.page === openName ? drafted.cells : saved;
-    const liveCells = useMemo(() => (entry !== undefined && entry.type === "page" && entry.value.live.type === "some"
-        ? some(entry.value.live.value.page.cells) : none), [entry]);
     const title = entry === undefined ? "" : entry.type === "page" ? entry.value.draft.title : entry.value.title;
 
     // ── The canvas ────────────────────────────────────────────────────────
@@ -227,8 +225,8 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         mode: variant("batch", null),
         fields: { key: "key", row: "row", span: "span", height: some("height"), align: some("align") },
         derive: (bytes: Uint8Array) => decodeCells(bytes).map(cellView),
-        // A component dropped from the palette: a placement at its span,
-        // storing its fingerprint; the canvas fits the span to the row.
+        // A component dropped from the palette: a placement at its span; the
+        // canvas fits the span to the row.
         create: some((card: { library: string; key: string }, at: { key: string; row: string }) => {
             const component = components.find((c) => c.key === card.key);
             if (component === undefined) throw new Error(`No component "${card.key}" is listed`);
@@ -240,7 +238,6 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
                 align: variant("top", null),
                 title: none,
                 component: component.key,
-                fingerprint: component.fingerprint,
             });
         }),
         ready: none,
@@ -396,8 +393,8 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     });
 
     // ── The inspector, after it ──────────────────────────────────────────
-    const selection = useMemo(() => east.inspectorSelection(components, [...cells], liveCells, ui.selected),
-        [east, components, cells, liveCells, ui.selected]);
+    const selection = useMemo(() => east.inspectorSelection(components, [...cells], ui.selected),
+        [east, components, cells, ui.selected]);
     // A layout edit is a request on the selection: the canvas takes it as one gesture.
     const onRequest = useCallback((request: Request) => {
         setUi({ selected: some(request.key), request: some(request) });
@@ -434,12 +431,12 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         // Apply just before it left.
         onPublish: async () => {
             const now = handle.read();
-            const patch = east.publish(now, open, components);
+            const patch = east.publish(now, open);
             const outcome = await handle.commit.patch("", patch);
             return east.publishRefusal(outcome);
         },
         onExit: some(() => { setPreviewing(false); return null; }),
-    }), [summary, open, title, value.env, value.audience, value.rollout, applying, handle, east, components]);
+    }), [summary, open, title, value.env, value.audience, value.rollout, applying, handle, east]);
 
     if (!result.ok) {
         const message = result.error instanceof Error ? result.error.message : String(result.error);

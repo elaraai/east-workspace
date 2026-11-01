@@ -104,7 +104,6 @@ export {
     StudioPageType,
     StudioPagesType,
     StudioVersionType,
-    fingerprintOf,
     type StudioNamespace,
     type StudioTypes,
     type StudioComponentMeta,

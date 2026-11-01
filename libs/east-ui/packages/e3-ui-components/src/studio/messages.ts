@@ -94,8 +94,6 @@ export interface StudioMessages {
     newPageFromTemplate: () => string;
     /** The inspector's selection block — its eyebrow. */
     selectedComponent: () => string;
-    /** The placement's component's code changed since the page went live. */
-    logicChanged: () => string;
     /** The Data block's eyebrow. */
     data: () => string;
     /** A component whose code reads no dataset. */
@@ -224,10 +222,6 @@ export interface StudioMessages {
     noChangesSince: (p: { version: string }) => string;
     /** A change's verb, before the placement's name — `Added`, `Resized`. */
     changeVerb: (p: { change: "added" | "removed" | "moved" | "resized" | "height" | "aligned" | "retitled" }) => string;
-    /** The banner while every placed component's code is as it went live. */
-    logicUnchanged: () => string;
-    /** The banner naming the components whose code changed since the live version, by name, in the order they are placed. */
-    logicChangedIn: (p: { version: string; components: readonly string[] }) => string;
     /** The Audience row's label. */
     audience: () => string;
     /** The Rollout row's label. */
@@ -272,7 +266,6 @@ export const studioMessages: StudioMessages = {
     openInBuilder: () => "Open in builder →",
     newPageFromTemplate: () => "New page from template",
     selectedComponent: () => "Selected component",
-    logicChanged: () => "logic changed since this page went live",
     data: () => "Data",
     readsNothing: () => "reads no data",
     configuration: () => "Configuration",
@@ -346,12 +339,6 @@ export const studioMessages: StudioMessages = {
             case "aligned": return "Aligned";
             case "retitled": return "Retitled";
         }
-    },
-    logicUnchanged: () => "Component logic unchanged — only layout changed. Safe to publish.",
-    logicChangedIn: ({ version, components }) => {
-        const names = components.length < 2 ? components.join("") : `${components.slice(0, -1).join(", ")} and ${components.at(-1)}`;
-        const its = components.length === 1 ? "its" : "their";
-        return `Logic changed since ${version} in ${names} — ${its} placements publish with ${its} new code`;
     },
     audience: () => "Audience",
     rollout: () => "Rollout",

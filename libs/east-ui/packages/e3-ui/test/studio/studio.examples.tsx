@@ -20,7 +20,7 @@ import {
 import {
     BarStrip, Box, Button, Chart, Format, HStack, MetricChip, Reactive, Table, Sparkline, Stat, Text, UIComponentType, VStack,
 } from "@elaraai/east-ui";
-import { Data, Record, Studio, fingerprintOf } from "@elaraai/e3-ui";
+import { Data, Record, Studio } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
@@ -291,10 +291,10 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
             draft: {
                 title: "Account detail",
                 cells: [
-                    { key: "a-kpi", row: "r1", span: 12n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail", fingerprint: fingerprintOf(kpiRailUi) },
-                    { key: "a-orders", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: none, component: "orders_by_week", fingerprint: fingerprintOf(ordersByWeekUi) },
-                    { key: "a-bars", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, component: "breakdown_bars", fingerprint: fingerprintOf(breakdownBarsUi) },
-                    { key: "a-trend", row: "r3", span: 12n, height: some(200n), align: variant("top", null), title: none, component: "revenue_trend", fingerprint: fingerprintOf(revenueTrendUi) },
+                    { key: "a-kpi", row: "r1", span: 12n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
+                    { key: "a-orders", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: none, component: "orders_by_week" },
+                    { key: "a-bars", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, component: "breakdown_bars" },
+                    { key: "a-trend", row: "r3", span: 12n, height: some(200n), align: variant("top", null), title: none, component: "revenue_trend" },
                 ],
             },
             live: none,
@@ -303,10 +303,10 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
             draft: {
                 title: "Overview",
                 cells: [
-                    { key: "o-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: fingerprintOf(kpiRailUi) },
-                    { key: "o-trend", row: "r2", span: 8n, height: none, align: variant("stretch", null), title: none, component: "revenue_trend", fingerprint: fingerprintOf(revenueTrendUi) },
-                    { key: "o-bars", row: "r2", span: 4n, height: none, align: variant("stretch", null), title: none, component: "breakdown_bars", fingerprint: fingerprintOf(breakdownBarsUi) },
-                    { key: "o-board", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, component: "assignment_board", fingerprint: fingerprintOf(assignmentBoardUi) },
+                    { key: "o-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
+                    { key: "o-trend", row: "r2", span: 8n, height: none, align: variant("stretch", null), title: none, component: "revenue_trend" },
+                    { key: "o-bars", row: "r2", span: 4n, height: none, align: variant("stretch", null), title: none, component: "breakdown_bars" },
+                    { key: "o-board", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, component: "assignment_board" },
                 ],
             },
             live: some({
@@ -314,9 +314,9 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                 page: {
                     title: "Overview",
                     cells: [
-                        { key: "o-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: fingerprintOf(kpiRailUi) },
-                        { key: "o-trend", row: "r2", span: 12n, height: none, align: variant("stretch", null), title: none, component: "revenue_trend", fingerprint: fingerprintOf(revenueTrendUi) },
-                        { key: "o-board", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, component: "assignment_board", fingerprint: fingerprintOf(assignmentBoardUi) },
+                        { key: "o-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
+                        { key: "o-trend", row: "r2", span: 12n, height: none, align: variant("stretch", null), title: none, component: "revenue_trend" },
+                        { key: "o-board", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, component: "assignment_board" },
                     ],
                 },
             }),
@@ -325,9 +325,9 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
             draft: {
                 title: "Regional rollup",
                 cells: [
-                    { key: "r-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend", fingerprint: fingerprintOf(revenueTrendUi) },
-                    { key: "r-bars", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: some("By region"), component: "breakdown_bars", fingerprint: fingerprintOf(breakdownBarsUi) },
-                    { key: "r-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "visits_sparkline", fingerprint: fingerprintOf(visitsSparklineUi) },
+                    { key: "r-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend" },
+                    { key: "r-bars", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: some("By region"), component: "breakdown_bars" },
+                    { key: "r-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "visits_sparkline" },
                 ],
             },
             live: some({
@@ -335,9 +335,9 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                 page: {
                     title: "Regional rollup",
                     cells: [
-                        { key: "r-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend", fingerprint: fingerprintOf(revenueTrendUi) },
-                        { key: "r-bars", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: some("By region"), component: "breakdown_bars", fingerprint: fingerprintOf(breakdownBarsUi) },
-                        { key: "r-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "visits_sparkline", fingerprint: fingerprintOf(visitsSparklineUi) },
+                        { key: "r-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend" },
+                        { key: "r-bars", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: some("By region"), component: "breakdown_bars" },
+                        { key: "r-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "visits_sparkline" },
                     ],
                 },
             }),
@@ -346,8 +346,8 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
             draft: {
                 title: "Weekly export",
                 cells: [
-                    { key: "w-orders", row: "r1", span: 12n, height: some(320n), align: variant("top", null), title: none, component: "orders_by_week", fingerprint: fingerprintOf(ordersByWeekUi) },
-                    { key: "w-roster", row: "r2", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "shift_roster", fingerprint: fingerprintOf(shiftRosterUi) },
+                    { key: "w-orders", row: "r1", span: 12n, height: some(320n), align: variant("top", null), title: none, component: "orders_by_week" },
+                    { key: "w-roster", row: "r2", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "shift_roster" },
                 ],
             },
             live: some({ version: 2n, page: { title: "Weekly export", cells: [] } }),
@@ -355,31 +355,31 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
         [{ project: "Ops console", page: "Ops board" }, variant("template", {
             title: "Ops board",
             cells: [
-                { key: "t-orders", row: "r1", span: 8n, height: some(320n), align: variant("top", null), title: none, component: "orders_by_week", fingerprint: fingerprintOf(ordersByWeekUi) },
-                { key: "t-bars", row: "r1", span: 4n, height: some(320n), align: variant("stretch", null), title: none, component: "breakdown_bars", fingerprint: fingerprintOf(breakdownBarsUi) },
+                { key: "t-orders", row: "r1", span: 8n, height: some(320n), align: variant("top", null), title: none, component: "orders_by_week" },
+                { key: "t-bars", row: "r1", span: 4n, height: some(320n), align: variant("stretch", null), title: none, component: "breakdown_bars" },
             ],
         })],
         [{ project: "Ops console", page: "Report brief" }, variant("template", {
             title: "Report brief",
             cells: [
-                { key: "t-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend", fingerprint: fingerprintOf(revenueTrendUi) },
-                { key: "t-orders", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "orders_by_week", fingerprint: fingerprintOf(ordersByWeekUi) },
-                { key: "t-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "visits_sparkline", fingerprint: fingerprintOf(visitsSparklineUi) },
+                { key: "t-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend" },
+                { key: "t-orders", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "orders_by_week" },
+                { key: "t-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "visits_sparkline" },
             ],
         })],
         [{ project: "Ops console", page: "Summary" }, variant("template", {
             title: "Summary",
             cells: [
-                { key: "t-kpi", row: "r1", span: 12n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail", fingerprint: fingerprintOf(kpiRailUi) },
-                { key: "t-trend", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend", fingerprint: fingerprintOf(revenueTrendUi) },
-                { key: "t-bars", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, component: "breakdown_bars", fingerprint: fingerprintOf(breakdownBarsUi) },
+                { key: "t-kpi", row: "r1", span: 12n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
+                { key: "t-trend", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend" },
+                { key: "t-bars", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, component: "breakdown_bars" },
             ],
         })],
         [{ project: "Finance portal", page: "Ledger" }, variant("page", {
             draft: {
                 title: "Ledger",
                 cells: [
-                    { key: "l-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend", fingerprint: fingerprintOf(revenueTrendUi) },
+                    { key: "l-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend" },
                 ],
             },
             live: none,
@@ -388,7 +388,7 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
             draft: {
                 title: "Rota",
                 cells: [
-                    { key: "h-roster", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "shift_roster", fingerprint: fingerprintOf(shiftRosterUi) },
+                    { key: "h-roster", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "shift_roster" },
                 ],
             },
             live: some({
@@ -396,7 +396,7 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                 page: {
                     title: "Rota",
                     cells: [
-                        { key: "h-roster", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "shift_roster", fingerprint: fingerprintOf(shiftRosterUi) },
+                        { key: "h-roster", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "shift_roster" },
                     ],
                 },
             }),
@@ -419,7 +419,7 @@ export const studioBuilder = example({
         "SnapGrid", "toolbar", "history", "Undo", "Save", "Save as template", "Record.bind", "patch", "e3.record",
         "mutation.patch", "Studio.component", "components", "pages", "Desktop", "Tablet", "env", "audience", "rollout",
     ],
-    description: "The builder over the pages record: the Ops console's Overview on the canvas under one toolbar — its status, the zoom, the history item, Desktop · Tablet, Save as template, Preview and Publish — the palette of the seven components before it and the inspector after it; Preview and Publish open the publish preview in the canvas's place, its two changes since v3 and the logic banner, and Exit returns",
+    description: "The builder over the pages record: the Ops console's Overview on the canvas under one toolbar — its status, the zoom, the history item, Desktop · Tablet, Save as template, Preview and Publish — the palette of the seven components before it and the inspector after it; Preview and Publish open the publish preview in the canvas's place, its two changes since v3, and Exit returns",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const components = $.let([kpiRail, breakdownBars, revenueTrend, ordersByWeek, visitsSparkline, assignmentBoard, shiftRoster]);
@@ -441,7 +441,7 @@ const tilesNarrower = East.function([Studio.Types.Page], Studio.Types.Page, (_$,
     cells: page.cells.map((_$2, cell) => ({
         key: cell.key, row: cell.row,
         span: cell.span.greater(3n).ifElse(() => cell.span.subtract(1n), () => cell.span),
-        height: cell.height, align: cell.align, title: cell.title, component: cell.component, fingerprint: cell.fingerprint,
+        height: cell.height, align: cell.align, title: cell.title, component: cell.component,
     })),
 }));
 

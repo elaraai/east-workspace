@@ -8,11 +8,10 @@
  * it: the bar on the inverse ground, "● Preview", the device strip, the Env
  * pill and Exit; the page on the quiet panel, its project and title over the
  * page at the device's width; and the aside — its head, the change list, the
- * banner, the Audience and Rollout rows, and the footer.
+ * Audience and Rollout rows, and the footer.
  *
- * Only the layout and the bar are the preview's own. Its banner is the
- * design system's, on the theme's banner layer styles, and its footer's
- * buttons are the `button` recipe's.
+ * Only the layout and the bar are the preview's own. Its footer's buttons are
+ * the `button` recipe's.
  *
  * @packageDocumentation
  */
@@ -37,7 +36,7 @@ export const studioPublishSlotRecipe = defineSlotRecipe({
         "body", "main", "head", "eyebrow", "title", "frame",
         "aside", "asideHead", "asideTitle", "asideSub", "asideVersion", "asideBody", "listHead", "list",
         "change", "sign", "changeText", "changeLine", "changeName", "changeDetail",
-        "banner", "bannerIcon", "bannerText", "facts", "fact", "factLabel", "factValue", "refusal", "foot",
+        "facts", "fact", "factLabel", "factValue", "refusal", "foot",
     ],
     base: {
         /* The preview's own panel, as tall as its host lets it be — no border
@@ -231,25 +230,6 @@ export const studioPublishSlotRecipe = defineSlotRecipe({
         changeLine: { fontSize: "13px", color: "fg.strong", overflowWrap: "anywhere" },
         changeName: { fontWeight: "600", color: "fg" },
         changeDetail: { fontFamily: "mono", fontSize: "10.5px", color: "fg.subtle", overflowWrap: "anywhere" },
-        /* The design system's banner: its icon — the paired status icon of its
-           tone, Font Awesome's (#1263) — then its words; its ground is the
-           banner layer style its tone names. */
-        banner: {
-            display: "flex",
-            alignItems: "flex-start",
-            gap: "10px",
-            fontSize: "13px",
-            lineHeight: "1.5",
-            color: "fg",
-            "&[data-tone=warning]": { color: "fg.strong" },
-        },
-        bannerIcon: {
-            "--fa-width": "auto",
-            flex: "none",
-            color: "link",
-            "[data-tone=warning] > &": { color: "fg.warning" },
-        },
-        bannerText: { minWidth: "0" },
         /* Who sees it, and when. */
         facts: { marginTop: "auto", display: "flex", flexDirection: "column", gap: "10px" },
         fact: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "{spacing.3}" },
