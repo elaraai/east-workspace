@@ -1456,14 +1456,14 @@ pans and zooms only through its Slice, which holds the canvas's own window
 when no source holds one. A Plan in a bounded frame (one with a toolbar)
 mounts no row in jsdom until the frame is laid out: lay it out with the
 Sheet's `boundFrame` and `frameScrolls` (`sheet/frame.test-utils.ts`), and
-scroll it with the frame's `scrollTo` (`plan/frame/plan-works.dom.test.tsx`,
-whose stress run, `E3_UI_PERF=1`, times `planNestedAll` over the works at
-scale: `E3_WORKS_ROWS` of them over ten years, paged by rows and by time).
-The benchmark (`plan/frame/plan-nested-perf.dom.test.tsx`, `E3_UI_PERF=1`)
-writes its own machines through the harness — `E3_NESTED_MACHINES`, the first
-`E3_NESTED_HEAVY` each with `E3_NESTED_HEAVY_JOBS` more jobs — and times
-opening, a scroll, a zoom, a heavy machine's drag and its Save; e3-web holds
-the record in the test's process, so its sizes are what the test's heap holds.
+scroll it with the frame's `scrollTo` (`plan/frame/plan-works.dom.test.tsx`).
+The benchmark is that file's stress run (`E3_UI_PERF=1`, never in CI): it
+commits `E3_WORKS_ROWS` works (2,000 unless given) over ten years, a hundred
+to a patch — all of them in one runs past e3's deadline for a mutation — and
+times `planNestedAll` over them, paged by rows and by time: opening, a scroll,
+a job dragged and saved, a quarter's pan, a zoom to the year and a pan three
+years back. e3-web holds the record in the test's process, so its sizes are
+what the test's heap holds.
 In a browser, the showcase's `plan-nested.spec.ts` holds `planNestedAll` to
 #1438's list at 1440 and 390, in both themes: the area's start within the
 start budget, the time it took printed; a scroll, a pan and a zoom moving

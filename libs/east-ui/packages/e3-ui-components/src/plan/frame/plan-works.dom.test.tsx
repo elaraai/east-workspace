@@ -14,17 +14,18 @@
  *   searches and one read of entries, never a works whole: each works' jobs
  *   draw. A quarter on, every works in view draws jobs there too.
  * - The stress run (`E3_UI_PERF=1`, never in CI; `E3_WORKS_ROWS`, two thousand
- *   unless given) commits the works over ten years through the patch door,
- *   then times opening, a scroll, a job dragged and saved, a quarter's pan, a
- *   zoom to the year and a pan three years back, each with its requests, and
- *   prints them — and writes them, as a Markdown table, to `E3_UI_PERF_OUT`
- *   where it is given.
+ *   unless given) commits the works over ten years through the patch door, a
+ *   hundred to a patch — all of them in one runs past e3's deadline for a
+ *   mutation — then times opening, a scroll, a job dragged and saved, a
+ *   quarter's pan, a zoom to the year and a pan three years back, each with
+ *   its requests, and prints them — and writes them, as a Markdown table, to
+ *   `E3_UI_PERF_OUT` where it is given.
  */
 
 import { appendFileSync } from "node:fs";
 import { describe, test, expect, beforeEach, afterEach, onTestFinished, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { East, type ValueTypeOf } from "@elaraai/east";
+import { East, SortedMap, StringType, compareFor, type ValueTypeOf } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { layOut } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-nested";
@@ -77,6 +78,9 @@ function horizonLaidOut(): (px: number) => void {
     });
     return (px) => { laid = px; };
 }
+/** How many works the stress run commits in one patch: each patch commits within e3's deadline for a mutation. */
+const PATCH_WORKS = 100;
+
 /** The works' keys by their rows' ids, as `data-plan-row` holds them: `W-` and each one's number plus 10,001. */
 const worksKeys = (rows: bigint) => new Map(Array.from({ length: Number(rows) }, (_, n) => `W-${n + 10_001}`)
     .map((key) => [rowKeyOf(entry("works", key)), key] as const));
@@ -323,8 +327,13 @@ describe.skipIf(process.env["E3_UI_PERF"] !== "1")("the works at scale (#1438; E
             console.log(`${phase}: ${phases.at(-1)!.ms} ms; ${phases.at(-1)!.requests}`);
         };
         const keys = worksKeys(rows);
-        await timed(`commit ${rows} works over ten years`, async () => {
-            await h.patch(ex.planWorks, East.compile(ex.generateWorksAll, [])(rows, 522n));
+        await timed(`commit ${rows} works over ten years, ${PATCH_WORKS} to a patch`, async () => {
+            // After the works the record holds, a hundred at a time: each patch commits within e3's deadline for a mutation.
+            const works = [...East.compile(ex.generateWorksAll, [])(rows, 522n)];
+            const held = ((await h.read(ex.planWorks)) as ReadonlyMap<string, unknown>).size;
+            for (let to = held + PATCH_WORKS; to < works.length + PATCH_WORKS; to += PATCH_WORKS) {
+                await h.patch(ex.planWorks, new SortedMap(works.slice(0, Math.min(to, works.length)), compareFor(StringType)));
+            }
         });
         let c!: HTMLElement;
         await timed("open", async () => {
@@ -345,8 +354,11 @@ describe.skipIf(process.env["E3_UI_PERF"] !== "1")("the works at scale (#1438; E
             await waitFor(() => expect(drawnWorks(c, keys)).toContain("W-10001"), { timeout: 600_000 });
             await settle();
         });
-        // The first works' first job in view, dragged a week on: its works read whole once, then saved by key.
-        const job = worksRow(c, "W-10001")!.querySelector<HTMLElement>("[data-run]")!;
+        // The first works' first job in view, dragged a week on: its works read whole once, then saved by key. The row draws
+        // the jobs just past the window's edges too, out of sight: the job is the first that starts inside it, a week's room
+        // after it.
+        const job = [...worksRow(c, "W-10001")!.querySelectorAll<HTMLElement>("[data-run]")]
+            .find((run) => { const at = Number(run.getAttribute("data-plan-frac")); return at >= 0 && at < 0.8; })!;
         const moved = job.getAttribute("data-run")!;
         const before = ((await h.read(ex.planWorks)) as ReadonlyMap<string, ValueTypeOf<typeof ex.Works>>).get("W-10001")!;
         const rowsRead = h.requests("rows", WORKS).length;
