@@ -34,7 +34,10 @@ design / snapshot workflow:
 | `make design` | Serves the design system's download (`app_design_system/`, read-only) on :5174. |
 | `make east-ui-examples-html-all` | Snapshots every east-ui example to standalone HTML. |
 | `make east-ui-examples-html-<key>` | Snapshots a single example (e.g. `east-ui-examples-html-disclosure/tabs`). |
-| `make test-group GROUP=components\|ir\|e3-components\|rest` | The four CI groups: shared renderers, IR, e3 renderers (`SHARD=n/4` optional), and remaining packages plus e3 renderer Node specs. Together they run every package's tests once, as `make test` does. |
+| `make build-js` | The JavaScript the tests run, and no more: east-ui and e3-ui compiled by tsc, the renderers bundled with no type-check and no declarations. CI's test jobs run on it. |
+| `make build-checked` | Every package as `make build` builds it, type-checked and its declarations written, but the showcase, type-checked and not bundled. CI runs it beside the tests; with `build-js` it checks what `make build` does. |
+| `make build-showcase-js` | The showcase's bundle alone, over what `build-js` built: what CI's browser jobs serve. |
+| `make test-group GROUP=components\|ir\|node\|showcase\|e3-components\|rest` | The CI groups: the shared renderers, the IR, the e3 renderers' Node specs, the showcase's specs, the e3 renderers (`SHARD=n/count`, split by the times CI recorded; `REPORT=file` writes its JSON report), and the remaining packages. Together they run every package's tests once, as `make test` does, over what is built: no group builds first. |
 | `make test-responsive` | The showcase's Playwright suite (DOM specs at desktop + mobile) over the built showcase, exactly as CI runs it; `SHARD=n/total` runs one CI job's share, the tests split by the times CI recorded. |
 | `make extension` | Builds the VS Code extension. |
 | `make extension-install` / `make extension-uninstall` | Manage local VS Code install. |
