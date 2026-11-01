@@ -354,6 +354,11 @@ test.describe("the Plan's inspector (#1197)", { tag: "@desktop" }, () => {
         test(`planPrintWorks: selection and overlap rings, inspector containment (${theme})`, async ({ page }) => {
             const entry = await openExample(page, "planPrintWorks", EVENTS, theme);
             await test.step(`planPrintWorks (${theme}): each job in an overlap pair wears a 1.5px warn ring just outside its bar — a confirmed job its inset brand ring inside it — a job in no pair none; the chip is the warn chip`, async () => {
+                // The bars it reads, drawn: the rows the rail narrows land after the example shows, and nothing on the
+                // page says they are on their way.
+                for (const title of ["Market posters", "Loyalty cards", "Timetables"]) {
+                    await expect(entry.locator(`${rowSel("presses.span", "Hall B", "b2")} [data-run]`, { hasText: title }).first()).toBeVisible();
+                }
                 const rings = await entry.evaluate((root, row) => {
                     // A shadow, and a colour, as this page resolves the tokens they are written in.
                     const probe = (style: Partial<CSSStyleDeclaration>, read: "boxShadow" | "color" | "backgroundColor" | "borderTopColor") => {
