@@ -41,8 +41,8 @@ type Key = ValueTypeOf<typeof Studio.Types.Key>;
 type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
 type Pages = ValueTypeOf<typeof Studio.Types.Pages>;
 
-/** The pages record the builder reads and saves: the studio examples', by its name. */
-const RECORD = ex.studioPages.name;
+/** The pages record the builder reads and saves, the studio examples': its name in the words a card, a tile and the inspector name what a component reads in. */
+const RECORD_NAMED = "Studio pages";
 const keys = compareFor(StudioKeyType);
 const applyPages = applyFor(StudioPagesType);
 
@@ -277,7 +277,7 @@ describe("<Studio.Builder> — the palette (#994)", () => {
         expect(heads).toEqual(["Display 2", "Charts 2"]);
         const trend = cardOf(container, "Revenue trend");
         expect(trend.querySelector("svg[data-icon=chart-area]")).not.toBeNull();
-        expect(within(trend).getByText(RECORD)).toBeTruthy();
+        expect(within(trend).getByText(RECORD_NAMED)).toBeTruthy();
         expect(within(cardOf(container, "KPI rail")).getByText("no data")).toBeTruthy();
         expect(within(trend).getByRole("img", { name: "Logic fixed by the developer" })).toBeTruthy();
         expect(within(palette(container)).getAllByRole("img", { name: "Logic fixed by the developer" })).toHaveLength(4);
@@ -389,7 +389,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         expect(bar().textContent).toBe("No selectionClick a component on the grid to arrange it");
         await select(container, "c-trend");
         expect(bar().querySelector("svg")!.getAttribute("data-icon")).toBe("chart-area");
-        expect([...bar().children].slice(1).map((el) => el.textContent)).toEqual(["Revenue trend", RECORD]);
+        expect([...bar().children].slice(1).map((el) => el.textContent)).toEqual(["Revenue trend", RECORD_NAMED]);
     });
 
     test("B10: the grid panel holds the page's cells on the editing canvas — each its component's own UI — with its guides and its end zone", async () => {
@@ -539,7 +539,7 @@ describe("<Studio.Builder> — the inspector (#996)", () => {
         expect(rail.querySelector("svg[data-icon=sliders]")).not.toBeNull();
     });
 
-    test("B16–B18, B21: the selected placement's name, never its component's key, what its code reads, its description fixed by its developer, and the footer", async () => {
+    test("B16–B18, B21: the selected placement's name, never its component's key, what its code reads in words, never a keypath, its description fixed by its developer, and the footer", async () => {
         const { container } = await mountBuilder();
         await select(container, "c-trend");
         const b = inspector(container);
@@ -547,8 +547,8 @@ describe("<Studio.Builder> — the inspector (#996)", () => {
         expect(b.querySelector("[data-inspector-meta]")).toBeNull();
         expect(b.querySelector('[data-inspector="selection"]')!.textContent).not.toContain("revenue_trend");
         expect(b.querySelector("[data-inspector-changed]")).toBeNull();
-        // Each path its code reads, as e3 prints a keypath.
-        expect([...b.querySelectorAll('[data-inspector="data"] li')].map((li) => li.textContent)).toEqual([`.records.${RECORD}`]);
+        // What its code reads, each named in words: never a keypath.
+        expect([...b.querySelectorAll('[data-inspector="data"] li')].map((li) => li.textContent)).toEqual([RECORD_NAMED]);
         expect(b.querySelector('[data-inspector="config"]')!.textContent).toBe("Configurationfixed by developerWeekly revenue, as an area.");
         expect(b.querySelector('[data-inspector="footer"]')!.textContent).toBe("Published component · logic immutable");
         await select(container, "c-kpi");

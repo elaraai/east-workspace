@@ -38,7 +38,7 @@ const kpiRail = Studio.component("kpi_rail", { name: "KPI rail", category: "Disp
     East.function([], UIComponentType, (_$) => Text.Root("KPIs")));
 
 describeEast("The builder's inspector — what it shows of the selected placement (#996)", (test) => {
-    test("B16–B18: the placement's name, its component's key, the paths its code reads, and its description", $ => {
+    test("B16–B18: the placement's name, its component's key, the data its code reads in words — never a keypath — and its description", $ => {
         const cells = $.const([
             { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "" },
             { key: "c-trend", row: "r2", span: 8n, height: some(240n), align: variant("stretch", null), title: none, component: "revenue_trend", fingerprint: "" },
@@ -49,7 +49,7 @@ describeEast("The builder's inspector — what it shows of the selected placemen
         $(Assert.equal(trend.key, "c-trend"));
         $(Assert.equal(trend.name, "Revenue trend"));
         $(Assert.equal(trend.component, "revenue_trend"));
-        $(Assert.equal(trend.reads, [[variant("field", "inputs"), variant("field", "inspector_sales_daily")]]));
+        $(Assert.equal(trend.reads, ["Inspector sales daily"]));
         $(Assert.equal(trend.description, some("Weekly revenue, as an area.")));
         $(Assert.equal(trend.changed, false));
         // B20: row 2 of 2; the 3 columns the row's other placement spans leave it 9 at most.

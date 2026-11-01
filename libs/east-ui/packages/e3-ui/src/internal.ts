@@ -117,6 +117,8 @@ export {
     layoutSummary,
     nameWriteRefusal,
     builderKeys,
+    dataName,
+    readNames,
     paletteCards,
     palettePages,
     PaletteCardType,

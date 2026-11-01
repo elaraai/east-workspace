@@ -718,7 +718,10 @@ export const salesCount = Studio.component("sales_count", {
 
 Two fields are derived from `fn`, never written:
 - `reads` — the datasets, functions and records its code binds (`deriveManifest`
-  over `fn`); the palette card's meta line and the inspector's data list.
+  over `fn`); the palette card's meta line, the canvas tile's and the
+  inspector's data list, each dataset and record named in words (a task's
+  output by its task's name: `.inputs.sales_daily` reads "Sales daily"), never
+  a keypath.
 - `fingerprint` — a SHA-256 of `fn`'s IR in canonical form. The same code
   fingerprints the same wherever it is written; any change to the code changes
   it.
@@ -811,7 +814,7 @@ export const builder = ui("builder", [], East.function([], UIComponentType, _$ =
 - **The palette**, a pane of two tabs before the canvas. Components: every
   listed component but the deprecated, by category, with a search and a Filter
   menu over category, tags and collections; a card shows the component's icon,
-  its name, the datasets its code reads and a lock, and drags onto the canvas as
+  its name, the data its code reads in words and a lock, and drags onto the canvas as
   a placement at its component's span, storing its fingerprint. The component
   the canvas has selected is drawn placed, `ON CANVAS · ×N`, unsaved drafts
   counted; a click selects its first placement. Pages: the project's pages in
@@ -819,8 +822,8 @@ export const builder = ui("builder", [], East.function([], UIComponentType, _$ =
   click opens one.
 - **The inspector**, the pane after the canvas: the selected placement's name
   (never its component's key), with a warning when the component's code changed
-  since the page went live; what its code reads, as keypaths
-  (`.inputs.sales_daily`); its description, under a lock; and its layout — its
+  since the page went live; what its code reads, each named in words ("Sales
+  daily"), never a keypath; its description, under a lock; and its layout — its
   span, held to its row's room, its row, its height (Auto or a preset in px)
   and where it sits in a taller row. Each edit is one gesture of the canvas's
   session. With nothing selected it says so.

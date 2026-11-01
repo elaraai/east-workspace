@@ -42,7 +42,7 @@ import {
     type IR,
 } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui/internal";
-import { DataManifestType } from "@elaraai/e3-types";
+import { DataManifestType, TreePathType } from "@elaraai/e3-types";
 import { deriveManifest } from "../utils/derive.js";
 
 // ============================================================================
@@ -102,6 +102,39 @@ export const StudioComponentType = StructType({
 
 /** Type representing a Studio component. */
 export type StudioComponentType = typeof StudioComponentType;
+
+// ============================================================================
+// What a component reads, in words
+// ============================================================================
+
+/**
+ * The name of the data at a path, in words, as the people who build pages
+ * read it — never its keypath, nor its name as code spells it: a task's
+ * output by its task's name, anything else by its own, its words apart and
+ * the first upper case (`.inputs.sales_daily` "Sales daily",
+ * `.tasks.weeklyForecast.output` "Weekly forecast").
+ */
+export const dataName = East.function([TreePathType], StringType, ($, path) => {
+    const last = $.let(path.size().subtract(1n));
+    // A task's output, `.tasks.<task>.output`, is its task's.
+    const output = $.let(path.size().equal(3n)
+        .and(() => path.get(0n).unwrap("field").equal("tasks"))
+        .and(() => path.get(last).unwrap("field").equal("output")));
+    const name = $.let(output.ifElse(() => path.get(1n).unwrap("field"), () => path.get(last).unwrap("field")));
+    const words = $.let(name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().lowerCase());
+    return words.length().equal(0n).ifElse(
+        () => name,
+        () => words.substring(0n, 1n).upperCase().concat(words.substring(1n, words.length())),
+    );
+});
+
+/**
+ * The data a component's code reads — each dataset and record it binds, whole
+ * or a window at a time — each named in words ({@link dataName}), as the
+ * palette's cards, the canvas's tiles and the inspector name it.
+ */
+export const readNames = East.function([DataManifestType], ArrayType(StringType), (_$, reads) =>
+    reads.paths.concat(reads.pages).map((_$2, path) => dataName(path)));
 
 /**
  * What the palette shows of a component — its `meta`. Only `name`,

@@ -24,7 +24,7 @@ import {
     none,
     some,
 } from "@elaraai/east";
-import { StudioComponentType } from "./component.js";
+import { StudioComponentType, readNames } from "./component.js";
 import { StudioCellType, StudioPagesType, pageStatus } from "./pages.js";
 
 // ============================================================================
@@ -92,8 +92,8 @@ export const PalettePageType = StructType({
 
 /**
  * Each listed component's card, by key: its meta line and whether it is
- * placed. A card's meta line names the datasets its component reads, joined
- * with ` · `; the component the selected placement places is placed, and its
+ * placed. A card's meta line names the data its component reads in words
+ * ({@link readNames}), joined with ` · `; the component the selected placement places is placed, and its
  * line counts the page's placements of it instead. A key two components
  * share keeps the first one's card.
  */
@@ -115,8 +115,7 @@ export const paletteCards = East.function(
         }), OptionType(StringType));
         const cards = $.let(new Map(), DictType(StringType, PaletteCardType));
         $.for(listed, ($2, component) => {
-            const reads = $2.let(component.reads.paths.concat(component.reads.pages)
-                .map((_$3, path) => path.get(path.size().subtract(1n)).unwrap("field")));
+            const reads = $2.let(readNames(component.reads));
             const placed = $2.let(East.equal(selected, some(component.key)));
             const count = $2.let(placements.tryGet(component.key).match({
                 some: (_$3, n) => n,

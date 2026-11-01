@@ -29,8 +29,7 @@ import {
     some,
 } from "@elaraai/east";
 import { SnapGrid } from "@elaraai/east-ui/internal";
-import { TreePathType } from "@elaraai/e3-types";
-import { StudioComponentType } from "./component.js";
+import { StudioComponentType, readNames } from "./component.js";
 import { StudioCellType } from "./pages.js";
 
 // ============================================================================
@@ -67,8 +66,8 @@ export type InspectorLayoutType = typeof InspectorLayoutType;
  * @property component - Its component's key
  * @property changed - Its component's code changed since the page went live:
  *   its fingerprint differs from the one the live version's cell stored
- * @property reads - The paths of the datasets its component's code reads, whole
- *   or a window at a time — the renderer prints each as its keypath (`.inputs.sales_daily`)
+ * @property reads - The data its component's code reads, whole or a window at
+ *   a time, each named in words ({@link readNames}: "Sales daily") — never its keypath
  * @property description - Its component's description, fixed by its developer
  * @property layout - Its layout ({@link InspectorLayoutType})
  */
@@ -77,7 +76,7 @@ export const InspectorSelectionType = StructType({
     name: StringType,
     component: StringType,
     changed: BooleanType,
-    reads: ArrayType(TreePathType),
+    reads: ArrayType(StringType),
     description: OptionType(StringType),
     layout: InspectorLayoutType,
 });
@@ -150,9 +149,9 @@ export const inspectorSelection = East.function(
             none: (_$2) => East.value(false),
         }));
         const reads = $.let(component.match({
-            some: (_$2, c) => c.reads.paths.concat(c.reads.pages),
-            none: (_$2) => East.value([], ArrayType(TreePathType)),
-        }), ArrayType(TreePathType));
+            some: (_$2, c) => readNames(c.reads),
+            none: (_$2) => East.value([], ArrayType(StringType)),
+        }), ArrayType(StringType));
         // Its row among the rows, in the order they first appear, and the room
         // the row's other placements leave it.
         const rows = $.let([], ArrayType(StringType));

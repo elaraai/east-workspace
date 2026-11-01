@@ -35,7 +35,9 @@ import { StudioLibrary } from "./library.js";
 export {
     StudioComponentType,
     StudioFrameType,
+    dataName,
     fingerprintOf,
+    readNames,
     type StudioComponentMeta,
     type StudioFrameLiteral,
 } from "./component.js";

@@ -62,9 +62,9 @@ const PAGES = new SortedMap<Key, Entry>([
 ], compareFor(StudioKeyType));
 
 describeEast("The builder's palette — its cards and its pages (#994)", (test) => {
-    test("B3: a card's meta names the datasets its component reads; one that reads nothing says so", $ => {
+    test("B3: a card's meta names the data its component reads, in words — never their keys; one that reads nothing says so", $ => {
         const cards = $.let(paletteCards([revenueTrend, note], [], none));
-        $(Assert.equal(cards.get("revenue_trend").meta, "palette_sales_daily · palette_visits_daily"));
+        $(Assert.equal(cards.get("revenue_trend").meta, "Palette sales daily · Palette visits daily"));
         $(Assert.equal(cards.get("note").meta, "no data"));
         $(Assert.equal(cards.get("revenue_trend").placed, false));
     });

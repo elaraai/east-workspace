@@ -6,8 +6,8 @@
 /**
  * `StudioInspector` — the builder's inspector (#996), the body of its pane
  * after the canvas, under the pane's tab row. It draws the selected placement
- * East computed — its name and key, what it reads (each path printed as e3
- * prints a keypath), its description, its layout — and sends every layout
+ * East computed — its name and key, what it reads (each named in words,
+ * never a keypath), its description, its layout — and sends every layout
  * edit through `onRequest`, which asks the canvas for it; the canvas takes it
  * as one gesture of the page's session, and the placement comes back drawn
  * anew.
@@ -29,7 +29,6 @@ import {
     faArrowsToDot, faArrowsUpDown, faArrowsUpToLine, faCheck, faChevronDown, faLock, faMinus, faPlus, faTriangleExclamation,
 } from "@fortawesome/free-solid-svg-icons";
 import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { pathToString } from "@elaraai/e3-types";
 import { StudioInspectorPayloadType } from "@elaraai/e3-ui/internal";
 import { useFormatters } from "@elaraai/east-ui-components";
 
@@ -179,10 +178,7 @@ export const StudioInspector = memo(function StudioInspector({ value }: StudioIn
                 <Box as="span" css={styles.eyebrow}>{m.data()}</Box>
                 {selection.reads.length > 0 ? (
                     <Box as="ul" css={styles.reads} aria-label={m.data()}>
-                        {selection.reads.map((path) => {
-                            const keypath = pathToString(path);
-                            return <Box as="li" key={keypath} css={styles.read}>{keypath}</Box>;
-                        })}
+                        {selection.reads.map((name, at) => <Box as="li" key={at} css={styles.read}>{name}</Box>)}
                     </Box>
                 ) : (
                     <Box as="span" css={styles.noReads}>{m.readsNothing()}</Box>
