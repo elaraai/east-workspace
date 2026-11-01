@@ -53,8 +53,8 @@ export const editHistorySlotRecipe = defineSlotRecipe({
         issues: {
             display: "flex",
             flexShrink: "0",
-            // Only while there are issues: no slot is kept for none.
-            "&[data-empty]": { display: "none" },
+            // With none, hidden in its slot, which is held (#1398, CL1): the bar keeps its width as issues come and go.
+            "&[data-empty]": { visibility: "hidden" },
         },
         conflicts: {
             width: "auto",
