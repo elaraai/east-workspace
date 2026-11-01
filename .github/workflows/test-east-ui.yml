@@ -92,7 +92,8 @@ jobs:
         run: pnpm run build
 
       # Lint runs the East rules through eslint-plugin-east (#963), which loads
-      # east-diagnostics' rules from its dist; east-ui's own test script lints it.
+      # east-diagnostics' rules from its dist; the renderer's Studio spec lints
+      # through it too.
       - name: Build east-diagnostics (dependency)
         working-directory: libs/east-diagnostics
         run: make build
@@ -162,7 +163,8 @@ jobs:
         run: pnpm run build
 
       # Lint runs the East rules through eslint-plugin-east (#963), which loads
-      # east-diagnostics' rules from its dist; east-ui's own test script lints it.
+      # east-diagnostics' rules from its dist; the renderer's Studio spec lints
+      # through it too.
       - name: Build east-diagnostics (dependency)
         working-directory: libs/east-diagnostics
         run: make build
@@ -250,15 +252,15 @@ jobs:
           compression-level: 1
           retention-days: 1
 
-  # Two package groups, `rest` and the separately sharded e3 renderer group
-  # cover every package once (see libs/east-ui/Makefile).
+  # These groups, `rest` and the separately sharded e3 renderer group cover
+  # every package once, each over what is built (see libs/east-ui/Makefile).
   test:
     needs: build
     name: test (${{ matrix.group }})
     strategy:
       fail-fast: false
       matrix:
-        group: [components, ir]
+        group: [components, ir, node, showcase]
     runs-on: ubuntu-latest
     env:
       NODE_OPTIONS: --max-old-space-size=4096
@@ -289,9 +291,9 @@ jobs:
         working-directory: libs/east-ui
         run: make test-group GROUP=${{ matrix.group }}
 
-  # `rest` also owns the renderer's Node specs, and builds the CLI integration
-  # runners. It reads the checked build: the CLI compiles against the
-  # renderers' declarations.
+  # `rest` holds the CLI's specs, and builds their integration runners. It
+  # reads the checked build: the CLI compiles against the renderers'
+  # declarations.
   rest:
     needs: checked
     name: test (rest)
@@ -440,7 +442,7 @@ jobs:
       - name: Restore compiled workspaces
         run: tar -xf "$RUNNER_TEMP/east-ui-build.tar"
 
-      # Node specs run once in test (rest); these six jobs cover every
+      # Node specs run once in test (node); these six jobs cover every
       # renderer Vitest file once, with two workers per runner, split by the
       # times the last refresh recorded (#1466).
       - name: e3 renderer tests

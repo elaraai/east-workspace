@@ -56,18 +56,19 @@ build-checked:
 test:
 	pnpm -r $(PACKAGES) run test
 
-## The four CI groups together run every package's tests once. The e3
-## renderer's Vitest files are sharded; its Node specs stay in `rest` once.
-## New packages land in `rest` automatically.
-TEST_GROUP_components := --filter=@elaraai/east-ui-components
-TEST_GROUP_ir := --filter=@elaraai/east-ui --filter=@elaraai/e3-ui
+## The CI groups together run every package's tests once, each over what is
+## built, never building first (#1466): `components`; `ir`, east-ui's and
+## e3-ui's; `node`, the e3 renderer's Node specs; `showcase`, the showcase
+## package's; `e3-components`, the renderer's Vitest files, sharded; and
+## `rest`, every other package, the CLI's specs among them, which read the
+## renderers' declarations. New packages land in `rest` automatically.
 TEST_GROUP_rest := --filter='./packages/*' --filter='./packages/east-ui-extension/webview' \
                    --filter='!@elaraai/east-ui-components' --filter='!@elaraai/east-ui' --filter='!@elaraai/e3-ui' \
-                   --filter='!@elaraai/e3-ui-components'
+                   --filter='!@elaraai/e3-ui-components' --filter='!@elaraai/east-ui-showcase' --filter='!@elaraai/e3-ui-cli'
 
 ifneq ($(filter test-group,$(MAKECMDGOALS)),)
-ifeq ($(filter components ir e3-components rest,$(GROUP)),)
-$(error test-group needs GROUP=components, ir, e3-components or rest)
+ifeq ($(filter components ir node showcase e3-components rest,$(GROUP)),)
+$(error test-group needs GROUP=components, ir, node, showcase, e3-components or rest)
 endif
 endif
 
@@ -78,11 +79,18 @@ test-group:
 ifeq ($(GROUP),e3-components)
 	pnpm --filter @elaraai/e3-ui-components run test:components $(if $(SHARD),--shard=$(SHARD)) \
 		$(if $(REPORT),--reporter=default --reporter=json --outputFile.json=$(REPORT))
-else
-	pnpm -r $(TEST_GROUP_$(GROUP)) run test
-ifeq ($(GROUP),rest)
+else ifeq ($(GROUP),components)
+	pnpm --filter @elaraai/east-ui-components run test
+else ifeq ($(GROUP),ir)
+	pnpm --filter @elaraai/east-ui run test:built
+	pnpm --filter @elaraai/e3-ui run test
+else ifeq ($(GROUP),node)
 	pnpm --filter @elaraai/e3-ui-components run test:node
-endif
+else ifeq ($(GROUP),showcase)
+	pnpm --filter @elaraai/east-ui-showcase run test
+else
+	pnpm -r $(TEST_GROUP_rest) run test
+	pnpm --filter @elaraai/e3-ui-cli run test:built
 endif
 
 ## Export east-ui's suites as IR to EAST_UI_TEST_IR, this checkout's
@@ -250,7 +258,7 @@ help:
 	@echo "  build-checked     - Every package type-checked with its declarations, the showcase unbundled (CI's check)"
 	@echo "  build-showcase-js - The showcase's bundle alone, over build-js (CI's browser shards)"
 	@echo "  test              - Run tests"
-	@echo "  test-group GROUP=components|ir|e3-components|rest - Run a CI group (e3-components takes SHARD=n/count and REPORT=file)"
+	@echo "  test-group GROUP=components|ir|node|showcase|e3-components|rest - Run a CI group over what is built (e3-components takes SHARD=n/count and REPORT=file)"
 	@echo "  test-export       - Export east-ui's suites as IR to this checkout's tmp/east-ui-tests"
 	@echo "  lint              - Run linters"
 	@echo "  showcase          - Run showcase dev server"
