@@ -47,7 +47,7 @@ The suites call as two callers:
 
 A server with no auth answers any token. One with auth needs both tokens signed or fetched, as `test/integration/src/api-compliance.spec.ts` signs them for the local server.
 
-A harness whose server answers requests in its own process, such as e3 running in a page, gives `fetch`. Every request of the suites then goes through it: the client's calls, the suites' own requests (`ctx.fetch`) and e3's platform functions. `test/integration/src/api-compliance-fetch.spec.ts` runs the suites through a `fetch` that forwards to the local server, while the global `fetch` refuses every request.
+A harness whose server answers requests in its own process, such as e3 running in a page, gives `fetch`. Every request of the suites then goes through it: the client's calls, the suites' own requests (`ctx.fetch`) and e3's platform functions. The integration tests' API compliance parts (`test/integration/src/compliance-parts.ts`) run the suites through a `fetch` that forwards to the local server, while the global `fetch` refuses every request.
 
 A harness whose server runs no commands, such as e3 running in a page, sets `commands: false`. The suites' tasks are East, which every server runs, and their failing tasks fail in East: each is recorded `failed`, exit code 1, with its message in its stderr log. One case in `dataflowTests` runs a command, a custom task that exits 1. On a server that runs commands it expects that task `failed`, exit code 1; on one that runs none, recorded `error`, with a message saying the server runs no commands.
 

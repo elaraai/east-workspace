@@ -13,7 +13,7 @@ import { cliTests, transferTests, workspaceBundleTests } from '@elaraai/e3-api-t
 
 import { compliancePart } from './compliance-parts.js';
 
-compliancePart('API compliance: the CLI, transfers and workspace bundles', ({ setup, credentialsEnv }) => {
+compliancePart('API compliance: the CLI, transfers and workspace bundles', { givenFetch: false }, ({ setup, credentialsEnv }) => {
   // The bundle routes, which the local server mounts
   workspaceBundleTests(setup);
 

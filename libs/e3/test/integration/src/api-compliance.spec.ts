@@ -24,6 +24,6 @@ describe('API compliance, in parts', () => {
   });
 });
 
-compliancePart('API compliance: repositories, packages, workspaces, datasets and functions', ({ setup }) => {
+compliancePart('API compliance: repositories, packages, workspaces, datasets and functions', { givenFetch: true }, ({ setup }) => {
   registerSuites(COMPLIANCE_PARTS.rest, setup);
 });

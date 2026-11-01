@@ -14,9 +14,19 @@
  *
  * The server checks every request's token, as a deployed server does: the
  * suites run as an `admin`, and their reader cases as a caller with no role.
+ *
+ * The parts of `apiTestSuites` run through a given fetch, as a host that
+ * answers e3's API itself gives one — e3 running in a page, whose requests a
+ * function answers rather than the network: it forwards each request to the
+ * server, and the global `fetch` refuses every request for the part, so a
+ * request of the client, of a suite or of a platform function that does not
+ * go through the given one fails, and is named when the part ends even if
+ * what made it swallowed the refusal. The CLI part runs through the global
+ * `fetch`, as its child processes must.
  */
 
-import { describe, before, after } from 'node:test';
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
 
 import { apiTestSuites, createTestContext, type TestSetup, type TestContext } from '@elaraai/e3-api-tests';
 
@@ -37,6 +47,12 @@ export const COMPLIANCE_PARTS = {
   series: ['seriesRecords', 'placeRecords'],
 } as const satisfies Record<string, readonly string[]>;
 
+/** How a part's requests reach the server. */
+export interface CompliancePartOptions {
+  /** Through a given fetch, the global `fetch` refusing every request (the parts of `apiTestSuites`); else through the global `fetch`. */
+  readonly givenFetch: boolean;
+}
+
 /** What a part registers its suites with. */
 export interface ComplianceHarness {
   /** A fresh repository and context for each test. */
@@ -49,14 +65,25 @@ export interface ComplianceHarness {
  * Runs one part of the API compliance suites against a server of its own.
  *
  * @param title - The part's title
+ * @param options - How the part's requests reach the server
  * @param register - Registers the part's suites
  */
-export function compliancePart(title: string, register: (harness: ComplianceHarness) => void): void {
+export function compliancePart(title: string, options: CompliancePartOptions, register: (harness: ComplianceHarness) => void): void {
   // One server for the part: started by the part's `before` hook, and awaited
   // by every test's setup
   let server: ComplianceServer | undefined;
   let started: Promise<ComplianceServer> | null = null;
   const getServer = (): Promise<ComplianceServer> => (started ??= startComplianceServer().then((running) => (server = running)));
+
+  // The global `fetch`, which the given one forwards to; how many requests
+  // went through the given one; and those that reached the global one instead
+  const networkFetch = globalThis.fetch;
+  let forwarded = 0;
+  const escaped: string[] = [];
+  const forwarding: typeof globalThis.fetch = (input, init) => {
+    forwarded++;
+    return networkFetch(input, init);
+  };
 
   const setup: TestSetup<TestContext> = async (t) => {
     const { baseUrl, adminToken, readerToken } = await getServer();
@@ -67,6 +94,7 @@ export function compliancePart(title: string, register: (harness: ComplianceHarn
       // a reader needs no grant
       getReaderToken: () => Promise.resolve(readerToken),
       cleanup: true,
+      ...(options.givenFetch ? { fetch: forwarding } : {}),
     });
     t.after(() => ctx.cleanup());
     return ctx;
@@ -84,13 +112,32 @@ export function compliancePart(title: string, register: (harness: ComplianceHarn
     // context created it, and everything the server does descends from its
     // start: started here, what a request leaves running is reported against
     // this hook rather than against whichever test happened to run first.
-    before(() => getServer());
+    before(async () => {
+      await getServer();
+      if (!options.givenFetch) return;
+      globalThis.fetch = ((input: string | URL | Request) => {
+        const url = input instanceof Request ? input.url : String(input);
+        escaped.push(url);
+        return Promise.reject(new Error(`a request went to the global fetch rather than the one the harness gives: ${url}`));
+      }) as typeof globalThis.fetch;
+    });
 
     after(async () => {
+      globalThis.fetch = networkFetch;
       await server?.stop();
     });
 
     register({ setup, credentialsEnv });
+
+    // Last, once every test before it has cleaned up: a request whose refusal
+    // what made it swallowed — a cleanup's — is named here. A failing `after`
+    // hook would say so and leave the run passing.
+    if (options.givenFetch) {
+      void it('sent every request through the given fetch', () => {
+        assert.deepEqual(escaped, [], 'every request goes through the given fetch');
+        assert.ok(forwarded > 0, 'the suites\' requests went through the given fetch');
+      });
+    }
   });
 }
 

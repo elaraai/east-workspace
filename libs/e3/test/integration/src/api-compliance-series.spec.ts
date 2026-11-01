@@ -11,6 +11,6 @@
 
 import { COMPLIANCE_PARTS, compliancePart, registerSuites } from './compliance-parts.js';
 
-compliancePart('API compliance: records by series and by narrowing', ({ setup }) => {
+compliancePart('API compliance: records by series and by narrowing', { givenFetch: true }, ({ setup }) => {
   registerSuites(COMPLIANCE_PARTS.series, setup);
 });

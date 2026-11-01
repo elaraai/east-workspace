@@ -11,6 +11,6 @@
 
 import { COMPLIANCE_PARTS, compliancePart, registerSuites } from './compliance-parts.js';
 
-compliancePart('API compliance: dataflow, records and record deploys', ({ setup }) => {
+compliancePart('API compliance: dataflow, records and record deploys', { givenFetch: true }, ({ setup }) => {
   registerSuites(COMPLIANCE_PARTS.dataflow, setup);
 });
