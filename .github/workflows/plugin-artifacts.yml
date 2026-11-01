@@ -20,8 +20,9 @@ on:
       - 'libs/east/src/codegen/**'
       - 'libs/east-py/packages/east-py/east/codegen/**'
       - '.github/workflows/plugin-artifacts.yml'
+  # Every PR, whatever its base: a PR stacked on another PR's branch is
+  # checked as one into main is.
   pull_request:
-    branches: [main]
     paths:
       - 'libs/**/SKILL.md'
       - 'libs/**/*.examples.ts'

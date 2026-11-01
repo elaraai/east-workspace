@@ -16,8 +16,9 @@ on:
       # httpbin, which e3-web's browser specs call, is started from here.
       - "docker/services/**"
       - ".github/workflows/test-e3.yml"
+  # Every PR, whatever its base: a PR stacked on another PR's branch is
+  # checked as one into main is.
   pull_request:
-    branches: [main]
     paths:
       - "libs/e3/**"
       - "libs/east/**"
