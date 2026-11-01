@@ -42,6 +42,7 @@
 import { useLayoutEffect, useMemo, useRef, type KeyboardEvent } from "react";
 import { FloatType, equalFor, variant, type ValueTypeOf } from "@elaraai/east";
 import { Box, Popover, Portal } from "@chakra-ui/react";
+import { frameBounds } from "@elaraai/east-ui-components/internal";
 import { Plan } from "@elaraai/e3-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import type { TickFormatOpt } from "@elaraai/east-ui-components";
@@ -156,8 +157,10 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
     usePlanTypingFocus(typing?.store, rowKey);
     // The instants its conflicts are at, not yet chosen: the cells holding them wear the warn ring.
     const conflictsAt = usePlanRowConflicts(rowKey);
-    // The cells by their bucket, which a popover of the input anchors to below 480px of main.
+    // The cells by their bucket, which a popover of the input anchors to below 480px of main; and the popover, whose width
+    // says whether it keeps to the frame's sides.
     const cellEls = useRef(new Map<string, HTMLElement>());
+    const popoverRef = useRef<HTMLDivElement | null>(null);
     // The plot's width, which each cell's share of it says whether its numerals fit: unknown before it is laid out.
     const measureRef = useRef<HTMLDivElement | null>(null);
     const plotPx = useElementWidth(measureRef, true);
@@ -283,16 +286,19 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
                 read={(text) => readTyped(text, partFormat, words)} onWrite={onWrite} onCancel={onCancel} />
         );
         if (!typing.popover) return field;
-        // Below 480px of main, in a popover anchored to its cell: a press outside it closes it, the field's blur
-        // having written what it holds.
+        // Below 480px of main, in a popover anchored to its cell, kept inside the builder's frame as every popover opened in
+        // one is (#1393): a press outside it closes it, the field's blur having written what it holds. Its bounds are made
+        // as it is placed, its content laid out: Zag copies the positioning it is given as it renders, which would keep
+        // what the bounds read before the popover was there — the page's.
         const cell = open.cell;
+        const anchor = () => cellEls.current.get(cell) ?? null;
         return (
             <Popover.Root key={`${cell}|${position}`} open modal={false}
-                positioning={{ placement: "bottom", getAnchorElement: () => cellEls.current.get(cell) ?? null }}
+                positioning={{ placement: "bottom", getAnchorElement: anchor, boundary: () => frameBounds(anchor, () => popoverRef.current) }}
                 onOpenChange={(d) => { if (!d.open) typing.store.close(); }}>
                 <Portal>
                     <Popover.Positioner>
-                        <Popover.Content css={styles.tableCellPopover} data-plan-typing-popover="">{field}</Popover.Content>
+                        <Popover.Content ref={popoverRef} css={styles.tableCellPopover} data-plan-typing-popover="">{field}</Popover.Content>
                     </Popover.Positioner>
                 </Portal>
             </Popover.Root>

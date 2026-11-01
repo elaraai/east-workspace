@@ -1464,6 +1464,12 @@ writes its own machines through the harness — `E3_NESTED_MACHINES`, the first
 `E3_NESTED_HEAVY` each with `E3_NESTED_HEAVY_JOBS` more jobs — and times
 opening, a scroll, a zoom, a heavy machine's drag and its Save; e3-web holds
 the record in the test's process, so its sizes are what the test's heap holds.
+In a browser, the showcase's `plan-nested.spec.ts` holds `planNestedAll` to
+#1438's list at 1440 and 390, in both themes: the area's start within the
+start budget, the time it took printed; a scroll, a pan and a zoom moving
+nothing as their cells land, the rows waiting washed meanwhile; the rows
+shading past the cap at the height of those they stand in for; a folded
+works drawing its crews' sums; and a crew's week typed.
 
 ### A table cell too narrow for its value (#1269, #1438)
 
@@ -1491,7 +1497,11 @@ A table position its row says takes a typed number (`edits.values`, each
 React (`plan/edit/typing.ts`); a table row (`rows/TableRow.tsx`) draws it only
 while it holds it, over the cell's column (`rows/CellInput.tsx`: the Sheet's
 number field, the Plan recipe's `tableCellInput` slots), or below 480px of
-main in a popover anchored to the cell.
+main in a popover anchored to the cell, kept inside the builder's frame while
+it fits (east-ui-components' `frameBounds`, #1393). Its bounds are made as Zag
+places it (`boundary` a function): Zag copies the positioning it is given as
+it renders, which would keep what they read before the popover was there —
+the page's.
 
 - **Which cells.** At the Plan's finest zoom, a bucket holding one of the
   position's own values — written at that value's date, so it replaces it —
@@ -1529,7 +1539,9 @@ main in a popover anchored to the cell.
 
 Tests: `plan/frame/plan-typing.dom.test.tsx`, on e3, over the ledgers; type
 with `fireEvent.input`, as the Sheet's tests do — the field takes no change
-event.
+event. Only a browser lays the input out: the showcase's `plan-nested.spec.ts`
+holds it at its cell's width and its row's height in the table's numerals, and
+below 480px its popover under the cell, inside the frame.
 
 ### Shared time navigation
 

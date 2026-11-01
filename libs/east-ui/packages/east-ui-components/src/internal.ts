@@ -110,6 +110,8 @@ export { EastErrorBoundary } from "./reactive/error-display.js";
 export { radioGroupKey } from "./primitives/radio-group.js";
 export { parseCssSize } from "./style/parse-size.js";
 export { coarseHitArea } from "./style/hit-area.js";
+// Where a popover opened inside a builder's frame keeps to (#1393): the frame's sides while it fits between them.
+export { frameBounds } from "./overlays/popover/frame-bounds.js";
 // The Plan's slot recipe: in the theme with every recipe, and its geometry measured against it.
 export { planSlotRecipe } from "./theme/slot-recipes/plan.js";
 // A slot recipe's styles made once for the theme and its variants: what a part drawn often reads (#1398, CL9); and a
