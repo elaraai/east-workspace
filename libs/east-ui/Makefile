@@ -25,7 +25,7 @@ EAST_UI_EXAMPLE_ITEM_KEYS := $(shell for f in $$(find packages/east-ui/test \( -
 E3_UI_EXAMPLE_KEYS := $(shell find packages/e3-ui/test \( -name '*.examples.ts' -o -name '*.examples.tsx' \) 2>/dev/null \
                              | sed -e 's|^packages/e3-ui/test/||' -e 's|\.examples\.tsx$$||' -e 's|\.examples\.ts$$||')
 
-.PHONY: build test test-group test-export lint showcase build-showcase design probe-slice probe-collections clean extension extension-install extension-uninstall examples test-responsive \
+.PHONY: build build-js build-checked test test-group test-export lint showcase build-showcase build-showcase-js design probe-slice probe-collections clean extension extension-install extension-uninstall examples test-responsive \
         east-ui-examples-html-all $(EAST_UI_EXAMPLE_KEYS:%=east-ui-examples-html-%) \
         $(EAST_UI_EXAMPLE_ITEM_KEYS:%=east-ui-examples-html-%) \
         e3-ui-examples-html-all $(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%) select-responsive help
@@ -36,6 +36,21 @@ PACKAGES := --filter='./packages/*' --filter='./packages/east-ui-extension/webvi
 ## Build all packages, in dependency order
 build:
 	pnpm -r $(PACKAGES) run build
+
+## The JavaScript the tests run, and no more (#1466): east-ui and e3-ui compile
+## with tsc (e3-ui against east-ui's declarations, its specs into dist), and the
+## renderers bundle with no type-check and no declarations. CI's test jobs run
+## on it; `build-checked` type-checks every package beside them.
+build-js:
+	pnpm --filter @elaraai/east-ui --filter @elaraai/e3-ui run build
+	EAST_UI_DECLARATIONS=0 pnpm --filter @elaraai/east-ui-components --filter @elaraai/e3-ui-components exec vite build
+
+## Every package built as `build` builds it, type-checked and its declarations
+## written, but the showcase, which is type-checked and not bundled: CI builds
+## its bundle in a job of its own, for the browser shards (#1466).
+build-checked:
+	pnpm -r $(PACKAGES) --filter='!@elaraai/east-ui-showcase' run build
+	pnpm --filter @elaraai/east-ui-showcase run typecheck
 
 ## Run tests for all packages
 test:
@@ -92,6 +107,11 @@ build-showcase:
 	# dist .d.ts must exist before e3-ui compiles (pnpm topo-orders the filter set).
 	pnpm --filter @elaraai/east-py-datascience --filter @elaraai/east-ui --filter @elaraai/east-ui-components --filter @elaraai/e3-ui --filter @elaraai/e3-ui-components run build
 	pnpm --filter @elaraai/east-ui-showcase run build
+
+## The showcase's bundle alone, over what `build-js` built: what CI's browser
+## shards serve (#1466). `build-showcase` type-checks it first.
+build-showcase-js:
+	pnpm --filter @elaraai/east-ui-showcase exec vite build
 
 
 ## Pixel-perfect audit of the Slice.Edit popover — opens each editor case in the
@@ -223,6 +243,9 @@ help:
 	@echo "east-ui (UI packages + VS Code extension)"
 	@echo ""
 	@echo "  build             - Build all packages"
+	@echo "  build-js          - The JavaScript the tests run: no type-check, no declarations (CI's test build)"
+	@echo "  build-checked     - Every package type-checked with its declarations, the showcase unbundled (CI's check)"
+	@echo "  build-showcase-js - The showcase's bundle alone, over build-js (CI's browser shards)"
 	@echo "  test              - Run tests"
 	@echo "  test-group GROUP=components|ir|e3-components|rest - Run a CI group (e3-components supports SHARD=n/4)"
 	@echo "  test-export       - Export east-ui's suites as IR to this checkout's tmp/east-ui-tests"
