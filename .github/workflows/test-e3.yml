@@ -42,12 +42,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-15, windows-latest]
+        os: [ubuntu-latest, windows-latest]
         # e3-core's unit tests, the other packages' with lint, and the
         # integration specs in four shards split by the times CI recorded
         # (libs/e3/Makefile, #1466). The jobs run side by side, so the longest
         # sets the wall clock rather than their sum.
         shard: [core, packages, integration-1, integration-2, integration-3, integration-4]
+        # macOS runners are few, five at a time for every run of every
+        # workflow: three jobs here, its packages' tests in one (with
+        # e3-core's) and its integration specs in two shards.
+        include:
+          - { os: macos-15, shard: packages, core: true }
+          - { os: macos-15, shard: integration-1, shards: 2 }
+          - { os: macos-15, shard: integration-2, shards: 2 }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     defaults:
@@ -190,7 +197,7 @@ jobs:
         env:
           MATRIX_SHARD: ${{ matrix.shard }}
         run: |
-          specs="$(make --no-print-directory integration-shard-specs SHARD=${MATRIX_SHARD#integration-})"
+          specs="$(make --no-print-directory integration-shard-specs SHARD=${MATRIX_SHARD#integration-} SHARDS=${{ matrix.shards || 4 }})"
           echo "$specs"
           echo "specs=$specs" >> "$GITHUB_OUTPUT"
 
@@ -211,7 +218,7 @@ jobs:
       # delegates to the user, which a runner has only once a user manager
       # runs for it; without one the test skips, and would stay skip-green.
       - name: Start a user systemd manager (Linux)
-        if: runner.os == 'Linux' && matrix.shard == 'core'
+        if: runner.os == 'Linux' && (matrix.shard == 'core' || matrix.core)
         run: |
           sudo loginctl enable-linger "$USER"
           echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
@@ -283,7 +290,7 @@ jobs:
         run: make test-packages-rest
 
       - name: Run e3-core's tests
-        if: matrix.shard == 'core'
+        if: matrix.shard == 'core' || matrix.core
         working-directory: libs/e3
         timeout-minutes: 25
         run: make test-packages-core
@@ -294,7 +301,7 @@ jobs:
       # the checkout the runner CLIs are found in. sudo resets PATH, so the
       # job's is passed on, with its node.
       - name: Run the spec of processes run as another user, as root (POSIX)
-        if: matrix.shard == 'core' && runner.os != 'Windows'
+        if: (matrix.shard == 'core' || matrix.core) && runner.os != 'Windows'
         working-directory: libs/e3
         timeout-minutes: 10
         run: sudo env "PATH=$PATH" make test-as-another-user
@@ -318,7 +325,7 @@ jobs:
         timeout-minutes: 30
         env:
           MATRIX_SHARD: ${{ matrix.shard }}
-        run: make test-integration-shard SHARD=${MATRIX_SHARD#integration-} REPORT="$RUNNER_TEMP/integration-timings.json"
+        run: make test-integration-shard SHARD=${MATRIX_SHARD#integration-} SHARDS=${{ matrix.shards || 4 }} REPORT="$RUNNER_TEMP/integration-timings.json"
 
       - name: Upload test times
         if: always() && startsWith(matrix.shard, 'integration-')

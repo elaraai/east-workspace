@@ -61,26 +61,30 @@ INTEGRATION_SPECS = $(patsubst $(INTEGRATION)/%,%,$(wildcard $(INTEGRATION)/dist
 # The shards CI runs side by side, each its share of a split of the specs by
 # the times CI recorded (test/integration/integration.timings.json, #1466),
 # longest first to the shard with the least so far; a new spec counts as the
-# median until the times are refreshed.
-INTEGRATION_SHARDS := 4
+# median until the times are refreshed. Four shards, or SHARDS=n of them, as
+# CI's macOS jobs run two: its runners are few.
+INTEGRATION_SHARDS := $(or $(SHARDS),4)
 INTEGRATION_SHARD = $(shell cd $(INTEGRATION) && node dist/shard.js $(SHARD) $(INTEGRATION_SHARDS) $(INTEGRATION_SPECS))
 
 ifneq ($(filter test-integration-shard integration-shard-specs,$(MAKECMDGOALS)),)
-ifeq ($(filter 1 2 3 4,$(SHARD)),)
-$(error $(MAKECMDGOALS) needs SHARD=1, 2, 3 or 4)
+ifeq ($(filter $(SHARD),$(wordlist 1,$(INTEGRATION_SHARDS),1 2 3 4 5 6 7 8)),)
+$(error $(MAKECMDGOALS) needs SHARD=1 to $(INTEGRATION_SHARDS), and SHARDS at most 8)
 endif
 endif
 
-## Run one shard of the integration tests, as a CI job does (SHARD=1 to 4).
-## REPORT=file writes each spec's time to it too (dist/file-times.js), the
-## reports dist/integration-timings.js refreshes the times from.
+## Run one shard of the integration tests, as a CI job does (SHARD=1 to 4, or
+## to SHARDS). REPORT=file writes each spec's time to it too
+## (dist/file-times.js), the reports dist/integration-timings.js refreshes the
+## times from. A shard holding no spec fails rather than runs nothing.
 test-integration-shard: build-integration
 	@echo "Running integration shard $(SHARD) of $(INTEGRATION_SHARDS)..."
+	$(if $(strip $(INTEGRATION_SHARD)),,$(error integration shard $(SHARD) of $(INTEGRATION_SHARDS) holds no spec))
 	pnpm --filter e3-integration-tests run test:specs \
 		$(if $(REPORT),--test-reporter-destination=stdout --test-reporter=./dist/file-times.js --test-reporter-destination="$(REPORT)") \
 		$(INTEGRATION_SHARD)
 
-## Print the specs one integration shard runs (SHARD=1 to 4), once they are built
+## Print the specs one integration shard runs (SHARD=1 to 4, or to SHARDS),
+## once they are built
 integration-shard-specs:
 	@echo $(INTEGRATION_SHARD)
 
@@ -153,7 +157,7 @@ help:
 	@echo "  test-packages-rest - Run every other package's unit tests, as CI's packages job does"
 	@echo "  test-as-another-user - Run the spec of processes run as another user (sudo, POSIX)"
 	@echo "  test-integration - Run the integration tests"
-	@echo "  test-integration-shard SHARD=n - Run one of CI's four integration shards, split by recorded time (REPORT=file for its times)"
+	@echo "  test-integration-shard SHARD=n - Run one of CI's four integration shards, split by recorded time (SHARDS=n for another count, REPORT=file for its times)"
 	@echo "  integration-shard-specs SHARD=n - Print the specs one integration shard runs"
 	@echo "  build-integration - Compile the integration specs"
 	@echo "  lint        - Run linters"
