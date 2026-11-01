@@ -555,12 +555,12 @@ jobs:
 
   e3-components:
     needs: build
-    name: test (e3-components ${{ matrix.shard }}/8)
+    name: test (e3-components ${{ matrix.shard }}/12)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     env:
       NODE_OPTIONS: --max-old-space-size=4096
 
@@ -586,12 +586,13 @@ jobs:
       - name: Restore compiled workspaces
         run: tar -xf "$RUNNER_TEMP/east-ui-build.tar"
 
-      # Node specs run once in test (node); these six jobs cover every
+      # Node specs run once in test (node); these twelve jobs cover every
       # renderer Vitest file once, with two workers per runner, split by the
-      # times the last refresh recorded (#1466).
+      # times the last refresh recorded (#1466): some 150 minutes of a worker's
+      # time, about seven minutes a job.
       - name: e3 renderer tests
         working-directory: libs/east-ui
-        run: make test-group GROUP=e3-components SHARD=${{ matrix.shard }}/8 REPORT="$RUNNER_TEMP/renderer-timings-${{ matrix.shard }}.json"
+        run: make test-group GROUP=e3-components SHARD=${{ matrix.shard }}/12 REPORT="$RUNNER_TEMP/renderer-timings-${{ matrix.shard }}.json"
 
       # Each file's time, which `scripts/vitest-timings.ts` refreshes the
       # shards' split from.
