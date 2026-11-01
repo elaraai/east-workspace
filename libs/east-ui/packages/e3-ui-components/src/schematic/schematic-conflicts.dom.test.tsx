@@ -40,7 +40,7 @@ function pointer(canvas: Element, type: "pointerDown" | "pointerMove" | "pointer
     fireEvent[type](canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: type === "pointerUp" ? 0 : 1, ...at(CAM, x, y) });
 }
 
-test("a rack moved sideways here, then Someone else saves, is one conflict named by the rack, the rack wearing the ring until it is chosen", async () => {
+test("a rack moved sideways here, then Someone else saves, is one conflict named by the rack, each side's x in metres, the rack wearing the ring until it is chosen", async () => {
     const { container } = await h.mount(ex.schematicConflicts);
     await settle();
     await waitFor(() => expect(card(container, "racks", "A03")).not.toBeNull());
@@ -61,6 +61,8 @@ test("a rack moved sideways here, then Someone else saves, is one conflict named
     const [conflict, ...more] = await conflictCards(container);
     expect(more).toEqual([]);
     expect(conflict!.item).toBe("A03");
+    // Each side's x as Details writes it: to the centimetre, in the hall's metres.
+    expect([conflict!.yours, conflict!.theirs]).toEqual(["Yours, 13.00 m", "Theirs, 10.10 m, Changed since you started editing · was 9.60 m"]);
     expect(card(container, "racks", "A03")!.hasAttribute("data-conflict")).toBe(true);
     await act(async () => { fireEvent.click(conflict!.radio("source")); });
     await settle();

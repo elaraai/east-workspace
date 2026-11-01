@@ -41,6 +41,7 @@
  * @packageDocumentation
  */
 
+import { none, some, variant } from "@elaraai/east";
 import type { Formatters } from "@elaraai/east-ui-components";
 import type { LoadingLineText } from "@elaraai/east-ui-components/internal";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
@@ -529,4 +530,17 @@ export const schematicMessages: SchematicMessages = {
 export interface SchematicWords extends Formatters {
     /** The message table in effect. */
     readonly m: SchematicMessages;
+}
+
+/**
+ * A coordinate or a length as the Schematic prints it, to the centimetre:
+ * Details' position and size, and a conflict's card.
+ *
+ * @param n - The value, in the drawing's unit
+ * @param words - The words
+ * @returns Its text, in the locale
+ */
+export function coordinate(n: number, words: SchematicWords): string {
+    const digits = some(2n);
+    return words.value(n, variant("number", { minimumFractionDigits: digits, maximumFractionDigits: digits, signDisplay: none }));
 }

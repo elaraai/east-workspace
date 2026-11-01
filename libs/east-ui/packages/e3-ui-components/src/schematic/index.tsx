@@ -136,7 +136,7 @@
 
 import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Box, Button, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { ArrayType, StringType, compareFor, equalFor, equivalentFor, none, printFor, some, type option } from "@elaraai/east";
+import { ArrayType, StringType, compareFor, equalFor, equivalentFor, none, printFor, some, type EastType, type PatchPath, type option } from "@elaraai/east";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { Schematic, schematicAreaIndexes, schematicKeys } from "@elaraai/e3-ui/internal";
 import {
@@ -181,7 +181,7 @@ import { SchematicIndexArea, type IndexAreaKind } from "./index-area.js";
 import { KindRows } from "./kind-rows.js";
 import { layersInForce, useSchematicLayerView } from "./layers-view.js";
 import { SchematicBacklogCountReader, schematicLibraryId, useSchematicLibrary, type SchematicBacklogNarrowing } from "./library.js";
-import { schematicMessages, type SchematicWords } from "./messages.js";
+import { coordinate, schematicMessages, type SchematicWords } from "./messages.js";
 import { NO_SELECTED_ROWS, SchematicSelectedReader, type SchematicSelectedRows } from "./selected-rows.js";
 import { looksAtMatches, narrowedDrawing, narrowedLook, schematicNarrowing, type SchematicNarrowedLook } from "./narrowing.js";
 import { useSchematicToolbarItems, type SchematicLinkChoice } from "./toolbar.js";
@@ -657,8 +657,27 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         const part = key === undefined ? undefined : sessions.find((held) => stringEqual(held.key, key));
         return (part === undefined ? undefined : namesNow.current.get(entityId({ kind: recordSlot(part.kind), key: issue.entry }))) ?? issue.entry;
     }, [history, sessions]);
+    // A conflict's value as Details writes it: an item's box — its x, its y, its width or its height — to the centimetre,
+    // in the drawing's unit.
+    const unit = getSomeorUndefined(value.scaleUnit);
+    const conflictValue = useCallback((issue: EditIssue, path: PatchPath, held: unknown, type: EastType | undefined) => {
+        const key = history.sourceOf(issue);
+        const part = key === undefined ? undefined : sessions.find((s) => stringEqual(s.key, key));
+        const kind = part === undefined ? undefined : value.items.find((k) => stringEqual(k.key, recordSlot(part.kind)));
+        if (kind === undefined || type?.type !== "Float") return undefined;
+        let field: string | undefined;
+        for (const step of path) {
+            if (step.kind !== "field") continue;
+            if (field !== undefined) return undefined;
+            field = step.name;
+        }
+        const box = [kind.box.x, kind.box.y, getSomeorUndefined(kind.box.width), getSomeorUndefined(kind.box.height)];
+        if (field === undefined || !box.some((name) => name !== undefined && stringEqual(name, field))) return undefined;
+        const text = coordinate(held as number, words);
+        return unit === undefined ? text : `${text} ${unit}`;
+    }, [history, sessions, value.items, unit, words]);
     const historyItem = editing.edits
-        ? historyToolbarItem({ session: history, words: editingWords, editing: false, showError: false, onIssue, where, onAction })
+        ? historyToolbarItem({ session: history, words: editingWords, editing: false, showError: false, onIssue, where, conflictValue, onAction })
         : undefined;
     const items = useSchematicToolbarItems({
         styles, words, chrome, nouns, tools, held, links: narrow ? NO_LINK_CHOICES : linkChoices, onTools: pickTools, find,
