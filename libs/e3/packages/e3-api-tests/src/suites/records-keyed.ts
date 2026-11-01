@@ -47,11 +47,11 @@ import {
 import { assertMutationCommitted } from '../assertions.js';
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
+import { templateWorkspace } from '../template.js';
 import { createKeyedRecordPackageZip, PlanRowType, PlanStatusKeyType, PlansType } from '../fixtures.js';
 
 const PKG = 'keyed-record-pkg';
 const VERSION = '1.0.0';
-const WS = 'keyed-record-ws';
 const plansPath = [variant('field', 'records'), variant('field', 'plans')];
 
 /** How many rows the record holds. 10,000 spans segments under any key
@@ -74,33 +74,31 @@ type PlanOp = Extract<ValueTypeOf<PatchTypeOf<typeof PlansType>>, { type: 'patch
   ? Op : never;
 
 export function keyedRecordTests(setup: TestSetup<TestContext>): void {
-  /** A deployed, seeded record. */
-  const withRecord = async (t: Parameters<TestSetup<TestContext>>[0]): Promise<TestContext> => {
-    const ctx = await setup(t);
-    const opts = await ctx.opts();
-    const zipPath = await createKeyedRecordPackageZip(ctx.tempDir, PKG, VERSION);
-    await packageImport(ctx.config.baseUrl, ctx.repoName, readFileSync(zipPath), opts);
-    await workspaceCreate(ctx.config.baseUrl, ctx.repoName, WS, opts);
-    await workspaceDeploy(ctx.config.baseUrl, ctx.repoName, WS, `${PKG}@${VERSION}`, opts);
-    const seeded = await workspaceRecordMutate(
-      ctx.config.baseUrl, ctx.repoName, WS, 'plans', 'seed',
-      { args: [encodeInt(ROWS)], actor: none, limits: none }, opts,
-    );
-    assertMutationCommitted(seeded, 'seeding');
-    return ctx;
-  };
-
   /** The record's rows, read through the ordinary dataset door. */
-  async function readRows(ctx: TestContext): Promise<Map<string, { title: string }>> {
+  async function readRows(ctx: TestContext, ws: string): Promise<Map<string, { title: string }>> {
     const opts = await ctx.opts();
-    const { data } = await datasetGet(ctx.config.baseUrl, ctx.repoName, WS, plansPath, opts);
+    const { data } = await datasetGet(ctx.config.baseUrl, ctx.repoName, ws, plansPath, opts);
     return decodePlans(data as Uint8Array) as Map<string, { title: string }>;
   }
 
   describe('keyed records', { concurrency: false }, () => {
+    /** A copy of the deployed, seeded record, the test's own: deployed and seeded once for the suite. */
+    const withRecord = templateWorkspace(setup, async (ctx, ws) => {
+      const opts = await ctx.opts();
+      const zipPath = await createKeyedRecordPackageZip(ctx.tempDir, PKG, VERSION);
+      await packageImport(ctx.config.baseUrl, ctx.repoName, readFileSync(zipPath), opts);
+      await workspaceCreate(ctx.config.baseUrl, ctx.repoName, ws, opts);
+      await workspaceDeploy(ctx.config.baseUrl, ctx.repoName, ws, `${PKG}@${VERSION}`, opts);
+      const seeded = await workspaceRecordMutate(
+        ctx.config.baseUrl, ctx.repoName, ws, 'plans', 'seed',
+        { args: [encodeInt(ROWS)], actor: none, limits: none }, opts,
+      );
+      assertMutationCommitted(seeded, 'seeding');
+    });
+
     it('describes each mutation\'s write form, and each index with the types a read through it decodes by, built', async (t) => {
-      const ctx = await withRecord(t);
-      const sig = await workspaceRecordDescribe(ctx.config.baseUrl, ctx.repoName, WS, 'plans', await ctx.opts());
+      const { ctx, workspace: ws } = await withRecord(t);
+      const sig = await workspaceRecordDescribe(ctx.config.baseUrl, ctx.repoName, ws, 'plans', await ctx.opts());
       assert.deepEqual(
         Object.fromEntries(sig.mutations.map((m) => [m.name, m.form])),
         { seed: 'reduce', retitle: 'edit', patch: 'patch' });
@@ -112,32 +110,32 @@ export function keyedRecordTests(setup: TestSetup<TestContext>): void {
     });
 
     it('reads as its rows through the ordinary dataset door, index and all', async (t) => {
-      const ctx = await withRecord(t);
+      const { ctx, workspace: ws } = await withRecord(t);
       const opts = await ctx.opts();
-      const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, WS, plansPath, { offset: 0, limit: 3 }, opts);
+      const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, ws, plansPath, { offset: 0, limit: 3 }, opts);
       assert.equal(BigInt(page.totalElements), ROWS, 'a record with an index still pages as its rows');
       assert.ok(page.segmentCount >= 2, `a ${ROWS}-row record spans segments, got ${page.segmentCount}`);
-      assert.equal((await readRows(ctx)).get('p-7')!.title, 'Plan 7');
+      assert.equal((await readRows(ctx, ws)).get('p-7')!.title, 'Plan 7');
     });
 
     it('an edit mutation commits, and the commit names the delta it wrote', async (t) => {
-      const ctx = await withRecord(t);
+      const { ctx, workspace: ws } = await withRecord(t);
       const opts = await ctx.opts();
 
       const result = await workspaceRecordMutate(
-        ctx.config.baseUrl, ctx.repoName, WS, 'plans', 'retitle',
+        ctx.config.baseUrl, ctx.repoName, ws, 'plans', 'retitle',
         { args: [encodeBeast2For(StringType)('p-7')], actor: none, limits: none }, opts,
       );
       assertMutationCommitted(result, 'the edit');
-      assert.equal((await readRows(ctx)).get('p-7')!.title, 'RETITLED');
+      assert.equal((await readRows(ctx, ws)).get('p-7')!.title, 'RETITLED');
 
-      const { commits } = await workspaceRecordHistory(ctx.config.baseUrl, ctx.repoName, WS, 'plans', 1, opts);
+      const { commits } = await workspaceRecordHistory(ctx.config.baseUrl, ctx.repoName, ws, 'plans', 1, opts);
       assert.equal(commits[0]!.mutation, 'retitle');
       assert.equal(commits[0]!.delta.type, 'some', 'the commit records what changed');
     });
 
     it('a patch mutation applies a client-computed change', async (t) => {
-      const ctx = await withRecord(t);
+      const { ctx, workspace: ws } = await withRecord(t);
       const opts = await ctx.opts();
 
       const ops = new SortedMap<string, PlanOp>([
@@ -148,22 +146,22 @@ export function keyedRecordTests(setup: TestSetup<TestContext>): void {
         }))],
       ], planKeys);
       const result = await workspaceRecordMutate(
-        ctx.config.baseUrl, ctx.repoName, WS, 'plans', 'patch',
+        ctx.config.baseUrl, ctx.repoName, ws, 'plans', 'patch',
         { args: [encodePatch(variant('patch', ops))], actor: none, limits: none }, opts,
       );
       assertMutationCommitted(result, 'the patch');
-      assert.equal((await readRows(ctx)).get('p-11')!.title, 'PATCHED');
+      assert.equal((await readRows(ctx, ws)).get('p-11')!.title, 'PATCHED');
     });
 
     it('a stale patch conflicts, names the key, and writes nothing', async (t) => {
-      const ctx = await withRecord(t);
+      const { ctx, workspace: ws } = await withRecord(t);
       const opts = await ctx.opts();
 
       const ops = new SortedMap<string, PlanOp>([
         ['p-11', variant('delete', { status: 'ok', due: 11n, title: 'SOMETHING ELSE' })],
       ], planKeys);
       const result = await workspaceRecordMutate(
-        ctx.config.baseUrl, ctx.repoName, WS, 'plans', 'patch',
+        ctx.config.baseUrl, ctx.repoName, ws, 'plans', 'patch',
         { args: [encodePatch(variant('patch', ops))], actor: none, limits: none }, opts,
       );
       assert.ok(result.outcome.type === 'conflict', `expected conflict, got ${result.outcome.type}`);
@@ -172,13 +170,13 @@ export function keyedRecordTests(setup: TestSetup<TestContext>): void {
       const { detail } = result.outcome.value;
       assert.ok(detail.type === 'some' && detail.value.includes('p-11'),
         `the conflict names the key that disagreed, got ${printDetail(detail)}`);
-      assert.equal((await readRows(ctx)).get('p-11')!.title, 'Plan 11', 'the row is untouched');
+      assert.equal((await readRows(ctx, ws)).get('p-11')!.title, 'Plan 11', 'the row is untouched');
     });
 
     it('reads through the index in the index\'s own order', async (t) => {
-      const ctx = await withRecord(t);
+      const { ctx, workspace: ws } = await withRecord(t);
       const opts = await ctx.opts();
-      const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, WS, plansPath,
+      const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, ws, plansPath,
         { offset: 0, limit: 5, index: 'by_status' }, opts);
       const window = decodeStatusWindow(page.data);
       assert.equal(window.length, 5);
@@ -187,10 +185,10 @@ export function keyedRecordTests(setup: TestSetup<TestContext>): void {
     });
 
     it('searches through the index by the index\'s own key', async (t) => {
-      const ctx = await withRecord(t);
+      const { ctx, workspace: ws } = await withRecord(t);
       const opts = await ctx.opts();
       const find = async (query: DatasetFindQuery): Promise<{ found: boolean; row: number; count: number }> => {
-        const { found, row, count } = await datasetFindKey(ctx.config.baseUrl, ctx.repoName, WS, plansPath, query, opts);
+        const { found, row, count } = await datasetFindKey(ctx.config.baseUrl, ctx.repoName, ws, plansPath, query, opts);
         return { found, row, count };
       };
       // Every third plan is late, due on its own number, and the late ones sort first.
@@ -200,11 +198,11 @@ export function keyedRecordTests(setup: TestSetup<TestContext>): void {
       assert.deepEqual(await find({ key: '(status="late", due=9)', index: 'by_status' }), { found: true, row: 3, count: 1 });
     });
     it('searches nullable String fields through scalar and compound indexes without including Unset', async (t) => {
-      const ctx = await withRecord(t);
+      const { ctx, workspace: ws } = await withRecord(t);
       const opts = await ctx.opts();
       const path = [variant('field', 'records'), variant('field', 'contacts')];
       const find = async (query: DatasetFindQuery) => {
-        const { found, row, count } = await datasetFindKey(ctx.config.baseUrl, ctx.repoName, WS, path, query, opts);
+        const { found, row, count } = await datasetFindKey(ctx.config.baseUrl, ctx.repoName, ws, path, query, opts);
         return { found, row, count };
       };
       assert.deepEqual(await find({ index: 'by_name', prefix: 'Ad' }), { found: true, row: 1, count: 3 });

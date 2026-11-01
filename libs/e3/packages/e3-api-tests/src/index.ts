@@ -37,6 +37,7 @@ export { type TestSetup } from './setup.js';
 
 // Context and configuration
 export { createTestContext, type TestConfig, type TestContext } from './context.js';
+export { templateWorkspace, type TemplateCopy } from './template.js';
 
 // Fixture creation utilities
 export {
