@@ -62,6 +62,13 @@ export interface ConflictView {
     readonly was: string | undefined;
 }
 
+/**
+ * A collection's own words for the value at a part — a lane's label where a
+ * step holds the lane's key, a date as its column writes it — or `undefined`
+ * to read it as a card does by default.
+ */
+export type ConflictValueWords = (at: PatchPath, value: unknown, type: EastType | undefined) => string | undefined;
+
 /** A conflict's three values, each the whole entry's draft — present or absent — and where it is. */
 export interface ConflictValues {
     /** The entry's id. */
@@ -270,16 +277,20 @@ function splitSteps(steps: readonly Step[]): { path: string[]; label: string[] }
  * @param draftType - The entry's draft type
  * @param conflict - Its three values, and where it is
  * @param words - The words
+ * @param valueWords - The collection's own words for a value, where it has them
  * @returns The conflict as a person reads it
  */
-export function conflictViewOf(draftType: EastType, conflict: ConflictValues, words: EditingWords): ConflictView {
+export function conflictViewOf(draftType: EastType, conflict: ConflictValues, words: EditingWords, valueWords?: ConflictValueWords): ConflictView {
     const yoursAt = walk(draftType, conflict.draft, conflict.at, words);
     const theirsAt = walk(draftType, conflict.source, conflict.at, words);
     const wasAt = walk(draftType, conflict.was, conflict.at, words);
+    // A value in the collection's words where it has them, else as the card reads it.
+    const read = (type: EastType | undefined, value: { readonly held: unknown }, full: boolean): string =>
+        valueWords?.(conflict.at, value.held, type) ?? describe(type, value, words, full);
     // A part one side does not hold is removed there: the entry, an item or a key of it.
     const side = (at: { part: Part }, full: boolean): string =>
-        at.part.value === undefined ? words.m.conflictRemoved() : describe(at.part.type, at.part.value, words, full);
-    const wasOf = (full: boolean): string | undefined => (wasAt.part.value !== undefined ? describe(wasAt.part.type, wasAt.part.value, words, full)
+        at.part.value === undefined ? words.m.conflictRemoved() : read(at.part.type, at.part.value, full);
+    const wasOf = (full: boolean): string | undefined => (wasAt.part.value !== undefined ? read(wasAt.part.type, wasAt.part.value, full)
         : conflict.was.type === "some" ? words.m.conflictEmpty() : undefined);
     // Any two of the three that read alike — Yours, Theirs, what both began from — and all three are written in full.
     const began = wasOf(false);

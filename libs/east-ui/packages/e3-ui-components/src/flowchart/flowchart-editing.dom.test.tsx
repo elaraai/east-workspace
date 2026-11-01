@@ -690,6 +690,22 @@ describe("Save's outcomes (FB23)", () => {
         await gesture(() => { fireEvent.click(card!.goTo()); });
         expect(container.querySelector('[data-flowchart-lane-selected="sort"]')).not.toBeNull();
     });
+
+    test("a step moved to one lane here and to another by another write is a conflict whose choices name each lane as the flow does, never by its key", async () => {
+        const { source } = captured(() => FLOWS);
+        const { container, rerender } = await mount(payload(source));
+        await drag(node(container, "SRD"), AT.SRD, AT.hold);
+        const moved = withFlow(FLOWS, "Sort", edits.moveState(SORT, "SRD", "induct"));
+        rerender(
+            <ChakraProvider value={system}>
+                <EastChakraFlowchart value={payload(captured(() => moved).source)} storageKey="flowchart.editing" />
+            </ChakraProvider>,
+        );
+        await settle();
+        const [card, ...more] = await conflictCards(container);
+        expect(more).toEqual([]);
+        expect([card!.item, card!.yours, card!.theirs]).toEqual(["Sort / Sorted", "Yours, Hold", "Theirs, Induct, Changed since you started editing · was Sort"]);
+    });
 });
 
 // ============================================================================

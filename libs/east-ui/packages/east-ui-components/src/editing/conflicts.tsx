@@ -33,8 +33,8 @@ import { faCheck, faNotEqual } from "@fortawesome/free-solid-svg-icons";
 import { SliceEditPopover } from "../slice/edit/index.js";
 import { POPOVER_OVERFLOW } from "../overlays/popover/frame-bounds.js";
 import { useSlotStyles } from "../theme/slot-styles.js";
-import { StringType, equalFor, type PatchPath } from "@elaraai/east";
-import { conflictViewOf, rangeViewOf, wordRuns, type ConflictView, type RangeEnd } from "./conflict-view.js";
+import { StringType, equalFor, type EastType, type PatchPath } from "@elaraai/east";
+import { conflictViewOf, rangeViewOf, wordRuns, type ConflictValueWords, type ConflictView, type RangeEnd } from "./conflict-view.js";
 import { EditHistory } from "./history.js";
 import type { ConflictPoint } from "./merge.js";
 import type { EditingWords } from "./messages.js";
@@ -149,11 +149,14 @@ interface Card {
  * @param held - The bar's session, or its history
  * @param words - The words
  * @param where - How the collection names an issue's place
+ * @param item - How the collection names a conflict's item
+ * @param value - How the collection writes a value
  * @returns The cards
  */
 function cardsOf<W>(
     held: EditSession<W> | EditHistory<W>, words: EditingWords, where: ((issue: EditIssue) => string) | undefined,
     item: ((issue: EditIssue, at: PatchPath, steps: readonly string[]) => string | undefined) | undefined,
+    value: ((issue: EditIssue, at: PatchPath, value: unknown, type: EastType | undefined) => string | undefined) | undefined,
 ): Card[] {
     const cards: Card[] = [];
     const history = held instanceof EditHistory ? held : undefined;
@@ -168,11 +171,14 @@ function cardsOf<W>(
         // A choice is one step of the history, whichever conflicts it chooses.
         const settleAt = (id: string, paths: readonly string[]) => (to: ConflictChoice) =>
             (history !== undefined ? history.settleConflicts(sessionKey, id, paths, to) : session.settleTogether(id, paths, to));
+        // A value in the collection's words, where it gives them for the conflict's issue.
+        const valueOf = (issue: EditIssue): ConflictValueWords | undefined =>
+            (value === undefined ? undefined : (at, held, type) => value(issue, at, held, type));
         const card = (id: string, key: unknown, point: ConflictPoint, values: EntryConflicts | SettledConflict, choice: ConflictChoice | undefined): Card => {
+            const issue = session.conflictIssue(id, point);
             const view = conflictViewOf(session.draftType, {
                 id, key, keyType: session.keyType, at: point.at, was: values.was, draft: values.draft, source: values.source,
-            }, words);
-            const issue = session.conflictIssue(id, point);
+            }, words, valueOf(issue));
             return { key: `${sessionKey}\u0000${id}\u0000${point.path}`, issue, at: point.at, item: itemOf(issue, view, point.at), view, choice, said: values.said, settle: settleAt(id, [point.path]) };
         };
         // A range's card: each end read from its own conflict — as it read before it was chosen — else from the draft as
@@ -197,13 +203,13 @@ function cardsOf<W>(
         // one's — under the value's own name; chosen once every one of its conflicts is chosen alike.
         const togetherCard = ({ id, key, together, points }: TogetherGroup): Card => {
             const shown = points.find((p) => { const name = fieldOf(p.point); return name !== undefined && textEqual(name, together.lead); }) ?? points[0]!;
+            const issue = session.conflictIssue(id, shown.point);
             const read = conflictViewOf(session.draftType, {
                 id, key, keyType: session.keyType, at: shown.point.at, was: shown.values.was, draft: shown.values.draft, source: shown.values.source,
-            }, words);
+            }, words, valueOf(issue));
             const shownField = fieldOf(shown.point);
             const lead = shownField !== undefined && textEqual(shownField, together.lead);
             const view = lead && together.label !== undefined ? { ...read, label: [together.label] } : read;
-            const issue = session.conflictIssue(id, shown.point);
             const first = points[0]!.choice;
             const choice = points.every((at) => at.choice !== undefined && at.choice === first) ? first : undefined;
             return {
@@ -300,6 +306,12 @@ export interface ConflictsControlProps<W> {
     item?: ((issue: EditIssue, at: PatchPath, steps: readonly string[]) => string | undefined) | undefined;
     /** An issue's text as the collection shows it — what the source said of a conflict's entry; as written by default. */
     issueText?: ((message: string) => string) | undefined;
+    /**
+     * A value in the collection's words — a lane's label where a step holds
+     * the lane's key, a date as its column writes it: what a card shows for
+     * each side; `undefined`, or none given, for the card's own reading.
+     */
+    value?: ((issue: EditIssue, at: PatchPath, value: unknown, type: EastType | undefined) => string | undefined) | undefined;
     /** Locked while a run of the app's optimiser is out: it opens, and its choices are off. */
     locked: boolean;
 }
@@ -312,7 +324,7 @@ export interface ConflictsControlProps<W> {
  * @param props - The session, the collection's words, and how it goes to and names an issue
  * @returns The button while a conflict waits, or while its popover is open; else nothing
  */
-export function ConflictsControl<W>({ session, words, onIssue, where, item, issueText, locked }: ConflictsControlProps<W>) {
+export function ConflictsControl<W>({ session, words, onIssue, where, item, issueText, value, locked }: ConflictsControlProps<W>) {
     const serial = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
     const { m } = words;
     const bar = useSlotStyles("editHistory");
@@ -366,11 +378,11 @@ export function ConflictsControl<W>({ session, words, onIssue, where, item, issu
             return [];
         }
         const seen = order.current;
-        const all = cardsOf(session, words, where, item);
+        const all = cardsOf(session, words, where, item, value);
         for (const card of all) if (!seen.has(card.key)) seen.set(card.key, seen.size);
         return all.sort((a, b) => seen.get(a.key)! - seen.get(b.key)!);
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the session is mutable: its serial says it moved
-    }, [open, session, serial, words, where, item]);
+    }, [open, session, serial, words, where, item, value]);
     const done = cards.length > 0 && cards.every((card) => card.choice !== undefined);
     // The lines a person opened again, once every one was chosen.
     const [reopened, setReopened] = useState<ReadonlySet<string>>(() => new Set());

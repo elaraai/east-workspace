@@ -95,7 +95,7 @@
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Box, Button, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { StringType, compareFor, equalFor, equivalentFor, none, type PatchPath, type ValueTypeOf } from "@elaraai/east";
+import { StringType, compareFor, equalFor, equivalentFor, none, type EastType, type PatchPath, type ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType, RecordSlicesChromeType } from "@elaraai/east-ui/internal";
 import { Flowchart, flowchartKeys } from "@elaraai/e3-ui/internal";
 import {
@@ -126,7 +126,7 @@ import { useFindState } from "./find.js";
 import { FlowchartFooter, useLastSave } from "./footer.js";
 import { FlowsCountReader, FlowsTab, PagedFlowsTab, NoFlows, type FlowCard, type FlowsCount, type NewFlowProps } from "./flows.js";
 import { inspectorPane, type FlowchartInspectorEdit } from "./inspector.js";
-import { conflictRowName, conflictStateKey, conflictTarget, flowIssues, issueTarget, saveIssues } from "./issues.js";
+import { conflictRowName, conflictStateKey, conflictTarget, conflictValueName, flowIssues, issueTarget, saveIssues } from "./issues.js";
 import { useFlowchartLibrary } from "./library.js";
 import { flowchartMessages, type FlowchartRefusedWord, type FlowchartWords } from "./messages.js";
 import { missingFlow, openFlowName, useOpenedFlow } from "./open-flow.js";
@@ -565,7 +565,13 @@ function FlowchartFrame({ value, held, storageKey, chrome, flowsPart, followed, 
         const row = conflictRowName(path, at.flow);
         return row === undefined ? undefined : [issue.entry, row, ...steps.slice(1)].join(" / ");
     }, [currentEntry]);
-    const history = edits ? historyToolbarItem({ session, words, editing: false, onIssue, conflictItem, onAction, showError: false }) : undefined;
+    // A conflict's value as the flow shows it: a step's lane by its label, a transition's ends by their steps' — never a key.
+    const conflictValue = useCallback((issue: EditIssue, path: PatchPath, value: unknown, type: EastType | undefined) => {
+        const at = currentEntry();
+        if (at === undefined || !nameEqual(issue.entry, at.name)) return undefined;
+        return conflictValueName(path, value, type, at.flow);
+    }, [currentEntry]);
+    const history = edits ? historyToolbarItem({ session, words, editing: false, onIssue, conflictItem, conflictValue, onAction, showError: false }) : undefined;
     // The history keys from anywhere in the frame (FB21): never a field being typed into, which keeps its own undo; and
     // the canvas's keys, Esc, as they leave the frame. Each key acted on goes no further than the Flowchart (#1398).
     const canvasRef = useRef<FlowchartCanvasHandle>(null);

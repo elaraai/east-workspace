@@ -25,7 +25,7 @@
  * @packageDocumentation
  */
 
-import { StringType, equalFor, type PatchPath } from "@elaraai/east";
+import { StringType, equalFor, type EastType, type PatchPath } from "@elaraai/east";
 import { getSomeorUndefined, type EditIssue } from "@elaraai/east-ui-components";
 import { FIELD, duplicateKeys, linkKeyOf, type FlowKeyKind } from "./edits.js";
 import type { FlowchartFlowValue } from "./model.js";
@@ -174,6 +174,32 @@ export function conflictRowName(path: PatchPath, flow: FlowchartFlowValue): stri
         return link === undefined ? undefined : `${stateName(link.from)} → ${stateName(link.to)}`;
     }
     if (keyEqual(row.field, FIELD.decision)) return flow.triggers[row.at]?.label;
+    return undefined;
+}
+
+/**
+ * A conflict's value as the flow shows it, where the value is a key: a step's
+ * lane by the lane's label, a transition's end by its step's — else its key.
+ *
+ * @param path - The conflict's path in its flow's draft
+ * @param value - The value on one side
+ * @param type - Its East type
+ * @param flow - The open flow, as its drafts stand
+ * @returns Its name; `undefined` for any other value, which reads as it is
+ */
+export function conflictValueName(path: PatchPath, value: unknown, type: EastType | undefined, flow: FlowchartFlowValue): string | undefined {
+    const row = rowOf(path);
+    const last = path[path.length - 1];
+    if (row === undefined || last?.kind !== "field" || type?.type !== "String") return undefined;
+    const key = value as string;
+    if (keyEqual(row.field, FIELD.state) && keyEqual(last.name, "lane")) {
+        const lane = flow.lanes.find((l) => keyEqual(l.key, key));
+        return lane === undefined ? key : getSomeorUndefined(lane.label) ?? key;
+    }
+    if (keyEqual(row.field, FIELD.transition) && (keyEqual(last.name, "from") || keyEqual(last.name, "to"))) {
+        const state = flow.states.find((s) => keyEqual(s.key, key));
+        return state === undefined ? key : getSomeorUndefined(state.label) ?? key;
+    }
     return undefined;
 }
 
