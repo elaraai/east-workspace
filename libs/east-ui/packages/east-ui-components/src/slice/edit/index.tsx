@@ -137,13 +137,15 @@ export function SliceEditPopover({
     const triggerRef = useRef<HTMLButtonElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
     // Below its trigger, kept across the page to the builder's frame it opens in — its trigger's or its anchor's — while
-    // it fits there, read at every placement; below the rect it hangs from in their place, where it is given one.
+    // it fits there, read at every placement; below the rect it hangs from in their place, where it is given one. Its
+    // bounds are made as it is placed: Zag copies the positioning it is given as the popover draws, which would keep what
+    // the bounds read then — the page's, the first time it opens, its content not there yet.
     const hangRef = useRef(hangFrom);
     hangRef.current = hangFrom;
     const positioning = useMemo(() => ({
         placement: "bottom" as const,
         gutter: POPOVER_GUTTER,
-        boundary: frameBounds(() => (anchored ? anchorRef.current : triggerRef.current), () => contentRef.current),
+        boundary: () => frameBounds(() => (anchored ? anchorRef.current : triggerRef.current), () => contentRef.current),
         getAnchorRect: () => hangRef.current?.() ?? null,
     }), [anchored]);
     const regionId = useId();

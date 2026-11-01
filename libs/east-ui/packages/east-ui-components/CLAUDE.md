@@ -337,7 +337,9 @@ component, nothing in east-ui.
   `RecordSliceController.values`). The editor (`SliceEditPopover`) keeps to
   the frame's sides while it fits between them, else to the page's, and down
   the page always to the page's, so it flips above its trigger as it did
-  (`overlays/popover/frame-bounds.ts`, read live at every placement). A
+  (`overlays/popover/frame-bounds.ts`, read live at every placement: passed
+  as a function, since Zag copies a popover's positioning each time it draws,
+  so the first open, its content not yet there, keeps to the frame too). A
   choice the narrowing as it stands cannot take names the fields to choose
   first — `Choose Kiln group first.`: those an index taking it needs exact
   choices of, the fewest (east-ui's `recordChoiceNeeds`) — and a String
