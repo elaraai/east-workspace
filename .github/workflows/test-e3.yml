@@ -49,10 +49,12 @@ jobs:
         # so the longest sets the wall clock rather than their sum.
         shard: [core-1, core-2, packages, integration-1, integration-2, integration-3, integration-4]
         # macOS runners are few, five at a time for every run of every
-        # workflow: three jobs here, its packages' tests in one (with
-        # e3-core's) and its integration specs in two shards.
+        # workflow: four jobs here, as before the shards, e3-core's tests in
+        # one, the other packages' in another, and the integration specs in
+        # two shards.
         include:
-          - { os: macos-15, shard: packages, core: true }
+          - { os: macos-15, shard: core, core: true }
+          - { os: macos-15, shard: packages }
           - { os: macos-15, shard: integration-1, shards: 2 }
           - { os: macos-15, shard: integration-2, shards: 2 }
     runs-on: ${{ matrix.os }}
