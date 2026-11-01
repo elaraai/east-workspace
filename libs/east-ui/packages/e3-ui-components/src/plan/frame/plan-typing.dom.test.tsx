@@ -437,7 +437,7 @@ describe("below 480px of main (#1438)", () => {
         await waitFor(() => expect([printed(c, leaf, JAN_12), printed(c, middle, JAN_12)]).toEqual(["15", "22"]));
     });
 
-    test("with its measures folded on the desktop, a leaf's card reads its readings, washed while they are read, and a tap on one takes a typed number, the subtotals above it moving", async () => {
+    test("with its measures folded on the desktop, a leaf's card reads its readings, washed while they are read and the frame waiting on them, and a tap on one takes a typed number, the subtotals above it moving", async () => {
         const { container: c } = await h.mount(ledgersTyped("week", { collapsed: true }));
         await settle();
         // Folded, the desktop lays out none of ledger 101's leaves.
@@ -449,10 +449,15 @@ describe("below 480px of main (#1438)", () => {
             .find((el) => el.getAttribute("data-plan-groupcard") === rowKeyOf(entry("ledgers", "L-101")))!;
         await act(async () => { fireEvent.click(group); });
         await waitFor(() => expect(c.querySelector(`${leaf} [data-plan-unread]`)).not.toBeNull());
+        // The frame waits on them as it does on a row in view on the desktop: main busy, and its line saying so.
+        const line = () => slot(c, "footer")!.querySelector("[data-footer-line] [data-line-text]")?.textContent ?? null;
+        expect(slot(c, "main")!.getAttribute("aria-busy")).toBe("true");
+        await waitFor(() => expect(line()).toBe("Loading rows…"));
         reads.release();
         await settle();
         await waitFor(() => expect([printed(c, leaf, JAN_12), printed(c, middle, JAN_12)]).toEqual(["2", "9"]));
         expect(c.querySelector(`${leaf} [data-plan-unread]`)).toBeNull();
+        expect(slot(c, "main")!.getAttribute("aria-busy")).not.toBe("true");
         const tapped = cellAt(c, leaf, JAN_12)!;
         await act(async () => { fireEvent.click(tapped); });
         await waitFor(() => expect(document.querySelector("[data-plan-typing-popover]")).not.toBeNull());

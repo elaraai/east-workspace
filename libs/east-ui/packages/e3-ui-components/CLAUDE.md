@@ -1394,7 +1394,10 @@ window through the seam with what it read:
   rows waiting on it — each row with a run not held, as a pan, a zoom, a
   scroll or a commit asks — which wash as a paged kind's unread rows do (the
   plot busy, #1398 CL2, a card's body too) until their cells land: never a
-  blank plot that fills.
+  blank plot that fills. The frame waits on them as on any read its view
+  waits for — main busy, the footer's line saying so, the wash shown on the
+  reveal clock: the rows in view the canvas reports at rest, or, narrow, the
+  cards the list shows (`narrowShown`), since the list reports no range.
 - **The span.** The collections every series of the canvas reads, shown or
   not (`usePlanNestedSpan`, #1440): their months across the record's rows,
   each with the items and values touching it, as e3 keeps them in the index's

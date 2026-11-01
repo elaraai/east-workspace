@@ -672,7 +672,11 @@ export function usePlanCanvas({
         rowsInView.current = NO_ROWS_IN_VIEW;
         awaitInView(false, false);
     }, [narrow, awaitInView]);
-    const awaits = !narrow && (viewAwaits.run || viewAwaits.cells);
+    // The narrow list's own (#1438): a card it shows whose nested series' cells are in flight is what it waits on, as a row
+    // in view is on the desktop — so the line says so and the cards' wash shows on the reveal clock, never a card with
+    // nothing drawn and nothing said.
+    const narrowAwaits = narrow && nestedWaiting.size > 0 && narrowShown.some((row) => nestedWaiting.has(row.key));
+    const awaits = narrow ? narrowAwaits : viewAwaits.run || viewAwaits.cells;
     // What the rail counts each source in (#1344): an event kind's events, `print job events`.
     const nouns = useMemo(() => planNouns(kinds, resources, tabs, words.locale), [kinds, resources, tabs, words.locale]);
     // A failed read of the event kinds' rows (#1398, CL3) is said on the same line, after the rows' own failures, paged
