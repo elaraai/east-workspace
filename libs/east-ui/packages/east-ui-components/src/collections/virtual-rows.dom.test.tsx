@@ -552,6 +552,16 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
         expect(inView(container, "r50")).toBe(0);
     });
 
+    test("a view at the rows' top takes no anchor: rows landing above its first row push it down, and the view stays at the top, as the browser's own anchoring does", () => {
+        // A collection whose sources land one after another opens at its top, never on whichever row landed first.
+        const { container, rerender } = render(frame(ROWS));
+        const scrollEl = container.firstElementChild as HTMLElement;
+        expect(inView(container, "r0")).toBe(0);
+        rerender(frame([...keysOf("n", 10), ...ROWS]));
+        expect(scrollEl.scrollTop).toBe(0);
+        expect(inView(container, "n0")).toBe(0);
+    });
+
     test("a row above the view growing leaves the row at its top where it is — its heights re-measured after the render", () => {
         // A stable key function and exact sizes: the growth reaches the frame
         // only through its re-measure, after the render that drew the rows.
