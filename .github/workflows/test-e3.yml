@@ -45,7 +45,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         # e3-core's unit tests in two shards and the integration specs in
         # four, each split by the times CI recorded (libs/e3/Makefile, #1466),
-        # and the other packages' tests with lint. The jobs run side by side,
+        # and the other packages' tests, with lint on Linux. The jobs run side by side,
         # so the longest sets the wall clock rather than their sum.
         shard: [core-1, core-2, packages, integration-1, integration-2, integration-3, integration-4]
         # macOS runners are few, five at a time for every run of every
@@ -122,30 +122,52 @@ jobs:
         working-directory: libs/e3
         run: make install-job
 
+      # The libraries e3 builds on, as their sources, the lockfile and the root
+      # config built them: restored where none of those changed since, so a
+      # change to e3 alone builds e3 alone (#1466).
+      - name: Restore the dependencies' builds
+        id: deps
+        uses: actions/cache@v4
+        with:
+          key: e3-deps-${{ runner.os }}-node22-${{ hashFiles('libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/create/packages/scaffold-core/**', 'libs/east-diagnostics/**', 'libs/eslint-plugin-east/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', '!**/node_modules/**', '!**/dist/**') }}
+          path: |
+            libs/east/dist
+            libs/east-node/packages/*/dist
+            libs/east-web/packages/*/dist
+            libs/create/packages/scaffold-core/dist
+            libs/east-diagnostics/dist
+            libs/eslint-plugin-east/dist
+
       - name: Build east (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
         working-directory: libs/east
         run: make build
 
       - name: Build east-node (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
         working-directory: libs/east-node
         run: make build
 
       # e3-web's unit workers run East programs on east-web-std.
       - name: Build east-web (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
         working-directory: libs/east-web
         run: make build
 
       - name: Build scaffold-core (environment e2e dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
         working-directory: libs/create
         run: pnpm --filter @elaraai/scaffold-core run build
 
       # `make lint` runs the East rules through eslint-plugin-east, which loads
       # east-diagnostics' rules from its dist.
       - name: Build east-diagnostics (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
         working-directory: libs/east-diagnostics
         run: make build
 
       - name: Build eslint-plugin-east (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
         working-directory: libs/eslint-plugin-east
         run: make build
 
@@ -272,8 +294,9 @@ jobs:
         working-directory: libs/e3/packages/e3-web
         run: pnpm exec playwright-core install --only-shell ${{ runner.os == 'Linux' && '--with-deps' || '' }} chromium
 
+      # Lint reads the sources, which are the same on every OS: once, on Linux.
       - name: Lint
-        if: matrix.shard == 'packages'
+        if: matrix.shard == 'packages' && runner.os == 'Linux'
         working-directory: libs/e3
         run: make lint
 
