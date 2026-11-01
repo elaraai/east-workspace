@@ -273,9 +273,12 @@ describe("the works on a Plan (#1438)", () => {
             const pane = slot(container, "start")!;
             fireEvent.click([...pane.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Series "))!);
             await settle();
+            // What a viewer hides persists under the Plan's id, which the second mount shares: each switched off only while on.
             for (const name of ["Jobs", "Load"]) {
                 const panel = pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
-                fireEvent.click([...panel.querySelectorAll<HTMLElement>("button[aria-pressed]")].find((b) => b.getAttribute("aria-label") === `Toggle ${name}`)!);
+                const toggle = [...panel.querySelectorAll<HTMLElement>("button[aria-pressed]")].find((b) => b.getAttribute("aria-label") === `Toggle ${name}`)!;
+                if (toggle.getAttribute("aria-pressed") !== "true") continue;
+                fireEvent.click(toggle);
                 await settle();
             }
             return () => slot(container, "main")!.querySelector(rowAt(entry("crews", "W-10001")));
