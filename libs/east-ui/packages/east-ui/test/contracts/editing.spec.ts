@@ -134,8 +134,8 @@ test("a patch event is one shape over any draft — field by field for the Sheet
     assert.ok(isTypeEqual(whole.fields.readiness, Editing.Types.PatchEvent(Job).fields.readiness));
 });
 
-test("an origin names every gesture of every collection — the Plan's resize, drop and verdict among them, and a run of the app's optimiser (#1409)", () => {
+test("an origin names every gesture of every collection — the Plan's resize, drop and verdict among them, a run of the app's optimiser (#1409), and a conflict chosen", () => {
     assert.deepEqual(Object.keys(Editing.Types.Origin.cases).sort(), [
-        "discard", "drop", "fill", "insert", "move", "optimise", "pasted", "pattern", "redo", "remove", "resize", "row", "typed", "undo", "verdict",
+        "discard", "drop", "fill", "insert", "move", "optimise", "pasted", "pattern", "redo", "remove", "resize", "row", "settle", "typed", "undo", "verdict",
     ]);
 });
