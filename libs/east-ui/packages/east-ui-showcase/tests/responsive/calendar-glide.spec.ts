@@ -26,7 +26,8 @@
  * `E3_UI_PERF=1 pnpm exec playwright test calendar-glide --project desktop --workers 1`.
  */
 
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { sizeBuilder, visitBuilder } from "./builder-page";
 import { e3Requests, installE3Faults } from "./e3-faults";
 import { costOf, traceOf, type Cost, type Spent } from "./main-thread-cost";

@@ -27,7 +27,8 @@
  * holds and fails the builders' reads through the showcase's e3 fault hook.
  */
 
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { sizeBuilder, visitBuilder } from "./builder-page";
 
 /** Each builder by its example: the root the box its example gives it holds, and its footer's rail. */

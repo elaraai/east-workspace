@@ -5,7 +5,7 @@
 
 /** The Elara eye in the Sheet (#1409, #1418): the eye's checks (`optimise-eye.ts`) over its example, in both themes. */
 
-import { test } from "playwright/test";
+import { test } from "./kept-page";
 import { OPTIMISE_BUILDERS, THEMES, checkEyeInFolds, checkRunFromEye, eyeTitle, runTitle } from "./optimise-eye";
 
 for (const theme of THEMES) {

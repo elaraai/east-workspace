@@ -29,7 +29,8 @@
  * `pnpm exec playwright test schematic-narrowing`.
  */
 
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { toolbarFaults } from "./builder-frame";
 import { RECORD_READS, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { expectSourceCounts, type SourceCount } from "./record-counts";

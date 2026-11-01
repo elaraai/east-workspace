@@ -17,7 +17,8 @@
  * `pnpm exec playwright test plan-filters`.
  */
 
-import { test, expect, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { openExample, sizePlanFrame } from "./plan-page";
 import { settled } from "./settle";
 

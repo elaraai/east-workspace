@@ -13,7 +13,8 @@
  * rules then took the value's ink.
  */
 
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { settled } from "./settle";
 import { token } from "./tokens";
 

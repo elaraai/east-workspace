@@ -10,7 +10,8 @@
  * every width, scrolling inside main with nothing overflowing the page; and a
  * chip's drag onto a free row (A45, A47).
  */
-import { expect, test, type Locator } from "playwright/test";
+import { expect, type Locator } from "playwright/test";
+import { test } from "./kept-page";
 import { open, size, token } from "./allocation-page";
 import { settled } from "./settle";
 

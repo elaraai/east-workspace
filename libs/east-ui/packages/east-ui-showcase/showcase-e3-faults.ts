@@ -130,13 +130,13 @@ export interface ShowcaseE3Faults {
      * the spec's own request, which no hold or fault takes and the log never
      * lists.
      *
-     * @param workspace - The workspace
+     * @param area - The area, by its name: the mutation goes to the workspace the page reads of it
      * @param record - The record's name
      * @param mutation - The mutation's name
      * @param args - Its arguments, each its type's beast2, in base64
      * @returns What e3 answered: its outcome's case, `committed` once it applied
      */
-    mutate(workspace: string, record: string, mutation: string, args: readonly string[]): Promise<string>;
+    mutate(area: string, record: string, mutation: string, args: readonly string[]): Promise<string>;
 }
 
 /** A hold, a fault or a slowing, as the hook keeps it. */
@@ -222,9 +222,10 @@ function failureResponse(failure: Exclude<FaultFailure, "network">, method: stri
  *
  * @param e3 - The e3 the page started
  * @param repo - The repository its areas' workspaces are in, which a spec's own mutation names
+ * @param workspaceOf - The workspace the page reads of an area, which a spec's own mutation names
  * @returns The e3 every request of the page goes to
  */
-export function withFaults(e3: WebE3, repo: string): WebE3 {
+export function withFaults(e3: WebE3, repo: string, workspaceOf: (area: string) => string): WebE3 {
     const scope = globalThis as unknown as Record<string, unknown>;
     const slowed = typeof location === "undefined" ? undefined : slowFromAddress(location.search);
     if (scope[FAULTS_FLAG] !== true && slowed === undefined) return e3;
@@ -248,9 +249,9 @@ export function withFaults(e3: WebE3, repo: string): WebE3 {
         },
         held: (id) => rules.find((candidate) => candidate.id === id)?.parked.length ?? 0,
         requests: () => log.map(({ kind, dataset, method, signal, body }) => ({ kind, dataset, method, aborted: signal.aborted, body })),
-        async mutate(workspace, record, mutation, args) {
+        async mutate(area, record, mutation, args) {
             const bytes = args.map((arg) => Uint8Array.from(atob(arg), (char) => char.charCodeAt(0)));
-            const result = await workspaceRecordMutate(e3.apiUrl, repo, workspace, record, mutation,
+            const result = await workspaceRecordMutate(e3.apiUrl, repo, workspaceOf(area), record, mutation,
                 { args: bytes, actor: some("the responsive suite"), limits: none }, { token: null, fetch: e3.fetch });
             return result.outcome.type;
         },

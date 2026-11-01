@@ -19,7 +19,8 @@
  *   Unassigned one last, its right edge the content's.
  */
 
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { visitBuilder } from "./builder-page";
 import { settled } from "./settle";
 

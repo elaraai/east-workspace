@@ -73,6 +73,13 @@ suite (`make test-responsive`, `packages/east-ui-showcase/tests/responsive/`):
 a visual change lands with a visual invariant there. Never read a
 screenshot.
 
+A spec there imports `test` from `./kept-page` (#1466): the tests of a spec
+file share one page, which the showcase resets between them as a fresh load
+would make it, rather than each loading the whole showcase and starting its e3
+again. A spec that holds the clock, routes requests, emulates media, listens
+to the page's events, reaches its context, reloads, or sets options of its own
+(`test.use`) imports Playwright's `test` instead: a page made for it alone.
+
 ### Where the code departs from the design system
 
 The design system is followed everywhere but here, where the user has ruled

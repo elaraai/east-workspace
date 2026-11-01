@@ -38,7 +38,8 @@
  * `pnpm exec playwright test plan-builder --project desktop`.
  */
 
-import { test, expect } from "playwright/test";
+import { expect } from "playwright/test";
+import { test } from "./kept-page";
 import { editingMessages } from "@elaraai/east-ui-components/testing";
 import { frameAt, type FrameAt } from "./builder-frame";
 import { PRESS_A1, PRINT_WORKS_DAYS, boxOf, centre, dayOf, libraryOf, openCards, openPrintWorks, pickUp } from "./plan-builder-page";

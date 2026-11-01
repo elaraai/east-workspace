@@ -97,15 +97,15 @@ export async function e3Requests(page: Page): Promise<readonly FaultRequest[]> {
  * and holds that e3 committed it.
  *
  * @param page - The page
- * @param workspace - The workspace: an area's, by its name (`schematic`)
+ * @param area - The area, by its name (`schematic`): the mutation goes to the workspace the page reads of it
  * @param record - The record's name
  * @param mutation - The mutation's name
  * @param args - Its arguments, each its type's beast2
  */
-export async function mutateE3(page: Page, workspace: string, record: string, mutation: string, args: readonly Uint8Array[]): Promise<void> {
+export async function mutateE3(page: Page, area: string, record: string, mutation: string, args: readonly Uint8Array[]): Promise<void> {
     await installed(page);
     const encoded = args.map((arg) => Buffer.from(arg).toString("base64"));
-    const outcome = await page.evaluate(({ name, workspace, record, mutation, encoded }) => (window as unknown as Scope)[name]!.mutate(workspace, record, mutation, encoded),
-        { name: FAULTS_CONTROLS, workspace, record, mutation, encoded });
+    const outcome = await page.evaluate(({ name, area, record, mutation, encoded }) => (window as unknown as Scope)[name]!.mutate(area, record, mutation, encoded),
+        { name: FAULTS_CONTROLS, area, record, mutation, encoded });
     expect(outcome, `e3 committed the ${mutation} of ${record}`).toBe("committed");
 }

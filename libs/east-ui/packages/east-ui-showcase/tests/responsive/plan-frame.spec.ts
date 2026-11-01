@@ -31,7 +31,8 @@
  * `pnpm exec playwright test plan-frame`.
  */
 
-import { test, expect, type Locator } from "playwright/test";
+import { expect, type Locator } from "playwright/test";
+import { test } from "./kept-page";
 import { editingMessages } from "@elaraai/east-ui-components/testing";
 import { PLAN_EXAMPLES, openExample, planBox, remount, rowSel, sizeBox, toolbarLadderFaults } from "./plan-page";
 import { settled } from "./settle";

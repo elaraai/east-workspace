@@ -2,7 +2,8 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Licensed under AGPL-3.0. See LICENSE file for details.
  */
-import { expect, test } from "playwright/test";
+import { expect } from "playwright/test";
+import { test } from "./kept-page";
 import { settled } from "./settle";
 
 for (const theme of ["light", "dark"] as const) {

@@ -21,7 +21,8 @@
  * `pnpm exec playwright test sheet-keys --project desktop`.
  */
 
-import { test, expect, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { settled } from "./settle";
 
 /** Open one Sheet example's page — a route under `e3/sheet/` — and return its

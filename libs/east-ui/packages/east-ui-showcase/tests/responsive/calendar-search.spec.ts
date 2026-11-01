@@ -9,7 +9,8 @@
  * sees: clear of the Inspector laid over it, and of the timeline's sticky
  * column of resources (the hand retest, 27 Oct 2026), in both themes.
  */
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { visitBuilder } from "./builder-page";
 
 const ROUTE = "e3/calendar/calendar-windows/calendarWindowsByHall";

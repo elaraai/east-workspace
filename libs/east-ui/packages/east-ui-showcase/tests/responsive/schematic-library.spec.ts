@@ -30,7 +30,8 @@
  * `pnpm exec playwright test schematic-library`.
  */
 
-import { test, expect, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { DATA_CENTRE, card, centred, collapseInspector, openSchematic, openTab, pane, sizeTo } from "./schematic-page";
 import { settled } from "./settle";
 import { token } from "./tokens";

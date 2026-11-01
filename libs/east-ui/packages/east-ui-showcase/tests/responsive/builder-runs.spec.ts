@@ -24,7 +24,8 @@
  *   number, its place in the record.
  */
 
-import { expect, test, type Locator } from "playwright/test";
+import { expect, type Locator } from "playwright/test";
+import { test } from "./kept-page";
 import { visitBuilder } from "./builder-page";
 import { holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { settled } from "./settle";

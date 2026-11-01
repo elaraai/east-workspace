@@ -43,7 +43,8 @@
  * `pnpm exec playwright test inspector-form`.
  */
 
-import { test, expect, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { settled } from "./settle";
 import { openExample, rowId, rowSel } from "./plan-page";
 import { DATA_CENTRE, centred, openSchematic, openTab as openLibraryTab, printedRef, screenPoint, sizeTo } from "./schematic-page";

@@ -3,7 +3,8 @@
  * Licensed under AGPL-3.0. See LICENSE file for details.
  */
 /** Roster against the real in-page e3: the mock's geometry and shared builder behavior. */
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { frameAt, toolbarFaults } from "./builder-frame";
 import { leaveBuilder } from "./builder-page";
 import { settled } from "./settle";

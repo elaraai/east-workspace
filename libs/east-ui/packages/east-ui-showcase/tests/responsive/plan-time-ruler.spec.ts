@@ -3,7 +3,8 @@
  * Licensed under AGPL-3.0. See LICENSE file for details.
  */
 
-import { test, expect } from "playwright/test";
+import { expect } from "playwright/test";
+import { test } from "./kept-page";
 import { openExample, PLAN_EVENT_EXAMPLES } from "./plan-page";
 import { cutText, rulerFaults } from "./plan-text";
 import { settled } from "./settle";

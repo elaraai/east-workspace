@@ -25,7 +25,8 @@
  * `pnpm exec playwright test plan-builder-dnd`.
  */
 
-import { test, expect } from "playwright/test";
+import { expect } from "playwright/test";
+import { test } from "./kept-page";
 import { PLAN_EVENT_EXAMPLES, openExample, rowSel } from "./plan-page";
 import { PRESS_A1 as A1, PRINT_WORKS_DAYS as DAYS, boxOf, centre, dayOf, libraryOf, openCards, openPrintWorks as open, pickUp, regionAt } from "./plan-builder-page";
 import { settled } from "./settle";

@@ -10,7 +10,8 @@
  * jsdom cannot establish this invariant. Mouse focus matters too: a text
  * input matches :focus-visible even when reached by a click.
  */
-import { test, expect, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { createElement as h, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ChakraProvider, NumberInput, Combobox, TagsInput, createListCollection } from "@chakra-ui/react";

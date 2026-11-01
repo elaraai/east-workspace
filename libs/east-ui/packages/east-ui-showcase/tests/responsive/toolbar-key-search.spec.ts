@@ -19,7 +19,8 @@
  * `pnpm exec playwright test toolbar-key-search`.
  */
 
-import { test, expect, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { planBox, sizeBox } from "./plan-page";
 import { DATA_CENTRE, openSchematic, sizeTo } from "./schematic-page";
 import { settled } from "./settle";
