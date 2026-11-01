@@ -1,8 +1,7 @@
 # east-ui
 
 UI components for the East language. The lib hosts an **IR → renderer →
-showcase** trio (twice: once for general east-ui, once for e3-specific
-UI) plus a VS Code extension.
+showcase** trio twice: once for general east-ui, once for e3-specific UI.
 
 ## Packages
 
@@ -13,7 +12,6 @@ UI) plus a VS Code extension.
 | `packages/east-ui` | **IR layer.** Typed component definitions returning East data structures (`UIComponentType` variant). Backs the `east:east-ui` plugin skill. |
 | `packages/east-ui-components` | **Renderer layer.** React + Chakra UI v3 components that consume east-ui values. |
 | `packages/east-ui-showcase` | **Showcase + responsive suite.** Demos every component; its Playwright suite (`make test-responsive`) measures them. `make east-ui-examples-html-*` snapshots examples to standalone HTML. |
-| `packages/east-ui-extension` | VS Code extension that previews east-ui values in a webview. |
 
 ### e3-specific UI (per `[e3-ui design]` memory)
 
@@ -36,8 +34,6 @@ design / snapshot workflow:
 | `make east-ui-examples-html-<key>` | Snapshots a single example (e.g. `east-ui-examples-html-disclosure/tabs`). |
 | `make test-group GROUP=components\|ir\|e3-components\|rest` | The four CI groups: shared renderers, IR, e3 renderers (`SHARD=n/4` optional), and remaining packages plus e3 renderer Node specs. Together they run every package's tests once, as `make test` does. |
 | `make test-responsive` | The showcase's Playwright suite (DOM specs at desktop + mobile) over the built showcase, exactly as CI runs it; `SHARD=n/16` runs one CI shard. |
-| `make extension` | Builds the VS Code extension. |
-| `make extension-install` / `make extension-uninstall` | Manage local VS Code install. |
 
 See [`../../docs/conventions/MAKEFILE_TARGETS.md`](../../docs/conventions/MAKEFILE_TARGETS.md).
 

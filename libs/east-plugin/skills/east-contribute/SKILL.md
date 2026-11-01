@@ -333,7 +333,6 @@ gh pr create --repo elaraai/east-workspace --title "fix(<lib>): …" --body "…
     - `hooks/useDatasetValue.ts` — `[...StateImpl, ...BindPlatform, ...OverlayImpl]`.
   - Import the impl from `@elaraai/east-ui-components/platform`. **Manifest-scoped** functions (data/func/record) go in via their `createScoped*(manifest…)` builder; **browser-local-state** functions (State, overlay, slice) go in **unscoped**, alongside `...StateImpl` / `...OverlayImpl`.
   - Grep guard before you call a UI platform fn done: `rg -n "MyImpl" libs/east-ui/packages/e3-ui-components/src` must hit `UITaskPreview.tsx` **and** `useDatasetValue.ts`, not just the registering module.
-  - **Also rebuild + reinstall the `east-ui-preview` VS Code extension** — its webview bundles e3-ui-components, so a deployed package using the new fn renders blank / errors until the extension itself ships the array change. A version bump alone is not enough.
 
 ## Do NOT
 

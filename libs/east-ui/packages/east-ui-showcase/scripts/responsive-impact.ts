@@ -73,7 +73,7 @@ export function classifyChanges(paths: readonly string[] | null): ResponsiveImpa
         // harnesses and tooling do not match this suffix and stay conservative.
         if (/\.(?:spec|test)\.[cm]?[jt]sx?$/.test(path)) continue;
         // e3-api-server stays shared: e3-web imports its portable routes.
-        if (/^libs\/east-ui\/packages\/(?:e3-ui-cli|east-ui-extension)\//.test(path)
+        if (/^libs\/east-ui\/packages\/e3-ui-cli\//.test(path)
             || /^libs\/e3\/packages\/(?:e3-cli|e3-job)\//.test(path)
             || path.startsWith("libs/east-c/")
             || (path.startsWith("libs/east-py/") && !path.startsWith("libs/east-py/packages/east-py-datascience/"))) continue;

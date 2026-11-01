@@ -10,9 +10,8 @@ const NEW_VERSION = process.argv[2];
 if (!NEW_VERSION) {
   console.error('Usage: set-npm-version.mjs <semver>');
   console.error('  Writes <semver> to every publishable @elaraai/* package.json file.');
-  console.error('  Does NOT touch pyproject.toml or the VSCode extension — see:');
+  console.error('  Does NOT touch pyproject.toml — see:');
   console.error('    scripts/set-python-version.mjs');
-  console.error('    scripts/set-vsix-version.mjs');
   process.exit(1);
 }
 

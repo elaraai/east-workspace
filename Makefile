@@ -58,7 +58,6 @@ check-deps:
 	fi; \
 	echo "Optional (task-specific):"; \
 	opt docker  "https://docs.docker.com/engine/install/  (only needed for make services-up / test-all)"; \
-	opt zip     "apt install zip  /  brew install zip  (only needed for make link / make extension-install)"; \
 	if ls -d "$${PLAYWRIGHT_BROWSERS_PATH:-$$HOME/.cache/ms-playwright}"/chromium*/ >/dev/null 2>&1 \
 		|| ls -d "$$HOME/Library/Caches/ms-playwright"/chromium*/ >/dev/null 2>&1 \
 		|| ls -d "$${LOCALAPPDATA:-$$HOME/AppData/Local}/ms-playwright"/chromium*/ >/dev/null 2>&1 \
@@ -131,7 +130,6 @@ link:
 	cd $(CURDIR)/libs/east-node/packages/east-node-cli && pnpm link --global
 	$(MAKE) -C $(CURDIR)/libs/east-c install-cli
 	$(MAKE) -C $(CURDIR)/libs/east-py install-cli
-	$(MAKE) -C $(CURDIR)/libs/east-ui extension-install
 	@e3 completion install || echo "Note: run 'e3 completion install' manually to enable tab completion"
 
 # ── Test / Lint (via Turbo) ──────────────────────────────────────────
@@ -291,14 +289,13 @@ test-all: services-up test-export
 # ── Versioning ───────────────────────────────────────────────────────
 
 ## The release workflow's bump: one version into every manifest, npm (incl.
-## root), Python, VSIX and plugin. release.yml's prepare job runs it; nobody
-## runs it by hand, since CI alone sets versions.
+## root), Python and plugin. release.yml's prepare job runs it; nobody runs it
+## by hand, since CI alone sets versions.
 ## Usage (CI): make set-version VERSION=1.2.3  or  make set-version VERSION=1.2.3-beta.0
 set-version:
 	@test -n "$(VERSION)" || (echo "Usage: make set-version VERSION=x.y.z"; exit 1)
 	node scripts/set-npm-version.mjs $(VERSION)
 	node scripts/set-python-version.mjs $(VERSION)
-	node scripts/set-vsix-version.mjs $(VERSION)
 	node scripts/set-plugin-version.mjs $(VERSION)
 	node scripts/check-version-drift.mjs
 

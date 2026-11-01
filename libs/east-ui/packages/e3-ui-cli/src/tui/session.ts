@@ -9,8 +9,8 @@
  * then binds an {@link Api}:
  *
  * - **local** — an embedded `@elaraai/e3-api-server` over the repository
- *   (`startRepoServer`, the same bootstrap `e3-ui shot --from-task` and the
- *   VS Code extension use); `repo = 'default'`; `stop()` on exit.
+ *   (`startRepoServer`, the same bootstrap `e3-ui shot --from-task` uses);
+ *   `repo = 'default'`; `stop()` on exit.
  * - **remote** `https://host/repos/<repo>` — `getValidToken(origin)` now and
  *   **per request**, so a long session survives token expiry.
  * - **bare origin** `https://host` — the repositories view; `/repo <name>`
