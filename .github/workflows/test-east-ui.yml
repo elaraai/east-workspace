@@ -506,9 +506,22 @@ jobs:
         working-directory: libs/east-ui
         run: pnpm --filter @elaraai/east-ui-showcase exec playwright install --with-deps chromium
 
+      # Its JSON report too: the test times scripts/responsive-timings.ts
+      # refreshes responsive.timings.json from, which the jobs are split by.
       - name: Responsive suite
         working-directory: libs/east-ui
+        env:
+          RESPONSIVE_REPORT: ${{ runner.temp }}/responsive-timings-${{ matrix.shard }}.json
         run: make test-responsive SHARD=${{ matrix.shard }}/${{ needs.showcase.outputs.responsive_total }} TEST_LIST="$RUNNER_TEMP/responsive-tests.txt"
+
+      - name: Upload test times
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: responsive-timings-${{ matrix.shard }}
+          path: ${{ runner.temp }}/responsive-timings-${{ matrix.shard }}.json
+          if-no-files-found: ignore
+          retention-days: 14
 
       # A failing spec's DOM/network trace (open the trace with
       # `pnpm exec playwright show-trace <trace.zip>`).

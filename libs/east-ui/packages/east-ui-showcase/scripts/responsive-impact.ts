@@ -10,7 +10,7 @@ import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { listTests } from "./responsive-shards.js";
+import { listTests, testTimes } from "./responsive-shards.js";
 
 // Only these reviewed suites belong exclusively to one component. New or
 // cross-component specs remain shared and run with every component change.
@@ -127,9 +127,20 @@ export function changedPaths(base: string, head = "HEAD", cwd = process.cwd()): 
     } catch { return null; }
 }
 
-/** At most 16 jobs, with no empty shard for a small focused selection. */
-export function shardCount(testCount: number): number {
-    return Math.max(1, Math.min(16, Math.ceil(testCount / 75)));
+/** A job's share of the suite: ten minutes of its tests' recorded time. */
+const SHARD_MS = 10 * 60_000;
+
+/** The most jobs the suite runs in. */
+export const MAX_SHARDS = 24;
+
+/**
+ * As many jobs as hold the tests' recorded time ten minutes each, at most
+ * {@link MAX_SHARDS}: a small focused selection takes one.
+ */
+export function shardCount(tests: readonly string[], timings?: Readonly<Record<string, number>>): number {
+    const timeOf = testTimes(timings);
+    const ms = tests.reduce((sum, test) => sum + timeOf(test), 0);
+    return Math.max(1, Math.min(MAX_SHARDS, Math.ceil(ms / SHARD_MS)));
 }
 
 function main(): void {
@@ -138,7 +149,7 @@ function main(): void {
     const impact = classifyChanges(changedPaths(values.base, values.head));
     const discovered = listTests();
     const selected = selectTests(discovered, impact);
-    const count = shardCount(selected.length);
+    const count = shardCount(selected);
     const shards = Array.from({ length: count }, (_, i) => i + 1);
     const summary = `${selected.length} of ${discovered.length} responsive cases; ${selected.length ? count : 0} jobs. ${impact.reason}.`;
     mkdirSync(values.output, { recursive: true });

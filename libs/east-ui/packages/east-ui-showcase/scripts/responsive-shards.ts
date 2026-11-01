@@ -3,12 +3,14 @@
  * Licensed under AGPL-3.0. See LICENSE file for details.
  *
  * Playwright's contiguous shards put neighboring expensive builder cases in
- * the same job. Interleave its discovered tests instead, preserving project
+ * the same job, and shards of equal counts are not of equal time: one took 10
+ * minutes where another took 18 (#1466). Split its discovered tests by the
+ * times CI recorded instead (`responsive.timings.json`), preserving project
  * filters and using the public --test-list format for execution. Tests remain
  * independent (fullyParallel); read-only fixture batches stay inside one test.
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -68,15 +70,52 @@ export function listTests(args: string[] = []): string[] {
     }));
 }
 
-/** Spread every adjacent file/project's tests across the jobs, exactly once. */
-export function selectShard(tests: readonly string[], shard: string): string[] {
+/**
+ * The responsive tests' recorded times, in ms, by their identity
+ * ({@link testIdentity}): `responsive.timings.json`, which
+ * `scripts/responsive-timings.ts` writes from the reports of a CI run.
+ */
+const TIMINGS: Readonly<Record<string, number>> = JSON.parse(readFileSync(new URL("../responsive.timings.json", import.meta.url), "utf8")) as Record<string, number>;
+
+/**
+ * Each test's share of a job, in ms: its recorded time, or, for a test none
+ * was recorded for (a new or a renamed one), the median of those that ran.
+ */
+export function testTimes(timings: Readonly<Record<string, number>> = TIMINGS): (test: string) => number {
+    const ran = Object.values(timings).filter(ms => ms > 0).sort((a, b) => a - b);
+    const median = ran.length ? ran[Math.floor(ran.length / 2)]! : 1;
+    return test => timings[testIdentity(test)] ?? median;
+}
+
+/**
+ * Splits the tests into jobs of equal recorded time: longest first, each to
+ * the job with the least time so far, ties by identity, so every job works the
+ * same split out. Each job keeps its tests in their listed order.
+ */
+export function splitShards(tests: readonly string[], total: number, timings?: Readonly<Record<string, number>>): string[][] {
+    const timeOf = testTimes(timings);
+    const order = tests.map((test, index) => ({ test, index, ms: timeOf(test), identity: testIdentity(test) }))
+        .sort((a, b) => b.ms - a.ms || (a.identity < b.identity ? -1 : a.identity > b.identity ? 1 : 0));
+    const times = Array.from({ length: total }, () => 0);
+    const jobs: { test: string; index: number }[][] = Array.from({ length: total }, () => []);
+    for (const entry of order) {
+        let least = 0;
+        for (let job = 1; job < total; job++) if (times[job]! < times[least]!) least = job;
+        times[least]! += entry.ms;
+        jobs[least]!.push(entry);
+    }
+    return jobs.map(job => job.sort((a, b) => a.index - b.index).map(entry => entry.test));
+}
+
+/** One job's tests of a split by recorded time ({@link splitShards}), exactly once across the jobs. */
+export function selectShard(tests: readonly string[], shard: string, timings?: Readonly<Record<string, number>>): string[] {
     const parts = /^([1-9]\d*)\/([1-9]\d*)$/.exec(shard);
     const current = Number(parts?.[1]);
     const total = Number(parts?.[2]);
     if (!Number.isSafeInteger(current) || !Number.isSafeInteger(total) || current > total) {
         throw new Error(`Invalid responsive shard '${shard}'; expected n/total with 1 <= n <= total`);
     }
-    return tests.filter((_, index) => index % total === current - 1);
+    return splitShards(tests, total, timings)[current - 1]!;
 }
 
 function main(args: string[]): number {
@@ -99,7 +138,7 @@ function main(args: string[]): number {
         if (!forwarded[i].startsWith("--test-list=")) executionArgs.push(forwarded[i]);
     }
     if (!selected.length) throw new Error(`Responsive shard ${shard} selected no tests`);
-    console.log(`Responsive shard ${shard}: ${selected.length} of ${tests.length} tests (interleaved)`);
+    console.log(`Responsive shard ${shard}: ${selected.length} of ${tests.length} tests (split by recorded time)`);
     const temporary = mkdtempSync(join(tmpdir(), "east-ui-responsive-"));
     try {
         const file = join(temporary, "tests.txt");

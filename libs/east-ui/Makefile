@@ -279,7 +279,8 @@ help:
 ## The responsive suite (#357, #833): Playwright drives the BUILT showcase
 ## over every catalog page at desktop + mobile viewports. These are DOM specs
 ## (packages/east-ui-showcase/tests/responsive/) with no pixel comparisons.
-## CI runs this target across at most 16 shards, using the selected TEST_LIST.
+## CI runs this target across at most 24 jobs, the selected TEST_LIST split by
+## the times CI recorded (packages/east-ui-showcase/responsive.timings.json).
 ##
 ## It serves what `make build` built, building the showcase only when its
 ## dist is missing, so rebuild after a change. A failing spec leaves its
