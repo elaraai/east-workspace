@@ -65,6 +65,10 @@ afterEach(() => {
 // Only a DOM test has a page. There east-ui-components is loaded here, after the realm above is set — never in the hook,
 // whose ten seconds a cold load on a busy runner ran past — and a Node test loads nothing more.
 if (typeof window !== "undefined") {
+    // jsdom draws no canvas: its `getContext` answers null, as a browser does for a context it cannot make, and logs
+    // "Not implemented" for each call — a Schematic's canvas asks once a frame, thousands of lines a shard. The same
+    // answer, unlogged.
+    HTMLCanvasElement.prototype.getContext = () => null;
     const { resetKept } = await import("@elaraai/east-ui-components/internal");
     beforeEach(() => {
         resetKept();
