@@ -33,7 +33,7 @@ import { bundleOf, functionAt } from './record-guards.js';
 import { package_ } from './package.js';
 import { NestedPatchedType } from './record-nested-programs.js';
 import { patchTypeOf } from './record-patches.js';
-import { placedFilingsOver, placedSharesOver } from './record-tiles.js';
+import { TILE_FNS } from './record-tiles.js';
 import type { MutationDef, RecordDef, RecordIndexDef } from './types.js';
 
 /**
@@ -1165,14 +1165,14 @@ describe('index.nested — its programs', () => {
   it('hold each function their collections call once, and none they do not: no sharing out without a summary or items, no filing in a span', () => {
     const machinesPrograms = programsOf(machinesInTime(machines()));
     for (const program of ['entries', 'byPatch'] as const) {
-      assert.equal(copiesIn(machinesPrograms[program], placedFilingsOver), 1, `the machines' ${program} file their five collections by one function`);
-      assert.equal(copiesIn(machinesPrograms[program], placedSharesOver), 1, `the machines' ${program} share their three of items out by one`);
+      assert.equal(copiesIn(machinesPrograms[program], TILE_FNS.placedFilingsOver), 1, `the machines' ${program} file their five collections by one function`);
+      assert.equal(copiesIn(machinesPrograms[program], TILE_FNS.placedSharesOver), 1, `the machines' ${program} share their three of items out by one`);
     }
-    assert.equal(copiesIn(machinesPrograms.span, placedSharesOver), 1, 'the machines\' span shares their items out over the months');
-    assert.equal(copiesIn(machinesPrograms.span, placedFilingsOver), 0, 'the machines\' span files nothing');
+    assert.equal(copiesIn(machinesPrograms.span, TILE_FNS.placedSharesOver), 1, 'the machines\' span shares their items out over the months');
+    assert.equal(copiesIn(machinesPrograms.span, TILE_FNS.placedFilingsOver), 0, 'the machines\' span files nothing');
     const ledgersPrograms = programsOf(ledgersInTime(ledgers()));
     for (const program of ['entries', 'byPatch', 'span'] as const) {
-      assert.equal(copiesIn(ledgersPrograms[program], placedSharesOver), 0, `the ledgers' ${program}: values, and no summary, so nothing shared out`);
+      assert.equal(copiesIn(ledgersPrograms[program], TILE_FNS.placedSharesOver), 0, `the ledgers' ${program}: values, and no summary, so nothing shared out`);
     }
   });
 });

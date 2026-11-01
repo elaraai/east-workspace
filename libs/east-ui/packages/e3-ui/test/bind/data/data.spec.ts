@@ -16,7 +16,8 @@ import {
 } from "@elaraai/east-ui/internal";
 import { TreePathType } from "@elaraai/e3-types";
 import { Data, bindPagedPlatformFn } from "@elaraai/e3-ui";
-import e3, { builtIndex, indexMaintenance, tileNext as e3TileNext, tileStart as e3TileStart } from "@elaraai/e3";
+import e3, { builtIndex, indexMaintenance } from "@elaraai/e3";
+import { tileNext as e3TileNext, tileStart as e3TileStart } from "@elaraai/e3/internal";
 import * as ex from "./data.examples.js";
 
 describeEast("Data", (test) => {

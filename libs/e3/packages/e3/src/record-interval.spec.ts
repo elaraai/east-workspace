@@ -8,10 +8,10 @@ import { DateTimeType, DictType, East, IntegerType, OptionType, SetType, StringT
   decodeBeast2For, encodeBeast2For, none, some } from '@elaraai/east';
 import { record } from './record.js';
 import type { IndexKeyOf, IndexOn } from './record-index.js';
-import { IntervalEntryType, intervalEntries } from './record-interval.js';
+import { INTERVAL_FNS, IntervalEntryType } from './record-interval.js';
 import { functionAt } from './record-guards.js';
 
-const entriesOf = East.compile(intervalEntries, []);
+const entriesOf = East.compile(INTERVAL_FNS.intervalEntries, []);
 const leaf = 3n * (1n << 53n);
 
 // Compare real, decoded generated keys against the direct interval oracle.

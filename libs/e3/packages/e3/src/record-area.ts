@@ -26,6 +26,7 @@ import { East, FloatType, IntegerType, OptionType, SetType, StructType, isTypeEq
 import type { RecordDef, RecordIndexDef } from './types.js';
 import { INDEX_PURITY, checkEntryParams, checkPure, indexRunner, indexedEntry, onlyOptions, signatureOf, type IndexConstructor, type IndexFunction } from './record-guards.js';
 import { checkLeading, fieldReader, leadingValue, leadingValues, optionField, type RowType } from './record-keys.js';
+import { lazyBuilds } from './lazy-build.js';
 
 /** The finest level: a level-28 cell is `cell` wide. */
 export const AREA_FINEST_LEVEL = 28;
@@ -82,57 +83,6 @@ const HALF_CELLS = 2 ** 27;
 const HALF_CELLS_INTEGER = 1n << 27n;
 /** {@link AREA_FINEST_LEVEL}, an Integer. */
 const FINEST_LEVEL = 28n;
-
-/**
- * The `area` part of a box's key, from its centre, its larger side and the
- * finest cell's side, a power of two: the level-28 Morton code of the box's
- * cell, times 32, plus its level; `0`, the root, for a box outside the domain,
- * not finite, or larger than half the domain. Every step is exact, so every
- * runtime computes it alike.
- *
- * `(cx, cy, side, cell) → Integer`
- */
-export const areaCode = East.function([FloatType, FloatType, FloatType, FloatType], IntegerType, ($, cx, cy, side, cell) => {
-  const half = $.let(cell.multiply(HALF_CELLS));
-  // A value is finite exactly when it less itself is zero: an infinity's, or a NaN's, is a NaN.
-  const finite = $.let(cx.subtract(cx).equal(0.0).and(() => cy.subtract(cy).equal(0.0)).and(() => side.subtract(side).equal(0.0)));
-  const inside = $.let(cx.greaterEqual(half.negate()).and(() => cx.less(half)).and(() => cy.greaterEqual(half.negate())).and(() => cy.less(half)));
-  $.if(finite.not().or(() => inside.not()).or(() => side.greater(half)), ($) => {
-    $.return(0n);
-  });
-  // The deepest level whose cell is at least twice the box's larger side:
-  // each step up doubles the cell, exactly, and the step between its cells'
-  // indices at the finest level. A side at most half the domain stops at the
-  // root at the latest.
-  const level = $.let(FINEST_LEVEL);
-  const size = $.let(cell);
-  const step = $.let(1n);
-  const twice = $.let(side.multiply(2.0));
-  $.while(size.less(twice), ($) => {
-    $.assign(size, size.multiply(2.0));
-    $.assign(level, level.subtract(1n));
-    $.assign(step, step.multiply(2n));
-  });
-  // The finest cell holding the centre: a division by a power of two, and its
-  // floor, are exact; the domain's lower edge is cell 0. Then the level's
-  // cell holding it, aligned to the finest level: the bits below it cleared.
-  const ix = $.let(East.Float.roundFloor(cx.divide(cell)).add(HALF_CELLS_INTEGER).divide(step).multiply(step));
-  const iy = $.let(East.Float.roundFloor(cy.divide(cell)).add(HALF_CELLS_INTEGER).divide(step).multiply(step));
-  // Its Morton code: x in the even bits, y in the odd.
-  const code = $.let(0n);
-  const bit = $.let(1n);
-  $.for(East.Array.range(0n, FINEST_LEVEL), ($) => {
-    $.assign(code, code.add(ix.remainder(2n).multiply(bit)).add(iy.remainder(2n).multiply(bit).multiply(2n)));
-    $.assign(ix, ix.divide(2n));
-    $.assign(iy, iy.divide(2n));
-    $.assign(bit, bit.multiply(4n));
-  });
-  $.return(code.multiply(32n).add(level));
-});
-
-/** `(width, height) → the larger of their sizes`: a box's larger side. */
-const largerSide = East.function([FloatType, FloatType], FloatType, (_$, width, height) =>
-  width.abs().greaterEqual(height.abs()).ifElse(() => width.abs(), () => height.abs()));
 
 /** What an area index's declaration names (`index.area`). */
 export interface AreaSpec {
@@ -234,7 +184,7 @@ export function areaDefinition(
         const yOf = $.const(readY);
         const widthOf = $.const(size.width);
         const heightOf = $.const(size.height);
-        const larger = $.const(largerSide);
+        const larger = $.const(AREA_FNS.largerSide);
         const width = $.let(widthOf(key, row));
         const height = $.let(heightOf(key, row));
         return {
@@ -249,12 +199,12 @@ export function areaDefinition(
         const yOf = $.const(readY);
         const widthOf = $.const(size.width);
         const heightOf = $.const(size.height);
-        const larger = $.const(largerSide);
+        const larger = $.const(AREA_FNS.largerSide);
         return { cx: xOf(key, row), cy: yOf(key, row), side: larger(widthOf(key, row), heightOf(key, row)) };
       });
   // The row's cell code: unplaced, or the cell of its box's centre and larger side.
   const areaOf = East.function([keyType, rowType], IntegerType, ($, key, row) => {
-    const locate = $.const(areaCode);
+    const locate = $.const(AREA_FNS.areaCode);
     const read = $.const(boxOf);
     const at = $.let(read(key, row));
     const area = $.let(AREA_UNPLACED, IntegerType);
@@ -308,3 +258,66 @@ export function areaDefinition(
     runner,
   };
 }
+
+// ── The functions, each built the first time it is read ──────────────────────
+
+/**
+ * The area index's East functions, each built the first time it is read, with
+ * no location captured ({@link lazyBuilds}, #1466): importing the SDK builds
+ * none of them.
+ */
+export const AREA_FNS = lazyBuilds({
+  /**
+   * The `area` part of a box's key, from its centre, its larger side and the
+   * finest cell's side, a power of two: the level-28 Morton code of the box's
+   * cell, times 32, plus its level; `0`, the root, for a box outside the domain,
+   * not finite, or larger than half the domain. Every step is exact, so every
+   * runtime computes it alike.
+   *
+   * `(cx, cy, side, cell) → Integer`
+   */
+  get areaCode() {
+    return East.function([FloatType, FloatType, FloatType, FloatType], IntegerType, ($, cx, cy, side, cell) => {
+      const half = $.let(cell.multiply(HALF_CELLS));
+      // A value is finite exactly when it less itself is zero: an infinity's, or a NaN's, is a NaN.
+      const finite = $.let(cx.subtract(cx).equal(0.0).and(() => cy.subtract(cy).equal(0.0)).and(() => side.subtract(side).equal(0.0)));
+      const inside = $.let(cx.greaterEqual(half.negate()).and(() => cx.less(half)).and(() => cy.greaterEqual(half.negate())).and(() => cy.less(half)));
+      $.if(finite.not().or(() => inside.not()).or(() => side.greater(half)), ($) => {
+        $.return(0n);
+      });
+      // The deepest level whose cell is at least twice the box's larger side:
+      // each step up doubles the cell, exactly, and the step between its cells'
+      // indices at the finest level. A side at most half the domain stops at the
+      // root at the latest.
+      const level = $.let(FINEST_LEVEL);
+      const size = $.let(cell);
+      const step = $.let(1n);
+      const twice = $.let(side.multiply(2.0));
+      $.while(size.less(twice), ($) => {
+        $.assign(size, size.multiply(2.0));
+        $.assign(level, level.subtract(1n));
+        $.assign(step, step.multiply(2n));
+      });
+      // The finest cell holding the centre: a division by a power of two, and its
+      // floor, are exact; the domain's lower edge is cell 0. Then the level's
+      // cell holding it, aligned to the finest level: the bits below it cleared.
+      const ix = $.let(East.Float.roundFloor(cx.divide(cell)).add(HALF_CELLS_INTEGER).divide(step).multiply(step));
+      const iy = $.let(East.Float.roundFloor(cy.divide(cell)).add(HALF_CELLS_INTEGER).divide(step).multiply(step));
+      // Its Morton code: x in the even bits, y in the odd.
+      const code = $.let(0n);
+      const bit = $.let(1n);
+      $.for(East.Array.range(0n, FINEST_LEVEL), ($) => {
+        $.assign(code, code.add(ix.remainder(2n).multiply(bit)).add(iy.remainder(2n).multiply(bit).multiply(2n)));
+        $.assign(ix, ix.divide(2n));
+        $.assign(iy, iy.divide(2n));
+        $.assign(bit, bit.multiply(4n));
+      });
+      $.return(code.multiply(32n).add(level));
+    });
+  },
+  /** `(width, height) → the larger of their sizes`: a box's larger side. */
+  get largerSide() {
+    return East.function([FloatType, FloatType], FloatType, (_$, width, height) =>
+      width.abs().greaterEqual(height.abs()).ifElse(() => width.abs(), () => height.abs()));
+  },
+});

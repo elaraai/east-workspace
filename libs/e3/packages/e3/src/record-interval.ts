@@ -8,6 +8,7 @@ import { DateTimeType, East, IntegerType, NullType, OptionType, SetType, StructT
 import type { RecordDef, RecordIndexDef } from './types.js';
 import { INDEX_PURITY, checkEntryParams, checkPure, indexRunner, indexedEntry, onlyOptions, signatureOf, type IndexConstructor } from './record-guards.js';
 import { checkLeading, checkTimeField, fieldReader, leadingValues, type RowType } from './record-keys.js';
+import { lazyBuilds } from './lazy-build.js';
 
 /** The signed millisecond domain containing every valid JavaScript Date. */
 const BIAS = 1n << 53n;
@@ -15,65 +16,6 @@ const LEAVES = 1n << 54n;
 
 /** Internal millisecond key before the row's declared DateTime type is restored. */
 export const IntervalEntryType = StructType({ node: IntegerType, at: IntegerType });
-
-/**
- * Node zero stores the start. A positive-duration event is stored at the
- * lowest common ancestor of its first and last included milliseconds, once
- * ordered by start (even node code), once by end (odd node code).
- *
- * Every interval at a node crosses its centre. A carry-in query walks the
- * ancestors of its lower bound: to the left of a centre it needs start < from;
- * to the right it needs end > from. Each event lives at just one ancestor,
- * and these carry-in results are disjoint from starts inside the window.
- * At most 54 iterations and THREE entries, independent of event duration.
- * @internal
- */
-export const intervalEntries = East.function([IntegerType, IntegerType], SetType(IntervalEntryType), ($, start, end) => {
-  $.if(start.less(-BIAS).or(() => start.greaterEqual(BIAS)).or(() => end.less(-BIAS)).or(() => end.greaterEqual(BIAS)), ($) => {
-    $.error('Interval endpoints must be valid DateTime milliseconds');
-  });
-  // Instants and one-millisecond intervals cannot carry into another
-  // millisecond. A missing or non-positive end keeps instant semantics.
-  $.if(end.lessEqual(start.add(1n)), ($) => {
-    $.return(new Set([{ node: 0n, at: start }]));
-  });
-  const left = $.let(start.add(BIAS + LEAVES));
-  const right = $.let(end.subtract(1n).add(BIAS + LEAVES));
-  $.while(left.notEqual(right), ($) => {
-    $.assign(left, left.divide(2n));
-    $.assign(right, right.divide(2n));
-  });
-  return new Set([{ node: 0n, at: start }, { node: left.multiply(2n), at: start }, { node: left.multiply(2n).add(1n), at: end }]);
-});
-
-/**
- * The entries an event is filed under (`intervalEntries`): with no start, the
- * backlog's one, at node 0; with no end, an instant's.
- *
- * `(start, end) → Set<{ node, at }>`
- * @internal
- */
-export const eventEntries = East.function([OptionType(DateTimeType), OptionType(DateTimeType)], SetType(IntervalEntryType), ($, start, end) => {
-  const locate = $.const(intervalEntries);
-  $.match(start, {
-    some: ($, from) => { $.return(locate(from.toEpochMilliseconds(), end.unwrap('some', () => from).toEpochMilliseconds())); },
-    none: () => {},
-  });
-  // No start: the backlog's one entry, at node 0.
-  return new Set([{ node: 0n, at: 0n }]);
-});
-
-/** `(start, at) → an entry's instant`, at a DateTime start's type. */
-const instantAt = East.function([OptionType(DateTimeType), IntegerType], DateTimeType, (_$, _start, at) => East.DateTime.fromEpochMilliseconds(at));
-
-/** `(start, at) → an entry's instant`, at an Option<DateTime> start's type: `none` for the backlog's, an event with no start. */
-const optionInstantAt = East.function([OptionType(DateTimeType), IntegerType], OptionType(DateTimeType), ($, start, at) => {
-  $.match(start, {
-    some: ($) => { $.return(some(East.DateTime.fromEpochMilliseconds(at))); },
-    none: () => {},
-  });
-  return none;
-});
 
 /**
  * An interval index's definition (`index.interval`): its key
@@ -114,7 +56,7 @@ export function intervalDefinition(
   const readEnd = fieldReader(keyType, rowType, { option: end });
   const leads = leadingValues(keyType, rowType, leading);
   // An entry's instant at the start field's type.
-  const instant = start.optional ? optionInstantAt : instantAt;
+  const instant = start.optional ? INTERVAL_FNS.optionInstantAt : INTERVAL_FNS.instantAt;
   // An event's entries under one combination of its leading values.
   const entriesUnder = East.function([leading.onType, OptionType(DateTimeType), SetType(IntervalEntryType)], SetType(indexType), ($, on, from, entries) => {
     const at = $.const(instant);
@@ -123,7 +65,7 @@ export function intervalDefinition(
   const keyFn = East.function([keyType, rowType], SetType(indexType), ($, key, row) => {
     const startOf = $.const(readStart);
     const endOf = $.const(readEnd);
-    const locate = $.const(eventEntries);
+    const locate = $.const(INTERVAL_FNS.eventEntries);
     const combinations = $.const(leads);
     const under = $.const(entriesUnder);
     const from = $.let(startOf(key, row));
@@ -146,3 +88,76 @@ export function intervalDefinition(
     runner,
   };
 }
+
+// ── The functions, each built the first time it is read ──────────────────────
+
+/**
+ * The interval index's East functions, each built the first time it is read,
+ * with no location captured ({@link lazyBuilds}, #1466): importing the SDK
+ * builds none of them.
+ */
+export const INTERVAL_FNS = lazyBuilds({
+  /**
+   * Node zero stores the start. A positive-duration event is stored at the
+   * lowest common ancestor of its first and last included milliseconds, once
+   * ordered by start (even node code), once by end (odd node code).
+   *
+   * Every interval at a node crosses its centre. A carry-in query walks the
+   * ancestors of its lower bound: to the left of a centre it needs start < from;
+   * to the right it needs end > from. Each event lives at just one ancestor,
+   * and these carry-in results are disjoint from starts inside the window.
+   * At most 54 iterations and THREE entries, independent of event duration.
+   * @internal
+   */
+  get intervalEntries() {
+    return East.function([IntegerType, IntegerType], SetType(IntervalEntryType), ($, start, end) => {
+      $.if(start.less(-BIAS).or(() => start.greaterEqual(BIAS)).or(() => end.less(-BIAS)).or(() => end.greaterEqual(BIAS)), ($) => {
+        $.error('Interval endpoints must be valid DateTime milliseconds');
+      });
+      // Instants and one-millisecond intervals cannot carry into another
+      // millisecond. A missing or non-positive end keeps instant semantics.
+      $.if(end.lessEqual(start.add(1n)), ($) => {
+        $.return(new Set([{ node: 0n, at: start }]));
+      });
+      const left = $.let(start.add(BIAS + LEAVES));
+      const right = $.let(end.subtract(1n).add(BIAS + LEAVES));
+      $.while(left.notEqual(right), ($) => {
+        $.assign(left, left.divide(2n));
+        $.assign(right, right.divide(2n));
+      });
+      return new Set([{ node: 0n, at: start }, { node: left.multiply(2n), at: start }, { node: left.multiply(2n).add(1n), at: end }]);
+    });
+  },
+  /**
+   * The entries an event is filed under (`intervalEntries`): with no start, the
+   * backlog's one, at node 0; with no end, an instant's.
+   *
+   * `(start, end) → Set<{ node, at }>`
+   * @internal
+   */
+  get eventEntries() {
+    return East.function([OptionType(DateTimeType), OptionType(DateTimeType)], SetType(IntervalEntryType), ($, start, end) => {
+      const locate = $.const(INTERVAL_FNS.intervalEntries);
+      $.match(start, {
+        some: ($, from) => { $.return(locate(from.toEpochMilliseconds(), end.unwrap('some', () => from).toEpochMilliseconds())); },
+        none: () => {},
+      });
+      // No start: the backlog's one entry, at node 0.
+      return new Set([{ node: 0n, at: 0n }]);
+    });
+  },
+  /** `(start, at) → an entry's instant`, at a DateTime start's type. */
+  get instantAt() {
+    return East.function([OptionType(DateTimeType), IntegerType], DateTimeType, (_$, _start, at) => East.DateTime.fromEpochMilliseconds(at));
+  },
+  /** `(start, at) → an entry's instant`, at an Option<DateTime> start's type: `none` for the backlog's, an event with no start. */
+  get optionInstantAt() {
+    return East.function([OptionType(DateTimeType), IntegerType], OptionType(DateTimeType), ($, start, at) => {
+      $.match(start, {
+        some: ($) => { $.return(some(East.DateTime.fromEpochMilliseconds(at))); },
+        none: () => {},
+      });
+      return none;
+    });
+  },
+});
