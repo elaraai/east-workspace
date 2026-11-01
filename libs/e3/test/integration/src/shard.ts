@@ -4,23 +4,26 @@
  */
 
 /**
- * The integration specs one of CI's shards runs (#1466), split by the times CI
- * recorded (`integration.timings.json`) rather than named by hand: longest
- * first, each to the shard with the least time so far, a spec with no time
- * recorded counting as the median. libs/e3's Makefile prints a shard's with
+ * The specs one of CI's shards runs (#1466), split by the times CI recorded
+ * rather than named by hand: longest first, each to the shard with the least
+ * time so far, a spec with no time recorded counting as the median. libs/e3's
+ * Makefile prints a shard's with
  *
- *     node dist/shard.js <n> <count> <spec>...
+ *     node dist/shard.js [--timings=<file>] [--glob=<pattern>] <n> <count> [<spec>...]
  *
- * the specs by their paths from this package.
+ * run from the package whose specs they are: the specs given, or those the
+ * glob finds there (as a package's test script names them, so a spec in a new
+ * directory is never left out), and their times `integration.timings.json`'s,
+ * or the file's — e3-core's `spec.timings.json`.
  */
 
-import { readFileSync } from 'node:fs';
+import { globSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * The specs' recorded times, in ms, by their paths from this package:
- * `integration.timings.json`, which `dist/integration-timings.js` writes from
+ * The integration specs' recorded times, in ms, by their paths from this
+ * package: `integration.timings.json`, which `dist/spec-timings.js` writes from
  * the reports of a CI run.
  */
 const TIMINGS = JSON.parse(readFileSync(new URL('../integration.timings.json', import.meta.url), 'utf8')) as Record<string, number>;
@@ -53,11 +56,21 @@ export function splitSpecs(specs: readonly string[], count: number, timings: Rea
 }
 
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [n, count, ...specs] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const options = new Map<string, string>();
+  while (args[0]?.startsWith('--') === true) {
+    const [key, ...value] = args.shift()!.slice(2).split('=');
+    options.set(key!, value.join('='));
+  }
+  const [n, count, ...listed] = args;
   const shard = Number(n);
   const total = Number(count);
   if (!Number.isSafeInteger(shard) || !Number.isSafeInteger(total) || shard < 1 || shard > total) {
-    throw new Error(`usage: node dist/shard.js <n> <count> <spec>..., with 1 <= n <= count; got ${n}/${count}`);
+    throw new Error(`usage: node dist/shard.js [--timings=<file>] [--glob=<pattern>] <n> <count> [<spec>...], with 1 <= n <= count; got ${n}/${count}`);
   }
-  console.log(splitSpecs(specs, total)[shard - 1]!.join('\n'));
+  const pattern = options.get('glob');
+  const specs = pattern === undefined ? listed : globSync(pattern).map((spec) => spec.replaceAll('\\', '/')).sort();
+  const file = options.get('timings');
+  const timings = file === undefined ? TIMINGS : JSON.parse(readFileSync(file, 'utf8')) as Record<string, number>;
+  console.log(splitSpecs(specs, total, timings)[shard - 1]!.join('\n'));
 }

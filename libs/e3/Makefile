@@ -30,10 +30,24 @@ test-packages:
 	@echo "Running package tests..."
 	pnpm -r --workspace-concurrency=1 --no-bail --filter='./packages/*' run test
 
-## Run e3-core's unit tests, the longest of the packages', which CI runs in a
-## job of its own (#1466)
+CORE := packages/e3-core
+# e3-core's specs in shards, split as the integration specs are by their own
+# recorded times (packages/e3-core/spec.timings.json, #1466), and found as its
+# test script finds them: two shards, or SHARDS=n of them.
+CORE_SHARDS := $(or $(SHARDS),2)
+CORE_SHARD = $(shell cd $(CORE) && node ../../test/integration/dist/shard.js --timings=spec.timings.json --glob='dist/src/**/*.spec.js' $(SHARD) $(CORE_SHARDS))
+
+## Run e3-core's unit tests, the longest of the packages', which CI runs in
+## jobs of their own (#1466): every spec, or SHARD=n's of two (or of SHARDS).
+## REPORT=file writes each spec's time to it too (the integration package's
+## dist/file-times.js), the reports its dist/spec-timings.js refreshes the
+## times from. A shard holding no spec fails rather than runs nothing.
 test-packages-core:
-	pnpm --filter @elaraai/e3-core run test
+	pnpm --filter @elaraai/e3-core --filter e3-integration-tests run build
+	$(if $(SHARD),$(if $(strip $(CORE_SHARD)),,$(error e3-core shard $(SHARD) of $(CORE_SHARDS) holds no spec)))
+	pnpm --filter @elaraai/e3-core run test:specs \
+		$(if $(REPORT),--test-reporter-destination=stdout --test-reporter=../../test/integration/dist/file-times.js --test-reporter-destination="$(REPORT)") \
+		$(if $(SHARD),$(CORE_SHARD),'dist/src/**/*.spec.js')
 
 ## Run every other package's unit tests, as CI's packages job does
 test-packages-rest:
@@ -55,16 +69,13 @@ build-integration:
 	pnpm --filter e3-integration-tests run build
 
 INTEGRATION := test/integration
-# Every compiled integration spec, as the package's scripts name them.
-# Expanded only in a recipe, once build-integration has compiled them.
-INTEGRATION_SPECS = $(patsubst $(INTEGRATION)/%,%,$(wildcard $(INTEGRATION)/dist/*.spec.js $(INTEGRATION)/dist/*/*.spec.js))
 # The shards CI runs side by side, each its share of a split of the specs by
 # the times CI recorded (test/integration/integration.timings.json, #1466),
 # longest first to the shard with the least so far; a new spec counts as the
 # median until the times are refreshed. Four shards, or SHARDS=n of them, as
 # CI's macOS jobs run two: its runners are few.
 INTEGRATION_SHARDS := $(or $(SHARDS),4)
-INTEGRATION_SHARD = $(shell cd $(INTEGRATION) && node dist/shard.js $(SHARD) $(INTEGRATION_SHARDS) $(INTEGRATION_SPECS))
+INTEGRATION_SHARD = $(shell cd $(INTEGRATION) && node dist/shard.js --glob='dist/**/*.spec.js' $(SHARD) $(INTEGRATION_SHARDS))
 
 ifneq ($(filter test-integration-shard integration-shard-specs,$(MAKECMDGOALS)),)
 ifeq ($(filter $(SHARD),$(wordlist 1,$(INTEGRATION_SHARDS),1 2 3 4 5 6 7 8)),)
@@ -72,9 +83,15 @@ $(error $(MAKECMDGOALS) needs SHARD=1 to $(INTEGRATION_SHARDS), and SHARDS at mo
 endif
 endif
 
+ifneq ($(and $(filter test-packages-core,$(MAKECMDGOALS)),$(SHARD)),)
+ifeq ($(filter $(SHARD),$(wordlist 1,$(CORE_SHARDS),1 2 3 4 5 6 7 8)),)
+$(error test-packages-core needs SHARD=1 to $(CORE_SHARDS), and SHARDS at most 8)
+endif
+endif
+
 ## Run one shard of the integration tests, as a CI job does (SHARD=1 to 4, or
 ## to SHARDS). REPORT=file writes each spec's time to it too
-## (dist/file-times.js), the reports dist/integration-timings.js refreshes the
+## (dist/file-times.js), the reports dist/spec-timings.js refreshes the
 ## times from. A shard holding no spec fails rather than runs nothing.
 test-integration-shard: build-integration
 	@echo "Running integration shard $(SHARD) of $(INTEGRATION_SHARDS)..."
@@ -153,7 +170,7 @@ help:
 	@echo "  build       - Build all packages"
 	@echo "  test        - Run all tests"
 	@echo "  test-packages - Run the unit tests of e3's packages"
-	@echo "  test-packages-core - Run e3-core's unit tests, a CI job of their own"
+	@echo "  test-packages-core - Run e3-core's unit tests, or SHARD=n's of two CI shards split by recorded time (REPORT=file for its times)"
 	@echo "  test-packages-rest - Run every other package's unit tests, as CI's packages job does"
 	@echo "  test-as-another-user - Run the spec of processes run as another user (sudo, POSIX)"
 	@echo "  test-integration - Run the integration tests"
