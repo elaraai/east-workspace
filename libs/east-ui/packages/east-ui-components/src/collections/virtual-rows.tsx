@@ -71,18 +71,12 @@
  * view, else one covering the view — and a render that finds the anchor
  * moved, with nothing scrolled since, moves the virtualizer's offset by the
  * same amount (the rows drawn are the ones that will show) and the scroll
- * position follows before paint. A bounded frame whose scroll element rests
- * at its top takes none, as the browser's own anchoring takes none at a
- * scroller's top: rows landing above the first row in view push it down, as
- * on a page still loading, so a collection whose sources land one after
- * another opens at its top, never scrolled to whichever row landed first. A
- * frame at scale anchors at the page's top as anywhere: the rows of a
- * collection the page scrolls stay where they are as its windows land. A collection that draws rows not
- * read as one item, a run however many (`runs`, the Calendar's paged places,
- * #1424), anchors on the row inside a run at the view's top — by the key that
- * row takes once read — and finds it again wherever it then is: its own line,
- * or a run that holds it, so a window landing in the run keeps that row where
- * it was. A scroll not yet reported — a programmatic
+ * position follows before paint. A collection that draws rows not read as one
+ * item, a run however many (`runs`, the Calendar's paged places, #1424),
+ * anchors on the row inside a run at the view's top — by the key that row
+ * takes once read — and finds it again wherever it then is: its own line, or
+ * a run that holds it, so a window landing in the run keeps that row where it
+ * was. A scroll not yet reported — a programmatic
  * one — wins. The anchor is kept in the rows' own coordinates, net of the
  * scroll margin: the pinned header being measured, or growing, is no row
  * moving, and moves nothing (#944). An offset past where the view can go —
@@ -398,12 +392,11 @@ interface VirtualRowsBaseProps {
     /**
      * Which rows may ANCHOR the scroll (#878) — omitted, the frame does not
      * anchor. In a keyed frame whose rows are positioned (bounded, or at
-     * scale) — a bounded one once scrolled off its top — the first row that
-     * may, starting inside the view, keeps its place on screen when rows above
-     * it change height or count. A placeholder whose edge moves as content lands beside
-     * it — a paged source's unloaded band — must not anchor: rows landing
-     * below it move its top, and keeping it in place would scroll them out of
-     * view.
+     * scale), the first row that may, starting inside the view, keeps its
+     * place on screen when rows above it change height or count. A placeholder
+     * whose edge moves as content lands beside it — a paged source's unloaded
+     * band — must not anchor: rows landing below it move its top, and keeping
+     * it in place would scroll them out of view.
      */
     anchorable?: ((index: number) => boolean) | undefined;
     /**
@@ -1160,8 +1153,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             }
         }
         const offset = virtualizer.scrollOffset ?? 0;
-        // A bounded frame at its top takes no anchor: what lands above the row there pushes it down.
-        anchorRef.current = anchorable === undefined || (bounded && (scrollRef.current?.scrollTop ?? 0) <= 0) ? null
+        anchorRef.current = anchorable === undefined ? null
             : anchorOf(virtualizer, offset, offset + margin, virtualizer.scrollRect?.height ?? 0, anchorable, margin, runs);
     });
 
