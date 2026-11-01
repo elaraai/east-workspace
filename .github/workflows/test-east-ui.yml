@@ -252,15 +252,15 @@ jobs:
           compression-level: 1
           retention-days: 1
 
-  # These groups, `rest` and the separately sharded e3 renderer group cover
-  # every package once, each over what is built (see libs/east-ui/Makefile).
+  # These groups, `node`, `rest` and the separately sharded e3 renderer group
+  # cover every package once, each over what is built (see libs/east-ui/Makefile).
   test:
     needs: build
     name: test (${{ matrix.group }})
     strategy:
       fail-fast: false
       matrix:
-        group: [components, ir, node, showcase]
+        group: [components, ir, showcase]
     runs-on: ubuntu-latest
     env:
       NODE_OPTIONS: --max-old-space-size=4096
@@ -290,6 +290,41 @@ jobs:
       - name: Run tests
         working-directory: libs/east-ui
         run: make test-group GROUP=${{ matrix.group }}
+
+  # The e3 renderers' Node specs read the checked build: one holds the
+  # renderers' declarations to what they export (test/flowchart-moved.spec.ts).
+  node:
+    needs: checked
+    name: test (node)
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: east-ui-checked
+          path: ${{ runner.temp }}
+
+      - name: Restore compiled workspaces
+        run: tar -xf "$RUNNER_TEMP/east-ui-checked.tar"
+
+      - name: Run tests
+        working-directory: libs/east-ui
+        run: make test-group GROUP=node
 
   # `rest` holds the CLI's specs, and builds their integration runners. It
   # reads the checked build: the CLI compiles against the renderers'
