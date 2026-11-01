@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 
 import { apiTestSuites } from '@elaraai/e3-api-tests';
 
-import { COMPLIANCE_PARTS, compliancePart, registerSuites } from './compliance-parts.js';
+import { COMPLIANCE_PART, COMPLIANCE_PARTS, compliancePart, registerSuites } from './compliance-parts.js';
 
 describe('API compliance, in parts', () => {
   it('runs every suite of apiTestSuites in one part', () => {
@@ -24,6 +24,8 @@ describe('API compliance, in parts', () => {
   });
 });
 
-compliancePart('API compliance: repositories, packages, workspaces, datasets and functions', { givenFetch: true }, ({ setup }) => {
-  registerSuites(COMPLIANCE_PARTS.rest, setup);
+describe('API compliance: repositories, packages, workspaces, datasets and functions', COMPLIANCE_PART, () => {
+  compliancePart({ givenFetch: true }, ({ setup }) => {
+    registerSuites(COMPLIANCE_PARTS.rest, setup);
+  });
 });

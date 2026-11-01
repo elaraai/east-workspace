@@ -23,9 +23,14 @@
  * go through the given one fails, and is named when the part ends even if
  * what made it swallowed the refusal. The CLI part runs through the global
  * `fetch`, as its child processes must.
+ *
+ * A spec file declares its part's `describe` itself, with {@link COMPLIANCE_PART}'s
+ * options, and calls {@link compliancePart} in it: the test runner names a test
+ * by the file that declared it, and CI splits the integration specs by the times
+ * their files took (#1466).
  */
 
-import { describe, it, before, after } from 'node:test';
+import { it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { apiTestSuites, createTestContext, type TestSetup, type TestContext } from '@elaraai/e3-api-tests';
@@ -62,13 +67,21 @@ export interface ComplianceHarness {
 }
 
 /**
- * Runs one part of the API compliance suites against a server of its own.
+ * A part's `describe` options. A part takes under three minutes on a slow
+ * Windows runner: the limit leaves a runner twice as slow again more than room.
+ * Its suites run one at a time.
+ */
+export const COMPLIANCE_PART = { timeout: 600_000, concurrency: false } as const;
+
+/**
+ * Runs one part of the API compliance suites against a server of its own:
+ * called in the part's `describe`, which its spec file declares with
+ * {@link COMPLIANCE_PART}'s options.
  *
- * @param title - The part's title
  * @param options - How the part's requests reach the server
  * @param register - Registers the part's suites
  */
-export function compliancePart(title: string, options: CompliancePartOptions, register: (harness: ComplianceHarness) => void): void {
+export function compliancePart(options: CompliancePartOptions, register: (harness: ComplianceHarness) => void): void {
   // One server for the part: started by the part's `before` hook, and awaited
   // by every test's setup
   let server: ComplianceServer | undefined;
@@ -105,40 +118,36 @@ export function compliancePart(title: string, options: CompliancePartOptions, re
     E3_AUTH_AUTO_APPROVE: 'true',
   });
 
-  // A part takes under three minutes on a slow Windows runner: the limit
-  // leaves a runner twice as slow again more than room.
-  void describe(title, { timeout: 600_000, concurrency: false }, () => {
-    // node:test charges asynchronous activity to the test or hook whose async
-    // context created it, and everything the server does descends from its
-    // start: started here, what a request leaves running is reported against
-    // this hook rather than against whichever test happened to run first.
-    before(async () => {
-      await getServer();
-      if (!options.givenFetch) return;
-      globalThis.fetch = ((input: string | URL | Request) => {
-        const url = input instanceof Request ? input.url : String(input);
-        escaped.push(url);
-        return Promise.reject(new Error(`a request went to the global fetch rather than the one the harness gives: ${url}`));
-      }) as typeof globalThis.fetch;
-    });
-
-    after(async () => {
-      globalThis.fetch = networkFetch;
-      await server?.stop();
-    });
-
-    register({ setup, credentialsEnv });
-
-    // Last, once every test before it has cleaned up: a request whose refusal
-    // what made it swallowed — a cleanup's — is named here. A failing `after`
-    // hook would say so and leave the run passing.
-    if (options.givenFetch) {
-      void it('sent every request through the given fetch', () => {
-        assert.deepEqual(escaped, [], 'every request goes through the given fetch');
-        assert.ok(forwarded > 0, 'the suites\' requests went through the given fetch');
-      });
-    }
+  // node:test charges asynchronous activity to the test or hook whose async
+  // context created it, and everything the server does descends from its
+  // start: started here, what a request leaves running is reported against
+  // this hook rather than against whichever test happened to run first.
+  before(async () => {
+    await getServer();
+    if (!options.givenFetch) return;
+    globalThis.fetch = ((input: string | URL | Request) => {
+      const url = input instanceof Request ? input.url : String(input);
+      escaped.push(url);
+      return Promise.reject(new Error(`a request went to the global fetch rather than the one the harness gives: ${url}`));
+    }) as typeof globalThis.fetch;
   });
+
+  after(async () => {
+    globalThis.fetch = networkFetch;
+    await server?.stop();
+  });
+
+  register({ setup, credentialsEnv });
+
+  // Last, once every test before it has cleaned up: a request whose refusal
+  // what made it swallowed — a cleanup's — is named here. A failing `after`
+  // hook would say so and leave the run passing.
+  if (options.givenFetch) {
+    void it('sent every request through the given fetch', () => {
+      assert.deepEqual(escaped, [], 'every request goes through the given fetch');
+      assert.ok(forwarded > 0, 'the suites\' requests went through the given fetch');
+    });
+  }
 }
 
 /**

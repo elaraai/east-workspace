@@ -9,8 +9,12 @@
  * (`compliance-parts.ts`).
  */
 
-import { COMPLIANCE_PARTS, compliancePart, registerSuites } from './compliance-parts.js';
+import { describe } from 'node:test';
 
-compliancePart('API compliance: dataflow, records and record deploys', { givenFetch: true }, ({ setup }) => {
-  registerSuites(COMPLIANCE_PARTS.dataflow, setup);
+import { COMPLIANCE_PART, COMPLIANCE_PARTS, compliancePart, registerSuites } from './compliance-parts.js';
+
+describe('API compliance: dataflow, records and record deploys', COMPLIANCE_PART, () => {
+  compliancePart({ givenFetch: true }, ({ setup }) => {
+    registerSuites(COMPLIANCE_PARTS.dataflow, setup);
+  });
 });

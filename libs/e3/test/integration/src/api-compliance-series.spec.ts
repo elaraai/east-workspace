@@ -9,8 +9,12 @@
  * e3-api-tests suites against the local server (`compliance-parts.ts`).
  */
 
-import { COMPLIANCE_PARTS, compliancePart, registerSuites } from './compliance-parts.js';
+import { describe } from 'node:test';
 
-compliancePart('API compliance: records by series and by narrowing', { givenFetch: true }, ({ setup }) => {
-  registerSuites(COMPLIANCE_PARTS.series, setup);
+import { COMPLIANCE_PART, COMPLIANCE_PARTS, compliancePart, registerSuites } from './compliance-parts.js';
+
+describe('API compliance: records by series and by narrowing', COMPLIANCE_PART, () => {
+  compliancePart({ givenFetch: true }, ({ setup }) => {
+    registerSuites(COMPLIANCE_PARTS.series, setup);
+  });
 });
