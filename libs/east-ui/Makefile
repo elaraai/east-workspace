@@ -54,8 +54,10 @@ build-checked:
 ## What no test reads, over what `build-checked` built: the showcase
 ## type-checked, and the VS Code extension and its webview built. CI checks them
 ## in a job of its own, and builds the showcase's bundle in another, for the
-## browser shards (#1466).
+## browser shards (#1466). The theme's Chakra types are written first: they live
+## in node_modules, which `build-checked`'s artifact does not carry.
 check-apps:
+	pnpm --filter @elaraai/east-ui-components run chakra:typegen
 	pnpm --filter @elaraai/east-ui-showcase run typecheck
 	pnpm --filter east-ui-preview run build
 
