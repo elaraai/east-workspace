@@ -388,8 +388,8 @@ function defineChecks(theme: "light" | "dark", tag: "@desktop" | "@mobile"): voi
         const readBefore = await cellReads();
         await crowd(page);
         await expect.poll(cellReads).toBeGreaterThan(readBefore);
-        // Every row in view read again: the page at rest waits out each row still reading its cells.
-        await settled(page);
+        // Every row in view read again: the page at rest once none is still reading its cells.
+        await settled(page, { reading: true });
         // Hatched at a week: every works row in view shades, each at its place and its height.
         for (const id of Object.keys(before.rows)) {
             const row = entry.locator(`[${narrow ? "data-plan-card" : "data-plan-row"}=${JSON.stringify(id)}]`);

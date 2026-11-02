@@ -32,6 +32,13 @@ export interface SettleOptions {
      * the page is at rest once all else is — its cold loads over among them.
      */
     readonly holding?: boolean;
+    /**
+     * Waits out every Plan row or card in sight still reading its cells: what
+     * a spec that moved the data under a Plan reads next. Not by default — a
+     * Plan may leave rows it has not been asked to read unread for good (a key
+     * search's suggestions not yet loaded).
+     */
+    readonly reading?: boolean;
 }
 
 /**
@@ -39,18 +46,19 @@ export interface SettleOptions {
  * still starting at most, and whether every virtualized row (the doc list's
  * entries and any example's own) and the document's width held still.
  */
-function sample(page: Page, holding: boolean): Promise<{ starting: number; still: boolean }> {
-    return page.evaluate(async (holding) => {
+function sample(page: Page, holding: boolean, reading: boolean): Promise<{ starting: number; still: boolean }> {
+    return page.evaluate(async ({ holding, reading }) => {
         const frames = () => new Promise<void>((resolve) =>
             requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
         const layout = () => {
             const doc = document.scrollingElement ?? document.documentElement;
             // An example draws once its East has compiled, or failed to; an e3
             // example once e3 has started, or failed to; a builder once its
-            // cold load is over and no read keeps its main busy (#1398), nor a
-            // Plan's row or card it shows reading its cells — unless the spec
-            // holds that read on purpose.
-            const busy = holding ? "" : ', [data-builder-frame] [data-frame-slot="main"][aria-busy="true"], [data-plan-plot][data-plan-unread], [data-plan-cardbody][data-plan-unread]';
+            // cold load is over and no read keeps its main busy (#1398) —
+            // unless the spec holds that read on purpose — and, asked for, a
+            // Plan's rows and cards once none is reading its cells.
+            const busy = (holding ? "" : ', [data-builder-frame] [data-frame-slot="main"][aria-busy="true"]')
+                + (reading ? ", [data-plan-plot][data-plan-unread], [data-plan-cardbody][data-plan-unread]" : "");
             const waiting = document.querySelectorAll(`[data-east-compiling], [data-e3-start="starting"], [data-builder-loading]${busy}`).length
                 + [...document.querySelectorAll("[data-example-deferred]")].filter(el => {
                     const box = el.getBoundingClientRect();
@@ -73,7 +81,7 @@ function sample(page: Page, holding: boolean): Promise<{ starting: number; still
             starting: Math.max(first.waiting, second.waiting, third.waiting),
             still: first.at === second.at && second.at === third.at,
         };
-    }, holding);
+    }, { holding, reading });
 }
 
 /**
@@ -101,9 +109,9 @@ function panesStill(page: Page): Promise<boolean> {
  * Resolves once the page has stopped laying itself out: the webfonts are
  * loaded, no example is still compiling its East behind its skeleton, no e3
  * example is waiting for the e3 the page runs to start (#849), no builder is
- * still loading or busy reading what it shows (its main `aria-busy`, or a
- * Plan's row reading its cells, unless the spec holds that read:
- * {@link SettleOptions}), visible deferred
+ * still loading or busy reading what it shows (its main `aria-busy`, unless
+ * the spec holds that read — and, asked for, a Plan's rows reading their
+ * cells: {@link SettleOptions}), visible deferred
  * previews have started, every virtualized row and the document's width
  * hold still across two frames, and then two more, and no builder's pane is
  * still sliding.
@@ -117,17 +125,18 @@ function panesStill(page: Page): Promise<boolean> {
  */
 export async function settled(page: Page, options: SettleOptions = {}): Promise<void> {
     const holding = options.holding === true;
+    const reading = options.reading === true;
     await page.evaluate(() => document.fonts.ready.then(() => undefined));
     let last = { starting: 0, still: false };
-    await expect.poll(async () => (last = await sample(page, holding)).starting, {
+    await expect.poll(async () => (last = await sample(page, holding, reading)).starting, {
         message: "an example kept compiling, or its e3 or builder loading",
         timeout: STARTING_MS,
     }).toBe(0);
     // A pane still sliding is waited for, and the page read again once it has stopped: main takes its last width as it does.
-    if (await panesStill(page)) last = await sample(page, holding);
+    if (await panesStill(page)) last = await sample(page, holding, reading);
     if (last.still && last.starting === 0) return;
     await expect.poll(async () => {
-        const { starting, still } = await sample(page, holding);
+        const { starting, still } = await sample(page, holding, reading);
         return starting === 0 && still;
     }, {
         message: "the page kept laying itself out, or an example kept compiling or its e3 or builder loading",
