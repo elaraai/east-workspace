@@ -17,7 +17,8 @@
  * `pnpm exec playwright test library-gallery-geometry --project desktop`.
  */
 
-import { test, expect, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { settled } from "./settle";
 
 /** A box, relative to the gallery's first grid. */

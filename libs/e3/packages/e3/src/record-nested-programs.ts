@@ -61,12 +61,13 @@ import {
 import { fieldReader } from './record-keys.js';
 import { patchTypeOf } from './record-patches.js';
 import {
-  RECORD_TILES, TileFilingType, TileShareType, TileStepFnType, checkTile, placedFilingsOver, placedSharesOver, tileNext, tileStart,
+  RECORD_TILES, TILE_FNS, TileFilingType, TileShareType, TileStepFnType, checkTile,
   type RecordTile,
 } from './record-tiles.js';
 import { summaryMerge } from './record-series.js';
 import type { RecordDef, RecordIndexDef } from './types.js';
 import type { FunctionRunner } from './runner.js';
+import { lazyBuilds } from './lazy-build.js';
 
 // ── Fixed shapes ──────────────────────────────────────────────────────────────
 
@@ -98,86 +99,8 @@ function nodeAtOf(node: EastType) {
   return East.function([KeysType, OptionType(NodeKeyType), node], type, (_$, path, parent, at) => ({ path, parent, node: at }));
 }
 
-/** `(keys) → Path`: a node's keys as a key holds them (e3-types' `RecordNestedPathType`), folded from the last. */
-const pathOf = East.function([KeysType], RecordNestedPathType, ($, keys) => {
-  const end = $.const(variant('end', null), RecordNestedPathType);
-  return keys.reverse().reduce((_$, rest, key) => variant('step', { key, rest }), end);
-});
-
-/** `(path) → keys`: a node's keys out of a key's path, from the row down — the inverse of {@link pathOf}. */
-const keysOf = East.function([RecordNestedPathType], KeysType, ($, path) => {
-  const keys = $.let([], KeysType);
-  const at = $.let(path);
-  $.while(true, ($2, label) => {
-    $2.match(at.unwrap(), {
-      step: ($3, step) => {
-        $3(keys.pushLast(step.key));
-        $3.assign(at, step.rest);
-      },
-      end: ($3) => {
-        $3.break(label);
-      },
-    });
-  });
-  return keys;
-});
-
 /** No totals: a tile's before any item touches it. */
 const NO_TOTALS = { count: 0n, ms: 0n, values: none };
-
-/** `(shares) → Dict<tile, Totals>`: items' totals in each summary tile they touch — how many, and the milliseconds they cover. */
-const sharedTotals = East.function([ArrayType(TileShareType)], DictType(DateTimeType, RecordNestedTotalsType), (_$, shares) =>
-  shares.groupReduce(
-    (_$, share) => share.tile,
-    ($) => $.const(NO_TOTALS, RecordNestedTotalsType),
-    (_$, totals, share) => ({ count: totals.count.add(1n), ms: totals.ms.add(share.ms), values: totals.values }),
-  ));
-
-/**
- * `(instants, level, startOf) → Dict<tile, Totals>`: values' totals in each
- * summary tile, an instant covering none of it: how many.
- */
-const instantTotals = East.function(
-  [SetType(DateTimeType), RecordLevelType, TileStepFnType], DictType(DateTimeType, RecordNestedTotalsType),
-  (_$, instants, level, startOf) => instants.groupReduce(
-    (_$, at) => startOf(level, at),
-    ($) => $.const(NO_TOTALS, RecordNestedTotalsType),
-    (_$, totals) => ({ count: totals.count.add(1n), ms: totals.ms, values: totals.values }),
-  ),
-);
-
-/**
- * `(values, level, startOf) → Dict<tile, Totals>`: Float values' totals in
- * each summary tile — how many, and their sum, the least, the greatest and the
- * value at the latest instant, taken in key order, so every runtime adds them
- * alike.
- */
-const valueTotals = East.function(
-  [DictType(DateTimeType, FloatType), RecordLevelType, TileStepFnType], DictType(DateTimeType, RecordNestedTotalsType),
-  (_$, values, level, startOf) => values.groupReduce(
-    (_$, _value, at) => startOf(level, at),
-    ($) => $.const(NO_TOTALS, RecordNestedTotalsType),
-    (_$, totals, value) => ({
-      count: totals.count.add(1n),
-      ms: totals.ms,
-      values: some(totals.values.match({
-        none: () => ({ sum: value, min: value, max: value, last: value }),
-        some: (_$, was) => ({ sum: was.sum.add(value), min: East.min(was.min, value), max: East.max(was.max, value), last: value }),
-      })),
-    }),
-  ),
-);
-
-/** `(Dict<DateTime, Integer>) → Dict<DateTime, Float>`: Integer values as their totals and subtotals take them. */
-const integersAsFloats = East.function([DictType(DateTimeType, IntegerType)], DictType(DateTimeType, FloatType), (_$, values) =>
-  values.map((_$, value) => value.toFloat()));
-
-/** `(Dict<DateTime, Float>) → Dict<DateTime, Float>`: Float values as their totals and subtotals take them. */
-const floatsAsFloats = East.function([DictType(DateTimeType, FloatType)], DictType(DateTimeType, FloatType), (_$, values) => values);
-
-/** `(keys) → Option<keys>`: the keys of the node above, within a walk of a Dict's rows; none for one of its own. */
-const keysAbove = East.function([KeysType], OptionType(KeysType), (_$, keys) =>
-  East.greater(keys.size(), 1n).ifElse(() => some(keys.slice(0n, keys.size().subtract(1n))), () => none));
 
 // ── The tiles totals are worked out at ────────────────────────────────────────
 
@@ -194,41 +117,6 @@ const WithinType = VariantType({ all: NullType, only: SpanType });
 /** The epoch: either end of no tiles' span. */
 const EPOCH = new Date(0);
 
-/** `(tiles, level, nextOf) → Within`: a write's tiles of a level, and their span. */
-const tilesWithin = East.function([SetType(DateTimeType), RecordLevelType, TileStepFnType], WithinType, ($, tiles, level, after) => {
-  const starts = $.let(tiles.toArray((_$, start) => start));
-  $.if(East.equal(starts.size(), 0n), ($) => {
-    $.return(variant('only', { tiles, from: EPOCH, to: EPOCH }));
-  });
-  return variant('only', { tiles, from: starts.get(0n), to: after(level, starts.get(starts.size().subtract(1n))) });
-});
-
-/**
- * `(within, start, end) → Boolean`: whether an item may touch the tiles — any
- * item with a start may touch some tile; of a write's tiles, one that starts
- * before their span ends, and ends, or starts, at or after it begins. An item
- * with no start touches none.
- */
-const reaches = East.function([WithinType, OptionType(DateTimeType), OptionType(DateTimeType)], BooleanType, (_$, within, start, end) =>
-  start.match({
-    none: () => false,
-    some: (_$, from) => within.match({
-      all: () => true,
-      only: (_$, span) => East.less(from, span.to).and(() => East.greaterEqual(East.max(from, end.unwrap('some', () => from)), span.from)),
-    }),
-  }));
-
-/** `(shares, within) → shares`: an item's shares of the tiles totals are worked out at. */
-const sharesWithin = East.function([ArrayType(TileShareType), WithinType], ArrayType(TileShareType), (_$, shares, within) =>
-  within.match({
-    all: () => shares,
-    only: (_$, span) => shares.filter((_$, share) => span.tiles.has(share.tile)),
-  }));
-
-/** `(span, level, at, startOf) → Boolean`: whether a value's instant is in one of a write's tiles. */
-const inSpan = East.function([SpanType, RecordLevelType, DateTimeType, TileStepFnType], BooleanType, (_$, span, level, at, startOf) =>
-  East.greaterEqual(at, span.from).and(() => East.less(at, span.to)).and(() => span.tiles.has(startOf(level, at))));
-
 // ── The tiles subtotals are worked out at ─────────────────────────────────────
 
 /**
@@ -238,30 +126,6 @@ const inSpan = East.function([SpanType, RecordLevelType, DateTimeType, TileStepF
  * the subtotals the write compares.
  */
 const SubtotalTilesType = VariantType({ all: NullType, only: DictType(RecordLevelType, SpanType) });
-
-/** `(instants, levels, startOf, nextOf) → SubtotalTiles`: the tiles of each level some values' instants fall in. */
-const subtotalTiles = East.function(
-  [SetType(DateTimeType), ArrayType(RecordLevelType), TileStepFnType, TileStepFnType], SubtotalTilesType,
-  ($, instants, levels, startOf, nextOf) => {
-    const within = $.const(tilesWithin);
-    return variant('only', levels.toDict(
-      (_$, level) => level,
-      (_$, level) => within(instants.toSet((_$, at) => startOf(level, at)), level, nextOf).unwrap('only'),
-    ));
-  },
-);
-
-/** `(own, level, tiles, startOf) → own`: a node's own values in the tiles of a level its subtotals are worked out at. */
-const valuesAt = East.function(
-  [DictType(DateTimeType, FloatType), RecordLevelType, SubtotalTilesType, TileStepFnType], DictType(DateTimeType, FloatType),
-  ($, own, level, tiles, startOf) => {
-    const kept = $.const(inSpan);
-    return tiles.match({
-      all: () => own,
-      only: (_$, spans) => own.filter((_$, _value, at) => kept(spans.get(level), level, at, startOf)),
-    });
-  },
-);
 
 // ── Parents' subtotals: composed bottom-up ────────────────────────────────────
 
@@ -282,135 +146,6 @@ const FoldedType = StructType({ sum: FloatType, n: IntegerType, min: FloatType, 
 
 /** What a parent's children draw in a tile come to, before a rollup's aggregate picks one. */
 const GatheredType = StructType({ sum: FloatType, n: IntegerType, min: FloatType, max: FloatType });
-
-/** `(own, level, startOf) → Dict<tile, Folded>`: a node's own values a tile of a level at a time, in key order. */
-const foldedTiles = East.function(
-  [DictType(DateTimeType, FloatType), RecordLevelType, TileStepFnType], DictType(DateTimeType, FoldedType),
-  (_$, own, level, startOf) => own.groupReduce(
-    (_$, _value, at) => startOf(level, at),
-    ($) => $.const({ sum: 0.0, n: 0n, min: 0.0, max: 0.0, last: 0.0 }, FoldedType),
-    (_$, folded, value) => ({
-      sum: folded.sum.add(value),
-      n: folded.n.add(1n),
-      min: East.equal(folded.n, 0n).ifElse(() => value, () => East.min(folded.min, value)),
-      max: East.equal(folded.n, 0n).ifElse(() => value, () => East.max(folded.max, value)),
-      last: value,
-    }),
-  ),
-);
-
-/** `(folded, rollup) → Float`: a node's own values in a tile, folded by a rollup's fold. */
-const foldedBy = East.function([FoldedType, RecordRollupType], FloatType, (_$, folded, rollup) =>
-  rollup.fold.match({
-    sum: () => folded.sum,
-    mean: () => folded.sum.divide(folded.n.toFloat()),
-    min: () => folded.min,
-    max: () => folded.max,
-    last: () => folded.last,
-    count: () => folded.n.toFloat(),
-  }));
-
-/**
- * `(folded, rollup) → Float`: what a node holding values draws in a tile by a
- * rollup: its values folded; under a count, one — a leaf row with a value,
- * whatever the value.
- */
-const ownDraw = East.function([FoldedType, RecordRollupType], FloatType, ($, folded, rollup) => {
-  const fold = $.const(foldedBy);
-  return rollup.aggregate.match({ count: () => 1.0 }, () => fold(folded, rollup));
-});
-
-/**
- * `(own, rollups, levels, tiles, startOf) → Dict<DrawKey, Float>`: what a
- * node holding values draws, by each rollup, at each level, in each tile its
- * values touch of those asked for.
- */
-const ownDraws = East.function(
-  [DictType(DateTimeType, FloatType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType, TileStepFnType],
-  DictType(DrawKeyType, FloatType),
-  ($, own, rollups, levels, at, startOf) => {
-    const tiles = $.const(foldedTiles);
-    const within = $.const(valuesAt);
-    const draw = $.const(ownDraw);
-    return levels.flattenToDict((_$, level) => tiles(within(own, level, at, startOf), level, startOf).flattenToDict((_$, folded, tile) =>
-      rollups.toDict((_$, rollup) => ({ rollup, level, tile }), (_$, rollup) => draw(folded, rollup))));
-  },
-);
-
-/**
- * `(children) → Dict<DrawKey, Float>`: what a parent draws, by each rollup, at
- * each level, in each tile one of its children draws in: what they draw there,
- * in key order, by the rollup's aggregate — their sum, mean, least or
- * greatest; under a count, their counts' sum.
- */
-const childDraws = East.function([ArrayType(ComposedType)], DictType(DrawKeyType, FloatType), ($, children) => {
-  const drawn = $.let(children.flatMap((_$, child) => child.draws.toArray((_$, value, key) => ({ key, value }))));
-  const gathered = $.let(drawn.groupReduce(
-    (_$, draw) => draw.key,
-    ($) => $.const({ sum: 0.0, n: 0n, min: 0.0, max: 0.0 }, GatheredType),
-    (_$, all, draw) => ({
-      sum: all.sum.add(draw.value),
-      n: all.n.add(1n),
-      min: East.equal(all.n, 0n).ifElse(() => draw.value, () => East.min(all.min, draw.value)),
-      max: East.equal(all.n, 0n).ifElse(() => draw.value, () => East.max(all.max, draw.value)),
-    }),
-  ));
-  return gathered.map((_$, all, key) => key.rollup.aggregate.match({
-    sum: () => all.sum,
-    mean: () => all.sum.divide(all.n.toFloat()),
-    min: () => all.min,
-    max: () => all.max,
-    count: () => all.sum,
-  }));
-});
-
-/**
- * `(node, children, rollups, levels, tiles, startOf) → Composed`: a node's
- * result, at the tiles asked for. One holding values of its own draws them,
- * and keeps no subtotal; one holding none draws its children's, and keeps what
- * it draws, where it draws, as its subtotals. Either way, it carries every
- * subtotal beneath it on to its parent.
- */
-const composed = East.function(
-  [SubtotalNodeType, ArrayType(ComposedType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType, TileStepFnType],
-  ComposedType,
-  ($, node, children, rollups, levels, tiles, startOf) => {
-    const own = $.const(ownDraws);
-    const gathered = $.const(childDraws);
-    const path = $.const(pathOf);
-    const beneath = $.let(children.flatMap((_$, child) => child.subtotals.toArray((_$, value, key) => ({ key, value })))
-      .toDict((_$, subtotal) => subtotal.key, (_$, subtotal) => subtotal.value));
-    $.if(East.greater(node.own.size(), 0n), ($) => {
-      $.return({ draws: own(node.own, rollups, levels, tiles, startOf), subtotals: beneath });
-    });
-    const draws = $.let(gathered(children));
-    const here = $.let(path(node.key.path));
-    $(beneath.unionInPlace(draws.toDict(
-      (_$, _value, key) => ({ path: here, rollup: key.rollup, level: key.level, tile: key.tile }),
-      (_$, value) => value,
-    )));
-    return { draws, subtotals: beneath };
-  },
-);
-
-/**
- * `(nodes, rollups, levels, tiles, startOf) → Dict<SubtotalKey, Float>`:
- * every parent's subtotals of a collection of values at the tiles asked for,
- * composed bottom-up by `toTree` over the nodes from the row down to the
- * collection, each node's result carried to its parent. A tile no
- * descendant's value touches has none.
- */
-const subtotalsOf = East.function(
-  [ArrayType(SubtotalNodeType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType, TileStepFnType],
-  DictType(SubtotalKeyType, FloatType),
-  ($, nodes, rollups, levels, tiles, startOf) => {
-    const compose = $.const(composed);
-    const roots = $.let(nodes.toTree(ComposedType, (_$, node) => node.key, (_$, node) => node.parent,
-      (_$, node, _i, children) => compose(node, children, rollups, levels, tiles, startOf)));
-    return roots.flatMap((_$, root) => root.subtotals.toArray((_$, value, key) => ({ key, value })))
-      .toDict((_$, subtotal) => subtotal.key, (_$, subtotal) => subtotal.value);
-  },
-);
 
 // ── What a declaration's types make ───────────────────────────────────────────
 
@@ -478,7 +213,7 @@ function chainTo(decl: NestedDeclaration, group: number): readonly NestedGroup[]
  */
 function floatsOf(valueType: EastType, numeric: 'Float' | 'Integer'): FunctionExpr<[EastType], DictType<DateTimeType, FloatType>> {
   return functionAt<[EastType], DictType<DateTimeType, FloatType>>(
-    numeric === 'Integer' ? integersAsFloats : floatsAsFloats, [DictType(DateTimeType, valueType)], DictType(DateTimeType, FloatType));
+    numeric === 'Integer' ? NESTED_FNS.integersAsFloats : NESTED_FNS.floatsAsFloats, [DictType(DateTimeType, valueType)], DictType(DateTimeType, FloatType));
 }
 
 /**
@@ -628,7 +363,7 @@ function groupNodes(decl: NestedDeclaration, rowType: EastType): readonly NodesO
       const up = $.const(above);
       const rows = $.const(rowsOf);
       const beneath = $.const(deeper);
-      const keysOver = $.const(keysAbove);
+      const keysOver = $.const(NESTED_FNS.keysAbove);
       const nodeAt = $.const(make);
       return up(row).flatMap((_$, at) => rows(at.node).flattenTree((_$, node) => beneath(node)).map((_$, entry) => nodeAt(
         at.path.concat(entry.path),
@@ -651,37 +386,37 @@ function WalkType(rowType: EastType, group: NestedGroup) {
 
 // ── A program's kit ───────────────────────────────────────────────────────────
 
-/** `(keys) → Path`: {@link pathOf}'s type. */
+/** `(keys) → Path`: `pathOf`'s type. */
 const PathFnType = FunctionType([KeysType], RecordNestedPathType);
 
-/** `(tile, start, end, what, startOf, nextOf) → Array<TileFiling>`: {@link placedFilingsOver}'s type. */
+/** `(tile, start, end, what, startOf, nextOf) → Array<TileFiling>`: `placedFilingsOver`'s type. */
 const FileFnType = FunctionType(
   [RecordLevelType, OptionType(DateTimeType), OptionType(DateTimeType), StringType, TileStepFnType, TileStepFnType], ArrayType(TileFilingType));
 
-/** `(tile, start, end, what, startOf, nextOf) → Array<TileShare>`: {@link placedSharesOver}'s type. */
+/** `(tile, start, end, what, startOf, nextOf) → Array<TileShare>`: `placedSharesOver`'s type. */
 const ShareFnType = FunctionType(
   [RecordLevelType, OptionType(DateTimeType), OptionType(DateTimeType), StringType, TileStepFnType, TileStepFnType], ArrayType(TileShareType));
 
-/** `(shares) → Dict<tile, Totals>`: {@link sharedTotals}' type. */
+/** `(shares) → Dict<tile, Totals>`: `sharedTotals`' type. */
 const TotalledFnType = FunctionType([ArrayType(TileShareType)], DictType(DateTimeType, RecordNestedTotalsType));
 
-/** `(instants, level, startOf) → Dict<tile, Totals>`: {@link instantTotals}' type. */
+/** `(instants, level, startOf) → Dict<tile, Totals>`: `instantTotals`' type. */
 const CountedFnType = FunctionType([SetType(DateTimeType), RecordLevelType, TileStepFnType], DictType(DateTimeType, RecordNestedTotalsType));
 
-/** `(values, level, startOf) → Dict<tile, Totals>`: {@link valueTotals}' type. */
+/** `(values, level, startOf) → Dict<tile, Totals>`: `valueTotals`' type. */
 const SummedFnType = FunctionType(
   [DictType(DateTimeType, FloatType), RecordLevelType, TileStepFnType], DictType(DateTimeType, RecordNestedTotalsType));
 
-/** `(span, level, at, startOf) → Boolean`: {@link inSpan}'s type. */
+/** `(span, level, at, startOf) → Boolean`: `inSpan`'s type. */
 const KeptFnType = FunctionType([SpanType, RecordLevelType, DateTimeType, TileStepFnType], BooleanType);
 
-/** `(tiles, level, nextOf) → Within`: {@link tilesWithin}'s type. */
+/** `(tiles, level, nextOf) → Within`: `tilesWithin`'s type. */
 const WithinFnType = FunctionType([SetType(DateTimeType), RecordLevelType, TileStepFnType], WithinType);
 
-/** `(instants, levels, startOf, nextOf) → SubtotalTiles`: {@link subtotalTiles}' type. */
+/** `(instants, levels, startOf, nextOf) → SubtotalTiles`: `subtotalTiles`' type. */
 const LevelsWithinFnType = FunctionType([SetType(DateTimeType), ArrayType(RecordLevelType), TileStepFnType, TileStepFnType], SubtotalTilesType);
 
-/** `(nodes, rollups, levels, tiles, startOf) → Dict<SubtotalKey, Float>`: {@link subtotalsOf}' type. */
+/** `(nodes, rollups, levels, tiles, startOf) → Dict<SubtotalKey, Float>`: `subtotalsOf`' type. */
 const SubtotalsFnType = FunctionType(
   [ArrayType(SubtotalNodeType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType, TileStepFnType],
   DictType(SubtotalKeyType, FloatType));
@@ -693,29 +428,29 @@ const SubtotalsFnType = FunctionType(
  * tiles is given the kit's `startOf` and `nextOf` by its caller.
  */
 const KitType = StructType({
-  /** {@link tileStart} */
+  /** `tileStart` */
   startOf: TileStepFnType,
-  /** {@link tileNext} */
+  /** `tileNext` */
   nextOf: TileStepFnType,
-  /** {@link pathOf} */
+  /** `pathOf` */
   path: PathFnType,
-  /** Where an item is filed: {@link placedFilingsOver} */
+  /** Where an item is filed: `placedFilingsOver` */
   file: FileFnType,
-  /** An item's shares of the tiles it touches: {@link placedSharesOver} */
+  /** An item's shares of the tiles it touches: `placedSharesOver` */
   share: ShareFnType,
-  /** {@link sharedTotals} */
+  /** `sharedTotals` */
   totalled: TotalledFnType,
-  /** {@link instantTotals} */
+  /** `instantTotals` */
   counted: CountedFnType,
-  /** {@link valueTotals} */
+  /** `valueTotals` */
   summed: SummedFnType,
-  /** {@link inSpan} */
+  /** `inSpan` */
   kept: KeptFnType,
-  /** {@link tilesWithin} */
+  /** `tilesWithin` */
   within: WithinFnType,
-  /** {@link subtotalTiles} */
+  /** `subtotalTiles` */
   levelsWithin: LevelsWithinFnType,
-  /** {@link subtotalsOf} */
+  /** `subtotalsOf` */
   subtotals: SubtotalsFnType,
 });
 type KitType = typeof KitType;
@@ -723,28 +458,36 @@ type KitType = typeof KitType;
 /** A function of a program's kit only some parts call, by its name: every part calls the tiles' steps and a path's. */
 type KitName = 'file' | 'share' | 'totalled' | 'counted' | 'summed' | 'kept' | 'within' | 'levelsWithin' | 'subtotals';
 
-/** Each function of a kit only some parts call, as they call it. */
-const KIT_CALLED = {
-  file: placedFilingsOver, share: placedSharesOver, totalled: sharedTotals, counted: instantTotals, summed: valueTotals, kept: inSpan,
-  within: tilesWithin, levelsWithin: subtotalTiles, subtotals: subtotalsOf,
-};
+/** Each function of a kit only some parts call, as they call it: each read the first time a kit holds it (#1466). */
+export const KIT_CALLED = lazyBuilds({
+  get file() { return TILE_FNS.placedFilingsOver; },
+  get share() { return TILE_FNS.placedSharesOver; },
+  get totalled() { return NESTED_FNS.sharedTotals; },
+  get counted() { return NESTED_FNS.instantTotals; },
+  get summed() { return NESTED_FNS.valueTotals; },
+  get kept() { return NESTED_FNS.inSpan; },
+  get within() { return NESTED_FNS.tilesWithin; },
+  get levelsWithin() { return NESTED_FNS.subtotalTiles; },
+  get subtotals() { return NESTED_FNS.subtotalsOf; },
+});
 
 /**
  * Each function of a kit only some parts call, as a kit holds it where none of
  * its program's parts calls it: one of its type making nothing, so a program
- * holds only the functions its parts call.
+ * holds only the functions its parts call. Each built the first time a kit
+ * holds it ({@link lazyBuilds}, #1466).
  */
-const KIT_UNCALLED = {
-  file: East.function(FileFnType.inputs, FileFnType.output, () => []),
-  share: East.function(ShareFnType.inputs, ShareFnType.output, () => []),
-  totalled: East.function(TotalledFnType.inputs, TotalledFnType.output, () => new Map()),
-  counted: East.function(CountedFnType.inputs, CountedFnType.output, () => new Map()),
-  summed: East.function(SummedFnType.inputs, SummedFnType.output, () => new Map()),
-  kept: East.function(KeptFnType.inputs, KeptFnType.output, () => false),
-  within: East.function(WithinFnType.inputs, WithinFnType.output, () => variant('all', null)),
-  levelsWithin: East.function(LevelsWithinFnType.inputs, LevelsWithinFnType.output, () => variant('all', null)),
-  subtotals: East.function(SubtotalsFnType.inputs, SubtotalsFnType.output, () => new Map()),
-};
+export const KIT_UNCALLED = lazyBuilds({
+  get file() { return East.function(FileFnType.inputs, FileFnType.output, () => []); },
+  get share() { return East.function(ShareFnType.inputs, ShareFnType.output, () => []); },
+  get totalled() { return East.function(TotalledFnType.inputs, TotalledFnType.output, () => new Map()); },
+  get counted() { return East.function(CountedFnType.inputs, CountedFnType.output, () => new Map()); },
+  get summed() { return East.function(SummedFnType.inputs, SummedFnType.output, () => new Map()); },
+  get kept() { return East.function(KeptFnType.inputs, KeptFnType.output, () => false); },
+  get within() { return East.function(WithinFnType.inputs, WithinFnType.output, () => variant('all', null)); },
+  get levelsWithin() { return East.function(LevelsWithinFnType.inputs, LevelsWithinFnType.output, () => variant('all', null)); },
+  get subtotals() { return East.function(SubtotalsFnType.inputs, SubtotalsFnType.output, () => new Map()); },
+});
 
 /**
  * A program's kit ({@link KitType}): `() → Kit`, each function its parts call
@@ -756,9 +499,9 @@ const KIT_UNCALLED = {
  */
 function programKit(calls: ReadonlySet<KitName>): CallableFunctionExpr<[], KitType> {
   const kit = {
-    startOf: tileStart,
-    nextOf: tileNext,
-    path: pathOf,
+    startOf: TILE_FNS.tileStart,
+    nextOf: TILE_FNS.tileNext,
+    path: NESTED_FNS.pathOf,
     file: calls.has('file') ? KIT_CALLED.file : KIT_UNCALLED.file,
     share: calls.has('share') ? KIT_CALLED.share : KIT_UNCALLED.share,
     totalled: calls.has('totalled') ? KIT_CALLED.totalled : KIT_UNCALLED.totalled,
@@ -1336,8 +1079,8 @@ function itemShares(decl: NestedDeclaration, types: NestedTypes, collection: Nes
     const held = $.const(holding);
     const begins = $.const(readStart);
     const ends = $.const(readEnd);
-    const may = $.const(reaches);
-    const kept = $.const(sharesWithin);
+    const may = $.const(NESTED_FNS.reaches);
+    const kept = $.const(NESTED_FNS.sharesWithin);
     return nodes(row).map((_$, node) => ({
       path: node.path,
       shares: held(node.node).flattenToArray(($, item, id) => {
@@ -1479,8 +1222,8 @@ function valueEntries(decl: NestedDeclaration, types: NestedTypes, collection: N
 
 /**
  * A node's values' totals in each tile of a level: `(values, level, Kit) →
- * Dict<tile, Totals>` — numbers' carry their values ({@link valueTotals});
- * any other's count them ({@link instantTotals}).
+ * Dict<tile, Totals>` — numbers' carry their values (`valueTotals`);
+ * any other's count them (`instantTotals`).
  */
 function valuesTotalled(collection: NestedValues) {
   const valuesType = DictType(DateTimeType, collection.valueType);
@@ -1597,7 +1340,7 @@ function valuesGathered(decl: NestedDeclaration, types: NestedTypes, collection:
   });
 }
 
-/** A collection of values rolled up, every parent's subtotals at the tiles asked for ({@link SubtotalEntries}), composed bottom-up ({@link subtotalsOf}). */
+/** A collection of values rolled up, every parent's subtotals at the tiles asked for ({@link SubtotalEntries}), composed bottom-up (`subtotalsOf`). */
 function valueSubtotals(types: NestedTypes, collection: NestedValues): SubtotalEntries {
   const { keyType, entryKey, entryValue, entries, levels } = types;
   return East.function([keyType, ArrayType(SubtotalNodeType), SubtotalTilesType, KitType], entries, ($, key, nodes, tiles, kit) => {
@@ -2043,7 +1786,7 @@ function collectionFill(decl: NestedDeclaration, collection: NestedCollection, e
     ? East.function([entry], StringType, (_$, filed) => East.field(East.field(filed, 'ik'), 'item', RecordNestedItemType).unwrap('id'))
     : East.function([entry], DateTimeType, (_$, filed) => East.field(East.field(filed, 'ik'), 'item', RecordNestedItemType).unwrap('at'));
   return East.function([KeysType, byPlace], filled, ($, keys, entries) => {
-    const path = $.const(pathOf);
+    const path = $.const(NESTED_FNS.pathOf);
     const itemFrom = $.const(item);
     const key = $.const(keyOf);
     const here = $.let({ collection: path(East.value([...collection.place], KeysType)), path: path(keys) }, NodePlaceType);
@@ -2071,7 +1814,7 @@ function filledType(collection: NestedCollection): EastType {
  */
 function fillingEntry(entry: StructType<{ ik: EastType; value: EastType }>) {
   return East.function([entry], OptionType(entry), ($, filed) => {
-    const keys = $.const(keysOf);
+    const keys = $.const(NESTED_FNS.keysOf);
     const ik = $.let(filed.ik);
     return East.field(ik, 'run', RecordNestedRunType).match({
       items: () => some(filed),
@@ -2157,7 +1900,7 @@ export function nestedFill(decl: NestedDeclaration, keyType: EastType, rowType: 
       const beneath = $.const(deeper);
       const fill = $.const(own);
       const hold = $.const(holding);
-      const above = $.const(keysAbove);
+      const above = $.const(NESTED_FNS.keysAbove);
       const roots = $.let(rows.flattenTree((_$, node) => beneath(node)).toTree(
         keyed,
         (_$, at) => at.path,
@@ -2234,7 +1977,7 @@ export function nestedLean(decl: NestedDeclaration, keyType: EastType, rowType: 
       const beneath = $.const(deeper);
       const lean = $.const(own);
       const hold = $.const(holding);
-      const above = $.const(keysAbove);
+      const above = $.const(NESTED_FNS.keysAbove);
       const roots = $.let(rows.flattenTree((_$, node) => beneath(node)).toTree(
         keyed,
         (_$, entry) => entry.path,
@@ -2319,3 +2062,300 @@ export function nestedDefinition(
   };
   return def;
 }
+
+// ── The functions, each built the first time it is read ──────────────────────
+
+/**
+ * A nested series index's shared East functions, each built the first time it
+ * is read, with no location captured ({@link lazyBuilds}, #1466): importing
+ * the SDK builds none of them.
+ */
+export const NESTED_FNS = lazyBuilds({
+  /** `(keys) → Path`: a node's keys as a key holds them (e3-types' `RecordNestedPathType`), folded from the last. */
+  get pathOf() {
+    return East.function([KeysType], RecordNestedPathType, ($, keys) => {
+      const end = $.const(variant('end', null), RecordNestedPathType);
+      return keys.reverse().reduce((_$, rest, key) => variant('step', { key, rest }), end);
+    });
+  },
+  /** `(path) → keys`: a node's keys out of a key's path, from the row down — the inverse of `pathOf`. */
+  get keysOf() {
+    return East.function([RecordNestedPathType], KeysType, ($, path) => {
+      const keys = $.let([], KeysType);
+      const at = $.let(path);
+      $.while(true, ($2, label) => {
+        $2.match(at.unwrap(), {
+          step: ($3, step) => {
+            $3(keys.pushLast(step.key));
+            $3.assign(at, step.rest);
+          },
+          end: ($3) => {
+            $3.break(label);
+          },
+        });
+      });
+      return keys;
+    });
+  },
+  /** `(shares) → Dict<tile, Totals>`: items' totals in each summary tile they touch — how many, and the milliseconds they cover. */
+  get sharedTotals() {
+    return East.function([ArrayType(TileShareType)], DictType(DateTimeType, RecordNestedTotalsType), (_$, shares) =>
+      shares.groupReduce(
+        (_$, share) => share.tile,
+        ($) => $.const(NO_TOTALS, RecordNestedTotalsType),
+        (_$, totals, share) => ({ count: totals.count.add(1n), ms: totals.ms.add(share.ms), values: totals.values }),
+      ));
+  },
+  /**
+   * `(instants, level, startOf) → Dict<tile, Totals>`: values' totals in each
+   * summary tile, an instant covering none of it: how many.
+   */
+  get instantTotals() {
+    return East.function(
+      [SetType(DateTimeType), RecordLevelType, TileStepFnType], DictType(DateTimeType, RecordNestedTotalsType),
+      (_$, instants, level, startOf) => instants.groupReduce(
+        (_$, at) => startOf(level, at),
+        ($) => $.const(NO_TOTALS, RecordNestedTotalsType),
+        (_$, totals) => ({ count: totals.count.add(1n), ms: totals.ms, values: totals.values }),
+      ),
+    );
+  },
+  /**
+   * `(values, level, startOf) → Dict<tile, Totals>`: Float values' totals in
+   * each summary tile — how many, and their sum, the least, the greatest and the
+   * value at the latest instant, taken in key order, so every runtime adds them
+   * alike.
+   */
+  get valueTotals() {
+    return East.function(
+      [DictType(DateTimeType, FloatType), RecordLevelType, TileStepFnType], DictType(DateTimeType, RecordNestedTotalsType),
+      (_$, values, level, startOf) => values.groupReduce(
+        (_$, _value, at) => startOf(level, at),
+        ($) => $.const(NO_TOTALS, RecordNestedTotalsType),
+        (_$, totals, value) => ({
+          count: totals.count.add(1n),
+          ms: totals.ms,
+          values: some(totals.values.match({
+            none: () => ({ sum: value, min: value, max: value, last: value }),
+            some: (_$, was) => ({ sum: was.sum.add(value), min: East.min(was.min, value), max: East.max(was.max, value), last: value }),
+          })),
+        }),
+      ),
+    );
+  },
+  /** `(Dict<DateTime, Integer>) → Dict<DateTime, Float>`: Integer values as their totals and subtotals take them. */
+  get integersAsFloats() {
+    return East.function([DictType(DateTimeType, IntegerType)], DictType(DateTimeType, FloatType), (_$, values) =>
+      values.map((_$, value) => value.toFloat()));
+  },
+  /** `(Dict<DateTime, Float>) → Dict<DateTime, Float>`: Float values as their totals and subtotals take them. */
+  get floatsAsFloats() {
+    return East.function([DictType(DateTimeType, FloatType)], DictType(DateTimeType, FloatType), (_$, values) => values);
+  },
+  /** `(keys) → Option<keys>`: the keys of the node above, within a walk of a Dict's rows; none for one of its own. */
+  get keysAbove() {
+    return East.function([KeysType], OptionType(KeysType), (_$, keys) =>
+      East.greater(keys.size(), 1n).ifElse(() => some(keys.slice(0n, keys.size().subtract(1n))), () => none));
+  },
+  /** `(tiles, level, nextOf) → Within`: a write's tiles of a level, and their span. */
+  get tilesWithin() {
+    return East.function([SetType(DateTimeType), RecordLevelType, TileStepFnType], WithinType, ($, tiles, level, after) => {
+      const starts = $.let(tiles.toArray((_$, start) => start));
+      $.if(East.equal(starts.size(), 0n), ($) => {
+        $.return(variant('only', { tiles, from: EPOCH, to: EPOCH }));
+      });
+      return variant('only', { tiles, from: starts.get(0n), to: after(level, starts.get(starts.size().subtract(1n))) });
+    });
+  },
+  /**
+   * `(within, start, end) → Boolean`: whether an item may touch the tiles — any
+   * item with a start may touch some tile; of a write's tiles, one that starts
+   * before their span ends, and ends, or starts, at or after it begins. An item
+   * with no start touches none.
+   */
+  get reaches() {
+    return East.function([WithinType, OptionType(DateTimeType), OptionType(DateTimeType)], BooleanType, (_$, within, start, end) =>
+      start.match({
+        none: () => false,
+        some: (_$, from) => within.match({
+          all: () => true,
+          only: (_$, span) => East.less(from, span.to).and(() => East.greaterEqual(East.max(from, end.unwrap('some', () => from)), span.from)),
+        }),
+      }));
+  },
+  /** `(shares, within) → shares`: an item's shares of the tiles totals are worked out at. */
+  get sharesWithin() {
+    return East.function([ArrayType(TileShareType), WithinType], ArrayType(TileShareType), (_$, shares, within) =>
+      within.match({
+        all: () => shares,
+        only: (_$, span) => shares.filter((_$, share) => span.tiles.has(share.tile)),
+      }));
+  },
+  /** `(span, level, at, startOf) → Boolean`: whether a value's instant is in one of a write's tiles. */
+  get inSpan() {
+    return East.function([SpanType, RecordLevelType, DateTimeType, TileStepFnType], BooleanType, (_$, span, level, at, startOf) =>
+      East.greaterEqual(at, span.from).and(() => East.less(at, span.to)).and(() => span.tiles.has(startOf(level, at))));
+  },
+  /** `(instants, levels, startOf, nextOf) → SubtotalTiles`: the tiles of each level some values' instants fall in. */
+  get subtotalTiles() {
+    return East.function(
+      [SetType(DateTimeType), ArrayType(RecordLevelType), TileStepFnType, TileStepFnType], SubtotalTilesType,
+      ($, instants, levels, startOf, nextOf) => {
+        const within = $.const(NESTED_FNS.tilesWithin);
+        return variant('only', levels.toDict(
+          (_$, level) => level,
+          (_$, level) => within(instants.toSet((_$, at) => startOf(level, at)), level, nextOf).unwrap('only'),
+        ));
+      },
+    );
+  },
+  /** `(own, level, tiles, startOf) → own`: a node's own values in the tiles of a level its subtotals are worked out at. */
+  get valuesAt() {
+    return East.function(
+      [DictType(DateTimeType, FloatType), RecordLevelType, SubtotalTilesType, TileStepFnType], DictType(DateTimeType, FloatType),
+      ($, own, level, tiles, startOf) => {
+        const kept = $.const(NESTED_FNS.inSpan);
+        return tiles.match({
+          all: () => own,
+          only: (_$, spans) => own.filter((_$, _value, at) => kept(spans.get(level), level, at, startOf)),
+        });
+      },
+    );
+  },
+  /** `(own, level, startOf) → Dict<tile, Folded>`: a node's own values a tile of a level at a time, in key order. */
+  get foldedTiles() {
+    return East.function(
+      [DictType(DateTimeType, FloatType), RecordLevelType, TileStepFnType], DictType(DateTimeType, FoldedType),
+      (_$, own, level, startOf) => own.groupReduce(
+        (_$, _value, at) => startOf(level, at),
+        ($) => $.const({ sum: 0.0, n: 0n, min: 0.0, max: 0.0, last: 0.0 }, FoldedType),
+        (_$, folded, value) => ({
+          sum: folded.sum.add(value),
+          n: folded.n.add(1n),
+          min: East.equal(folded.n, 0n).ifElse(() => value, () => East.min(folded.min, value)),
+          max: East.equal(folded.n, 0n).ifElse(() => value, () => East.max(folded.max, value)),
+          last: value,
+        }),
+      ),
+    );
+  },
+  /** `(folded, rollup) → Float`: a node's own values in a tile, folded by a rollup's fold. */
+  get foldedBy() {
+    return East.function([FoldedType, RecordRollupType], FloatType, (_$, folded, rollup) =>
+      rollup.fold.match({
+        sum: () => folded.sum,
+        mean: () => folded.sum.divide(folded.n.toFloat()),
+        min: () => folded.min,
+        max: () => folded.max,
+        last: () => folded.last,
+        count: () => folded.n.toFloat(),
+      }));
+  },
+  /**
+   * `(folded, rollup) → Float`: what a node holding values draws in a tile by a
+   * rollup: its values folded; under a count, one — a leaf row with a value,
+   * whatever the value.
+   */
+  get ownDraw() {
+    return East.function([FoldedType, RecordRollupType], FloatType, ($, folded, rollup) => {
+      const fold = $.const(NESTED_FNS.foldedBy);
+      return rollup.aggregate.match({ count: () => 1.0 }, () => fold(folded, rollup));
+    });
+  },
+  /**
+   * `(own, rollups, levels, tiles, startOf) → Dict<DrawKey, Float>`: what a
+   * node holding values draws, by each rollup, at each level, in each tile its
+   * values touch of those asked for.
+   */
+  get ownDraws() {
+    return East.function(
+      [DictType(DateTimeType, FloatType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType, TileStepFnType],
+      DictType(DrawKeyType, FloatType),
+      ($, own, rollups, levels, at, startOf) => {
+        const tiles = $.const(NESTED_FNS.foldedTiles);
+        const within = $.const(NESTED_FNS.valuesAt);
+        const draw = $.const(NESTED_FNS.ownDraw);
+        return levels.flattenToDict((_$, level) => tiles(within(own, level, at, startOf), level, startOf).flattenToDict((_$, folded, tile) =>
+          rollups.toDict((_$, rollup) => ({ rollup, level, tile }), (_$, rollup) => draw(folded, rollup))));
+      },
+    );
+  },
+  /**
+   * `(children) → Dict<DrawKey, Float>`: what a parent draws, by each rollup, at
+   * each level, in each tile one of its children draws in: what they draw there,
+   * in key order, by the rollup's aggregate — their sum, mean, least or
+   * greatest; under a count, their counts' sum.
+   */
+  get childDraws() {
+    return East.function([ArrayType(ComposedType)], DictType(DrawKeyType, FloatType), ($, children) => {
+      const drawn = $.let(children.flatMap((_$, child) => child.draws.toArray((_$, value, key) => ({ key, value }))));
+      const gathered = $.let(drawn.groupReduce(
+        (_$, draw) => draw.key,
+        ($) => $.const({ sum: 0.0, n: 0n, min: 0.0, max: 0.0 }, GatheredType),
+        (_$, all, draw) => ({
+          sum: all.sum.add(draw.value),
+          n: all.n.add(1n),
+          min: East.equal(all.n, 0n).ifElse(() => draw.value, () => East.min(all.min, draw.value)),
+          max: East.equal(all.n, 0n).ifElse(() => draw.value, () => East.max(all.max, draw.value)),
+        }),
+      ));
+      return gathered.map((_$, all, key) => key.rollup.aggregate.match({
+        sum: () => all.sum,
+        mean: () => all.sum.divide(all.n.toFloat()),
+        min: () => all.min,
+        max: () => all.max,
+        count: () => all.sum,
+      }));
+    });
+  },
+  /**
+   * `(node, children, rollups, levels, tiles, startOf) → Composed`: a node's
+   * result, at the tiles asked for. One holding values of its own draws them,
+   * and keeps no subtotal; one holding none draws its children's, and keeps what
+   * it draws, where it draws, as its subtotals. Either way, it carries every
+   * subtotal beneath it on to its parent.
+   */
+  get composed() {
+    return East.function(
+      [SubtotalNodeType, ArrayType(ComposedType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType, TileStepFnType],
+      ComposedType,
+      ($, node, children, rollups, levels, tiles, startOf) => {
+        const own = $.const(NESTED_FNS.ownDraws);
+        const gathered = $.const(NESTED_FNS.childDraws);
+        const path = $.const(NESTED_FNS.pathOf);
+        const beneath = $.let(children.flatMap((_$, child) => child.subtotals.toArray((_$, value, key) => ({ key, value })))
+          .toDict((_$, subtotal) => subtotal.key, (_$, subtotal) => subtotal.value));
+        $.if(East.greater(node.own.size(), 0n), ($) => {
+          $.return({ draws: own(node.own, rollups, levels, tiles, startOf), subtotals: beneath });
+        });
+        const draws = $.let(gathered(children));
+        const here = $.let(path(node.key.path));
+        $(beneath.unionInPlace(draws.toDict(
+          (_$, _value, key) => ({ path: here, rollup: key.rollup, level: key.level, tile: key.tile }),
+          (_$, value) => value,
+        )));
+        return { draws, subtotals: beneath };
+      },
+    );
+  },
+  /**
+   * `(nodes, rollups, levels, tiles, startOf) → Dict<SubtotalKey, Float>`:
+   * every parent's subtotals of a collection of values at the tiles asked for,
+   * composed bottom-up by `toTree` over the nodes from the row down to the
+   * collection, each node's result carried to its parent. A tile no
+   * descendant's value touches has none.
+   */
+  get subtotalsOf() {
+    return East.function(
+      [ArrayType(SubtotalNodeType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType, TileStepFnType],
+      DictType(SubtotalKeyType, FloatType),
+      ($, nodes, rollups, levels, tiles, startOf) => {
+        const compose = $.const(NESTED_FNS.composed);
+        const roots = $.let(nodes.toTree(ComposedType, (_$, node) => node.key, (_$, node) => node.parent,
+          (_$, node, _i, children) => compose(node, children, rollups, levels, tiles, startOf)));
+        return roots.flatMap((_$, root) => root.subtotals.toArray((_$, value, key) => ({ key, value })))
+          .toDict((_$, subtotal) => subtotal.key, (_$, subtotal) => subtotal.value);
+      },
+    );
+  },
+});

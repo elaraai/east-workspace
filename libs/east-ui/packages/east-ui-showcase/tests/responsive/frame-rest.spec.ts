@@ -16,7 +16,8 @@
  * `pnpm exec playwright test frame-rest --project desktop`.
  */
 
-import { test, expect, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { PLAN_EXAMPLES } from "./plan-page";
 import { settled } from "./settle";
 

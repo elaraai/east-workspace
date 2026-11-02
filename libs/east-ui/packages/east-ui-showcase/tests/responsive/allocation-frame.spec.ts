@@ -9,7 +9,8 @@
  * (A2), and the footer — Plan's rail, the layout's legend and the one loading
  * line (A79, #1398), one line at every width — in both themes.
  */
-import { expect, test } from "playwright/test";
+import { expect } from "playwright/test";
+import { test } from "./kept-page";
 import { toolbarFaults } from "./builder-frame";
 import { open, size, token } from "./allocation-page";
 import { settled } from "./settle";

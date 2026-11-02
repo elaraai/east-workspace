@@ -36,6 +36,13 @@
  * ({@link retryShowcaseE3}), which starts it again: a start that failed made
  * no workspace.
  *
+ * On the responsive suite's kept page (#1466), which serves one test after
+ * another, an area's examples read a copy of the workspace made from its
+ * bundle, one for each test ({@link resetShowcaseE3}), never that workspace
+ * itself: what one test writes no later one reads, and a test costs a copy of
+ * each area it shows, never its bundle again. A page a person opens reads the
+ * workspace itself.
+ *
  * The e3 lives as long as the page, and so do the areas' workspaces and the
  * edits staged against them. A page whose address shares its e3 with the
  * other tabs of a set (`?shared`, {@link SHARED_SET}) starts the e3 that keeps
@@ -54,7 +61,7 @@
  */
 
 import { createWebE3, type WebE3 } from "@elaraai/e3-web";
-import { repoCreate, repoList, workspaceBundleImport, workspaceList, type RequestOptions } from "@elaraai/e3-api-client";
+import { repoCreate, repoList, workspaceBundleImport, workspaceCopy, workspaceList, type RequestOptions } from "@elaraai/e3-api-client";
 import { StringType, equalFor } from "@elaraai/east";
 import { pathToString, type TreePath } from "@elaraai/e3-types";
 import {
@@ -80,14 +87,29 @@ export const SHOWCASE_PAGE_REPO: string = SHARED_SET === undefined ? SHOWCASE_RE
 const sameText = equalFor(StringType);
 
 /**
- * The workspace an area's examples read on this page: the area's own, or the
- * one the page's set of shared tabs reads ({@link SHARED_SET}).
+ * Whether the page is the responsive suite's kept page (#1466), which the suite
+ * marks before it loads (`tests/responsive/kept-page.ts`). No page a person
+ * opens is.
+ */
+const KEPT_PAGE = (globalThis as { __showcaseKeptPage?: boolean }).__showcaseKeptPage === true;
+
+/** The kept page's session: what each area's copy is made for ({@link resetShowcaseE3}). */
+let session = 0;
+
+/** The areas whose workspaces the kept page's e3 has made from their bundles, which each session's copies are made from. */
+const made = new Set<string>();
+
+/**
+ * The workspace an area's examples read on this page: the area's own — on the
+ * responsive suite's kept page, the session's copy of it — or the one the
+ * page's set of shared tabs reads ({@link SHARED_SET}).
  *
  * @param area - The area
  * @returns The workspace's name
  */
 export function showcaseE3PageWorkspace(area: string): string {
-    return SHARED_SET === undefined ? showcaseE3Workspace(area) : sharedE3Workspace(area, SHARED_SET, bundleUrl(area) ?? "");
+    if (SHARED_SET !== undefined) return sharedE3Workspace(area, SHARED_SET, bundleUrl(area) ?? "");
+    return KEPT_PAGE ? `${showcaseE3Workspace(area)}-${session}` : showcaseE3Workspace(area);
 }
 
 /** A start's step, alone among the page's set of shared tabs — the first makes what the others find — or at once. */
@@ -209,10 +231,28 @@ let starts: Promise<void> = Promise.resolve();
 
 function boot(area: string): void {
     publish(area, STARTING);
-    starts = starts.then(() => startArea(area).then(
-        (e3) => publish(area, { state: "ready", e3, cache: null }),
-        (err: unknown) => publish(area, { state: "failed", error: err instanceof Error ? err : new Error(String(err)) }),
+    // A start makes the workspace of the session that asked for it, and one that ends in a later session says
+    // nothing: that session starts the area itself.
+    const at = session;
+    const workspace = showcaseE3PageWorkspace(area);
+    starts = starts.then(() => startArea(area, workspace).then(
+        (e3) => { if (session === at) publish(area, { state: "ready", e3, cache: null }); },
+        (err: unknown) => { if (session === at) publish(area, { state: "failed", error: err instanceof Error ? err : new Error(String(err)) }); },
     ));
+}
+
+/**
+ * Begins the kept page's next session, between the tests the responsive suite's
+ * kept page serves (#1466): every area idle again, its next start a
+ * fresh copy of the workspace made from its bundle, and the edits staged
+ * against the last session gone with it, as a fresh page would have them.
+ */
+export function resetShowcaseE3(): void {
+    session++;
+    statuses.clear();
+    shown = undefined;
+    initializeStagedStore(new StagedStore(new MemoryStagedAdapter()));
+    notify();
 }
 
 /**
@@ -321,7 +361,7 @@ async function startPage(): Promise<WebE3> {
     // (`showcase-e3-faults.ts`); a page a person opens has none.
     const e3 = withFaults(await step("start its e3 worker", () => createWebE3(SHARED_SET === undefined
         ? new Worker(new URL("./e3.worker.ts", import.meta.url), { type: "module" })
-        : new Worker(new URL("./e3-shared.worker.ts", import.meta.url), { type: "module" }))), SHOWCASE_PAGE_REPO);
+        : new Worker(new URL("./e3-shared.worker.ts", import.meta.url), { type: "module" }))), SHOWCASE_PAGE_REPO, showcaseE3PageWorkspace);
     try {
         const options: RequestOptions = { token: null, fetch: e3.fetch };
         await alone(async () => {
@@ -343,13 +383,23 @@ async function startPage(): Promise<WebE3> {
  * makes no workspace, so its Retry starts it again whole.
  *
  * @param area - The area
+ * @param workspace - The workspace its examples read ({@link showcaseE3PageWorkspace}), as the start was asked for
  * @returns The e3, the area's workspace made
  * @throws {Error} Naming the step that failed and its cause
  */
-async function startArea(area: string): Promise<WebE3> {
+async function startArea(area: string, workspace: string): Promise<WebE3> {
     const e3 = await pageE3();
     const options: RequestOptions = { token: null, fetch: e3.fetch };
-    const workspace = showcaseE3PageWorkspace(area);
+    if (KEPT_PAGE && SHARED_SET === undefined) {
+        // The suite's kept page: the area's workspace made from its bundle once, and the session's copy of it.
+        if (!made.has(area)) {
+            const bundle = await step("fetch its workspace bundle", () => fetchBundle(area));
+            await step("make its workspace", () => workspaceBundleImport(e3.apiUrl, SHOWCASE_PAGE_REPO, showcaseE3Workspace(area), bundle, options));
+            made.add(area);
+        }
+        await step("copy its workspace for the session", () => workspaceCopy(e3.apiUrl, SHOWCASE_PAGE_REPO, showcaseE3Workspace(area), workspace, options));
+        return e3;
+    }
     await alone(async () => {
         // Shared, a tab of the set may have made it.
         if (SHARED_SET !== undefined && (await step("find its workspace", () => workspaceList(e3.apiUrl, SHOWCASE_PAGE_REPO, options))).some((info) => sameText(info.name, workspace))) return;

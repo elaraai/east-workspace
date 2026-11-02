@@ -13,7 +13,8 @@
  * 1440px to a 294px parent, nothing leaving the frame. And a bin wholly on one
  * kiln split onto a second (#1362), saved to e3 and read back.
  */
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { FILE, open, size, token } from "./allocation-page";
 import { settled } from "./settle";
 

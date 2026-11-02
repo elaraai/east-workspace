@@ -14,6 +14,10 @@
     "./browser": {
       "types": "./dist/src/browser.d.ts",
       "default": "./dist/src/browser.js"
+    },
+    "./internal": {
+      "types": "./dist/src/internal.d.ts",
+      "default": "./dist/src/internal.js"
     }
   },
   "scripts": {

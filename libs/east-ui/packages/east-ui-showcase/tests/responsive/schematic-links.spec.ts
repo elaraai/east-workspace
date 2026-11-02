@@ -16,7 +16,8 @@
  * its ends, a caption's knockout, and the caption's ink and font.
  */
 
-import { test, expect, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { openExample } from "./plan-page";
 import { DATA_CENTRE } from "./schematic-page";
 import { settled } from "./settle";

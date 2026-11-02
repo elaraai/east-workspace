@@ -15,7 +15,8 @@
  * the spec is testing.
  */
 
-import { test, expect } from "playwright/test";
+import { expect } from "playwright/test";
+import { test } from "./kept-page";
 
 const SELECTOR = '[data-testid="code-language"]';
 const PYTHON_BLOCK = '[data-testid="code-source"][data-language="python"]';

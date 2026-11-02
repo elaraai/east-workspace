@@ -11,7 +11,8 @@
  * the layout, the selection and the drafts — measured at 390 and 360 and in a
  * 294px parent inside a wide window, in both themes, with no page overflow.
  */
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { open, size, token } from "./allocation-page";
 import { settled } from "./settle";
 

@@ -11,7 +11,8 @@
  * the drag's families (A69, A65) — and an arrival's lines into its best fits
  * (A30), at the widths that drag, in both themes.
  */
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { open, size, token } from "./allocation-page";
 import { settled } from "./settle";
 

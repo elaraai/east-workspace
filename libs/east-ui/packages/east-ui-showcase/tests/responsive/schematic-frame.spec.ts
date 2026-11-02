@@ -41,7 +41,8 @@
  * `pnpm exec playwright test schematic-frame`.
  */
 
-import { test, expect, type Locator } from "playwright/test";
+import { expect, type Locator } from "playwright/test";
+import { test } from "./kept-page";
 import { toolbarFaults } from "./builder-frame";
 import { DATA_CENTRE, HANDOVER, RECORD_INDEXES, SHAPES, cardOverlaps, collapseInspector, findAndPick, findShown, historyFaults, openSchematic, sizeTo } from "./schematic-page";
 import { settled } from "./settle";

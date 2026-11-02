@@ -10,7 +10,8 @@
  * a remount; a month not read drawn at once with its placeholders, the
  * months either side read ahead (#1398); and both densities.
  */
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { toolbarFaults } from "./builder-frame";
 import { leaveBuilder } from "./builder-page";
 import { RECORD_READS, holdE3, installE3Faults, releaseE3 } from "./e3-faults";

@@ -9,7 +9,8 @@
  * lane's rows drawn again, the bin's row at its time, selected and brought
  * into the Table's view below its sticky head — in both themes.
  */
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { open } from "./allocation-page";
 import { recordField } from "./record-slice";
 import { settled } from "./settle";

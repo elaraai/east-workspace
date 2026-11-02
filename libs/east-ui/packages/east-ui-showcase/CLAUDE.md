@@ -137,17 +137,27 @@ its portable routes. New dependencies must broaden this mapping first.
 The build records the selected tests and reason in its job summary and build
 artifact. `make select-responsive BASE=<ref> OUTPUT_DIR=<dir>` reproduces the
 selection locally. `make test-responsive TEST_LIST=<dir>/responsive-tests.txt`
-runs it. The job count follows the selection (at most 16); a documentation-only
+runs it. The job count follows the selection's recorded time, ten minutes a
+job (at most 24); a documentation-only
 change starts no browser runners. Package checks still run. Workflow dispatch
 is the explicit full-suite escape hatch.
 
 `make test-responsive SHARD=n/total` uses `scripts/responsive-shards.ts` to
-interleave Playwright's discovered, project-filtered tests across the jobs.
+split Playwright's discovered, project-filtered tests across the jobs by the
+times CI recorded (`responsive.timings.json`): longest first, each to the job
+with the least time so far, a test with none recorded counting as the median.
 The public `--test-list` interface selects them. Do not replace this with
-contiguous `playwright --shard`: that concentrates adjacent expensive builder
-cases in one job. A Node check asks Playwright to rediscover all 16 lists
-and verifies that every test runs exactly once; another check resolves the
-focused lists and their smaller shard sets through Playwright. Both compare
+contiguous `playwright --shard`, which concentrates adjacent expensive builder
+cases in one job, nor with jobs of equal counts, which took 10 to 18 minutes.
+In CI the selection step writes each job's list, split the same way
+(`responsive-job-<n>.txt`), and each job runs its own (`TEST_LIST`) with no
+listing of the suite before it. Each job also writes a JSON report
+(`RESPONSIVE_REPORT`), uploaded as `responsive-timings-<n>`; refresh the times from a full run's reports with
+`scripts/responsive-timings.ts`, whose header has the commands. A Node check
+splits the real suite into 24 jobs, verifies that every test runs exactly
+once and that the jobs' times are level, and asks Playwright to resolve the
+whole list and one job's list; another resolves a focused list and checks
+that its fewer jobs run each of its tests once. Both compare
 tests by `testIdentity` (project, file and title path, all a list line is
 matched on), never by the position Playwright prints, which can be the
 transformed file's. A process's listings keep Playwright's transformed files

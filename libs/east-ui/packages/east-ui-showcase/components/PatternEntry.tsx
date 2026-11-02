@@ -146,7 +146,12 @@ export const PatternEntry = memo(function PatternEntry({ entry }: { entry: Catal
  *  just keeps tiny artifacts (a lone badge) from collapsing it to a sliver.
  *  An e3 example renders through the gate that starts the e3 the page runs
  *  (#849). */
-const activatedExamples = new WeakSet<LiveEntry>();
+let activatedExamples = new WeakSet<LiveEntry>();
+
+/** Forgets which examples have shown, as a fresh page has seen none: the responsive suite's kept page between its tests (#1466). */
+export function forgetShownExamples(): void {
+    activatedExamples = new WeakSet<LiveEntry>();
+}
 
 function LiveBody({ entry }: { entry: LiveEntry }) {
     const frame = useRef<HTMLDivElement>(null);

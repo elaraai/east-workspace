@@ -47,7 +47,8 @@
  * `pnpm exec playwright test schematic-drop`.
  */
 
-import { test, expect, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import {
     DATA_CENTRE, captionOf, card, carryTo, centred, collapseInspector, discard, libraryCard, named, openSchematic, openTab, pane, pickUp, printedRef, save,
     screenPoint, sizeTo, zoomInto, type Point,

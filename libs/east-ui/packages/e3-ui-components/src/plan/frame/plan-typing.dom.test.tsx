@@ -32,7 +32,7 @@
  *   whatever the desktop folds, washed while they are read.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import { DictType, East, PatchType, SortedMap, StringType, compareFor, decodeBeast2For, equalFor, DateTimeType, some, type ValueTypeOf } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
@@ -390,7 +390,18 @@ describe("below 480px of main (#1438)", () => {
         Element.prototype.getBoundingClientRect = realRect;
         (globalThis as { ResizeObserver?: unknown }).ResizeObserver = realObserver;
         observers.clear();
+        vi.unstubAllGlobals();
     });
+
+    /**
+     * Taps a cell, which opens the input in a popover anchored to it. The
+     * popover follows its anchor as the page moves, as the browser tells it;
+     * jsdom tells nothing, and has no `IntersectionObserver` for it to ask.
+     */
+    async function tap(cell: HTMLElement): Promise<void> {
+        vi.stubGlobal("IntersectionObserver", class { observe() {} unobserve() {} disconnect() {} takeRecords() { return []; } });
+        await act(async () => { fireEvent.click(cell); });
+    }
 
     /** The container narrows to `px`: every element measures it, every observer fires, and the canvas measures again on the next frame. */
     async function narrowTo(px: number): Promise<void> {
@@ -425,7 +436,7 @@ describe("below 480px of main (#1438)", () => {
         await ledger101AsCards(c);
         const tapped = cellAt(c, leaf, JAN_12)!;
         expect(tapped.getAttribute("data-typed")).toBe("0");
-        await act(async () => { fireEvent.click(tapped); });
+        await tap(tapped);
         await waitFor(() => expect(document.querySelector("[data-plan-typing-popover]")).not.toBeNull());
         const popover = document.querySelector<HTMLElement>("[data-plan-typing-popover]");
         const input = popover!.querySelector<HTMLInputElement>("input")!;
@@ -458,8 +469,7 @@ describe("below 480px of main (#1438)", () => {
         await waitFor(() => expect([printed(c, leaf, JAN_12), printed(c, middle, JAN_12)]).toEqual(["2", "9"]));
         expect(c.querySelector(`${leaf} [data-plan-unread]`)).toBeNull();
         expect(slot(c, "main")!.getAttribute("aria-busy")).not.toBe("true");
-        const tapped = cellAt(c, leaf, JAN_12)!;
-        await act(async () => { fireEvent.click(tapped); });
+        await tap(cellAt(c, leaf, JAN_12)!);
         await waitFor(() => expect(document.querySelector("[data-plan-typing-popover]")).not.toBeNull());
         const input = document.querySelector<HTMLInputElement>("[data-plan-typing-popover] input")!;
         await act(async () => { fireEvent.input(input, { target: { value: "500" } }); });

@@ -14,7 +14,8 @@
  * `pnpm exec playwright test studio-page --project desktop`.
  */
 
-import { test, expect, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { settled } from "./settle";
 
 /** Open a Studio page example and return its first grid, at rest. */

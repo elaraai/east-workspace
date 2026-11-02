@@ -28,7 +28,7 @@ import {
 import { record } from './record.js';
 import type { IndexKeyOf, IndexOn, SeriesIndexSpec, SummaryIndexSpec, SummaryKeyOf } from './record-index.js';
 import {
-  MAX_EVENT_TILES, RECORD_TILES, SHORTEST_MS, checkTile, eventFilings, tileNext, tileShares, tileStart, type RecordTile,
+  MAX_EVENT_TILES, RECORD_TILES, SHORTEST_MS, TILE_FNS, checkTile, type RecordTile,
 } from './record-tiles.js';
 import { buildMutationProgram, indexBuildProgram, summaryMergeProgram } from './record-programs.js';
 import { functionAt } from './record-guards.js';
@@ -167,10 +167,10 @@ function oracleFilings(tile: RecordTile, from: bigint, to: bigint): Array<{ leve
 const millisecondsOf = East.compile(East.function([DateTimeType], IntegerType, (_$, t) => t.toEpochMilliseconds()), []);
 
 /** The tile functions, as each runtime computes them. */
-const startOf = East.compile(tileStart, []);
-const nextOf = East.compile(tileNext, []);
-const sharesOf = East.compile(tileShares, []);
-const filingsOf = East.compile(eventFilings, []);
+const startOf = East.compile(TILE_FNS.tileStart, []);
+const nextOf = East.compile(TILE_FNS.tileNext, []);
+const sharesOf = East.compile(TILE_FNS.tileShares, []);
+const filingsOf = East.compile(TILE_FNS.eventFilings, []);
 
 /** A tile's functions over epoch milliseconds, its instants made and read by East. */
 function compiled(tile: RecordTile) {

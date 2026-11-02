@@ -40,6 +40,7 @@ import { argumentsType, callWithArguments, programOverArguments } from './record
 import { NestedPatchedType } from './record-nested-programs.js';
 import { patchTypeOf } from './record-patches.js';
 import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef } from './types.js';
+import { lazyBuilds } from './lazy-build.js';
 
 /**
  * Builds a program's IR with no source location captured.
@@ -489,14 +490,6 @@ function rowChanges(types: DictWrite) {
   });
 }
 
-/** `(totals, sign) → sign × totals`: a row's contribution given, `1`, or taken away, `−1`. */
-const signedTotals = East.function([RecordSummaryTotalsType, IntegerType], RecordSummaryTotalsType, (_$, totals, sign) =>
-  ({ count: totals.count.multiply(sign), ms: totals.ms.multiply(sign) }));
-
-/** `(a, b) → a + b`: two changes to one key's totals. */
-const addedTotals = East.function([RecordSummaryTotalsType, RecordSummaryTotalsType], RecordSummaryTotalsType, (_$, a, b) =>
-  ({ count: a.count.add(b.count), ms: a.ms.add(b.ms) }));
-
 /**
  * An index's maintenance for one row (#1437): the changes a row going from
  * `held` to `next` makes to the index, `(K, Option<V>, Option<V>,
@@ -687,8 +680,8 @@ function summaryMaintenance(index: RecordIndexDef, keyType: EastType, valueType:
   const contributions = functionAt(index.keyFn, [keyType, valueType], totalsType);
   return East.function([keyType, OptionType(valueType), OptionType(valueType), OptionType(rowPatchType)], opsType, ($, key, held, next, _patch) => {
     const contribute = $.const(contributions);
-    const signed = $.const(signedTotals);
-    const add = $.const(addedTotals);
+    const signed = $.const(PROGRAM_FNS.signedTotals);
+    const add = $.const(PROGRAM_FNS.addedTotals);
     const sums = $.let(new Map(), totalsType);
     $.match(held, {
       some: ($, row) => {
@@ -735,7 +728,7 @@ function indexDelta(index: RecordIndexDef, types: DictWrite) {
   const sumsType = DictType(indexEntryKeyType(NullType, index.keyType), RecordSummaryTotalsType);
   return East.function([changesType, emitType], NullType, ($, changes, emit) => {
     const maintainFn = $.const(maintain);
-    const add = $.const(addedTotals);
+    const add = $.const(PROGRAM_FNS.addedTotals);
     const sums = $.let(new Map(), sumsType);
     $.for(changes, ($, change, key) => {
       $.for(maintainFn(key, change.held, change.next, change.patch), ($, op, entry) => {
@@ -1142,3 +1135,23 @@ function writeProgram(rec: RecordDef, mut: MutationDef): FunctionExpr<EastType[]
       $(applyFn(state, ops, emit));
     }));
 }
+
+// ── The functions, each built the first time it is read ──────────────────────
+
+/**
+ * A summary's write's East functions, each built the first time it is read,
+ * with no location captured ({@link lazyBuilds}, #1466): importing the SDK
+ * builds none of them.
+ */
+export const PROGRAM_FNS = lazyBuilds({
+  /** `(totals, sign) → sign × totals`: a row's contribution given, `1`, or taken away, `−1`. */
+  get signedTotals() {
+    return East.function([RecordSummaryTotalsType, IntegerType], RecordSummaryTotalsType, (_$, totals, sign) =>
+      ({ count: totals.count.multiply(sign), ms: totals.ms.multiply(sign) }));
+  },
+  /** `(a, b) → a + b`: two changes to one key's totals. */
+  get addedTotals() {
+    return East.function([RecordSummaryTotalsType, RecordSummaryTotalsType], RecordSummaryTotalsType, (_$, a, b) =>
+      ({ count: a.count.add(b.count), ms: a.ms.add(b.ms) }));
+  },
+});

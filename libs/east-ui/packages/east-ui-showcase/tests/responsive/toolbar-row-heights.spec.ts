@@ -21,7 +21,8 @@
  * `pnpm exec playwright test toolbar-row-heights`.
  */
 
-import { test, expect, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { settled } from "./settle";
 
 /** One example of each builder laid out in a `BuilderFrame`, by its showcase entry. */

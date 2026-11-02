@@ -16,7 +16,8 @@
  * `pnpm exec playwright test number-input --project desktop`.
  */
 
-import { test, expect } from "playwright/test";
+import { expect } from "playwright/test";
+import { test } from "./kept-page";
 import { settled } from "./settle";
 
 const HASH = "forms/input/inputStyles";

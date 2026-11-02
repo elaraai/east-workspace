@@ -30,7 +30,8 @@
  * `E3_UI_PERF=1 pnpm exec playwright test far-jump-perf --project desktop --workers 1`.
  */
 
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { visitBuilder } from "./builder-page";
 import { e3Requests, installE3Faults } from "./e3-faults";
 import { costOf, type Cost } from "./main-thread-cost";

@@ -67,6 +67,7 @@ import {
 import { assertMutationCommitted } from '../assertions.js';
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
+import { templateWorkspace } from '../template.js';
 import {
   AssembliesType, AssemblyType, HallType, HallsType, MachineType, MachinesType, MemberType, NestedJobType,
   createNestedSeriesPackageZip, createSeriesRecordPackageZip, JOBS_FROM, JobPressLevelTileKeyType, JobPressWeekKeyType, JobRowType, JobsType,
@@ -74,7 +75,6 @@ import {
 
 const PKG = 'series-record-pkg';
 const VERSION = '1.0.0';
-const WS = 'series-record-ws';
 const jobsPath = [variant('field', 'records'), variant('field', 'jobs')];
 
 /** How many jobs the record holds: more than a segment's 4,096 entries at
@@ -201,7 +201,6 @@ function inBlock(press: string, from: string, to: string): boolean {
 // ── Records nesting what they file (#1434) ───────────────────────────────────
 
 const NESTED_PKG = 'nested-record-pkg';
-const NESTED_WS = 'nested-record-ws';
 
 /** A record's dataset path. */
 function recordAt(name: string): typeof jobsPath {
@@ -364,32 +363,16 @@ function nestedAssemblies(): Assemblies {
 }
 
 export function seriesRecordTests(setup: TestSetup<TestContext>): void {
-  /** A deployed record of {@link JOBS} jobs, the content hash it holds, and its jobs as it holds them. */
-  const withJobs = async (t: Parameters<TestSetup<TestContext>>[0]): Promise<{ ctx: TestContext; hash: string; jobs: Jobs }> => {
-    const ctx = await setup(t);
-    const opts = await ctx.opts();
-    const zipPath = await createSeriesRecordPackageZip(ctx.tempDir, PKG, VERSION);
-    await packageImport(ctx.config.baseUrl, ctx.repoName, readFileSync(zipPath), opts);
-    await workspaceCreate(ctx.config.baseUrl, ctx.repoName, WS, opts);
-    await workspaceDeploy(ctx.config.baseUrl, ctx.repoName, WS, `${PKG}@${VERSION}`, opts);
-    const seeded = await workspaceRecordMutate(
-      ctx.config.baseUrl, ctx.repoName, WS, 'jobs', 'seed',
-      { args: [encodeInt(JOBS)], actor: none, limits: none }, opts,
-    );
-    assertMutationCommitted(seeded, 'seeding');
-    return { ctx, hash: await hashOf(ctx), jobs: await jobsOf(ctx) };
-  };
-
   /** The content hash the record holds now. */
-  const hashOf = async (ctx: TestContext): Promise<string> => {
-    const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, WS, jobsPath, await ctx.opts());
+  const hashOf = async (ctx: TestContext, ws: string): Promise<string> => {
+    const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, ws, jobsPath, await ctx.opts());
     assert.ok(status.hash.type === 'some', 'the record holds a state');
     return status.hash.value;
   };
 
   /** The record's jobs, read whole through the ordinary dataset door. */
-  const jobsOf = async (ctx: TestContext): Promise<Jobs> => {
-    const { data } = await datasetGet(ctx.config.baseUrl, ctx.repoName, WS, jobsPath, await ctx.opts());
+  const jobsOf = async (ctx: TestContext, ws: string): Promise<Jobs> => {
+    const { data } = await datasetGet(ctx.config.baseUrl, ctx.repoName, ws, jobsPath, await ctx.opts());
     return decodeJobs(data as Uint8Array);
   };
 
@@ -429,13 +412,13 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
   };
 
   /** The series entries a block's searches select ({@link readRuns}). */
-  const readSeries = (ctx: TestContext, searches: DatasetKeySearch[], hash: string): Promise<SeriesEntry[]> =>
-    readRuns(ctx, WS, jobsPath, SERIES, searches, hash, decodeSeriesWindow);
+  const readSeries = (ctx: TestContext, ws: string, searches: DatasetKeySearch[], hash: string): Promise<SeriesEntry[]> =>
+    readRuns(ctx, ws, jobsPath, SERIES, searches, hash, decodeSeriesWindow);
 
   /** Every total the summary holds, paged through at the hash given. */
-  const readTotals = async (ctx: TestContext, hash: string): Promise<TotalsEntry[]> => {
+  const readTotals = async (ctx: TestContext, ws: string, hash: string): Promise<TotalsEntry[]> => {
     const opts = await ctx.opts();
-    const base = [ctx.config.baseUrl, ctx.repoName, WS, jobsPath] as const;
+    const base = [ctx.config.baseUrl, ctx.repoName, ws, jobsPath] as const;
     const entries: TotalsEntry[] = [];
     for (let offset = 0; ;) {
       const page = await datasetGetPage(...base, { offset, limit: 1_000, index: TOTALS, hash }, opts);
@@ -461,10 +444,30 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
   };
 
   describe('records read in two dimensions', { concurrency: false }, () => {
-    it('describes its series index carrying its rows and its summary holding its totals, both built, each keyed by a press first', async (t) => {
-      const { ctx, hash } = await withJobs(t);
+    /** The record of {@link JOBS} jobs, deployed and seeded once for the suite. */
+    const record = templateWorkspace(setup, async (ctx, ws) => {
       const opts = await ctx.opts();
-      const sig = await workspaceRecordDescribe(ctx.config.baseUrl, ctx.repoName, WS, 'jobs', opts);
+      const zipPath = await createSeriesRecordPackageZip(ctx.tempDir, PKG, VERSION);
+      await packageImport(ctx.config.baseUrl, ctx.repoName, readFileSync(zipPath), opts);
+      await workspaceCreate(ctx.config.baseUrl, ctx.repoName, ws, opts);
+      await workspaceDeploy(ctx.config.baseUrl, ctx.repoName, ws, `${PKG}@${VERSION}`, opts);
+      const seeded = await workspaceRecordMutate(
+        ctx.config.baseUrl, ctx.repoName, ws, 'jobs', 'seed',
+        { args: [encodeInt(JOBS)], actor: none, limits: none }, opts,
+      );
+      assertMutationCommitted(seeded, 'seeding');
+    });
+
+    /** A copy of the record, the test's own, the content hash it holds, and its jobs as it holds them. */
+    const withJobs = async (t: Parameters<TestSetup<TestContext>>[0]): Promise<{ ctx: TestContext; ws: string; hash: string; jobs: Jobs }> => {
+      const { ctx, workspace: ws } = await record(t);
+      return { ctx, ws, hash: await hashOf(ctx, ws), jobs: await jobsOf(ctx, ws) };
+    };
+
+    it('describes its series index carrying its rows and its summary holding its totals, both built, each keyed by a press first', async (t) => {
+      const { ctx, ws, hash } = await withJobs(t);
+      const opts = await ctx.opts();
+      const sig = await workspaceRecordDescribe(ctx.config.baseUrl, ctx.repoName, ws, 'jobs', opts);
       assert.deepEqual(sig.indexes.map(({ name, multi, summary, built }) => [name, multi, summary, built]),
         [[SERIES, true, false, true], [TOTALS, true, true, true]]);
       assert.ok(isTypeValueEqual(sig.indexes[0]!.keyType, toEastTypeValue(JobPressLevelTileKeyType)), 'the series is keyed by a press, a level, then a tile');
@@ -475,19 +478,19 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
         'the series window is e3-types\' index window');
       assert.ok(isTypeEqual(TotalsWindowType, indexWindowType(NullType, JobPressWeekKeyType, RecordSummaryTotalsType, JobRowType)),
         'the summary\'s is too, its key Null');
-      const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, WS, jobsPath, { offset: 0, limit: 1, index: SERIES, hash }, opts);
+      const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, ws, jobsPath, { offset: 0, limit: 1, index: SERIES, hash }, opts);
       assert.ok(page.segmentCount >= 2, `the series spans segments, got ${page.segmentCount}`);
     });
 
     it('reads a block of presses over three weeks from the series alone: a range a press a level, every job filed there once with its row, every job of the block overlapping the weeks among them', async (t) => {
-      const { ctx, hash, jobs } = await withJobs(t);
+      const { ctx, ws, hash, jobs } = await withJobs(t);
       const from = JOBS_FROM.getTime();
       const to = from + 3 * WEEK_MS;
       const presses = Array.from({ length: 8 }, (_, i) => `P-${1005 + i}`);
       const runs = levelRuns(from, to);
       const searches = presses.flatMap((press) => runs.map((run) => runSearch(press, run)));
       assert.equal(searches.length, 8 * 4, 'a range a press a level, whatever the span');
-      const entries = await readSeries(ctx, searches, hash);
+      const entries = await readSeries(ctx, ws, searches, hash);
       for (const entry of entries) {
         const job = jobs.get(entry.key);
         assert.ok(job !== undefined && jobEqual(entry.value, job), `${entry.key}'s entry carries its row whole`);
@@ -509,12 +512,12 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
     });
 
     it('totals each week and press as the jobs touching it and the time of it they cover, and refuses a joined read, a placement and a membership read', async (t) => {
-      const { ctx, hash, jobs } = await withJobs(t);
+      const { ctx, ws, hash, jobs } = await withJobs(t);
       const opts = await ctx.opts();
-      const totals = await readTotals(ctx, hash);
+      const totals = await readTotals(ctx, ws, hash);
       assertTotals(totals, jobs);
       // A summary's entry names no row: a joined read of it is refused.
-      const base = [ctx.config.baseUrl, ctx.repoName, WS, jobsPath] as const;
+      const base = [ctx.config.baseUrl, ctx.repoName, ws, jobsPath] as const;
       for (const read of [
         () => datasetGetPage(...base, { offset: 0, limit: 10, index: TOTALS, hash, join: true }, opts),
         () => datasetGetRuns(...base, { runs: [[0, 10]], hash, index: TOTALS, join: true }, opts),
@@ -541,19 +544,19 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
     });
 
     it('a job moved three weeks on leaves the week it left, in the series and the totals, and is read and totalled where it went', async (t) => {
-      const { ctx, hash, jobs } = await withJobs(t);
+      const { ctx, ws, hash, jobs } = await withJobs(t);
       const opts = await ctx.opts();
       const moved = 'job-7';
       const job = jobs.get(moved)!;
       const next = new SortedMap(jobs, stringOrder);
       next.set(moved, { ...job, start: new Date(job.start.getTime() + 3 * WEEK_MS), end: new Date(job.end.getTime() + 3 * WEEK_MS) });
       // Another session moves it, through the record's patch door.
-      const patched = await workspaceRecordMutate(ctx.config.baseUrl, ctx.repoName, WS, 'jobs', 'patch',
+      const patched = await workspaceRecordMutate(ctx.config.baseUrl, ctx.repoName, ws, 'jobs', 'patch',
         { args: [encodePatch(diffFor(JobsType)(jobs, next))], actor: none, limits: none }, opts);
       assertMutationCommitted(patched, 'the move');
-      const movedHash = await hashOf(ctx);
+      const movedHash = await hashOf(ctx, ws);
       assert.notEqual(movedHash, hash, 'the move gives the record another state');
-      const now = await jobsOf(ctx);
+      const now = await jobsOf(ctx, ws);
       assert.ok(jobEqual(now.get(moved)!, next.get(moved)!), 'the record holds the job where it was moved to');
 
       // An exact search names the key's own fields: its `on`, empty here, printed whole, then the press, the level and the tile (#1432, #1433).
@@ -561,33 +564,33 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
         fields: [printOn({}), printString(job.press), printLevel(variant(filed.level, null)), printDateTime(new Date(filed.tile))],
       });
       for (const filed of filingsOf(job)) {
-        const read = await readSeries(ctx, [exact(filed)], movedHash);
+        const read = await readSeries(ctx, ws, [exact(filed)], movedHash);
         assert.ok(!read.some((entry) => stringEqual(entry.key, moved)), `the moved job has left the ${filed.level} of ${printDateTime(new Date(filed.tile))}`);
       }
       for (const filed of filingsOf(next.get(moved)!)) {
-        const read = await readSeries(ctx, [exact(filed)], movedHash);
+        const read = await readSeries(ctx, ws, [exact(filed)], movedHash);
         const entry = read.find((e) => stringEqual(e.key, moved));
         assert.ok(entry !== undefined && jobEqual(entry.value, next.get(moved)!), `it is read in the ${filed.level} of ${printDateTime(new Date(filed.tile))}, its row as moved`);
       }
-      assertTotals(await readTotals(ctx, movedHash), now);
+      assertTotals(await readTotals(ctx, ws, movedHash), now);
     });
 
     it('reads a job a hundred days long, and one three years long, once each among a block\'s runs, each filed where its length fits', async (t) => {
-      const { ctx, jobs } = await withJobs(t);
+      const { ctx, ws, jobs } = await withJobs(t);
       const opts = await ctx.opts();
       const from = JOBS_FROM.getTime() + WEEK_MS;
       const long = new SortedMap(jobs, stringOrder);
       long.set('job-season', { press: 'P-1005', start: new Date(from), end: new Date(from + 100 * DAY_MS), title: 'A season' });
       long.set('job-years', { press: 'P-1005', start: new Date(from - DAY_MS), end: new Date(from + 3 * 365 * DAY_MS), title: 'Three years' });
-      const patched = await workspaceRecordMutate(ctx.config.baseUrl, ctx.repoName, WS, 'jobs', 'patch',
+      const patched = await workspaceRecordMutate(ctx.config.baseUrl, ctx.repoName, ws, 'jobs', 'patch',
         { args: [encodePatch(diffFor(JobsType)(jobs, long))], actor: none, limits: none }, opts);
       assertMutationCommitted(patched, 'the long jobs');
-      const hash = await hashOf(ctx);
+      const hash = await hashOf(ctx, ws);
       // A hundred days is past a quarter's ninety: filed once, under its year; three years under each of the four it touches.
       assert.deepEqual(filingsOf(long.get('job-season')!).map((filed) => filed.level), ['year']);
       assert.equal(filingsOf(long.get('job-years')!).length, 4);
       const runs = levelRuns(from, from + WEEK_MS);
-      const entries = await readSeries(ctx, runs.map((run) => runSearch('P-1005', run)), hash);
+      const entries = await readSeries(ctx, ws, runs.map((run) => runSearch('P-1005', run)), hash);
       const ofKey = (key: string) => entries.filter((entry) => stringEqual(entry.key, key));
       assert.equal(ofKey('job-season').length, 1, 'the season is read once');
       assert.ok(ofKey('job-years').length >= 1, 'the three years are read under each year the runs hold');
@@ -596,46 +599,52 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
       for (const entry of [...ofKey('job-season'), ...ofKey('job-years')]) {
         assert.ok(jobEqual(entry.value, long.get(entry.key)!), `${entry.key} carries its row whole`);
       }
-      assertTotals(await readTotals(ctx, hash), await jobsOf(ctx));
+      assertTotals(await readTotals(ctx, ws, hash), await jobsOf(ctx, ws));
     });
   });
 
   /** Writes a nested record through its patch door. */
-  const writeNested = async (ctx: TestContext, record: string, patch: Uint8Array): Promise<void> => {
-    const written = await workspaceRecordMutate(ctx.config.baseUrl, ctx.repoName, NESTED_WS, record, 'patch',
+  const writeNested = async (ctx: TestContext, ws: string, record: string, patch: Uint8Array): Promise<void> => {
+    const written = await workspaceRecordMutate(ctx.config.baseUrl, ctx.repoName, ws, record, 'patch',
       { args: [patch], actor: none, limits: none }, await ctx.opts());
     assertMutationCommitted(written, `the ${record}`);
   };
 
   /** The content hash a nested record holds now. */
-  const nestedHash = async (ctx: TestContext, record: string): Promise<string> => {
-    const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, NESTED_WS, recordAt(record), await ctx.opts());
+  const nestedHash = async (ctx: TestContext, ws: string, record: string): Promise<string> => {
+    const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, ws, recordAt(record), await ctx.opts());
     assert.ok(status.hash.type === 'some', `${record} holds a state`);
     return status.hash.value;
   };
 
-  /** The records nesting what they file, deployed and written through their patch doors, and the rows written. */
-  const withNested = async (t: Parameters<TestSetup<TestContext>>[0]): Promise<{ ctx: TestContext; machines: Machines; halls: Halls; assemblies: Assemblies }> => {
-    const ctx = await setup(t);
-    const opts = await ctx.opts();
-    const zipPath = await createNestedSeriesPackageZip(ctx.tempDir, NESTED_PKG, VERSION);
-    await packageImport(ctx.config.baseUrl, ctx.repoName, readFileSync(zipPath), opts);
-    await workspaceCreate(ctx.config.baseUrl, ctx.repoName, NESTED_WS, opts);
-    await workspaceDeploy(ctx.config.baseUrl, ctx.repoName, NESTED_WS, `${NESTED_PKG}@${VERSION}`, opts);
+  describe('records nesting what they file, read through their nested series index', { concurrency: false }, () => {
+    /** The rows the records hold, as written. */
     const machines = nestedMachines();
     const halls = nestedHalls();
     const assemblies = nestedAssemblies();
-    await writeNested(ctx, 'machines', encodeMachinesPatch(diffFor(MachinesType)(new SortedMap(undefined, stringOrder), machines)));
-    await writeNested(ctx, 'halls', encodeHallsPatch(diffFor(HallsType)(new SortedMap(undefined, stringOrder), halls)));
-    await writeNested(ctx, 'assemblies', encodeAssembliesPatch(diffFor(AssembliesType)(new SortedMap(undefined, stringOrder), assemblies)));
-    return { ctx, machines, halls, assemblies };
-  };
 
-  describe('records nesting what they file, read through their nested series index', { concurrency: false }, () => {
-    it('describes the machines\' nested index, keyed by place, row, path, run, level, tile and item, and their other index carrying each machine without its collections', async (t) => {
-      const { ctx, machines } = await withNested(t);
+    /** The records nesting what they file, deployed and written through their patch doors once for the suite. */
+    const records = templateWorkspace(setup, async (ctx, ws) => {
       const opts = await ctx.opts();
-      const sig = await workspaceRecordDescribe(ctx.config.baseUrl, ctx.repoName, NESTED_WS, 'machines', opts);
+      const zipPath = await createNestedSeriesPackageZip(ctx.tempDir, NESTED_PKG, VERSION);
+      await packageImport(ctx.config.baseUrl, ctx.repoName, readFileSync(zipPath), opts);
+      await workspaceCreate(ctx.config.baseUrl, ctx.repoName, ws, opts);
+      await workspaceDeploy(ctx.config.baseUrl, ctx.repoName, ws, `${NESTED_PKG}@${VERSION}`, opts);
+      await writeNested(ctx, ws, 'machines', encodeMachinesPatch(diffFor(MachinesType)(new SortedMap(undefined, stringOrder), machines)));
+      await writeNested(ctx, ws, 'halls', encodeHallsPatch(diffFor(HallsType)(new SortedMap(undefined, stringOrder), halls)));
+      await writeNested(ctx, ws, 'assemblies', encodeAssembliesPatch(diffFor(AssembliesType)(new SortedMap(undefined, stringOrder), assemblies)));
+    });
+
+    /** A copy of the records, the test's own, and the rows written. */
+    const withNested = async (t: Parameters<TestSetup<TestContext>>[0]): Promise<{ ctx: TestContext; ws: string; machines: Machines; halls: Halls; assemblies: Assemblies }> => {
+      const { ctx, workspace: ws } = await records(t);
+      return { ctx, ws, machines, halls, assemblies };
+    };
+
+    it('describes the machines\' nested index, keyed by place, row, path, run, level, tile and item, and their other index carrying each machine without its collections', async (t) => {
+      const { ctx, ws, machines } = await withNested(t);
+      const opts = await ctx.opts();
+      const sig = await workspaceRecordDescribe(ctx.config.baseUrl, ctx.repoName, ws, 'machines', opts);
       const nested = sig.indexes.find((index) => stringEqual(index.name, 'machines_in_time'));
       const bySite = sig.indexes.find((index) => stringEqual(index.name, 'machines_by_site'));
       assert.ok(nested !== undefined && nested.built && nested.multi, 'the nested index is built, a row filing many entries');
@@ -648,8 +657,8 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
       // A page of it, read without a join: each machine without its jobs and its load.
       const SiteWindowType = ArrayType(StructType({ ik: StringType, key: StringType, value: MachineType, row: OptionType(MachineType) }));
       assert.ok(isTypeEqual(SiteWindowType, indexWindowType(StringType, StringType, MachineType, MachineType)), 'its window too');
-      const hash = await nestedHash(ctx, 'machines');
-      const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, NESTED_WS, recordAt('machines'),
+      const hash = await nestedHash(ctx, ws, 'machines');
+      const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, ws, recordAt('machines'),
         { offset: 0, limit: 100, index: 'machines_by_site', hash }, opts);
       const entries = decodeBeast2For(SiteWindowType)(page.data);
       assert.equal(entries.length, machines.size, 'every machine, once');
@@ -663,15 +672,15 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
     });
 
     it('reads a block of fifty machines\' jobs over three weeks as a range a machine a level, in one request: every job filed there once, carried whole', async (t) => {
-      const { ctx, machines } = await withNested(t);
-      const hash = await nestedHash(ctx, 'machines');
+      const { ctx, ws, machines } = await withNested(t);
+      const hash = await nestedHash(ctx, ws, 'machines');
       const from = JOBS_FROM.getTime() + WEEK_MS;
       const to = from + 3 * WEEK_MS;
       const runs = levelRuns(from, to);
       const block = [...machines.keys()].slice(5, 55);
       const searches = block.flatMap((row) => runs.map((run) => nestedRange(['jobs'], row, [], ITEMS, run.level, run.from, run.to)));
       assert.equal(searches.length, 50 * 4, 'a range a machine a level, whatever the span');
-      const entries = await readRuns(ctx, NESTED_WS, recordAt('machines'), 'machines_in_time', searches, hash, decodeMachinesWindow);
+      const entries = await readRuns(ctx, ws, recordAt('machines'), 'machines_in_time', searches, hash, decodeMachinesWindow);
       const read: string[] = [];
       for (const entry of entries) {
         assert.ok(entry.ik.item.type === 'id', `${entry.key}: a job, by its id`);
@@ -690,14 +699,14 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
     });
 
     it('keeps each machine\'s totals of its jobs and its load a month at a time: how many, the time they cover, and the load\'s sum, least, greatest and last', async (t) => {
-      const { ctx, machines } = await withNested(t);
-      const hash = await nestedHash(ctx, 'machines');
+      const { ctx, ws, machines } = await withNested(t);
+      const hash = await nestedHash(ctx, ws, 'machines');
       const from = tileStep('month', tileStart('month', JOBS_FROM.getTime()), -2);
       const to = tileStep('month', from, 8);
       const searches = [...machines.keys()].flatMap((row) => [
         nestedRange(['jobs'], row, [], TOTALS_RUN, 'month', from, to), nestedRange(['load'], row, [], TOTALS_RUN, 'month', from, to),
       ]);
-      const entries = await readRuns(ctx, NESTED_WS, recordAt('machines'), 'machines_in_time', searches, hash, decodeMachinesWindow);
+      const entries = await readRuns(ctx, ws, recordAt('machines'), 'machines_in_time', searches, hash, decodeMachinesWindow);
       // Worked out from the rows: each machine's jobs a month, and its load's values in key order.
       const where = (row: string, collection: string, month: number) => `${row} ${collection} ${printDateTime(new Date(month))}`;
       const expected = new Map<string, unknown>();
@@ -726,11 +735,11 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
     });
 
     it('keeps a hall\'s mean of its members\' loads a week at a time, read as one range: each member\'s mean of its days, and their mean', async (t) => {
-      const { ctx, halls } = await withNested(t);
-      const hash = await nestedHash(ctx, 'halls');
+      const { ctx, ws, halls } = await withNested(t);
+      const hash = await nestedHash(ctx, ws, 'halls');
       const from = tileStep('week', weekHolding(JOBS_FROM.getTime()), -2);
       const to = tileStep('week', from, 12);
-      const entries = await readRuns(ctx, NESTED_WS, recordAt('halls'), 'halls_in_time',
+      const entries = await readRuns(ctx, ws, recordAt('halls'), 'halls_in_time',
         [nestedRange(['members', 'load'], 'H-1', [], MEAN, 'week', from, to)], hash, decodeHallsWindow);
       // Worked out from the rows: each member's values a week, in key order, their mean; the hall's, its members' means' mean, in theirs.
       const means = new Map<number, number[]>();
@@ -754,12 +763,12 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
     });
 
     it('files each part\'s jobs under every part above it too, read under a part as one range a level: its subtree\'s jobs, each once, by their path beneath it', async (t) => {
-      const { ctx } = await withNested(t);
-      const hash = await nestedHash(ctx, 'assemblies');
+      const { ctx, ws } = await withNested(t);
+      const hash = await nestedHash(ctx, ws, 'assemblies');
       const runs = levelRuns(JOBS_FROM.getTime(), JOBS_FROM.getTime() + 8 * WEEK_MS);
       const searches = runs.map((run) => nestedRange(['parts', 'jobs'], 'A-0', ['p1'], SUBTREE, run.level, run.from, run.to));
       assert.equal(searches.length, 4, 'a range a level');
-      const entries: AssembliesEntry[] = await readRuns(ctx, NESTED_WS, recordAt('assemblies'), 'assemblies_in_time', searches, hash, decodeAssembliesWindow);
+      const entries: AssembliesEntry[] = await readRuns(ctx, ws, recordAt('assemblies'), 'assemblies_in_time', searches, hash, decodeAssembliesWindow);
       // Beneath p1: p1.1's two jobs and p1.1.1's one — p1's own is in its items, not its subtree.
       const beneath = [{ path: ['p1.1'], letter: 'b' }, { path: ['p1.1'], letter: 'c' }, { path: ['p1.1', 'p1.1.1'], letter: 'd' }] as const;
       const expected = beneath.flatMap(({ path, letter }) => filingsOf(partJob(0, letter)).map((filed) =>
@@ -776,7 +785,7 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
     });
 
     it('reads a job moved three weeks on where it went, and not where it was, and totals the months as the jobs then give them', async (t) => {
-      const { ctx, machines } = await withNested(t);
+      const { ctx, ws, machines } = await withNested(t);
       const row = 'M-007';
       const id = 'j-7-0';
       const machine = machines.get(row)!;
@@ -787,11 +796,11 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
       const next = new SortedMap(machines, stringOrder);
       next.set(row, { ...machine, jobs });
       // Another session moves it, through the record's patch door.
-      await writeNested(ctx, 'machines', encodeMachinesPatch(diffFor(MachinesType)(machines, next)));
-      const hash = await nestedHash(ctx, 'machines');
+      await writeNested(ctx, ws, 'machines', encodeMachinesPatch(diffFor(MachinesType)(machines, next)));
+      const hash = await nestedHash(ctx, ws, 'machines');
       const itemEqual = equalFor(RecordNestedItemType);
       const tile = (filed: { level: Level; tile: number }) =>
-        readRuns(ctx, NESTED_WS, recordAt('machines'), 'machines_in_time', [nestedTile(['jobs'], row, [], ITEMS, filed)], hash, decodeMachinesWindow);
+        readRuns(ctx, ws, recordAt('machines'), 'machines_in_time', [nestedTile(['jobs'], row, [], ITEMS, filed)], hash, decodeMachinesWindow);
       for (const filed of filingsOf(job)) {
         const read = await tile(filed);
         assert.ok(!read.some((entry) => itemEqual(entry.ik.item, variant('id', id))), `${id} has left the ${filed.level} of ${printDateTime(new Date(filed.tile))}`);
@@ -802,7 +811,7 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
           `${id} is read in the ${filed.level} of ${printDateTime(new Date(filed.tile))}, as moved`);
       }
       const from = tileStep('month', tileStart('month', JOBS_FROM.getTime()), -2);
-      const totals = await readRuns(ctx, NESTED_WS, recordAt('machines'), 'machines_in_time',
+      const totals = await readRuns(ctx, ws, recordAt('machines'), 'machines_in_time',
         [nestedRange(['jobs'], row, [], TOTALS_RUN, 'month', from, tileStep('month', from, 8))], hash, decodeMachinesWindow);
       const expected = monthTotals(jobs.values());
       assert.equal(totals.length, expected.size, 'a total for each month its jobs touch');

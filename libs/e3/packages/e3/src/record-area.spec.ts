@@ -20,11 +20,11 @@ import {
 } from '@elaraai/east';
 import { record } from './record.js';
 import type { AreaIndexSpec, IndexKeyOf, IndexOn } from './record-index.js';
-import { AREA_UNPLACED, areaCellExponent, areaCode } from './record-area.js';
+import { AREA_FNS, AREA_UNPLACED, areaCellExponent } from './record-area.js';
 import { functionAt } from './record-guards.js';
 
 /** The cell code each runtime files a box by: `(cx, cy, side, cell)`. */
-const locate = East.compile(areaCode, []);
+const locate = East.compile(AREA_FNS.areaCode, []);
 import { buildMutationProgram, indexBuildProgram } from './record-programs.js';
 import { package_ } from './package.js';
 import type { RecordIndexDef } from './types.js';

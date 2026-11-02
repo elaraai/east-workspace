@@ -3,7 +3,8 @@
  * Licensed under AGPL-3.0. See LICENSE file for details.
  */
 
-import { test, expect } from "playwright/test";
+import { expect } from "playwright/test";
+import { test } from "./kept-page";
 import { PLAN_EVENT_EXAMPLES, remount } from "./plan-page";
 import { PRESS_A1, dayOf, libraryOf, openCards, openPrintWorks, pickUp } from "./plan-builder-page";
 

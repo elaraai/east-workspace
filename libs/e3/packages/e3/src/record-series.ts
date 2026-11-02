@@ -39,7 +39,8 @@ import {
   INDEX_PURITY, checkEntryParams, checkPure, indexRunner, indexedEntry, onlyOptions, signatureOf, type IndexConstructor,
 } from './record-guards.js';
 import { checkLeading, checkTimeField, fieldReader, leadingValues, type Leading, type OptionField, type RowType } from './record-keys.js';
-import { TileFilingType, TileShareType, checkTile, placedFilings, placedShares, type RecordTile } from './record-tiles.js';
+import { TILE_FNS, TileFilingType, TileShareType, checkTile, type RecordTile } from './record-tiles.js';
+import { lazyBuilds } from './lazy-build.js';
 
 /** What a series or a summary index's declaration names (`index.series`, `index.summary`). */
 export interface TimeTileSpec {
@@ -142,7 +143,7 @@ export function seriesDefinition(
     const keyOf = $.const(readKey);
     const startOf = $.const(readStart);
     const endOf = $.const(readEnd);
-    const file = $.const(placedFilings);
+    const file = $.const(TILE_FNS.placedFilings);
     const combinations = $.const(leads);
     const under = $.const(filedUnder);
     const eventKey = $.let(keyOf(key, row));
@@ -176,29 +177,6 @@ const INTEGER_MAX = (1n << 63n) - 1n;
 const PAST_INTEGER_MAX = 'sum past the largest Integer: declare a finer tile, whose totals are smaller';
 
 /**
- * Two of a summary's totals summed. Integer addition is associative and
- * commutative, so a build's pieces fold to the same totals in any order.
- *
- * `(what, a, b) → a + b`, `what` naming the totals in the refusal.
- *
- * @remarks
- * East's Integer addition wraps, so a sum past the largest Integer is refused
- * rather than stored below none — as a write that would carry a total past it
- * is: a finer tile's totals are smaller.
- *
- * Throws an East runtime error when the totals sum past the largest Integer,
- * naming `what` and a finer tile.
- */
-const addTotals = East.function([StringType, RecordSummaryTotalsType, RecordSummaryTotalsType], RecordSummaryTotalsType, ($, what, a, b) => {
-  const max = $.const(INTEGER_MAX);
-  // Totals are never below none, so a sum passes the largest Integer exactly when one part passes what the other leaves of it.
-  $.if(a.count.greater(max.subtract(b.count)).or(() => a.ms.greater(max.subtract(b.ms))), ($) => {
-    $.error(East.str`${what} ${PAST_INTEGER_MAX}`);
-  });
-  return { count: a.count.add(b.count), ms: a.ms.add(b.ms) };
-});
-
-/**
  * A summary's merge, `({ik, k}, Totals, Totals) → Totals`: a build's pieces
  * hold the same keys, and a key's totals across them are their sum, refused
  * past the largest Integer naming the index and the key. Built with no source
@@ -212,7 +190,7 @@ export function summaryMerge(name: string, indexType: EastType) {
   return withLocationCapture(false, () => East.function(
     [StructType({ ik: indexType, k: NullType }), RecordSummaryTotalsType, RecordSummaryTotalsType], RecordSummaryTotalsType,
     ($, entry, a, b) => {
-      const add = $.const(addTotals);
+      const add = $.const(SERIES_FNS.addTotals);
       return add(East.str`${name}: the totals under ${East.print(entry)}`, a, b);
     },
   ));
@@ -256,7 +234,7 @@ export function summaryDefinition(
     const keyOf = $.const(readKey);
     const startOf = $.const(readStart);
     const endOf = $.const(readEnd);
-    const share = $.const(placedShares);
+    const share = $.const(TILE_FNS.placedShares);
     const combinations = $.const(leads);
     const under = $.const(sharesUnder);
     const eventKey = $.let(keyOf(key, row));
@@ -282,3 +260,37 @@ export function summaryDefinition(
     runner,
   };
 }
+
+// ── The functions, each built the first time it is read ──────────────────────
+
+/**
+ * A summary index's East functions, each built the first time it is read,
+ * with no location captured ({@link lazyBuilds}, #1466): importing the SDK
+ * builds none of them.
+ */
+export const SERIES_FNS = lazyBuilds({
+  /**
+   * Two of a summary's totals summed. Integer addition is associative and
+   * commutative, so a build's pieces fold to the same totals in any order.
+   *
+   * `(what, a, b) → a + b`, `what` naming the totals in the refusal.
+   *
+   * @remarks
+   * East's Integer addition wraps, so a sum past the largest Integer is refused
+   * rather than stored below none — as a write that would carry a total past it
+   * is: a finer tile's totals are smaller.
+   *
+   * Throws an East runtime error when the totals sum past the largest Integer,
+   * naming `what` and a finer tile.
+   */
+  get addTotals() {
+    return East.function([StringType, RecordSummaryTotalsType, RecordSummaryTotalsType], RecordSummaryTotalsType, ($, what, a, b) => {
+      const max = $.const(INTEGER_MAX);
+      // Totals are never below none, so a sum passes the largest Integer exactly when one part passes what the other leaves of it.
+      $.if(a.count.greater(max.subtract(b.count)).or(() => a.ms.greater(max.subtract(b.ms))), ($) => {
+        $.error(East.str`${what} ${PAST_INTEGER_MAX}`);
+      });
+      return { count: a.count.add(b.count), ms: a.ms.add(b.ms) };
+    });
+  },
+});

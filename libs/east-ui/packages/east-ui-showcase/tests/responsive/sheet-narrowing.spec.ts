@@ -22,7 +22,8 @@
  * its popover, its views over the search box, where they still switch views
  * and `+ TAB` still snapshots one, and Search Records still seeks.
  */
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { toolbarFaults } from "./builder-frame";
 import { recordField } from "./record-slice";
 import { settled } from "./settle";

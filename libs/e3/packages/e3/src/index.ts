@@ -166,5 +166,5 @@ export type {
   SeriesRollupInput, SeriesCollections, SeriesCollectionFor, SeriesTimes, ItemTimeField, DictField, ChildOf, PlacesOf, NestedOf, Misfit,
 } from './record-nested.js';
 export {
-  RECORD_TILES, MAX_EVENT_TILES, SHORTEST_MS, TileShareType, TileFilingType, tileStart, tileNext, tileShares, eventFilings, type RecordTile,
+  RECORD_TILES, MAX_EVENT_TILES, SHORTEST_MS, TileShareType, TileFilingType, type RecordTile,
 } from './record-tiles.js';

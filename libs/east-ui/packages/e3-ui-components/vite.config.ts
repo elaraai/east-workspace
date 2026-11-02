@@ -3,11 +3,16 @@ import react from '@vitejs/plugin-react';
 import dts from 'vite-plugin-dts';
 import { resolve } from 'path';
 
+// The declarations the packages and apps that compile against this one read:
+// written unless EAST_UI_DECLARATIONS=0, which CI's test build sets, its
+// tests reading the JavaScript alone (#1466).
+const declarations = process.env.EAST_UI_DECLARATIONS !== '0';
+
 // Library build configuration for @elaraai/e3-ui-components: the package's
 // entry, and `query` — a query's calls without the builder, which imports no
 // React and no renderer, so it loads in Node (`src/query/calls.ts`).
 export default defineConfig({
-  plugins: [react(), dts()],
+  plugins: [react(), ...(declarations ? [dts()] : [])],
   build: {
     lib: {
       entry: {

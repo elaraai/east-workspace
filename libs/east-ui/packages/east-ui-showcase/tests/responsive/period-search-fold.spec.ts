@@ -14,7 +14,8 @@
  * area (#1397).
  */
 
-import { expect, test } from "playwright/test";
+import { expect } from "playwright/test";
+import { test } from "./kept-page";
 import { visitBuilder } from "./builder-page";
 
 /** Each period builder's example, and its root in the example's entry. */

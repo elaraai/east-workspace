@@ -26,7 +26,8 @@
  * `pnpm exec playwright test query-runs --project desktop`.
  */
 
-import { test, expect, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { East, IntegerType, StructType, evaluateJq, isVariant, printJq, printFor, type EastType } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/query/query";
 import { settled } from "./settle";

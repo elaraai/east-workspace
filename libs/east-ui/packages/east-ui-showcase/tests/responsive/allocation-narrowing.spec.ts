@@ -13,7 +13,8 @@
  * carries its source's icon; and the Library follows the rail, each narrowed
  * tab counting what it shows (A91–A99).
  */
-import { expect, test, type Locator } from "playwright/test";
+import { expect, type Locator } from "playwright/test";
+import { test } from "./kept-page";
 import { toolbarFaults } from "./builder-frame";
 import { open, size, token } from "./allocation-page";
 import { settled } from "./settle";

@@ -4,7 +4,8 @@
  */
 
 /** Calendar against the real in-page e3: responsive geometry, explicit phone edits and desktop drag. */
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { frameAt, toolbarFaults } from "./builder-frame";
 import { leaveBuilder } from "./builder-page";
 import { settled } from "./settle";
