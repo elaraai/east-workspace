@@ -217,9 +217,42 @@ jobs:
       - name: Set up MSVC (Windows)
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
+      # Each group's build, as its sources, the lockfile and the root config
+      # built it, restored where none of those changed since: a change to one
+      # library builds that group alone. The dry run publishes what is built,
+      # so a key holds every input of the group's build (#1466).
+      - name: Restore east-ui's dependencies' builds
+        id: deps
+        uses: actions/cache@v4
+        with:
+          key: release-deps-${{ runner.os }}-node22-${{ hashFiles('libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/e3/**', 'libs/east-py/packages/east-py-datascience/**', 'libs/east-diagnostics/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', '!**/node_modules/**', '!**/dist/**') }}
+          path: |
+            libs/east/dist
+            libs/east-node/packages/*/dist
+            libs/east-web/packages/*/dist
+            libs/e3/packages/*/dist
+            libs/e3/test/*/dist
+            libs/east-py/packages/east-py-datascience/dist
+            libs/east-diagnostics/dist
+      - name: Restore east-ui's builds
+        id: east-ui
+        uses: actions/cache@v4
+        with:
+          key: release-east-ui-${{ runner.os }}-node22-${{ hashFiles('libs/east-ui/**', 'libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/e3/**', 'libs/east-py/packages/east-py-datascience/**', 'libs/east-diagnostics/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', '!**/node_modules/**', '!**/dist/**') }}
+          path: libs/east-ui/packages/*/dist
+      - name: Restore east-c's build
+        id: east-c
+        uses: actions/cache@v4
+        with:
+          key: release-east-c-${{ runner.os }}-${{ hashFiles('libs/east-c/**', '!libs/east-c/build/**', '!**/node_modules/**') }}
+          path: libs/east-c/build
       - name: Install
         run: pnpm install
       - name: Release dry-run against verdaccio
+        env:
+          SKIP_DEPS_BUILD: ${{ steps.deps.outputs.cache-hit == 'true' && '1' || '' }}
+          SKIP_EAST_UI_BUILD: ${{ steps.east-ui.outputs.cache-hit == 'true' && '1' || '' }}
+          SKIP_EAST_C_BUILD: ${{ steps.east-c.outputs.cache-hit == 'true' && '1' || '' }}
         run: bash scripts/test-release-verdaccio.sh
 
   # ────────────────────────────────────────────────────────────────────────

@@ -16,6 +16,11 @@
 #
 # Env:
 #   SKIP_BUILD=1   reuse existing dist/ + east-c build (fast iteration)
+#   SKIP_DEPS_BUILD=1, SKIP_EAST_UI_BUILD=1, SKIP_EAST_C_BUILD=1
+#                  reuse one group's build: east-ui's dependencies (east,
+#                  east-node, east-web, e3, east-py-datascience's TypeScript,
+#                  east-diagnostics), east-ui's packages, or east-c — what the
+#                  release workflow restored from its cache for that group
 #
 # Cleans up verdaccio + tmp dirs on exit (success or failure); safe to re-run.
 set -euo pipefail
@@ -67,29 +72,42 @@ JOB_LAUNCHER=
 
 # ── 1. Build everything the publish needs ───────────────────────────────────
 if [[ "${SKIP_BUILD:-}" != "1" ]]; then
-  log "Building TS packages"
-  make -C libs/east build
-  make -C libs/east-node build
-  make -C libs/east-web build
-  make -C libs/e3 build
-  pnpm --filter @elaraai/east-py-datascience run build
-  NODE_OPTIONS=--max-old-space-size=4096 make -C libs/east-ui build
-  make -C libs/east-diagnostics build
+  if [[ "${SKIP_DEPS_BUILD:-}" != "1" ]]; then
+    log "Building TS packages: east-ui's dependencies"
+    make -C libs/east build
+    make -C libs/east-node build
+    make -C libs/east-web build
+    make -C libs/e3 build
+    pnpm --filter @elaraai/east-py-datascience run build
+    make -C libs/east-diagnostics build
+  else
+    log "SKIP_DEPS_BUILD=1 — reusing east-ui's dependencies' dist/"
+  fi
+  if [[ "${SKIP_EAST_UI_BUILD:-}" != "1" ]]; then
+    log "Building TS packages: east-ui"
+    NODE_OPTIONS=--max-old-space-size=4096 make -C libs/east-ui build
+  else
+    log "SKIP_EAST_UI_BUILD=1 — reusing east-ui's dist/"
+  fi
   log "Building east-plugin and assembling the agent plugins"
   make -C libs/east-plugin package >/dev/null
   make -C libs/eslint-plugin-east build
   make -C libs/tsserver-plugin-east build
   pnpm --filter @elaraai/scaffold-core --filter @elaraai/create-e3 --filter @elaraai/create-east run build
-  log "Building east-c (cmake, $TARGET)"
-  # OS-aware to match publish-c-native: Ninja + MSVC on Windows; nproc has no
-  # macOS equivalent so fall back to sysctl. (east-c's `make build` hardcodes
-  # bare `nproc`, which fails on macOS — build cmake directly here.)
-  ( mkdir -p libs/east-c/build && cd libs/east-c/build
-    if [ "$TARGET" = "win32-x64" ]; then
-      cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release >/dev/null && cmake --build . >/dev/null
-    else
-      cmake .. >/dev/null && cmake --build . -j"$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)" >/dev/null
-    fi )
+  if [[ "${SKIP_EAST_C_BUILD:-}" != "1" ]]; then
+    log "Building east-c (cmake, $TARGET)"
+    # OS-aware to match publish-c-native: Ninja + MSVC on Windows; nproc has no
+    # macOS equivalent so fall back to sysctl. (east-c's `make build` hardcodes
+    # bare `nproc`, which fails on macOS — build cmake directly here.)
+    ( mkdir -p libs/east-c/build && cd libs/east-c/build
+      if [ "$TARGET" = "win32-x64" ]; then
+        cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release >/dev/null && cmake --build . >/dev/null
+      else
+        cmake .. >/dev/null && cmake --build . -j"$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)" >/dev/null
+      fi )
+  else
+    log "SKIP_EAST_C_BUILD=1 — reusing east-c's build"
+  fi
   if [ -n "$JOB_LAUNCHER" ]; then
     log "Building e3-job (cmake, e3-core's Windows job launcher)"
     make -C libs/e3 job-launcher >/dev/null
