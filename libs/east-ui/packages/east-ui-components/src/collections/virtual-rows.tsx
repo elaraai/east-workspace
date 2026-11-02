@@ -71,20 +71,12 @@
  * view, else one covering the view — and a render that finds the anchor
  * moved, with nothing scrolled since, moves the virtualizer's offset by the
  * same amount (the rows drawn are the ones that will show) and the scroll
- * position follows before paint. The row holding the keyboard, where it may
- * anchor and shows in the view, is the anchor before any other, as it is the
- * browser's own. A bounded frame anchors only once its view is the viewer's
- * (#1469): scrolled off its top, by anyone; pressed, typed or wheeled in; the
- * keyboard inside it; or sent somewhere by its collection (`scrollToIndex`,
- * `restoreAnchor`). Until then — a view nobody has touched, as one opens —
- * rows landing anywhere leave it where it is, at its top, as on a page still
- * loading: a collection whose sources land one after another opens at its
- * top, never scrolled to whichever row landed first. A collection that draws
- * rows not read as one item, a run however many (`runs`, the Calendar's paged
- * places, #1424), anchors on the row inside a run at the view's top — by the
- * key that row takes once read — and finds it again wherever it then is: its
- * own line, or a run that holds it, so a window landing in the run keeps that
- * row where it was. A scroll not yet reported — a programmatic
+ * position follows before paint. A collection that draws rows not read as one
+ * item, a run however many (`runs`, the Calendar's paged places, #1424),
+ * anchors on the row inside a run at the view's top — by the key that row
+ * takes once read — and finds it again wherever it then is: its own line, or
+ * a run that holds it, so a window landing in the run keeps that row where it
+ * was. A scroll not yet reported — a programmatic
  * one — wins. The anchor is kept in the rows' own coordinates, net of the
  * scroll margin: the pinned header being measured, or growing, is no row
  * moving, and moves nothing (#944). An offset past where the view can go —
@@ -400,10 +392,8 @@ interface VirtualRowsBaseProps {
     /**
      * Which rows may ANCHOR the scroll (#878) — omitted, the frame does not
      * anchor. In a keyed frame whose rows are positioned (bounded, or at
-     * scale), the row holding the keyboard if it may, else the first row that
-     * may starting inside the view, keeps its place on screen when rows above
-     * it change height or count — a bounded frame's once its view is the
-     * viewer's (#1469, see the module docs). A placeholder
+     * scale), the first row that may, starting inside the view, keeps its
+     * place on screen when rows above it change height or count. A placeholder
      * whose edge moves as content lands beside it — a paged source's unloaded
      * band — must not anchor: rows landing below it move its top, and keeping
      * it in place would scroll them out of view.
@@ -785,8 +775,7 @@ interface ScrollAnchor {
  * The item a frame keeps in place (#878): the first anchorable item that starts
  * inside the view, else an anchorable one covering the view's top — or, that
  * one a run of rows not read, the row inside it at the view's top, by the key
- * it takes once read (#1424). The item holding the keyboard comes first,
- * where it may anchor and meets the view.
+ * it takes once read (#1424).
  *
  * @param virtualizer - The frame's virtualizer
  * @param offset - Its scroll offset
@@ -795,17 +784,12 @@ interface ScrollAnchor {
  * @param anchorable - Which items may anchor
  * @param margin - The scroll margin the item starts carry — the pinned header's height
  * @param runs - Where the rows the collection draws as runs stand, where it draws any
- * @param focused - The item holding the keyboard, by its index; `undefined` for none
  * @returns The anchor, or null when no item in view may anchor
  */
 function anchorOf(
     virtualizer: Rows, offset: number, top: number, height: number, anchorable: (index: number) => boolean, margin: number,
-    runs: RowRuns | undefined, focused: number | undefined,
+    runs: RowRuns | undefined,
 ): ScrollAnchor | null {
-    const held = focused === undefined ? undefined : virtualizer.measurementsCache[focused];
-    if (held !== undefined && anchorable(held.index) && held.end > top && held.start < top + height) {
-        return { key: held.key, start: held.start - margin, offset, index: held.index };
-    }
     const at = virtualizer.getVirtualItemForOffset(top);
     if (at === undefined) return null;
     const count = virtualizer.options.count;
@@ -1002,11 +986,6 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // render moved to that the commit has yet to write (#878).
     const anchorRef = useRef<ScrollAnchor | null>(null);
     const anchorTarget = useRef<number | null>(null);
-    // Whether a bounded frame's view is the viewer's (#1469): until it is, it takes no anchor. A frame at scale moves
-    // with the page, whose view is its viewer's from the start.
-    const touched = useRef(false);
-    // Takes the anchor for the next render, as the view stands now — set at every render.
-    const takeAnchor = useRef<() => void>(() => {});
     // A keyed frame's scroll request, followed by its row's key until it
     // settles (#885).
     const requestRef = useRef<ScrollRequest | null>(null);
@@ -1059,14 +1038,6 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // The scroll offset now, in the virtualizer's terms — ahead of a scroll
     // event still to come.
     const liveOffset = (): number | undefined => (bounded ? scrollRef.current?.scrollTop : offsetNow(ancestor, itemsRef));
-    // The item holding the keyboard, by its index — `undefined` while the keyboard is on none of the rows.
-    const focusedIndex = (): number | undefined => {
-        const active = typeof document === "undefined" ? null : document.activeElement;
-        const items = itemsRef.current;
-        if (active === null || items === null || !items.contains(active)) return undefined;
-        const row = active.closest("[data-index]");
-        return row === null || !items.contains(row) ? undefined : Number(row.getAttribute("data-index"));
-    };
     // A scroll the frame asks of its virtualizer — a scroll request, its follow,
     // an anchor brought back — is the virtualizer's at once (#1398): the offset
     // the view went to, read back live and handed to the virtualizer as the
@@ -1091,11 +1062,6 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // height, which the rows sit below; at scale they are measured from the
     // rows' own top.
     const margin = bounded ? itemsOffset : 0;
-    takeAnchor.current = () => {
-        const offset = virtualizer.scrollOffset ?? 0;
-        anchorRef.current = anchorable === undefined || (bounded && !touched.current) ? null
-            : anchorOf(virtualizer, offset, offset + margin, virtualizer.scrollRect?.height ?? 0, anchorable, margin, runs, focusedIndex());
-    };
 
     // What scrolls the rows, for a row taller than the view — an unloaded run —
     // to draw the part of it the view shows (#1398, CL2; `rows-scroll.ts`): the
@@ -1186,25 +1152,10 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                 redraw();
             }
         }
-        // Off its top, the view is the viewer's — whoever scrolled it.
-        if ((virtualizer.scrollOffset ?? 0) > 0) touched.current = true;
-        takeAnchor.current();
+        const offset = virtualizer.scrollOffset ?? 0;
+        anchorRef.current = anchorable === undefined ? null
+            : anchorOf(virtualizer, offset, offset + margin, virtualizer.scrollRect?.height ?? 0, anchorable, margin, runs);
     });
-
-    // A bounded frame's view becomes the viewer's when they press, type or wheel in it, or the keyboard comes into it —
-    // and the anchor is taken again there and then: the keyboard's row, or the one at the view's top, as they are now,
-    // not as the last commit left them.
-    useEffect(() => {
-        const el = scrollRef.current;
-        if (!bounded || el === null) return undefined;
-        const touch = () => {
-            touched.current = true;
-            if (anchorTarget.current === null) takeAnchor.current();
-        };
-        const kinds = ["pointerdown", "keydown", "wheel", "touchstart", "focusin"] as const;
-        for (const kind of kinds) el.addEventListener(kind, touch, { passive: true });
-        return () => { for (const kind of kinds) el.removeEventListener(kind, touch); };
-    }, [bounded]);
 
     // Where a bounded frame's scroll rests, reported when a scroll SETTLES
     // (#813) — the row showing just under the header (the item starts carry
@@ -1320,8 +1271,6 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // not yet drawn whose height its estimate missed.
     useLayoutEffect(() => {
         if (scrollToIndex === undefined || !virtualized) return;
-        // Sent somewhere by its collection: the view is the viewer's from here.
-        touched.current = true;
         if (getItemKey === undefined) {
             virtualizer.scrollToIndex(scrollToIndex, { align: scrollAlign });
             takeLiveOffset();
@@ -1353,7 +1302,6 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         if (restoreAnchor === undefined || !bounded) return;
         const item = virtualizer.measurementsCache[restoreAnchor.index];
         if (item === undefined) return;
-        touched.current = true;
         virtualizer.scrollToOffset(item.start - itemsOffset + restoreAnchor.offset, { align: "start" });
         takeLiveOffset();
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the anchor is the trigger
