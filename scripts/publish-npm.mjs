@@ -21,12 +21,17 @@
 //                    npmjs: drops --provenance (which is npm-OIDC-only) and the
 //                    real-npm already-published check, but otherwise drives the
 //                    same pnpm publish path. Used by the release dry-run
-//                    validation (scripts/test-release-verdaccio.sh).
+//                    validation (scripts/test-release-verdaccio.sh). There the
+//                    packages publish in waves, each wave's packages — every
+//                    one whose workspace dependencies an earlier wave published
+//                    — side by side: a local registry serves at once, and one
+//                    at a time was most of the Windows leg's publish. A real
+//                    release publishes one at a time, as it always has.
 //
 // Expects package.json files to already be at the target version (run set-npm-version.mjs first).
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { alreadyPublished } from './lib/already-published.mjs';
 import { missingEntryPoints } from './lib/entry-points.mjs';
@@ -75,7 +80,7 @@ const PKGS = [
   'libs/create/packages/create-e3/package.json',
 ];
 
-function publish(pkgDir) {
+function publishArgs() {
   const args = [
     'publish',
     '--access', 'public',
@@ -87,16 +92,33 @@ function publish(pkgDir) {
   if (!REGISTRY) args.push('--provenance');
   if (REGISTRY) args.push('--registry', REGISTRY);
   if (DRY_RUN) args.push('--dry-run');
-  // On Windows `pnpm` is a `.cmd` shim; spawnSync can't resolve it without a
-  // shell (the real release publishes from Linux, but the verdaccio dry-run's
-  // Windows leg exercises this path). Args here are shell-safe (no spaces).
-  const r = spawnSync('pnpm', args, {
+  return args;
+}
+
+// On Windows `pnpm` is a `.cmd` shim; spawn can't resolve it without a shell
+// (the real release publishes from Linux, but the verdaccio dry-run's Windows
+// leg exercises this path). Args here are shell-safe (no spaces).
+function publish(pkgDir) {
+  const r = spawnSync('pnpm', publishArgs(), {
     cwd: pkgDir,
     stdio: 'inherit',
     shell: process.platform === 'win32',
   });
   if (r.error) console.error(`  spawn error: ${r.error.message}`);
   return r.status === 0;
+}
+
+// The same publish, run beside others: its output is held and printed whole
+// once it ends, so side-by-side publishes never interleave their lines.
+function publishAsync(pkgDir) {
+  return new Promise((resolve) => {
+    const child = spawn('pnpm', publishArgs(), { cwd: pkgDir, shell: process.platform === 'win32' });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { out += d; });
+    child.on('error', (e) => { out += `  spawn error: ${e.message}\n`; });
+    child.on('close', (code) => { process.stdout.write(out); resolve(code === 0); });
+  });
 }
 
 let failed = 0;
@@ -114,7 +136,9 @@ function required(pkg) {
   return [...Object.keys(pkg.dependencies ?? {}), ...peers];
 }
 
-for (const rel of PKGS) {
+// Whether a package is to publish now: false, counted, for one already on npm,
+// one a dependency of which did not publish, or one never built.
+function ready(rel) {
   const manifestPath = path.join(repoRoot, rel);
   const pkg = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   const pkgDir = path.dirname(manifestPath);
@@ -126,7 +150,7 @@ for (const rel of PKGS) {
     console.log(`  skip: ${pkg.name}@${pkg.version} already on npm`);
     skipped++;
     expected.push({ registry: 'npm', name: pkg.name, version: pkg.version });
-    continue;
+    return undefined;
   }
 
   const missingDependencies = required(pkg).filter((name) => unpublished.has(name));
@@ -134,7 +158,7 @@ for (const rel of PKGS) {
     console.error(`  HELD BACK: ${pkg.name}@${pkg.version} needs ${missingDependencies.join(', ')}, which did not publish`);
     unpublished.add(pkg.name);
     failed++;
-    continue;
+    return undefined;
   }
 
   // A package whose manifest names files it does not hold was never built,
@@ -145,17 +169,45 @@ for (const rel of PKGS) {
     console.error(`  NOT BUILT: ${pkg.name}@${pkg.version} lacks the entry points its manifest names: ${missing.join(', ')}`);
     unpublished.add(pkg.name);
     failed++;
-    continue;
+    return undefined;
   }
 
   console.log(`  publish: ${pkg.name}@${pkg.version}${DRY_RUN ? ' (dry run)' : ''}`);
-  if (!publish(pkgDir)) {
+  return { pkg, pkgDir };
+}
+
+// A publish's outcome, counted.
+function settle(pkg, ok) {
+  if (!ok) {
     console.error(`  FAILED: ${pkg.name}@${pkg.version}`);
     unpublished.add(pkg.name);
     failed++;
   } else {
     published++;
     expected.push({ registry: 'npm', name: pkg.name, version: pkg.version });
+  }
+}
+
+if (!REGISTRY) {
+  for (const rel of PKGS) {
+    const next = ready(rel);
+    if (next !== undefined) settle(next.pkg, publish(next.pkgDir));
+  }
+} else {
+  // Waves over the workspace dependencies among these packages: a package goes
+  // in the wave after the latest of its dependencies'.
+  const names = new Map(PKGS.map((rel) => [JSON.parse(fs.readFileSync(path.join(repoRoot, rel), 'utf8')).name, rel]));
+  const wave = new Map();
+  for (const rel of PKGS) {
+    const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, rel), 'utf8'));
+    const deps = required(pkg).filter((name) => names.has(name)).map((name) => wave.get(names.get(name)) ?? 0);
+    wave.set(rel, deps.length === 0 ? 0 : Math.max(...deps) + 1);
+  }
+  const waves = [...new Set(wave.values())].sort((a, b) => a - b);
+  for (const w of waves) {
+    const batch = PKGS.filter((rel) => wave.get(rel) === w).map(ready).filter((next) => next !== undefined);
+    const outcomes = await Promise.all(batch.map(({ pkgDir }) => publishAsync(pkgDir)));
+    batch.forEach(({ pkg }, i) => settle(pkg, outcomes[i]));
   }
 }
 
