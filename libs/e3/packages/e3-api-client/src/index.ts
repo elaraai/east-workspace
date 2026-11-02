@@ -204,6 +204,7 @@ export {
   oneShotExecute,
   splitCallLaunch,
   splitCallStatus,
+  splitCallCancel,
   splitCallExplain,
   splitCall,
   type SplitCallOptions,

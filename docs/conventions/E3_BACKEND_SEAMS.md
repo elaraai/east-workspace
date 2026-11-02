@@ -181,7 +181,13 @@ call's pieces (`explain`), since planning stores every piece. So is the
 re-reference of what an `object` argument names, an earlier call's output of
 thousands of segments, say: the launch checks only the argument's own object
 and records which arguments are objects (`objects`), and the job re-references
-the rest before it runs (`splitCallReference`).
+the rest before it runs (`splitCallReference`). A split call is cancelled by
+writing its job `cancelled`, and a `SplitCallStore` keeps an end: its
+`updateStatus` records a status only while the job is `processing`, checking
+and writing in one atomic step — at once in memory, in one records transaction
+in e3-web, as a conditional write in e3-cloud — and says whether it did, so a
+cancel never overwrites a result, nor a result a cancel. The job reads its
+record as it runs, and stops its units once it finds it ended.
 
 **A job over compute with a time limit hands over between calls.** Each job's
 processor takes a signal its caller aborts at the deadline, and a call stopped

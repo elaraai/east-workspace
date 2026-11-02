@@ -192,13 +192,16 @@ export type RepoGcJob = ValueTypeOf<typeof RepoGcJobType>;
  * How a split call's job stands, as a store keeps it for a poll: `processing`,
  * with how far it has got once it has said; `completed`, with what it came to
  * — hashes, not values ({@link SplitCallOutcomeType}); `planned`, an
- * explain's pieces; or `failed`, naming why e3 could not run it.
+ * explain's pieces; `failed`, naming why e3 could not run it; or `cancelled`,
+ * by a caller who may poll it, before it ended. Every status but `processing`
+ * is an end, which the store never moves the job out of.
  */
 export const SplitCallJobStatusType = VariantType({
   processing: OptionType(SplitCallProgressType),
   completed: SplitCallOutcomeType,
   planned: SplitCallPlanType,
   failed: StructType({ message: StringType }),
+  cancelled: NullType,
 });
 
 /**

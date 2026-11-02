@@ -535,10 +535,13 @@ class InMemorySplitCallStore implements SplitCallStore {
     return this.records.get(id) ?? null;
   }
 
-  async updateStatus(id: string, status: SplitCallJob['status']): Promise<void> {
+  async updateStatus(id: string, status: SplitCallJob['status']): Promise<boolean> {
     const record = this.records.get(id);
     if (!record) throw new Error(`Split call ${id} not found`);
+    // Checked and written with nothing awaited between: one step.
+    if (record.status.type !== 'processing') return false;
     this.records.set(id, { ...record, status });
+    return true;
   }
 
   async delete(id: string): Promise<void> {

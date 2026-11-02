@@ -29,6 +29,7 @@ import {
   listPackageFunctions,
   describePackageFunction,
   callFunctionSync,
+  cancelSplitCall,
   getSplitCallStatus,
 } from './functions.js';
 import { createOneShotRoutes, createPackageFunctionRoutes, oneShotAccessByRoles, type OneShotAccess } from '../routes/functions.js';
@@ -377,5 +378,40 @@ describe('one-shot access', () => {
     assert.deepEqual(await poll('r', 'w', 'free', 'platform_free'), variant('success', variant('planned', plan)));
     assert.deepEqual(await poll('r', 'w', 'elevated', 'platform_free'), variant('error', variant('permission_denied', { path: 'one-shot' })));
     assert.deepEqual(await poll('r', 'w', 'elevated', 'any'), variant('success', variant('planned', plan)));
+  });
+
+  it('cancels a split call for whoever may poll it, and only while it runs: a cancel never overwrites an end, nor an end a cancel (#1104)', async () => {
+    const store = new InMemoryTransferBackend({}).splitCall;
+    const plan = { pieces: 3n, over: 0n, bytes: 100n };
+    // Jobs launched in workspace `w` of repository `r`: two that run, one a
+    // reader could launch and one only an elevated grant could, and one
+    // that has ended.
+    for (const [id, platformFree, status] of [
+      ['running', true, variant('processing', none)],
+      ['elevated', false, variant('processing', none)],
+      ['planned', true, variant('planned', plan)],
+    ] as const) {
+      await store.create(id, {
+        repo: 'r', workspace: 'w', task: '', inputs: [], objects: [], then: none,
+        limits: { timeoutMs: 1000n, maxResultBytes: 1024n, maxLogBytes: 1024n },
+        read: [], explain: true, platformFree, status, createdAt: new Date(),
+      });
+    }
+    const cancel = async (ws: string, id: string, grant: OneShotGrant) =>
+      decodeResponse(await cancelSplitCall(new InMemoryStorage(), 'r', store, 'r', ws, id, grant), SplitCallStatusType);
+
+    assert.deepEqual(await cancel('w', 'running', 'none'), variant('error', variant('permission_denied', { path: 'one-shot' })));
+    assert.deepEqual(await cancel('w', 'elevated', 'platform_free'), variant('error', variant('permission_denied', { path: 'one-shot' })));
+    assert.deepEqual(await cancel('other', 'running', 'any'), variant('error', variant('internal', { message: 'workspace \'other\' has no split call \'running\'' })));
+    for (const id of ['running', 'elevated']) {
+      assert.equal((await store.get(id))?.status.type, 'processing', `no refused cancel stopped ${id}`);
+    }
+
+    assert.deepEqual(await cancel('w', 'running', 'platform_free'), variant('success', variant('cancelled', null)));
+    assert.deepEqual(await cancel('w', 'running', 'any'), variant('success', variant('cancelled', null)), 'cancelled again, it stays so');
+    assert.equal(await store.updateStatus('running', variant('failed', { message: 'too late' })), false, 'an end written after the cancel is refused');
+    assert.equal((await store.get('running'))?.status.type, 'cancelled');
+    assert.deepEqual(await cancel('w', 'elevated', 'any'), variant('success', variant('cancelled', null)));
+    assert.deepEqual(await cancel('w', 'planned', 'any'), variant('success', variant('planned', plan)), 'a job that has ended answers as it ended');
   });
 });

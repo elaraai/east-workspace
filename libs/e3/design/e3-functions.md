@@ -644,6 +644,7 @@ POST   /api/repos/:repo/workspaces/:ws/functions/:fn            (+ /async, /call
 POST   /api/repos/:repo/workspaces/:ws/one-shot                 → oneShotExecute (e3-core, §6.1)
 POST   /api/repos/:repo/workspaces/:ws/one-shot/split           → a split call's job id (§10.1); ?explain=1 a job that plans its pieces
 GET    /api/repos/:repo/workspaces/:ws/one-shot/split/:id       → the split call's status
+POST   /api/repos/:repo/workspaces/:ws/one-shot/split/:id/cancel → cancel it, and its status after (§10.1)
 POST   /api/repos/:repo/workspaces/:ws/one-shot/async           → callOneShotAsync
 GET    /api/repos/:repo/workspaces/:ws/one-shot/calls/:callId   → getCallStatus
 DELETE /api/repos/:repo/workspaces/:ws/one-shot/calls/:callId   → cancelCall
@@ -857,7 +858,8 @@ export const SplitCallRequestType = StructType({
   limits: OptionType(ExecuteLimitsType),
 });
 // the poll: SplitCallStatusType — processing (SplitCallProgressType), completed { result: ExecuteResult,
-// output: Option(hash) }, planned (an explain's: SplitCallPlanType { pieces, over, bytes }), failed { message }
+// output: Option(hash) }, planned (an explain's: SplitCallPlanType { pieces, over, bytes }), failed { message },
+// cancelled (#1104)
 ```
 
 At least one argument is partitioned, and the pieces follow the task's rules
@@ -908,6 +910,23 @@ the timeout: a run that starts with none left ends `timed_out` without running
 a unit. So a host that runs a job in rounds sets the one-shot routes'
 `ceilings.timeoutMs` to the budget for the whole job, not for one round.
 
+**Cancel** (#1104). `POST …/one-shot/split/:id/cancel` cancels a job still
+`processing`: the route writes it `cancelled` (`SplitCallJobStatusType`) and
+answers its status after, as a poll does. Whoever may poll the job may cancel
+it, by the poll's rule (below). `SplitCallStore.updateStatus` records a status
+only while the job runs, checking and writing in one atomic step, and says
+whether it did: so a cancel never overwrites a result, nor a result a cancel,
+and a job that had ended answers as it ended. `handleProcessSplitCall` reads
+the job's record every second as it runs (`SPLIT_CANCEL_POLL_MS`), and a
+progress write the store refuses tells it the same. Once it finds the job
+ended, it aborts its own signal, which stops the run or the planning: the
+local runner kills the units' processes and the budget takes their grants
+back, e3-web terminates their workers, and e3-cloud launches no more. Finished
+units stay cached, so a relaunch is served them. An abort of the caller's own
+signal is still a hand-over, and leaves the job `processing`. The client's
+`splitCallCancel` sends the cancel, and `splitCall` and `splitCallExplain`
+send it when their signal aborts, then reject with the signal's reason.
+
 **Hashes, not values.** A completed job's record holds the result's object and
 the assembled output's hash (`SplitCallOutcomeType`), so a store with small
 records keeps it. The poll (`splitCallResult`) reads the value and answers it
@@ -944,12 +963,13 @@ re-cuts a segment at each boundary a `by` or a co-partitioned argument moves,
 so it is the job's work: the request does only the grant, the pins and the
 launch's small writes.
 
-The client has `splitCallLaunch`, `splitCallStatus`, `splitCallExplain`, which
-launches an explain and polls it for the plan, and `splitCall`, which launches
-and polls to the end. A backend implements the `SplitCallStore`, keeping each
-job's `objects`, `explain` and `platformFree`, and dispatches its jobs to compute that
-runs `handleProcessSplitCall` on its runner; its `TaskRunner.execute` of a
-split task is what index builds already need.
+The client has `splitCallLaunch`, `splitCallStatus`, `splitCallCancel`,
+`splitCallExplain`, which launches an explain and polls it for the plan, and
+`splitCall`, which launches and polls to the end. A backend implements the
+`SplitCallStore`, keeping each job's `objects`, `explain` and `platformFree`,
+and refusing a status write to a job that has ended, and dispatches its jobs to
+compute that runs `handleProcessSplitCall` on its runner; its
+`TaskRunner.execute` of a split task is what index builds already need.
 
 ## 11. Security summary
 

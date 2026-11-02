@@ -697,15 +697,22 @@ abstract class JobStore<
 
   /**
    * Records a job's status: one that ends it is run by no session after, and
-   * one that fails it removes what it staged.
+   * one that fails it removes what it staged. With `whileRunning`, a job that
+   * has ended is left as it is, checked and written in one transaction.
    *
+   * @returns Whether the status was recorded
    * @throws {Error} When there is no such job
    */
-  async updateStatus(id: string, status: J['status']): Promise<void> {
+  protected async writeStatus(id: string, status: J['status'], whileRunning: boolean): Promise<boolean> {
     const ended = this.finished(status);
-    const changed = await changeRecord(this.host.records, this.key(id), this.form, (current) => this.withStatus(id, current, status, ended));
+    let written = false;
+    const changed = await changeRecord(this.host.records, this.key(id), this.form, (current) => {
+      written = !(whileRunning && this.finished(current.job.status));
+      return written ? this.withStatus(id, current, status, ended) : null;
+    });
     if (changed === null) throw new Error(`${this.kind} job ${id} not found`);
-    if (this.failed(status)) await this.discard(id, changed);
+    if (written && this.failed(status)) await this.discard(id, changed);
+    return written;
   }
 
   async delete(id: string): Promise<void> {
@@ -765,7 +772,7 @@ abstract class JobStore<
       try {
         const current = await this.record(id);
         if (current !== null && !this.finished(current.job.status)) {
-          await this.updateStatus(id, this.failure(thrown === null ? STOPPED : `${STOPPED}: ${messageOf(thrown)}`));
+          await this.writeStatus(id, this.failure(thrown === null ? STOPPED : `${STOPPED}: ${messageOf(thrown)}`), true);
         }
       } catch {
         // The record is gone, or the storage closed: nothing is left to end.
@@ -824,6 +831,11 @@ abstract class JobStore<
 class WebPackageImportStore extends JobStore<PackageImport, ImportRecord> implements PackageImportStore {
   constructor(host: TransferHost, running: Running) {
     super(host, running, 'import', importForm);
+  }
+
+  /** Records the job's status. */
+  async updateStatus(id: string, status: PackageImport['status']): Promise<void> {
+    await this.writeStatus(id, status, false);
   }
 
   protected fresh(job: PackageImport, owner: option<string>): ImportRecord {
@@ -920,6 +932,11 @@ class WebPackageExportStore extends JobStore<PackageExport, ExportRecord> implem
 
   constructor(host: TransferHost, running: Running, private readonly roundBytes: number) {
     super(host, running, 'export', exportForm);
+  }
+
+  /** Records the job's status. */
+  async updateStatus(id: string, status: PackageExport['status']): Promise<void> {
+    await this.writeStatus(id, status, false);
   }
 
   protected fresh(job: PackageExport, owner: option<string>): ExportRecord {
@@ -1073,6 +1090,11 @@ class WebWorkspaceDeployStore extends JobStore<WorkspaceDeployJob, DeployRecord>
     super(host, running, 'deploy', deployForm);
   }
 
+  /** Records the job's status. */
+  async updateStatus(id: string, status: WorkspaceDeployJob['status']): Promise<void> {
+    await this.writeStatus(id, status, false);
+  }
+
   protected fresh(job: WorkspaceDeployJob, owner: option<string>): DeployRecord {
     return { job, owner, finishedAt: none };
   }
@@ -1108,6 +1130,11 @@ class WebWorkspaceDeployStore extends JobStore<WorkspaceDeployJob, DeployRecord>
 class WebRepoGcStore extends JobStore<RepoGcJob, GcRecord> implements RepoGcStore {
   constructor(host: TransferHost, running: Running) {
     super(host, running, 'gc', gcForm);
+  }
+
+  /** Records the job's status. */
+  async updateStatus(id: string, status: RepoGcJob['status']): Promise<void> {
+    await this.writeStatus(id, status, false);
   }
 
   protected fresh(job: RepoGcJob, owner: option<string>): GcRecord {
@@ -1146,6 +1173,12 @@ class WebRepoGcStore extends JobStore<RepoGcJob, GcRecord> implements RepoGcStor
 class WebSplitCallStore extends JobStore<SplitCallJob, SplitRecord> implements SplitCallStore {
   constructor(host: TransferHost, running: Running) {
     super(host, running, 'split', splitForm);
+  }
+
+  /** Records the job's status unless it has ended, in one transaction: a
+   *  cancel never overwrites a result, nor a result a cancel. */
+  updateStatus(id: string, status: SplitCallJob['status']): Promise<boolean> {
+    return this.writeStatus(id, status, true);
   }
 
   protected fresh(job: SplitCallJob, owner: option<string>): SplitRecord {
