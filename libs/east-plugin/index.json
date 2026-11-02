@@ -1,15 +1,15 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1303,
-    "totalFiles": 222,
+    "totalEntries": 1307,
+    "totalFiles": 223,
     "packages": {
-      "east": 584,
+      "east": 582,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
-      "east-ui": 307,
-      "e3-ui": 163,
+      "east-ui": 308,
+      "e3-ui": 168,
       "e3": 23,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -14813,7 +14813,7 @@
         "identical"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -14847,7 +14847,7 @@
         "changed"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -14881,7 +14881,7 @@
         "replace"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -14916,7 +14916,7 @@
         "reverse"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -14954,7 +14954,7 @@
         "round-trip"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -14991,7 +14991,7 @@
         "ArrayType"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15025,7 +15025,7 @@
         "ArrayType"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15062,7 +15062,7 @@
         "restore"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15086,90 +15086,6 @@
       ]
     },
     {
-      "id": "east:patch.examples.ts:patchDiffArrayOneChange",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/patch.examples.ts",
-      "suite": "Arrays",
-      "test": "Diff two 100,000-element arrays that differ in one element: the patch is one update at its position",
-      "keywords": [
-        "patch",
-        "diff",
-        "array",
-        "ArrayType",
-        "large",
-        "update",
-        "one change",
-        "linear"
-      ],
-      "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
-      ],
-      "languages": [
-        "typescript",
-        "python"
-      ],
-      "ir": "{\"type\":\"Function\",\"value\":{\"type\":{\"type\":\"Function\",\"value\":{\"inputs\":[],\"output\":{\"type\":\"Variant\",\"value\":[{\"name\":\"patch\",\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Struct\",\"value\":[{\"name\":\"key\",\"type\":{\"type\":\"Integer\",\"value\":null}},{\"name\":\"offset\",\"type\":{\"type\":\"Integer\",\"value\":null}},{\"name\":\"operation\",\"type\":{\"type\":\"Variant\",\"value\":[{\"name\":\"delete\",\"type\":{\"type\":\"Integer\",\"value\":null}},{\"name\":\"insert\",\"type\":{\"type\":\"Integer\",\"value\":null}},{\"name\":\"update\",\"type\":{\"type\":\"Variant\",\"value\":[{\"name\":\"replace\",\"type\":{\"type\":\"Struct\",\"value\":[{\"name\":\"before\",\"type\":{\"type\":\"Integer\",\"value\":null}},{\"name\":\"after\",\"type\":{\"type\":\"Integer\",\"value\":null}}]}},{\"name\":\"unchanged\",\"type\":{\"type\":\"Null\",\"value\":null}}]}}]}}]}}},{\"name\":\"replace\",\"type\":{\"type\":\"Struct\",\"value\":[{\"name\":\"before\",\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}}},{\"name\":\"after\",\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}}}]}},{\"name\":\"unchanged\",\"type\":{\"type\":\"Null\",\"value\":null}}]}}},\"loc_id\":\"0\",\"captures\":[],\"parameters\":[],\"body\":{\"type\":\"Block\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":{\"$ref\":\"4#type/Function/output/Variant\"}},\"loc_id\":\"0\",\"statements\":[{\"type\":\"Let\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"before\",\"mutable\":true,\"captured\":false}},\"value\":{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"builtin\":\"ArrayRange\",\"type_parameters\":[],\"arguments\":[{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"0\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"100000\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"1\"}}}]}}}},{\"type\":\"Let\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"after\",\"mutable\":true,\"captured\":false}},\"value\":{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"builtin\":\"ArrayCopy\",\"type_parameters\":[{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"before\",\"mutable\":true,\"captured\":false}}]}}}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"builtin\":\"ArrayUpdate\",\"type_parameters\":[{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"after\",\"mutable\":true,\"captured\":false}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"50000\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"-1\"}}}]}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":{\"$ref\":\"7#type/Function/output/Variant\"}},\"loc_id\":\"0\",\"builtin\":\"Diff\",\"type_parameters\":[{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},{\"type\":\"Variant\",\"value\":{\"$ref\":\"8#type/Function/output/Variant\"}}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"before\",\"mutable\":true,\"captured\":false}},{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"after\",\"mutable\":true,\"captured\":false}}]}}]}}}}",
-      "ts": "// Generated by east-node transpile — East IR printed as the East.function\n// builder surface. Rebuilding this module yields the same IR (normalized).\nimport { East, NullType, IntegerType, ArrayType, StructType, VariantType } from \"@elaraai/east\";\n\nexport const patchDiffArrayOneChange = East.function(\n  [],\n  VariantType({\n    patch: ArrayType(StructType({\n      key: IntegerType,\n      offset: IntegerType,\n      operation: VariantType({\n        delete: IntegerType,\n        insert: IntegerType,\n        update: VariantType({\n          replace: StructType({ before: IntegerType, after: IntegerType }),\n          unchanged: NullType,\n        }),\n      }),\n    })),\n    replace: StructType({ before: ArrayType(IntegerType), after: ArrayType(IntegerType) }),\n    unchanged: NullType,\n  }),\n  ($) => {\n    const before = $.let(East.Array.range(East.value(0n), 100000n, 1n));\n    const after = $.let(before.copy());\n    $(after.update(50000n, -1n));\n    return East.diff(before, after);\n  },\n);\n",
-      "python": "# Generated by east-py transpile — East IR printed as the East.function\n# builder surface. Rebuilding this module yields the same IR (normalized).\nfrom east import East, NullType, IntegerType, ArrayType, StructType, VariantType\n\n@East.function(\n    [],\n    VariantType([\n        ('patch', ArrayType(StructType([\n            ('key', IntegerType),\n            ('offset', IntegerType),\n            ('operation', VariantType([\n                ('delete', IntegerType),\n                ('insert', IntegerType),\n                ('update', VariantType([\n                    ('replace', StructType([('before', IntegerType), ('after', IntegerType)])),\n                    ('unchanged', NullType),\n                ])),\n            ])),\n        ]))),\n        ('replace', StructType([\n            ('before', ArrayType(IntegerType)),\n            ('after', ArrayType(IntegerType)),\n        ])),\n        ('unchanged', NullType),\n    ]),\n)\ndef patchDiffArrayOneChange(b):\n    before = b.let(East.Array.range(East.value(0, IntegerType), 100000, 1))\n    after = b.let(before.copy())\n    b.do(after.update(50000, -1))\n    return East.diff(ArrayType(IntegerType), before, after)\n",
-      "signature": {
-        "inputs": [],
-        "output": "VariantType({ patch: ArrayType(StructType({ key: IntegerType, offset: IntegerType, operation: VariantType({ delete: IntegerType, insert: IntegerType, update: VariantType({ replace: StructType({ before: IntegerType, after: IntegerType }), unchanged: NullType }) }) })), replace: StructType({ before: ArrayType(IntegerType), after: ArrayType(IntegerType) }), unchanged: NullType })",
-        "async": false
-      },
-      "inputs": "[]",
-      "returns": "{\"type\":\"patch\",\"value\":[{\"key\":\"50000\",\"offset\":\"0\",\"operation\":{\"type\":\"update\",\"value\":{\"type\":\"replace\",\"value\":{\"before\":\"50000\",\"after\":\"-1\"}}}}]}",
-      "builtins": [
-        "ArrayCopy",
-        "ArrayRange",
-        "ArrayUpdate",
-        "Diff"
-      ]
-    },
-    {
-      "id": "east:patch.examples.ts:patchDiffArrayMove",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/patch.examples.ts",
-      "suite": "Arrays",
-      "test": "Diff an array with one element moved far along it: the patch deletes it where it was and inserts it where it went",
-      "keywords": [
-        "patch",
-        "diff",
-        "array",
-        "ArrayType",
-        "move",
-        "reorder",
-        "delete",
-        "insert",
-        "shortest edit script"
-      ],
-      "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
-      ],
-      "languages": [
-        "typescript",
-        "python"
-      ],
-      "ir": "{\"type\":\"Function\",\"value\":{\"type\":{\"type\":\"Function\",\"value\":{\"inputs\":[],\"output\":{\"type\":\"Variant\",\"value\":[{\"name\":\"patch\",\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Struct\",\"value\":[{\"name\":\"key\",\"type\":{\"type\":\"Integer\",\"value\":null}},{\"name\":\"offset\",\"type\":{\"type\":\"Integer\",\"value\":null}},{\"name\":\"operation\",\"type\":{\"type\":\"Variant\",\"value\":[{\"name\":\"delete\",\"type\":{\"type\":\"Integer\",\"value\":null}},{\"name\":\"insert\",\"type\":{\"type\":\"Integer\",\"value\":null}},{\"name\":\"update\",\"type\":{\"type\":\"Variant\",\"value\":[{\"name\":\"replace\",\"type\":{\"type\":\"Struct\",\"value\":[{\"name\":\"before\",\"type\":{\"type\":\"Integer\",\"value\":null}},{\"name\":\"after\",\"type\":{\"type\":\"Integer\",\"value\":null}}]}},{\"name\":\"unchanged\",\"type\":{\"type\":\"Null\",\"value\":null}}]}}]}}]}}},{\"name\":\"replace\",\"type\":{\"type\":\"Struct\",\"value\":[{\"name\":\"before\",\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}}},{\"name\":\"after\",\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}}}]}},{\"name\":\"unchanged\",\"type\":{\"type\":\"Null\",\"value\":null}}]}}},\"loc_id\":\"0\",\"captures\":[],\"parameters\":[],\"body\":{\"type\":\"Block\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":{\"$ref\":\"4#type/Function/output/Variant\"}},\"loc_id\":\"0\",\"statements\":[{\"type\":\"Let\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"before\",\"mutable\":true,\"captured\":false}},\"value\":{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"builtin\":\"ArrayRange\",\"type_parameters\":[],\"arguments\":[{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"0\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"100000\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"1\"}}}]}}}},{\"type\":\"Let\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"after\",\"mutable\":true,\"captured\":false}},\"value\":{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"builtin\":\"ArraySlice\",\"type_parameters\":[{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"before\",\"mutable\":true,\"captured\":false}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"0\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"10\"}}}]}}}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"builtin\":\"ArrayAppend\",\"type_parameters\":[{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"after\",\"mutable\":true,\"captured\":false}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"builtin\":\"ArraySlice\",\"type_parameters\":[{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"before\",\"mutable\":true,\"captured\":false}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"11\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"99991\"}}}]}}]}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"builtin\":\"ArrayPushLast\",\"type_parameters\":[{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"after\",\"mutable\":true,\"captured\":false}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"10\"}}}]}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"builtin\":\"ArrayAppend\",\"type_parameters\":[{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"after\",\"mutable\":true,\"captured\":false}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"builtin\":\"ArraySlice\",\"type_parameters\":[{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"before\",\"mutable\":true,\"captured\":false}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"99991\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"100000\"}}}]}}]}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":{\"$ref\":\"7#type/Function/output/Variant\"}},\"loc_id\":\"0\",\"builtin\":\"Diff\",\"type_parameters\":[{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},{\"type\":\"Variant\",\"value\":{\"$ref\":\"8#type/Function/output/Variant\"}}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"before\",\"mutable\":true,\"captured\":false}},{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"after\",\"mutable\":true,\"captured\":false}}]}}]}}}}",
-      "ts": "// Generated by east-node transpile — East IR printed as the East.function\n// builder surface. Rebuilding this module yields the same IR (normalized).\nimport { East, NullType, IntegerType, ArrayType, StructType, VariantType } from \"@elaraai/east\";\n\nexport const patchDiffArrayMove = East.function(\n  [],\n  VariantType({\n    patch: ArrayType(StructType({\n      key: IntegerType,\n      offset: IntegerType,\n      operation: VariantType({\n        delete: IntegerType,\n        insert: IntegerType,\n        update: VariantType({\n          replace: StructType({ before: IntegerType, after: IntegerType }),\n          unchanged: NullType,\n        }),\n      }),\n    })),\n    replace: StructType({ before: ArrayType(IntegerType), after: ArrayType(IntegerType) }),\n    unchanged: NullType,\n  }),\n  ($) => {\n    const before = $.let(East.Array.range(East.value(0n), 100000n, 1n));\n    const after = $.let(before.slice(0n, 10n));\n    $(after.append(before.slice(11n, 99991n)));\n    $(after.pushLast(10n));\n    $(after.append(before.slice(99991n, 100000n)));\n    return East.diff(before, after);\n  },\n);\n",
-      "python": "# Generated by east-py transpile — East IR printed as the East.function\n# builder surface. Rebuilding this module yields the same IR (normalized).\nfrom east import East, NullType, IntegerType, ArrayType, StructType, VariantType\n\n@East.function(\n    [],\n    VariantType([\n        ('patch', ArrayType(StructType([\n            ('key', IntegerType),\n            ('offset', IntegerType),\n            ('operation', VariantType([\n                ('delete', IntegerType),\n                ('insert', IntegerType),\n                ('update', VariantType([\n                    ('replace', StructType([('before', IntegerType), ('after', IntegerType)])),\n                    ('unchanged', NullType),\n                ])),\n            ])),\n        ]))),\n        ('replace', StructType([\n            ('before', ArrayType(IntegerType)),\n            ('after', ArrayType(IntegerType)),\n        ])),\n        ('unchanged', NullType),\n    ]),\n)\ndef patchDiffArrayMove(b):\n    before = b.let(East.Array.range(East.value(0, IntegerType), 100000, 1))\n    after = b.let(before.slice(0, 10))\n    b.do(after.append(before.slice(11, 99991)))\n    b.do(after.push_last(10))\n    b.do(after.append(before.slice(99991, 100000)))\n    return East.diff(ArrayType(IntegerType), before, after)\n",
-      "signature": {
-        "inputs": [],
-        "output": "VariantType({ patch: ArrayType(StructType({ key: IntegerType, offset: IntegerType, operation: VariantType({ delete: IntegerType, insert: IntegerType, update: VariantType({ replace: StructType({ before: IntegerType, after: IntegerType }), unchanged: NullType }) }) })), replace: StructType({ before: ArrayType(IntegerType), after: ArrayType(IntegerType) }), unchanged: NullType })",
-        "async": false
-      },
-      "inputs": "[]",
-      "returns": "{\"type\":\"patch\",\"value\":[{\"key\":\"10\",\"offset\":\"0\",\"operation\":{\"type\":\"delete\",\"value\":\"10\"}},{\"key\":\"99990\",\"offset\":\"0\",\"operation\":{\"type\":\"insert\",\"value\":\"10\"}}]}",
-      "builtins": [
-        "ArrayAppend",
-        "ArrayPushLast",
-        "ArrayRange",
-        "ArraySlice",
-        "Diff"
-      ]
-    },
-    {
       "id": "east:patch.examples.ts:patchDiffSet",
       "skill": "east",
       "package": "east",
@@ -15184,7 +15100,7 @@
         "insert"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15218,7 +15134,7 @@
         "SetType"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15255,7 +15171,7 @@
         "insert"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15289,7 +15205,7 @@
         "DictType"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15326,7 +15242,7 @@
         "field"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15360,7 +15276,7 @@
         "StructType"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15396,7 +15312,7 @@
         "same case"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15432,7 +15348,7 @@
         "replace"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15466,7 +15382,7 @@
         "VariantType"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15501,7 +15417,7 @@
         "combine"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15537,7 +15453,7 @@
         "identity"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15573,7 +15489,7 @@
         "identity"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15611,7 +15527,7 @@
         "array"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15650,7 +15566,7 @@
         "round-trip"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -33042,7 +32958,7 @@
         "Fields.Types.Spec"
       ],
       "imports": [
-        "import { ArrayType, BooleanType, East, IntegerType, NullType, OptionType, StringType, StructType, VariantType, example } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DateTimeType, East, IntegerType, NullType, OptionType, StringType, StructType, VariantType, example } from \"@elaraai/east\";",
         "import { Fields } from \"@elaraai/east-ui\";"
       ],
       "languages": [
@@ -33068,13 +32984,39 @@
         "spelled out"
       ],
       "imports": [
-        "import { ArrayType, BooleanType, East, IntegerType, NullType, OptionType, StringType, StructType, VariantType, example } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DateTimeType, East, IntegerType, NullType, OptionType, StringType, StructType, VariantType, example } from \"@elaraai/east\";",
         "import { Fields } from \"@elaraai/east-ui\";"
       ],
       "languages": [
         "typescript"
       ],
       "source": "// A variant field's select — the cases the hint gives words to first, in its order, then the rest, each name spelled out\n// inputs: []  returns: [\"Planned\", \"Underway\", \"Paused\", \"Done\"]\nEast.function([], ArrayType(StringType), ($) => {\n        const Status = VariantType({ planned: NullType, in_progress: NullType, on_hold: NullType, done: NullType });\n        const Job = StructType({ task: StringType, status: Status });\n        const specs = $.const(Fields.specs(Job, {\n            status: Fields.select({ labels: { planned: \"Planned\", in_progress: \"Underway\", on_hold: \"Paused\" } }),\n        }), ArrayType(Fields.Types.Spec));\n        return specs.get(0n).editor.unwrap(\"select\").map((_$, option) => option.label);\n    })"
+    },
+    {
+      "id": "east-ui:fields.examples.ts:fieldsDate",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/contracts/fields.examples.ts",
+      "suite": "",
+      "test": "A DateTime field's date field — the hint names it and picks a date alone, its precision carried on the datetime editor",
+      "keywords": [
+        "Fields",
+        "date",
+        "DateTime",
+        "precision",
+        "date field",
+        "time",
+        "label",
+        "hint"
+      ],
+      "imports": [
+        "import { ArrayType, BooleanType, DateTimeType, East, IntegerType, NullType, OptionType, StringType, StructType, VariantType, example } from \"@elaraai/east\";",
+        "import { Fields } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "source": "// A DateTime field's date field — the hint names it and picks a date alone, its precision carried on the datetime editor\n// inputs: []  returns: \"Until: date\"\nEast.function([], StringType, ($) => {\n        const Deferral = StructType({ reason: StringType, until: DateTimeType });\n        const specs = $.const(Fields.specs(Deferral, {\n            until: Fields.date({ label: \"Until\", precision: \"date\" }),\n        }), ArrayType(Fields.Types.Spec));\n        const field = $.const(specs.get(0n));\n        return East.str`${field.label}: ${field.editor.unwrap(\"datetime\").precision.unwrap(\"some\").getTag()}`;\n    })"
     },
     {
       "id": "east-ui:pick.examples.tsx:pickState",
@@ -45046,6 +44988,166 @@
         "tsx"
       ],
       "source": "// A sheet of work orders with the Elara eye (#1409): `optimise` is Func.bind of the shop's optimiser on e3 — Sheet.Types.OptimiseRequest(OptimiseWorkOrder) in, the run number and the rows in view by key as the session holds them; Sheet.Types.OptimiseResult(OptimiseWorkOrder) out, the rows complete, each order with no due date given one and set Scheduled. A click on the eye runs it once; the result lands in the session as one edit, cell by cell, which one Undo reverts and Save commits with everything else.\n// inputs: []\n/** A work order of a small shop: its reference, its job, its status, when it is due — none until it is scheduled — and its quantity. */\nexport const OptimiseWorkOrder = StructType({ reference: StringType, job: StringType, status: StringType, due: OptionType(DateTimeType), quantity: IntegerType });\n\n/** Eight work orders: five with a due date, three ready and with none. */\nexport const optimiseWorkOrderRows: SortedMap<string, ValueTypeOf<typeof OptimiseWorkOrder>> = new SortedMap<string, ValueTypeOf<typeof OptimiseWorkOrder>>([\n    [\"WO-1001\", { reference: \"WO-1001\", job: \"Cut panels\", status: \"Scheduled\", due: some(new Date(\"2026-10-06T00:00:00Z\")), quantity: 400n }],\n    [\"WO-1002\", { reference: \"WO-1002\", job: \"Edge band\", status: \"Scheduled\", due: some(new Date(\"2026-10-07T00:00:00Z\")), quantity: 1200n }],\n    [\"WO-1003\", { reference: \"WO-1003\", job: \"Inspect\", status: \"Done\", due: some(new Date(\"2026-10-02T00:00:00Z\")), quantity: 300n }],\n    [\"WO-1004\", { reference: \"WO-1004\", job: \"Pack\", status: \"Scheduled\", due: some(new Date(\"2026-10-08T00:00:00Z\")), quantity: 150n }],\n    [\"WO-1005\", { reference: \"WO-1005\", job: \"Cut panels\", status: \"Ready\", due: none, quantity: 800n }],\n    [\"WO-1006\", { reference: \"WO-1006\", job: \"Edge band\", status: \"Scheduled\", due: some(new Date(\"2026-10-09T00:00:00Z\")), quantity: 600n }],\n    [\"WO-1007\", { reference: \"WO-1007\", job: \"Inspect\", status: \"Ready\", due: none, quantity: 200n }],\n    [\"WO-1008\", { reference: \"WO-1008\", job: \"Pack\", status: \"Ready\", due: none, quantity: 500n }],\n], compareFor(StringType));\n\n/** The work orders, the shop's own record, which the sheet writes through its patch door. */\nexport const optimiseWorkOrders = e3.record(\"optimise_work_orders\", DictType(StringType, OptimiseWorkOrder), {\n    initial: optimiseWorkOrderRows,\n    mutations: (mutation) => ({\n        patch: mutation.patch(),\n    }),\n});\n\n/**\n * The shop's optimiser's body: every order with no due date is given one — the day after the latest due the orders hold,\n * then a day later for each in key order — and set Scheduled; every other order stays as it is.\n */\nexport const sheetOptimiseBody = East.function([Sheet.Types.OptimiseRequest(OptimiseWorkOrder)], Sheet.Types.OptimiseResult(OptimiseWorkOrder), ($, req) => {\n    const rows = $.let(new Map(), DictType(StringType, OptimiseWorkOrder));\n    // The latest due date the orders hold: the first order scheduled is due the day after it.\n    const latest = $.let(new Date(\"2026-10-01T00:00:00Z\"), DateTimeType);\n    $.for(req.rows, ($2, order) => {\n        $2.match(order.due, { some: ($3, due) => { $3.if(East.less(latest, due), ($4) => { $4.assign(latest, due); }); } });\n    });\n    $.for(req.rows, ($2, order, key) => {\n        $2.match(order.due, {\n            some: ($3) => { $3(rows.insert(key, order)); },\n            none: ($3) => {\n                $3.assign(latest, latest.addDays(1n));\n                $3(rows.insert(key, { reference: order.reference, job: order.job, status: \"Scheduled\", due: some(latest), quantity: order.quantity }));\n            },\n        });\n    });\n    return { rows };\n});\n\n/** The shop's optimiser, on e3: every order with no due date given one, and set Scheduled. */\nexport const setDueDates = e3.function(\"sheet_set_due_dates\", sheetOptimiseBody);\n\nEast.function([], UIComponentType, _$ => <Reactive>{$ => {\n        const orders = $.let(Record.bind(optimiseWorkOrders));\n        // The app's optimiser: the eye calls it once per run over the rows in view, and its answer is one edit.\n        const optimise = $.let(Func.bind(setDueDates));\n        return <Box height=\"560px\">\n            <Sheet record={orders} name=\"sheetOptimise\" optimise={optimise}\n                columns={{\n                    reference: Sheet.column.text(OptimiseWorkOrder, { header: \"Reference\", width: \"136px\" }),\n                    job: Sheet.column.text(OptimiseWorkOrder, { header: \"Job\", width: \"180px\" }),\n                    status: Sheet.column.text(OptimiseWorkOrder, { header: \"Status\", width: \"120px\" }),\n                    due: Sheet.column.date(OptimiseWorkOrder, { header: \"Due\", width: \"144px\" }),\n                    quantity: Sheet.column.integer(OptimiseWorkOrder, { header: \"Quantity\", width: \"112px\" }),\n                }} />\n        </Box>;\n    }}</Reactive>)"
+    },
+    {
+      "id": "e3-ui:sheet-actions.examples.tsx:sheetActionsBasic",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/sheet/sheet-actions.examples.tsx",
+      "suite": "",
+      "test": "The least an action column takes: a variant of two NullType cases, each a state and the button into it — `start` what a job with nothing taken may do, `next` each state's way on, a case with no `next` final",
+      "keywords": [
+        "Sheet",
+        "Sheet.column.action",
+        "action",
+        "state machine",
+        "variant",
+        "start",
+        "next",
+        "button",
+        "state"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Reactive, Slice, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// The least an action column takes: a variant of two NullType cases, each a state and the button into it — `start` what a job with nothing taken may do, `next` each state's way on, a case with no `next` final\n// inputs: []\nexport const JobState = VariantType({ started: NullType, finished: NullType });\n\nexport const ActionJob = StructType({ task: StringType, state: OptionType(JobState) });\n\nexport const sheetActionJobs = e3.record(\"sheet_action_jobs\", DictType(StringType, ActionJob), {\n    initial: new Map([\n        [\"J-0001\", { task: \"Panel cutting\", state: some(variant(\"finished\", null)) }],\n        [\"J-0002\", { task: \"Edge banding\", state: some(variant(\"started\", null)) }],\n        [\"J-0003\", { task: \"CNC routing\", state: none }],\n    ]),\n    mutations: (mutation) => ({\n        // The jobs' patch door — every Save commits through it.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const jobs = $.let(Record.bind(sheetActionJobs));\n            return (\n                <Box height=\"320px\">\n                    <Sheet\n                        record={jobs}\n                        name=\"sheetActionsBasic\"\n                        columns={{\n                            task: Sheet.column.text(ActionJob, { header: \"Task\", width: \"240px\" }),\n                            state: Sheet.column.action(ActionJob, JobState, {\n                                header: \"State\", width: \"240px\",\n                                start: [\"started\"],\n                                cases: {\n                                    started: { label: \"Start\", state: \"Started\", tone: \"info\", icon: \"play\", next: [\"finished\"] },\n                                    finished: { label: \"Finish\", state: \"Finished\", tone: \"success\", icon: \"check\" },\n                                },\n                            }),\n                        }}\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:sheet-actions.examples.tsx:sheetActionsWorkOrders",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/sheet/sheet-actions.examples.tsx",
+      "suite": "",
+      "test": "Work orders whose steps are a state machine: Start, Complete, Report… (a number form), Hold ▾ (a menu of reasons) and Alert… (a struct form), each state's `next` its way on; a step blocked until the one before it is finished; each case's `updates` writing Good and Done on the step and the order's status on its band — saved with the order — as one step of history",
+      "keywords": [
+        "Sheet",
+        "Sheet.column.action",
+        "action",
+        "state machine",
+        "variant",
+        "start",
+        "next",
+        "blocked",
+        "updates",
+        "Sheet.patch",
+        "Sheet.action.menu",
+        "Sheet.action.form",
+        "Sheet.field",
+        "form",
+        "menu",
+        "button",
+        "summary",
+        "group",
+        "band",
+        "inspector",
+        "Slice.bindRecords",
+        "Record.onApply"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Reactive, Slice, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Work orders whose steps are a state machine: Start, Complete, Report… (a number form), Hold ▾ (a menu of reasons) and Alert… (a struct form), each state's `next` its way on; a step blocked until the one before it is finished; each case's `updates` writing Good and Done on the step and the order's status on its band — saved with the order — as one step of history\n// inputs: []\nexport const HoldReason = VariantType({ awaiting_parts: NullType, machine_down: NullType, quality_hold: NullType });\n\nexport const StepAlert = StructType({ changes: StringType, severity: VariantType({ low: NullType, high: NullType }) });\n\nexport const StepAction = VariantType({\n    started: NullType,\n    completed: NullType,\n    reported: IntegerType, // the good parts counted so far\n    held: HoldReason,\n    alerted: StepAlert,\n    verified: NullType, // written upstream by QA; never offered here\n});\n\nexport const Step = StructType({\n    op: StringType, step: StringType, plan: IntegerType,\n    good: OptionType(IntegerType), done: OptionType(DateTimeType),\n    action: OptionType(StepAction),\n});\n\nexport const WorkOrder = StructType({ id: StringType, name: StringType, status: StringType, steps: ArrayType(Step) });\n\nexport const WorkStatus = StructType({ word: StringType, label: StringType, tone: StatusValueType });\n\nexport const sheetWorkOrders = e3.record(\"sheet_work_orders\", DictType(StringType, WorkOrder), {\n    initial: new Map([\n        [\"WO-1042\", { id: \"WO-1042\", name: \"Frame assembly\", status: \"in_progress\", steps: [\n            { op: \"10\", step: \"Cut tube stock\", plan: 24n, good: some(24n), done: some(new Date(\"2026-11-02T08:42:00Z\")), action: some(variant(\"completed\", null)) },\n            { op: \"20\", step: \"Weld frame\", plan: 24n, good: none, done: none, action: some(variant(\"started\", null)) },\n            { op: \"30\", step: \"Grind welds\", plan: 24n, good: none, done: none, action: none },\n        ] }],\n        [\"WO-1043\", { id: \"WO-1043\", name: \"Bracket kit\", status: \"on_hold\", steps: [\n            { op: \"10\", step: \"Laser cut\", plan: 120n, good: none, done: none, action: some(variant(\"held\", variant(\"machine_down\", null))) },\n            { op: \"20\", step: \"Bend\", plan: 120n, good: none, done: none, action: none },\n        ] }],\n        [\"WO-1044\", { id: \"WO-1044\", name: \"Pump housing\", status: \"on_hold\", steps: [\n            { op: \"10\", step: \"Turn blank\", plan: 8n, good: some(8n), done: some(new Date(\"2026-11-02T11:05:00Z\")), action: some(variant(\"verified\", null)) },\n            { op: \"20\", step: \"Mill bore\", plan: 8n, good: none, done: none,\n                action: some(variant(\"alerted\", { changes: \"Bore gauge reads 0.04 mm over\", severity: variant(\"high\", null) })) },\n        ] }],\n    ]),\n    indexes: (index) => ({\n        // The orders by status: what the rail narrows them by.\n        sheet_work_orders_by_status: index.on([\"status\"]),\n    }),\n    mutations: (mutation) => ({\n        // The orders' patch door — every Save commits through it.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const orders = $.let(Record.bind(sheetWorkOrders));\n            // One rail over the orders: its `rows` source narrows them.\n            const slice = $.let(Slice.bindRecords(\"sheet.work.sheetActionsWorkOrders\", {\n                rows: {\n                    source: Data.bindPaged(sheetWorkOrders, { indexes: [\"sheet_work_orders_by_status\"] }),\n                    label: \"Orders\",\n                    fields: { status: { label: \"Status\", hints: [\"in_progress\", \"on_hold\", \"done\"] } },\n                },\n            }));\n            const statuses = $.let([\n                { word: \"in_progress\", label: \"In progress\", tone: variant(\"info\", null) },\n                { word: \"on_hold\", label: \"On hold\", tone: variant(\"warning\", null) },\n                { word: \"done\", label: \"Done\", tone: variant(\"success\", null) },\n            ], ArrayType(WorkStatus));\n            // A step is finished once completed or verified.\n            const finished = $.const(East.function([Step], BooleanType, (_$2, step) =>\n                step.action.match({ some: (_$3, a) => a.hasTag(\"completed\").or(() => a.hasTag(\"verified\")) }, () => false)));\n            return (\n                <Box width=\"100%\" height=\"560px\">\n                    <Sheet\n                        slice={{ slice }}\n                        name=\"sheetActionsWorkOrders\"\n                        group={Sheet.group(WorkOrder, \"steps\", {\n                            title: \"name\", sub: o => o.id, noun: { singular: \"order\", plural: \"orders\" },\n                            // The order's status on its band, under the Action column; the actions write it.\n                            cells: { action: Sheet.group.cell.enum(WorkOrder, \"statuses\", \"status\", { editable: false }) },\n                        })}\n                        registers={{\n                            statuses: Sheet.register.members(statuses, { kind: \"status\", key: s => s.word, label: s => s.label, tone: s => some(s.tone) }),\n                        }}\n                        columns={{\n                            step: Sheet.column.text(Step, { header: \"Step\", width: \"158px\", editable: false }),\n                            good: Sheet.column.integer(Step, { header: \"Good\", width: \"56px\" }),\n                            action: Sheet.column.action(Step, StepAction, {\n                                header: \"Action\", width: \"304px\",\n                                name: s => East.str`step ${s.op}`,\n                                title: s => s.step,\n                                start: [\"started\"],\n                                // A step waits until the step before it is finished.\n                                blocked: (ctx) => ctx.index.equal(0n).ifElse(() => East.value(none, OptionType(StringType)), () =>\n                                    ctx.rows.get(ctx.index.subtract(1n)).match({\n                                        some: (_$2, before) => finished(before).ifElse(() => East.value(none, OptionType(StringType)), () => East.value(some(East.str`waits for ${before.op}`), OptionType(StringType))),\n                                    }, () => East.value(some(\"waits for the step before\"), OptionType(StringType)))),\n                                cases: {\n                                    started: {\n                                        label: \"Start\", state: \"Started\", tone: \"info\", icon: \"play\",\n                                        next: [\"completed\", \"reported\", \"held\", \"alerted\"],\n                                        updates: () => ({ group: Sheet.patch(WorkOrder, { status: \"in_progress\" }) }),\n                                    },\n                                    completed: {\n                                        label: \"Complete\", state: \"Completed\", tone: \"success\", icon: \"check\",\n                                        summary: (_v, s) => s.good.match({ some: (_$2, g) => East.str`${g} good` }, () => \"\"),\n                                        updates: (_v, ctx, at) => ({\n                                            row: Sheet.patch(Step, { good: some(ctx.row.good.match({ some: (_$2, g) => g }, () => ctx.row.plan)), done: some(at) }),\n                                            // The last step to finish finishes the order.\n                                            group: Sheet.patch(WorkOrder, { status: ctx.rows.every((_$2, r, i) =>\n                                                i.equal(ctx.index).or(() => r.match({ some: (_$3, s) => finished(s) }, () => false)))\n                                                .ifElse(() => \"done\", () => \"in_progress\") }),\n                                        }),\n                                    },\n                                    reported: {\n                                        label: \"Report\", state: \"Reported\", tone: \"info\", icon: \"hashtag\",\n                                        next: [\"completed\", \"reported\", \"held\", \"alerted\"],\n                                        take: Sheet.action.form({\n                                            fields: Sheet.field.number({ label: \"Good parts\", unit: \"pcs\", min: 0n }),\n                                            initial: (ctx) => ctx.row.good.match({ some: (_$2, g) => g }, () => 0n),\n                                        }),\n                                        summary: (count) => East.str`${count} good`,\n                                        updates: (count) => ({ row: Sheet.patch(Step, { good: some(count) }) }),\n                                    },\n                                    held: {\n                                        label: \"Hold\", state: \"Held\", tone: \"warning\", icon: \"pause\",\n                                        next: [\"started\"],\n                                        take: Sheet.action.menu({ labels: { awaiting_parts: \"Awaiting parts\", machine_down: \"Machine down\", quality_hold: \"Quality hold\" } }),\n                                        summary: (reason) => reason.match({ awaiting_parts: () => \"Awaiting parts\", machine_down: () => \"Machine down\", quality_hold: () => \"Quality hold\" }),\n                                        updates: () => ({ group: Sheet.patch(WorkOrder, { status: \"on_hold\" }) }),\n                                    },\n                                    alerted: {\n                                        label: \"Alert\", state: \"Alerted\", tone: \"danger\", icon: \"flag\",\n                                        next: [\"started\", \"completed\"],\n                                        take: Sheet.action.form({ fields: {\n                                            changes: Sheet.field.text({ label: \"What changed\", help: \"What the operator saw\", placeholder: \"What the operator saw\" }),\n                                            severity: Sheet.field.select({ help: \"High puts the order on hold\" }),\n                                        } }),\n                                        summary: (alert) => alert.changes,\n                                        updates: (alert) => ({ group: Sheet.patch(WorkOrder, {\n                                            status: alert.severity.hasTag(\"high\").ifElse(() => \"on_hold\", () => \"in_progress\"),\n                                        }) }),\n                                    },\n                                    verified: {\n                                        label: \"Verify\", state: \"Verified\", tone: \"success\",\n                                        summary: () => \"by QA\",\n                                    },\n                                },\n                            }),\n                            done: Sheet.column.date(Step, { header: \"Done\", width: \"64px\", level: () => \"time\", format: \"HH:mm\" }),\n                        }}\n                        inspector\n                        onApply={Record.onApply(orders, { keyed: true })}\n                        applyMode=\"batch\"\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:sheet-actions.examples.tsx:sheetActionsTickets",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/sheet/sheet-actions.examples.tsx",
+      "suite": "",
+      "test": "Maintenance tickets on a flat sheet: Acknowledge, Defer… (a form of one date field, opening on tomorrow, that moves the ticket's due date), Hand over ▾ (a menu of the crews register, that moves its crew) and Close, a final state — each action saved as it is taken",
+      "keywords": [
+        "Sheet",
+        "Sheet.column.action",
+        "action",
+        "flat",
+        "DateTime",
+        "Sheet.field.date",
+        "form",
+        "initial",
+        "register",
+        "Sheet.action.menu",
+        "of",
+        "updates",
+        "applyMode",
+        "auto"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Reactive, Slice, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Maintenance tickets on a flat sheet: Acknowledge, Defer… (a form of one date field, opening on tomorrow, that moves the ticket's due date), Hand over ▾ (a menu of the crews register, that moves its crew) and Close, a final state — each action saved as it is taken\n// inputs: []\nexport const TicketAction = VariantType({\n    acknowledged: NullType,\n    deferred: DateTimeType, // until when: a form of one date field\n    handed_over: StringType, // to which crew: a register's members\n    closed: NullType,\n});\n\nexport const Ticket = StructType({ title: StringType, crew: StringType, due: OptionType(DateTimeType), action: OptionType(TicketAction) });\n\nexport const Crew = StructType({ name: StringType });\n\nexport const sheetTickets = e3.record(\"sheet_tickets\", DictType(StringType, Ticket), {\n    initial: new Map([\n        [\"T-301\", { title: \"Spindle noise\", crew: \"day\", due: some(new Date(\"2026-11-03T00:00:00Z\")), action: none }],\n        [\"T-302\", { title: \"Coolant leak\", crew: \"swing\", due: some(new Date(\"2026-11-04T00:00:00Z\")), action: some(variant(\"acknowledged\", null)) }],\n        [\"T-303\", { title: \"Guard latch\", crew: \"night\", due: none, action: some(variant(\"closed\", null)) }],\n    ]),\n    mutations: (mutation) => ({\n        // The tickets' patch door — every Save commits through it.\n        patch: mutation.patch(),\n    }),\n});\n\nexport const sheetCrews = e3.record(\"sheet_crews\", DictType(StringType, Crew), {\n    initial: new Map([[\"day\", { name: \"Day crew\" }], [\"swing\", { name: \"Swing crew\" }], [\"night\", { name: \"Night crew\" }]]),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const tickets = $.let(Record.bind(sheetTickets));\n            const crews = $.let(Data.bind(sheetCrews));\n            const open = [\"acknowledged\", \"deferred\", \"handed_over\", \"closed\"] as const;\n            return (\n                <Box height=\"420px\">\n                    <Sheet\n                        record={tickets}\n                        name=\"sheetActionsTickets\"\n                        registers={{ crews: Sheet.register.members(crews.read(), { kind: \"crew\", key: (_c, k) => k, label: c => c.name }) }}\n                        columns={{\n                            title: Sheet.column.text(Ticket, { header: \"Ticket\", width: \"220px\" }),\n                            crew: Sheet.column.reference(Ticket, \"crews\", { header: \"Crew\", width: \"120px\", editable: false }),\n                            due: Sheet.column.date(Ticket, { header: \"Due\", width: \"96px\", editable: false }),\n                            action: Sheet.column.action(Ticket, TicketAction, {\n                                header: \"Action\", width: \"304px\",\n                                name: t => t.title,\n                                start: open,\n                                cases: {\n                                    acknowledged: { label: \"Acknowledge\", state: \"Acknowledged\", tone: \"info\", icon: \"eye\", next: open },\n                                    deferred: {\n                                        label: \"Defer\", state: \"Deferred\", tone: \"warning\", icon: \"clock\", next: open,\n                                        take: Sheet.action.form({ fields: Sheet.field.date({ label: \"Until\", precision: \"date\" }), initial: (ctx) => ctx.today.addDays(1n) }),\n                                        summary: (until) => East.str`until ${until.printFormatted(\"DD MMM\")}`,\n                                        updates: (until) => ({ row: Sheet.patch(Ticket, { due: some(until) }) }),\n                                    },\n                                    handed_over: {\n                                        label: \"Hand over\", state: \"Handed over\", icon: \"right-left\", next: open,\n                                        take: Sheet.action.menu({ of: \"crews\" }),\n                                        summary: (crew) => crew,\n                                        updates: (crew) => ({ row: Sheet.patch(Ticket, { crew }) }),\n                                    },\n                                    closed: { label: \"Close\", state: \"Closed\", tone: \"success\", icon: \"check\" },\n                                },\n                            }),\n                        }}\n                        applyMode=\"auto\"\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:sheet-actions.examples.tsx:sheetActionsReadOnly",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/sheet/sheet-actions.examples.tsx",
+      "suite": "",
+      "test": "Example 1's jobs read only: each action cell shows its state and summary alone, with no control to take",
+      "keywords": [
+        "Sheet",
+        "Sheet.column.action",
+        "action",
+        "readOnly",
+        "state",
+        "read only"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Reactive, Slice, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Example 1's jobs read only: each action cell shows its state and summary alone, with no control to take\n// inputs: []\nexport const JobState = VariantType({ started: NullType, finished: NullType });\n\nexport const ActionJob = StructType({ task: StringType, state: OptionType(JobState) });\n\nexport const sheetActionJobs = e3.record(\"sheet_action_jobs\", DictType(StringType, ActionJob), {\n    initial: new Map([\n        [\"J-0001\", { task: \"Panel cutting\", state: some(variant(\"finished\", null)) }],\n        [\"J-0002\", { task: \"Edge banding\", state: some(variant(\"started\", null)) }],\n        [\"J-0003\", { task: \"CNC routing\", state: none }],\n    ]),\n    mutations: (mutation) => ({\n        // The jobs' patch door — every Save commits through it.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const jobs = $.let(Record.bind(sheetActionJobs));\n            return (\n                <Box height=\"320px\">\n                    <Sheet\n                        record={jobs}\n                        name=\"sheetActionsReadOnly\"\n                        readOnly\n                        columns={{\n                            task: Sheet.column.text(ActionJob, { header: \"Task\", width: \"240px\" }),\n                            state: Sheet.column.action(ActionJob, JobState, {\n                                header: \"State\", width: \"240px\",\n                                start: [\"started\"],\n                                cases: {\n                                    started: { label: \"Start\", state: \"Started\", tone: \"info\", icon: \"play\", next: [\"finished\"] },\n                                    finished: { label: \"Finish\", state: \"Finished\", tone: \"success\", icon: \"check\" },\n                                },\n                            }),\n                        }}\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:sheet-actions.examples.tsx:sheetActionsPhone",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/sheet/sheet-actions.examples.tsx",
+      "suite": "",
+      "test": "Example 2's work orders in a phone's 390-wide box: each action cell shows its state alone, and a tap on a row turns the docked strip into its action bar — the first action full width, the rest in one line, a menu or a form opening inside the bar — each action saved as it is taken",
+      "keywords": [
+        "Sheet",
+        "Sheet.column.action",
+        "action",
+        "phone",
+        "mobile",
+        "touch",
+        "action bar",
+        "applyMode",
+        "auto"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Reactive, Slice, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Example 2's work orders in a phone's 390-wide box: each action cell shows its state alone, and a tap on a row turns the docked strip into its action bar — the first action full width, the rest in one line, a menu or a form opening inside the bar — each action saved as it is taken\n// inputs: []\nexport const HoldReason = VariantType({ awaiting_parts: NullType, machine_down: NullType, quality_hold: NullType });\n\nexport const StepAlert = StructType({ changes: StringType, severity: VariantType({ low: NullType, high: NullType }) });\n\nexport const StepAction = VariantType({\n    started: NullType,\n    completed: NullType,\n    reported: IntegerType, // the good parts counted so far\n    held: HoldReason,\n    alerted: StepAlert,\n    verified: NullType, // written upstream by QA; never offered here\n});\n\nexport const Step = StructType({\n    op: StringType, step: StringType, plan: IntegerType,\n    good: OptionType(IntegerType), done: OptionType(DateTimeType),\n    action: OptionType(StepAction),\n});\n\nexport const WorkOrder = StructType({ id: StringType, name: StringType, status: StringType, steps: ArrayType(Step) });\n\nexport const WorkStatus = StructType({ word: StringType, label: StringType, tone: StatusValueType });\n\nexport const sheetWorkOrders = e3.record(\"sheet_work_orders\", DictType(StringType, WorkOrder), {\n    initial: new Map([\n        [\"WO-1042\", { id: \"WO-1042\", name: \"Frame assembly\", status: \"in_progress\", steps: [\n            { op: \"10\", step: \"Cut tube stock\", plan: 24n, good: some(24n), done: some(new Date(\"2026-11-02T08:42:00Z\")), action: some(variant(\"completed\", null)) },\n            { op: \"20\", step: \"Weld frame\", plan: 24n, good: none, done: none, action: some(variant(\"started\", null)) },\n            { op: \"30\", step: \"Grind welds\", plan: 24n, good: none, done: none, action: none },\n        ] }],\n        [\"WO-1043\", { id: \"WO-1043\", name: \"Bracket kit\", status: \"on_hold\", steps: [\n            { op: \"10\", step: \"Laser cut\", plan: 120n, good: none, done: none, action: some(variant(\"held\", variant(\"machine_down\", null))) },\n            { op: \"20\", step: \"Bend\", plan: 120n, good: none, done: none, action: none },\n        ] }],\n        [\"WO-1044\", { id: \"WO-1044\", name: \"Pump housing\", status: \"on_hold\", steps: [\n            { op: \"10\", step: \"Turn blank\", plan: 8n, good: some(8n), done: some(new Date(\"2026-11-02T11:05:00Z\")), action: some(variant(\"verified\", null)) },\n            { op: \"20\", step: \"Mill bore\", plan: 8n, good: none, done: none,\n                action: some(variant(\"alerted\", { changes: \"Bore gauge reads 0.04 mm over\", severity: variant(\"high\", null) })) },\n        ] }],\n    ]),\n    indexes: (index) => ({\n        // The orders by status: what the rail narrows them by.\n        sheet_work_orders_by_status: index.on([\"status\"]),\n    }),\n    mutations: (mutation) => ({\n        // The orders' patch door — every Save commits through it.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const orders = $.let(Record.bind(sheetWorkOrders));\n            // One rail over the orders: its `rows` source narrows them.\n            const slice = $.let(Slice.bindRecords(\"sheet.work.sheetActionsPhone\", {\n                rows: {\n                    source: Data.bindPaged(sheetWorkOrders, { indexes: [\"sheet_work_orders_by_status\"] }),\n                    label: \"Orders\",\n                    fields: { status: { label: \"Status\", hints: [\"in_progress\", \"on_hold\", \"done\"] } },\n                },\n            }));\n            const statuses = $.let([\n                { word: \"in_progress\", label: \"In progress\", tone: variant(\"info\", null) },\n                { word: \"on_hold\", label: \"On hold\", tone: variant(\"warning\", null) },\n                { word: \"done\", label: \"Done\", tone: variant(\"success\", null) },\n            ], ArrayType(WorkStatus));\n            // A step is finished once completed or verified.\n            const finished = $.const(East.function([Step], BooleanType, (_$2, step) =>\n                step.action.match({ some: (_$3, a) => a.hasTag(\"completed\").or(() => a.hasTag(\"verified\")) }, () => false)));\n            return (\n                <Box width=\"390px\" height=\"620px\">\n                    <Sheet\n                        slice={{ slice }}\n                        name=\"sheetActionsPhone\"\n                        group={Sheet.group(WorkOrder, \"steps\", {\n                            title: \"name\", sub: o => o.id, noun: { singular: \"order\", plural: \"orders\" },\n                            // The order's status on its band, under the Action column; the actions write it.\n                            cells: { action: Sheet.group.cell.enum(WorkOrder, \"statuses\", \"status\", { editable: false }) },\n                        })}\n                        registers={{\n                            statuses: Sheet.register.members(statuses, { kind: \"status\", key: s => s.word, label: s => s.label, tone: s => some(s.tone) }),\n                        }}\n                        columns={{\n                            step: Sheet.column.text(Step, { header: \"Step\", width: \"158px\", editable: false }),\n                            good: Sheet.column.integer(Step, { header: \"Good\", width: \"56px\" }),\n                            action: Sheet.column.action(Step, StepAction, {\n                                header: \"Action\", width: \"304px\",\n                                name: s => East.str`step ${s.op}`,\n                                title: s => s.step,\n                                start: [\"started\"],\n                                // A step waits until the step before it is finished.\n                                blocked: (ctx) => ctx.index.equal(0n).ifElse(() => East.value(none, OptionType(StringType)), () =>\n                                    ctx.rows.get(ctx.index.subtract(1n)).match({\n                                        some: (_$2, before) => finished(before).ifElse(() => East.value(none, OptionType(StringType)), () => East.value(some(East.str`waits for ${before.op}`), OptionType(StringType))),\n                                    }, () => East.value(some(\"waits for the step before\"), OptionType(StringType)))),\n                                cases: {\n                                    started: {\n                                        label: \"Start\", state: \"Started\", tone: \"info\", icon: \"play\",\n                                        next: [\"completed\", \"reported\", \"held\", \"alerted\"],\n                                        updates: () => ({ group: Sheet.patch(WorkOrder, { status: \"in_progress\" }) }),\n                                    },\n                                    completed: {\n                                        label: \"Complete\", state: \"Completed\", tone: \"success\", icon: \"check\",\n                                        summary: (_v, s) => s.good.match({ some: (_$2, g) => East.str`${g} good` }, () => \"\"),\n                                        updates: (_v, ctx, at) => ({\n                                            row: Sheet.patch(Step, { good: some(ctx.row.good.match({ some: (_$2, g) => g }, () => ctx.row.plan)), done: some(at) }),\n                                            // The last step to finish finishes the order.\n                                            group: Sheet.patch(WorkOrder, { status: ctx.rows.every((_$2, r, i) =>\n                                                i.equal(ctx.index).or(() => r.match({ some: (_$3, s) => finished(s) }, () => false)))\n                                                .ifElse(() => \"done\", () => \"in_progress\") }),\n                                        }),\n                                    },\n                                    reported: {\n                                        label: \"Report\", state: \"Reported\", tone: \"info\", icon: \"hashtag\",\n                                        next: [\"completed\", \"reported\", \"held\", \"alerted\"],\n                                        take: Sheet.action.form({\n                                            fields: Sheet.field.number({ label: \"Good parts\", unit: \"pcs\", min: 0n }),\n                                            initial: (ctx) => ctx.row.good.match({ some: (_$2, g) => g }, () => 0n),\n                                        }),\n                                        summary: (count) => East.str`${count} good`,\n                                        updates: (count) => ({ row: Sheet.patch(Step, { good: some(count) }) }),\n                                    },\n                                    held: {\n                                        label: \"Hold\", state: \"Held\", tone: \"warning\", icon: \"pause\",\n                                        next: [\"started\"],\n                                        take: Sheet.action.menu({ labels: { awaiting_parts: \"Awaiting parts\", machine_down: \"Machine down\", quality_hold: \"Quality hold\" } }),\n                                        summary: (reason) => reason.match({ awaiting_parts: () => \"Awaiting parts\", machine_down: () => \"Machine down\", quality_hold: () => \"Quality hold\" }),\n                                        updates: () => ({ group: Sheet.patch(WorkOrder, { status: \"on_hold\" }) }),\n                                    },\n                                    alerted: {\n                                        label: \"Alert\", state: \"Alerted\", tone: \"danger\", icon: \"flag\",\n                                        next: [\"started\", \"completed\"],\n                                        take: Sheet.action.form({ fields: {\n                                            changes: Sheet.field.text({ label: \"What changed\", help: \"What the operator saw\", placeholder: \"What the operator saw\" }),\n                                            severity: Sheet.field.select({ help: \"High puts the order on hold\" }),\n                                        } }),\n                                        summary: (alert) => alert.changes,\n                                        updates: (alert) => ({ group: Sheet.patch(WorkOrder, {\n                                            status: alert.severity.hasTag(\"high\").ifElse(() => \"on_hold\", () => \"in_progress\"),\n                                        }) }),\n                                    },\n                                    verified: {\n                                        label: \"Verify\", state: \"Verified\", tone: \"success\",\n                                        summary: () => \"by QA\",\n                                    },\n                                },\n                            }),\n                            done: Sheet.column.date(Step, { header: \"Done\", width: \"64px\", level: () => \"time\", format: \"HH:mm\" }),\n                        }}\n                        inspector\n                        onApply={Record.onApply(orders, { keyed: true })}\n                        applyMode=\"auto\"\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:sheet-link.examples.ts:sheetLinkPrint",
