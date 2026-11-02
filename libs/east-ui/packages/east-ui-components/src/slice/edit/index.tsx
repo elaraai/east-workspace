@@ -88,6 +88,8 @@ export type SliceEditPopoverProps = SliceEditPopoverAnchor & {
      * trigger.
      */
     hangFrom?: (() => DOMRectInit | null) | undefined;
+    /** It appears and goes at once, with no fade or scale. */
+    still?: boolean | undefined;
     /** The editor body. */
     children: ReactNode;
 };
@@ -126,7 +128,7 @@ function Rehang({ from }: { from: unknown }) {
  * where there is no room below ({@link frameBounds}).
  */
 export function SliceEditPopover({
-    open, onOpenChange, trigger, anchor, label, size = "sm", flush, footLeft, footActions, initialFocusEl, keepOnFocusOut = false, hangFrom, children,
+    open, onOpenChange, trigger, anchor, label, size = "sm", flush, footLeft, footActions, initialFocusEl, keepOnFocusOut = false, hangFrom, still = false, children,
 }: SliceEditPopoverProps) {
     // Its styles made once for the theme and its variants (#1398, CL9): its trigger draws again with what it shows — a
     // timeline's date navigator's with each day its view crosses — and its recipe would work every slot out again.
@@ -222,7 +224,7 @@ export function SliceEditPopover({
             <Rehang from={hangFrom} />
             <Portal>
                 <ChakraPopover.Positioner>
-                    <ChakraPopover.Content ref={contentRef} css={styles.content}>
+                    <ChakraPopover.Content ref={contentRef} css={styles.content} data-still={still ? "" : undefined}>
                         {hangFrom === undefined && (
                             <ChakraPopover.Arrow>
                                 <ChakraPopover.ArrowTip />

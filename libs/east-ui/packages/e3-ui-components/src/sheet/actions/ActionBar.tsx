@@ -132,7 +132,7 @@ export const ActionBar = memo(function ActionBar({ host, api, r, columnKey, name
                 : c.take.type === "register" ? (registers.byName.get(c.take.value) ?? []).map((mm) => ({ id: mm.key, label: mm.label === "" ? mm.key : mm.label, value: mm.key as unknown }))
                     : [];
             return (
-                <chakra.div css={styles.bar} data-sheet-action-bar="choice" data-case={c.name} role="group" aria-label={m.actionMenuChoice({ verb: c.label })}>
+                <chakra.div key="choice" css={styles.bar} data-sheet-action-bar="choice" data-case={c.name} role="group" aria-label={m.actionMenuChoice({ verb: c.label })}>
                     {back}
                     {choices.map((choice) => (
                         <chakra.button key={choice.id} type="button" css={[button({ variant: "ghost", size: "md" }), styles.barChoice]} data-bar-choice={choice.id}
@@ -152,12 +152,12 @@ export const ActionBar = memo(function ActionBar({ host, api, r, columnKey, name
             take(c, caseOf(now));
         };
         return (
-            <chakra.div css={styles.bar} data-sheet-action-bar="form" data-case={c.name}>
+            <chakra.div key="form" css={styles.bar} data-sheet-action-bar="form" data-case={c.name}>
                 {back}
-                <FieldForm specs={specs} value={value} options={options} onChange={onChange} />
+                <FieldForm specs={specs} value={value} options={options} onChange={onChange} live />
                 {missing && <chakra.span css={styles.formError} role="alert">{m.issueRequired()}</chakra.span>}
                 <chakra.span css={styles.barConsequence}>{api.consequence(r, columnKey, c, caseOf(value))}</chakra.span>
-                <chakra.div css={styles.barRest} data-bar-foot="">
+                <chakra.div css={styles.barRest} data-bar-foot="" style={{ ["--action-rest" as string]: "2" }}>
                     <chakra.button type="button" css={[button({ variant: "outline", size: "md" }), styles.barButton]} onClick={() => setView({ kind: "buttons" })}>{m.actionFormCancel()}</chakra.button>
                     <chakra.button type="button" css={[button({ variant: "outline", size: "md" }), styles.barButton]} data-bar-take-form="" onClick={takeForm}>{c.label}</chakra.button>
                 </chakra.div>
@@ -170,7 +170,7 @@ export const ActionBar = memo(function ActionBar({ host, api, r, columnKey, name
     const shown = view.kind === "more" ? rest : folded ? rest.slice(0, 2) : rest;
     const consequence = first !== undefined && first.kind === "button" ? api.consequence(r, columnKey, first, null) : undefined;
     return (
-        <chakra.div css={styles.bar} data-sheet-action-bar="buttons">
+        <chakra.div key="buttons" css={styles.bar} data-sheet-action-bar="buttons">
             <chakra.div css={styles.barHead}>
                 <chakra.span css={styles.barEyebrow} data-bar-eyebrow="">{eyebrow}</chakra.span>
                 <chakra.span css={[styles.state, styles.barState]} data-tone={offer.state?.tone} data-bar-state="">

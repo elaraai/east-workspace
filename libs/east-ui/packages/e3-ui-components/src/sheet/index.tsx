@@ -1871,7 +1871,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     const blankR = gid !== undefined ? blankLineRowOf(gid) : looseEnd;
                     for (const p of laid.cells) {
                         const meta = columns.list[p.c];
-                        if (meta === undefined || meta.kind === "action") continue;
+                        if (meta === undefined) continue;
+                        // An action cell takes no paste (T7): counted as skipped.
+                        if (meta.kind === "action") { skipped += 1; continue; }
                         const r = eff.r + p.dr;
                         const outcome = parseCell(meta, p.text, parseCtxFor(Math.min(r, blankR ?? r), meta));
                         const cell = outcome.kind === "unrecognised" ? variant("Invalid", p.text) : outcome.kind === "cell" ? outcome.cell : NULL_CELL;
@@ -3541,15 +3543,22 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const updates = c.updates?.(bytes, wireContextFor(r), new Date());
         const facts: string[] = [];
         const a = actionAt(r, key);
-        for (const [k, cell] of updates?.row ?? []) {
-            const meta = allColumns.byKey.get(k);
-            if (meta === undefined || (a !== undefined && cellEqual(a.it.row.cells.get(k) ?? NULL_CELL, cell))) continue;
-            facts.push(`${meta.header} ${cellText(cell, meta, words)}`);
+        // A value in words: a register member by its label, anything else as its column prints it.
+        const said = (cell: SheetCellValue, meta: SheetColumnMeta): string => {
+            const member = meta.register !== undefined && cell.type === "String" ? resolveRegisterMember(registers, meta.register, cell.value) : undefined;
+            return member !== undefined && member.label !== "" ? member.label : cellText(cell, meta, words);
+        };
+        // The row's cells in the columns' order (R5), then the band's, named by the group: `WO-1042 On hold`.
+        for (const meta of allColumns.list) {
+            const cell = updates?.row.get(meta.key);
+            if (cell === undefined || (a !== undefined && cellEqual(a.it.row.cells.get(meta.key) ?? NULL_CELL, cell))) continue;
+            facts.push(`${meta.header} ${said(cell, meta)}`);
         }
+        const groupName = a?.lg !== undefined ? a.lg.row.id : undefined;
         for (const [k, cell] of updates?.group ?? []) {
             const meta = group?.cells.get(k);
             if (meta === undefined || (a?.lg !== undefined && cellEqual(a.lg.row.cells.get(k) ?? NULL_CELL, cell))) continue;
-            facts.push(`${meta.header === "" ? k : meta.header} ${cellText(cell, meta, words)}`);
+            facts.push(`${groupName ?? meta.header} ${said(cell, meta)}`);
         }
         return { updates, facts };
     };
@@ -3606,6 +3615,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             gestureEvents.current = [];
         }
         if (!recorded) return false;
+        // What the strip previewed is taken: the ring's cell says itself again (P8).
+        if (previewTimer.current !== undefined) { clearTimeout(previewTimer.current); previewTimer.current = undefined; }
+        setActionPreview(undefined);
         const first = at[0]!.a!;
         const name = rs.length === 1 ? ruleText(first.it.row, first.column.name) : words.m.inspectorSeveral({ n: rs.length, count: words.number(rs.length), lines: group !== undefined });
         dispatchStore({ t: "patch", patch: { msg: { id: "text", text: words.m.noticeActionTaken({ state: c.state, name, n: facts.length, count: words.number(facts.length), facts }) } } });
@@ -3671,8 +3683,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     };
     const closeOverlay = () => {
         setActionOverlay(undefined);
-        // Focus goes back to the grid, whose ring is on the cell (K6).
-        queueMicrotask(() => cardRef.current?.focus({ preventScroll: true }));
+        // Focus goes back to the grid, whose ring is on the cell (K6) — unless another overlay took its place.
+        queueMicrotask(() => { if (actionOverlayRef.current === undefined) cardRef.current?.focus({ preventScroll: true }); });
     };
     actionApi.current = !hasActions ? undefined : {
         offer: (r, key) => {
@@ -3712,6 +3724,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             if (!canTake(offer)) return;
             const first = offer.offered[0];
             const cases = rs.length > 1 ? rangeOffer(rs, key).filter((c) => c.name !== first?.name) : offer.offered.slice(1);
+            // Nothing every row of a range is offered: no Menu (T8).
+            if (cases.length === 0) return;
             setActionOverlay({ kind: "menu", r, rs, key, part: "more", anchor, cases, head: words.m.actionMenuHead(actionHead(r, key)) });
         },
         preview: (r, key, c) => {
@@ -3767,7 +3781,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 state: offer.state?.state, summary: ruleText(a.it.row, a.column.summary) ?? "", offers: offer.offered.map(verbOf),
                 blocked: offer.blocked, incomplete: offer.incomplete, readOnly: !(actionApi.current?.controls(ui.sel.r, ringMeta.key) ?? false),
             });
-            return { on: true, label: words.m.actionStripLabel({ verb: undefined, name: actionHead(ui.sel.r, ringMeta.key).name }), chips: [{ key: "v", label: text, on: false, flat: true, title: text }], meta: "", keys: words.m.actionStripKeys() };
+            // ⏎ is offered only where it takes something (R3).
+            const takes = canTake(offer) && (actionApi.current?.controls(ui.sel.r, ringMeta.key) ?? false);
+            return { on: true, label: words.m.actionStripLabel({ verb: undefined, name: actionHead(ui.sel.r, ringMeta.key).name }), chips: [{ key: "v", label: text, on: false, flat: true, title: text }], meta: "", keys: takes ? words.m.actionStripKeys() : "" };
         },
     };
     // The cells look again as what they read moves: the rows and their drafts, the overlay, the frame's width.
@@ -3787,16 +3803,21 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const onActionForm = useCallback((c: ActionCase) => {
         const at = actionOverlayRef.current;
         if (at === undefined) return;
-        // A form run from the Menu opens hung from the control that opened the Menu (M8).
-        queueMicrotask(() => actionApiOpenForm.current(at.r, at.key, c, at.anchor, at.part, at.rs));
+        // A form run from the Menu opens in its place, hung from the control that opened the Menu (M8).
+        actionApiOpenForm.current(at.r, at.key, c, at.anchor, at.part, at.rs);
     }, []);
     const actionApiOpenForm = useRef(openForm);
     actionApiOpenForm.current = openForm;
     const onActionClose = useCallback(() => actionApi.current?.close(), []);
+    // A Menu item the pointer rests on is previewed as a control is (P9).
+    const onMenuPreview = useCallback((c: ActionCase | undefined) => {
+        const at = actionOverlayRef.current;
+        if (at !== undefined) actionApi.current?.preview(at.r, at.key, c);
+    }, []);
     const actionConsequence = useCallback((c: ActionCase, value: unknown) => actionApi.current?.consequence(c, value) ?? "", []);
     const actionOverlayNode = actionOverlay === undefined ? null
         : actionOverlay.kind === "menu"
-            ? <ActionMenu state={actionOverlay} registers={registers} onTake={onActionTake} onForm={onActionForm} onClose={onActionClose} />
+            ? <ActionMenu state={actionOverlay} registers={registers} onTake={onActionTake} onForm={onActionForm} onClose={onActionClose} onPreview={onMenuPreview} />
             : <ActionForm key={`${actionOverlay.r}:${actionOverlay.key}:${actionOverlay.case.name}`} state={actionOverlay} registers={registers}
                 consequence={actionConsequence} onTake={onActionTake} onClose={onActionClose} />;
     const rowActions = hasActions ? actionHost : undefined;

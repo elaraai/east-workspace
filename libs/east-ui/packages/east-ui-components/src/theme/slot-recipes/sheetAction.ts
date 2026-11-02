@@ -60,8 +60,8 @@ const CONTROL = {
 export const sheetActionSlotRecipe = defineSlotRecipe({
     className: "elara-sheet-action",
     slots: [
-        "root", "zone", "state", "dot", "summary", "absent", "next", "icon", "caret", "more",
-        "menuHead", "menuKbd", "menuReason",
+        "root", "zone", "state", "dot", "summary", "absent", "next", "icon", "caret", "more", "moreSpace",
+        "menu", "menuHead", "menuKbd", "menuReason",
         "form", "formHead", "formEyebrow", "formMeta", "formClose", "formBody", "formError", "formFoot", "formConsequence", "formButton",
         "panelState", "panelActions", "panelChoices", "panelForm",
         "bar", "barHead", "barEyebrow", "barState", "barFirst", "barRest", "barButton", "barConsequence", "barBack", "barChoice",
@@ -76,7 +76,7 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             lineHeight: "16px",
             minWidth: 0,
             /* A selected or dirty cell keeps its fill: the control's ink carries the hover (ST2). */
-            "&[data-on] [data-slot=actionNext], &[data-on] [data-slot=actionMore]": { _hover: { background: "transparent", color: "fg" } },
+            "&[data-on] [data-slot=actionNext]:not([data-held]), &[data-on] [data-slot=actionMore]:not([data-held])": { _hover: { background: "transparent", color: "fg" } },
         },
         /* The state, then its summary (S3). */
         zone: {
@@ -182,6 +182,10 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             padding: 0,
             color: "fg.muted",
         },
+        /* Where a column's ▾ part stands on a row offered one case: kept, so the next halves line up down the column (F16 of the hand test). */
+        moreSpace: { flex: "none", width: "24px" },
+        /* The menu card (M1, M7): 240 wide, appearing at once. */
+        menu: { minWidth: "240px", animation: "none" },
         /* The menu: a group's head (M2), a direct action's Kbd cap and a disabled item's reason (M3, M4). */
         menuHead: {
             height: "24px",
@@ -289,9 +293,13 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             borderRadius: "md",
             background: "bg.surface",
         },
-        panelActions: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px", marginTop: "8px", "& svg": { fontSize: "12px" } },
+        panelActions: { minWidth: 0, display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px", marginTop: "8px", "& svg": { fontSize: "12px" } },
         panelChoices: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "4px", marginTop: "8px" },
         panelForm: {
+            /* Inside the pane's width, every field with it (#1478, the hand test's F8). */
+            minWidth: 0,
+            maxWidth: "100%",
+            "& [data-field-form], & [data-field], & [data-field-line]": { minWidth: 0, maxWidth: "100%" },
             display: "flex",
             flexDirection: "column",
             gap: "8px",
@@ -317,6 +325,8 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             borderTopColor: "border.strong",
             maxHeight: "60%",
             overflowY: "auto",
+            /* The grid gives way to the bar, never the bar to the grid (X7): a scroller's least height is 0. */
+            flexShrink: 0,
         },
         barHead: { display: "flex", alignItems: "center", gap: "8px", minHeight: "20px" },
         barEyebrow: {

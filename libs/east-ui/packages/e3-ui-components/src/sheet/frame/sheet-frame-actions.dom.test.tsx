@@ -270,3 +270,66 @@ test("on a phone a choice opens inside the bar, never floating: ← back, its re
         expect(bar(container)!.getAttribute("data-sheet-action-bar")).toBe("buttons");
     } finally { restore(); }
 });
+
+/** Opens WO-1042 step 20's Report… form from its ▾, and waits for its focus. */
+async function openReport(container: HTMLElement) {
+    await press(lineCell(container, "WO-1042", "1", "action").querySelector('[data-slot="actionMore"]')!);
+    await pick(within(document.querySelector<HTMLElement>("[data-sheet-action-menu]")!).getByRole("menuitem", { name: /Report…/ }));
+    await act(async () => { await new Promise<void>((resolve) => { setTimeout(resolve, 60); }); });
+    await settle();
+    return document.querySelector<HTMLElement>("[data-sheet-action-form]")!;
+}
+
+test("a form opened from ▾ holds the focus: ⏎ takes the form, never the row's first action (hand test F1, K5)", async () => {
+    const { container } = await h.mount(ex.sheetActionsWorkOrders);
+    const form = await openReport(container);
+    const input = form.querySelector<HTMLInputElement>("input")!;
+    expect(document.activeElement).toBe(input);
+    fireEvent.keyDown(input, { key: "Enter" });
+    await settle();
+    expect(stateOf(lineCell(container, "WO-1042", "1", "action"))).toBe("reported");
+});
+
+test("the consequence follows what is typed; an emptied required field is refused (hand test F3, F4, F8, F9)", async () => {
+    const { container } = await h.mount(ex.sheetActionsWorkOrders);
+    const form = await openReport(container);
+    const input = form.querySelector<HTMLInputElement>("input")!;
+    const user = userEvent.setup();
+    await user.clear(input);
+    await settle();
+    await press(document.querySelector('[data-slot="actionTake"]')!);
+    expect(document.querySelector("[data-sheet-action-form]")).not.toBeNull();
+    expect(stateOf(lineCell(container, "WO-1042", "1", "action"))).toBe("started");
+    for (const key of "12") { await user.type(input, key); await settle(); }
+    expect(document.querySelector('[data-slot="actionConsequence"]')?.textContent).toBe("Sets Good 12");
+});
+
+test("a press outside an open form only closes it: the Undo it lands on is not run (hand test F2, P6)", async () => {
+    const { container } = await h.mount(ex.sheetActionsWorkOrders);
+    await press(nextOf(lineCell(container, "WO-1043", "0", "action"))!);
+    expect(stateOf(lineCell(container, "WO-1043", "0", "action"))).toBe("started");
+    await openReport(container);
+    const undo = within(slot(container, "toolbar")!).getByRole("button", { name: "Undo" });
+    await act(async () => { fireEvent.pointerDown(undo); fireEvent.mouseDown(undo); fireEvent.mouseUp(undo); fireEvent.click(undo); });
+    await settle();
+    expect(document.querySelector("[data-sheet-action-form]")).toBeNull();
+    expect(stateOf(lineCell(container, "WO-1043", "0", "action"))).toBe("started");
+});
+
+test("a taken case lets go of its preview as its control goes: the strip says the ring's cell again (hand test F5, P8)", async () => {
+    const { container } = await h.mount(ex.sheetActionsBasic);
+    const next = nextOf(cellOf(container, "J-0003", "state"))!;
+    fireEvent.mouseEnter(next);
+    await dwell();
+    expect(strip(container).label).toMatch(/^Start · /);
+    await press(next);
+    await dwell();
+    expect(strip(container).label).toMatch(/^Action · /);
+});
+
+test("facts name a register member by its label and the band by its group, in the columns' order (hand test F7, F20)", async () => {
+    const { container } = await h.mount(ex.sheetActionsWorkOrders);
+    const cell = lineCell(container, "WO-1043", "0", "action");
+    await press(nextOf(cell)!);
+    expect(slot(container, "footer")!.textContent).toContain("set WO-1043 In progress");
+});

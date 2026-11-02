@@ -143,7 +143,7 @@ export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, 
             )}
             {open !== undefined && open.kind === "form" && (
                 <chakra.div css={styles.panelForm} data-inspector-action-form={open.name}>
-                    <FieldForm specs={specs} value={value} options={options} onChange={onChange} />
+                    <FieldForm specs={specs} value={value} options={options} onChange={onChange} live />
                     {missing && <chakra.span css={styles.formError} role="alert">{m.issueRequired()}</chakra.span>}
                     <chakra.div css={styles.formFoot}>
                         <chakra.span css={styles.formConsequence}>{api.consequence(r, columnKey, open, caseValue(value))}</chakra.span>

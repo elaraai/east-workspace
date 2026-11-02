@@ -15,7 +15,7 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Menu as ChakraMenu, Portal, chakra, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
@@ -61,6 +61,49 @@ export type ActionOverlayState =
         meta: string | undefined;
     };
 
+/**
+ * While an overlay is open, a press outside it only closes it (P6): the press and its click go no further, so a
+ * dismissing click never also runs what it lands on — an Undo, another cell.
+ *
+ * @param inside - Whether an element is the overlay's own
+ * @param onClose - Close it
+ */
+function useOutsideDismiss(inside: (el: Element) => boolean, onClose: () => void): void {
+    const latest = useRef({ inside, onClose });
+    latest.current = { inside, onClose };
+    useEffect(() => {
+        const outside = (event: Event) => event.target instanceof Element && !latest.current.inside(event.target);
+        // The click a dismissing press makes is swallowed even once the overlay has gone — its library may close it on
+        // the press — and only that click: one that never comes (a drag) stops being waited for.
+        const press = (event: Event) => {
+            if (!outside(event) || event.type !== "pointerdown") return;
+            const close = latest.current.onClose;
+            const swallow = (click: Event) => {
+                click.preventDefault();
+                click.stopImmediatePropagation();
+                clearTimeout(timer);
+                close();
+            };
+            const timer = setTimeout(() => window.removeEventListener("click", swallow, true), 1_000);
+            window.addEventListener("click", swallow, { capture: true, once: true });
+        };
+        const swallowPress = (event: Event) => {
+            if (!outside(event)) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        };
+        window.addEventListener("pointerdown", press, true);
+        window.addEventListener("mousedown", swallowPress, true);
+        return () => {
+            window.removeEventListener("pointerdown", press, true);
+            window.removeEventListener("mousedown", swallowPress, true);
+        };
+    }, []);
+}
+
+/** Whether an element is inside an open overlay of the action column's: its Menu or its form. */
+const insideOverlay = (el: Element) => el.closest("[data-sheet-action-menu], [data-sheet-action-form], [data-scope=popover], [data-scope=select], [data-scope=combobox]") !== null;
+
 /** A choice, as the Menu lists it: its case, its words, and its value. */
 interface Choice {
     id: string;
@@ -81,9 +124,11 @@ export interface ActionMenuProps {
     registers: SheetRegisterIndex;
     /** A case taken with its value (M8): a button's null, a choice's reason. */
     onTake: (c: ActionCase, value: unknown) => void;
-    /** A form case run from the Menu (M8): its Popover opens, hung from the same control. */
+    /** A form case run from the Menu (M8): its Popover opens in the Menu's place, hung from the same control. */
     onForm: (c: ActionCase) => void;
     onClose: () => void;
+    /** The pointer rests on an item, or leaves it (P9): its case, previewed in the strip. */
+    onPreview?: ((c: ActionCase | undefined) => void) | undefined;
 }
 
 /**
@@ -91,21 +136,28 @@ export interface ActionMenuProps {
  * how the row is named; then one group per choice, its reasons in their
  * words. A digit runs the item with that number (K4).
  */
-export const ActionMenu = memo(function ActionMenu({ state, registers, onTake, onForm, onClose }: ActionMenuProps) {
+export const ActionMenu = memo(function ActionMenu({ state, registers, onTake, onForm, onClose, onPreview }: ActionMenuProps) {
     const styles = useSlotStyles("sheetAction");
     const { m } = useSheetWords();
     const direct = state.cases.filter((c) => c.kind !== "choice");
     const choices = state.cases.filter((c) => c.kind === "choice");
+    // Each item's run: a form's opens its Popover in the Menu's place (M8) — the Menu never closes first, which would
+    // hand the focus back to the grid under the form (F1 of the hand test); any other is taken, and the Menu closes.
+    // A form picked: the Menu's own close as it selects is the form's opening, never a close of the overlay.
+    const formed = useRef(false);
     const items = useMemo(() => {
         const out = new Map<string, () => void>();
-        for (const c of direct) out.set(`direct:${c.name}`, () => (c.kind === "form" ? onForm(c) : onTake(c, null)));
-        for (const c of choices) for (const choice of choicesOf(c, registers)) out.set(choice.id, () => onTake(c, choice.value));
+        for (const c of direct) out.set(`direct:${c.name}`, () => { if (c.kind === "form") { formed.current = true; onForm(c); } else { onTake(c, null); onClose(); } });
+        for (const c of choices) for (const choice of choicesOf(c, registers)) out.set(choice.id, () => { onTake(c, choice.value); onClose(); });
         return out;
-    }, [direct, choices, registers, onForm, onTake]);
+    }, [direct, choices, registers, onForm, onTake, onClose]);
+    useOutsideDismiss(insideOverlay, onClose);
     const anchor = state.anchor;
+    // Under the control, its right edge on the control's, flipping above where it would pass the sheet's bottom (M6).
     const positioning = useMemo(() => ({
         placement: "bottom-end" as const, gutter: 4, flip: true,
         getAnchorRect: () => anchor.getBoundingClientRect(),
+        boundary: () => anchor.closest<HTMLElement>("[data-sheet-card]") ?? document.documentElement,
     }), [anchor]);
     const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
         const n = event.key.length === 1 ? Number(event.key) : NaN;
@@ -114,19 +166,19 @@ export const ActionMenu = memo(function ActionMenu({ state, registers, onTake, o
         event.preventDefault();
         event.stopPropagation();
         items.get(`direct:${c.name}`)?.();
-        onClose();
     };
     return (
-        <ChakraMenu.Root open onOpenChange={(d) => { if (!d.open) onClose(); }} positioning={positioning}
-            onSelect={(d) => { items.get(d.value)?.(); onClose(); }}>
+        <ChakraMenu.Root open onOpenChange={(d) => { if (!d.open && !formed.current) onClose(); }} positioning={positioning}
+            onSelect={(d) => { items.get(d.value)?.(); }}>
             <Portal>
                 <ChakraMenu.Positioner>
-                    <ChakraMenu.Content data-sheet-action-menu="" onKeyDown={onKeyDown}>
+                    <ChakraMenu.Content css={styles.menu} data-sheet-action-menu="" onKeyDown={onKeyDown}>
                         {direct.length > 0 && (
                             <ChakraMenu.ItemGroup>
                                 <ChakraMenu.ItemGroupLabel css={styles.menuHead}>{state.head}</ChakraMenu.ItemGroupLabel>
                                 {direct.map((c, i) => (
-                                    <ChakraMenu.Item key={c.name} value={`direct:${c.name}`} data-case={c.name}>
+                                    <ChakraMenu.Item key={c.name} value={`direct:${c.name}`} data-case={c.name}
+                                        onPointerEnter={() => onPreview?.(c)} onPointerLeave={() => onPreview?.(undefined)}>
                                         {c.icon !== undefined && <FontAwesomeIcon icon={["fas", c.icon as IconName]} aria-hidden />}
                                         {verbOf(c)}
                                         <chakra.span css={styles.menuKbd} aria-hidden="true">{i + 1}</chakra.span>
@@ -139,7 +191,8 @@ export const ActionMenu = memo(function ActionMenu({ state, registers, onTake, o
                                 {(direct.length > 0 || choices.length > 1 || state.part === "more") && <ChakraMenu.Separator />}
                                 <ChakraMenu.ItemGroupLabel css={styles.menuHead}>{m.actionMenuChoice({ verb: c.label })}</ChakraMenu.ItemGroupLabel>
                                 {choicesOf(c, registers).map((choice) => (
-                                    <ChakraMenu.Item key={choice.id} value={choice.id} data-case={c.name}>{choice.label}</ChakraMenu.Item>
+                                    <ChakraMenu.Item key={choice.id} value={choice.id} data-case={c.name}
+                                        onPointerEnter={() => onPreview?.(c)} onPointerLeave={() => onPreview?.(undefined)}>{choice.label}</ChakraMenu.Item>
                                 ))}
                             </ChakraMenu.ItemGroup>
                         ))}
@@ -219,7 +272,12 @@ export const ActionForm = memo(function ActionForm({ state, registers, consequen
     const take = () => {
         const now = valueRef.current;
         // A required field left empty (F9): the popover stays, the focus on it.
-        const empty = specs.find((spec) => !spec.optional && getAt(now, spec.path) === undefined);
+        // A field emptied as it is typed in is empty, whatever value it last told (F3 of the hand test).
+        const typedEmpty = (spec: FieldSpecValue) => {
+            const input = bodyRef.current?.querySelector<HTMLInputElement>(`[data-field="${spec.path.join(".")}"] input:not([type=radio]):not([type=checkbox])`);
+            return input !== null && input !== undefined && input.value.trim() === "";
+        };
+        const empty = specs.find((spec) => !spec.optional && (getAt(now, spec.path) === undefined || typedEmpty(spec)));
         if (empty !== undefined) {
             const key = empty.path.join(".");
             setMissing(key);
@@ -229,12 +287,34 @@ export const ActionForm = memo(function ActionForm({ state, registers, consequen
         onTake(c, caseOf(now));
         onClose();
     };
+    useOutsideDismiss(insideOverlay, onClose);
+    // On open, the focus in the first field, its value selected (K5) — once the control that opened it has let it go.
+    useEffect(() => {
+        let second = 0;
+        const first = requestAnimationFrame(() => {
+            second = requestAnimationFrame(() => {
+                const field = bodyRef.current?.querySelector<HTMLElement>("input, [role=radio], textarea");
+                field?.focus({ preventScroll: true });
+                if (field instanceof HTMLInputElement) field.select();
+            });
+        });
+        return () => { cancelAnimationFrame(first); cancelAnimationFrame(second); };
+    }, []);
     const anchor = state.anchor;
-    const hangFrom = useCallback(() => anchor.getBoundingClientRect(), [anchor]);
+    // Its left 24 px left of the control's centre (F3): it hangs, centred, from a point 136 px right of it.
+    const hangFrom = useCallback(() => {
+        const box = anchor.getBoundingClientRect();
+        return { x: box.x + box.width / 2 + 136, y: box.y, width: 0, height: box.height };
+    }, [anchor]);
     const missingSpec = missing === undefined ? undefined : specs.find((spec) => spec.path.join(".") === missing);
     return (
-        <SliceEditPopover open onOpenChange={(open) => { if (!open) onClose(); }} anchor={null} hangFrom={hangFrom}
-            label={<chakra.span css={styles.formEyebrow} data-slot="actionFormEyebrow">{m.actionFormEyebrow({ verb: c.label, name: state.name })}</chakra.span>}
+        <SliceEditPopover open onOpenChange={(open) => { if (!open) onClose(); }} anchor={null} hangFrom={hangFrom} still
+            label={(
+                <>
+                    <chakra.span css={styles.formEyebrow} data-slot="actionFormEyebrow">{m.actionFormEyebrow({ verb: c.label, name: state.name })}</chakra.span>
+                    {state.meta !== undefined && <chakra.span css={styles.formMeta} data-slot="actionFormMeta">{state.meta}</chakra.span>}
+                </>
+            )}
             initialFocusEl={() => bodyRef.current?.querySelector<HTMLElement>("input, [role=radio], button") ?? null}
             footLeft={<chakra.span css={styles.formConsequence} data-slot="actionConsequence">{consequence(c, caseValue)}</chakra.span>}
             footActions={(
@@ -251,8 +331,7 @@ export const ActionForm = memo(function ActionForm({ state, registers, consequen
                     event.stopPropagation();
                     queueMicrotask(take);
                 }}>
-                {state.meta !== undefined && <chakra.span css={styles.formMeta} data-slot="actionFormMeta">{state.meta}</chakra.span>}
-                <FieldForm specs={specs} value={value} options={options} onChange={onChange} />
+                <FieldForm specs={specs} value={value} options={options} onChange={onChange} live />
                 {missingSpec !== undefined && <chakra.span css={styles.formError} data-slot="actionFormError" role="alert">{m.issueRequired()} — {missingSpec.label}</chakra.span>}
             </chakra.div>
         </SliceEditPopover>

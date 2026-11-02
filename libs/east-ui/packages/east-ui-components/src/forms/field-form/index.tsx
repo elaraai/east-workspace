@@ -120,6 +120,12 @@ export interface FieldFormProps {
      * stable (`useCallback`): each field's memo compares it.
      */
     renderControl?: ((spec: FieldSpecValue) => ReactNode | undefined) | undefined;
+    /**
+     * Tell each typed edit as it is typed, not once the focus leaves the field or on Enter: for a form whose host
+     * shows what the values as they stand would do (a Sheet action's consequence, #1477). Esc still puts it back only
+     * as far as the last edit told.
+     */
+    live?: boolean | undefined;
 }
 
 // Each shared input's payload with nothing set: East's default for its type.
@@ -290,7 +296,7 @@ function printOf(
  * />
  * ```
  */
-export const FieldForm = memo(function FieldForm({ specs, value, baseline, options = NO_OPTIONS, onChange, readOnly = false, words, renderControl }: FieldFormProps) {
+export const FieldForm = memo(function FieldForm({ specs, value, baseline, options = NO_OPTIONS, onChange, readOnly = false, words, renderControl, live = false }: FieldFormProps) {
     const styles = useSlotRecipe({ key: "fieldForm" })() as Styles;
     const formatters = useFormatters();
     const said = useMemo((): FieldFormWords => words ?? { ...formatters, m: fieldFormMessages }, [words, formatters]);
@@ -298,7 +304,7 @@ export const FieldForm = memo(function FieldForm({ specs, value, baseline, optio
     const row = (spec: FieldSpecValue) => (
         <FieldRow key={spec.path.join("\u001f")} spec={spec} current={valueAt(value, spec.path)}
             base={baseline === undefined ? undefined : valueAt(baseline, spec.path)} hasBaseline={baseline !== undefined}
-            options={options} onChange={onChange} readOnly={readOnly} words={said} styles={styles} renderControl={renderControl} />
+            options={options} onChange={onChange} readOnly={readOnly} words={said} styles={styles} renderControl={renderControl} live={live} />
     );
     return (
         <Box css={styles.root} data-field-form="">
@@ -324,10 +330,11 @@ interface FieldRowProps {
     words: FieldFormWords;
     styles: Styles;
     renderControl: FieldFormProps["renderControl"];
+    live: boolean;
 }
 
 /** One field: the shared `Field` around its control's line — its input, and an Option's Set or Clear — and a checklist's items. */
-const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, options, onChange, readOnly, words, styles, renderControl }: FieldRowProps) {
+const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, options, onChange, readOnly, words, styles, renderControl, live }: FieldRowProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
     const iconButton = useRecipe({ key: "iconButton" });
@@ -360,7 +367,8 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
     const pending = useRef<{ value: unknown } | undefined>(undefined);
     const [revision, setRevision] = useState(0);
     useValueSync(current, same, () => { pending.current = undefined; });
-    const hold = useCallback((next: unknown) => { pending.current = { value: next }; }, []);
+    // Live, each typed edit is told at once (`FieldFormProps.live`).
+    const hold = useCallback((next: unknown) => { if (live) emit(next); else pending.current = { value: next }; }, [live, emit]);
     const commit = useCallback(() => {
         const edit = pending.current;
         if (edit === undefined) return;

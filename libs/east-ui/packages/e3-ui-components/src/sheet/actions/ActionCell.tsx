@@ -16,7 +16,7 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useMemo, useSyncExternalStore, type MouseEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useSyncExternalStore, type MouseEvent } from "react";
 import { chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
@@ -94,6 +94,15 @@ export const ActionCell = memo(function ActionCell({ column, summary, offer, con
     const open = canTake(offer);
     const shown = controls && first !== undefined;
     const tone = state?.tone;
+    // A column that can offer more than one case keeps its ▾ part's room on every row, so its next halves line up.
+    const roomForMore = useMemo(() => column.start.length > 1 || column.order.some((c) => c.next.length > 1), [column]);
+    // The control the pointer rests on, until it leaves — or goes from under it, as a case taken removes it (P8).
+    const resting = useRef<string | undefined>(undefined);
+    const restingCase = shown ? first.name : undefined;
+    useEffect(() => {
+        if (resting.current !== undefined && resting.current !== restingCase) { resting.current = undefined; onPreview?.(undefined); }
+    }, [restingCase, onPreview]);
+    useEffect(() => () => { if (resting.current !== undefined) onPreview?.(undefined); }, [onPreview]);
     return (
         <chakra.div css={styles.root} data-slot="actionCell" data-on={selected || dirty ? "" : undefined}
             style={{ ["--action-slot" as string]: slot }}>
@@ -120,7 +129,8 @@ export const ActionCell = memo(function ActionCell({ column, summary, offer, con
                     title={offer.incomplete !== undefined ? m.actionIncomplete({ fields: offer.incomplete }) : offer.blocked}
                     onMouseDown={hold}
                     onClick={(event) => { event.stopPropagation(); if (open) onNext(first, event.currentTarget); }}
-                    onMouseEnter={() => onPreview?.(first)} onMouseLeave={() => onPreview?.(undefined)}>
+                    onMouseEnter={() => { resting.current = first.name; onPreview?.(first); }}
+                    onMouseLeave={() => { resting.current = undefined; onPreview?.(undefined); }}>
                     <Icon css={styles.icon} c={first} />
                     {verbOf(first)}
                     {first.kind === "choice" && <chakra.span css={styles.caret} data-slot="actionCaret" aria-hidden="true"><FontAwesomeIcon icon={faAngleDown} /></chakra.span>}
@@ -135,6 +145,7 @@ export const ActionCell = memo(function ActionCell({ column, summary, offer, con
                     <FontAwesomeIcon icon={faAngleDown} aria-hidden />
                 </chakra.button>
             )}
+            {shown && !rest && roomForMore && <chakra.span css={styles.moreSpace} data-slot="actionMoreSpace" aria-hidden="true" />}
         </chakra.div>
     );
 });
