@@ -646,25 +646,38 @@ m2 and m3 together.
 
 **Two readers, combined.** `plan` reads `forecast` and `capacity`, each made
 from `orders`. It runs as of the commit its older input came from, and reads
-the other's result at that commit from the execution cache (§7.8). Here the
-head moves every 15 seconds:
+the other's result at that commit from the execution cache, or runs that task
+there once (§7.8). Here the head moves every 15 seconds:
 
 ```
-time   head  forecast (3 min)          capacity (1 min)           plan (1 min)
------  ----  ------------------------  -------------------------  ---------------------------------------
-10:00  c0    starts on c0              starts on c0
-10:01  c4    |                         c0 lands; starts on c4
-10:02  c8    |                         c4 lands; starts on c8
-10:03  c12   c0 lands; starts on c12   c8 lands; starts on c12    starts on c0: capacity's c0 from the cache
-10:04  c16   |                         c12 lands; starts on c16   c0 lands
-10:05  c20   |                         c16 lands; starts on c20
-10:06  c24   c12 lands; starts on c24  c20 lands; starts on c24   starts on c12: capacity's c12 from the cache
-10:07  c28   |                         c24 lands; starts on c28   c12 lands
+time      head  forecast (3 min)          capacity (50 s)             plan (1 min)
+--------  ----  ------------------------  --------------------------  -------------------------------------------
+10:00:00  c0    starts on c0              starts on c0
+10:00:50  c3    |                         c0 lands; starts on c3
+10:01:40  c6    |                         c3 lands; starts on c6
+10:02:30  c10   |                         c6 lands; starts on c10
+10:03:00  c12   c0 lands; starts on c12   |                           starts on c0: capacity's c0 from the cache
+10:03:20  c13   |                         c10 lands; starts on c13    |
+10:04:00  c16   |                         |                           c0 lands
+10:04:10  c16   |                         c13 lands; starts on c16
+10:05:00  c20   |                         c16 lands; starts on c20
+10:05:50  c23   |                         c20 lands; starts on c23
+10:06:00  c24   c12 lands; starts on c24  a catch-up starts on c12    waits for capacity at c12
+10:06:40  c26   |                         c23 lands; starts on c26
+10:06:50  c27   |                         the catch-up lands          starts on c12
+10:07:30  c30   |                         c26 lands; starts on c30    |
+10:07:50  c31   |                         |                           c12 lands
 ```
 
-Had `capacity` never run on c12, `plan` would run it there once, a catch-up
-run beside `capacity`'s own, and start a minute later. Neither input waits for
-the other, and `plan` never computes on a mix.
+At 10:03 the cache answers, since both inputs started on c0 with the run.
+After that, `capacity` is always busy, and has always moved past the commit
+`forecast` started on: it ran on c10 and c13, never on c12. So each run of
+`plan` waits for a catch-up run of `capacity` at that commit, beside
+`capacity`'s own run. That is one more run of `capacity`, and its 50 seconds,
+per run of `plan`, and the catch-up writes nothing to the workspace. When no
+edit lands between the two inputs' starts, they share a commit and the cache
+answers, as at 10:03. Neither input waits for the other, and `plan` never
+computes on a mix.
 
 **A reader of the feed's upstream, while the load runs.** `combine_erp` makes
 the ERP's delivery from `erpOrders`, and `reconcile` reads `orders` and
@@ -1228,7 +1241,8 @@ while it runs          looked since, and it runs again       the newest commits
 its dependents         reset, and wait for it                keep their results, and run again once its
                                                              next result lands
 a task reading two     deferred until both came from one     runs as of the older commit, the other
-results                commit                                result read there from the cache
+results                commit                                result read there from the cache, or run
+                                                             there once
 an edit                found at the run's next completion;   the view's start hands it to the run, which
                        the view's start is refused           looks at once
 a record's readers     (no loads today)                      run on the record as it stands, and again
@@ -1365,10 +1379,20 @@ each answer.
 - It never waits for its inputs to agree. It takes the commit its slowest
   input came from, and that input's result is already in hand.
 - Every result lands, so each task trails its inputs by at most one run of
-  its own.
-- A catch-up is rare: the faster input usually ran on that commit itself, as
-  its run before. It costs at most one more run of each task the combining
-  task reads through, per run of that task, at commits the run has seen.
+  its own, and a task that combines results by the catch-up runs it waits on
+  too.
+- A catch-up costs at most one more run of each task the combining task reads
+  through, per run of that task, at commits the run has seen. Under steady
+  edits it is the common case: a faster input that is always busy has moved
+  past the commit the slower one started on (§4.6). When no edit lands between
+  their starts, the cache answers.
+
+**Alternative considered.** A task due again could start on the commit that a
+task sharing a reader with it last started on, when that is newer than its
+own last, rather than on the newest. The reader would then find both results
+in the cache, so most catch-up runs would go, at no extra run, for a little of
+that task's freshness. It would amend ruling 12, which starts a task due again
+on the newest commits, so this design does not take it.
 
 #### An edit wakes the run (F33, ruling 14)
 
@@ -1958,7 +1982,7 @@ Everything else is shared e3-core logic.
 | How long a deploy waits, for the intent and then the workspace lock | 30 s in all, then `workspace_locked` as today; a run in flight stops within about a second of the intent. This applies to every deploy | refused at once |
 | How soon a run in flight takes in an edit | at once when a start reaches the process that runs it, as a view's does after each write; otherwise at the run's next completion | at its next completion; a start is refused |
 | How long a run lasts | until no task is due, ready, in flight or catching up; under steady edits, until it is stopped or a deploy stops it | the same, its slow results thrown away |
-| Catch-up runs | at most one of each task a task reads through, per run of that task, at commits the run has seen; never written to the workspace | none: the task is deferred |
+| Catch-up runs | at most one of each task a task reads through, per run of that task, at commits the run has seen, and under steady edits about that many (§4.6); never written to the workspace | none: the task is deferred |
 | A task deferred for consistency | while two of its inputs read a plain input at different values; while a fed record's delivery is forgotten; while two fed records carry different versions of one upstream; while it reads a fed record and the plain input that feeds it, and the input's new value loads. Each ends once a run or a load catches up | while any two of its inputs came from different commits |
 | A shared taker while a deploy has announced itself | refused at once, naming the deploy | refused at once while the deploy holds the workspace |
 | A load's wait for its source's queue, and for a deploy to finish | no bound; 30-s acquires in a loop, each turn checking the signal and re-referencing the delivery | n/a |
