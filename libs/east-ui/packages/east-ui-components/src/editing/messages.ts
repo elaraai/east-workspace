@@ -20,8 +20,14 @@
 
 import type { Formatters } from "../format/index.js";
 
+/** A name as a person reads it: `maxWeeklyHours` and `max_weekly_hours` read `Max weekly hours`. */
+export function sentenceOf(name: string): string {
+    const words = name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase();
+    return words.length === 0 ? name : words[0]!.toUpperCase() + words.slice(1);
+}
+
 /** The history bar's states that say something. */
-export type EditHistoryWord = "stale" | "applying" | "unknown" | "reconciling" | "rejected" | "conflict";
+export type EditHistoryWord = "stale" | "carrying" | "applying" | "unknown" | "reconciling" | "rejected" | "conflict";
 
 /**
  * The editing session's message table — the history bar and the draft
@@ -58,6 +64,96 @@ export interface EditingMessages {
     apply: () => string;
     /** A source that saved a batch without its committed revision. */
     applyNoRevision: () => string;
+    /** Save's tooltip while conflicts wait to be chosen — `Choose 2 conflicts to save`. */
+    applySettleFirst: (p: { n: number; count: string }) => string;
+    /** The conflicts button — `2 conflicts`. */
+    conflicts: (p: { n: number; count: string }) => string;
+    /** Its tooltip. */
+    conflictsTip: (p: { n: number; count: string }) => string;
+    /** The conflicts popover's head — `Conflicts · 2`. */
+    conflictsHead: (p: { n: number; count: string }) => string;
+    /** The popover's head before its count — and while the newest data is read, alone. */
+    conflictsTitle: () => string;
+    /** The button's Tooltip while a run of the optimiser is out. */
+    conflictsLockedTip: (p: { n: number; count: string }) => string;
+    /** Opens a long value in place. */
+    conflictShowAll: () => string;
+    /** Folds it again. */
+    conflictShowLess: () => string;
+    /** Its first words: what happened, and what to do. */
+    conflictsIntro: () => string;
+    /** Every conflict chosen — `All 2 conflicts chosen. Save is on.` */
+    conflictsSettled: (p: { n: number; count: string }) => string;
+    /** Every conflict chosen, and nothing left to save: each choice took the newer value. */
+    conflictsSettledNothing: (p: { n: number; count: string }) => string;
+    /** Said as conflicts appear, to a screen reader. */
+    conflictsAppeared: (p: { n: number; count: string }) => string;
+    /** Keep every one's draft value. */
+    conflictsKeepAll: () => string;
+    /** Take every one's newer value. */
+    conflictsTakeAll: () => string;
+    /** The draft's side. */
+    conflictYours: () => string;
+    /** The newer side. */
+    conflictTheirs: () => string;
+    /** What both began from — `was 442`. */
+    conflictWas: (p: { value: string }) => string;
+    /** Where the data names no one who changed it. */
+    conflictChangedSince: () => string;
+    /** Go to the entry. */
+    conflictGoTo: () => string;
+    /** A range card's label: an item's start and end, read as one. */
+    conflictDates: () => string;
+    /** A conflict, as the issue a collection goes to. */
+    issueConflict: () => string;
+    /** The banner while a reload would lose the drafts: the tab's storage refused them, and why. */
+    bannerUnkept: (p: { reason: "unavailable" | "full" | "unreadable" | "unwritable" }) => string;
+    /** The banner over drafts a reload kept that could not be restored, and why. */
+    bannerLost: (p: { reason: "schema" | "unreadable" }) => string;
+    /** The banner while conflicts wait — `2 of your changes conflict with newer changes`. */
+    bannerConflicts: (p: { n: number; count: string }) => string;
+    /** A session banner's word, before its message: what it is, in mono capitals. */
+    bannerWord: (p: { kind: "conflict" | "rejected" | "unconfirmed" | "stale" | "unkept" }) => string;
+    /** The banner's action: open the conflicts. */
+    conflictsChoose: () => string;
+    /** Why the choices are off while an optimiser run is out. */
+    conflictsLocked: () => string;
+    /** A conflict settled for the draft's value — `kept yours: 500`. */
+    conflictKept: (p: { value: string }) => string;
+    /** A conflict settled for the newer value — `used theirs: 450`. */
+    conflictTaken: (p: { value: string }) => string;
+    /** An entry removed. */
+    conflictRemoved: () => string;
+    /** A value cleared. */
+    conflictCleared: () => string;
+    /** Empty text. */
+    conflictEmpty: () => string;
+    /** Nothing. */
+    conflictNone: () => string;
+    /** A flag set. */
+    conflictYes: () => string;
+    /** A flag not set. */
+    conflictNo: () => string;
+    /**
+     * A field of an entry, as a conflict's card names it — the collection's
+     * own name for it, as its side panel shows it (`Column span`); by default
+     * the field's name as a sentence (`maxWeeklyHours` reads `Max weekly hours`).
+     */
+    conflictField: (p: { field: string }) => string;
+    /** A list's item, counting from one — `Item 3`. */
+    conflictItem: (p: { n: number; count: string }) => string;
+    /** A list's size — `12 items`. */
+    conflictItems: (p: { n: number; count: string }) => string;
+    /** A set's or a map's size — `12 entries`. */
+    conflictEntries: (p: { n: number; count: string }) => string;
+    /** A series of numbers' size — `48 numbers`. */
+    conflictNumbers: (p: { n: number; count: string }) => string;
+    /** A grid's size — `12 × 4 grid`. */
+    conflictGrid: (p: { rows: string; cols: string }) => string;
+    /** A tree. */
+    conflictTree: () => string;
+    /** A file — `File · 2,400 bytes`. */
+    conflictFile: (p: { size: string }) => string;
     /** A field whose text could not be read. */
     issueInvalid: (p: { value: string }) => string;
     /** A draft field with no value. */
@@ -66,7 +162,7 @@ export interface EditingMessages {
     issueChanged: () => string;
     /** A Save's conflict where the session read no entry changed, and its source said nothing of itself (#1199). */
     issueSourceChanged: () => string;
-    /** The banner over a Save the source found conflicts in — `Save stopped — 2 conflicts with the source`. */
+    /** The banner over a Save the source found conflicts in — `Not saved — 2 conflicts with newer changes`. */
     bannerConflict: (p: { n: number; count: string }) => string;
     /** The banner over a Save the source refused. */
     bannerRejected: () => string;
@@ -74,13 +170,13 @@ export interface EditingMessages {
     bannerUnknown: () => string;
     /** The banner over a Save whose result could not be read back. */
     bannerConfirmFailed: () => string;
-    /** The banner over drafts the source moved under. */
+    /** The banner over drafts the source moved under, where they are not carried over to it. */
     bannerStale: () => string;
     /** One of a Save's issues in its banner — `J-0002: Changed since this edit began`; `where` is empty for the source as a whole. */
     bannerIssue: (p: { where: string; message: string }) => string;
     /** The issues a banner leaves out — `and 4 more`. */
     bannerMore: (p: { n: number; count: string }) => string;
-    /** A banner's title naming the source it reports on, where a history holds several (#1194) — `Print job: Save stopped — 1 conflict with the source`. */
+    /** A banner's title naming the source it reports on, where a history holds several (#1194) — `Print job: Not saved — 1 conflict with newer changes`. */
     bannerSource: (p: { source: string; title: string }) => string;
 }
 
@@ -90,12 +186,13 @@ const plural = (n: number, one: string, many: string): string => (n === 1 ? one 
 export const editingMessages: EditingMessages = {
     historyStatus: ({ status }) => {
         switch (status) {
-            case "stale": return "Source changed — review or discard these drafts";
+            case "stale": return "Changed elsewhere — discard your changes to go on";
+            case "carrying": return "Checking your changes against the newest data";
             case "applying": return "Saving…";
-            case "unknown": return "Awaiting confirmation — retry the same request";
-            case "reconciling": return "Saved — loading the confirmed revision…";
-            case "rejected": return "Changes rejected — revise the draft before saving";
-            case "conflict": return "Source conflict — review or discard these drafts";
+            case "unknown": return "No answer yet — retry to find out whether it saved";
+            case "reconciling": return "Saved — reading it back…";
+            case "rejected": return "Not saved — change what's flagged, then save again";
+            case "conflict": return "Conflicts — choose which changes to keep";
         }
     },
     issues: ({ n, count }) => `${count} ${plural(n, "issue", "issues")}`,
@@ -109,16 +206,62 @@ export const editingMessages: EditingMessages = {
     retryRefresh: () => "Retry refresh",
     retryRequest: () => "Retry request",
     apply: () => "Save",
-    applyNoRevision: () => "The source saved the batch without its committed revision; recover this request before continuing",
+    applyNoRevision: () => "Saved, but it could not be confirmed — reload to see the newest",
+    applySettleFirst: ({ n, count }) => `Choose ${count} ${plural(n, "conflict", "conflicts")} to save`,
+    conflicts: ({ n, count }) => `${count} ${plural(n, "conflict", "conflicts")}`,
+    conflictsTip: ({ n, count }) => `${count} ${plural(n, "conflict", "conflicts")} · Choose which changes to keep`,
+    conflictsHead: ({ count }) => `Conflicts · ${count}`,
+    conflictsTitle: () => "Conflicts",
+    conflictsLockedTip: ({ n, count }) => `${count} ${plural(n, "conflict", "conflicts")} · Choices are off while the optimiser runs`,
+    conflictShowAll: () => "Show all",
+    conflictShowLess: () => "Show less",
+    conflictsIntro: () => "Someone else changed these while you were editing. Choose which version to keep. Save is off until every one is chosen.",
+    conflictsSettled: ({ n, count }) => (n === 1 ? "The conflict is chosen. Save is on." : `All ${count} conflicts chosen. Save is on.`),
+    conflictsSettledNothing: ({ n, count }) => (n === 1 ? "The conflict is chosen. Nothing is left to save." : `All ${count} conflicts chosen. Nothing is left to save.`),
+    conflictsAppeared: ({ n, count }) => `${count} of your ${plural(n, "changes conflicts", "changes conflict")} with newer changes. Save is off until you choose.`,
+    conflictsKeepAll: () => "Keep all mine",
+    conflictsTakeAll: () => "Use all theirs",
+    conflictYours: () => "Yours",
+    conflictTheirs: () => "Theirs",
+    conflictWas: ({ value }) => `was ${value}`,
+    conflictChangedSince: () => "Changed since you started editing",
+    conflictGoTo: () => "Go to",
+    conflictDates: () => "Dates",
+    issueConflict: () => "Someone else changed this too — choose which version to keep",
+    bannerUnkept: ({ reason }) => (reason === "full" ? "A reload would lose these changes: this tab's storage is full. Save them soon."
+        : reason === "unavailable" ? "A reload would lose these changes: this browser keeps nothing for this tab. Save them soon."
+        : "A reload would lose these changes: they could not be kept. Save them soon."),
+    bannerLost: ({ reason }) => (reason === "schema" ? "Changes from before the reload could not be restored: the data's shape has changed since."
+        : "Changes from before the reload could not be restored."),
+    bannerConflicts: ({ n, count }) => `${count} of your ${plural(n, "changes conflicts", "changes conflict")} with newer changes`,
+    bannerWord: ({ kind }) => ({ conflict: "Conflict", rejected: "Rejected", unconfirmed: "Unconfirmed", stale: "Out of date", unkept: "Not kept" })[kind],
+    conflictsChoose: () => "Choose",
+    conflictsLocked: () => "Choices are off while the optimiser runs",
+    conflictKept: ({ value }) => `kept yours: ${value}`,
+    conflictTaken: ({ value }) => `used theirs: ${value}`,
+    conflictRemoved: () => "Removed",
+    conflictCleared: () => "Cleared",
+    conflictEmpty: () => "Empty",
+    conflictNone: () => "None",
+    conflictYes: () => "Yes",
+    conflictNo: () => "No",
+    conflictField: ({ field }) => sentenceOf(field),
+    conflictItem: ({ count }) => `Item ${count}`,
+    conflictItems: ({ n, count }) => `${count} ${plural(n, "item", "items")}`,
+    conflictEntries: ({ n, count }) => `${count} ${plural(n, "entry", "entries")}`,
+    conflictNumbers: ({ n, count }) => `${count} ${plural(n, "number", "numbers")}`,
+    conflictGrid: ({ rows, cols }) => `${rows} × ${cols} grid`,
+    conflictTree: () => "Tree",
+    conflictFile: ({ size }) => `File · ${size} bytes`,
     issueInvalid: ({ value }) => `Invalid input: ${value}`,
     issueRequired: () => "A value is required",
     issueChanged: () => "Changed since this edit began",
-    issueSourceChanged: () => "The source changed since this edit began",
-    bannerConflict: ({ n, count }) => `Save stopped — ${count} ${plural(n, "conflict", "conflicts")} with the source`,
-    bannerRejected: () => "The source refused these changes",
-    bannerUnknown: () => "No answer from the source — the changes may have been saved",
+    issueSourceChanged: () => "Someone else changed this since you started editing",
+    bannerConflict: ({ n, count }) => `Not saved — ${count} ${plural(n, "conflict", "conflicts")} with newer changes`,
+    bannerRejected: () => "These changes weren't saved",
+    bannerUnknown: () => "No answer — your changes may have been saved",
     bannerConfirmFailed: () => "Saved — the result could not be read back",
-    bannerStale: () => "The source changed under these drafts — Save is off, and nothing is rebased",
+    bannerStale: () => "Someone else saved this while you were editing, and your changes can't be combined with theirs. Discard them to go on.",
     bannerIssue: ({ where, message }) => (where === "" ? message : `${where}: ${message}`),
     bannerMore: ({ n, count }) => `and ${count} more ${plural(n, "issue", "issues")}`,
     bannerSource: ({ source, title }) => `${source}: ${title}`,
@@ -149,6 +292,7 @@ export const SESSION_TEXT = {
     noRevision: editingMessages.applyNoRevision(),
     changed: editingMessages.issueChanged(),
     sourceChanged: editingMessages.issueSourceChanged(),
+    conflict: editingMessages.issueConflict(),
 } as const;
 
 /**

@@ -83,7 +83,9 @@ describe("the message a gesture leaves (#861)", () => {
         expect(noticeText({ id: "groupsFolded", n: 2, noun: undefined, nouns: undefined }, german)).toBe("2 Gruppen eingeklappt");
         expect(noticeText({ id: "pasted", rows: 1200, cols: 3, skipped: 2 }, sheetWords("de-DE", sheetMessages)))
             .toBe("Pasted 1.200×3 from clipboard · 2 unrecognised");
-        expect(noticeText({ id: "issue", where: "qty", message: ISSUE_TEXT.required }, W)).toBe("⟦qty: ⟦A value is required");
+        // An issue gone to: its place as the sheet names it — the column by its header — and the issue's words.
+        expect(noticeText({ id: "issue", where: "Qty", issue: { entry: "j1", row: none, field: some("qty"), message: ISSUE_TEXT.required } }, W))
+            .toBe("⟦Qty: ⟦A value is required");
         // Words that are not the sheet's own show as written.
         expect(noticeText({ id: "text", text: "Host refused" }, W)).toBe("Host refused");
     });

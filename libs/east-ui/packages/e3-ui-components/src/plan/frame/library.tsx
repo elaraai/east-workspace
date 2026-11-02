@@ -29,7 +29,7 @@
  *   picked series and the Plan's `rows`, each with its kind's icon, its title
  *   and an eye, in the order the canvas draws them (PB29). The kinds and the
  *   rows hide in the viewer's own set, kept under the Plan's `id`; `data`'s
- *   series in their pick.
+ *   series in their pick, kept under its key.
  * - **An author's tab** (`Plan.library.tab(…)`) — its cards, as the Sheet's
  *   (SB60): each its label and its meta under it, with the tab's icon,
  *   grouped by its `group` and searched by key, label and meta. A click

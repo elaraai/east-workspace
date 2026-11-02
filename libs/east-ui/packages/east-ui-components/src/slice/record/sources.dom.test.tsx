@@ -28,6 +28,7 @@ import { resetSlicePersistence } from "../../platform/slice/index.js";
 import { Toolbar } from "../../toolbar/index.js";
 import { useSlicesReactivity } from "../use-slice-reactivity.js";
 import { useRecordSlicesToolbarItems } from "./index.js";
+import { keptName } from "../../platform/kept.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 globalThis.ResizeObserver ??= ResizeObserverStub;
@@ -285,7 +286,7 @@ test("persistence restores each source from its own key", () => {
     const saved = encode({ where: new Map([["group", variant("values", ['"Bulk"'])]]), preset: none, resolution: none });
     let text = "";
     for (const byte of saved) text += String.fromCharCode(byte);
-    window.sessionStorage.setItem("east-ui.slice.yard.resources", btoa(text).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""));
+    window.sessionStorage.setItem(keptName("east-ui.slice.yard.resources", { where: "tab" }), btoa(text).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""));
     const f = fixture(store);
     show(f.product, { persist: "session" });
     expect(f.kilns.read().where.get("group")).toEqual(variant("values", ['"Bulk"']));

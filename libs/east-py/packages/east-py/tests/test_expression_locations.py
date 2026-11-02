@@ -92,15 +92,54 @@ DIVIDER_BODY_LINE = _build_divider.__code__.co_firstlineno + 2   # the lambda
 def test_runtime_error_names_the_authoring_expression():
     fn = _build_divider()
     frames = _frames(_raises(fn, 1))
-    assert frames, "the error carries the python frames that built the node"
     # Innermost first: the expression inside the lambda, then the
-    # East.function(...) call that built it, then this test's call to the
-    # builder — and nothing of East's own, pytest's or the interpreter's.
-    assert frames[0][1:] == (DIVIDER_BODY_LINE, _column_of(DIVIDER_BODY_LINE, "East.Integer.divide"))
-    assert frames[1][1:] == (DIVIDER_CALL_LINE, _column_of(DIVIDER_CALL_LINE, "East.function"))
-    assert frames[2][1] == (
-        test_runtime_error_names_the_authoring_expression.__code__.co_firstlineno + 1)
-    assert all(_is_this_file(path) for path, _line, _column in frames), frames
+    # East.function(...) call that built it — and nothing above that call
+    # (this test's call to the builder), nor of East's own, pytest's or the
+    # interpreter's.
+    assert frames == [
+        (frames[0][0], DIVIDER_BODY_LINE, _column_of(DIVIDER_BODY_LINE, "East.Integer.divide")),
+        (frames[0][0], DIVIDER_CALL_LINE, _column_of(DIVIDER_CALL_LINE, "East.function")),
+    ]
+    assert _is_this_file(frames[0][0]), frames
+
+
+def _divider_from_one_caller():
+    return _build_divider()
+
+
+def _divider_from_another_caller():
+    return _build_divider()
+
+
+def test_a_build_records_the_functions_own_frames_whoever_calls_it():
+    one, another = _divider_from_one_caller(), _divider_from_another_caller()
+    assert one._east_source_map.entries() == another._east_source_map.entries()
+
+
+def test_a_recorded_path_is_relative_to_the_files_project_whatever_the_working_directory(
+        tmp_path, monkeypatch):
+    import east.expression.location as location
+
+    monkeypatch.chdir(tmp_path)
+    for cache in ("_author_paths", "_map_paths", "_project_roots"):
+        monkeypatch.setattr(location, cache, {})
+    monkeypatch.setattr(location, "_auto_base_computed", False)
+    project = next(p for p in HERE.parents if (p / "pyproject.toml").is_file())
+    stack = _build_divider()._east_source_map.entries()[-1]
+    assert {path for path, _line, _column in stack} == {HERE.relative_to(project).as_posix()}
+
+
+def test_a_function_first_built_inside_another_body_records_none_of_its_frames():
+    from east.expression.libs import lib_function
+
+    @lib_function([IntegerType], IntegerType)
+    def bump(b, x):
+        return x + 1
+
+    East.function([IntegerType], IntegerType, lambda b, x: bump(x) * 2)
+    lines = {line for stack in bump.resolve()._east_source_map.entries() for _path, line, _column in stack}
+    assert lines == {test_a_function_first_built_inside_another_body_records_none_of_its_frames
+                     .__code__.co_firstlineno + 5}  # bump's body, built on its first use above
 
 
 def test_artifact_carries_its_source_map():
@@ -204,9 +243,8 @@ def test_set_location_base_path_relativizes_captured_paths():
         assert Path(capture_frames()[0][0]).is_absolute()
     finally:
         set_location_base_path(None)
-    # The default base is the working directory: relative under it, absolute
-    # outside — either way the path ends with this file.
-    assert capture_frames()[0][0].replace("\\", "/").endswith(f"tests/{HERE.name}")
+    # By default a recorded path is relative to the file's project root.
+    assert capture_frames()[0][0] == f"tests/{HERE.name}"
 
 
 def test_nodes_outside_a_build_carry_no_location():
@@ -252,7 +290,7 @@ def test_capture_off_takes_no_stack_walk(monkeypatch):
     def walked(_filename):
         raise AssertionError("walked the stack")
 
-    monkeypatch.setattr(location, "_author_path", walked)
+    monkeypatch.setattr(location, "_map_path", walked)
     with pytest.raises(AssertionError, match="walked the stack"):
         capture_frames()
     try:

@@ -22,6 +22,7 @@ import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import {
     START, act, assignment, at, cell, drop, history, libraryCard, narrow, open, press, rosterHarness, settle, slot, warehouseRoster, weekDuties, width, type Choice,
 } from "./harness.test-utils.js";
+import { conflictCards } from "../e3-web-mount.test-utils.js";
 import { setRosterPayProbe } from "./model.js";
 import { offering } from "../shared/schedule/keys.test-utils.js";
 
@@ -129,7 +130,7 @@ describe("one history over the Roster's records (#1369)", () => {
         expect(main.queryAllByRole("button", { name: /assign|request/i })).toEqual([]);
     });
 
-    test("B9 — two sessions' edits of different duties of one week both commit; the same duty is the second's conflict, naming it", async () => {
+    test("B9 — two sessions' edits of different duties of one week both commit; the same duty, removed here and noted there, waits in the second's conflicts, named by whose it is", async () => {
         const { container: c } = await h.mount(ex.rosterWarehouse);
         await press(within(assignment(c, "s37")).getByRole("button", { name: "Remove C. Clover" }));
         // Another session notes D. Bracken's Thursday between this Save's read and its commit: another duty, both commit.
@@ -139,16 +140,50 @@ describe("one history over the Roster's records (#1369)", () => {
         expect(duties.has("s37")).toBe(false);
         expect(duties.get("s14")!.note).toBe("asked to swap");
         expect(c.querySelector("[data-session-banner]")).toBeNull();
-        // Then both sessions edit R. Birch's Thursday: this one's Save is the conflict, naming the duty; the other's stands.
+        // Then both sessions edit R. Birch's Thursday: this one's Save is refused, and its draft is carried over to the duty
+        // as the other left it — the removal waits to be chosen, Save off; the other's note stands.
         await press(within(assignment(c, "s10")).getByRole("button", { name: "Remove R. Birch" }));
         await h.race(ex.rosterDuties, () => { fireEvent.click(history(c, editingMessages.apply())); },
             now => { now.set("s10", { ...now.get("s10")!, note: "covering for Tuesday" }); return now; });
-        const conflict = c.querySelector('[data-session-banner="conflict"]');
-        expect(conflict, slot(c, "banners").textContent ?? "").not.toBeNull();
+        await waitFor(() => {
+            expect([...c.querySelectorAll("[data-session-banner]")].map((b) => b.getAttribute("data-session-banner")), slot(c, "banners").textContent ?? "").toEqual(["conflicts"]);
+            expect(slot(c, "toolbar").textContent).not.toContain(editingMessages.historyStatus({ status: "carrying" }));
+        });
+        // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+        expect(history(c, editingMessages.apply()).getAttribute("aria-disabled")).toBe("true");
         // Named as the Roster names a duty: whose it is.
-        expect(conflict!.textContent).toContain("R. Birch");
+        const [card, ...more] = await conflictCards(c);
+        expect(more).toEqual([]);
+        expect([card!.item, card!.yours]).toEqual(["R. Birch", "Yours, Removed"]);
         expect(assignment(c, "s10").hasAttribute("data-removed")).toBe(true);
         expect((await h.read(ex.rosterDuties)).get("s10")!.note).toBe("covering for Tuesday");
+    });
+
+    test("B9 — two Saves at once, of different fields of one duty: the one that lands first reads its own back beside the other's and is done, never left waiting on it", async () => {
+        const { container: c } = await h.mount(ex.rosterWarehouse);
+        await drop(assignment(c, "s37"), cell(c, 4, "picking", "late"));
+        // The other session's note on the same duty commits just after this Save, before this session has read its own back.
+        await h.followed(ex.rosterDuties, () => { fireEvent.click(history(c, editingMessages.apply())); },
+            now => { now.set("s37", { ...now.get("s37")!, note: "asked to swap" }); return now; });
+        const saved = (await h.read(ex.rosterDuties)).get("s37")!;
+        expect([saved.team, saved.shift, saved.note]).toEqual(["picking", "late", "asked to swap"]);
+        await waitFor(() => {
+            expect(slot(c, "toolbar").textContent).not.toContain(editingMessages.historyStatus({ status: "reconciling" }));
+            expect(assignment(c, "s37").hasAttribute("data-drafted")).toBe(false);
+        });
+        expect(c.querySelector("[data-session-banner]")).toBeNull();
+    });
+
+    test("B9 — a duty moved here and to other times there is one conflict, its dates whole on each side", async () => {
+        const { container: c } = await h.mount(ex.rosterWarehouse);
+        await drop(assignment(c, "s37"), cell(c, 4, "picking", "late"));
+        // Another session moves the same duty to other times of its day.
+        const duties = await h.read(ex.rosterDuties);
+        duties.set("s37", { ...duties.get("s37")!, start: at("2028-03-09T07:00:00"), end: at("2028-03-09T15:00:00") });
+        await h.patch(ex.rosterDuties, duties);
+        await waitFor(() => expect(c.querySelector('[data-session-banner="conflicts"]')?.textContent).toContain(editingMessages.bannerConflicts({ n: 1, count: "1" })));
+        expect(await conflictCards(c)).toHaveLength(1);
+        expect(document.querySelector("[data-conflict-card]")!.textContent).toContain(editingMessages.conflictDates());
     });
 
     test("B11 — coverage, pay, checks and fits read every duty of the week, whatever the rail shows", async () => {
@@ -237,5 +272,58 @@ describe("one history over the Roster's records (#1369)", () => {
         expect(pay).toContain("OT1");
         // And its Details name the check's issue on it.
         expect(within(slot(c, "end").querySelector<HTMLElement>('[data-roster-inspector="details"]')!).getByText("Overtime not agreed")).toBeTruthy();
+    });
+});
+
+describe("the conflicts example (rosterConflicts)", () => {
+    test("a duty moved to another shift here, then Someone else saves, is one conflict, its times whole on each side, named by whose it is", async () => {
+        const { container: c } = await h.mount(ex.rosterConflicts);
+        await drop(assignment(c, "d-1"), cell(c, 0, "dispatch", "late"));
+        // Someone else's save moves every duty half an hour later: theirs and the move here differ.
+        await press(within(c).getByRole("button", { name: "Someone else saves" }));
+        await waitFor(() => expect(c.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
+        const [card, ...more] = await conflictCards(c);
+        expect(more).toEqual([]);
+        expect(card!.item).toBe("Ada Brook");
+        expect(document.querySelector("[data-conflict-card]")!.textContent).toContain(editingMessages.conflictDates());
+        expect(assignment(c, "d-1").hasAttribute("data-conflict")).toBe(true);
+    });
+
+    test("Theirs takes the duty back to its own shift and group with their times, nothing left to save; Yours keeps it where it was moved, and Save sends the move whole", async () => {
+        const { container: c } = await h.mount(ex.rosterConflicts);
+        await drop(assignment(c, "d-1"), cell(c, 0, "dispatch", "late"));
+        await press(within(c).getByRole("button", { name: "Someone else saves" }));
+        await waitFor(() => expect(c.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
+        const theirs = (await h.read(ex.rosterConflictDuties)).get("d-1")!;
+        await press((await conflictCards(c))[0]!.radio("source"));
+        // Their times, and their shift and group with them: the duty is theirs whole, and nothing is left to save.
+        await waitFor(() => expect(cell(c, 0, "inbound", "early").contains(assignment(c, "d-1"))).toBe(true));
+        expect(document.body.textContent).toContain(editingMessages.conflictsSettledNothing({ n: 1, count: "1" }));
+        // Undo takes the choice back; Yours keeps the duty where it was moved.
+        await press(history(c, "Undo"));
+        await press((await conflictCards(c))[0]!.radio("draft"));
+        await waitFor(() => expect(cell(c, 0, "dispatch", "late").contains(assignment(c, "d-1"))).toBe(true));
+        await press(within(slot(c, "toolbar")).getByRole("button", { name: "Save" }));
+        await waitFor(async () => expect((await h.read(ex.rosterConflictDuties)).get("d-1")!.shift).toBe("late"));
+        const saved = (await h.read(ex.rosterConflictDuties)).get("d-1")!;
+        // The move whole: its shift, its group and the late shift's times, over theirs.
+        expect([saved.shift, saved.team, saved.start.getTime() !== theirs.start.getTime()]).toEqual(["late", "dispatch", true]);
+    });
+
+    test("from another week, its card names the duty by whose it is, and Go to goes back to its week, opens its group and selects it", async () => {
+        const { container: c } = await h.mount(ex.rosterConflicts);
+        await drop(assignment(c, "d-1"), cell(c, 0, "dispatch", "late"));
+        await press(within(c).getByRole("button", { name: "Someone else saves" }));
+        await waitFor(() => expect(c.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
+        // Its group folded, and the next week shown: the duty is drawn nowhere.
+        await press(c.querySelector('[data-roster-group="dispatch"]'));
+        await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: "]" }); });
+        await settle();
+        expect(assignment(c, "d-1")).toBeNull();
+        const [card] = await conflictCards(c);
+        expect(card!.item).toBe("Ada Brook");
+        await press(card!.goTo());
+        await waitFor(() => expect(assignment(c, "d-1")?.hasAttribute("data-selected")).toBe(true));
+        expect(c.querySelector('[data-roster-group="dispatch"]')!.getAttribute("aria-expanded")).toBe("true");
     });
 });

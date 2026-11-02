@@ -19,7 +19,7 @@
  * The rows stay mounted (hidden) while collapsed so control state survives.
  */
 
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useMemo, useRef, useState } from "react";
 import { Box, IconButton, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronLeft, faChevronRight, faChevronUp, faChevronDown } from "@fortawesome/free-solid-svg-icons";
@@ -28,6 +28,7 @@ import { Configurator } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { useContainerBelow } from "../../contracts/adaptive.js";
+import { kept, keptFlag } from "../../platform/kept.js";
 
 const configuratorEqual = equivalentFor(Configurator.Types.Configurator);
 
@@ -54,28 +55,15 @@ function EastChakraConfiguratorImpl({ value, storageKey }: EastChakraConfigurato
     const aside = getSomeorUndefined(value.aside);
 
     // Viewer preference: the control column collapses to a rail so the preview
-    // takes the width (the Dock pattern). Seeded expanded; persisted per
-    // instance when a storage key is provided; hydrated once on mount.
-    const persistKey = storageKey === undefined ? undefined : `${storageKey}.controlsCollapsed`;
-    const [collapsed, setCollapsed] = useState<boolean>(false);
-    useEffect(() => {
-        if (persistKey === undefined) return;
-        try {
-            const raw = window.localStorage.getItem(persistKey);
-            if (raw !== null) setCollapsed(raw === "true");
-        } catch { /* storage unavailable (SSR / privacy mode) */ }
-        // Mount-only hydrate.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    // takes the width (the Dock pattern). Seeded expanded; kept per instance when
+    // a storage key is provided (platform/kept.ts), and read before the first draw.
+    const choice = useMemo(() => storageKey === undefined ? undefined : kept(`${storageKey}.controlsCollapsed`, keptFlag), [storageKey]);
+    const [collapsed, setCollapsed] = useState<boolean>(() => choice?.read() ?? false);
 
     const setCollapsedState = useCallback((next: boolean) => {
         setCollapsed(next);
-        if (persistKey !== undefined) {
-            try {
-                window.localStorage.setItem(persistKey, String(next));
-            } catch { /* storage unavailable */ }
-        }
-    }, [persistKey]);
+        choice?.write(next);
+    }, [choice]);
 
     const handleToggle = useCallback(() => { setCollapsedState(!collapsed); }, [collapsed, setCollapsedState]);
 

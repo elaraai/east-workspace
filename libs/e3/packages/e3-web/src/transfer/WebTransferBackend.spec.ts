@@ -18,7 +18,7 @@
 
 import { afterEach, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { StringType, encodeBeast2For, equalFor, none, some, variant } from '@elaraai/east';
+import { DateTimeType, StringType, encodeBeast2For, equalFor, none, printFor, some, variant } from '@elaraai/east';
 import { LockStateType } from '@elaraai/e3-types';
 import {
   WorkspaceLockError,
@@ -455,7 +455,7 @@ describe('WebTransferBackend', () => {
     const refused = await exportEnded(exporting, await startExport(exporting, WORKSPACE));
     assert.equal(refused.status, 'failed', 'the export is refused');
     assert.equal(refused.message, new WorkspaceLockError(WORKSPACE, holder).message, 'its failure names the holder, as lockStateToHolderInfo gives it');
-    assert.ok(refused.message.includes(holder.acquiredAt), `it names when the holder took the workspace: ${refused.message}`);
+    assert.ok(refused.message.includes(printFor(DateTimeType)(holder.acquiredAt)), `it names when the holder took the workspace: ${refused.message}`);
     const after = await exporting.storage.locks.getState(REPO, WORKSPACE);
     assert.ok(after !== null && sameLockState(after, held), 'the lock is still the deploy\'s');
 

@@ -19,9 +19,12 @@
  * - **Save** commits each session with a change it can send, each its own
  *   request with its own outcome: one session's conflict, refusal or
  *   unanswered write leaves the others' commits standing. It is on while every
- *   session's drafts pass their checks and one has a change to send. While a
- *   session's write has no answer, Save is Retry, which resends that
- *   session's request, its id unchanged.
+ *   session's drafts pass their checks, none holds a conflict still to settle,
+ *   and one has a change to send. While a session's write has no answer, Save
+ *   is Retry, which resends that session's request, its id unchanged.
+ * - **Conflicts** — a part of a draft another write changed differently — are
+ *   every session's, each settled in its session as one step of the history;
+ *   settling all one way is one step across the sessions that hold them.
  * - **A session's own history going** — its drafts discarded, its source
  *   moving under none, a commit read back with another write's field beside
  *   it — takes it out of the steps, and a step left with no session goes.
@@ -36,7 +39,7 @@
 import { StringType, equalFor, variant } from "@elaraai/east";
 import type { BatchReadiness } from "./draft.js";
 import type { HistoryAction } from "./HistoryBar.js";
-import type { EditIssue, EditSession, EntryUpdate, Origin } from "./session.js";
+import type { ConflictChoice, EditIssue, EditSession, EntryConflicts, EntryUpdate, Origin, SettledConflict } from "./session.js";
 
 /** A session's state, as the history reads it. */
 type Status = EditSession<unknown>["status"];
@@ -150,6 +153,8 @@ export class EditHistory<W> {
     }
     /** A source moved under a session's pending drafts. */
     get stale(): boolean { return this.all.some((session) => session.stale); }
+    /** A session's drafts are being carried over to the base its source moved to. */
+    get carrying(): boolean { return this.all.some((session) => session.carrying); }
     /** The first session's error, in order. */
     get error(): string | undefined {
         for (const session of this.all) if (session.error !== undefined) return session.error;
@@ -197,25 +202,37 @@ export class EditHistory<W> {
     }
     /** Discard is available: no session's request is unresolved. */
     get canDiscard(): boolean { return this.all.every((session) => session.canDiscard); }
-    /** Save is available: every session's drafts pass their checks, and one has a change it can send. */
+    /** Save is available: every session's drafts pass their checks, none holds a conflict to settle, and one has a change it can send. */
     get canApply(): boolean {
         const all = this.all;
-        return all.some((session) => session.canApply) && all.every((session) => session.readiness.type === "ready");
+        return this.unsettled === 0 && all.some((session) => session.canApply) && all.every((session) => session.readiness.type === "ready");
     }
+    /** Every session's entries in conflict, each with the session it is in, in the sessions' order. */
+    get conflicts(): readonly { readonly key: string; readonly entry: EntryConflicts }[] {
+        const out: { key: string; entry: EntryConflicts }[] = [];
+        for (const [key, session] of this.sessions) for (const entry of session.conflicts.values()) out.push({ key, entry });
+        return out;
+    }
+    /** Every session's conflicts settled since its drafts were last carried over, each with its session. */
+    get settled(): readonly { readonly key: string; readonly conflict: SettledConflict }[] {
+        const out: { key: string; conflict: SettledConflict }[] = [];
+        for (const [key, session] of this.sessions) for (const conflict of session.settled) out.push({ key, conflict });
+        return out;
+    }
+    /** How many conflicts are still to settle, every session's: Save waits until none is. */
+    get unsettled(): number { return this.all.reduce((n, session) => n + session.unsettled, 0); }
+    /** How many settled conflicts the conflicts popover shows, across the sessions: a range's in one entry counting once. */
+    get chosen(): number { return this.all.reduce((n, session) => n + session.chosen, 0); }
 
     /**
      * The session an issue is of, by the issue itself — the very object a
-     * session's issues or readiness hold.
+     * session's issues, its readiness or its conflicts hold ({@link EditSession.holds}).
      *
      * @param issue - One of the history's issues
      * @returns The session's key, or `undefined` for an issue none of them holds
      */
     sourceOf(issue: EditIssue): string | undefined {
-        for (const [key, session] of this.sessions) {
-            if (session.issues.some((held) => Object.is(held, issue))) return key;
-            const readiness = session.readiness;
-            if (readiness.type !== "ready" && readiness.value.some((held) => Object.is(held, issue))) return key;
-        }
+        for (const [key, session] of this.sessions) if (session.holds(issue)) return key;
         return undefined;
     }
 
@@ -247,6 +264,58 @@ export class EditHistory<W> {
                 parts.forEach((part, i) => {
                     if (part.updates.length > 0 && sessions[i]!.record(part.updates, origin, label)) recorded.push(part.key);
                 });
+            } finally {
+                if (recorded.length > 0) this.push(recorded);
+            }
+            return recorded.length > 0;
+        });
+    }
+
+    /**
+     * Settle one conflict in its session, as one step of the history.
+     *
+     * @param key - The session's key
+     * @param id - The entry
+     * @param path - The conflict's patch path
+     * @param choice - Which value stands
+     * @returns Whether anything moved
+     */
+    settleConflict(key: string, id: string, path: string, choice: ConflictChoice): boolean {
+        return this.settleConflicts(key, id, [path], choice);
+    }
+
+    /**
+     * Settle several conflicts of an entry in its session one way — a range's
+     * start and end — as one step of the history.
+     *
+     * @param key - The session's key
+     * @param id - The entry
+     * @param paths - The conflicts' patch paths
+     * @param choice - Which value stands
+     * @returns Whether anything moved
+     */
+    settleConflicts(key: string, id: string, paths: readonly string[], choice: ConflictChoice): boolean {
+        const session = this.sessions.get(key);
+        if (session === undefined) return false;
+        return this.run(() => {
+            const moved = session.settleTogether(id, paths, choice);
+            if (moved) this.push([key]);
+            return moved;
+        });
+    }
+
+    /**
+     * Settle every conflict one way, in every session that holds one: one
+     * step of the history across them.
+     *
+     * @param choice - Which value stands
+     * @returns Whether anything moved
+     */
+    settleAll(choice: ConflictChoice): boolean {
+        return this.run(() => {
+            const recorded: string[] = [];
+            try {
+                for (const [key, session] of this.sessions) if (session.settleAll(choice)) recorded.push(key);
             } finally {
                 if (recorded.length > 0) this.push(recorded);
             }

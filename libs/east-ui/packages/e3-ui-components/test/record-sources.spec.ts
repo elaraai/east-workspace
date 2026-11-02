@@ -29,8 +29,8 @@ const h = e3Spec({ "allocation/allocation": ax });
 const bays = ax.yardBays;
 const kilns = ax.kilns;
 const yard = Slice.bindRecords("test.yard", {
-    lanes: { source: Data.bindPaged(bays, { indexes: [ax.yardBaysByArea] }), label: "Bays", icon: { prefix: "fas", name: "warehouse" }, fields: { area: { label: "Area" } } },
-    resources: { source: Data.bindPaged(kilns, { indexes: [ax.kilnsByGroup] }),
+    lanes: { source: Data.bindPaged(bays, { indexes: ["yard_bays_by_area"] }), label: "Bays", icon: { prefix: "fas", name: "warehouse" }, fields: { area: { label: "Area" } } },
+    resources: { source: Data.bindPaged(kilns, { indexes: ["kilns_by_group"] }),
         fields: { group: { label: "Group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } } },
 }, {
     presets: [
@@ -182,7 +182,7 @@ test("the handle and its chrome survive serialization; the decoded product's fun
 });
 
 test("refusals name the fix", () => {
-    const source = Data.bindPaged(bays, { indexes: [ax.yardBaysByArea] });
+    const source = Data.bindPaged(bays, { indexes: ["yard_bays_by_area"] });
     assert.throws(() => Slice.bindRecords("bad", {} as never), /at least one source/);
     assert.throws(() => Slice.bindRecords("bad", { lanes: { source } }, {
         presets: [{ id: "x", name: "X", where: {} }, { id: "x", name: "Y", where: {} }] }), /repeated preset 'x'/);
@@ -203,7 +203,7 @@ test("refusals name the fix", () => {
 });
 
 function _typeRefusals() {
-    const source = Data.bindPaged(bays, { indexes: [ax.yardBaysByArea] });
+    const source = Data.bindPaged(bays, { indexes: ["yard_bays_by_area"] });
     // @ts-expect-error a part's fields are its own record's indexed fields
     Slice.bindRecords("bad", { lanes: { source, fields: { group: {} } } });
     // @ts-expect-error a preset narrows a part with its own fields

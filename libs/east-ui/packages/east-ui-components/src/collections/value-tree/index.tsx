@@ -55,6 +55,7 @@ import {
 } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { usePersistedState } from "../../hooks/usePersistedState";
+import { keptRead } from "../../platform/kept.js";
 import { VirtualRows } from "../virtual-rows.js";
 import { parseCssSize } from "../../style/parse-size.js";
 import {
@@ -65,6 +66,7 @@ import {
 } from "../../forms/input/index.js";
 import { EastChakraCheckbox } from "../../forms/checkbox/index.js";
 import { EastChakraSelect } from "../../forms/select/index.js";
+import { debugFlag } from "../../platform/debug-flag.js";
 
 // The paging contract and its row shape live with the row model in
 // `@elaraai/east-ui` (#719); re-exported here so `e3-ui-components`
@@ -133,6 +135,13 @@ interface ValueTreePersisted {
     baseDepth?: number;
 }
 
+/** The tree's state, as storage keeps it. */
+const readValueTreePersisted = keptRead.record<ValueTreePersisted>({
+    open: keptRead.dict(keptRead.boolean),
+    topRow: keptRead.number,
+    baseDepth: keptRead.optional(keptRead.number),
+});
+
 /** Row callbacks decoded from the payload (undefined ⇒ read-only). */
 interface TreeCallbacks {
     onEdit?: ((path: ValueTreeStepValue[], leaf: ValueTreeLeafValue) => unknown) | undefined;
@@ -144,13 +153,7 @@ interface TreeCallbacks {
 /** Opt-in paged-mode debug logging (#497) — silent unless
  *  `localStorage['e3-paging-debug']` is set (and not 'off'). */
 function pagedDebug(...args: unknown[]): void {
-    try {
-        if (typeof localStorage === "undefined") return;
-        const flag = localStorage.getItem("e3-paging-debug");
-        if (flag === null || flag === "off") return;
-    } catch {
-        return;
-    }
+    if (!debugFlag("e3-paging-debug")) return;
     console.info("[e3-paging:tree]", ...args);
 }
 
@@ -408,7 +411,7 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
     }), [value.onEdit, value.onInsert, value.onRemove, value.onTag]);
 
     const { state: persisted, setState: setPersisted } = usePersistedState<ValueTreePersisted>(
-        storageKey, { open: {}, topRow: 0 },
+        storageKey, { open: {}, topRow: 0 }, readValueTreePersisted,
     );
 
     const style = getSomeorUndefined(value.style);

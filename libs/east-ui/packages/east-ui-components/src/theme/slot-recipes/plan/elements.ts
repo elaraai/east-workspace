@@ -18,8 +18,9 @@ import type { SystemStyleObject } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../../icon-size.js";
 import { moveGhostBase } from "../time/move-ghost.js";
 import { timeResizeEdge } from "../time/resize.js";
+import { CONFLICT_RING } from "../../conflict-ring.js";
 import { lifecycleStates } from "./states.js";
-import { PLAN_DRAFT_HALO, PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
+import { PLAN_DRAFT_HALO, PLAN_OVERLAP_RING, planElementConflict, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
 
 /** The slots this part styles. */
 export const elementsSlots = [
@@ -42,8 +43,9 @@ export const elementsBase = {
     // both fit whole. The bar is a wrapping row whose one line fills the box
     // inside its border, so a quantity that does not fit wraps to a second
     // line the bar clips, and the label, alone on the first, ellipsizes when
-    // it alone does not fit. Its height is the canvas's bar, or a collapsed
-    // parent's rollup bar (`data-rolled`). It is a size container, so its
+    // it alone does not fit. Its height is the canvas's bar, a parent's folded
+    // or open: what a parent rolls up is its bands (`rollBand`). It is a size
+    // container, so its
     // text's line is exactly the height inside its border as the page draws
     // it (`100cqh`) — a lifecycle look's 1.5px dash is drawn 1px at 1×.
     // A run too short for its padding draws the canvas's narrowest bar from
@@ -54,7 +56,6 @@ export const elementsBase = {
         transform: "translateY(-50%)",
         height: "var(--plan-bar-h)",
         minWidth: "var(--plan-bar-min-w)",
-        "&[data-rolled]": { height: "var(--plan-roll-bar-h)" },
         containerType: "size",
         borderRadius: "2px",
         display: "flex",
@@ -111,6 +112,9 @@ export const elementsBase = {
         },
         ...planElementSelected,
         ...planElementFocus,
+        ...planElementConflict,
+        // A confirmed bar keeps its inset brand ring inside the warn.
+        "&[data-conflict][data-state='appr']": { boxShadow: `inset 0 0 0 1.5px {colors.brand.solid}, ${CONFLICT_RING}` },
     },
     // A span's label — whole, or ellipsized when it alone does not fit, its
     // line the bar's inside height (#1258). Below a letter and the ellipsis
@@ -231,6 +235,9 @@ export const elementsBase = {
         ...grab,
         ...planElementSelected,
         ...planElementFocus,
+        // A conflict not yet chosen: the warn ring round its own brand edge, which is its outline; over the bar it sits on
+        // still, as the other marks' rings are over theirs.
+        "&[data-conflict]": { boxShadow: `inset 0 0 0 1.5px {colors.brand.solid}, ${CONFLICT_RING}` },
     },
     // ── Chart rows — the marks, axis ticks + ref labels ──
     // A chart row's marks (#949): the svg fills the plot, and every mark's
@@ -383,6 +390,7 @@ export const elementsBase = {
         ...grab,
         ...planElementSelected,
         ...planElementFocus,
+        ...planElementConflict,
     },
     // An exception's triangle draws no overlap ring: it is the warn mark
     // already, and a ring round a border-drawn triangle is its square box —
@@ -414,6 +422,7 @@ export const elementsBase = {
         ...grab,
         ...planElementSelected,
         ...planElementFocus,
+        ...planElementConflict,
     },
     // K7 icon swap — hosts choose the glyph, never the geometry: the icon
     // fits the canvas's square icon box (`--plan-mark-icon-w`), whatever its
@@ -448,6 +457,7 @@ export const elementsBase = {
         ...grab,
         ...planElementSelected,
         ...planElementFocus,
+        ...planElementConflict,
     },
     markLabel: {
         position: "absolute",

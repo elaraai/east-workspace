@@ -260,7 +260,7 @@ export interface ExecutionData {
     /** The events received so far for this execution (the cursor is their length). */
     events: DataflowEvent[];
     /** `startedAt` of the execution the events belong to. */
-    startedAt: string | null;
+    startedAt: Date | null;
     /** True between `/run` and the first poll that shows it running. */
     settling: boolean;
     /** True after a `/stop` until the poll shows the run stopped. */
@@ -518,7 +518,7 @@ export type Action =
     | { type: 'data/status'; ws: string; result: WorkspaceStatusResult; at: number }
     | { type: 'data/statusError'; ws: string; error: string }
     | { type: 'data/lock'; ws: string; lock: LockStatus | null }
-    | { type: 'data/execution'; ws: string; state: DataflowExecutionState | null; events: DataflowEvent[]; startedAt: string | null }
+    | { type: 'data/execution'; ws: string; state: DataflowExecutionState | null; events: DataflowEvent[]; startedAt: Date | null }
     | { type: 'data/executionFlag'; ws: string; settling?: boolean; stopping?: boolean }
     | { type: 'data/budget'; ws: string; budget: DataflowBudget | null }
     | { type: 'data/datasets'; ws: string; entries: ListEntry[] }

@@ -18,7 +18,7 @@ import {
 } from "@elaraai/east";
 import type { ScheduleKindType, ScheduleItemType, ScheduleDraftsType, ScheduleGestureType, ScheduleReadType } from "@elaraai/e3-ui/internal";
 import {
-    historyKeyOf, useEditHistory, useTrackedEvaluation,
+    EntryRefType, historyKeyOf, useEditHistory, useTrackedEvaluation,
     type EditHistory, type EditHistoryJoined, type EditHistoryPaged, type EditHistoryPart, type EditHistorySource, type EditSession,
     type EntryVersion, type Origin,
 } from "@elaraai/east-ui-components";
@@ -57,6 +57,26 @@ export function heldRowOf(held: ScheduleHeldRows | undefined, kind: string, id: 
     const row = rows.get(id);
     return some(row === undefined ? none : some(row.row));
 }
+/**
+ * Where an issue of a kind's session is, as a builder names it — its event's
+ * title, read with the drafts in place — or its key's text while the event is
+ * read, where its read fails, or for an event the drafts removed; empty for
+ * the source as a whole.
+ *
+ * @param editing - The shared editing
+ * @param kind - The kind's slot
+ * @param entry - The issue's entry: its event's key's text
+ * @returns The event's name
+ */
+export function scheduleIssueName(editing: Pick<ScheduleEditing, "read">, kind: string, entry: string): string {
+    if (entry === "") return "";
+    try {
+        return editing.read(kind, entry)?.item.title ?? entry;
+    } catch {
+        return entry;
+    }
+}
+
 /** One event entry's identity in the shared session. */
 export interface ScheduleEntryRef { readonly id: string }
 /** The time range the renderer reads. */
@@ -156,6 +176,14 @@ export interface ScheduleEditing<I extends Item = Item> {
      */
     available(kind: string): boolean;
     /**
+     * Whether an event — or a row of a record a builder writes — holds a
+     * conflict not yet chosen: what wears the warn ring on a canvas.
+     *
+     * @param kind - The kind's slot, or the record's key
+     * @param id - The event's key's text
+     */
+    conflicted(kind: string, id: string): boolean;
+    /**
      * An event's row as its kind's record held it when last read — what its
      * drafts are tinted against — or a row of a record a builder writes.
      *
@@ -234,6 +262,11 @@ export interface ScheduleEditingArgs<I extends Item = Item> {
      * by its key, never over the window. Read as each read runs, so new cells make no new kinds.
      */
     held?: ScheduleHeldRows | undefined;
+    /**
+     * What a conflict at a kind's quantity, or at its split across resources, is called — the builder's own word for
+     * a quantity: the two change together, so the conflicts popover shows them as one card under it.
+     */
+    quantityLabel?: string | undefined;
 }
 
 /** An event kind or a record, as the history holds its session. */
@@ -319,7 +352,7 @@ function sameDrafts(a: ScheduleEventDraftsValue, b: ScheduleEventDraftsValue): b
  * @param args - The kinds, the records beside them, when their drafts go, the canvas's storage key, the sessions that join, and the range the canvas reads
  * @returns The history, the kinds' and the records' sessions and drafts, how an event is read, and how a gesture is recorded
  */
-export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_RECORDS, reads, applyMode, storageKey, joined, range, recordSlices, held: cellRows }: ScheduleEditingArgs<I>): ScheduleEditing<I> {
+export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_RECORDS, reads, applyMode, storageKey, joined, range, recordSlices, held: cellRows, quantityLabel }: ScheduleEditingArgs<I>): ScheduleEditing<I> {
     // The history, as the kinds' checks read their originals through it.
     const historyRef = useRef<EditHistory<ScheduleEntryRef> | undefined>(undefined);
     // The latest rows the kinds' cells hold: the kinds' reads read them as they run, so new cells make no new kinds.
@@ -361,11 +394,19 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
         const check = kind.ready.type === "some" ? kind.ready.value : undefined;
         const key = historyKeyOf(storageKey, editing);
         const entryType = fromEastTypeValue(kind.editing.entryType) as EastType;
+        // An event's start and end read as one, its dates: a conflict at either is one card of the popover, settled with the
+        // fields that place it with them — a duty's shift and group, a bin's bay. So do a quantity and its split across
+        // resources, which change together.
+        const roles = kind.kind?.schedule;
+        const ranges = roles === undefined ? undefined
+            : [{ start: roles.start, end: roles.end, ...(roles.withTimes.length === 0 ? {} : { with: roles.withTimes }) }];
+        const together = roles !== undefined && roles.quantity.type === "some" && roles.parts.type === "some"
+            ? [{ lead: roles.quantity.value, with: [roles.parts.value], label: quantityLabel }] : undefined;
         const ready = check === undefined ? undefined : wholeEntryReadiness(check, () => historyRef.current?.session(key)?.originals, {
             encode: encodeBeast2For(entryType) as (value: unknown) => Uint8Array,
             equal: equalFor(entryType) as (a: unknown, b: unknown) => boolean,
         });
-        if (kind.entries.type !== "some") return { editing, ready, prepare };
+        if (kind.entries.type !== "some") return { editing, ready, prepare, wireType: EntryRefType, ranges, together };
         const seam = kind.entries.value;
         const decodeRow = codecs[i]!.decodeRow;
         const own = kind.read;
@@ -389,8 +430,8 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
                 return read.value.type === "some" ? some(some(decodeRow(read.value.value))) : some(none);
             },
         };
-        return { editing, ready, paged, prepare };
-    }), [parts, codecs, applyMode, storageKey, recordSlices]);
+        return { editing, ready, paged, prepare, wireType: EntryRefType, ranges, together };
+    }), [parts, codecs, applyMode, storageKey, recordSlices, quantityLabel]);
     const state = useEditHistory<ScheduleEntryRef>(sources, storageKey, joined);
     historyRef.current = state.history;
     const { history, keys, version } = state;
@@ -497,6 +538,10 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
         available(kind: string): boolean {
             const i = indexOf(kind);
             return i >= 0 && state.available(keys[i]!);
+        },
+        conflicted(kind: string, id: string): boolean {
+            const i = indexOf(kind);
+            return i >= 0 && history.session(keys[i]!)?.conflicts.has(id) === true;
         },
         held(kind: string, id: string): unknown {
             const i = indexOf(kind);
@@ -637,6 +682,7 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
     latest.current = api;
     const draftsOf = useCallback((kind: string) => latest.current.draftsOf(kind), []);
     const available = useCallback((kind: string) => latest.current.available(kind), []);
+    const conflicted = useCallback((kind: string, id: string) => latest.current.conflicted(kind, id), []);
     const held = useCallback((kind: string, id: string) => latest.current.held(kind, id), []);
     const read = useCallback((kind: string, id: string) => latest.current.read(kind, id), []);
     const mint = useCallback((kind: string, from: string, minted: ReadonlySet<string>) => latest.current.mint(kind, from, minted), []);
@@ -644,6 +690,6 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
 
     return useMemo(() => ({
         history, sessions, drafts: drafts.drafts, draftsVersion: drafts.version, version,
-        draftsOf, available, held, read, mint, record,
-    }), [history, sessions, drafts, version, draftsOf, available, held, read, mint, record]);
+        draftsOf, available, conflicted, held, read, mint, record,
+    }), [history, sessions, drafts, version, draftsOf, available, conflicted, held, read, mint, record]);
 }

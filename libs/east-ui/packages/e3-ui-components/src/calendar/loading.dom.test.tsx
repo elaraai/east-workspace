@@ -19,8 +19,8 @@ for (const mainWidth of [900, 390]) test(`Calendar waits for scheduled and backl
     // until the test lets it land.
     const rowsOf = (index: string) => (request: { kind: string; query: URLSearchParams }) =>
         (request.kind === "page" || request.kind === "runs") && request.query.get("index") === index;
-    const days = h.e3.hold(rowsOf(ex.calendarJobsByDay.name));
-    const backlog = h.e3.hold(rowsOf(ex.calendarJobsUnscheduled.name));
+    const days = h.e3.hold(rowsOf("calendar_jobs_by_day"));
+    const backlog = h.e3.hold(rowsOf("calendar_jobs_unscheduled"));
     const { container } = await h.mount(ex.calendarWindowed); await width(mainWidth);
     const frame = container.querySelector('[data-builder-frame]')!;
     const canvas = slot(container, "main").firstElementChild!.firstElementChild;
@@ -79,7 +79,7 @@ test("a step to a period not read yet draws that period's grid at once — never
     const cards = () => [...start.querySelectorAll("[data-library-item]")].map(card => card.getAttribute("data-library-item"));
     const before = { tab: backlogTab(), cards: cards() };
     expect(before.cards.length).toBeGreaterThan(0);
-    const backlogReads = () => h.requests().filter(request => jobRead(request) && request.query.get("index") === ex.calendarJobsUnscheduled.name).length;
+    const backlogReads = () => h.requests().filter(request => jobRead(request) && request.query.get("index") === "calendar_jobs_unscheduled").length;
     const backlog = backlogReads();
     const held = h.e3.hold(jobRead);
     // Past the day read ahead, to one not read: two days on.

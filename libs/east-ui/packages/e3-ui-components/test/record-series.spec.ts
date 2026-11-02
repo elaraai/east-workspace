@@ -23,7 +23,8 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 import {
-    RecordSliceWhereType, bindRecord, tileCellQueries, tileIndexFor, tilesOver, type RecordSliceEntry,
+    RecordSliceWhereType, bindRecord, levelCellQueries, levelRuns, summaryCellQueries, summaryRun, tileIndexFor, tileStart, tileNext,
+    type RecordSliceEntry, type RecordTile, type TileRun,
 } from "@elaraai/east-ui/internal";
 import { createRecordSliceImplementation, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
 import { recordSliceCellEntries, recordSliceCellRuns, recordSliceRows, recordSliceWithin } from "@elaraai/east-ui-components/internal";
@@ -41,7 +42,7 @@ type Job = ValueTypeOf<typeof ex.IndexedJob>;
 type Totals = ValueTypeOf<typeof RecordSummaryTotalsType>;
 type Where = ValueTypeOf<typeof RecordSliceWhereType>;
 const source = Data.bindPaged(jobs, {
-    indexes: [ex.jobsByTime, ex.jobsByStateTime, ex.jobsByPressWeek, ex.jobsByStatePressWeek, ex.jobsByPressMonth],
+    indexes: ["jobs_by_time", "jobs_by_state_time", "jobs_by_press_week", "jobs_by_state_press_week", "jobs_by_press_month"],
 });
 const sliced = bindRecord("test.jobs", source, { fields: { state: { hints: ["late", "planned", "running"] }, start: {} }, range: "start" });
 const program = East.function([], Expr.type(sliced), $ => $.return(sliced));
@@ -63,11 +64,15 @@ function at(text: string): Date {
     assert.ok(read.success, text);
     return read.value;
 }
-const WEEK = at("2026-10-05T00:00:00.000");
-const NEXT_WEEK = at("2026-10-12T00:00:00.000");
-const WEEK_AFTER = at("2026-10-19T00:00:00.000");
 const OCTOBER = at("2026-10-01T00:00:00.000");
 const NOVEMBER = at("2026-11-01T00:00:00.000");
+/** The range a block of the Plan's rows reads: Tuesday 6 October to the next. */
+const FROM = at("2026-10-06T00:00:00.000");
+const TO = at("2026-10-13T00:00:00.000");
+/** A day, in milliseconds. */
+const DAY_MS = 86_400_000;
+/** Each level's shortest tile, from the series' week up (#1433). */
+const SHORTEST: Readonly<Record<string, number>> = { week: 7 * DAY_MS, month: 28 * DAY_MS, quarter: 90 * DAY_MS, year: 365 * DAY_MS };
 /** The presses a block of the Plan's rows holds, as the series' key field prints them. */
 const PRESSES = ["P-1", "P-2", "P-3"].map(press => printPress(some(press)));
 
@@ -91,9 +96,28 @@ function shareOf(job: Job, tile: Date, next: Date): bigint | undefined {
     return BigInt(hi.getTime() - lo.getTime());
 }
 
-/** The jobs on the given presses a tile files, by key, in key order — the oracle's cell. */
-function oracleCell(stored: ReadonlyMap<string, Job>, presses: readonly string[], tile: Date, next: Date): string[] {
-    return [...stored].filter(([, job]) => presses.some(press => textEqual(press, printPress(job.press))) && shareOf(job, tile, next) !== undefined)
+/**
+ * Where the week series files a job, written from its definition (#1433):
+ * once, at the first level from the week whose shortest tile holds its
+ * length, under that level's tile holding its start; past a year, under each
+ * year it touches; a job with no start, nowhere.
+ */
+function filingsOf(job: Job): { level: RecordTile; tile: Date }[] {
+    if (job.start.type === "none") return [];
+    const from = job.start.value;
+    const to = job.end.type === "some" && instantOrder(job.end.value, from) > 0 ? job.end.value : from;
+    for (const level of ["week", "month", "quarter", "year"] as const) {
+        if (to.getTime() - from.getTime() <= SHORTEST[level]!) return [{ level, tile: tileStart(level, from) }];
+    }
+    const years: { level: RecordTile; tile: Date }[] = [];
+    for (let year = tileStart("year", from); instantOrder(year, to) < 0; year = tileNext("year", year)) years.push({ level: "year", tile: year });
+    return years;
+}
+
+/** The jobs on the given presses a run of a level files, by key, in key order — the oracle's cell. */
+function oracleCell(stored: ReadonlyMap<string, Job>, presses: readonly string[], run: TileRun): string[] {
+    return [...stored].filter(([, job]) => presses.some(press => textEqual(press, printPress(job.press)))
+        && filingsOf(job).some(filed => filed.level === run.level && instantOrder(filed.tile, run.from) >= 0 && instantOrder(filed.tile, run.to) < 0))
         .map(([key]) => key).sort(keyOrder);
 }
 
@@ -144,25 +168,25 @@ test("a record Slice reads its series and summary indexes back, and offers the r
     const index = (name: string) => handle.config.indexes.find(candidate => candidate.name === name)!;
     const filed = { key: "press", from: "start", to: "end" };
     assert.deepEqual([index("jobs_by_press_week").series, index("jobs_by_press_week").summary], [some({ ...filed, tile: variant("week", null) }), none]);
-    assert.deepEqual([index("jobs_by_state_press_week").fields, index("jobs_by_state_press_week").series.type], [["state", "__tile", "press"], "some"]);
+    // An index's fields are the row fields it is led by alone, its key's `on`; its kind's parts are its `series` (#1432).
+    assert.deepEqual([index("jobs_by_state_press_week").fields, index("jobs_by_state_press_week").series.type], [["state"], "some"]);
     assert.deepEqual([index("jobs_by_press_month").series, index("jobs_by_press_month").summary], [none, some({ ...filed, tile: variant("month", null) })]);
     assert.deepEqual([index("jobs_by_time").series, index("jobs_by_time").summary], [none, none]);
     runtime.clear();
 });
 
-test("a series index's cells hold exactly their presses' jobs touching their week, each with its row, counted in one request and read in one more", async () => {
+test("a series index's cells hold exactly their presses' jobs filed in their runs, a range a press a level, each with its row, counted in one request and read in one more", async () => {
     const stored = await h.read(jobs);
     const { runtime, handle } = bind();
     const where: Where = new Map();
     const index = tileIndexFor(handle.config.indexes, where, "series")!;
     assert.equal(index.name, "jobs_by_press_week");
-    // The read range — a Tuesday to the next — touches two weeks.
-    const weeks = tilesOver("week", at("2026-10-06T00:00:00.000"), at("2026-10-13T00:00:00.000"), 8)!;
-    assert.deepEqual(weeks, [WEEK, NEXT_WEEK]);
-    const cells = weeks.map(tile => ({ id: printInstant(tile), queries: tileCellQueries(index, where, tile, PRESSES).queries }));
-    const expected = [oracleCell(stored, PRESSES, WEEK, NEXT_WEEK), oracleCell(stored, PRESSES, NEXT_WEEK, WEEK_AFTER)];
-    assert.deepEqual(expected, [["across", "carry", "inside", "instant", "late", "month"], ["across", "month"]],
-        "carried in, across the week's end, the month long, inside it and an instant at its start — never the job on no press, nor the backlog");
+    // A Tuesday to the next: a run a level, from the week up.
+    const runs = levelRuns("week", FROM, TO);
+    const cells = runs.map(run => ({ id: run.level, queries: levelCellQueries(index, where, run, PRESSES).queries }));
+    const expected = runs.map(run => oracleCell(stored, PRESSES, run));
+    assert.deepEqual(expected, [["across", "carry", "inside", "instant", "late"], [], ["month"], []],
+        "the week's jobs, the one carried in among them, and the month long at the quarter — never the job on no press, nor the backlog");
     const R1 = await h.ready(() => handle.data.revision());
     const counted = await h.ready(() => recordSliceCellRuns(handle, index.name, cells));
     assert.deepEqual(cells.map(cell => counted.get(cell.id)!.total), expected.map(keys => BigInt(keys.length)), "each cell's count, exact");
@@ -176,9 +200,16 @@ test("a series index's cells hold exactly their presses' jobs touching their wee
             assert.ok(row?.type === "some" && isValueOf(row.value, ex.IndexedJob) && jobEqual(row.value as Job, stored.get(keyOf(entry))!), `${keyOf(entry)} carries its row`);
         }
     }
+    // Every job overlapping the range is among them: what a reader keeps by its key.
+    const overlapping = [...stored].filter(([, job]) => PRESSES.some(press => textEqual(press, printPress(job.press)))
+        && job.start.type === "some" && instantOrder(job.start.value, TO) < 0
+        && (job.end.type === "some" && instantOrder(job.end.value, job.start.value) > 0 ? job.end.value : new Date(job.start.value.getTime() + 1)).getTime() > FROM.getTime())
+        .map(([key]) => key).sort(keyOrder);
+    assert.deepEqual(overlapping, ["across", "inside", "late", "month"]);
+    assert.ok(overlapping.every(key => expected.some(keys => keys.includes(key))));
     // Two requests, pinned to the record's revision: every cell's searches in one, the runs they select in one, never joined.
     assert.deepEqual(requestsOf("find").map(request => [request.method, request.query.get("index"), request.query.get("hash")]), [["POST", index.name, R1]]);
-    assert.equal(requestsOf("find")[0]!.searches.length, 2 * PRESSES.length, "a search a press a week");
+    assert.equal(requestsOf("find")[0]!.searches.length, 4 * PRESSES.length, "a range a press a level");
     assert.deepEqual(requestsOf("runs").map(request => [request.method, request.query.get("index"), request.query.has("join"), request.query.get("hash")]),
         [["POST", index.name, false, R1]]);
     assert.equal(requestsOf("page").length + requestsOf("read").length, 0, "nothing paged, and the record never read whole");
@@ -189,12 +220,13 @@ test("a series index's cells hold exactly their presses' jobs touching their wee
     runtime.clear();
 });
 
-test("a summary index's cells are each press's totals in its month — how many jobs touch it and the milliseconds of it they cover — naming no job", async () => {
+test("a summary index's cells are each press's totals in its months over the run — how many jobs touch it and the milliseconds of it they cover — naming no job", async () => {
     const stored = await h.read(jobs);
     const { runtime, handle } = bind();
     const index = tileIndexFor(handle.config.indexes, new Map(), "summary", tile => tile === "month")!;
     assert.equal(index.name, "jobs_by_press_month");
-    const cell = { id: "october", queries: tileCellQueries(index, new Map(), OCTOBER, PRESSES).queries };
+    // October, and a month either side: a range a press, its totals split by month — every job here in October.
+    const cell = { id: "october", queries: summaryCellQueries(index, new Map(), summaryRun("month", OCTOBER, NOVEMBER), PRESSES).queries };
     const counted = await h.ready(() => recordSliceCellRuns(handle, index.name, [cell]));
     assert.equal(counted.get("october")!.total, 3n, "a total a press");
     const entries = (await h.ready(() => recordSliceCellEntries(handle, index.name, [cell]))).get("october")!;
@@ -223,15 +255,18 @@ test("a narrowing the series index is led by reads its cells exactly; one it is 
     const late: Where = new Map([["state", variant("values", [printString("late")])]]);
     const led = tileIndexFor(handle.config.indexes, late, "series")!;
     assert.equal(led.name, "jobs_by_state_press_week");
-    const plan = tileCellQueries(led, late, WEEK, PRESSES);
+    const week = levelRuns("week", FROM, TO)[0]!;
+    const plan = levelCellQueries(led, late, week, PRESSES);
+    assert.deepEqual(plan.queries.map(query => query.type === "range" ? query.value.from[0] : ""), PRESSES.map(() => printString("late")),
+        "each range leads with the state it is led by, the key flattened (#1432)");
     assert.deepEqual(plan.residual, []);
     const exact = (await h.ready(() => recordSliceCellEntries(handle, led.name, [{ id: "late", queries: plan.queries }]))).get("late")!;
     assert.deepEqual(keysOf(exact), ["instant", "late"]);
     // Through the series it is not led by, the cell holds every state's jobs, and the narrowing is asked of them.
-    const unled = tileCellQueries(handle.config.indexes.find(index => index.name === "jobs_by_press_week")!, late, WEEK, PRESSES);
+    const unled = levelCellQueries(handle.config.indexes.find(index => index.name === "jobs_by_press_week")!, late, week, PRESSES);
     assert.deepEqual(unled.residual, ["state"]);
     const every = (await h.ready(() => recordSliceCellEntries(handle, "jobs_by_press_week", [{ id: "every", queries: unled.queries }]))).get("every")!;
-    assert.deepEqual(keysOf(every), oracleCell(stored, PRESSES, WEEK, NEXT_WEEK));
+    assert.deepEqual(keysOf(every), oracleCell(stored, PRESSES, week));
     const rows = every.map(entry => ({ key: keyOf(entry), row: entry.row?.type === "some" ? entry.row.value : undefined }));
     const held = await h.ready(() => recordSliceWithin(handle, late, rows));
     assert.deepEqual(rows.filter((_, i) => held[i]).map(row => row.key).sort(keyOrder), ["instant", "late"]);
@@ -265,9 +300,10 @@ test("another session's write moves the cells and the totals it touches, read ag
     const { runtime, clock, handle } = bind();
     const series = tileIndexFor(handle.config.indexes, new Map(), "series")!;
     const summary = tileIndexFor(handle.config.indexes, new Map(), "summary")!;
-    // A cell a press, so each press's jobs are their own.
-    const weekCells = PRESSES.map(press => ({ id: press, queries: tileCellQueries(series, new Map(), WEEK, [press]).queries }));
-    const monthCell = { id: "october", queries: tileCellQueries(summary, new Map(), OCTOBER, PRESSES).queries };
+    // A cell a press, its run of each level, so each press's jobs are their own.
+    const runs = levelRuns("week", FROM, TO);
+    const weekCells = PRESSES.map(press => ({ id: press, queries: runs.flatMap(run => levelCellQueries(series, new Map(), run, [press]).queries) }));
+    const monthCell = { id: "october", queries: summaryCellQueries(summary, new Map(), summaryRun("month", OCTOBER, NOVEMBER), PRESSES).queries };
     const read = async () => {
         const cells = await h.ready(() => recordSliceCellEntries(handle, series.name, weekCells));
         const totals = (await h.ready(() => recordSliceCellEntries(handle, summary.name, [monthCell]))).get("october")!;
@@ -275,10 +311,10 @@ test("another session's write moves the cells and the totals it touches, read ag
     };
     const before = await read();
     assert.deepEqual(before.cells, [["across", "carry"], ["inside", "month"], ["instant", "late"]]);
-    // Another session moves the day's job from P-2 to P-3, and moves the late job to the week before.
+    // Another session moves the day's job from P-2 to P-3, and moves the late job to August, out of the runs read.
     const next = await readDataset(h.e3, h.workspace, jobs);
     next.set("inside", { ...next.get("inside")!, press: some("P-3") });
-    next.set("late", { ...next.get("late")!, start: some(at("2026-09-30T09:00:00.000")), end: some(at("2026-09-30T12:00:00.000")) });
+    next.set("late", { ...next.get("late")!, start: some(at("2026-08-14T09:00:00.000")), end: some(at("2026-08-14T12:00:00.000")) });
     await patchRecord(h.e3, h.workspace, jobs, next);
     clock.tickAll();
     await h.settle();

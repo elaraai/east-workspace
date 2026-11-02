@@ -101,7 +101,7 @@ import {
 import { createPagingDriver, type PlanPagingSnapshot, type PlanRowPlace } from "./paging.js";
 import { CANVAS_KEY_TYPE, createSeekDriver, firstAtOrAfter, type PlanSeekSnapshot } from "./seek.js";
 import { currentScale, runPlanEffects } from "./effects.js";
-import { planPart, planSlices, ROWS_SOURCE } from "../root/sources.js";
+import { planPart, planSlices, planWindowParts, ROWS_SOURCE } from "../root/sources.js";
 import type { PlanWindowHold } from "../root/window.js";
 import { announcementOf } from "../a11y.js";
 import { PLAN_WORDS, type PlanWords } from "../words.js";
@@ -271,6 +271,14 @@ export interface PlanController {
      * the events are selected and nothing scrolls.
      */
     selectEvents(keys: readonly string[], row: RowKey | null): void;
+    /**
+     * Open a row's folded ancestors — and the group grain, where it folds the
+     * top group the row sits under — as the user would to see it: a
+     * conflict's Go to does, before it selects the row and shows it.
+     *
+     * @param key - The row
+     */
+    revealRow(key: RowKey): void;
     /** An element click — reported to the root's `onElementClick` (#824). */
     elementClick(ref: PlanElementRefValue): void;
     /** An element's popover / hover card wants to open or close. Opening runs
@@ -320,6 +328,15 @@ export interface PlanController {
      * needs none).
      */
     focusItem(key: string, align?: PlanNavAlign): void;
+    /**
+     * Scroll an item into view, the focus left where it is: for a cell of the
+     * item to take the focus as it draws, as a conflict's Go to focuses a
+     * table row's cell.
+     *
+     * @param key - The item's key
+     * @param align - Where the view puts it
+     */
+    showItem(key: string, align: PlanNavAlign): void;
     /** DOM focus landed in an item (a click, a Tab) — it holds the tab stop. */
     itemFocused(key: string): void;
     /** The item a focus request named has taken focus. */
@@ -736,10 +753,16 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
      *  and nothing is written that storage already holds. Bound or not: the window is the reader's place, as the
      *  scroll anchor is, never a toggle the host holds. */
     function persistWindow(): void {
-        const shown = options.windowHold?.last;
+        const hold = options.windowHold;
+        const shown = hold?.last;
         const kind = value?.axis.type;
-        if (shown === undefined || (kind !== "time" && kind !== "number")) return;
-        const next: PlanOwnWindow = { kind, min: shown[0], max: shown[1] };
+        if (hold === undefined || shown === undefined || (kind !== "time" && kind !== "number")) return;
+        // A source holding the window keeps it, and its zoom, in its own state.
+        if (planWindowParts(planSlices(value!), kind, hold.rows).length > 0) return;
+        // A time axis's zoom is kept with the window it shows (#1438), and is the one the hold falls back to.
+        const resolution = kind === "time" && value !== undefined ? currentScale(value, hold)?.resolution : undefined;
+        hold.resolution = resolution;
+        const next: PlanOwnWindow = { kind, min: shown[0], max: shown[1], ...(resolution !== undefined && { resolution }) };
         if (sameOwnWindow(persisted.window, next)) return;
         persisted = { ...persisted, window: next };
         options.persist?.(persisted);
@@ -1085,6 +1108,8 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 if (e.t === "resolution.set" && value !== undefined) {
                     const after = currentScale(value, options.windowHold)?.resolution;
                     if (after !== undefined && after !== resolutionBefore) say(words.m.announceResolution({ resolution: after }));
+                    // A zoom that left the canvas's own window where it was is kept with it all the same (#1438).
+                    persistWindow();
                 }
             });
         },
@@ -1124,12 +1149,28 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 say(announcementOf(e, before, store.ui, labelOf, words));
             });
         },
+        revealRow(key) {
+            batch(() => {
+                const current = rows();
+                const row = current.find((r) => r.key === key);
+                if (row === undefined) return;
+                reveal(row, new Map(current.map((r) => [r.key, r])));
+                persistToggles();
+                syncHeights();
+            });
+        },
         focusItem(key, align) {
             batch(() => {
                 focusMoved(key);
                 navSeq += 1;
                 nav = { active: key, request: { key, seq: navSeq } };
                 if (align !== undefined) scroll = { ...scroll, owner: "nav", nav: { key, align, seq: navSeq } };
+            });
+        },
+        showItem(key, align) {
+            batch(() => {
+                navSeq += 1;
+                scroll = { ...scroll, owner: "nav", nav: { key, align, seq: navSeq } };
             });
         },
         itemFocused(key) {

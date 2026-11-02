@@ -25,7 +25,7 @@ import type { TuiState } from '../state/actions.js';
 /** A workspace lock's holder, as the status / the locked error report it. */
 export interface LockHolder {
     pid: bigint;
-    acquiredAt: string;
+    acquiredAt: Date;
     command: { type: 'some'; value: string } | { type: 'none'; value: null };
 }
 

@@ -427,6 +427,21 @@ describe("lazy inputs — builtin corpus sweep (#510)", () => {
       inputs: [nums, intSet, table],
     },
     {
+      // toTree's inverse: each node's children are the integers below its
+      // own modulo three, so no walk goes deeper than three levels; the
+      // roots are the input's elements, in the order a lazy input serves
+      // them.
+      label: "corpus.flattenTree",
+      fn: East.function([Arr, Table], ArrayType(StringType), ($, a, d) => {
+        const out = $.let([], ArrayType(StringType));
+        $(out.pushLast(East.print(a.flattenTree((_$, x, _i) => East.Array.range(0n, x.remainder(3n))))));
+        $(out.pushLast(East.print(d.flattenTree((_$, _v, k) => East.Array.range(0n, k.remainder(3n))
+          .toDict((_$, y, _i) => y, (_$, y, _i) => East.str`${k}:${y}`)))));
+        return out;
+      }),
+      inputs: [nums, table],
+    },
+    {
       label: "corpus.clears",
       fn: East.function([Arr, Tags, Table], NullType, ($, a, s, d) => {
         $(a.clear());

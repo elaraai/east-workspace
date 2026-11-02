@@ -44,10 +44,10 @@ export function repositoryTests(setup: TestSetup<TestContext>): void {
 
       const status = await repoStatus(ctx.config.baseUrl, ctx.repoName, opts);
 
-      assert.ok(typeof status.path === 'string' && status.path.length > 0, 'path should be a non-empty string');
-      assert.ok(typeof status.objectCount === 'bigint');
-      assert.ok(typeof status.packageCount === 'bigint');
-      assert.ok(typeof status.workspaceCount === 'bigint');
+      assert.ok(status.path.length > 0, 'path should be a non-empty string');
+      assert.ok(status.objectCount >= 0n);
+      assert.ok(status.packageCount >= 0n);
+      assert.ok(status.workspaceCount >= 0n);
     });
 
     it('repoRecord names, for a created repository, the release of e3 that created it', async (t) => {
@@ -103,9 +103,9 @@ export function repositoryTests(setup: TestSetup<TestContext>): void {
       );
 
       // Should return valid stats (objects may be skipped due to default minAge)
-      assert.ok(typeof result.deletedObjects === 'bigint');
-      assert.ok(typeof result.retainedObjects === 'bigint');
-      assert.ok(typeof result.skippedYoung === 'bigint', 'skippedYoung should be reported');
+      assert.ok(result.deletedObjects >= 0n);
+      assert.ok(result.retainedObjects >= 0n);
+      assert.ok(result.skippedYoung >= 0n, 'skippedYoung should be reported');
     });
 
     it('repoGc retains execution outputs after dataflow', async (t) => {
@@ -220,7 +220,7 @@ export function repositoryTests(setup: TestSetup<TestContext>): void {
 
         // Verify it exists by getting status
         const status = await repoStatus(ctx.config.baseUrl, newRepoName, opts);
-        assert.ok(typeof status.path === 'string' && status.path.length > 0, 'new repo should have a valid path');
+        assert.ok(status.path.length > 0, 'new repo should have a valid path');
       } finally {
         // Clean up
         try {
@@ -241,7 +241,7 @@ export function repositoryTests(setup: TestSetup<TestContext>): void {
 
       // Verify it exists
       const status = await repoStatus(ctx.config.baseUrl, tempRepoName, opts);
-      assert.ok(typeof status.path === 'string' && status.path.length > 0);
+      assert.ok(status.path.length > 0);
 
       // Remove it: a server whose removal outlasts the request answers 202,
       // and the client follows the removal until it is done

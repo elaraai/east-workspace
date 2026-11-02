@@ -49,7 +49,7 @@ beforeAll(() => {
 });
 
 /** The flows' indexes, as the rail's `flows` source lists them. */
-const FLOW_INDEXES = [ex.flowsByName, ex.flowsByDescription, ex.flowsByDescriptionName, ex.flowsByStateCount, ex.flowsByDescriptionStateCount, ex.flowsByLane, ex.flowsByDecisionOwner];
+const FLOW_INDEXES = ["name", "flowchart_by_description", "flowchart_by_description_name", "stateCount", "flowchart_by_description_state_count", "lane", "decisionOwner"] as const;
 /** The route flows' record, as its dataset's requests name it: paged through its indexes, never read whole. */
 const FLOWS_DATASET = `records.${ex.indexedFlows.name}`;
 /** The step types' record, as its dataset's requests name it. */
@@ -89,10 +89,10 @@ const flowsSource = () => ({
 /** The rail's sources: the flows, and each templates record and the roles. */
 const sources = () => ({
     flows: flowsSource(),
-    steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: [ex.stepsByKind] }), label: "Steps",
+    steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: ["flowchart_steps_by_kind"] }), label: "Steps",
         fields: { kind: { label: "Step kind", hints: ["Intake", "Sort", "Hold", "Load"] } } },
-    moves: { source: Data.bindPaged(ex.moveTemplates, { indexes: [ex.movesByKind] }), label: "Transitions", fields: { kind: { label: "Transition kind" } } },
-    owners: { source: Data.bindPaged(ex.decisionOwners, { indexes: [ex.ownersByDesk] }), label: "Owners",
+    moves: { source: Data.bindPaged(ex.moveTemplates, { indexes: ["flowchart_moves_by_kind"] }), label: "Transitions", fields: { kind: { label: "Transition kind" } } },
+    owners: { source: Data.bindPaged(ex.decisionOwners, { indexes: ["flowchart_owners_by_desk"] }), label: "Owners",
         fields: { desk: { label: "Desk", hints: ["Sort hall", "Hold bay"] } } },
 });
 
@@ -104,7 +104,7 @@ const sources = () => ({
  * (#1354).
  */
 const flowchart = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const flows = $.let(Record.bind(ex.indexedFlows, [ex.indexedFlowsPatch]));
+    const flows = $.let(Record.bind(ex.indexedFlows, ["patch"]));
     const steps = $.let(Data.bind(ex.stepTemplates));
     const moves = $.let(Data.bind(ex.moveTemplates));
     const owners = $.let(Data.bind(ex.decisionOwners));

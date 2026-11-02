@@ -39,7 +39,7 @@ import type { PlanMovable } from "../edit/store.js";
 import type { DerivedBand, PlanRowId } from "../model.js";
 import { usePlanElementSelect } from "./element-select.js";
 import { usePlanElementOverlap } from "./element-overlap.js";
-import { usePlanElementDrafted } from "./element-draft.js";
+import { usePlanElementConflicted, usePlanElementDrafted } from "./element-draft.js";
 import { usePlanElementOp } from "./element-optimise.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -73,18 +73,14 @@ export interface SpanRowProps {
     /** Renderer-derived rollup bands (the IR carries only the declaration). */
     bands: readonly DerivedBand[];
     styles: Styles;
-    /** Whether its bars are a collapsed parent's, at the geometry's rollup
-     *  bar height rather than its bar's (`KindPlot` decides; the recipe
-     *  draws both). */
-    rolled: boolean;
     /** How its runs move (#825) — `undefined` when they do not. */
     move?: PlanRowMove | undefined;
 }
 
 /** One run bar — a button that moves, with its end handles, where its row takes moves (#825). */
-function RunBar({ run, left, width, runoff, rowKey, rowId, styles, rolled, ctx, move }: {
+function RunBar({ run, left, width, runoff, rowKey, rowId, styles, ctx, move }: {
     run: RunValue; left: number; width: number; runoff: boolean;
-    rowKey: string; rowId: PlanRowId; styles: Styles; rolled: boolean; ctx: boolean | undefined;
+    rowKey: string; rowId: PlanRowId; styles: Styles; ctx: boolean | undefined;
     move: PlanRowMove | undefined;
 }) {
     const scale = usePlanScale();
@@ -106,6 +102,7 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, rolled, ctx, 
     const overlap = usePlanElementOverlap(run.key);
     // An event its drafts changed wears the brand tint in a brand border (#1196).
     const drafted = usePlanElementDrafted(run.key);
+    const conflict = usePlanElementConflicted(run.key);
     // What a run of the optimiser did to its event (#1409, R17), while it is still the run's draft: the bar keeps
     // its own fill and takes the ring and glow, and says so on hover.
     const op = usePlanElementOp(run.key);
@@ -118,13 +115,11 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, rolled, ctx, 
             data-stuck={stuck ? "" : undefined}
             data-overlap={overlap ? "" : undefined}
             data-draft={drafted ? "" : undefined}
+            data-conflict={conflict ? "" : undefined}
             data-op={optimised?.op}
             data-fill={optimised !== undefined ? "own" : undefined}
             title={optimised?.provenance}
             data-runoff={runoff ? "" : undefined}
-            // A collapsed parent's bars are the geometry's rollup height —
-            // the recipe's, as every bar height is (#817, #1258).
-            data-rolled={rolled ? "" : undefined}
             data-run={run.key}
             data-plan-frac={left.toFixed(4)}
             // Focusable: Enter opens its popover (#816), and the
@@ -132,8 +127,7 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, rolled, ctx, 
             tabIndex={-1}
             role="button"
             aria-label={runName(run, scale, words)}
-            left={`${left * 100}%`}
-            width={`${width * 100}%`}
+            style={{ left: `${left * 100}%`, width: `${width * 100}%` }}
             {...handle}
             // Carried by the keyboard (#825) — dimmed as a dragged origin is.
             data-dragging={carried ? "" : undefined}
@@ -158,7 +152,7 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, rolled, ctx, 
 }
 
 /** The span-row plot content — bars, rollup bands, diamonds, ports. */
-export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, rolled, ctx, move }: SpanRowProps) {
+export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, ctx, move }: SpanRowProps) {
     const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -189,7 +183,7 @@ export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, rolled,
         <>
             {bars.map(({ run, left, width, runoff }) => (
                 <RunBar key={run.key} run={run} left={left} width={width} runoff={runoff}
-                    rowKey={rowKey} rowId={rowId} styles={styles} rolled={rolled} ctx={ctx} move={move} />
+                    rowKey={rowKey} rowId={rowId} styles={styles} ctx={ctx} move={move} />
             ))}
             {rollBands.map((band, i) => {
                 const f0 = scale.fracOf(band.from);
@@ -205,7 +199,7 @@ export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, rolled,
                 });
                 return (
                     <Box key={`band-${i}`} css={styles.rollBand} data-state={runStateKey(band.state)} data-ctx={ctxAttr}
-                        data-plan-band="" left={`${left * 100}%`} width={`${width * 100}%`}>
+                        data-plan-band="" style={{ left: `${left * 100}%`, width: `${width * 100}%` }}>
                         {/* Ellipsized, or hidden below a letter and the ellipsis, its hover saying it (#1264). */}
                         <Box as="span" css={styles.rollBandLabel} data-plan-label="">{caption}</Box>
                     </Box>
@@ -217,11 +211,11 @@ export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, rolled,
                 // ports sit clipped at rest and slide in on a brush pan.
                 if (x <= scale.renderMin || x >= scale.renderMax) return null;
                 const label = port.label.type === "some" ? port.label.value : undefined;
-                if (label === undefined) return <Box key={`port-${i}`} css={styles.port} left={`${x * 100}%`} />;
+                if (label === undefined) return <Box key={`port-${i}`} css={styles.port} style={{ left: `${x * 100}%` }} />;
                 // The label is the port's accessible name, and the canvas's
                 // one tooltip shows it on hover (#816) — the design-system
                 // tooltip, never the native `title=` (#617).
-                return <Box key={`port-${i}`} css={styles.port} left={`${x * 100}%`} data-port={i}
+                return <Box key={`port-${i}`} css={styles.port} style={{ left: `${x * 100}%` }} data-port={i}
                     role="img" aria-label={label} />;
             })}
             {kind.decisions.map((dec) => {
@@ -230,7 +224,7 @@ export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, rolled,
                 const ref = variant("mark", { row: rowId, mark: dec.key }) as PlanElementRefValue;
                 return (
                     <Box key={dec.key} css={styles.diamond} data-applied={dec.applied ? "" : undefined} data-ctx={ctxAttr}
-                        data-mark={dec.key} data-plan-frac={x.toFixed(4)} left={`${x * 100}%`} tabIndex={-1}
+                        data-mark={dec.key} data-plan-frac={x.toFixed(4)} style={{ left: `${x * 100}%` }} tabIndex={-1}
                         role="button" aria-label={decisionName(dec, scale, words)}
                         // Selects its row like every other element — Enter on
                         // it does the same (#819).

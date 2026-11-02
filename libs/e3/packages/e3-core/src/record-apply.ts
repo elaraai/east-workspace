@@ -38,6 +38,7 @@ import {
   compareFor,
   decodeBeast2For,
   fromEastTypeValue,
+  isVariant,
   printFor,
   segmentKeyTypeOf,
   variant,
@@ -200,11 +201,13 @@ async function* deltaEntries(
   deltaHash: string,
 ): AsyncGenerator<DeltaEntry> {
   const delta = await DatasetSegments.open(storage, repo, deltaHash);
-  const decode = decodeBeast2For(delta.typeValue) as (bytes: Uint8Array) => SortedMap<unknown, unknown>;
+  const decode = decodeBeast2For(delta.typeValue);
   for (let i = 0; i < delta.segmentCount; i++) {
-    for (const [key, op] of decode(await delta.segment(i))) {
-      const { type: target, value } = key as { type: string; value: unknown };
-      yield { target, key: value, op: (op as { value: unknown }).value };
+    const entries: SortedMap<unknown, unknown> = decode(await delta.segment(i));
+    for (const [key, op] of entries) {
+      // Each entry is a target's: its key and its op are variants of the target's name.
+      if (!isVariant(key) || !isVariant(op)) throw new Error(`delta ${deltaHash} holds an entry that is no target's`);
+      yield { target: key.type, key: key.value, op: op.value };
     }
   }
 }

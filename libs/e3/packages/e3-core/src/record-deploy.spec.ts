@@ -18,15 +18,13 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
   ArrayType, DictType, East, EastTypeType, IntegerType, OptionType, RecursiveType, SetType, SortedMap, StringType, StructType,
   canonicalTypeValue, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isTypeValueEqual, none, some, toEastTypeValue, variant,
   type ValueTypeOf,
 } from '@elaraai/east';
-import e3, { type PackageDef } from '@elaraai/e3';
+import e3, { type IndexBuilder, type MigrationBuilder, type MigrationDraft, type MutationBuilder, type PackageDef } from '@elaraai/e3';
 import {
   PackageObjectType, RecordMigrationAppliedType, decodePackageObject, type DeployProgress, type RecordIndexPlan,
   type RecordMigrationApplied, type RecordPlan, type Structure, type TreePath,
@@ -74,71 +72,80 @@ async function withEnv<T>(vars: Record<string, string>, fn: () => Promise<T>): P
 
 /** v1: rows of a title, and `seed(n)`, which writes rows p-0 … p-(n-1). */
 function v1(version = '1.0.0'): PackageDef<Record<string, unknown>> {
-  const plans = e3.record('plans', PlansV1Type, new Map());
-  const seed = e3.mutation.reduce('seed', plans, East.function([PlansV1Type, IntegerType], PlansV1Type, ($, _state, n) => {
-    const out = $.let(new Map(), PlansV1Type);
-    $.for(East.Array.range(0n, n), ($, i) => {
-      $(out.insert(East.str`p-${i}`, { title: East.str`Plan ${i}` }));
-    });
-    return out;
-  }));
-  return e3.package('planning', version, plans, seed);
+  const plans = e3.record('plans', PlansV1Type, {
+    initial: new Map(),
+    mutations: (mutation) => ({
+      seed: mutation.reduce(East.function([PlansV1Type, IntegerType], PlansV1Type, ($, _state, n) => {
+        const out = $.let(new Map(), PlansV1Type);
+        $.for(East.Array.range(0n, n), ($, i) => {
+          $(out.insert(East.str`p-${i}`, { title: East.str`Plan ${i}` }));
+        });
+        return out;
+      })),
+    }),
+  });
+  return e3.package('planning', version, plans);
 }
 
 /** What a later version adds to a record at v2's type: `add(id)`, a row of
- *  that title, and an index by owner. */
-function v2Declarations(plans: ReturnType<typeof e3.record<'plans', typeof PlansV2Type>>) {
-  const add = e3.mutation.reduce('add', plans, East.function([PlansV2Type, StringType], PlansV2Type, ($, state, id) => {
-    const next = $.let(state.copy());
-    $(next.insert(id, { title: id, owner: 'someone' }));
-    return next;
-  }));
-  const byOwner = e3.recordIndex('by_owner', plans, {
-    key: East.function([StringType, RowV2Type], StringType, ($, _id, row) => row.owner),
-  });
-  return [add, byOwner] as const;
+ *  that title … */
+function v2Mutations(mutation: MutationBuilder<typeof PlansV2Type>) {
+  return {
+    add: mutation.reduce(East.function([PlansV2Type, StringType], PlansV2Type, ($, state, id) => {
+      const next = $.let(state.copy());
+      $(next.insert(id, { title: id, owner: 'someone' }));
+      return next;
+    })),
+  };
+}
+
+/** … and an index by owner. */
+function v2Indexes(index: IndexBuilder<typeof PlansV2Type>) {
+  return { by_owner: index.key(East.function([StringType, RowV2Type], StringType, ($, _id, row) => row.owner)) };
 }
 
 /** The step v2 adds: an owner on each row. */
-function addOwner(plans: ReturnType<typeof e3.record<'plans', typeof PlansV2Type>>) {
-  return e3.migration.rows('add_owner', plans,
-    East.function([StringType, RowV1Type], RowV2Type, ($, _id, row) => ({ title: row.title, owner: 'unassigned' })));
+function addOwner(migration: MigrationBuilder) {
+  return migration.rows('add_owner', East.function([StringType, RowV1Type], RowV2Type, ($, _id, row) => ({ title: row.title, owner: 'unassigned' })));
+}
+
+/** The record at v2's type, its chain v2's step and then `after`, beside v2's mutation and index. */
+function plansV2(after: (migration: MigrationBuilder) => readonly MigrationDraft[] = () => [], initial = true) {
+  return e3.record('plans', PlansV2Type, {
+    ...(initial && { initial: new Map() }),
+    indexes: v2Indexes,
+    mutations: v2Mutations,
+    migrations: (migration) => [addOwner(migration), ...after(migration)],
+  });
 }
 
 /** v2: an owner on each row, by a `rows` step, and an index by owner. */
 function v2(version = '2.0.0'): PackageDef<Record<string, unknown>> {
-  const plans = e3.record('plans', PlansV2Type, new Map());
-  return e3.package('planning', version, plans, addOwner(plans), ...v2Declarations(plans));
+  return e3.package('planning', version, plansV2());
 }
 
 /** v3: the rows keyed by their title, by a `rekey` step after v2's. */
 function v3(): PackageDef<Record<string, unknown>> {
-  const plans = e3.record('plans', PlansV2Type, new Map());
-  const byTitle = e3.migration.rekey('by_title', plans,
-    East.function([StringType, RowV2Type], StructType({ key: StringType, value: RowV2Type }),
-      ($, _id, row) => ({ key: row.title, value: row })),
-    { after: addOwner(plans) });
-  return e3.package('planning', '3.0.0', plans, byTitle, ...v2Declarations(plans));
+  return e3.package('planning', '3.0.0', plansV2((migration) => [
+    migration.rekey('by_title', East.function([StringType, RowV2Type], StructType({ key: StringType, value: RowV2Type }),
+      ($, _id, row) => ({ key: row.title, value: row }))),
+  ]));
 }
 
-/** A release of `trees`, a record and an input of a tree type, exported by a
- *  process of its own, as each release is built. Each process numbers the tree
- *  type by its own counter, so both releases' trees carry one id, though 2.0.0
+/** A release of `trees`: a record and an input of a tree type, which 2.0.0
  *  gives each node an owner. */
-const RELEASE = `
-const [eastUrl, e3Url, version, zip] = process.argv.slice(2);
-const { ArrayType, RecursiveType, StringType, StructType, variant } = await import(eastUrl);
-const { default: e3 } = await import(e3Url);
-const owned = version === '2.0.0';
-const Tree = RecursiveType((self) => StructType(owned
-  ? { title: StringType, owner: StringType, kids: ArrayType(self) }
-  : { title: StringType, kids: ArrayType(self) }));
-const root = owned ? { title: 'root', owner: '', kids: [] } : { title: 'root', kids: [] };
-await e3.export(e3.package('trees', version, e3.record('tree', Tree, root), e3.input('pinned', Tree, variant('value', root))), zip);
-`;
+function trees(version: '1.0.0' | '2.0.0'): PackageDef<Record<string, unknown>> {
+  const owned = version === '2.0.0';
+  const Tree = RecursiveType((self) => StructType(owned
+    ? { title: StringType, owner: StringType, kids: ArrayType(self) }
+    : { title: StringType, kids: ArrayType(self) }));
+  const root = owned ? { title: 'root', owner: '', kids: [] } : { title: 'root', kids: [] };
+  return e3.package('trees', version, e3.record('tree', Tree, { initial: root }), e3.input('pinned', Tree, variant('value', root)));
+}
 
-/** A package object with each dataset's type renumbered from 0, as a build
- *  that numbers its recursive types as a header numbers them would export it. */
+/** A package object with each dataset's type renumbered from 0, as a writer
+ *  that numbers its recursive types itself exports it: a build that numbers
+ *  them as a header does, or an earlier release, which counted them. */
 function renumbered(bytes: Uint8Array): Uint8Array {
   const pkg = decodePackageObject(bytes);
   const renumber = (structure: Structure): Structure => structure.type === 'value'
@@ -258,11 +265,8 @@ describe('a deploy\'s record migrations', () => {
     // and exported from the same lines: an export's IR carries the source
     // locations it was built from, so the record's declarations are the same
     // objects in both.
-    const [first, second] = ['2.0.0', '2.1.0'].map((version) => {
-      const plans = e3.record('plans', PlansV2Type, new Map());
-      return e3.package('planning', version, plans, addOwner(plans), ...v2Declarations(plans),
-        e3.input('note', StringType, variant('value', version)));
-    });
+    const [first, second] = ['2.0.0', '2.1.0'].map((version) =>
+      e3.package('planning', version, plansV2(), e3.input('note', StringType, variant('value', version))));
     const plans: RecordPlan[] = [];
     let before: string[] = [];
     for (const pkg of [first!, second!]) {
@@ -286,7 +290,7 @@ describe('a deploy\'s record migrations', () => {
     await seeded(10n);
     const before = await ref();
     const unmigrated = (() => {
-      const plans = e3.record('plans', PlansV2Type, new Map());
+      const plans = e3.record('plans', PlansV2Type, { initial: new Map() });
       return e3.package('planning', '2.0.1', plans);
     })();
     await assert.rejects(deploy(unmigrated), (err: unknown) => {
@@ -304,9 +308,13 @@ describe('a deploy\'s record migrations', () => {
   it('refuses a chain the workspace is not on, and one that does not start where it is', async () => {
     await deploy(v2());
     const renamed = (() => {
-      const plans = e3.record('plans', PlansV2Type, new Map());
-      return e3.package('planning', '2.0.2', plans, e3.migration.rows('owned', plans,
-        East.function([StringType, RowV1Type], RowV2Type, ($, _id, row) => ({ title: row.title, owner: '' }))));
+      const plans = e3.record('plans', PlansV2Type, {
+        initial: new Map(),
+        migrations: (migration) => [
+          migration.rows('owned', East.function([StringType, RowV1Type], RowV2Type, ($, _id, row) => ({ title: row.title, owner: '' }))),
+        ],
+      });
+      return e3.package('planning', '2.0.2', plans);
     })();
     await assert.rejects(deploy(renamed),
       /record 'records\/plans' has had migrations 'add_owner' applied, and the package declares 'owned': an applied migration was renamed, reordered or removed, or the package is older than the workspace/);
@@ -317,9 +325,13 @@ describe('a deploy\'s record migrations', () => {
     await workspaceCreate(storage, repo, other);
     await deploy(v1(), {}, other);
     const elsewhere = (() => {
-      const plans = e3.record('plans', PlansV2Type, new Map());
-      return e3.package('planning', '2.0.3', plans, e3.migration.value('from_owners', plans,
-        East.function([DictType(StringType, StringType)], PlansV2Type, ($, _old) => new Map())));
+      const plans = e3.record('plans', PlansV2Type, {
+        initial: new Map(),
+        migrations: (migration) => [
+          migration.value('from_owners', East.function([DictType(StringType, StringType)], PlansV2Type, ($, _old) => new Map())),
+        ],
+      });
+      return e3.package('planning', '2.0.3', plans);
     })();
     await assert.rejects(deploy(elsewhere, {}, other),
       /record 'records\/plans' holds its state as .*, and its next migration, 'from_owners', takes it as /);
@@ -334,7 +346,7 @@ describe('a deploy\'s record migrations', () => {
     const outcome = await recordMutate(storage, runner, repo, ws, 'plans', 'seed', [encodeInt(3n)], { actor: 'cli:test', idempotencyKey: 'k1' });
     assert.equal(outcome.kind, 'committed');
     const unmigrated = (() => {
-      const plans = e3.record('plans', PlansV2Type, new Map());
+      const plans = e3.record('plans', PlansV2Type, { initial: new Map() });
       return e3.package('planning', '2.0.1', plans);
     })();
     const plans: RecordPlan[] = [];
@@ -391,8 +403,10 @@ describe('a deploy\'s record migrations', () => {
     ];
     let executions = 0;
     for (const [i, check] of checks.entries()) {
-      const plans = e3.record('plans', PlansV2Type, new Map());
-      const pkg = e3.package('planning', `2.0.${i}`, plans, e3.migration.rows('check', plans, check, { after: addOwner(plans) }));
+      const pkg = e3.package('planning', `2.0.${i}`, e3.record('plans', PlansV2Type, {
+        initial: new Map(),
+        migrations: (migration) => [addOwner(migration), migration.rows('check', check)],
+      }));
       const failure = await deploy(pkg).then(() => undefined, (err: unknown) => err);
       if (i === 0) {
         assert.match(String(failure), /migrating record 'records\/plans' failed at 'check'.*p-7 cannot be carried/s);
@@ -409,19 +423,19 @@ describe('a deploy\'s record migrations', () => {
 
   it('writes by rows and by key, a piece at a time, what a whole-value step writes', async () => {
     // Pieces small enough to cut 8,000 rows into several.
-    const whole = (() => {
-      const plans = e3.record('plans', PlansV2Type, new Map());
-      const own = e3.migration.value('add_owner', plans,
-        East.function([PlansV1Type], PlansV2Type, ($, old) => old.map(($, row) => ({ title: row.title, owner: 'unassigned' }))));
-      const byTitle = e3.migration.value('by_title', plans, East.function([PlansV2Type], PlansV2Type, ($, old) => {
-        const out = $.let(new Map(), PlansV2Type);
-        $.for(old, ($, row) => {
-          $(out.insert(row.title, row));
-        });
-        return out;
-      }), { after: own });
-      return e3.package('whole', '3.0.0', plans, byTitle);
-    })();
+    const whole = e3.package('whole', '3.0.0', e3.record('plans', PlansV2Type, {
+      initial: new Map(),
+      migrations: (migration) => [
+        migration.value('add_owner', East.function([PlansV1Type], PlansV2Type, ($, old) => old.map(($, row) => ({ title: row.title, owner: 'unassigned' })))),
+        migration.value('by_title', East.function([PlansV2Type], PlansV2Type, ($, old) => {
+          const out = $.let(new Map(), PlansV2Type);
+          $.for(old, ($, row) => {
+            $(out.insert(row.title, row));
+          });
+          return out;
+        })),
+      ],
+    }));
     for (const workspace of ['pieces', 'whole']) await workspaceCreate(storage, repo, workspace);
     await seeded(8_000n, 'pieces');
     await seeded(8_000n, 'whole');
@@ -440,23 +454,28 @@ describe('a deploy\'s record migrations', () => {
 
   it('refuses a rekey that lands two rows on one key, naming it, and keeps one of two elements of a Set', async () => {
     await seeded(10n);
-    const collide = (() => {
-      const plans = e3.record('plans', PlansV2Type, new Map());
-      const own = addOwner(plans);
-      return e3.package('planning', '2.0.4', plans, e3.migration.rekey('one_key', plans,
-        East.function([StringType, RowV2Type], StructType({ key: StringType, value: RowV2Type }),
-          ($, _id, row) => ({ key: 'everything', value: row })), { after: own }));
-    })();
+    const collide = e3.package('planning', '2.0.4', e3.record('plans', PlansV2Type, {
+      initial: new Map(),
+      migrations: (migration) => [
+        addOwner(migration),
+        migration.rekey('one_key', East.function([StringType, RowV2Type], StructType({ key: StringType, value: RowV2Type }),
+          ($, _id, row) => ({ key: 'everything', value: row }))),
+      ],
+    }));
     await assert.rejects(deploy(collide), /failed at 'one_key'.*duplicate.*"everything"/s);
 
     const Flags = SetType(StringType);
     const flags = 'flags';
     await workspaceCreate(storage, repo, flags);
-    await deploy(e3.package('flags', '1.0.0', e3.record('flags', Flags, new Set(['Ann', 'ann', 'Bo']))), {}, flags);
+    await deploy(e3.package('flags', '1.0.0', e3.record('flags', Flags, { initial: new Set(['Ann', 'ann', 'Bo']) })), {}, flags);
     const lowered = (() => {
-      const record = e3.record('flags', Flags, new Set());
-      return e3.package('flags', '2.0.0', record,
-        e3.migration.rekey('lower', record, East.function([StringType], StringType, ($, flag) => flag.lowerCase())));
+      const record = e3.record('flags', Flags, {
+        initial: new Set<string>(),
+        migrations: (migration) => [
+          migration.rekey('lower', East.function([StringType], StringType, ($, flag) => flag.lowerCase())),
+        ],
+      });
+      return e3.package('flags', '2.0.0', record);
     })();
     await deploy(lowered, {}, flags);
     const held = await workspaceGetDataset(storage, repo, flags, [variant('field', 'records'), variant('field', 'flags')]) as Set<string>;
@@ -560,7 +579,7 @@ describe('a deploy\'s record migrations', () => {
     await seeded(10n, other);
     const [seededOther] = await recordHistory(storage, repo, other, 'plans');
     const unmigrated = (() => {
-      const plans = e3.record('plans', PlansV2Type, new Map());
+      const plans = e3.record('plans', PlansV2Type, { initial: new Map() });
       return e3.package('planning', '2.0.1', plans);
     })();
     await deploy(unmigrated, { schema: 'reset' }, other);
@@ -595,7 +614,7 @@ describe('a deploy\'s record migrations', () => {
   it("refuses a restored state whose tree differs inside, under the id the record's type gives its own (#1233)", async () => {
     const Tree = RecursiveType((self) => StructType({ title: StringType, kids: ArrayType(self) }));
     const Owned = RecursiveType((self) => StructType({ title: StringType, owner: StringType, kids: ArrayType(self) }));
-    await deploy(e3.package('trees', '1.0.0', e3.record('trees', DictType(StringType, Tree), new Map())));
+    await deploy(e3.package('trees', '1.0.0', e3.record('trees', DictType(StringType, Tree), { initial: new Map() })));
     // The package as a build that numbers its trees from 0 would export it. A
     // state's manifest numbers its tree from 0 too, so one id names both.
     const { hash } = await workspaceGetPackage(storage, repo, ws);
@@ -629,10 +648,14 @@ describe('a deploy\'s record migrations', () => {
     // A package that keys `by_owner` on the title: a declaration the state
     // rolled back to was not built under.
     const retitled = (() => {
-      const plans = e3.record('plans', PlansV2Type, new Map());
-      return e3.package('planning', '2.1.0', plans, addOwner(plans), e3.recordIndex('by_owner', plans, {
-        key: East.function([StringType, RowV2Type], StringType, ($, _id, row) => row.title),
-      }));
+      const plans = e3.record('plans', PlansV2Type, {
+        initial: new Map(),
+        indexes: (index) => ({
+          by_owner: index.key(East.function([StringType, RowV2Type], StringType, ($, _id, row) => row.title)),
+        }),
+        migrations: (migration) => [addOwner(migration)],
+      });
+      return e3.package('planning', '2.1.0', plans);
     })();
     await deploy(retitled);
     const declared = (await readRecordState(storage, repo, (await ref()).hash)).indexes.get('by_owner')!.index;
@@ -717,9 +740,13 @@ describe('a deploy\'s record migrations', () => {
   it("names a reset's commit as applying every step of the chain it resets the record to", async () => {
     await deploy(v2());
     const renamed = (() => {
-      const plans = e3.record('plans', PlansV2Type, new Map());
-      return e3.package('planning', '2.0.2', plans, e3.migration.rows('owned', plans,
-        East.function([StringType, RowV1Type], RowV2Type, ($, _id, row) => ({ title: row.title, owner: '' }))));
+      const plans = e3.record('plans', PlansV2Type, {
+        initial: new Map(),
+        migrations: (migration) => [
+          migration.rows('owned', East.function([StringType, RowV1Type], RowV2Type, ($, _id, row) => ({ title: row.title, owner: '' }))),
+        ],
+      });
+      return e3.package('planning', '2.0.2', plans);
     })();
     await deploy(renamed, { schema: 'reset' });
     const [owned] = (await described()).migrations;
@@ -770,10 +797,14 @@ describe('a deploy\'s record migrations', () => {
     // A package that keys `by_owner` on the title: the deploy builds it, and a
     // state built under v2's declaration holds it built under another
     const retitled = (() => {
-      const plans = e3.record('plans', PlansV2Type, new Map());
-      return e3.package('planning', '2.1.0', plans, addOwner(plans), e3.recordIndex('by_owner', plans, {
-        key: East.function([StringType, RowV2Type], StringType, ($, _id, row) => row.title),
-      }));
+      const plans = e3.record('plans', PlansV2Type, {
+        initial: new Map(),
+        indexes: (index) => ({
+          by_owner: index.key(East.function([StringType, RowV2Type], StringType, ($, _id, row) => row.title)),
+        }),
+        migrations: (migration) => [addOwner(migration)],
+      });
+      return e3.package('planning', '2.1.0', plans);
     })();
     await deploy(retitled);
     assert.deepEqual(await built(), [['by_owner', true]], 'the deploy built it under its declaration');
@@ -787,15 +818,18 @@ describe('a deploy\'s record migrations', () => {
     assert.deepEqual(await built(), [['by_owner', false]], 'not held at all');
   });
 
-  it("asks for a migration when a record's type changes inside a recursive type two builds gave one id, and resets an input whose type did", async () => {
-    const script = join(tempDir, 'release.mjs');
-    writeFileSync(script, RELEASE);
-    for (const version of ['1.0.0', '2.0.0']) {
+  it("asks for a migration when a record's type changes inside a recursive type two packages gave one id, and resets an input whose type did", async () => {
+    // A build names each tree by a hash of it, so the two releases' trees have
+    // two ids. A package an earlier release exported numbered them by its
+    // process's counter, so its two releases' trees could carry one: the
+    // repository holds each release as such a package, renumbered.
+    for (const version of ['1.0.0', '2.0.0'] as const) {
       const zip = join(tempDir, `trees-${version}.zip`);
-      const child = spawnSync(process.execPath,
-        [script, import.meta.resolve('@elaraai/east'), import.meta.resolve('@elaraai/e3'), version, zip], { encoding: 'utf8' });
-      assert.equal(child.status, 0, child.stderr);
+      await e3.export(trees(version), zip);
       await packageImport(storage, repo, zip);
+      const hash = (await storage.refs.packageResolve(repo, 'trees', version))!;
+      const counted = await storage.objects.write(repo, renumbered(await storage.objects.read(repo, hash)));
+      await storage.refs.packageWrite(repo, 'trees', version, counted);
     }
     const pinned: TreePath = [variant('field', 'inputs'), variant('field', 'pinned')];
     await workspaceDeploy(storage, repo, ws, 'trees', '1.0.0', { runner });
@@ -803,7 +837,7 @@ describe('a deploy\'s record migrations', () => {
     await workspaceCreate(storage, repo, other);
     await workspaceDeploy(storage, repo, other, 'trees', '2.0.0', { runner });
     assert.ok(isTypeValueEqual((await workspaceResolveDataset(storage, repo, ws, pinned)).type, (await workspaceResolveDataset(storage, repo, other, pinned)).type),
-      'each build numbered its tree alike: one id names both trees, which isTypeValueEqual does not read');
+      'one id names both trees, which isTypeValueEqual does not read');
 
     // Someone pins a tree of their own, at 1.0.0's type
     const Tree = RecursiveType((self) => StructType({ title: StringType, kids: ArrayType(self) }));
@@ -825,16 +859,19 @@ describe('a deploy\'s record migrations', () => {
 
     /** v1 with no initial value, `seed(n)` as v1 has it, and a task over the record. */
     function unseeded(version = '1.0.0'): PackageDef<Record<string, unknown>> {
-      const plans = e3.record('plans', PlansV1Type);
-      const seed = e3.mutation.reduce('seed', plans, East.function([PlansV1Type, IntegerType], PlansV1Type, ($, _state, n) => {
-        const out = $.let(new Map(), PlansV1Type);
-        $.for(East.Array.range(0n, n), ($, i) => {
-          $(out.insert(East.str`p-${i}`, { title: East.str`Plan ${i}` }));
-        });
-        return out;
-      }));
+      const plans = e3.record('plans', PlansV1Type, {
+        mutations: (mutation) => ({
+          seed: mutation.reduce(East.function([PlansV1Type, IntegerType], PlansV1Type, ($, _state, n) => {
+            const out = $.let(new Map(), PlansV1Type);
+            $.for(East.Array.range(0n, n), ($, i) => {
+              $(out.insert(East.str`p-${i}`, { title: East.str`Plan ${i}` }));
+            });
+            return out;
+          })),
+        }),
+      });
       const count = e3.task('count', [plans], East.function([PlansV1Type], IntegerType, ($, plans) => plans.size()));
-      return e3.package('planning', version, plans, seed, count);
+      return e3.package('planning', version, plans, count);
     }
 
     /** A v1 state of `n` rows, stored through the door as a delivery is taken in. */
@@ -910,10 +947,7 @@ describe('a deploy\'s record migrations', () => {
 
     it("refuses a first state at other migrations than the chain, of another type, named by a commit, or not in the store, and a second one", async () => {
       // v2's chain is add_owner: a first state is at v2's type, with the chain applied
-      const v2Unseeded = (() => {
-        const plans = e3.record('plans', PlansV2Type);
-        return e3.package('planning', '2.0.0', plans, addOwner(plans), ...v2Declarations(plans));
-      })();
+      const v2Unseeded = e3.package('planning', '2.0.0', plansV2(undefined, false));
       await deploy(v2Unseeded);
       const message = (outcome: Awaited<ReturnType<typeof genesis>>): string => {
         assert.equal(outcome.kind, 'invalid', JSON.stringify(outcome));
@@ -975,10 +1009,7 @@ describe('a deploy\'s record migrations', () => {
     it('plans every index of a migrated record as built, having no initial value to plan them over, and builds them as it migrates', async () => {
       await deploy(unseeded());
       assert.equal((await genesis(await stored(3))).kind, 'committed');
-      const v2Unseeded = (() => {
-        const plans = e3.record('plans', PlansV2Type);
-        return e3.package('planning', '2.0.0', plans, addOwner(plans), ...v2Declarations(plans));
-      })();
+      const v2Unseeded = e3.package('planning', '2.0.0', plansV2(undefined, false));
       const records: RecordPlan[] = [];
       const indexes: RecordIndexPlan[] = [];
       await deploy(v2Unseeded, { plan: true, onRecordPlan: (plan) => records.push(plan), onRecordIndex: (plan) => indexes.push(plan) });

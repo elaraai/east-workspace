@@ -132,12 +132,20 @@ describe("a record's whole Dict, read in key order", () => {
 });
 
 describe("recordRows — the two ways a record's rows reach a sheet", () => {
-    const jobs = e3.record("sheet_record_jobs", textJobs, new Map());
-    const jobsPatch = e3.mutation.patch(jobs);
+    const jobs = e3.record("sheet_record_jobs", textJobs, {
+        initial: new Map(),
+        mutations: (mutation) => ({
+            patch: mutation.patch(),
+        }),
+    });
     const PlanRowType = StructType({ id: StringType, task: StringType, qty: IntegerType });
     const WeekType = StructType({ starts: DateTimeType, rows: ArrayType(PlanRowType) });
-    const plans = e3.record("sheet_record_plans", DictType(StringType, WeekType), new Map());
-    const plansPatch = e3.mutation.patch(plans);
+    const plans = e3.record("sheet_record_plans", DictType(StringType, WeekType), {
+        initial: new Map(),
+        mutations: (mutation) => ({
+            patch: mutation.patch(),
+        }),
+    });
     const planColumns = { task: Sheet.column.text(PlanRowType, { header: "Task" }), qty: Sheet.column.integer(PlanRowType, { header: "Qty" }) };
 
     /** Run `build` inside a bound handle's block, as a builder's factory runs. */
@@ -150,7 +158,7 @@ describe("recordRows — the two ways a record's rows reach a sheet", () => {
 
     test("the entries: the record read whole, in key order, its batches handed to Record.onApply keyed (SB13, SB16)", () => {
         inBlock(($) => {
-            const record = $.let(Record.bind(jobs, [jobsPatch]));
+            const record = $.let(Record.bind(jobs));
             const rows = recordRows(record);
             assert.equal(rows.data, record);
             assert.equal(rows.internal.keyOrdered, true);
@@ -163,7 +171,7 @@ describe("recordRows — the two ways a record's rows reach a sheet", () => {
 
     test("the entries a window at a time: a keyed paged source, committed the same way", () => {
         inBlock(($) => {
-            const record = $.let(Record.bind(jobs, [jobsPatch]));
+            const record = $.let(Record.bind(jobs));
             const page = $.let(Data.bindPaged(jobs));
             const rows = recordRows(record, { window: page });
             assert.equal(rows.internal.keyOrdered, undefined, "a paged Dict is keyed already");
@@ -174,7 +182,7 @@ describe("recordRows — the two ways a record's rows reach a sheet", () => {
 
     test("one entry's rows: its Array field, identified by `id`, committed as one diff of that entry (SB15, SB16)", () => {
         inBlock(($) => {
-            const record = $.let(Record.bind(plans, [plansPatch]));
+            const record = $.let(Record.bind(plans));
             const rows = recordRows(record, { entry: { key: "2026-W42", rows: "rows", id: "id" } });
             assert.equal(rows.options.id, "id");
             assert.ok(isTypeEqual(typeOf(rows.options.onApply), AsyncFunctionType([Editing.Types.ChangeSet(PlanRowType)], Editing.Types.ApplyResult)));
@@ -186,26 +194,30 @@ describe("recordRows — the two ways a record's rows reach a sheet", () => {
     });
 
     test("refuses a record that is not a Dict, one bound without its patch door, and window with entry", () => {
-        const counter = e3.record("sheet_record_counter", IntegerType, 0n);
-        const bump = e3.mutation.reduce("bump", counter, East.function([IntegerType], IntegerType, (_$, n) => n.add(1n)));
-        assert.throws(() => inBlock(($) => recordRows($.let(Record.bind(counter, [bump])))),
+        const counter = e3.record("sheet_record_counter", IntegerType, {
+            initial: 0n,
+            mutations: (mutation) => ({
+                bump: mutation.reduce(East.function([IntegerType], IntegerType, (_$, n) => n.add(1n))),
+            }),
+        });
+        assert.throws(() => inBlock(($) => recordRows($.let(Record.bind(counter)))),
             /`record` must be a Dict — its entries, or one entry's rows, are the sheet's rows — and this record holds \.Integer/);
         assert.throws(() => inBlock(($) => recordRows($.let(Record.bind(jobs, [])))),
             /"patch" is not bound as this record's patch door/);
         assert.throws(() => inBlock(($) => {
-            const record = $.let(Record.bind(plans, [plansPatch]));
+            const record = $.let(Record.bind(plans));
             return recordRows(record, { entry: { key: "2026-W42", rows: "rows", id: "id" }, window: $.let(Data.bindPaged(plans)) });
         }), /`window` pages the record's entries, and with `entry` the rows are one entry's field, read whole — pass one or the other/);
     });
 
     test("refuses a window over another collection, and an entry whose rows or id the entry type does not have", () => {
-        assert.throws(() => inBlock(($) => recordRows($.let(Record.bind(jobs, [jobsPatch])), { window: $.let(Data.bindPaged(plans)) })),
+        assert.throws(() => inBlock(($) => recordRows($.let(Record.bind(jobs)), { window: $.let(Data.bindPaged(plans)) })),
             /`window` must page the record's entries — Data.bindPaged\(record\) over the same record — and this one serves/);
-        assert.throws(() => inBlock(($) => recordRows($.let(Record.bind(plans, [plansPatch])), { entry: { key: "2026-W42", rows: "starts", id: "id" } })),
+        assert.throws(() => inBlock(($) => recordRows($.let(Record.bind(plans)), { entry: { key: "2026-W42", rows: "starts", id: "id" } })),
             /`entry.rows` must name an Array field of the record's entries — "starts" is a DateTime field/);
-        assert.throws(() => inBlock(($) => recordRows($.let(Record.bind(plans, [plansPatch])), { entry: { key: "2026-W42", rows: "rows", id: "qty" } })),
+        assert.throws(() => inBlock(($) => recordRows($.let(Record.bind(plans)), { entry: { key: "2026-W42", rows: "rows", id: "qty" } })),
             /`entry.id` must name a String field of the rows `rows` holds — "qty" is not one of/);
-        assert.throws(() => inBlock(($) => recordRows($.let(Record.bind(jobs, [jobsPatch])), { entry: { key: "J-0001", rows: "task", id: "id" } })),
+        assert.throws(() => inBlock(($) => recordRows($.let(Record.bind(jobs)), { entry: { key: "J-0001", rows: "task", id: "id" } })),
             /`entry.rows` must name an Array field of the record's entries — "task" is a String field/);
     });
 });

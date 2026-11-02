@@ -122,8 +122,8 @@ function payload(tabs: readonly TabName[], rows: Rows = {}, flows: Flows = FLOWS
         const owners = $.const([...(rows.owners ?? OWNERS)], ArrayType(OwnerRow));
         // The rail holds a source for each templates list listed, and no other: a source nothing names is refused.
         const named = [
-            ...(tabs.includes("steps") ? [["steps", { source: Data.bindPaged(ex.stepTemplates, { indexes: [ex.stepsByKind] }) }] as const] : []),
-            ...(tabs.includes("moves") ? [["moves", { source: Data.bindPaged(ex.moveTemplates, { indexes: [ex.movesByKind] }) }] as const] : []),
+            ...(tabs.includes("steps") ? [["steps", { source: Data.bindPaged(ex.stepTemplates, { indexes: ["flowchart_steps_by_kind"] }) }] as const] : []),
+            ...(tabs.includes("moves") ? [["moves", { source: Data.bindPaged(ex.moveTemplates, { indexes: ["flowchart_moves_by_kind"] }) }] as const] : []),
         ];
         const slice = named.length === 0 ? undefined : { slice: $.let(Slice.bindRecords("flowchart.library", Object.fromEntries(named) as never)) };
         const tab = (name: TabName) => {
@@ -347,7 +347,7 @@ describe("each tab its own bound data (#1248, the user, 2026-10-08)", () => {
             // The step types read whole, as a tab its own bound data — beside its source's pages.
             const steps = $.let(Data.bind(ex.stepTemplates));
             const owners = $.const([...OWNERS], ArrayType(OwnerRow));
-            const slice = $.let(Slice.bindRecords("flowchart.library.own", { steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: [ex.stepsByKind] }) } }));
+            const slice = $.let(Slice.bindRecords("flowchart.library.own", { steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: ["flowchart_steps_by_kind"] }) } }));
             return {
                 slice: { slice },
                 library: [

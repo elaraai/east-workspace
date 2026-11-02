@@ -24,7 +24,17 @@ export {
     type EditIssue,
     type Placement,
     type Origin,
+    type DraftedEntry,
+    type SessionDrafts,
+    type EntryConflicts,
+    type ConflictChoice,
+    type ConflictRange,
+    type ConflictTogether,
+    type ConflictPart,
+    type SettledConflict,
+    conflictPartOf,
 } from "./session.js";
+export { EntryMerger, conflictSteps, type ConflictKind, type ConflictPoint, type ConflictStep, type MergedEntry } from "./merge.js";
 export { EditHistory, type EditHistoryPart } from "./history.js";
 export {
     useEditHistory,
@@ -34,6 +44,7 @@ export {
     type EditHistoryState,
 } from "./use-edit-history.js";
 export { historyKeyOf } from "./kept.js";
+export { EntryRefType } from "./keep.js";
 export {
     liftDraft,
     normalizeDraft,
@@ -41,6 +52,8 @@ export {
     CLEAN_DRAFT,
     type BatchReadiness,
     type DraftPresentation,
+    conflictMarks,
+    type ConflictMarks,
     type DraftToPresent,
 } from "./draft.js";
 export {
@@ -50,8 +63,10 @@ export {
     type EditSessionOptions,
 } from "./use-edit-session.js";
 export { HistoryBar, type HistoryAction, type HistoryBarProps } from "./HistoryBar.js";
+export { EditingScope, useEditingScope } from "./scope.js";
 export { historyToolbarItem, HISTORY_RANK } from "./history-item.js";
 export { SessionBanners, type SessionBannersProps } from "./banners.js";
+export { useConflictsOpener } from "./conflicts.js";
 export { historyShortcut, typedInto, takeKey, type HistoryKeyPress, type TakenKey } from "./shortcuts.js";
 export {
     editingMessages,

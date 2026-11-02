@@ -23,8 +23,9 @@ on:
       - "pnpm-workspace.yaml"
       - ".npmrc"
       - ".nvmrc"
+  # Every PR, whatever its base: a PR stacked on another PR's branch is
+  # checked as one into main is.
   pull_request:
-    branches: [main]
     paths:
       - "libs/east-ui/**"
       - "libs/east/**"
@@ -47,10 +48,238 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Compile once. Every test job consumes this exact dependency/package build;
-  # renderer and browser shards never repeat compilation.
+  # The JavaScript every test job runs, compiled once, with no type-check and
+  # no declarations: `checked` makes those beside the tests (#1466). Renderer
+  # and browser shards never repeat compilation.
   build:
-    name: shared build
+    name: test build
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      # The libraries east-ui builds on, as their sources, the lockfile and the
+      # root config built them: restored where none of those changed since, so
+      # a change to east-ui alone builds east-ui alone (#1466).
+      - name: Restore the dependencies' builds
+        id: deps
+        uses: actions/cache@v4
+        with:
+          key: east-ui-deps-${{ runner.os }}-node22-${{ hashFiles('libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/e3/**', 'libs/east-py/packages/east-py-datascience/**', 'libs/east-diagnostics/**', 'libs/eslint-plugin-east/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', '!**/node_modules/**', '!**/dist/**') }}
+          path: |
+            libs/east/dist
+            libs/east-node/packages/*/dist
+            libs/east-web/packages/*/dist
+            libs/e3/packages/*/dist
+            libs/e3/test/*/dist
+            libs/east-py/packages/east-py-datascience/dist
+            libs/east-diagnostics/dist
+            libs/eslint-plugin-east/dist
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build east (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: libs/east
+        run: make build
+
+      - name: Build east-node (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: libs/east-node
+        run: make build
+
+      # e3-web, which e3 builds, runs East programs on east-web-std.
+      - name: Build east-web (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: libs/east-web
+        run: make build
+
+      - name: Build e3 (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: libs/e3
+        run: make build
+
+      - name: Build east-py-datascience TypeScript (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: libs/east-py/packages/east-py-datascience
+        run: pnpm run build
+
+      # Lint runs the East rules through eslint-plugin-east (#963), which loads
+      # east-diagnostics' rules from its dist; the renderer's Studio spec lints
+      # through it too.
+      - name: Build east-diagnostics (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: libs/east-diagnostics
+        run: make build
+
+      - name: Build eslint-plugin-east (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: libs/eslint-plugin-east
+        run: make build
+
+      - name: Build east-ui packages' JavaScript
+        working-directory: libs/east-ui
+        run: make build-js
+
+      - name: Package compiled workspaces
+        run: |
+          find libs/east libs/east-node libs/east-web libs/e3 libs/east-ui libs/east-py/packages/east-py-datascience libs/east-diagnostics libs/eslint-plugin-east \
+            -type d -name node_modules -prune -o -type d -name dist -print -prune > "$RUNNER_TEMP/east-ui-build-paths"
+          tar -cf "$RUNNER_TEMP/east-ui-build.tar" -T "$RUNNER_TEMP/east-ui-build-paths"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: east-ui-build
+          path: ${{ runner.temp }}/east-ui-build.tar
+          compression-level: 1
+          retention-days: 1
+
+  # Every package a test or lint reads type-checked and its declarations
+  # written, beside the tests (#1466): what `node`, `rest`, `queries` (the CLI
+  # compiles against the renderers' declarations) and lint read. `apps`
+  # type-checks the showcase over it, and `showcase` bundles the showcase.
+  checked:
+    name: type-check
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      # The libraries east-ui builds on, as their sources, the lockfile and the
+      # root config built them: restored where none of those changed since, so
+      # a change to east-ui alone builds east-ui alone (#1466).
+      - name: Restore the dependencies' builds
+        id: deps
+        uses: actions/cache@v4
+        with:
+          key: east-ui-deps-${{ runner.os }}-node22-${{ hashFiles('libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/e3/**', 'libs/east-py/packages/east-py-datascience/**', 'libs/east-diagnostics/**', 'libs/eslint-plugin-east/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', '!**/node_modules/**', '!**/dist/**') }}
+          path: |
+            libs/east/dist
+            libs/east-node/packages/*/dist
+            libs/east-web/packages/*/dist
+            libs/e3/packages/*/dist
+            libs/e3/test/*/dist
+            libs/east-py/packages/east-py-datascience/dist
+            libs/east-diagnostics/dist
+            libs/eslint-plugin-east/dist
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build east (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: libs/east
+        run: make build
+
+      - name: Build east-node (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: libs/east-node
+        run: make build
+
+      # e3-web, which e3 builds, runs East programs on east-web-std.
+      - name: Build east-web (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: libs/east-web
+        run: make build
+
+      - name: Build e3 (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: libs/e3
+        run: make build
+
+      - name: Build east-py-datascience TypeScript (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: libs/east-py/packages/east-py-datascience
+        run: pnpm run build
+
+      # Lint runs the East rules through eslint-plugin-east (#963), which loads
+      # east-diagnostics' rules from its dist; the renderer's Studio spec lints
+      # through it too.
+      - name: Build east-diagnostics (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: libs/east-diagnostics
+        run: make build
+
+      - name: Build eslint-plugin-east (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: libs/eslint-plugin-east
+        run: make build
+
+      - name: Type-check and build east-ui packages
+        working-directory: libs/east-ui
+        run: make build-checked
+
+      - name: Package compiled workspaces
+        run: |
+          find libs/east libs/east-node libs/east-web libs/e3 libs/east-ui libs/east-py/packages/east-py-datascience libs/east-diagnostics libs/eslint-plugin-east \
+            -type d -name node_modules -prune -o -type d -name dist -print -prune > "$RUNNER_TEMP/east-ui-checked-paths"
+          tar -cf "$RUNNER_TEMP/east-ui-checked.tar" -T "$RUNNER_TEMP/east-ui-checked-paths"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: east-ui-checked
+          path: ${{ runner.temp }}/east-ui-checked.tar
+          compression-level: 1
+          retention-days: 1
+
+  # What no test reads, over the checked build (#1466): the showcase
+  # type-checked, apart from the type-check the test jobs wait on.
+  apps:
+    needs: checked
+    name: type-check (showcase)
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: east-ui-checked
+          path: ${{ runner.temp }}
+
+      - name: Restore compiled workspaces
+        run: tar -xf "$RUNNER_TEMP/east-ui-checked.tar"
+
+      - name: Type-check the showcase
+        working-directory: libs/east-ui
+        run: make check-apps
+
+  # The showcase's bundle, for the browser shards alone (#1466), and the
+  # browser checks the change selects: built from the start of the run, over a
+  # JavaScript build of its own, so the browser jobs need not wait on `build`.
+  showcase:
+    name: showcase build
     outputs:
       responsive_count: ${{ steps.responsive.outputs.count }}
       responsive_shards: ${{ steps.responsive.outputs.shards }}
@@ -73,43 +302,69 @@ jobs:
           node-version: 22
           cache: "pnpm"
 
+      # The libraries east-ui builds on, as their sources, the lockfile and the
+      # root config built them: restored where none of those changed since, so
+      # a change to east-ui alone builds east-ui alone (#1466).
+      - name: Restore the dependencies' builds
+        id: deps
+        uses: actions/cache@v4
+        with:
+          key: east-ui-deps-${{ runner.os }}-node22-${{ hashFiles('libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/e3/**', 'libs/east-py/packages/east-py-datascience/**', 'libs/east-diagnostics/**', 'libs/eslint-plugin-east/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', '!**/node_modules/**', '!**/dist/**') }}
+          path: |
+            libs/east/dist
+            libs/east-node/packages/*/dist
+            libs/east-web/packages/*/dist
+            libs/e3/packages/*/dist
+            libs/e3/test/*/dist
+            libs/east-py/packages/east-py-datascience/dist
+            libs/east-diagnostics/dist
+            libs/eslint-plugin-east/dist
+
       - name: Install dependencies
         run: pnpm install
 
       - name: Build east (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
         working-directory: libs/east
         run: make build
 
       - name: Build east-node (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
         working-directory: libs/east-node
         run: make build
 
       # e3-web, which e3 builds, runs East programs on east-web-std.
       - name: Build east-web (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
         working-directory: libs/east-web
         run: make build
 
       - name: Build e3 (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
         working-directory: libs/e3
         run: make build
 
       - name: Build east-py-datascience TypeScript (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
         working-directory: libs/east-py/packages/east-py-datascience
         run: pnpm run build
 
-      # `make lint` runs the East rules through eslint-plugin-east (#963),
-      # which loads east-diagnostics' rules from its dist.
+      # Lint runs the East rules through eslint-plugin-east (#963), which loads
+      # east-diagnostics' rules from its dist; the renderer's Studio spec lints
+      # through it too.
       - name: Build east-diagnostics (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
         working-directory: libs/east-diagnostics
         run: make build
 
       - name: Build eslint-plugin-east (dependency)
+        if: steps.deps.outputs.cache-hit != 'true'
         working-directory: libs/eslint-plugin-east
         run: make build
 
-      - name: Build east-ui packages
+      - name: Build east-ui packages' JavaScript
         working-directory: libs/east-ui
-        run: make build
+        run: make build-js
 
       - name: Select responsive checks
         id: responsive
@@ -118,33 +373,34 @@ jobs:
           RESPONSIVE_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^' || github.event.before }}
         run: make select-responsive BASE="$RESPONSIVE_BASE" OUTPUT_DIR="$RUNNER_TEMP"
 
-      - name: Package compiled workspaces
-        run: |
-          find libs/east libs/east-node libs/east-web libs/e3 libs/east-ui libs/east-py/packages/east-py-datascience libs/east-diagnostics libs/eslint-plugin-east \
-            -type d -name node_modules -prune -o -type d -name dist -print -prune > "$RUNNER_TEMP/east-ui-build-paths"
-          tar -cf "$RUNNER_TEMP/east-ui-build.tar" -T "$RUNNER_TEMP/east-ui-build-paths"
+      - name: Build the showcase
+        working-directory: libs/east-ui
+        run: make build-showcase-js
+
+      - name: Package the showcase
+        run: tar -cf "$RUNNER_TEMP/east-ui-showcase.tar" libs/east-ui/packages/east-ui-showcase/dist
 
       - uses: actions/upload-artifact@v4
         with:
-          name: east-ui-build
+          name: east-ui-showcase
           path: |
-            ${{ runner.temp }}/east-ui-build.tar
+            ${{ runner.temp }}/east-ui-showcase.tar
             ${{ runner.temp }}/responsive-tests.txt
+            ${{ runner.temp }}/responsive-job-*.txt
             ${{ runner.temp }}/responsive-impact.json
           compression-level: 1
           retention-days: 1
 
-  # Three package groups plus the separately sharded e3 renderer group cover
-  # every package once (see libs/east-ui/Makefile). `rest` also owns lint and
-  # the renderer's Node specs, and builds the CLI integration runners.
+  # These groups, `node`, `rest` and the separately sharded e3 renderer group
+  # cover every package once, each over what is built (see libs/east-ui/Makefile).
   test:
     needs: build
     name: test (${{ matrix.group }})
-    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        group: [components, ir, rest]
+        group: [components, ir, showcase]
+    runs-on: ubuntu-latest
     env:
       NODE_OPTIONS: --max-old-space-size=4096
 
@@ -170,38 +426,164 @@ jobs:
       - name: Restore compiled workspaces
         run: tar -xf "$RUNNER_TEMP/east-ui-build.tar"
 
-      # e3-ui-cli's query-plans and query-equivalence specs send their calls to
-      # every stock runner on PATH: east-node, which the package holds, east-c,
-      # the runner the query builder sends (#1093), and east-py (#942). Build
-      # this tree's east-c as the east-c workflow does, Release, but its CLI
-      # alone, and put it on PATH — in the group that runs e3-ui-cli's tests
-      # only.
+      - name: Run tests
+        working-directory: libs/east-ui
+        run: make test-group GROUP=${{ matrix.group }}
+
+  # The e3 renderers' Node specs read the checked build: one holds the
+  # renderers' declarations to what they export (test/flowchart-moved.spec.ts).
+  node:
+    needs: checked
+    name: test (node)
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: east-ui-checked
+          path: ${{ runner.temp }}
+
+      - name: Restore compiled workspaces
+        run: tar -xf "$RUNNER_TEMP/east-ui-checked.tar"
+
+      - name: Run tests
+        working-directory: libs/east-ui
+        run: make test-group GROUP=node
+
+  # `rest` holds the CLI's specs but its query equivalence (`queries`). It
+  # reads the checked build: the CLI compiles against the renderers'
+  # declarations. Its query-plans spec sends its calls to east-node, which the
+  # package holds, and to east-c, the runner the query builder sends (#1093),
+  # built here.
+  rest:
+    needs: checked
+    name: test (rest)
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: east-ui-checked
+          path: ${{ runner.temp }}
+
+      - name: Restore compiled workspaces
+        run: tar -xf "$RUNNER_TEMP/east-ui-checked.tar"
+
+      # Build this tree's east-c as the east-c workflow does, Release, but its
+      # CLI alone, and put it on PATH.
       - name: Install east-c build deps
-        if: matrix.group == 'rest'
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
 
-      - name: Build east-c (for e3-ui-cli's query plans)
-        if: matrix.group == 'rest'
+      - name: Build east-c
         working-directory: libs/east-c
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j --target east-c-cli
           echo "$PWD/build/packages/east-c-cli" >> "$GITHUB_PATH"
 
-      # The spec skips a runner it cannot find: hold here that it will find east-c.
+      # The specs skip a runner they cannot find: hold here that they will find east-c.
       - name: east-c on PATH
-        if: matrix.group == 'rest'
+        run: east-c version
+
+      - name: Run tests
+        working-directory: libs/east-ui
+        env:
+          # e3-ui-cli's integration specs: the terminal UI and the query plans,
+          # each over a real embedded e3 API server and repositories seeded at
+          # test time (e3 is built above).
+          E3_UI_INTEGRATION: "1"
+        run: make test-group GROUP=rest
+
+  # The CLI's query-equivalence spec (#942), a third of its queries a job
+  # (#1466): each query's calls on every stock runner at two -j, some minutes
+  # of calls in all, most of them east-node's, which starts a process a unit.
+  # It reads the checked build, as `rest` does, and runs its calls on
+  # east-node, east-c and east-py, the last two built here.
+  queries:
+    needs: checked
+    name: test (queries ${{ matrix.part }}/3)
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3]
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: east-ui-checked
+          path: ${{ runner.temp }}
+
+      - name: Restore compiled workspaces
+        run: tar -xf "$RUNNER_TEMP/east-ui-checked.tar"
+
+      # Build this tree's east-c as the east-c workflow does, Release, but its
+      # CLI alone, and put it on PATH.
+      - name: Install east-c build deps
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+
+      - name: Build east-c
+        working-directory: libs/east-c
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j --target east-c-cli
+          echo "$PWD/build/packages/east-c-cli" >> "$GITHUB_PATH"
+
+      # The specs skip a runner they cannot find: hold here that they will find east-c.
+      - name: east-c on PATH
         run: east-c version
 
       # This tree's east-py, built as the east-py workflow builds it, its CLI
-      # alone put on PATH (not the venv's python): the query-equivalence spec
-      # runs its units on it.
-      - name: Install uv (for e3-ui-cli's query equivalence)
-        if: matrix.group == 'rest'
+      # alone put on PATH (not the venv's python): the spec runs its units on it.
+      - name: Install uv
         uses: astral-sh/setup-uv@v3
 
-      - name: Build east-py (for e3-ui-cli's query equivalence)
-        if: matrix.group == 'rest'
+      - name: Build east-py
         working-directory: libs/east-py
         env:
           UV_PYTHON: "3.11"
@@ -217,31 +599,56 @@ jobs:
 
       # The spec skips a runner it cannot find: hold here that it will find east-py.
       - name: east-py on PATH
-        if: matrix.group == 'rest'
         run: east-py version
 
+      - name: Query equivalence
+        working-directory: libs/east-ui
+        env:
+          E3_UI_INTEGRATION: "1"
+        run: make test-group GROUP=queries PART=${{ matrix.part }}/3
+
+  # Lint reads the declarations the checked build wrote (#1466).
+  lint:
+    needs: checked
+    name: lint
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: east-ui-checked
+          path: ${{ runner.temp }}
+
+      - name: Restore compiled workspaces
+        run: tar -xf "$RUNNER_TEMP/east-ui-checked.tar"
+
       - name: Lint
-        if: matrix.group == 'rest'
         working-directory: libs/east-ui
         run: make lint
 
-      - name: Run tests
-        working-directory: libs/east-ui
-        env:
-          # e3-ui-cli's integration specs: the terminal UI, the query plans and
-          # their equivalence, each over a real embedded e3 API server and
-          # repositories seeded at test time (e3 is built above).
-          E3_UI_INTEGRATION: "1"
-        run: make test-group GROUP=${{ matrix.group }}
-
   e3-components:
     needs: build
-    name: test (e3-components ${{ matrix.shard }}/4)
+    name: test (e3-components ${{ matrix.shard }}/12)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     env:
       NODE_OPTIONS: --max-old-space-size=4096
 
@@ -267,21 +674,34 @@ jobs:
       - name: Restore compiled workspaces
         run: tar -xf "$RUNNER_TEMP/east-ui-build.tar"
 
-      # Node specs run once in test (rest); these four jobs cover every
-      # renderer Vitest file once, with two workers per runner.
+      # Node specs run once in test (node); these twelve jobs cover every
+      # renderer Vitest file once, with two workers per runner, split by the
+      # times the last refresh recorded (#1466): some 150 minutes of a worker's
+      # time, about seven minutes a job.
       - name: e3 renderer tests
         working-directory: libs/east-ui
-        run: make test-group GROUP=e3-components SHARD=${{ matrix.shard }}/4
+        run: make test-group GROUP=e3-components SHARD=${{ matrix.shard }}/12 REPORT="$RUNNER_TEMP/renderer-timings-${{ matrix.shard }}.json"
+
+      # Each file's time, which `scripts/vitest-timings.ts` refreshes the
+      # shards' split from.
+      - name: Upload the renderer timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: renderer-timings-${{ matrix.shard }}
+          path: ${{ runner.temp }}/renderer-timings-${{ matrix.shard }}.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   responsive:
-    needs: build
-    if: needs.build.outputs.responsive_count != '0'
-    name: responsive (${{ matrix.shard }}/${{ needs.build.outputs.responsive_total }})
+    needs: [build, showcase]
+    if: needs.showcase.outputs.responsive_count != '0'
+    name: responsive (${{ matrix.shard }}/${{ needs.showcase.outputs.responsive_total }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(needs.build.outputs.responsive_shards) }}
+        shard: ${{ fromJSON(needs.showcase.outputs.responsive_shards) }}
     env:
       NODE_OPTIONS: --max-old-space-size=4096
 
@@ -306,14 +726,56 @@ jobs:
 
       - name: Restore compiled workspaces
         run: tar -xf "$RUNNER_TEMP/east-ui-build.tar"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: east-ui-showcase
+          path: ${{ runner.temp }}
+
+      - name: Restore the showcase
+        run: tar -xf "$RUNNER_TEMP/east-ui-showcase.tar"
+
+      # The Chromium this Playwright drives, downloaded once for its version
+      # and restored after (#1466); the system libraries it needs are the
+      # job's own, installed each time.
+      - name: Which Playwright
+        id: playwright
+        working-directory: libs/east-ui/packages/east-ui-showcase
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Chromium
+        id: chromium
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
 
       - name: Install Chromium
         working-directory: libs/east-ui
-        run: pnpm --filter @elaraai/east-ui-showcase exec playwright install --with-deps chromium
+        run: |
+          if [ "${{ steps.chromium.outputs.cache-hit }}" = true ]; then
+            pnpm --filter @elaraai/east-ui-showcase exec playwright install-deps chromium
+          else
+            pnpm --filter @elaraai/east-ui-showcase exec playwright install --with-deps chromium
+          fi
 
+      # Its JSON report too: the test times scripts/responsive-timings.ts
+      # refreshes responsive.timings.json from, which the jobs are split by.
       - name: Responsive suite
         working-directory: libs/east-ui
-        run: make test-responsive SHARD=${{ matrix.shard }}/${{ needs.build.outputs.responsive_total }} TEST_LIST="$RUNNER_TEMP/responsive-tests.txt"
+        env:
+          RESPONSIVE_REPORT: ${{ runner.temp }}/responsive-timings-${{ matrix.shard }}.json
+        # The job's list, split by the selection step: no listing of the suite here.
+        run: make test-responsive TEST_LIST="$RUNNER_TEMP/responsive-job-${{ matrix.shard }}.txt"
+
+      - name: Upload test times
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: responsive-timings-${{ matrix.shard }}
+          path: ${{ runner.temp }}/responsive-timings-${{ matrix.shard }}.json
+          if-no-files-found: ignore
+          retention-days: 14
 
       # A failing spec's DOM/network trace (open the trace with
       # `pnpm exec playwright show-trace <trace.zip>`).

@@ -26,6 +26,7 @@ import {
 } from "@elaraai/east";
 import { EditingPlacementType } from "@elaraai/east-ui/internal";
 import { useEditSession, type EditingValue } from "../../editing/use-edit-session.js";
+import { EntryRefType } from "../../editing/keep.js";
 import type { EditSession, EditSessionBinding, EntryUpdate, EntryVersion, Origin, Placement } from "../../editing/session.js";
 import { kindOfIssue, wholeEntryReadiness } from "../../editing/draft.js";
 import type { HistoryAction } from "../../editing/HistoryBar.js";
@@ -127,7 +128,7 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
     }, [editing.ready, codec]);
 
     const { session, observed, original, available, version } = useEditSession<SnapGridEntryRef>(
-        editing as unknown as EditingValue, undefined, refs, positions, storageKey, { idOf: idOfRef, ready });
+        editing as unknown as EditingValue, undefined, refs, positions, storageKey, { idOf: idOfRef, ready, wireType: EntryRefType });
     sessionRef.current = session;
 
     // ── The drafted rows, and the cells they draw ───────────────────────

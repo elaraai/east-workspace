@@ -334,7 +334,7 @@ describe("each source narrows every place its records appear (#1344)", () => {
 describe("a source's methods share one descriptor (#1352)", () => {
     test("a source's methods share one descriptor: a payload writes it once, and a decode makes the one every method reads (#1352)", () => {
         const make = East.function([], undefined, () => Slice.bindRecords(`${KEY}.descriptor`, {
-            job: { source: Data.bindPaged(ex.planPrintJobs, { indexes: [ex.planPrintJobsByStockTime] }), fields: { stock: { label: "Stock" } } },
+            job: { source: Data.bindPaged(ex.planPrintJobs, { indexes: ["plan_print_jobs_by_stock_time"] }), fields: { stock: { label: "Stock" } } },
         }));
         const Slices = Expr.type(make).output;
         const platform = getRegisteredPlatformImplementations();
@@ -380,10 +380,10 @@ describe("a window read through interval indexes re-renders its readers, never t
      * waits on, apart from the rest.
      */
     function holdIntervalSearches() {
-        const intervals = new Set<string>([ex.planPrintJobsByTime.name, ex.planPrintJobsByStockTime.name, ex.planPrintShiftsByTime.name]);
+        const intervals = new Set<string>(["plan_print_jobs_by_time", "plan_print_jobs_by_stock_time", "plan_print_shifts_by_time"]);
         const searching = (request: E3Request) => request.kind === "find" && request.method === "POST" && intervals.has(request.query.get("index") ?? "");
         // The jobs' windows first: a request is held by the first hold that matches it.
-        const jobs = h.e3.hold((request) => searching(request) && request.query.get("index") === ex.planPrintJobsByTime.name && isWindow(request.searches.length));
+        const jobs = h.e3.hold((request) => searching(request) && request.query.get("index") === "plan_print_jobs_by_time" && isWindow(request.searches.length));
         const others = h.e3.hold(searching);
         /** Each batch asked so far: the index it searches, the lower bound of its first search's last field, and how many searches it asks. */
         const asked = () => h.requests().filter(searching).map((request) => {
@@ -416,7 +416,7 @@ describe("a window read through interval indexes re-renders its readers, never t
             await settle();
             // The jobs' window and the shifts', each in one request, in flight with what else the kinds search.
             const first = searches.windowFrom(FIRST);
-            expect(first.map(([index]) => index)).toEqual([ex.planPrintJobsByTime.name, ex.planPrintShiftsByTime.name]);
+            expect(first.map(([index]) => index)).toEqual(["plan_print_jobs_by_time", "plan_print_shifts_by_time"]);
             expect(first.every(([, count]) => isWindow(count))).toBe(true);
             expect(searches.held).toBe(searches.asked().length);
             renders = 0;
@@ -429,7 +429,7 @@ describe("a window read through interval indexes re-renders its readers, never t
             await pick(bar(container, "J-1001", "Hall A", "a1"));
             await press(toolbar(container).getByRole("button", { name: "Next day" }));
             const next = searches.windowFrom(day("10-06"));
-            expect(next.map(([index]) => index)).toEqual([ex.planPrintJobsByTime.name, ex.planPrintShiftsByTime.name]);
+            expect(next.map(([index]) => index)).toEqual(["plan_print_jobs_by_time", "plan_print_shifts_by_time"]);
             expect(next.every(([, count]) => isWindow(count))).toBe(true);
             expect(searches.held).toBeGreaterThan(1);
             renders = 0;
@@ -530,7 +530,7 @@ describe("the Backlog never blinks (#1398, ruled 25 Oct 2026)", () => {
         // What the narrowing hides is counted last: every unscheduled job's count — one search of the jobs' time index,
         // no stock chosen — held on its way to e3 until the cards and their count have landed.
         const whole = h.e3.hold((request) => request.kind === "find" && request.dataset === JOBS
-            && request.query.get("index") === ex.planPrintJobsByTime.name && request.searches.length === 1);
+            && request.query.get("index") === "plan_print_jobs_by_time" && request.searches.length === 1);
         try {
             const { container } = await h.mount(ex.planPrintWorks);
             await settle();

@@ -68,7 +68,7 @@ const floor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Eas
     }));
     const slice = $.let(Slice.bindRecords(FLOOR, {
         racks: {
-            source: Data.bindPaged(ex.schematicRacks, { indexes: [ex.schematicRacksByArea, ex.schematicRacksByOwnerArea, ex.schematicRacksByName] }),
+            source: Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_area", "schematic_racks_by_owner_area", "schematic_racks_by_name"] }),
             search: ["name"],
             fields: { name: { label: "Rack" }, owner: { label: "Owner", hints: ["Harbour Labs", "Northwind Media", "Elmway College"] } },
         },
@@ -97,7 +97,7 @@ const fitFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(
     const frames = $.let(Data.bind(ex.schematicFrames));
     const slice = $.let(Slice.bindRecords(FLOOR, {
         racks: {
-            source: Data.bindPaged(ex.schematicRacks, { indexes: [ex.schematicRacksByArea, ex.schematicRacksByOwnerArea, ex.schematicRacksByName] }),
+            source: Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_area", "schematic_racks_by_owner_area", "schematic_racks_by_name"] }),
             search: ["name"],
             fields: { name: { label: "Rack" }, owner: { label: "Owner", hints: ["Harbour Labs", "Northwind Media", "Elmway College"] } },
         },
@@ -165,7 +165,7 @@ async function open(example: { fn: { toIR(): unknown } }) {
 }
 
 /** The racks' runs read through the area index the window reads through: one a window. */
-const windowReads = () => h.requests("runs", RACKS).filter((request) => request.query.get("index") === ex.schematicRacksByArea.name).length;
+const windowReads = () => h.requests("runs", RACKS).filter((request) => request.query.get("index") === "schematic_racks_by_area").length;
 
 /** Zooms into a world box, and waits until the window it reads has landed. */
 async function zoomAndLand(container: HTMLElement, box: { minX: number; minY: number; maxX: number; maxY: number }) {

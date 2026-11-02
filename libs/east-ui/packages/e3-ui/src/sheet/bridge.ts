@@ -576,6 +576,22 @@ export interface SheetBridgeGroupInput {
     cellMetas: SheetColumnMeta[];
 }
 
+/**
+ * Binds a function once in the block a sheet is built in, and answers the
+ * variable that names it there.
+ *
+ * @remarks
+ * A wire function the root builds — a column's fill provider, a rule, a
+ * check, the draft context — writes out in full every function of the
+ * bridge it calls, and a sheet builds dozens of them, so a bridge written
+ * into each would make a program many times the size it needs to be. Each of
+ * the bridge's functions held once, the wire functions built after refer to
+ * the block's variable instead. A sheet built in no block holds nothing.
+ *
+ * @internal
+ */
+export type SheetHold = <T extends EastType>(value: ExprType<T>) => ExprType<T>;
+
 /** What the bridge needs from the root. */
 export interface SheetBridgeInput {
     /** The source row's type — a struct, or on a source with loose rows the entry variant (#846). */
@@ -587,6 +603,10 @@ export interface SheetBridgeInput {
     source: SheetBridgeSource;
     group?: SheetBridgeGroupInput;
     subRows?: SheetSubRowsValue<StructType>;
+    /** Binds each of the bridge's functions once in the block the sheet is
+     *  built in ({@link SheetHold}); the functions are written where they are
+     *  used without one. */
+    hold?: SheetHold;
 }
 
 /**
@@ -615,6 +635,8 @@ type SheetEntryVariant = VariantType<{ group: StructType; row: StructType }>;
  */
 export function buildBridge(input: SheetBridgeInput): SheetBridge {
     const { rowType, idField, metas, registers, driver, source, group: groupInput, subRows } = input;
+    // Each function held as it is built, so every one built after refers to it.
+    const hold: SheetHold = input.hold ?? ((value) => value);
     const driverType: EastType = driver !== undefined ? driver.rowType : NullType;
     // A grouped sheet's columns are declared over the LINE type; its source
     // rows are groups — or, with loose rows between them (#846), entries of a
@@ -635,7 +657,7 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
     // L → the wire cells. Registers are bound ONCE per body for the String
     // link form (the capture rule: data, never a spliced expression).
     const stringFormRegisters = [...new Set(metas.filter((m) => m.form === "string" && m.register !== undefined).map((m) => m.register!))];
-    const projectRow = East.function([lineType], SheetCellsType, ($, r) => {
+    const projectRow = hold(East.function([lineType], SheetCellsType, ($, r) => {
         const cells = $.let(new Map<string, never>(), SheetCellsType);
         const bound = new Map<string, ExprType<typeof SheetRegisterMembersType>>();
         for (const name of stringFormRegisters) {
@@ -649,8 +671,8 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
             }
         }
         return cells;
-    }) as unknown as SheetBridge["projectRow"];
-    const projectSubRows = buildSubRowProjection(lineType, subRows);
+    })) as unknown as SheetBridge["projectRow"];
+    const projectSubRows = hold(buildSubRowProjection(lineType, subRows));
 
     // (id, offset) → the real source row. Inline, the row at its offset
     // answers first — the renderer reads a resident row where it sits — and
@@ -662,7 +684,7 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
     // (#1182), or a keyed window — reads the row by its key.
     const pagedKeyOf = source.kind === "paged" && source.keyed && source.keyType !== undefined && source.keyType.type !== "String"
         ? keyOfId(source.keyType) : undefined;
-    const rowById = source.kind === "keyed"
+    const rowById = hold((source.kind === "keyed"
         ? East.function([StringType, IntegerType], OptionType(rowType), ($, id, _offset) => {
             const rows = $.const(source.rows, DictType(source.keyType, rowType));
             const keyOf = $.const(keyOfId(source.keyType));
@@ -710,11 +732,11 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
                             some: (_$2, key) => (win as unknown as ExprType<DictType<EastType, EastType>>).tryGet(key),
                         }),
             });
-        });
+        })) as unknown as SheetBridge["rowById"]);
 
     // The driver lookup — the driver data folded once into a dictionary; a
     // driverless sheet's lookup is always `none` (its `D` is `Null`).
-    const lookupDriver = driver !== undefined
+    const lookupDriver = hold(driver !== undefined
         ? East.function([StringType], OptionType(driverType), ($, k) => {
             const dict = $.const(
                 driver.data.toDict((_$, d) => driver.keyFn(d), (_$, d) => d),
@@ -722,45 +744,49 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
             );
             return dict.tryGet(k);
         })
-        : East.function([StringType], OptionType(driverType), ($, _k) => $.const(none, OptionType(driverType)));
+        : East.function([StringType], OptionType(driverType), ($, _k) => $.const(none, OptionType(driverType))));
 
     // The drafts: a line's cells over its draft (no id — a line's identity is
     // its place), and on a source with loose rows (#846) a loose row's, whose
     // id field is its own.
-    const draftRow = buildDraftRowDecoder(lineType, metas, registers, lineIdField);
-    const looseRow = loose ? buildDraftRowDecoder(lineType, metas, registers, idField) : undefined;
+    const draftRow = hold(buildDraftRowDecoder(lineType, metas, registers, lineIdField));
+    const looseRow = loose ? hold(buildDraftRowDecoder(lineType, metas, registers, idField)) : undefined;
     const decodeGroup = groupInput !== undefined
-        ? buildDraftGroupDecoder(groupType, groupInput.linesField, groupInput.cellMetas, draftRow, registers, idField)
+        ? hold(buildDraftGroupDecoder(groupType, groupInput.linesField, groupInput.cellMetas, draftRow, registers, idField))
         : undefined;
     const flatDraft = SheetDraftTypeFor(groupType) as StructType;
     const draftDecode = (decodeGroup === undefined
-        ? East.function([SheetRowType, OptionType(flatDraft), OptionType(SheetRowType)], flatDraft, ($, row, base, _previous) => {
+        ? hold(East.function([SheetRowType, OptionType(flatDraft), OptionType(SheetRowType)], flatDraft, ($, row, base, _previous) => {
             const decode = $.const(draftRow);
             return decode(row.id, row.cells, base);
-        })
+        }))
         : looseRow !== undefined && groupInput !== undefined
-            ? buildDraftEntryDecoder(rowType as SheetEntryVariant, groupInput.linesField, decodeGroup, looseRow)
+            ? hold(buildDraftEntryDecoder(rowType as SheetEntryVariant, groupInput.linesField, decodeGroup, looseRow))
             : decodeGroup) as unknown as SheetBridge["draftDecode"];
 
     // The group half (#740).
-    const group = groupInput !== undefined && shape !== undefined && decodeGroup !== undefined
-        ? { ...buildGroupBridge(groupType, groupInput, projectRow, projectSubRows), groupType, loose, decodeGroup, decodeLoose: looseRow }
+    const groupProjections = groupInput !== undefined ? buildGroupBridge(groupType, groupInput, projectRow, projectSubRows) : undefined;
+    const group = groupInput !== undefined && groupProjections !== undefined && shape !== undefined && decodeGroup !== undefined
+        ? {
+            ...groupProjections,
+            projectGroupCells: hold(groupProjections.projectGroupCells),
+            projectLines: hold(groupProjections.projectLines),
+            groupType, loose, decodeGroup, decodeLoose: looseRow,
+        }
         : undefined;
 
-    const bridgeCtx = buildDraftContextBridge(rowType, lineType, groupInput?.linesField, ctxType, driverType,
-        rowById as SheetBridge["rowById"], draftDecode, draftRow, lookupDriver, looseRow);
-    const bridgeReady = buildReadyContexts(rowType, groupInput?.linesField, ctxType, driverType,
-        rowById as SheetBridge["rowById"], draftDecode, lookupDriver, loose);
-
-    const encodePatch = buildPatchCells(lineType, metas, registers);
+    const bridgeCtx = hold(buildDraftContextBridge(rowType, lineType, groupInput?.linesField, ctxType, driverType,
+        rowById, draftDecode, draftRow, lookupDriver, looseRow));
+    const bridgeReady = hold(buildReadyContexts(rowType, groupInput?.linesField, ctxType, driverType,
+        rowById, draftDecode, lookupDriver, loose));
 
     return {
         rowType, lineType, driverType, ctxType, checkCtxType, patchType, proposalType,
-        projectRow, projectSubRows, draftDecode, draftRow,
-        rowById: rowById as unknown as SheetBridge["rowById"],
+        projectRow, projectSubRows, draftDecode, draftRow, rowById,
         bridgeCtx: bridgeCtx as unknown as SheetBridge["bridgeCtx"],
         bridgeReady,
-        encodePatch, seedCells: buildPatchCells(lineType, metas, registers, false),
+        encodePatch: hold(buildPatchCells(lineType, metas, registers)),
+        seedCells: hold(buildPatchCells(lineType, metas, registers, false)),
         ...(group !== undefined ? { group } : {}),
     };
 }

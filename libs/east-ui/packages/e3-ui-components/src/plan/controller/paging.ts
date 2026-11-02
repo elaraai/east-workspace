@@ -595,6 +595,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
     let fixedAt: string | undefined;
     // Each paged block's geometry, by its place in the layout.
     let lanes = new Map<number, Lane>([[0, newLane()]]);
+    /** The lane kept while a window draws no paged block: no block's index. */
+    const STANDBY_LANE = -1;
     // Where every row a block has seen sits: its block and window (#823).
     const located = new Map<RowKey, PlanRowOrigin>();
     // The block the viewport was last reported in — what the transport counts.
@@ -805,6 +807,9 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             if (s.fixed) return;
             nextLanes.set(b, lanes.get(b) ?? newLane(template));
         });
+        // A window drawing no paged block — every series a pick shows switched off — keeps one lane apart, reading the
+        // windows the blocks read: a revision that brings blocks back is read, its shape adopted, its lanes from these.
+        if (nextLanes.size === 0) nextLanes.set(STANDBY_LANE, template ?? newLane());
         lanes = nextLanes;
         shape = next;
         fixedRows = new Map();

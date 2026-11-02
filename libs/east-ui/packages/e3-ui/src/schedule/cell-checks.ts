@@ -44,8 +44,8 @@ const TilingKeyType = StructType({ summary: BooleanType, fields: ArrayType(Strin
 export function scheduleCellIndexes(kind: ScheduleEventKind<EastType, EastType>): { readonly series: string; readonly summary: string } {
     const filed = `{ key: "${kind.resourceField}", from: "${kind.times.start}", to: "${kind.times.end}"`;
     return {
-        series: `e3.recordIndex.series(name, record, ${filed}, tile: "week" })`,
-        summary: `e3.recordIndex.summary(name, record, ${filed}, tile: "month" })`,
+        series: `index.series(${filed}, tile: "week" })`,
+        summary: `index.summary(${filed}, tile: "month" })`,
     };
 }
 
@@ -197,7 +197,7 @@ export function checkedScheduleTilings(
         const noSummary = ($2: BlockBuilder<NullType>, name: ExprType<StringType>) => {
             $2.if(summaries.equal(0n), ($3) => {
                 $3.error(East.value(`${where} series index "`).concat(name).concat(`", and no summary index — the ${builder} draws a series ` +
-                    `index's events while they fit, and its summary's shading past that: declare ${declare?.summary ?? "e3.recordIndex.summary(name, record, { key, from, to, tile })"} ` +
+                    `index's events while they fit, and its summary's shading past that: declare ${declare?.summary ?? "index.summary({ key, from, to, tile })"} ` +
                     "over the same record and list it beside the series index"));
             });
         };

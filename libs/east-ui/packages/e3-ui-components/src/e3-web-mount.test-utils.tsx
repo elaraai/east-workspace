@@ -33,6 +33,7 @@ import { ChakraProvider } from "@chakra-ui/react";
 import type { EastIR, EastType, ValueTypeOf } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui/internal";
 import { DragLayerProvider, EastChakraComponent, StateRuntime, UIStore, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
+import { resetKept } from "@elaraai/east-ui-components/internal";
 import { deriveManifest } from "@elaraai/e3-ui";
 import type { TreePath } from "@elaraai/e3-types";
 import {
@@ -199,6 +200,18 @@ export interface E3Harness {
      */
     race<T extends EastType>(record: E3Record<T>, save: () => void, next: (now: ValueTypeOf<T>) => ValueTypeOf<T>): Promise<void>;
     /**
+     * Two Saves at once, this one landing first: the record's next mutation
+     * commits, and another session's write commits just after it, before what
+     * is mounted reads its own change back — so the poll that hears its commit
+     * hears the other's too, and it reads its change back beside the other's.
+     * Then settles.
+     *
+     * @param record - The record both write, which declares a patch mutation
+     * @param save - What sends the Save: a press of its button, say
+     * @param next - The record's state as the other session leaves it, from its state once the Save has committed
+     */
+    followed<T extends EastType>(record: E3Record<T>, save: () => void, next: (now: ValueTypeOf<T>) => ValueTypeOf<T>): Promise<void>;
+    /**
      * Writes a dataset as another session would, then settles.
      *
      * @param dataset - The dataset
@@ -332,6 +345,8 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
         state.e3?.reset();
         cleanup();
         localStorage.clear();
+        // The tab's storage goes too: a test is a tab of its own, and the drafts a test's sessions kept are not the next's.
+        sessionStorage.clear();
         // What every spy recorded goes with the test, as its stub does: vitest
         // keeps each spy a file makes until the file ends, and restoring one
         // keeps its calls, each with the element it was called on — which
@@ -398,6 +413,19 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
             await saving.holding;
             await patchRecord(e3(), workspace(), record, next(await readDataset(e3(), workspace(), record)));
             await act(async () => { saving.release(); });
+            await settle();
+        },
+        async followed(record, save, next) {
+            // The Save's answer held on its way back, its commit made; then what reads the record after it held, so the
+            // other session's commit lands first.
+            const answer = e3().holdAnswers((request) => request.kind === "mutate" && request.record === record.name);
+            await act(async () => { save(); });
+            await answer.holding;
+            const reading = e3().hold((request) => request.kind === "status" || (request.kind !== "mutate" && request.dataset === `records.${record.name}`));
+            await act(async () => { answer.release(); });
+            await reading.holding;
+            await patchRecord(e3(), workspace(), record, next(await readDataset(e3(), workspace(), record)));
+            await act(async () => { reading.release(); });
             await settle();
         },
         async write(dataset, value) {
@@ -533,3 +561,49 @@ export async function toolbarAtFloor(): Promise<void> {
  * @returns The slot's element
  */
 export const slot = (container: HTMLElement, name: string) => container.querySelector<HTMLElement>(`[data-builder-frame] [data-frame-slot="${name}"]`)!;
+
+/**
+ * A reload of the page, in the same tab: what it drew goes, with its UI store —
+ * every editing session in it — and what it kept in memory; the tab's storage
+ * stays, as a reload leaves it. Mount again after it, as the page loads again.
+ */
+export function reloadPage(): void {
+    cleanup();
+    StateRuntime.initializeStore(new UIStore());
+    resetKept();
+}
+
+/** A card of the history bar's conflicts popover, as a person reads it: the item, each choice as it is read out, and the choices. */
+export interface ConflictCard {
+    /** The item, as the builder names it. */
+    readonly item: string | null;
+    /** The draft's choice, as it is read out — `Yours, 500`. */
+    readonly yours: string | null;
+    /** The newer value's, with where it came from and what both began from. */
+    readonly theirs: string | null;
+    /** A choice's radio. */
+    readonly radio: (choice: "draft" | "source") => HTMLInputElement;
+    /** Its Go to. */
+    readonly goTo: () => HTMLButtonElement;
+}
+
+/**
+ * The cards of the history bar's conflicts popover — opened from its button
+ * first, unless it is open already (a banner's Choose opens it).
+ *
+ * @param container - The builder's container, whose toolbar holds the button
+ * @returns Each card, in the popover's order
+ */
+export async function conflictCards(container: HTMLElement): Promise<ConflictCard[]> {
+    if (document.querySelector("[data-conflict-card]") === null) {
+        await act(async () => { container.querySelector<HTMLElement>("[data-conflicts]")!.click(); });
+    }
+    await waitFor(() => { if (document.querySelector("[data-conflict-card]") === null) throw new Error("the conflicts popover shows no card"); });
+    return [...document.querySelectorAll<HTMLElement>("[data-conflict-card]")].map((card) => ({
+        item: card.querySelector("[data-conflict-item]")?.textContent ?? null,
+        yours: card.querySelector("[data-choice=draft] input")?.getAttribute("aria-label") ?? null,
+        theirs: card.querySelector("[data-choice=source] input")?.getAttribute("aria-label") ?? null,
+        radio: (choice) => card.querySelector<HTMLInputElement>(`[data-choice=${choice}] input`)!,
+        goTo: () => card.querySelector<HTMLButtonElement>("[data-conflict-go]")!,
+    }));
+}

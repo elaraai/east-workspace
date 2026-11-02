@@ -40,7 +40,7 @@ const RECORD = `records.${ex.lensBenchRows.name}`;
 const flagged = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const slice = $.let(Slice.bindRecords("bench.flagged", {
         rows: {
-            source: Data.bindPaged(ex.lensBenchRows, { indexes: [ex.lensBenchByGroup, ex.lensBenchByFlag] }),
+            source: Data.bindPaged(ex.lensBenchRows, { indexes: ["lens_bench_by_group", "lens_bench_by_flag"] }),
             fields: { group: { label: "Group" }, flag: { label: "Flag" } }, initial: { flag: [true] },
         },
     }));
@@ -51,7 +51,7 @@ const flagged = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(E
 const groups = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const slice = $.let(Slice.bindRecords("bench.groups", {
         rows: {
-            source: Data.bindPaged(ex.lensBenchRows, { indexes: [ex.lensBenchByGroup, ex.lensBenchByFlag] }),
+            source: Data.bindPaged(ex.lensBenchRows, { indexes: ["lens_bench_by_group", "lens_bench_by_flag"] }),
             fields: { group: { label: "Group" }, flag: { label: "Flag" } }, initial: { group: [0n, 1n, 2n] },
         },
     }));

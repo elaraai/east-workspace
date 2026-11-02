@@ -95,7 +95,7 @@
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Box, Button, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { StringType, compareFor, equalFor, equivalentFor, none, type ValueTypeOf } from "@elaraai/east";
+import { StringType, compareFor, equalFor, equivalentFor, none, type EastType, type PatchPath, type ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType, RecordSlicesChromeType } from "@elaraai/east-ui/internal";
 import { Flowchart, flowchartKeys } from "@elaraai/e3-ui/internal";
 import {
@@ -109,6 +109,7 @@ import {
     implementUIComponent,
     takeKey,
     typedInto,
+    useConflictsOpener,
     useDataStable,
     useFormatters,
     useTrackedEvaluation,
@@ -125,7 +126,7 @@ import { useFindState } from "./find.js";
 import { FlowchartFooter, useLastSave } from "./footer.js";
 import { FlowsCountReader, FlowsTab, PagedFlowsTab, NoFlows, type FlowCard, type FlowsCount, type NewFlowProps } from "./flows.js";
 import { inspectorPane, type FlowchartInspectorEdit } from "./inspector.js";
-import { flowIssues, issueTarget, saveIssues } from "./issues.js";
+import { conflictRowName, conflictStateKey, conflictTarget, conflictValueName, flowIssues, issueTarget, saveIssues } from "./issues.js";
 import { useFlowchartLibrary } from "./library.js";
 import { flowchartMessages, type FlowchartRefusedWord, type FlowchartWords } from "./messages.js";
 import { missingFlow, openFlowName, useOpenedFlow } from "./open-flow.js";
@@ -149,6 +150,9 @@ const flowEqual = equalFor(Flowchart.Types.Flow);
 /** Flows by name, in East's order. */
 const nameOrder = compareFor(StringType);
 const nameEqual = equalFor(StringType);
+
+/** No state holds a conflict. */
+const NO_STATES: ReadonlySet<string> = new Set();
 
 export type { FlowchartValue, FlowchartCanvasValue, FlowchartFlowValue };
 
@@ -406,6 +410,20 @@ function FlowchartFrame({ value, held, storageKey, chrome, flowsPart, followed, 
         : entry !== undefined && entryHeld !== undefined ? { name: entry, flow: entryHeld } : (drafted ?? undefined);
     // Its drafts delete it (#1250): main and the inspector say so.
     const deleted = pending && drafted === null;
+    // The open flow's states holding a conflict not yet chosen, by their keys as its drafts hold them: their nodes wear
+    // the warn ring. A conflict's steps run down the flow to its states and one state's place among them.
+    const conflicts = session.conflicts;
+    const shownFlow = shown?.flow;
+    const conflictedStates = useMemo((): ReadonlySet<string> => {
+        const points = entry === undefined ? undefined : conflicts.get(entry)?.points;
+        if (points === undefined || shownFlow === undefined) return NO_STATES;
+        const out = new Set<string>();
+        for (const point of points) {
+            const key = conflictStateKey(point.at, shownFlow);
+            if (key !== undefined) out.add(key);
+        }
+        return out;
+    }, [conflicts, entry, shownFlow]);
     const flow = shown?.flow ?? NO_FLOW;
     // Whether a flow is there to edit: one its source or its drafts hold — never a new flow before its session holds it, nor one its drafts delete.
     const hasFlow = shown !== undefined;
@@ -528,17 +546,32 @@ function FlowchartFrame({ value, held, storageKey, chrome, flowsPart, followed, 
             }
         }
     }, [session, currentEntry, entry]);
-    // An issue on the open flow selects what it names (#1250); another flow's opens it; one of the record's as a whole — or the host's one flow's — names none.
-    const onIssue = useCallback((issue: EditIssue) => {
+    // An issue on the open flow selects what it names (#1250) — a conflict's Go to, the row its path is in; another flow's
+    // opens it; one of the record's as a whole — or the host's one flow's — names none.
+    const onIssue = useCallback((issue: EditIssue, path?: PatchPath) => {
         const at = currentEntry();
         const ours = (at !== undefined && nameEqual(issue.entry, at.name)) || (entry !== undefined && nameEqual(issue.entry, entry));
         if (ours) {
-            revealSelection(at === undefined ? null : issueTarget(issue, at.flow));
+            revealSelection(at === undefined ? null : issueTarget(issue, at.flow) ?? (path === undefined ? null : conflictTarget(path, at.flow)));
             return;
         }
         if (held.many && !nameEqual(issue.entry, "")) openStored(issue.entry);
     }, [currentEntry, entry, held.many, openStored, revealSelection]);
-    const history = edits ? historyToolbarItem({ session, words, editing: false, onIssue, onAction, showError: false }) : undefined;
+    // A conflict in the open flow's row, named as the flow shows the row — `Inbound parcels / Scanned`, never its place —
+    // then any steps below it, in words.
+    const conflictItem = useCallback((issue: EditIssue, path: PatchPath, steps: readonly string[]) => {
+        const at = currentEntry();
+        if (at === undefined || !nameEqual(issue.entry, at.name)) return undefined;
+        const row = conflictRowName(path, at.flow);
+        return row === undefined ? undefined : [issue.entry, row, ...steps.slice(1)].join(" / ");
+    }, [currentEntry]);
+    // A conflict's value as the flow shows it: a step's lane by its label, a transition's ends by their steps' — never a key.
+    const conflictValue = useCallback((issue: EditIssue, path: PatchPath, value: unknown, type: EastType | undefined) => {
+        const at = currentEntry();
+        if (at === undefined || !nameEqual(issue.entry, at.name)) return undefined;
+        return conflictValueName(path, value, type, at.flow);
+    }, [currentEntry]);
+    const history = edits ? historyToolbarItem({ session, words, editing: false, onIssue, conflictItem, conflictValue, onAction, showError: false }) : undefined;
     // The history keys from anywhere in the frame (FB21): never a field being typed into, which keeps its own undo; and
     // the canvas's keys, Esc, as they leave the frame. Each key acted on goes no further than the Flowchart (#1398).
     const canvasRef = useRef<FlowchartCanvasHandle>(null);
@@ -673,12 +706,28 @@ function FlowchartFrame({ value, held, storageKey, chrome, flowsPart, followed, 
         record: value.source.type !== "data", saved, keys, words,
     });
 
-    // The banners: the open flow's session's; each source the library follows whose narrowing could not be read, with Retry
-    // (#1346); then a `flow` the flowchart doesn't hold, as the Sheet names an entry its record doesn't (FB42).
+    // Another flow's conflicts wait in its own session, which the history item does not act on: a banner each, naming the
+    // flow, whose Choose opens it, then its conflicts as the history item holds its session.
+    const [chooseIn, setChooseIn] = useState<string | undefined>(undefined);
+    const openConflicts = useConflictsOpener(session);
+    useEffect(() => {
+        if (chooseIn === undefined || entry === undefined || !nameEqual(chooseIn, entry) || openConflicts === undefined) return;
+        setChooseIn(undefined);
+        openConflicts();
+    }, [chooseIn, entry, openConflicts]);
+    const otherFlows = edits && held.many ? kept.sessions.all().filter(([n]) => entry === undefined || !nameEqual(n, entry)) : [];
+
+    // The banners: the open flow's session's, then each other flow's conflicts; each source the library follows whose
+    // narrowing could not be read, with Retry (#1346); then a `flow` the flowchart doesn't hold, as the Sheet names an entry
+    // its record doesn't (FB42).
     const failed = [...followed.values()].filter((source) => source.error !== undefined);
     const banners = !edits && missing === undefined && failed.length === 0 ? undefined : (
         <>
             {edits && <SessionBanners session={session} words={words} onAction={onAction} />}
+            {otherFlows.map(([n, other]) => (
+                <SessionBanners key={n} session={other} words={words} onAction={onAction} name={n} conflictsOnly
+                    onChoose={() => { setChooseIn(n); openStored(n); }} />
+            ))}
             {failed.map((source) => (
                 <Box key={source.name} data-flowchart-banner="source">
                     <BannerView status="error" title={words.m.sourceUnavailable({ name: source.name })} description={source.error}
@@ -705,7 +754,7 @@ function FlowchartFrame({ value, held, storageKey, chrome, flowsPart, followed, 
                         description={words.m.flowDeleted({ part: "hint", name: shownName ?? openName ?? "" })} />
                 </Box>
             )
-            : <FlowchartCanvasView ref={canvasRef} canvas={canvas} model={model} orientation={orientation} reveal={reveal}
+            : <FlowchartCanvasView ref={canvasRef} canvas={canvas} model={model} orientation={orientation} reveal={reveal} conflicted={conflictedStates}
                 edit={canvasEdit} drop={drop.canvas} selection={selection} onSelect={setSelected} words={words} storageKey={storageKey} />;
 
     return (

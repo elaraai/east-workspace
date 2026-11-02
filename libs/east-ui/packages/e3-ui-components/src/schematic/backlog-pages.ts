@@ -33,7 +33,7 @@
  */
 
 import { SortedMap, StringType, compareFor, equalFor, none, printFor, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
-import { AREA_FIELD, AREA_UNPLACED, RecordSliceWhereType, type RecordSliceBindType, type RecordSliceEntry } from "@elaraai/east-ui/internal";
+import { RecordSliceWhereType, type RecordSliceBindType, type RecordSliceEntry, type RecordSliceReadType } from "@elaraai/east-ui/internal";
 import { schematicUnplacedPlan, type SchematicAreaIndexes, type SchematicUnplacedPlan } from "@elaraai/e3-ui/internal";
 import { recordSlicePage, recordSliceRevision, recordSliceWithin, type LibraryPageSource } from "@elaraai/east-ui-components/internal";
 import type { BacklogEntry } from "./backlog.js";
@@ -45,8 +45,8 @@ import { entryRow, type KindRows } from "./kind-rows.js";
 
 /** A kind's source of the slice. */
 type Part = ValueTypeOf<RecordSliceBindType>;
-/** A record Slice's narrowing, decoded. */
-type Where = ValueTypeOf<typeof RecordSliceWhereType>;
+/** A read of a record Slice: its narrowing, and a read by area's clause beside it (#1432). */
+type Read = ValueTypeOf<RecordSliceReadType>;
 /** An item kind, decoded. */
 type ItemKind = SchematicValue["items"][number];
 
@@ -55,7 +55,7 @@ const stringEqual = equalFor(StringType);
 const printWhere = printFor(RecordSliceWhereType);
 
 /** The rows with no position, whatever the narrowing: what `M` counts. */
-const UNPLACED: Where = new SortedMap([[AREA_FIELD, variant("values", [AREA_UNPLACED])]], compareString);
+const UNPLACED: Read = { where: new SortedMap([], compareString), area: some(variant("unplaced", null)) };
 
 /** The most cards the list keeps for what a drop finds them by, past which the oldest go: the pages around the view hold far fewer. */
 const MAX_SERVED = 4_096;
@@ -149,7 +149,7 @@ export class SchematicBacklogPages implements LibraryPageSource<BacklogPageRow> 
     private listed(): bigint[] | undefined {
         const counts: bigint[] = [];
         for (const kind of this.kinds) {
-            const count = kind.part.countWhere(this.planOf(kind).where);
+            const count = kind.part.countWhere(this.planOf(kind).read);
             if (count.type !== "some") return undefined;
             counts.push(count.value);
         }
@@ -179,8 +179,8 @@ export class SchematicBacklogPages implements LibraryPageSource<BacklogPageRow> 
         for (const [i, kind] of this.kinds.entries()) {
             shown += Number(counts[i]!);
             const plan = this.planOf(kind);
-            // Only the choices the index leads narrow the list: the rest draw what they leave out as context.
-            if (plan.where.size > 1) {
+            // Only the choices the index leads narrow the list — any its read holds: the rest draw what they leave out as context.
+            if (plan.read.where.size > 0) {
                 narrowing = true;
                 const all = kind.part.countWhere(UNPLACED);
                 if (all.type !== "some") return undefined;
@@ -244,7 +244,7 @@ export class SchematicBacklogPages implements LibraryPageSource<BacklogPageRow> 
     /** One kind's rows `[offset, offset + limit)`: a page of its unplaced clause, its drafts in place and its narrowing's other choices asked. */
     private kindPage(kind: BacklogAreaKind, offset: bigint, limit: bigint): option<BacklogPageRow[]> {
         const plan = this.planOf(kind);
-        const got = recordSlicePage(kind.part, plan.where, offset, limit);
+        const got = recordSlicePage(kind.part, plan.read, offset, limit);
         if (got.type !== "some") return none;
         const entries = got.value as RecordSliceEntry[];
         const read = entries.map((entry) => ({ key: entry.key as string, row: entryRow(entry) }));

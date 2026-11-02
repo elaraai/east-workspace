@@ -202,7 +202,7 @@ export function datasetTests(setup: TestSetup<TestContext>): void {
       assert.ok(datasets.length >= 1, 'should have at least 1 dataset entry');
       for (const entry of datasets) {
         const item = entry.value;
-        assert.ok(typeof item.path === 'string', 'item should have path');
+        assert.ok(item.path.length > 0, 'item should have a path');
         assert.ok(item.type !== undefined, 'item should have type');
         assert.ok(item.hash.type === 'some' || item.hash.type === 'none', 'item should have hash option');
         assert.ok(item.size.type === 'some' || item.size.type === 'none', 'item should have size option');
@@ -239,7 +239,6 @@ export function datasetTests(setup: TestSetup<TestContext>): void {
       // Input has a default value (10n) — hash and size should be populated
       assert.strictEqual(inputItem.value.hash.type, 'some', 'input hash should be some');
       assert.strictEqual(inputItem.value.size.type, 'some', 'input size should be some');
-      assert.strictEqual(typeof inputItem.value.hash.value, 'string');
       assert.strictEqual(inputItem.value.hash.value.length, 64, 'hash should be 64-char hex');
       assert.ok(inputItem.value.size.value > 0n, 'input size should be positive');
 

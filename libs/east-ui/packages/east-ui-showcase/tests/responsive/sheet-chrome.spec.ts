@@ -21,7 +21,8 @@
  * pointer modes; never a screenshot.
  */
 
-import { test, expect, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { settled } from "./settle";
 
 /** One example's entry, its sheet drawn and at rest. */

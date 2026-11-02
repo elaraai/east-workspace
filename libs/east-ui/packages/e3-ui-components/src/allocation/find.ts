@@ -27,7 +27,7 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { StringType, equalFor, toEastTypeValue, type EastTypeValue, type ValueTypeOf, type option } from "@elaraai/east";
+import { StringType, equalFor, none, toEastTypeValue, type EastTypeValue, type ValueTypeOf, type option } from "@elaraai/east";
 import type { DatasetKeyMatchRange, DatasetKeyQuery, RecordSliceBindType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation, type Formatters, type KeySearchSource } from "@elaraai/east-ui-components";
 import { awaitTracked, formatDatePattern, recordSlicePage, recordSliceRevision, recordSliceSeek, toSeekQuery } from "@elaraai/east-ui-components/internal";
@@ -117,7 +117,7 @@ export function useAllocationFind({ value, domain, part, words, hidden, onPick }
         const run = found.current;
         const n = Math.max(0, Math.min(limit, run.count - row));
         if (source === undefined || n === 0) return [];
-        const entries = await awaitTracked(() => recordSlicePage(source, WHOLE, BigInt(run.start + row), BigInt(n))) as readonly RecordEntry[];
+        const entries = await awaitTracked(() => recordSlicePage(source, { where: WHOLE, area: none }, BigInt(run.start + row), BigInt(n))) as readonly RecordEntry[];
         return entries.flatMap((entry): FoundBin[] => {
             if (entry.row.type !== "some") return [];
             const roles = board.bin.read(rows.encodeRow(entry.row.value));

@@ -111,11 +111,12 @@ export const EditingBatchReadinessType = VariantType({
  * @property undo - Undo
  * @property redo - Redo
  * @property discard - Drafts discarded
+ * @property settle - A conflict chosen: a draft that clashed with a newer change keeps its own value there, or takes the newer one
  */
 export const EditingOriginType = VariantType({
     typed: NullType, pasted: NullType, fill: NullType, row: NullType, pattern: NullType,
     insert: NullType, move: NullType, remove: NullType, resize: NullType, drop: NullType, verdict: NullType, optimise: NullType,
-    undo: NullType, redo: NullType, discard: NullType,
+    undo: NullType, redo: NullType, discard: NullType, settle: NullType,
 });
 
 /**

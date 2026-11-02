@@ -52,7 +52,7 @@ static bool emit_writer_settle(EmitWriter *w)
     return east_beast2_element_writer_segments(w->writer) == before || emit_writer_drain(w);
 }
 
-bool emit_writer_open(EmitWriter *w, EastType *type, const char *path)
+bool emit_writer_open(EmitWriter *w, EastType *type, const char *path, EastSourceMap *source_map)
 {
     memset(w, 0, sizeof(*w));
     w->type = type;
@@ -63,7 +63,8 @@ bool emit_writer_open(EmitWriter *w, EastType *type, const char *path)
         east_builtin_error(msg);
         return false;
     }
-    w->writer = east_beast2_element_writer_new(type, EAST_BEAST2_CODEC_DEFLATE);
+    w->writer =
+        east_beast2_element_writer_new_with_source_map(type, EAST_BEAST2_CODEC_DEFLATE, source_map);
     if (!w->writer) {
         fclose(w->out);
         w->out = NULL;
@@ -76,11 +77,13 @@ bool emit_writer_open(EmitWriter *w, EastType *type, const char *path)
     return true;
 }
 
-bool emit_writer_open_manifest(EmitWriter *w, EastType *type, const char *path)
+bool emit_writer_open_manifest(EmitWriter *w, EastType *type, const char *path,
+                               EastSourceMap *source_map)
 {
     memset(w, 0, sizeof(*w));
     w->type = type;
-    w->manifest = east_beast2_manifest_writer_new_dir(type, EAST_BEAST2_CODEC_DEFLATE, path);
+    w->manifest = east_beast2_manifest_writer_new_dir_with_source_map(
+        type, EAST_BEAST2_CODEC_DEFLATE, path, source_map);
     if (!w->manifest) return false;
     /* Frames deflate on worker threads, as for a blob. */
     east_beast2_manifest_writer_set_parallel(w->manifest, true);

@@ -49,7 +49,7 @@ import {
     type ExprType,
     type SubtypeExprOrValue,
 } from '@elaraai/east';
-import { DatasetStatusType, MutationResultType, RecordCommitInfoType } from '@elaraai/e3-types';
+import { DatasetStatusType, MutationResultType, RecordCommitInfoType, type TreePath } from '@elaraai/e3-types';
 import { Editing } from '@elaraai/east-ui';
 import type { RecordDef, MutationDef } from '@elaraai/e3';
 
@@ -267,11 +267,11 @@ type RecordHandle<T extends EastType, M extends Record<string, EastType[]>> = St
 /**
  * The TypeScript type of a {@link Record.bind} handle bound to a record of
  * state type `T` with mutations `Muts` — i.e. the return of
- * `Record.bind(record, [...mutations])`.
+ * `Record.bind(record)`, or of `Record.bind(record, [...names])`.
  *
  * @remarks
  * The mutation names + arg types live structurally in the `mutate` field's
- * closure signatures (recovered from the {@link MutationDef} tuple), not a
+ * closure signatures (recovered from the bound {@link MutationDef}s), not a
  * phantom TS brand, so they survive `$.let` / `$.const` and ordinary
  * expression plumbing.
  *
@@ -367,21 +367,46 @@ export const RecordBindPrimitives = {
 // ============================================================================
 
 /**
+ * A record's mutation names, as its declaration carries them.
+ *
+ * @typeParam R - The record
+ */
+export type MutationNameOf<R> = R extends { readonly mutations: infer M } ? keyof M & string : never;
+
+/**
+ * The mutations a list of a record's mutation names names, in its order: each
+ * the declaration the record holds under the name.
+ *
+ * @typeParam R - The record
+ * @typeParam N - The names
+ */
+export type MutationsNamed<R, N extends readonly string[]> = R extends { readonly mutations: infer M }
+    ? { readonly [K in keyof N]: N[K] extends keyof M ? M[N[K]] : never }
+    : never;
+
+/** Every mutation a record declares. */
+type AllMutationsOf<R> = R extends { readonly mutations: infer M } ? readonly M[keyof M][] : never;
+
+/**
  * Bind an `e3.record` and its mutations to a reactive read/mutate handle.
  *
- * Takes the {@link RecordDef} returned by `e3.record` plus the array of its
- * {@link MutationDef}s — the state type comes from the record, and each
- * mutation's name and arg types come from its def, the same way `Func.bind`
- * takes a function's signature from its `FunctionDef`. The binding is correct
- * by construction: it cannot drift from the deployed record's mutations.
+ * Takes the {@link RecordDef} returned by `e3.record` and binds the mutations
+ * it declares — every one, or those named — the state type from the record,
+ * and each mutation's name and arg types from the declaration the record holds
+ * under it, the same way `Func.bind` takes a function's signature from its
+ * `FunctionDef`. The binding is correct by construction: it cannot drift from
+ * the deployed record's mutations, and a name the record does not declare is a
+ * type error.
  *
- * @typeParam T - The record's state East type (from the def).
- * @typeParam Muts - The mutation defs to expose (names + arg types from defs).
+ * @typeParam R - The record (its state type and its mutations from its declaration).
+ * @typeParam N - The mutations to expose, by name; every one the record declares when none are given.
  * @param record - The `e3.record` definition to bind.
- * @param mutations - The mutations to expose on `handle.mutate`.
+ * @param mutations - The names of the mutations to expose on `handle.mutate`: every one the record declares when
+ *   omitted, none for `[]`.
  * @returns A handle struct described by {@link RecordBindHandleType} —
  *   `read` / `status` / `history` / `mutate.{<name>,pending,status,error,cancel}`
  *   / `binding`.
+ * @throws {Error} Naming the record and its mutations, for a name it does not declare
  *
  * @remarks
  * The launch/observe split is the same shape `Func.bind` uses for `call`:
@@ -398,13 +423,16 @@ export const RecordBindPrimitives = {
  * import { Record } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
- * const counter = e3.record("counter", IntegerType, 0n);
- * const increment = e3.mutation.reduce("increment", counter,
- *     East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)));
+ * const counter = e3.record("counter", IntegerType, {
+ *     initial: 0n,
+ *     mutations: (mutation) => ({
+ *         increment: mutation.reduce(East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))),
+ *     }),
+ * });
  *
  * const counterUi = East.function([], UIComponentType, _$ =>
  *     Reactive.Root(East.function([], UIComponentType, $ => {
- *         const r = $.let(Record.bind(counter, [increment]));
+ *         const r = $.let(Record.bind(counter));
  *         const bump = $.const(East.function([], NullType, $ => { $(r.mutate.increment(1n)); }));
  *         return VStack.Root([
  *             Stat.Root({ label: "Counter", value: East.print(r.read()) }),
@@ -413,28 +441,35 @@ export const RecordBindPrimitives = {
  *     })));
  * ```
  */
-function bindRecord<
-    T extends EastType,
-    Muts extends readonly MutationDef<string, T, EastType[]>[],
->(
-    record: RecordDef<T>,
-    mutations: [...Muts],
-): BoundRecord<T, Muts> {
-    const mutMap: Record<string, EastType[]> = {};
-    for (const m of mutations) {
-        if (m.record.name !== record.name) {
-            throw new Error(
-                `Record.bind: mutation "${m.name}" writes record "${m.record.name}", not "${record.name}".`,
-            );
+function bindRecord<R extends RecordDef<EastType, TreePath, object, object>>(
+    record: R,
+): BoundRecord<R['type'], Extract<AllMutationsOf<R>, readonly MutationDef<string, R['type'], EastType[]>[]>>;
+function bindRecord<R extends RecordDef<EastType, TreePath, object, object>, const N extends readonly MutationNameOf<R>[]>(
+    record: R,
+    mutations: N,
+): BoundRecord<R['type'], Extract<MutationsNamed<R, N>, readonly MutationDef<string, R['type'], EastType[]>[]>>;
+function bindRecord(record: RecordDef<EastType>, names?: readonly string[]): unknown {
+    const declared = record.mutations as Readonly<Record<string, MutationDef | undefined>>;
+    const declaredNames = Object.keys(declared);
+    const listed = () => (declaredNames.length === 0 ? "it declares none" : `it declares ${declaredNames.map((name) => `'${name}'`).join(", ")}`);
+    if (names !== undefined && !Array.isArray(names)) throw new Error(`Record.bind: mutations lists the names of record '${record.name}''s mutations — ${listed()}`);
+    const mutations = (names ?? declaredNames).map((name) => {
+        const mutation = typeof name === "string" ? declared[name] : undefined;
+        if (mutation === undefined) {
+            throw new Error(typeof name === "string"
+                ? `Record.bind: record '${record.name}' declares no mutation '${name}' — ${listed()}`
+                : `Record.bind: a mutation is given by its name, as record '${record.name}' declares it — ${listed()}`);
         }
-        mutMap[m.name] = [...m.argTypes];
-    }
+        return mutation;
+    });
+    const mutMap: Record<string, EastType[]> = {};
+    for (const m of mutations) mutMap[m.name] = [...m.argTypes];
     const handleType = RecordBindHandleType(record.type, mutMap);
     // The record name must be a single literal Value IR node — the only shape
     // manifest derivation (`derive.ts`) handles. `record.name` is a static JS
     // string at IR-build time, so this holds by construction.
     const nameValue = East.value(record.name, StringType);
-    return recordBindPlatformFn([handleType], nameValue) as BoundRecord<T, Muts>;
+    return recordBindPlatformFn([handleType], nameValue);
 }
 
 // ============================================================================
@@ -446,8 +481,8 @@ function bindRecord<
  * a Plan whose entries are the record's, each named by its key's text.
  */
 export interface RecordApplyOptions {
-    /** The patch mutation each Apply commits through — the name
-     *  `e3.mutation.patch(record)` was given; `patch` when omitted. */
+    /** The patch mutation each Apply commits through — the name the record
+     *  declares its `mutation.patch()` under; `patch` when omitted. */
     mutation?: string;
     /** The collection hands keyed batches, `ChangeSet(V, K)`, as the Plan does;
      *  a Sheet hands `ChangeSet(V)`, the default. */
@@ -520,7 +555,7 @@ const settleWrite = East.function(
 /**
  * Commit an editable collection's batches to an `e3.record` — the `onApply` a
  * Sheet, a Plan or a SnapGrid takes, each Apply one commit through the record's
- * patch door (`e3.mutation.patch`).
+ * patch door (`mutation.patch()`).
  *
  * @remarks
  * Two forms:
@@ -547,8 +582,9 @@ const settleWrite = East.function(
  * that got no answer throws, and the session's retry resolves to its commit,
  * if it made one, through the batch's request id.
  *
- * The handle must be bound with the patch mutation — `Record.bind(record,
- * [e3.mutation.patch(record)])` — and the record must be a `Dict`.
+ * The record must declare the patch mutation and the handle be bound with it —
+ * `Record.bind(record)` binds every mutation the record declares — and the
+ * record must be a `Dict`.
  *
  * @typeParam K - The record's key type
  * @typeParam V - The record's entry type
@@ -568,14 +604,18 @@ const settleWrite = East.function(
  * import e3 from "@elaraai/e3";
  *
  * const JobType = StructType({ task: StringType, qty: IntegerType });
- * const jobs = e3.record("jobs", DictType(StringType, JobType), new Map());
- * const jobsPatch = e3.mutation.patch(jobs);
+ * const jobs = e3.record("jobs", DictType(StringType, JobType), {
+ *     initial: new Map(),
+ *     mutations: (mutation) => ({
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  *
  * // Mirrors `recordSheetApply` in test/bind/record/record.examples.tsx.
  * const jobSheet = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
  *         const rows = $.let(Data.bindPaged(jobs));
- *         const record = $.let(Record.bind(jobs, [jobsPatch]));
+ *         const record = $.let(Record.bind(jobs));
  *         return (
  *             <Box height="360px">
  *                 <Sheet
@@ -640,7 +680,7 @@ function applyToRecord(
     if (door === undefined || !isTypeEqual(door, AsyncFunctionType([StringType, PatchType(recordType)], RecordOutcomeType))) {
         throw new Error(
             `Record.onApply: "${mutation}" is not bound as this record's patch door — bind the record with ` +
-            `e3.mutation.patch(record${mutation === "patch" ? "" : `, "${mutation}"`}) among its mutations`);
+            `${mutation}: mutation.patch() among the mutations it declares`);
     }
     // The handle's fields as the Apply reads them; entries are opaque here, as
     // in Editing.apply, and their runtime types are exact.

@@ -230,7 +230,7 @@ describe("lists (A59–A61)", () => {
 });
 
 describe("the summary (A63) and Issues (A64)", () => {
-    test("A63 — Bins, Loading, Issues and Drafts; `3 lanes · 33 resources`; the narrowing's note naming each source it hides rows of", () => {
+    test("A63 — Bins, Loading, Issues and Changes; `3 lanes · 33 resources`; the narrowing's note naming each source it hides rows of", () => {
         const committed = bin("B-1", at(11, 6, 15), "LD-1", 21, [["K-1", 21]]);
         const held = day([["3001", committed], ["3002", bin("B-2", at(11, 6, 35), "LD-2", 10, [["K-2", 10]])]]);
         const plan = day([["3001", { ...committed, at: at(11, 7, 15) }], ["V1", bin("B-3", at(11, 0, 55), undefined, 0, [["K-3", 0]])]]);
@@ -242,10 +242,10 @@ describe("the summary (A63) and Issues (A64)", () => {
             { label: "Loading", value: "2 of 4", sub: "1 free · 1 busy", tone: undefined },
             { label: "Issues", value: "2", sub: "1 overlap · 1 over max", tone: "warning" },
             // The moved bin, the new reservation, and the committed bin the drafts removed.
-            { label: "Drafts", value: "3", sub: "unsaved · Save is in the toolbar", tone: "brand" },
+            { label: "Changes", value: "3", sub: "unsaved · Save is in the toolbar", tone: "brand" },
         ]);
         expect(summaryStats({ plan: held, held, sameBin, loads, issues: issues.slice(2), words }).slice(2)).toEqual([
-            { label: "Issues", value: "0", sub: "none", tone: undefined }, { label: "Drafts", value: "0", sub: "all saved", tone: undefined },
+            { label: "Issues", value: "0", sub: "none", tone: undefined }, { label: "Changes", value: "0", sub: "all saved", tone: undefined },
         ]);
         expect(summaryLine(3, 33, DEFAULT_NOUNS)).toBe("3 lanes · 33 resources");
         expect(summaryLine(1, 1, DEFAULT_NOUNS)).toBe("1 lane · 1 resource");

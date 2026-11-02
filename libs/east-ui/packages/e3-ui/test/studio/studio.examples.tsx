@@ -18,9 +18,9 @@ import {
     example, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import {
-    BarStrip, Box, Chart, Format, HStack, MetricChip, Reactive, Table, Sparkline, Stat, Text, UIComponentType,
+    BarStrip, Box, Button, Chart, Format, HStack, MetricChip, Reactive, Table, Sparkline, Stat, Text, UIComponentType, VStack,
 } from "@elaraai/east-ui";
-import { Data, Record, Studio, fingerprintOf } from "@elaraai/e3-ui";
+import { Data, Record, Studio } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
@@ -285,125 +285,129 @@ export const shiftRoster = Studio.component("shift_roster", {
  * draft resizing the trend and adding the bars beside it — and its templates,
  * and the other projects' pages.
  */
-export const studioPages = e3.record("studio_pages", Studio.Types.Pages, new SortedMap<Key, Entry>([
-    [{ project: "Ops console", page: "Account detail" }, variant("page", {
-        draft: {
-            title: "Account detail",
-            cells: [
-                { key: "a-kpi", row: "r1", span: 12n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail", fingerprint: fingerprintOf(kpiRailUi) },
-                { key: "a-orders", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: none, component: "orders_by_week", fingerprint: fingerprintOf(ordersByWeekUi) },
-                { key: "a-bars", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, component: "breakdown_bars", fingerprint: fingerprintOf(breakdownBarsUi) },
-                { key: "a-trend", row: "r3", span: 12n, height: some(200n), align: variant("top", null), title: none, component: "revenue_trend", fingerprint: fingerprintOf(revenueTrendUi) },
-            ],
-        },
-        live: none,
-    })],
-    [{ project: "Ops console", page: "Overview" }, variant("page", {
-        draft: {
-            title: "Overview",
-            cells: [
-                { key: "o-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: fingerprintOf(kpiRailUi) },
-                { key: "o-trend", row: "r2", span: 8n, height: none, align: variant("stretch", null), title: none, component: "revenue_trend", fingerprint: fingerprintOf(revenueTrendUi) },
-                { key: "o-bars", row: "r2", span: 4n, height: none, align: variant("stretch", null), title: none, component: "breakdown_bars", fingerprint: fingerprintOf(breakdownBarsUi) },
-                { key: "o-board", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, component: "assignment_board", fingerprint: fingerprintOf(assignmentBoardUi) },
-            ],
-        },
-        live: some({
-            version: 3n,
-            page: {
+export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
+    initial: new SortedMap<Key, Entry>([
+        [{ project: "Ops console", page: "Account detail" }, variant("page", {
+            draft: {
+                title: "Account detail",
+                cells: [
+                    { key: "a-kpi", row: "r1", span: 12n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
+                    { key: "a-orders", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: none, component: "orders_by_week" },
+                    { key: "a-bars", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, component: "breakdown_bars" },
+                    { key: "a-trend", row: "r3", span: 12n, height: some(200n), align: variant("top", null), title: none, component: "revenue_trend" },
+                ],
+            },
+            live: none,
+        })],
+        [{ project: "Ops console", page: "Overview" }, variant("page", {
+            draft: {
                 title: "Overview",
                 cells: [
-                    { key: "o-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: fingerprintOf(kpiRailUi) },
-                    { key: "o-trend", row: "r2", span: 12n, height: none, align: variant("stretch", null), title: none, component: "revenue_trend", fingerprint: fingerprintOf(revenueTrendUi) },
-                    { key: "o-board", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, component: "assignment_board", fingerprint: fingerprintOf(assignmentBoardUi) },
+                    { key: "o-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
+                    { key: "o-trend", row: "r2", span: 8n, height: none, align: variant("stretch", null), title: none, component: "revenue_trend" },
+                    { key: "o-bars", row: "r2", span: 4n, height: none, align: variant("stretch", null), title: none, component: "breakdown_bars" },
+                    { key: "o-board", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, component: "assignment_board" },
                 ],
             },
-        }),
-    })],
-    [{ project: "Ops console", page: "Regional rollup" }, variant("page", {
-        draft: {
-            title: "Regional rollup",
-            cells: [
-                { key: "r-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend", fingerprint: fingerprintOf(revenueTrendUi) },
-                { key: "r-bars", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: some("By region"), component: "breakdown_bars", fingerprint: fingerprintOf(breakdownBarsUi) },
-                { key: "r-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "visits_sparkline", fingerprint: fingerprintOf(visitsSparklineUi) },
-            ],
-        },
-        live: some({
-            version: 1n,
-            page: {
+            live: some({
+                version: 3n,
+                page: {
+                    title: "Overview",
+                    cells: [
+                        { key: "o-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
+                        { key: "o-trend", row: "r2", span: 12n, height: none, align: variant("stretch", null), title: none, component: "revenue_trend" },
+                        { key: "o-board", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, component: "assignment_board" },
+                    ],
+                },
+            }),
+        })],
+        [{ project: "Ops console", page: "Regional rollup" }, variant("page", {
+            draft: {
                 title: "Regional rollup",
                 cells: [
-                    { key: "r-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend", fingerprint: fingerprintOf(revenueTrendUi) },
-                    { key: "r-bars", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: some("By region"), component: "breakdown_bars", fingerprint: fingerprintOf(breakdownBarsUi) },
-                    { key: "r-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "visits_sparkline", fingerprint: fingerprintOf(visitsSparklineUi) },
+                    { key: "r-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend" },
+                    { key: "r-bars", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: some("By region"), component: "breakdown_bars" },
+                    { key: "r-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "visits_sparkline" },
                 ],
             },
-        }),
-    })],
-    [{ project: "Ops console", page: "Weekly export" }, variant("page", {
-        draft: {
-            title: "Weekly export",
+            live: some({
+                version: 1n,
+                page: {
+                    title: "Regional rollup",
+                    cells: [
+                        { key: "r-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend" },
+                        { key: "r-bars", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: some("By region"), component: "breakdown_bars" },
+                        { key: "r-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "visits_sparkline" },
+                    ],
+                },
+            }),
+        })],
+        [{ project: "Ops console", page: "Weekly export" }, variant("page", {
+            draft: {
+                title: "Weekly export",
+                cells: [
+                    { key: "w-orders", row: "r1", span: 12n, height: some(320n), align: variant("top", null), title: none, component: "orders_by_week" },
+                    { key: "w-roster", row: "r2", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "shift_roster" },
+                ],
+            },
+            live: some({ version: 2n, page: { title: "Weekly export", cells: [] } }),
+        })],
+        [{ project: "Ops console", page: "Ops board" }, variant("template", {
+            title: "Ops board",
             cells: [
-                { key: "w-orders", row: "r1", span: 12n, height: some(320n), align: variant("top", null), title: none, component: "orders_by_week", fingerprint: fingerprintOf(ordersByWeekUi) },
-                { key: "w-roster", row: "r2", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "shift_roster", fingerprint: fingerprintOf(shiftRosterUi) },
+                { key: "t-orders", row: "r1", span: 8n, height: some(320n), align: variant("top", null), title: none, component: "orders_by_week" },
+                { key: "t-bars", row: "r1", span: 4n, height: some(320n), align: variant("stretch", null), title: none, component: "breakdown_bars" },
             ],
-        },
-        live: some({ version: 2n, page: { title: "Weekly export", cells: [] } }),
-    })],
-    [{ project: "Ops console", page: "Ops board" }, variant("template", {
-        title: "Ops board",
-        cells: [
-            { key: "t-orders", row: "r1", span: 8n, height: some(320n), align: variant("top", null), title: none, component: "orders_by_week", fingerprint: fingerprintOf(ordersByWeekUi) },
-            { key: "t-bars", row: "r1", span: 4n, height: some(320n), align: variant("stretch", null), title: none, component: "breakdown_bars", fingerprint: fingerprintOf(breakdownBarsUi) },
-        ],
-    })],
-    [{ project: "Ops console", page: "Report brief" }, variant("template", {
-        title: "Report brief",
-        cells: [
-            { key: "t-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend", fingerprint: fingerprintOf(revenueTrendUi) },
-            { key: "t-orders", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "orders_by_week", fingerprint: fingerprintOf(ordersByWeekUi) },
-            { key: "t-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "visits_sparkline", fingerprint: fingerprintOf(visitsSparklineUi) },
-        ],
-    })],
-    [{ project: "Ops console", page: "Summary" }, variant("template", {
-        title: "Summary",
-        cells: [
-            { key: "t-kpi", row: "r1", span: 12n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail", fingerprint: fingerprintOf(kpiRailUi) },
-            { key: "t-trend", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend", fingerprint: fingerprintOf(revenueTrendUi) },
-            { key: "t-bars", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, component: "breakdown_bars", fingerprint: fingerprintOf(breakdownBarsUi) },
-        ],
-    })],
-    [{ project: "Finance portal", page: "Ledger" }, variant("page", {
-        draft: {
-            title: "Ledger",
+        })],
+        [{ project: "Ops console", page: "Report brief" }, variant("template", {
+            title: "Report brief",
             cells: [
-                { key: "l-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend", fingerprint: fingerprintOf(revenueTrendUi) },
+                { key: "t-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend" },
+                { key: "t-orders", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "orders_by_week" },
+                { key: "t-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "visits_sparkline" },
             ],
-        },
-        live: none,
-    })],
-    [{ project: "HR roster", page: "Rota" }, variant("page", {
-        draft: {
-            title: "Rota",
+        })],
+        [{ project: "Ops console", page: "Summary" }, variant("template", {
+            title: "Summary",
             cells: [
-                { key: "h-roster", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "shift_roster", fingerprint: fingerprintOf(shiftRosterUi) },
+                { key: "t-kpi", row: "r1", span: 12n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
+                { key: "t-trend", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend" },
+                { key: "t-bars", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, component: "breakdown_bars" },
             ],
-        },
-        live: some({
-            version: 1n,
-            page: {
+        })],
+        [{ project: "Finance portal", page: "Ledger" }, variant("page", {
+            draft: {
+                title: "Ledger",
+                cells: [
+                    { key: "l-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend" },
+                ],
+            },
+            live: none,
+        })],
+        [{ project: "HR roster", page: "Rota" }, variant("page", {
+            draft: {
                 title: "Rota",
                 cells: [
-                    { key: "h-roster", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "shift_roster", fingerprint: fingerprintOf(shiftRosterUi) },
+                    { key: "h-roster", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "shift_roster" },
                 ],
             },
-        }),
-    })],
-], compareFor(Studio.Types.Key)));
+            live: some({
+                version: 1n,
+                page: {
+                    title: "Rota",
+                    cells: [
+                        { key: "h-roster", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "shift_roster" },
+                    ],
+                },
+            }),
+        })],
+    ], compareFor(Studio.Types.Key)),
+    mutations: (mutation) => ({
+        // The record's one write.
+        patch: mutation.patch(),
+    }),
+});
 
-/** The record's one write. */
-export const studioPagesPatch = e3.mutation.patch(studioPages);
 
 // ============================================================================
 // The surfaces
@@ -413,18 +417,78 @@ export const studioBuilder = example({
     keywords: [
         "Studio", "Studio.Builder", "builder", "canvas", "palette", "inspector", "publish preview", "Preview", "Publish",
         "SnapGrid", "toolbar", "history", "Undo", "Save", "Save as template", "Record.bind", "patch", "e3.record",
-        "e3.mutation.patch", "Studio.component", "components", "pages", "Desktop", "Tablet", "env", "audience", "rollout",
+        "mutation.patch", "Studio.component", "components", "pages", "Desktop", "Tablet", "env", "audience", "rollout",
     ],
-    description: "The builder over the pages record: the Ops console's Overview on the canvas under one toolbar — its status, the zoom, the history item, Desktop · Tablet, Save as template, Preview and Publish — the palette of the seven components before it and the inspector after it; Preview and Publish open the publish preview in the canvas's place, its two changes since v3 and the logic banner, and Exit returns",
+    description: "The builder over the pages record: the Ops console's Overview on the canvas under one toolbar — its status, the zoom, the history item, Desktop · Tablet, Save as template, Preview and Publish — the palette of the seven components before it and the inspector after it; Preview and Publish open the publish preview in the canvas's place, its two changes since v3, and Exit returns",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const components = $.let([kpiRail, breakdownBars, revenueTrend, ordersByWeek, visitsSparkline, assignmentBoard, shiftRoster]);
-            const pages = $.let(Record.bind(studioPages, [studioPagesPatch]));
+            const pages = $.let(Record.bind(studioPages));
             return (
                 <Box height="760px">
                     <Studio.Builder pages={pages} components={components} project="Ops console" id="studio"
                         env="Staging" audience="Field ops · 24 users" rollout="Immediate" />
                 </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** A page's tiles each a column narrower, one three columns wide or less as it was: what someone else's save changes. */
+const tilesNarrower = East.function([Studio.Types.Page], Studio.Types.Page, (_$, page) => ({
+    title: page.title,
+    cells: page.cells.map((_$2, cell) => ({
+        key: cell.key, row: cell.row,
+        span: cell.span.greater(3n).ifElse(() => cell.span.subtract(1n), () => cell.span),
+        height: cell.height, align: cell.align, title: cell.title, component: cell.component,
+    })),
+}));
+
+/** The pages the conflicts example edits, as the builder's start, in a record of their own so no other example's edits meet them. */
+export const studioConflictPages = e3.record("studio_conflict_pages", Studio.Types.Pages, {
+    initial: studioPages.default!,
+    mutations: (mutation) => ({
+        // The record's one write.
+        patch: mutation.patch(),
+        // Someone else's save: every page's tiles a column narrower in its draft, its templates as they were.
+        elsewhere: mutation.reduce(East.function([Studio.Types.Pages], Studio.Types.Pages, ($, pages) => {
+            const narrower = $.const(tilesNarrower);
+            return pages.map((_$2, entry) => entry.match({
+                page: (_$3, held) => East.value(variant("page", { draft: narrower(held.draft), live: held.live }), Studio.Types.Entry),
+                template: (_$3, page) => East.value(variant("template", page), Studio.Types.Entry),
+            }));
+        })),
+    }),
+});
+
+/**
+ * Your edits meeting someone else's save, in one window: edit, then press
+ * Someone else saves, which saves another person's change to the same pages —
+ * every tile a column narrower. A tile you made wider or narrower too is a
+ * conflict, waiting for you to choose; a tile you moved, aligned or made
+ * taller combines with theirs. Each press saves their change again.
+ */
+export const studioConflicts = example({
+    keywords: ["Studio", "Studio.Builder", "conflict", "conflicts", "combine", "someone else", "Choose", "tile", "span", "Record.bind", "mutate", "Button", "Save"],
+    description: "Your edits meeting someone else's save, in one window — make a tile wider or narrower, then press Someone else saves, which saves another person's change to the same pages (every tile a column narrower), so yours conflict and wait to be chosen; a tile you move, align or make taller combines with theirs",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const components = $.let([kpiRail, breakdownBars, revenueTrend, ordersByWeek, visitsSparkline, assignmentBoard, shiftRoster]);
+            const pages = $.let(Record.bind(studioConflictPages, ["patch"]));
+            const others = $.let(Record.bind(studioConflictPages, ["elsewhere"]));
+            const theirs = $.const(East.function([], NullType, ($) => { $(others.mutate.elsewhere()); }));
+            return (
+                <VStack gap="3" align="stretch">
+                    <HStack gap="3">
+                        <Button variant="outline" onClick={theirs} loading={others.mutate.pending()}>Someone else saves</Button>
+                        <Text color="fg.muted">Their change: every tile a column narrower</Text>
+                    </HStack>
+                    <Box height="760px">
+                        <Studio.Builder pages={pages} components={components} project="Ops console" id="conflicts"
+                            env="Staging" audience="Field ops · 24 users" rollout="Immediate" />
+                    </Box>
+                </VStack>
             );
         }}</Reactive>
     )),
@@ -441,7 +505,7 @@ export const studioLibrary = example({
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const components = $.let([kpiRail, breakdownBars, revenueTrend, ordersByWeek, visitsSparkline, assignmentBoard, shiftRoster]);
-            const pages = $.let(Record.bind(studioPages, [studioPagesPatch]));
+            const pages = $.let(Record.bind(studioPages));
             return (
                 <Box height="764px">
                     <Studio.Library pages={pages} components={components} project="Ops console" id="studio" />

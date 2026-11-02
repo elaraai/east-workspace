@@ -52,7 +52,7 @@ function pressesOf($: BlockBuilder<never>) {
 
 /** The jobs over the presses, bound inside a block, their unscheduled ones in the backlog. */
 function jobsOf($: BlockBuilder<never>) {
-    const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+    const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
     return Schedule.events(jobs, {
         name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
         resource: { field: "press", of: "presses" },
@@ -122,9 +122,9 @@ describe("the Series tab (PB29)", () => {
         const payload = await payloadOf(($) => {
             const presses = $.let(Record.bind(ex.planPrintPresses, []));
             const crews = $.let(Record.bind(ex.planPrintCrews, []));
-            const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
-            const stops = $.let(Record.bind(ex.planPrintStops, [ex.planPrintStopsPatch]));
-            const shifts = $.let(Record.bind(ex.planPrintShifts, [ex.planPrintShiftsPatch]));
+            const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
+            const stops = $.let(Record.bind(ex.planPrintStops, ["patch"]));
+            const shifts = $.let(Record.bind(ex.planPrintShifts, ["patch"]));
             const stock = $.let(Data.bind(ex.planLinkStock));
             return Plan.Payload({
                 axis: Plan.axis({ window: WINDOW, resolution: "day" }),

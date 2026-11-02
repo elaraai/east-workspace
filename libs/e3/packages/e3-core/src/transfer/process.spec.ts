@@ -30,11 +30,13 @@ const PlanType = StructType({ owner: StringType });
 
 /** A package whose deploy owes an index build, so it calls the runner. */
 function indexed(): PackageDef<Record<string, unknown>> {
-  const plans = e3.record('plans', DictType(StringType, PlanType), new Map());
-  const byOwner = e3.recordIndex('by_owner', plans, {
-    key: East.function([StringType, PlanType], StringType, ($, _id, plan) => plan.owner),
+  const plans = e3.record('plans', DictType(StringType, PlanType), {
+    initial: new Map(),
+    indexes: (index) => ({
+      by_owner: index.key(East.function([StringType, PlanType], StringType, ($, _id, plan) => plan.owner)),
+    }),
   });
-  return e3.package('planning', '1.0.0', plans, byOwner);
+  return e3.package('planning', '1.0.0', plans);
 }
 
 /** A package whose deploy runs nothing. */

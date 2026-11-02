@@ -13,7 +13,6 @@
 |---------|-------------|-----|
 | [@elaraai/east-ui](packages/east-ui) | Core UI component definitions | [![npm](https://img.shields.io/npm/v/@elaraai/east-ui)](https://www.npmjs.com/package/@elaraai/east-ui) |
 | [@elaraai/east-ui-components](packages/east-ui-components) | React rendering with Chakra UI | [![npm](https://img.shields.io/npm/v/@elaraai/east-ui-components)](https://www.npmjs.com/package/@elaraai/east-ui-components) |
-| [east-ui-preview](packages/east-ui-extension) | VSCode extension for live preview | [Marketplace](https://marketplace.visualstudio.com/items?itemName=ElaraAI.east-ui-preview) |
 
 ## Features
 
@@ -115,7 +114,6 @@ Dual-licensed:
   - [@elaraai/e3-ui](https://www.npmjs.com/package/@elaraai/e3-ui): e3 + UI bridge — Data bindings, `e3.ui()` task, manifest
   - [@elaraai/e3-ui-components](https://www.npmjs.com/package/@elaraai/e3-ui-components): React Query hooks and preview components for the e3 API
   - [@elaraai/e3-ui-cli](https://www.npmjs.com/package/@elaraai/e3-ui-cli): Browse an e3 repository in the terminal (`e3-ui [repo]`), and render east-ui / e3-ui components to PNG (`e3-ui shot`)
-  - [east-ui-preview](https://marketplace.visualstudio.com/items?itemName=ElaraAI.east-ui-preview): VS Code extension for live East UI component preview
 
 - **[e3 — East Execution Engine](https://github.com/elaraai/east-workspace/tree/main/libs/e3)**: Durable execution engine for running East pipelines at scale. Git-like content-addressable storage, automatic memoization, reactive dataflow, real-time monitoring.
   - [@elaraai/e3](https://www.npmjs.com/package/@elaraai/e3): SDK for authoring e3 packages with typed tasks and pipelines

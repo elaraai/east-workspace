@@ -19,7 +19,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname } from 'node:path';
-import { variant, StringType, encodeBeast2For, SortedMap } from '@elaraai/east';
+import { variant, StringType, encodeBeast2For, SortedMap, toEastTypeValue } from '@elaraai/east';
 import type { Structure, DatasetRef } from '@elaraai/e3-types';
 import {
   keypathToRefPath,
@@ -69,7 +69,7 @@ describe('refs <-> tree conversion', () => {
 
   // Structure: { inputs: { a: value, b: value }, outputs: { c: value } }
   const valueStructure = (): Structure =>
-    variant('value', { type: { type: 'String', value: null } as never, writable: true });
+    variant('value', { type: toEastTypeValue(StringType), writable: true });
   const structure: Structure = variant('struct', new SortedMap([
     ['inputs', variant('struct', new SortedMap([
       ['a', valueStructure()],

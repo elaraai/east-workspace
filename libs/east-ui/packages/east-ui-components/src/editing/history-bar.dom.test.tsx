@@ -9,7 +9,7 @@
  */
 
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { IntegerType, StringType, StructType, none, some, variant } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
@@ -19,8 +19,13 @@ import { liftDraft } from "./draft.js";
 import { HistoryBar, type HistoryAction } from "./HistoryBar.js";
 import { editingMessages, SESSION_TEXT, type EditingMessages, type EditingWords } from "./messages.js";
 import { EditSession, type EditIssue, type EntryVersion } from "./session.js";
+import { keepDrafts, keptDraftsKey } from "./keep.js";
+import { resetKept } from "../platform/kept.js";
 
-afterEach(cleanup);
+afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+});
 
 const Run = StructType({ id: StringType, end: IntegerType });
 const Draft = Editing.Types.Draft(Run);
@@ -57,6 +62,24 @@ test("the bar speaks the words its collection hands it, and each action is the c
     expect(ui.onAction.mock.calls.map(([action]) => action)).toEqual(["undo", "apply"]);
 });
 
+test("a button run out under the focus keeps it, aria-disabled and refusing, until the focus moves on: Discard pressed from the keyboard leaves the focus on Discard, never on the page", () => {
+    const ui = setup();
+    ui.session.record([{ id: "a", before: version(1n), after: version(4n) }], "resize", "Resize a");
+    ui.refresh();
+    const discard = ui.getByRole("button", { name: "⟦Discard" }) as HTMLButtonElement;
+    act(() => { discard.focus(); });
+    fireEvent.click(discard);
+    // The collection discards: nothing is left to discard, and Discard keeps the focus, refusing another press.
+    act(() => { ui.session.discard(); });
+    ui.refresh();
+    expect([document.activeElement === discard, discard.disabled, discard.getAttribute("aria-disabled")]).toEqual([true, false, "true"]);
+    fireEvent.click(discard);
+    expect(ui.onAction.mock.calls.map(([action]) => action)).toEqual(["discard"]);
+    // The focus moved on, it is disabled, out of the tab order.
+    act(() => { discard.blur(); });
+    expect([discard.disabled, discard.getAttribute("aria-disabled")]).toEqual([true, null]);
+});
+
 test("locked while a run of the optimiser is out (#1409, R2): each action aria-disabled and refused, none disabled, the issues still reachable", () => {
     const ui = setup(true);
     ui.session.record([{ id: "a", before: version(1n), after: version(4n) }], "resize", "Resize a");
@@ -88,4 +111,21 @@ test("an incomplete draft counts as an issue the bar goes to; the status and the
     ui.session.error = "Refused by the host";
     ui.refresh();
     expect(ui.getByRole("alert").textContent).toBe("Refused by the host");
+});
+
+test("drafts a reload would lose are said under the buttons, where the bar says its error", () => {
+    resetKept();
+    window.sessionStorage.clear();
+    const session = new EditSession<string>({
+        sourceId: "runs", entryType: Run, draftType: Draft, idField: "id", auto: false,
+        apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
+    });
+    keepDrafts(session, keptDraftsKey("", "runs", "runs.bar"), StringType);
+    session.observeBase(variant("snapshot", [{ id: "a", end: 1n }]));
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new DOMException("full", "QuotaExceededError"); });
+    session.record([{ id: "a", before: version(1n), after: version(4n) }], "resize", "Resize a");
+    const { container } = render(<ChakraProvider value={system}>
+        <HistoryBar session={session} words={WORDS} editing={false} onAction={() => undefined} onIssue={() => undefined} />
+    </ChakraProvider>);
+    expect(container.querySelector("[data-history-keeping]")!.textContent).toBe(`⟦${editingMessages.bannerUnkept({ reason: "full" })}`);
 });

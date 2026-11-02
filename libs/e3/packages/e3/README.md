@@ -58,10 +58,10 @@ This creates a package with:
 - `e3.streamTask(name, { inputs, output }, fn)` - Define a task that emits its output instead of returning it; `fn` receives the inputs, then `emit`
 - `e3.output.array(T)`, `set(T)`, `dict(K, V, { merge? })`, `fold(T, { zero, combine })` - The output kinds a stream task emits into: what `emit` takes, and how the parts of the output combine
 - `e3.partition(dataset, { by? })` - Mark a stream task's input as one its work may be split over, a piece at a time, in parallel
-- `e3.record(name, type, initialValue)` - Define a record: state written only through its mutations, each an audited commit
-- `e3.mutation.reduce(name, record, fn)`, `edit(name, record, fn)`, `patch(record, name?)` - Define a record's mutations: a reducer over the whole state, a body writing through an `edit` capability, or a patch a client sends
-- `e3.recordIndex(name, record, { key | keys, value? })` - Define a second collection over a Dict record, in another order
-- `e3.migration.value`, `rows`, `rekey(name, record, fn, { after? })` - Define the steps a deploy runs when a package changes a record's type
+- `e3.record(name, type, { initial?, indexes?, mutations?, migrations? })` - Define a record: state written only through its mutations, each an audited commit. A record is declared whole, its parts named in its declaration:
+  - `indexes: (index) => ({ by_site: index.on(["site"]), … })` - Second collections over a Dict record, in another order: `index.on(fields)`, `key(fn)` or `keys(fn)`, each with an optional `value` projection, or `interval`, `area`, `series`, `nested` and `summary` over the rows' times and boxes
+  - `mutations: (mutation) => ({ patch: mutation.patch(), … })` - Its mutations: `mutation.reduce(fn)`, a reducer over the whole state; `edit(fn)`, a body writing through an `edit` capability; or `patch()`, a patch a client sends
+  - `migrations: (migration) => [migration.value(name, fn), …]` - The steps a deploy runs when a package changes the record's type, in order: `value`, `rows` or `rekey`
 - `e3.package(name, version, ...items)` - Create a package (dependencies collected automatically)
 - `e3.export(pkg, path)` - Export package to zip file
 
@@ -116,7 +116,6 @@ Dual AGPL-3.0 / Commercial. See [LICENSE.md](./LICENSE.md).
   - [@elaraai/east-ui-components](https://www.npmjs.com/package/@elaraai/east-ui-components): React renderer with Chakra UI v3 styling
   - [@elaraai/e3-ui](https://www.npmjs.com/package/@elaraai/e3-ui): e3 + UI bridge — Data bindings, `e3.ui()` task, manifest
   - [@elaraai/e3-ui-components](https://www.npmjs.com/package/@elaraai/e3-ui-components): React Query hooks and preview components for the e3 API
-  - [east-ui-preview](https://marketplace.visualstudio.com/items?itemName=ElaraAI.east-ui-preview): VS Code extension for live East UI component preview
 
 - **[e3 — East Execution Engine](https://github.com/elaraai/east-workspace/tree/main/libs/e3)**: Durable execution engine for running East pipelines at scale. Git-like content-addressable storage, automatic memoization, reactive dataflow, real-time monitoring.
   - [@elaraai/e3](https://www.npmjs.com/package/@elaraai/e3): SDK for authoring e3 packages with typed tasks and pipelines

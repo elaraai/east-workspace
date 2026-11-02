@@ -5,6 +5,7 @@
 
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
+import { TimedSequencer } from "./vitest.sequencer";
 
 export default defineConfig({
     plugins: [react()],
@@ -28,6 +29,8 @@ export default defineConfig({
         // jsdom builder suites import and compile the same large East graph.
         // Bound parallel work, so a test's time is its own work.
         ...(process.env.CI ? { maxWorkers: 2 } : {}),
+        // CI's shards split by recorded time, not count (#1466).
+        sequence: { sequencer: TimedSequencer },
     },
     define: {
         "process.env": {},

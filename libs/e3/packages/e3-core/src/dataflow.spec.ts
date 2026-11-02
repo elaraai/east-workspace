@@ -30,7 +30,7 @@ import { objectWrite } from './storage/local/LocalObjectStore.js';
 import { workspaceDeploy } from './workspace-files.js';
 import { workspaceGetDataset, workspaceSetDataset } from './trees.js';
 import { DataflowAbortedError } from './errors.js';
-import { createTestRepo, removeTestRepo } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, writableStrings } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
@@ -136,10 +136,7 @@ describe('dataflow', () => {
   describe('dataflowGetGraph', () => {
     it('returns empty graph for package with no tasks', async () => {
       // Create a minimal package with no tasks
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([['input', { type: 'value', value: { type: StringType, writable: true } }]]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input']);
 
       await createPackageWithTasks(testRepo, [], structure);
       await workspaceDeploy(storage, testRepo, 'test-ws', 'test', '1.0.0');
@@ -150,14 +147,7 @@ describe('dataflow', () => {
 
     it('returns task dependencies', async () => {
       // Create a package with two tasks: A -> B
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['middle', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'middle', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const middlePath: TreePath = [variant('field', 'middle')];
@@ -401,13 +391,7 @@ describe('dataflow', () => {
   describe('dataflowExecute', () => {
     it('executes single task', async () => {
       // Create package with one task
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const outputPath: TreePath = [variant('field', 'output')];
@@ -423,7 +407,7 @@ describe('dataflow', () => {
         {
           input: {
             value: 'hello world',
-            ref: { type: 'value', value: inputHash } as DataRef,
+            ref: variant('value', inputHash),
           },
         }
       );
@@ -447,14 +431,7 @@ describe('dataflow', () => {
 
     it('executes task chain in order', async () => {
       // Create package with A -> B chain
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['middle', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'middle', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const middlePath: TreePath = [variant('field', 'middle')];
@@ -474,7 +451,7 @@ describe('dataflow', () => {
         {
           input: {
             value: 'chain test',
-            ref: { type: 'value', value: inputHash } as DataRef,
+            ref: variant('value', inputHash),
           },
         }
       );
@@ -500,13 +477,7 @@ describe('dataflow', () => {
 
     it('caches successful task results', async () => {
       // Create package
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const outputPath: TreePath = [variant('field', 'output')];
@@ -521,7 +492,7 @@ describe('dataflow', () => {
         {
           input: {
             value: 'cache test',
-            ref: { type: 'value', value: inputHash } as DataRef,
+            ref: variant('value', inputHash),
           },
         }
       );
@@ -541,13 +512,7 @@ describe('dataflow', () => {
 
     it('allows external lock management', async () => {
       // Create a simple package
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const outputPath: TreePath = [variant('field', 'output')];
@@ -562,7 +527,7 @@ describe('dataflow', () => {
         {
           input: {
             value: 'test',
-            ref: { type: 'value', value: inputHash } as DataRef,
+            ref: variant('value', inputHash),
           },
         }
       );
@@ -593,13 +558,7 @@ describe('dataflow', () => {
 
     it('aborts execution when signal is triggered', async () => {
       // Create a package with a slow task
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const outputPath: TreePath = [variant('field', 'output')];
@@ -617,7 +576,7 @@ describe('dataflow', () => {
         {
           input: {
             value: 'test',
-            ref: { type: 'value', value: inputHash } as DataRef,
+            ref: variant('value', inputHash),
           },
         }
       );
@@ -645,14 +604,7 @@ describe('dataflow', () => {
 
     it('includes partial results in DataflowAbortedError', async () => {
       // Create a package with two tasks: one fast, one slow
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['fast_output', { type: 'value', value: { type: StringType, writable: true } }],
-          ['slow_output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'fast_output', 'slow_output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const fastOutputPath: TreePath = [variant('field', 'fast_output')];
@@ -673,7 +625,7 @@ describe('dataflow', () => {
         {
           input: {
             value: 'test',
-            ref: { type: 'value', value: inputHash } as DataRef,
+            ref: variant('value', inputHash),
           },
         }
       );

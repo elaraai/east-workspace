@@ -127,7 +127,7 @@ describe("<Query.Library> (#1063)", () => {
         const surface = ui("query_library", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const orders = $.let(Data.bindPaged(ex.orders));
             const customers = $.let(Data.bind(ex.customers));
-            const saved = $.let(Record.bind(ex.queries, [ex.queriesPatch]));
+            const saved = $.let(Record.bind(ex.queries));
             return Query.Library({ queries: saved, datasets: { orders, customers } });
         }))));
         const manifest = surface.role.value!;

@@ -105,7 +105,9 @@ export type PlanEvent =
     | { t: "focus.links"; key: RowKey }
     | { t: "focus.expand"; key: RowKey }
     | { t: "focus.clear" }
-    | { t: "resolution.set"; resolution: string }
+    /** A zoom to a resolution — about the middle given, in the axis's numbers: a coarser table cell's period, where a
+     *  double click on it zooms to edit it (#1438) — else about the window's own middle. */
+    | { t: "resolution.set"; resolution: string; about?: number | undefined }
     /** A window pan of N whole periods — the narrow layout's two-finger
      *  horizontal drag (§10); the `[` / `]` keys are the one-period case. */
     | { t: "pan"; buckets: number }
@@ -115,7 +117,7 @@ export type PlanEvent =
 export type PlanEffect =
     | { t: "slice.setRange"; min: PlanInstantValue; max: PlanInstantValue }
     | { t: "slice.clearRange" }
-    | { t: "slice.setResolution"; resolution: string }
+    | { t: "slice.setResolution"; resolution: string; about?: number | undefined }
     | { t: "emit.select"; key: RowKey }
     | { t: "emit.groupToggle"; key: RowKey; expanded: boolean }
     | { t: "emit.grainChange"; grain: PlanGrain }
@@ -280,7 +282,7 @@ export function planReducer(
             if (s.focus === null) return { state: s, effects: [] };
             return { state: { ...s, focus: null }, effects: [] };
         case "resolution.set":
-            return { state: s, effects: [{ t: "slice.setResolution", resolution: e.resolution }] };
+            return { state: s, effects: [{ t: "slice.setResolution", resolution: e.resolution, about: e.about }] };
         case "pan":
             // A pure slice write, like the keys — a zero pan is identity so a
             // gesture that never crossed a period edge commits nothing.

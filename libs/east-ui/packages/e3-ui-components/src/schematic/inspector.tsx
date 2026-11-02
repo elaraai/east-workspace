@@ -100,7 +100,7 @@
 import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import {
-    ArrayType, FloatType, StringType, StructType, encodeBeast2For, equalFor, fromEastTypeValue, none, some, variant,
+    ArrayType, FloatType, StringType, StructType, encodeBeast2For, equalFor, fromEastTypeValue, none, some,
     type EastType, type StructType as EastStructType, type option,
 } from "@elaraai/east";
 import { Fields, type FieldSpecValue } from "@elaraai/east-ui/internal";
@@ -114,6 +114,7 @@ import type { HiddenPicks } from "../shared/schedule/hidden-pick.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { draftedRow, rowCodec } from "../shared/schedule/records.js";
 import { kindPlural } from "../shared/schedule/words.js";
+import { authorOf } from "../shared/records/author.js";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
 import type { SchematicCounts, SchematicDrawingCount, SchematicSavedRecord, SchematicUncounted } from "./counts.js";
 import type { SchematicValue } from "./data.js";
@@ -126,7 +127,7 @@ import { joinsOf, nameOfEntity, type SchematicDrawnEntity, type SchematicInspect
 import { captionText } from "./canvas/paint.js";
 import type { SchematicInspectedRows, SchematicRowRead } from "./inspector-rows.js";
 import type { SchematicIssue } from "./issues.js";
-import type { SchematicWords } from "./messages.js";
+import { coordinate, type SchematicWords } from "./messages.js";
 
 type Styles = Record<string, SystemStyleObject>;
 /** A kind of any sort, as the payload carries it. */
@@ -487,12 +488,6 @@ const READING: SchematicRowRead = { state: "reading" };
 function rowsOf(rows: SchematicInspectedRows, ref: SchematicRef): { readonly row: SchematicRowRead; readonly details: SchematicRowRead | undefined } {
     const its = rows.ref !== undefined && stringEqual(rows.ref.kind, ref.kind) && stringEqual(rows.ref.key, ref.key);
     return its ? { row: rows.row, details: rows.details } : { row: READING, details: READING };
-}
-
-/** A coordinate as Details prints it: to the centimetre. */
-function coordinate(n: number, words: SchematicWords): string {
-    const digits = some(2n);
-    return words.value(n, variant("number", { minimumFractionDigits: digits, maximumFractionDigits: digits, signDisplay: none }));
 }
 
 // ============================================================================
@@ -1015,7 +1010,7 @@ function DrawingView({ styles, words, counts, records }: ViewProps) {
         try {
             const commits = record.history();
             const newest = commits.type === "some" ? commits.value[0] : undefined;
-            return newest === undefined ? [] : [{ slot: record.slot, name: record.name, at: newest.at, by: newest.actor }];
+            return newest === undefined ? [] : [{ slot: record.slot, name: record.name, at: newest.at, by: authorOf(newest.actor) }];
         } catch {
             return [];
         }

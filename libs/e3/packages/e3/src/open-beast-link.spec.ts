@@ -22,7 +22,7 @@ import * as path from 'node:path';
 import yauzl from 'yauzl';
 import {
   East, DictType, FunctionType, IntegerType, StringType, StructType,
-  decodeBeast2For, decodeEastIR, walkIR, IMPORT_PLATFORM, variant } from '@elaraai/east';
+  decodeBeast2For, decodeEastIR, walkIR, IMPORT_PLATFORM, variant, type IR } from '@elaraai/east';
 import { decodePackageObject, decodeTaskObject } from '@elaraai/e3-types';
 import { export_ } from './export.js';
 import { package_ } from './package.js';
@@ -46,15 +46,15 @@ const total = East.function([StringType], IntegerType, ($, file) => {
 const manifest = East.exportFunctions('tables', '1.0.0', { total }, { providers: { fs_open_beast: 'east-py-std' } });
 const tot = East.importFunction('tables', 'total', FunctionType([StringType], IntegerType));
 
-function countImports(ir: unknown): number {
+function countImports(ir: IR): number {
   let n = 0;
-  walkIR(ir as any, (node) => { if (node.type === 'Platform' && node.value.name === IMPORT_PLATFORM) n += 1; });
+  walkIR(ir, (node) => { if (node.type === 'Platform' && node.value.name === IMPORT_PLATFORM) n += 1; });
   return n;
 }
 
-function genericPlatformCalls(ir: unknown): Array<{ name: string; typeParameters: number }> {
+function genericPlatformCalls(ir: IR): Array<{ name: string; typeParameters: number }> {
   const calls: Array<{ name: string; typeParameters: number }> = [];
-  walkIR(ir as any, (node) => {
+  walkIR(ir, (node) => {
     if (node.type === 'Platform' && node.value.name !== IMPORT_PLATFORM) {
       calls.push({ name: node.value.name, typeParameters: node.value.type_parameters.length });
     }
@@ -98,8 +98,8 @@ function programOf(entries: Map<string, Buffer>, name: string) {
   const pkgRef = [...entries.keys()].find((key) => key.startsWith('packages/'))!;
   const pkg = decodePackageObject(object(decodeBeast2For(StringType)(entries.get(pkgRef)!)));
   const task = decodeTaskObject(object(pkg.tasks.get(name)!));
-  assert.strictEqual(task.body.type, 'east');
-  return decodeEastIR(object((task.body.value as { program: string }).program));
+  assert.ok(task.body.type === 'east');
+  return decodeEastIR(object(task.body.value.program));
 }
 
 const STOCK_RUNNERS: ReadonlyArray<Runner> = [

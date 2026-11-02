@@ -103,7 +103,7 @@ function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date |
         hover: opts?.hover !== undefined ? some(opts.hover) : none,
         expandRender: opts?.expandRender !== undefined ? some(opts.expandRender) : none,
         pick: opts?.pick !== undefined ? some(opts.pick) : none,
-        slice: opts?.slice ?? none,
+        slice: opts?.slice ?? none, nested: none,
         footer: opts?.footer ?? [],
         id: none, sources: [], editing: none, canDrop: none,
         onSelect: none,

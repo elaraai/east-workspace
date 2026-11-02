@@ -38,7 +38,7 @@ const PAGES = new SortedMap<Key, Entry>([
         draft: {
             title: "Overview",
             cells: [
-                { key: "c-note", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "note", fingerprint: "" },
+                { key: "c-note", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "note" },
             ],
         },
         live: some({
@@ -46,7 +46,7 @@ const PAGES = new SortedMap<Key, Entry>([
             page: {
                 title: "Overview",
                 cells: [
-                    { key: "c-note", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "note", fingerprint: "" },
+                    { key: "c-note", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "note" },
                 ],
             },
         }),
@@ -67,7 +67,7 @@ const payloadOf = (value: UI) => {
 describe("<Studio.Page> (#993)", () => {
     test("R4: its surface's manifest holds the record's path and no write, and exactly what its components read", () => {
         const visits = e3.input("studio_page_visits", ArrayType(FloatType), variant("value", []));
-        const pages = e3.record("studio_page_record", StudioPagesType, new SortedMap<Key, Entry>([], keys));
+        const pages = e3.record("studio_page_record", StudioPagesType, { initial: new SortedMap<Key, Entry>([], keys) });
         const surface = ui("studio_page_surface", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const components = $.let([
                 Studio.component("traffic", { name: "Traffic", category: "Charts", icon: "chart-line" },

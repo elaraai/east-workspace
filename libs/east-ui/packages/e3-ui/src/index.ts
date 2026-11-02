@@ -104,7 +104,6 @@ export {
     StudioPageType,
     StudioPagesType,
     StudioVersionType,
-    fingerprintOf,
     type StudioNamespace,
     type StudioTypes,
     type StudioComponentMeta,
@@ -156,7 +155,7 @@ export { DataSourceType, type BoundSource } from './bind/sources.js';
 // `Plan.Types`), and its props.
 export {
     Plan, type PlanNamespace, type PlanProps, type PlanConfig, type PlanRowsItem, type PlanOverRows,
-    type PlanLibraryTab, type PlanLibraryTabConfig,
+    type PlanLibraryTab, type PlanLibraryTabConfig, type PlanNestedItemsOf,
 } from './plan/index.js';
 
 // The Sheet (#1179, #1216): the planning spreadsheet a solution mounts,

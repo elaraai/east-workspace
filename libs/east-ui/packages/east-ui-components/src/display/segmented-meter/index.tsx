@@ -84,7 +84,7 @@ export const EastChakraSegmentedMeter = memo(function EastChakraSegmentedMeter({
                 return (
                     <Box
                         key={i}
-                        flex={Number(seg.value)}
+                        style={{ flex: Number(seg.value) }}
                         bg={color}
                         display="flex"
                         alignItems="center"
@@ -97,7 +97,7 @@ export const EastChakraSegmentedMeter = memo(function EastChakraSegmentedMeter({
                     </Box>
                 );
             })}
-            {residual > 0 && <Box flex={residual} bg={trackColor} />}
+            {residual > 0 && <Box style={{ flex: residual }} bg={trackColor} />}
         </Flex>
     );
 
@@ -106,12 +106,12 @@ export const EastChakraSegmentedMeter = memo(function EastChakraSegmentedMeter({
             {segments.map((seg: typeof segments[number], i: number) => {
                 const segLabel = getSomeorUndefined(seg.label);
                 return (
-                    <Box key={i} flex={Number(seg.value)} textAlign="center">
+                    <Box key={i} style={{ flex: Number(seg.value) }} textAlign="center">
                         {segLabel && <ChakraText fontSize="body.sm" color="fg.muted" truncate>{segLabel}</ChakraText>}
                     </Box>
                 );
             })}
-            {residual > 0 && <Box flex={residual} />}
+            {residual > 0 && <Box style={{ flex: residual }} />}
         </Flex>
     ) : null;
 

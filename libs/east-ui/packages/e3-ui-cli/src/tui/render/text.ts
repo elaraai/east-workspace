@@ -16,6 +16,8 @@
  * @packageDocumentation
  */
 
+import { DateTimeType, compareFor, equalFor } from '@elaraai/east';
+
 export { formatSize } from '@elaraai/e3-cli/internal';
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
@@ -220,6 +222,12 @@ export function formatDuration(ms: number): string {
     const days = Math.floor(hours / 24);
     return `${days}d ${hours - days * 24}h`;
 }
+
+/** Orders two instants as East orders DateTimes. */
+export const compareInstants = compareFor(DateTimeType);
+
+/** Whether two instants are the same, as East compares DateTimes. */
+export const sameInstant = equalFor(DateTimeType);
 
 /**
  * How long ago `then` was, at whole-unit precision: `just now`, `12s ago`,

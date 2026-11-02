@@ -41,7 +41,7 @@ import {
 } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { UIStore, editingMessages, formatters } from "@elaraai/east-ui-components";
-import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { initializeStore, resetKept } from "@elaraai/east-ui-components/internal";
 import { announced, layOut, pointAt, stubScrollIntoView } from "@elaraai/east-ui-components/testing";
 import { Data, Flowchart } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
@@ -139,8 +139,8 @@ function depot<T extends EastType>($: BlockBuilder<T>) {
     const notes = $.const(NOTES, ArrayType(NoteRow));
     const names = $.const(NAMES, ArrayType(NameRow));
     const slice = $.let(Slice.bindRecords("flowchart.drop", {
-        steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: [ex.stepsByKind] }) },
-        moves: { source: Data.bindPaged(ex.moveTemplates, { indexes: [ex.movesByKind] }) },
+        steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: ["flowchart_steps_by_kind"] }) },
+        moves: { source: Data.bindPaged(ex.moveTemplates, { indexes: ["flowchart_moves_by_kind"] }) },
     }));
     return {
         flow: "Sort",
@@ -625,8 +625,11 @@ describe("⏎ on a card drops it on the canvas's selection (FB34)", () => {
         } finally {
             restore();
         }
+        // On a fine pointer, in a tab of its own: nothing kept from the touch screen's drop.
         cleanup();
         initializeStore(new UIStore());
+        window.sessionStorage.clear();
+        resetKept();
         const fine = await mountDepot();
         await openTab(fine.container, "Steps");
         for (const _ of [1, 2]) {

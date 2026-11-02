@@ -21,7 +21,8 @@
  * `pnpm exec playwright test toolbar-row-heights`.
  */
 
-import { test, expect, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { settled } from "./settle";
 
 /** One example of each builder laid out in a `BuilderFrame`, by its showcase entry. */
@@ -90,8 +91,9 @@ async function sizeFrame(page: Page, entry: Locator, width: number): Promise<voi
 test.describe("Every control in a builder's toolbar row", () => {
     test.skip(({ isMobile }) => isMobile, "a fine pointer's row: on a touch screen a control keeps its size and its halo (toolbar-touch.spec.ts)");
 
-    // A test a builder: each lives in a showcase area of its own, whose workspace the page deploys the first time it
-    // shows (#1397), so each test waits on its own area's start alone, unfolded and folded on the one mount.
+    // A test a builder: each lives in a showcase area of its own, whose workspace the page makes from its bundle the
+    // first time it shows (#1397), so each test waits on its own area's start alone, unfolded and folded on the one
+    // mount.
     for (const theme of ["light", "dark"] as const) {
         for (const [name, hash] of BUILDERS) {
             test(`is 28px tall and centred on the row in the ${name}'s, unfolded and folded (${theme})`, async ({ page }) => {

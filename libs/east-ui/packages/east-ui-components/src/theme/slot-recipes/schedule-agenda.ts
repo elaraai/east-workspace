@@ -9,7 +9,7 @@
  * in its own recipe, as the footer's rail is named (the Allocation's `card` is
  * its Timeline's bin).
  */
-import { planElementDrafted, planElementFocus, planElementSelected } from "./plan/focus.js";
+import { planElementConflict, planElementDrafted, planElementFocus, planElementSelected } from "./plan/focus.js";
 import { timeHeaderText } from "./time/axis.js";
 
 /** The list: 12px in, its groups 16px apart, on the panel. */
@@ -18,9 +18,9 @@ export const scheduleAgenda = { minWidth: 0, padding: "12px", background: "bg.pa
 export const scheduleAgendaGroup = { display: "flex", flexDirection: "column", gap: "8px", minWidth: 0 } as const;
 /** A group's heading: the time header's caption. */
 export const scheduleAgendaHead = { ...timeHeaderText } as const;
-/** A card: 12px in on the surface, in the subtle rule, its parts 8px apart; drafted, selected and focused as every builder's marks are. */
+/** A card: 12px in on the surface, in the subtle rule, its parts 8px apart; drafted, selected, focused and holding a conflict as every builder's marks are. */
 export const scheduleCard = {
-    ...planElementDrafted, ...planElementSelected, ...planElementFocus, minWidth: 0, padding: "12px", borderWidth: "1px", borderColor: "border.subtle",
+    ...planElementDrafted, ...planElementSelected, ...planElementFocus, ...planElementConflict, minWidth: 0, padding: "12px", borderWidth: "1px", borderColor: "border.subtle",
     borderRadius: "sm", background: "bg.surface", display: "flex", flexDirection: "column", gap: "8px",
 } as const;
 /** A card's head: its title over its lines, 4px apart, one button that selects what the card is. */

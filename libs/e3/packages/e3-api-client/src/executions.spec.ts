@@ -17,7 +17,7 @@ import { ApiDataflowExecutionStateType, BEAST2_CONTENT_TYPE, DATAFLOW_POLL_EVENT
 import { dataflowEventsRemain, dataflowExecute } from './executions.js';
 
 const BASE = 'https://e3.test';
-const AT = '2026-10-04T00:00:00.000Z';
+const AT = new Date('2026-10-04T00:00:00.000Z');
 
 /** A BEAST2 success envelope, as the server sends one. */
 function success<T extends EastType>(type: T, value: ValueTypeOf<T>, status = 200): globalThis.Response {

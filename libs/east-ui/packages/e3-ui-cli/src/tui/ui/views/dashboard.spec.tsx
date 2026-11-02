@@ -27,7 +27,7 @@ import { UNICODE } from '../../render/glyphs.js';
 let mounted: Mounted | null = null;
 afterEach(() => { mounted?.unmount(); mounted = null; });
 
-const iso = (msAgo: number): string => new Date(NOW - msAgo).toISOString();
+const iso = (msAgo: number): Date => new Date(NOW - msAgo);
 const MB = 1024 ** 2;
 const GB = 1024 ** 3;
 
@@ -376,10 +376,10 @@ describe('the dashboard', () => {
 describe('dashboard model', () => {
     test('latestPerTask keeps one event per task in first-seen order, and a unit\'s requeue stands for no task', () => {
         const events = [
-            variant('start', { task: 'a', timestamp: 't1' }),
-            variant('start', { task: 'b', timestamp: 't2' }),
-            variant('complete', { task: 'a', timestamp: 't3', duration: 1_000, peakBytes: none }),
-            variant('requeued', { task: 'b', timestamp: 't4', unit: { merge: none, index: 0n, units: 2n }, reason: variant('cap', null), peak: 1n, reserves: 1n }),
+            variant('start', { task: 'a', timestamp: new Date(1) }),
+            variant('start', { task: 'b', timestamp: new Date(2) }),
+            variant('complete', { task: 'a', timestamp: new Date(3), duration: 1_000, peakBytes: none }),
+            variant('requeued', { task: 'b', timestamp: new Date(4), unit: { merge: none, index: 0n, units: 2n }, reason: variant('cap', null), peak: 1n, reserves: 1n }),
         ] as never[];
         assert.deepEqual(latestPerTask(events).map(e => `${e.value.task}:${e.type}`), ['a:complete', 'b:start']);
     });

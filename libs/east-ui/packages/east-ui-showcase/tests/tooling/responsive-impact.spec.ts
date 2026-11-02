@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { changedPaths, classifyChanges, selectTests, shardCount } from "../../scripts/responsive-impact.js";
+import { MAX_SHARDS, changedPaths, classifyChanges, selectTests, shardCount } from "../../scripts/responsive-impact.js";
 import { listTests, selectShard, testIdentity } from "../../scripts/responsive-shards.js";
 
 const showcase = "libs/east-ui/packages/east-ui-showcase/";
@@ -51,7 +51,7 @@ test("a browser-spec change selects every applicable project of exactly that spe
     assert.ok(selected.some(t => t.startsWith("[desktop]")));
     assert.ok(selected.some(t => t.startsWith("[mobile]")));
     assert.ok(selected.some(t => t.startsWith("[mobile-narrow]")));
-    assert.equal(shardCount(selected.length), 1);
+    assert.equal(shardCount(selected), 1);
     // A removed/renamed spec or an unrecognised list format cannot erase coverage.
     assert.deepEqual(selectTests(suite(), classifyChanges([`${showcase}tests/responsive/deleted.spec.ts`])), suite());
     assert.deepEqual(selectTests(["unknown list format"], impact), ["unknown list format"]);
@@ -107,7 +107,7 @@ test("the Allocation's renderer narrows to its own suites and the shared checks,
     assert.ok(!flowchart.some(t => /› (?:allocation-[a-z-]+|optimise-allocation|calendar-(?:loading|recentre|search|steps|paged-columns)|plan-(?:far-moves|filters|records))\.spec\.ts:/.test(t)));
 });
 
-test("Playwright resolves focused lists and all their smaller shards exactly once", () => {
+test("Playwright resolves a focused list, which runs in fewer jobs of each test once", () => {
     const selected = selectTests(suite(), classifyChanges([
         "libs/east-ui/packages/e3-ui-components/src/flowchart/index.tsx",
     ]));
@@ -116,21 +116,16 @@ test("Playwright resolves focused lists and all their smaller shards exactly onc
         const file = join(directory, "selected.txt");
         writeFileSync(file, selected.join("\n") + "\n");
         assert.deepEqual(listTests([`--test-list=${file}`]).map(testIdentity), selected.map(testIdentity));
-        const count = shardCount(selected.length);
-        assert.ok(count < 16 && count > 0);
-        const executed: string[] = [];
-        for (let n = 1; n <= count; n++) {
-            const shard = selectShard(selected, `${n}/${count}`);
-            assert.ok(shard.length > 0);
-            writeFileSync(file, shard.join("\n") + "\n");
-            const actual = listTests([`--test-list=${file}`]).map(testIdentity);
-            assert.deepEqual(actual, shard.map(testIdentity));
-            executed.push(...actual);
-        }
-        assert.deepEqual(executed.sort(), selected.map(testIdentity).sort());
-        assert.equal(new Set(executed).size, selected.length);
-        assert.equal(shardCount(0), 1); // valid placeholder matrix; the job is skipped
-        assert.equal(shardCount(100_000), 16);
+        const count = shardCount(selected);
+        assert.ok(count < MAX_SHARDS && count > 0);
+        const jobs = Array.from({ length: count }, (_, n) => selectShard(selected, `${n + 1}/${count}`));
+        assert.ok(jobs.every(job => job.length > 0));
+        const placed = jobs.flat().map(testIdentity);
+        assert.deepEqual([...placed].sort(), selected.map(testIdentity).sort());
+        assert.equal(new Set(placed).size, selected.length);
+        assert.equal(shardCount([]), 1); // valid placeholder matrix; the job is skipped
+        assert.ok(shardCount(suite()) > count && shardCount(suite()) <= MAX_SHARDS, "the whole suite takes more jobs than a focused list, and no more than the most");
+        assert.equal(shardCount(Array.from({ length: 5000 }, (_, n) => `[desktop] › new.spec.ts:1:1 › new check ${n}`)), MAX_SHARDS, "tests none was recorded for count, and the jobs stop at the most");
     } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 

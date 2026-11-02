@@ -49,11 +49,11 @@ import { indexWindowType } from '@elaraai/e3-types';
 import { assertMutationCommitted } from '../assertions.js';
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
+import { templateWorkspace } from '../template.js';
 import { createPlaceRecordPackageZip, ORDERS_FROM, OrderRowType, OrdersType } from '../fixtures.js';
 
 const PKG = 'place-record-pkg';
 const VERSION = '1.0.0';
-const WS = 'place-record-ws';
 const ordersPath = [variant('field', 'records'), variant('field', 'orders')];
 
 /** How many orders the record holds: more than a page's 10,000 entries, so a
@@ -76,7 +76,7 @@ const dateTimeOrder = compareFor(DateTimeType);
 /** An entry key of an index whose key is one String: `(ik=…, k=…)`. */
 const printStringEntry = printFor(StructType({ ik: StringType, k: StringType }));
 /** The interval index's key: an entry's node, then the order's start. */
-const IntervalKeyType = StructType({ __interval: IntegerType, start: DateTimeType });
+const IntervalKeyType = StructType({ on: StructType({}), node: IntegerType, at: DateTimeType });
 /** An entry key of the interval index: its node and start, then the order's key. */
 const printIntervalEntry = printFor(StructType({ ik: IntervalKeyType, k: StringType }));
 /**
@@ -159,7 +159,7 @@ interface Entry {
 function entriesOf(index: string, key: string, order: Order): Entry[] {
   const byString = (ik: string): Entry => ({ key: printStringEntry({ ik, k: key }), flat: [printString(ik), printString(key)] });
   const byNode = (node: bigint, at: Date): Entry => ({
-    key: printIntervalEntry({ ik: { __interval: node, start: at }, k: key }),
+    key: printIntervalEntry({ ik: { on: {}, node, at }, k: key }),
     flat: [printInteger(node), printDateTime(at), printString(key)],
   });
   switch (index) {
@@ -194,28 +194,10 @@ function sum(placements: readonly DatasetPlacedSegment[][]): DatasetPlacedSegmen
 }
 
 export function placeRecordTests(setup: TestSetup<TestContext>): void {
-  /** A deployed record of {@link ORDERS} orders, the content hash it holds, and its orders as it holds them. */
-  const withOrders = async (t: Parameters<TestSetup<TestContext>>[0]): Promise<{ ctx: TestContext; hash: string; orders: Orders }> => {
-    const ctx = await setup(t);
-    const opts = await ctx.opts();
-    const zipPath = await createPlaceRecordPackageZip(ctx.tempDir, PKG, VERSION);
-    await packageImport(ctx.config.baseUrl, ctx.repoName, readFileSync(zipPath), opts);
-    await workspaceCreate(ctx.config.baseUrl, ctx.repoName, WS, opts);
-    await workspaceDeploy(ctx.config.baseUrl, ctx.repoName, WS, `${PKG}@${VERSION}`, opts);
-    const seeded = await workspaceRecordMutate(
-      ctx.config.baseUrl, ctx.repoName, WS, 'orders', 'seed',
-      { args: [encodeInt(ORDERS)], actor: none, limits: none }, opts,
-    );
-    assertMutationCommitted(seeded, 'seeding');
-    const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, WS, ordersPath, opts);
-    assert.ok(status.hash.type === 'some', 'the record holds a state');
-    const { data } = await datasetGet(ctx.config.baseUrl, ctx.repoName, WS, ordersPath, opts);
-    return { ctx, hash: status.hash.value, orders: decodeOrders(data as Uint8Array) };
-  };
 
   /** A plan's runs of its index: its searches in one request, sorted, the empty ones dropped. */
-  const runsOf = async (ctx: TestContext, plan: Plan, hash: string): Promise<Run[]> => {
-    const found = await datasetFindKeys(ctx.config.baseUrl, ctx.repoName, WS, ordersPath,
+  const runsOf = async (ctx: TestContext, ws: string, plan: Plan, hash: string): Promise<Run[]> => {
+    const found = await datasetFindKeys(ctx.config.baseUrl, ctx.repoName, ws, ordersPath,
       { queries: plan.searches, index: plan.index, hash }, await ctx.opts());
     return found.results.filter((result) => result.count > 0)
       .map((result): Run => [result.row, result.count]).sort((a, b) => a[0] - b[0]);
@@ -226,9 +208,9 @@ export function placeRecordTests(setup: TestSetup<TestContext>): void {
    * a slip at a run's edge shows — read from the index in one request: each
    * entry's key, `(ik=…, k=…)`, beside the row it sits at.
    */
-  const edgesOf = async (ctx: TestContext, index: string, runs: readonly Run[], hash: string): Promise<{ row: number; key: string }[]> => {
+  const edgesOf = async (ctx: TestContext, ws: string, index: string, runs: readonly Run[], hash: string): Promise<{ row: number; key: string }[]> => {
     const opts = await ctx.opts();
-    const base = [ctx.config.baseUrl, ctx.repoName, WS, ordersPath] as const;
+    const base = [ctx.config.baseUrl, ctx.repoName, ws, ordersPath] as const;
     const size = (await datasetGetPage(...base, { offset: 0, limit: 1, index, hash }, opts)).totalElements;
     const rows = [...new Set(runs.flatMap(([row, count]) => [row - 1, row, row + count - 1, row + count]))]
       .filter((row) => row >= 0 && row < size).sort((a, b) => a - b);
@@ -241,12 +223,12 @@ export function placeRecordTests(setup: TestSetup<TestContext>): void {
   };
 
   /** Every window of a placement, read on from what each placed until the runs are placed, adding up. */
-  const placeAll = async (ctx: TestContext, index: string, runs: readonly Run[], hash: string, limit?: number) => {
+  const placeAll = async (ctx: TestContext, ws: string, index: string, runs: readonly Run[], hash: string, limit?: number) => {
     const opts = await ctx.opts();
     const windows: DatasetPlacedSegment[][] = [];
     let offset = 0;
     for (;;) {
-      const window = await datasetPlace(ctx.config.baseUrl, ctx.repoName, WS, ordersPath,
+      const window = await datasetPlace(ctx.config.baseUrl, ctx.repoName, ws, ordersPath,
         { index, runs, offset, hash, ...(limit !== undefined && { limit }) }, opts);
       assert.equal(window.hash, hash, 'every window is placed at the content pinned');
       if (window.placed === 0) break;
@@ -258,12 +240,12 @@ export function placeRecordTests(setup: TestSetup<TestContext>): void {
   };
 
   /** The record's segments, as pages by segment answer them: each one's first row and its rows. */
-  const segmentsOf = async (ctx: TestContext, hash: string): Promise<{ offset: number; count: number }[]> => {
+  const segmentsOf = async (ctx: TestContext, ws: string, hash: string): Promise<{ offset: number; count: number }[]> => {
     const opts = await ctx.opts();
-    const first = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, WS, ordersPath, { segment: 0, hash }, opts);
+    const first = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, ws, ordersPath, { segment: 0, hash }, opts);
     const segments = [{ offset: first.offset, count: first.count }];
     for (let segment = 1; segment < first.segmentCount; segment++) {
-      const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, WS, ordersPath, { segment, hash }, opts);
+      const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, ws, ordersPath, { segment, hash }, opts);
       segments.push({ offset: page.offset, count: page.count });
     }
     return segments;
@@ -283,14 +265,38 @@ export function placeRecordTests(setup: TestSetup<TestContext>): void {
   };
 
   describe('where a narrowing\'s rows sit in a record', { concurrency: false }, () => {
+    /** The record of {@link ORDERS} orders, deployed and seeded once for the suite. */
+    const record = templateWorkspace(setup, async (ctx, ws) => {
+      const opts = await ctx.opts();
+      const zipPath = await createPlaceRecordPackageZip(ctx.tempDir, PKG, VERSION);
+      await packageImport(ctx.config.baseUrl, ctx.repoName, readFileSync(zipPath), opts);
+      await workspaceCreate(ctx.config.baseUrl, ctx.repoName, ws, opts);
+      await workspaceDeploy(ctx.config.baseUrl, ctx.repoName, ws, `${PKG}@${VERSION}`, opts);
+      const seeded = await workspaceRecordMutate(
+        ctx.config.baseUrl, ctx.repoName, ws, 'orders', 'seed',
+        { args: [encodeInt(ORDERS)], actor: none, limits: none }, opts,
+      );
+      assertMutationCommitted(seeded, 'seeding');
+    });
+
+    /** A copy of the record, the test's own, the content hash it holds, and its orders as it holds them. */
+    const withOrders = async (t: Parameters<TestSetup<TestContext>>[0]): Promise<{ ctx: TestContext; ws: string; hash: string; orders: Orders }> => {
+      const { ctx, workspace: ws } = await record(t);
+      const opts = await ctx.opts();
+      const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, ws, ordersPath, opts);
+      assert.ok(status.hash.type === 'some', 'the record holds a state');
+      const { data } = await datasetGet(ctx.config.baseUrl, ctx.repoName, ws, ordersPath, opts);
+      return { ctx, ws, hash: status.hash.value, orders: decodeOrders(data as Uint8Array) };
+    };
+
     it('places each plan form\'s rows segment by segment, as the record read whole has them', async (t) => {
-      const { ctx, hash, orders } = await withOrders(t);
-      const segments = await segmentsOf(ctx, hash);
+      const { ctx, ws, hash, orders } = await withOrders(t);
+      const segments = await segmentsOf(ctx, ws, hash);
       assert.ok(segments.length > 2, `the record spans segments, ${segments.length} of them`);
       assert.equal(segments.reduce((total, segment) => total + segment.count, 0), Number(ORDERS), 'the segments hold every order');
       for (const plan of PLANS) {
-        const runs = await runsOf(ctx, plan, hash);
-        const placed = await placeAll(ctx, plan.index, runs, hash);
+        const runs = await runsOf(ctx, ws, plan, hash);
+        const placed = await placeAll(ctx, ws, plan.index, runs, hash);
         const expected = expectedOf(orders, segments, plan.matches);
         assert.ok(expected.length > 0, `${plan.name} matches some orders`);
         assert.deepEqual(placed.segments, expected, `${plan.name}: the rows it matches, in the segments that hold them`);
@@ -299,23 +305,23 @@ export function placeRecordTests(setup: TestSetup<TestContext>): void {
     });
 
     it('places a window of the runs at a time, the windows adding up to one window\'s placement', async (t) => {
-      const { ctx, hash } = await withOrders(t);
+      const { ctx, ws, hash } = await withOrders(t);
       const plan = PLANS[1]!;
-      const runs = await runsOf(ctx, plan, hash);
-      const whole = await placeAll(ctx, plan.index, runs, hash);
+      const runs = await runsOf(ctx, ws, plan, hash);
+      const whole = await placeAll(ctx, ws, plan.index, runs, hash);
       assert.equal(whole.windows.length, 1, 'half the orders place in one window');
-      const windows = await placeAll(ctx, plan.index, runs, hash, 333);
+      const windows = await placeAll(ctx, ws, plan.index, runs, hash, 333);
       assert.ok(windows.windows.length > 10, `333 at a time takes many windows, took ${windows.windows.length}`);
       assert.deepEqual(windows.segments, whole.segments, 'the windows add up to the whole, segment by segment');
-      const past = await datasetPlace(ctx.config.baseUrl, ctx.repoName, WS, ordersPath,
+      const past = await datasetPlace(ctx.config.baseUrl, ctx.repoName, ws, ordersPath,
         { index: plan.index, runs, offset: whole.placed, hash }, await ctx.opts());
       assert.deepEqual([past.segments, past.placed], [[], 0], 'past the runs\' end, nothing is placed');
     });
 
     it('holds a window to a page\'s bounds, and takes as many as 10,000 runs, refusing more', async (t) => {
-      const { ctx, hash } = await withOrders(t);
+      const { ctx, ws, hash } = await withOrders(t);
       const opts = await ctx.opts();
-      const base = [ctx.config.baseUrl, ctx.repoName, WS, ordersPath] as const;
+      const base = [ctx.config.baseUrl, ctx.repoName, ws, ordersPath] as const;
       // Every entry of an index of one entry an order.
       const every: Run[] = [[0, Number(ORDERS)]];
       const first = await datasetPlace(...base, { index: 'orders_by_due', runs: every, hash }, opts);
@@ -343,20 +349,20 @@ export function placeRecordTests(setup: TestSetup<TestContext>): void {
     });
 
     it('answers which entries the runs hold as a search by each entry\'s key, intersected with the runs, does', async (t) => {
-      const { ctx, hash, orders } = await withOrders(t);
+      const { ctx, ws, hash, orders } = await withOrders(t);
       const opts = await ctx.opts();
       for (const plan of [PLANS[1]!, PLANS[4]!, PLANS[5]!]) {
-        const runs = await runsOf(ctx, plan, hash);
+        const runs = await runsOf(ctx, ws, plan, hash);
         // Every 29th order's entries, in the runs or not.
         const sampled = [...orders].filter((_, i) => i % 29 === 0);
         const entries = sampled.map(([key, order]) => entriesOf(plan.index, key, order));
         const keys = entries.flat();
-        const { within, hash: answered } = await datasetWithin(ctx.config.baseUrl, ctx.repoName, WS, ordersPath,
+        const { within, hash: answered } = await datasetWithin(ctx.config.baseUrl, ctx.repoName, ws, ordersPath,
           { index: plan.index, runs, keys: keys.map((entry) => entry.key), hash }, opts);
         assert.equal(answered, hash);
         assert.equal(within.length, keys.length);
         // Each entry's row in the index: where a search of the index's flattened key from the entry lands.
-        const found = await datasetFindKeys(ctx.config.baseUrl, ctx.repoName, WS, ordersPath,
+        const found = await datasetFindKeys(ctx.config.baseUrl, ctx.repoName, ws, ordersPath,
           { index: plan.index, hash, queries: keys.map((entry) => ({ from: entry.flat })) }, opts);
         const inRuns = (row: number) => runs.some(([start, count]) => row >= start && row < start + count);
         assert.deepEqual(within, found.results.map((result) => inRuns(result.row)),
@@ -370,8 +376,8 @@ export function placeRecordTests(setup: TestSetup<TestContext>): void {
         }
         assert.ok(within.some(Boolean) && within.some((held) => !held), `${plan.name}: the sample is in and out of the runs`);
 
-        const edges = await edgesOf(ctx, plan.index, runs, hash);
-        const atEdges = await datasetWithin(ctx.config.baseUrl, ctx.repoName, WS, ordersPath,
+        const edges = await edgesOf(ctx, ws, plan.index, runs, hash);
+        const atEdges = await datasetWithin(ctx.config.baseUrl, ctx.repoName, ws, ordersPath,
           { index: plan.index, runs, keys: edges.map((edge) => edge.key), hash }, opts);
         assert.deepEqual(atEdges.within, edges.map((edge) => runs.some(([start, count]) => edge.row >= start && edge.row < start + count)),
           `${plan.name}: each run holds its first and last entries, and not those beside it`);
@@ -381,9 +387,9 @@ export function placeRecordTests(setup: TestSetup<TestContext>): void {
     });
 
     it('refuses a stale pin, runs that are no runs of the index, a key that is no entry key, and an index the record lacks', async (t) => {
-      const { ctx, hash } = await withOrders(t);
+      const { ctx, ws, hash } = await withOrders(t);
       const opts = await ctx.opts();
-      const base = [ctx.config.baseUrl, ctx.repoName, WS, ordersPath] as const;
+      const base = [ctx.config.baseUrl, ctx.repoName, ws, ordersPath] as const;
       const key = printStringEntry({ ik: 'late', k: 'order-1' });
       const stale = '0'.repeat(64);
       for (const read of [

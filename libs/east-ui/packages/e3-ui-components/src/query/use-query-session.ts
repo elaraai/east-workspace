@@ -139,16 +139,21 @@ export function useQuerySession(options: QuerySessionOptions): QuerySessionState
         const { header, query } = entriesQuery(drafted ?? base.entries);
         return queryReadiness(header, query, root, words).readiness;
     }, [base, root, words]);
-    const edit = useEditSession<QueryEntry>(editing, undefined, rows, positions, storageKey, { idOf: entryId, ready });
+    // A query's steps are parsed afresh from its saved program each time it is read, so their identities do not survive
+    // a re-read: a query another session saved under these drafts is out of date — saved under another name, or the
+    // drafts discarded (#936) — never carried over.
+    const edit = useEditSession<QueryEntry>(editing, undefined, rows, positions, storageKey, { idOf: entryId, ready, carryOver: false });
     session.current = edit.session;
     const { version, available, original } = edit;
 
     // The query as its drafts stand, this moment: while a gesture may be
     // recorded, and while a save of them goes — from Apply until the record
     // reads back as it left it, the drafts it saves are the query, never the
-    // record as it stood before them.
+    // record as it stood before them. Out of date under another save, the
+    // person's own edits still show, over the query they began from, until
+    // they discard them.
     const drafts = useCallback((): readonly QueryEntry[] | undefined => {
-        const drafted = available || edit.session.locked ? edit.session.applied() as readonly QueryEntry[] | undefined : undefined;
+        const drafted = available || edit.session.locked || edit.session.stale ? edit.session.applied() as readonly QueryEntry[] | undefined : undefined;
         return drafted ?? base?.entries;
     }, [edit.session, available, base]);
     const entries = useMemo(() => drafts(),

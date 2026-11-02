@@ -13,7 +13,7 @@ import type { Location, SourceMap } from "../../location.js";
 import type { PlatformFunction } from "../../platform.js";
 import { printFor } from "../../serialization/east.js";
 import type { EastTypeValue } from "../../type_of_type.js";
-import { buildTree, treeOrder } from "./tree.js";
+import { buildTree, treeOrder, walkTree } from "./tree.js";
 
 /** The builtins for Dicts. @internal */
 export const dict_builtins = {
@@ -542,6 +542,18 @@ export const dict_builtins = {
           throw new EastError(`toTree: cycle through key ${print(entries[cycle]![0])}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
         }
         return buildTree(order, childCounts, (i, children) => call_function(loc_id, source_map, buildFn, entries[i]![1], entries[i]![0], children));
+      } finally {
+        unlockForIteration(d);
+      }
+    }
+  },
+  DictFlattenTree: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => {
+    return (d: Map<any, any>, childrenFn: (v: any, k: any) => Map<any, any>) => {
+      const result: { path: any[], node: any }[] = [];
+      lockForIteration(d);
+      try {
+        walkTree<any, any>([...d], (v, k) => [...call_function(loc_id, source_map, childrenFn, v, k)], (path, node) => { result.push({ path, node }); });
+        return result;
       } finally {
         unlockForIteration(d);
       }

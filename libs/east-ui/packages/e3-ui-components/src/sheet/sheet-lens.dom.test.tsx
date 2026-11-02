@@ -28,7 +28,7 @@ import { ArrayType, East, IntegerType, StringType, decodeBeast2For, equalFor, no
 import { Data, Sheet } from "@elaraai/e3-ui/internal";
 import { RecordSlicesChromeType, RecordSliceWhereType, Reactive, Slice, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
 import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
-import { getStore } from "@elaraai/east-ui-components/internal";
+import { getStore, keptName } from "@elaraai/east-ui-components/internal";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet-records";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { frameScrolls } from "./frame.test-utils.js";
@@ -51,7 +51,7 @@ type Where = ValueTypeOf<typeof RecordSliceWhereType>;
 const rail = East.compile(East.function([], RecordSlicesChromeType, ($) => $.return(recordSlicesChrome({
     slice: Slice.bindRecords("ex.sheetRecordIndexes", {
         rows: {
-            source: Data.bindPaged(ex.indexedWorkOrders, { indexes: [ex.indexedWorkByStatusDue, ex.indexedWorkByDue, ex.indexedWorkByJob, ex.indexedWorkByQuantity, ex.indexedWorkByUrgent, ex.indexedWorkByTag] }),
+            source: Data.bindPaged(ex.indexedWorkOrders, { indexes: ["by_status_due", "by_due", "by_job", "by_quantity", "by_urgent", "by_tag"] }),
             fields: { status: { label: "Status", hints: ["Ready", "Scheduled", "Done"] }, due: { label: "Due" }, job: { label: "Job" }, quantity: { label: "Quantity" }, urgent: { label: "Urgent" }, tags: { label: "Tag", hints: ["Production", "Dispatch"] } },
             range: "due", search: ["job"], initial: { status: ["Ready"] },
         },
@@ -215,7 +215,7 @@ test("the hit check: a segment whose rows disagree with where e3 placed the narr
 const flaggedRows = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const slice = $.let(Slice.bindRecords("test.lens.turns", {
         rows: {
-            source: Data.bindPaged(ex.lensBenchRows, { indexes: [ex.lensBenchByGroup, ex.lensBenchByFlag] }),
+            source: Data.bindPaged(ex.lensBenchRows, { indexes: ["lens_bench_by_group", "lens_bench_by_flag"] }),
             fields: { group: { label: "Group" }, flag: { label: "Flag" } }, initial: { flag: [true] },
         },
     }));
@@ -452,7 +452,7 @@ test("Search Records lists the rows its key finds wherever they are — on scree
 /** Where the view rests as the sheet saved it, under its storage key: the row at its top, by its key, and the px into it. */
 const restedAt = (): { key: string; offset: number } | undefined => {
     for (const key of Object.keys(localStorage)) {
-        if (!key.startsWith("sheet-lens-test")) continue;
+        if (!key.startsWith(keptName("sheet-lens-test"))) continue;
         const stored = JSON.parse(localStorage.getItem(key)!) as { anchor?: { key: string; offset: number } | null };
         if (stored.anchor !== undefined && stored.anchor !== null) return { key: stored.anchor.key, offset: stored.anchor.offset };
     }

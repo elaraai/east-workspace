@@ -1,6 +1,7 @@
 /*
- * The walk the Array, Set and Dict `toTree` builtins share (#948) — the port
- * of libs/east/src/compile/builtins/tree.ts. Private to the builtins.
+ * The walks the Array, Set and Dict `toTree` builtins (#948), and the Array
+ * and Dict `flattenTree` builtins (#1434), share — the port of
+ * libs/east/src/compile/builtins/tree.ts. Private to the builtins.
  */
 #ifndef EAST_BUILTINS_TREE_H
 #define EAST_BUILTINS_TREE_H
@@ -42,5 +43,19 @@ ptrdiff_t east_tree_sorted_index(EastValue *collection, EastValue *key);
 /* Posts `toTree: <what> <key>`, the key printed as East prints a `key_type`
  * — the message every runtime raises. */
 void east_tree_key_error(const char *what, EastValue *key, EastType *key_type);
+
+/* A node's own children for `flattenTree`, given the node and its step (its
+ * key, or its index) — both borrowed. Returns a collection of the roots' kind,
+ * a Dict or an Array (owned), or NULL with a builtin error posted. */
+typedef EastValue *(*EastTreeChildrenFn)(void *ctx, EastValue *node, EastValue *step);
+
+/* The walk behind `flattenTree`: every node of the tree whose roots are
+ * `roots` — a Dict's entries, each stepped to by its key, or an Array's
+ * elements, by its index — each with its path of steps from its root, depth
+ * first: each node before its descendants, siblings in their collection's
+ * order, by an explicit stack, so a deep tree costs no stack. `children` runs
+ * once per node, after the node is listed. Returns an Array<{path, node}>
+ * (owned), or NULL with a builtin error posted. */
+EastValue *east_tree_flatten(EastValue *roots, EastTreeChildrenFn children, void *ctx);
 
 #endif

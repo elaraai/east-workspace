@@ -6,12 +6,35 @@
 /** Query planning shared by authoring validation and the record Slice runtime. */
 import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import type { SeekQueryType } from "../../contracts/source.js";
-import type { RecordSliceChoiceType, RecordSliceIndexType } from "./record-types.js";
+import type { RecordSliceAreaType, RecordSliceChoiceType, RecordSliceIndexType } from "./record-types.js";
 import { intervalQueries } from "./record-interval.js";
-import { AREA_FIELD, AREA_UNPLACED, areaQueries } from "./record-area.js";
+import { AREA_UNPLACED, areaQueries } from "./record-area.js";
+import type { RecordOnPrinters } from "./record-on.js";
 
 type Choice = ValueTypeOf<RecordSliceChoiceType>;
 type Index = ValueTypeOf<RecordSliceIndexType>;
+type Area = ValueTypeOf<RecordSliceAreaType>;
+
+/**
+ * The row fields a narrowing reads an index by, in order (#1432): its own —
+ * a plain index's fields, a generated index's `on` — then an interval's start,
+ * which a range reads through it.
+ * @param index - Available field path.
+ * @returns Its fields, an interval's start after them.
+ */
+export function recordIndexFields(index: Index): readonly string[] {
+    return index.interval.type === "some" ? [...index.fields, index.interval.value.from] : index.fields;
+}
+
+/**
+ * Whether an index's key is generated (#1432): its row fields under `on`, e3's
+ * own parts beside them — an interval, an area, a series or a summary index's.
+ * @param index - Available field path.
+ * @returns Whether its key nests its leading fields.
+ */
+export function recordIndexGenerated(index: Index): boolean {
+    return index.interval.type === "some" || index.area.type === "some" || index.series.type === "some" || index.summary.type === "some";
+}
 
 /** Bound the fan-out of a multi-choice path; never replace it with a row scan. */
 export const MAX_RECORD_SLICE_RUNS = 64;
@@ -26,34 +49,32 @@ export interface RecordSlicePlan {
 
 /**
  * Whether one index can answer every clause without scanning or duplicate rows.
- * A clause under `__area` — a window, or the unplaced clause — is answered only
- * by an area index whose leading fields the other clauses fill exactly. A
- * series or a summary index answers none (#1039): the one files a row under
- * each tile it touches, and the other's entries name no row; a reader reads
- * their cells (`record-series.ts`).
+ * A read by area's clause — a window, or the unplaced clause — is answered
+ * only by an area index whose leading fields the narrowing fills exactly. A
+ * generated index names its leading values as one `on` (#1432), so a narrowing
+ * read through it chooses each of them exactly, an interval's start after
+ * them. A series or a summary index answers none (#1039): the one files a row
+ * past a year under each year it touches (#1433), and the other's entries name
+ * no row; a reader reads their cells (`record-series.ts`).
  * @param index - Available field path.
  * @param where - Current narrowing.
+ * @param area - A read by area's clause, beside the narrowing.
  * @returns Whether it is a supported path.
  */
-export function recordPathMatches(index: Index, where: ReadonlyMap<string, Choice>): boolean {
+export function recordPathMatches(index: Index, where: ReadonlyMap<string, Choice>, area?: Area): boolean {
     if (index.series.type === "some" || index.summary.type === "some") return false;
     for (const field of index.sets) {
         const choice = where.get(field);
         if (choice?.type !== "values" || choice.value.length !== 1) return false;
     }
-    for (const [field, choice] of where) if (choice.type === "window" && field !== AREA_FIELD) return false;
-    const area = where.get(AREA_FIELD);
-    if (area !== undefined) {
-        if (index.area.type !== "some" || (area.type !== "window" && area.type !== "values")) return false;
-        const leading = index.fields.slice(0, -1);
-        return leading.every(field => where.get(field)?.type === "values") && where.size === leading.length + 1;
-    }
+    const exact = () => index.fields.every(field => where.get(field)?.type === "values");
+    if (area !== undefined) return index.area.type === "some" && exact() && where.size === index.fields.length;
     if (index.interval.type === "some") {
-        const leading = index.fields.slice(0, -1);
-        if (leading.some(field => where.get(field)?.type !== "values")) return false;
+        if (!exact()) return false;
         const time = where.get(index.interval.value.from);
-        return time?.type !== "prefix" && where.size === leading.length + (time === undefined ? 0 : 1);
+        return time?.type !== "prefix" && where.size === index.fields.length + (time === undefined ? 0 : 1);
     }
+    if (index.area.type === "some") return exact() && where.size === index.fields.length;
     let seen = 0;
     for (const field of index.fields) {
         const choice = where.get(field);
@@ -64,20 +85,25 @@ export function recordPathMatches(index: Index, where: ReadonlyMap<string, Choic
     return seen === where.size;
 }
 
-/** Pick a supported path without executing or parsing its ranges. */
-export function recordPlanIndex(indexes: readonly Index[], where: ReadonlyMap<string, Choice>): Index | undefined {
+/**
+ * Pick a supported path without executing or parsing its ranges.
+ * @param indexes - Available paths.
+ * @param where - Current narrowing.
+ * @param area - A read by area's clause, beside the narrowing.
+ * @returns The path, or `undefined` when none answers it.
+ */
+export function recordPlanIndex(indexes: readonly Index[], where: ReadonlyMap<string, Choice>, area?: Area): Index | undefined {
     const overlaps = new Set(indexes.flatMap(index => index.interval.type === "some" && where.get(index.interval.value.from)?.type === "range" ? [index.interval.value.from] : []));
-    return indexes.find(index => recordPathMatches(index, where) && (overlaps.size === 0
+    return indexes.find(index => recordPathMatches(index, where, area) && (overlaps.size === 0
         || index.interval.type === "some" && overlaps.has(index.interval.value.from)));
 }
 
 /**
- * Why no listed index answers a narrowing with a clause under `__area`: the
- * choice it cannot take beside it, or the area index it needs, by the fields
- * the other clauses choose.
+ * Why no listed index answers a read by area: the choice it cannot take
+ * beside it, or the area index it needs, by the fields the narrowing chooses.
  */
 function areaRefusal(indexes: readonly Index[], where: ReadonlyMap<string, Choice>): string {
-    const beside = [...where.keys()].filter(field => field !== AREA_FIELD);
+    const beside = [...where.keys()];
     const named = (fields: readonly string[]) => fields.map(field => `'${field}'`).join(", ");
     const inexact = beside.filter(field => where.get(field)!.type !== "values");
     if (inexact.length > 0) {
@@ -90,7 +116,7 @@ function areaRefusal(indexes: readonly Index[], where: ReadonlyMap<string, Choic
     }
     const on = beside.length === 0 ? "" : `on: [${beside.map(field => JSON.stringify(field)).join(", ")}], `;
     return `A read by area${beside.length === 0 ? "" : ` beside ${named(beside)}`} needs an area index led by ` +
-        `${beside.length === 0 ? "no field" : `exactly ${named(beside)}`} — e3.recordIndex.area(name, record, { ${on}x, y, … }), ` +
+        `${beside.length === 0 ? "no field" : `exactly ${named(beside)}`} — index.area({ ${on}x, y, … }) among the record's indexes, ` +
         `listed in Data.bindPaged's indexes` + (areas.length === 0 ? "; this binding lists none"
             : `; ${named(areas.map(index => index.name))} ${areas.length === 1 ? "is" : "are"} led by other fields`);
 }
@@ -100,41 +126,41 @@ function areaRefusal(indexes: readonly Index[], where: ReadonlyMap<string, Choic
  * prefix or half-open range. The server answers every query; no predicate runs
  * over a fetched row. Completed ranges are sorted by their actual source offsets.
  *
- * A clause under `__area` reads through an area index whose leading fields the
- * other clauses fill exactly: a `window`, the disjoint searches of
+ * A read by area reads through an area index whose leading fields the
+ * narrowing fills exactly: its `window`, the disjoint searches of
  * {@link areaQueries} a combination of their values, or the unplaced clause, the
- * rows with no place.
+ * rows with no place. A generated index's searches of its key's own fields
+ * name its leading values as one `on` literal (#1432), through its printer.
  *
  * @param indexes - Available paths.
  * @param where - Field choices, in any authored order.
  * @param defaultIndex - Unfiltered source containing every primary row once.
+ * @param area - A read by area's clause, beside the narrowing; none for any other read.
+ * @param printOn - Each generated index's `on` printer, by its name.
  * @returns One path and its key searches; null when no index answers it.
  * @throws When a choice would exceed the bounded number of disjoint runs; when a
- *   clause under `__area` has no area index to read it, naming the one to
- *   declare; or when a window or the unplaced clause is malformed.
+ *   read by area has no area index to read it, naming the one to declare; when
+ *   the window is malformed; or when a generated index is read with no printer.
  */
-export function planRecordSlice(indexes: readonly Index[], where: ReadonlyMap<string, Choice>, defaultIndex: string): RecordSlicePlan | null {
-    if (where.size === 0) {
+export function planRecordSlice(indexes: readonly Index[], where: ReadonlyMap<string, Choice>, defaultIndex: string,
+    area?: Area, printOn?: RecordOnPrinters): RecordSlicePlan | null {
+    const onOf = (index: Index) => {
+        if (printOn === undefined) throw new Error(`Reading '${index.name}' names its leading values as one on, and no printer was given for it`);
+        return printOn(index.name);
+    };
+    if (where.size === 0 && area === undefined) {
         const index = indexes.find(candidate => candidate.name === defaultIndex);
-        return { index: defaultIndex, queries: index?.interval.type === "some" && index.fields.length === 1
-            ? intervalQueries([], undefined, index.interval.value) : [] };
+        return { index: defaultIndex, queries: index?.interval.type === "some" && index.fields.length === 0
+            ? intervalQueries([], undefined, index.interval.value, onOf(index)) : [] };
     }
-    for (const [field, choice] of where) {
-        if (choice.type === "window" && field !== AREA_FIELD) throw new Error(`A window reads through an area index's ${AREA_FIELD}, not '${field}'`);
-    }
-    const area = where.get(AREA_FIELD);
-    if (area !== undefined && area.type !== "window" && area.type !== "values") {
-        throw new Error(`Under ${AREA_FIELD}, choose a window or the unplaced clause, not a ${area.type}`);
-    }
-    const index = recordPlanIndex(indexes, where);
+    const index = recordPlanIndex(indexes, where, area);
     if (index === undefined) {
         if (area !== undefined) throw new Error(areaRefusal(indexes, where));
         return null;
     }
     let prefixes: string[][] = [[]];
     let tail: Exclude<Choice, { type: "values" }> | undefined;
-    const generated = index.interval.type === "some" || (area !== undefined && index.area.type === "some");
-    for (const field of generated ? index.fields.slice(0, -1) : index.fields) {
+    for (const field of index.fields) {
         const choice = where.get(field);
         if (choice === undefined) break;
         if (choice.type !== "values") { tail = choice; break; }
@@ -147,14 +173,12 @@ export function planRecordSlice(indexes: readonly Index[], where: ReadonlyMap<st
     }
     if (area !== undefined && index.area.type === "some") {
         const box = index.area.value;
+        const on = onOf(index);
         if (area.type === "window") {
-            return { index: index.name, queries: prefixes.flatMap(values => areaQueries(values, area.value, box.cell)) };
-        }
-        if (area.type !== "values" || area.value.length !== 1 || area.value[0] !== AREA_UNPLACED) {
-            throw new Error(`Under ${AREA_FIELD}, the one value is the unplaced clause, ${AREA_UNPLACED}`);
+            return { index: index.name, queries: prefixes.flatMap(values => areaQueries(values, area.value, box.cell, on)) };
         }
         if (!box.optional) throw new Error(`'${index.name}' places every row: its '${box.x}' and '${box.y}' are not Options, so none is unplaced`);
-        return { index: index.name, queries: prefixes.map(values => variant("fields", { values: [...values, AREA_UNPLACED], prefix: none })) };
+        return { index: index.name, queries: prefixes.map(values => variant("fields", { values: [on(values), AREA_UNPLACED], prefix: none })) };
     }
     if (index.interval.type === "some") {
         const interval = index.interval.value;
@@ -162,7 +186,13 @@ export function planRecordSlice(indexes: readonly Index[], where: ReadonlyMap<st
         if (choice?.type === "values" && prefixes.length * choice.value.length > MAX_RECORD_SLICE_RUNS) {
             throw new Error(`This combination needs more than ${MAX_RECORD_SLICE_RUNS} searches; choose fewer values`);
         }
-        return { index: index.name, queries: prefixes.flatMap(values => intervalQueries(values, choice, interval)) };
+        const on = onOf(index);
+        return { index: index.name, queries: prefixes.flatMap(values => intervalQueries(values, choice, interval, on)) };
+    }
+    if (index.area.type === "some") {
+        // A narrowing read through an area index chooses its every leading value: its `on`, one literal.
+        const on = onOf(index);
+        return { index: index.name, queries: prefixes.map(values => variant("fields", { values: [on(values)], prefix: none })) };
     }
     return { index: index.name, queries: prefixes.map(values => {
         if (tail?.type === "range") return variant("range", { from: [...values, tail.value.from], to: [...values, tail.value.to] });
@@ -198,18 +228,19 @@ const SAMPLES: Readonly<Record<"values" | "range" | "prefix", Choice>> = {
  * @param indexes - Available field paths.
  * @param current - Current narrowing.
  * @param field - The field being chosen.
- * @param kind - The kind of its choice: exact values, a range or a prefix (a window is a read's, never the rail's).
+ * @param kind - The kind of its choice: exact values, a range or a prefix.
  * @param offered - The fields the rail offers: one it does not can never be chosen first.
  * @returns The fields still to choose, in their index's order — none where none is — or null.
  */
 export function recordChoiceNeeds(indexes: readonly Index[], current: ReadonlyMap<string, Choice>, field: string,
     kind: Choice["type"], offered: ReadonlySet<string>): string[] | null {
-    if (kind === "window") return null;
     let best: string[] | null = null;
     for (const index of indexes) {
-        const at = index.fields.indexOf(field);
+        const fields = recordIndexFields(index);
+        const at = fields.indexOf(field);
         if (at < 0 || index.series.type === "some" || index.summary.type === "some") continue;
-        const before = index.interval.type === "some" ? index.fields.slice(0, -1) : index.fields.slice(0, at);
+        // An interval index's leading fields, its `on` (#1432), are taken together whichever is chosen; another's, those before the field.
+        const before = index.interval.type === "some" ? index.fields : fields.slice(0, at);
         const needed = [...new Set([...before, ...index.sets])].filter(name => name !== field);
         if (needed.some(name => !offered.has(name))) continue;
         const candidate = new Map<string, Choice>(needed.map(name => [name, SAMPLES.values]));
@@ -242,7 +273,7 @@ export function recordChoiceWhere(indexes: readonly Index[], current: ReadonlyMa
     let best: Map<string, Choice> | null = choice === undefined ? new Map() : null;
     for (const index of indexes) {
         const candidate = new Map<string, Choice>();
-        for (const name of index.fields) {
+        for (const name of recordIndexFields(index)) {
             const clause = requested.get(name);
             if (clause === undefined) break;
             candidate.set(name, clause);

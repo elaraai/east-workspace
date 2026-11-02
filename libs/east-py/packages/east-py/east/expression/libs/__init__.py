@@ -21,7 +21,9 @@ from typing import Any
 
 
 class LazyFunction:
-    """A stdlib ``East.function``, built on first use."""
+    """An ``East.function`` built on its first use: a standard library
+    function, or one a module declares while builds are deferred
+    (``east.expression.function.deferred_builds``, what an export runs in)."""
 
     def __init__(self, name: str, build: Any, doc: str | None = None) -> None:
         self._build = build

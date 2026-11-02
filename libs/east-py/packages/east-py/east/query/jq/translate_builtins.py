@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from east.datetime_format import DateTimeFormatTokenType
 from east.query.jq.catalog import BUILTINS, DelStep, del_paths
+from east.query.jq.check import walk_steps
 from east.query.jq.lower import UNKNOWN_LOC_ID, A, Label
 from east.query.jq.shapes import (
     dict_key,
@@ -339,8 +340,16 @@ rule("range", _range)
 
 def _recurse(t: Translator, c: CallSite) -> None:
     if len(c.args) == 0:
-        # `recurse` is `..`: jq defines both as `recurse(.[]?)`.
-        t.descend(c.block, _input(t, c), c.path, c.emit)
+        # `recurse` is `..`: jq defines both as `recurse(.[]?)`. A Dict or an Array of the value's own type, every
+        # value inside it of that type too, is flattenTree's.
+        v = _input(t, c)
+        if t.flatten_walk(c.block, v, [], t.type(v), c.path, c.emit):
+            return
+        t.descend(c.block, v, c.path, c.emit)
+        return
+    # `recurse(.a.b[])` where `.a.b` is a Dict or an Array of the value's own type: flattenTree.
+    steps = walk_steps(c.args[0]) if len(c.args) == 1 else None
+    if steps is not None and t.flatten_walk(c.block, _input(t, c), steps, _output_type(t, c), c.path, c.emit):
         return
     # `recurse(f)`, `recurse(f; cond)`: the value, then f of it, and so on, depth first.
     typ = _output_type(t, c)

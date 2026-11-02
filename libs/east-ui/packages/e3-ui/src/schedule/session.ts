@@ -58,7 +58,7 @@ export interface ScheduleRecordSession {
 /**
  * Declares the session over a record (see the module docs).
  *
- * @param record - The record, `Record.bind(record, [e3.mutation.patch(record)])`
+ * @param record - The record, `Record.bind(record), its record declaring patch: mutation.patch()`
  * @param keyType - The record's key type
  * @param rowType - The record's row type
  * @param entries - A paged read of the record's own entries, checked (`checkEntries`); `undefined` for a record read whole

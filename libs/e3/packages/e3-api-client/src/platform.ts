@@ -288,6 +288,20 @@ export interface PlatformImplementationOptions {
 }
 
 /**
+ * A platform call's failure, as an East program sees it: what failed and why,
+ * at the call.
+ *
+ * @param what - What failed
+ * @param fn - The platform function, which East names as the failure's location
+ * @param err - Why: the error the call threw
+ * @returns The error to throw
+ */
+function platformFailure(what: string, fn: string, err: unknown): EastError {
+  const why = err instanceof Error ? err.message : String(err);
+  return new EastError(`${what}: ${why}`, { location: [{ filename: fn, line: 0n, column: 0n }], cause: err });
+}
+
+/**
  * The implementations of e3's platform functions, over a given `fetch`.
  *
  * @remarks
@@ -306,22 +320,16 @@ export function platformImplementation(options: PlatformImplementationOptions = 
     platform_repo_status.implement(async (url: string, repo: string, token: string) => {
       try {
         return await repoStatus(url, repo, requestOptions(token));
-      } catch (err: any) {
-        throw new EastError(`Failed to get repository status: ${err.message}`, {
-          location: [{ filename: 'e3_repo_status', line: 0n, column: 0n }],
-          cause: err,
-        });
+      } catch (err) {
+        throw platformFailure('Failed to get repository status', 'e3_repo_status', err);
       }
     }),
 
     platform_repo_gc.implement(async (url: string, repo: string, options: ValueTypeOf<typeof GcRequestType>, token: string) => {
       try {
         return await repoGc(url, repo, options, requestOptions(token));
-      } catch (err: any) {
-        throw new EastError(`Failed to run garbage collection: ${err.message}`, {
-          location: [{ filename: 'e3_repo_gc', line: 0n, column: 0n }],
-          cause: err,
-        });
+      } catch (err) {
+        throw platformFailure('Failed to run garbage collection', 'e3_repo_gc', err);
       }
     }),
 
@@ -329,44 +337,32 @@ export function platformImplementation(options: PlatformImplementationOptions = 
     platform_package_list.implement(async (url: string, repo: string, token: string) => {
       try {
         return await packageList(url, repo, requestOptions(token));
-      } catch (err: any) {
-        throw new EastError(`Failed to list packages: ${err.message}`, {
-          location: [{ filename: 'e3_package_list', line: 0n, column: 0n }],
-          cause: err,
-        });
+      } catch (err) {
+        throw platformFailure('Failed to list packages', 'e3_package_list', err);
       }
     }),
 
     platform_package_get.implement(async (url: string, repo: string, name: string, version: string, token: string) => {
       try {
         return await packageGet(url, repo, name, version, requestOptions(token));
-      } catch (err: any) {
-        throw new EastError(`Failed to get package ${name}@${version}: ${err.message}`, {
-          location: [{ filename: 'e3_package_get', line: 0n, column: 0n }],
-          cause: err,
-        });
+      } catch (err) {
+        throw platformFailure(`Failed to get package ${name}@${version}`, 'e3_package_get', err);
       }
     }),
 
     platform_package_import.implement(async (url: string, repo: string, archive: Uint8Array, token: string) => {
       try {
         return await packageImport(url, repo, archive, requestOptions(token));
-      } catch (err: any) {
-        throw new EastError(`Failed to import package: ${err.message}`, {
-          location: [{ filename: 'e3_package_import', line: 0n, column: 0n }],
-          cause: err,
-        });
+      } catch (err) {
+        throw platformFailure('Failed to import package', 'e3_package_import', err);
       }
     }),
 
     platform_package_export.implement(async (url: string, repo: string, name: string, version: string, token: string) => {
       try {
         return await packageExport(url, repo, name, version, requestOptions(token));
-      } catch (err: any) {
-        throw new EastError(`Failed to export package ${name}@${version}: ${err.message}`, {
-          location: [{ filename: 'e3_package_export', line: 0n, column: 0n }],
-          cause: err,
-        });
+      } catch (err) {
+        throw platformFailure(`Failed to export package ${name}@${version}`, 'e3_package_export', err);
       }
     }),
 
@@ -374,11 +370,8 @@ export function platformImplementation(options: PlatformImplementationOptions = 
       try {
         await packageRemove(url, repo, name, version, requestOptions(token));
         return null;
-      } catch (err: any) {
-        throw new EastError(`Failed to remove package ${name}@${version}: ${err.message}`, {
-          location: [{ filename: 'e3_package_remove', line: 0n, column: 0n }],
-          cause: err,
-        });
+      } catch (err) {
+        throw platformFailure(`Failed to remove package ${name}@${version}`, 'e3_package_remove', err);
       }
     }),
 
@@ -386,44 +379,32 @@ export function platformImplementation(options: PlatformImplementationOptions = 
     platform_workspace_list.implement(async (url: string, repo: string, token: string) => {
       try {
         return await workspaceList(url, repo, requestOptions(token));
-      } catch (err: any) {
-        throw new EastError(`Failed to list workspaces: ${err.message}`, {
-          location: [{ filename: 'e3_workspace_list', line: 0n, column: 0n }],
-          cause: err,
-        });
+      } catch (err) {
+        throw platformFailure('Failed to list workspaces', 'e3_workspace_list', err);
       }
     }),
 
     platform_workspace_create.implement(async (url: string, repo: string, name: string, token: string) => {
       try {
         return await workspaceCreate(url, repo, name, requestOptions(token));
-      } catch (err: any) {
-        throw new EastError(`Failed to create workspace ${name}: ${err.message}`, {
-          location: [{ filename: 'e3_workspace_create', line: 0n, column: 0n }],
-          cause: err,
-        });
+      } catch (err) {
+        throw platformFailure(`Failed to create workspace ${name}`, 'e3_workspace_create', err);
       }
     }),
 
     platform_workspace_get.implement(async (url: string, repo: string, name: string, token: string) => {
       try {
         return await workspaceGet(url, repo, name, requestOptions(token));
-      } catch (err: any) {
-        throw new EastError(`Failed to get workspace ${name}: ${err.message}`, {
-          location: [{ filename: 'e3_workspace_get', line: 0n, column: 0n }],
-          cause: err,
-        });
+      } catch (err) {
+        throw platformFailure(`Failed to get workspace ${name}`, 'e3_workspace_get', err);
       }
     }),
 
     platform_workspace_status.implement(async (url: string, repo: string, name: string, token: string) => {
       try {
         return await workspaceStatus(url, repo, name, requestOptions(token));
-      } catch (err: any) {
-        throw new EastError(`Failed to get workspace status ${name}: ${err.message}`, {
-          location: [{ filename: 'e3_workspace_status', line: 0n, column: 0n }],
-          cause: err,
-        });
+      } catch (err) {
+        throw platformFailure(`Failed to get workspace status ${name}`, 'e3_workspace_status', err);
       }
     }),
 
@@ -431,11 +412,8 @@ export function platformImplementation(options: PlatformImplementationOptions = 
       try {
         await workspaceRemove(url, repo, name, requestOptions(token));
         return null;
-      } catch (err: any) {
-        throw new EastError(`Failed to remove workspace ${name}: ${err.message}`, {
-          location: [{ filename: 'e3_workspace_remove', line: 0n, column: 0n }],
-          cause: err,
-        });
+      } catch (err) {
+        throw platformFailure(`Failed to remove workspace ${name}`, 'e3_workspace_remove', err);
       }
     }),
 
@@ -443,22 +421,16 @@ export function platformImplementation(options: PlatformImplementationOptions = 
       try {
         await workspaceDeploy(url, repo, name, packageRef, requestOptions(token));
         return null;
-      } catch (err: any) {
-        throw new EastError(`Failed to deploy ${packageRef} to workspace ${name}: ${err.message}`, {
-          location: [{ filename: 'e3_workspace_deploy', line: 0n, column: 0n }],
-          cause: err,
-        });
+      } catch (err) {
+        throw platformFailure(`Failed to deploy ${packageRef} to workspace ${name}`, 'e3_workspace_deploy', err);
       }
     }),
 
     platform_workspace_export.implement(async (url: string, repo: string, name: string, token: string) => {
       try {
         return await workspaceExport(url, repo, name, requestOptions(token));
-      } catch (err: any) {
-        throw new EastError(`Failed to export workspace ${name}: ${err.message}`, {
-          location: [{ filename: 'e3_workspace_export', line: 0n, column: 0n }],
-          cause: err,
-        });
+      } catch (err) {
+        throw platformFailure(`Failed to export workspace ${name}`, 'e3_workspace_export', err);
       }
     }),
 
@@ -466,11 +438,8 @@ export function platformImplementation(options: PlatformImplementationOptions = 
     platform_dataset_list.implement(async (url: string, repo: string, workspace: string, token: string) => {
       try {
         return await datasetList(url, repo, workspace, requestOptions(token));
-      } catch (err: any) {
-        throw new EastError(`Failed to list datasets in ${workspace}: ${err.message}`, {
-          location: [{ filename: 'e3_dataset_list', line: 0n, column: 0n }],
-          cause: err,
-        });
+      } catch (err) {
+        throw platformFailure(`Failed to list datasets in ${workspace}`, 'e3_dataset_list', err);
       }
     }),
 
@@ -478,11 +447,8 @@ export function platformImplementation(options: PlatformImplementationOptions = 
       async (url: string, repo: string, workspace: string, path: ValueTypeOf<typeof TreePathType>, token: string) => {
         try {
           return await datasetListAt(url, repo, workspace, path, requestOptions(token));
-        } catch (err: any) {
-          throw new EastError(`Failed to list datasets at path in ${workspace}: ${err.message}`, {
-            location: [{ filename: 'e3_dataset_list_at', line: 0n, column: 0n }],
-            cause: err,
-          });
+        } catch (err) {
+          throw platformFailure(`Failed to list datasets at path in ${workspace}`, 'e3_dataset_list_at', err);
         }
       }
     ),
@@ -491,11 +457,8 @@ export function platformImplementation(options: PlatformImplementationOptions = 
       async (url: string, repo: string, workspace: string, path: ValueTypeOf<typeof TreePathType>, token: string) => {
         try {
           return (await datasetGet(url, repo, workspace, path, requestOptions(token))).data;
-        } catch (err: any) {
-          throw new EastError(`Failed to get dataset in ${workspace}: ${err.message}`, {
-            location: [{ filename: 'e3_dataset_get', line: 0n, column: 0n }],
-            cause: err,
-          });
+        } catch (err) {
+          throw platformFailure(`Failed to get dataset in ${workspace}`, 'e3_dataset_get', err);
         }
       }
     ),
@@ -512,11 +475,8 @@ export function platformImplementation(options: PlatformImplementationOptions = 
         try {
           await datasetSet(url, repo, workspace, path, data, requestOptions(token));
           return null;
-        } catch (err: any) {
-          throw new EastError(`Failed to set dataset in ${workspace}: ${err.message}`, {
-            location: [{ filename: 'e3_dataset_set', line: 0n, column: 0n }],
-            cause: err,
-          });
+        } catch (err) {
+          throw platformFailure(`Failed to set dataset in ${workspace}`, 'e3_dataset_set', err);
         }
       }
     ),
@@ -525,22 +485,16 @@ export function platformImplementation(options: PlatformImplementationOptions = 
     platform_task_list.implement(async (url: string, repo: string, workspace: string, token: string) => {
       try {
         return await taskList(url, repo, workspace, requestOptions(token));
-      } catch (err: any) {
-        throw new EastError(`Failed to list tasks in ${workspace}: ${err.message}`, {
-          location: [{ filename: 'e3_task_list', line: 0n, column: 0n }],
-          cause: err,
-        });
+      } catch (err) {
+        throw platformFailure(`Failed to list tasks in ${workspace}`, 'e3_task_list', err);
       }
     }),
 
     platform_task_get.implement(async (url: string, repo: string, workspace: string, name: string, token: string) => {
       try {
         return await taskGet(url, repo, workspace, name, requestOptions(token));
-      } catch (err: any) {
-        throw new EastError(`Failed to get task ${name} in ${workspace}: ${err.message}`, {
-          location: [{ filename: 'e3_task_get', line: 0n, column: 0n }],
-          cause: err,
-        });
+      } catch (err) {
+        throw platformFailure(`Failed to get task ${name} in ${workspace}`, 'e3_task_get', err);
       }
     }),
 
@@ -553,11 +507,8 @@ export function platformImplementation(options: PlatformImplementationOptions = 
             filter: options.filter.value ?? undefined,
           }, requestOptions(token));
           return null;
-        } catch (err: any) {
-          throw new EastError(`Failed to start dataflow in ${workspace}: ${err.message}`, {
-            location: [{ filename: 'e3_dataflow_start', line: 0n, column: 0n }],
-            cause: err,
-          });
+        } catch (err) {
+          throw platformFailure(`Failed to start dataflow in ${workspace}`, 'e3_dataflow_start', err);
         }
       }
     ),
@@ -569,11 +520,8 @@ export function platformImplementation(options: PlatformImplementationOptions = 
             force: dataflowForceOption(options.force),
             filter: options.filter.value ?? undefined,
           }, requestOptions(token));
-        } catch (err: any) {
-          throw new EastError(`Failed to execute dataflow in ${workspace}: ${err.message}`, {
-            location: [{ filename: 'e3_dataflow_execute', line: 0n, column: 0n }],
-            cause: err,
-          });
+        } catch (err) {
+          throw platformFailure(`Failed to execute dataflow in ${workspace}`, 'e3_dataflow_execute', err);
         }
       }
     ),
@@ -581,11 +529,8 @@ export function platformImplementation(options: PlatformImplementationOptions = 
     platform_dataflow_graph.implement(async (url: string, repo: string, workspace: string, token: string) => {
       try {
         return await dataflowGraph(url, repo, workspace, requestOptions(token));
-      } catch (err: any) {
-        throw new EastError(`Failed to get dataflow graph for ${workspace}: ${err.message}`, {
-          location: [{ filename: 'e3_dataflow_graph', line: 0n, column: 0n }],
-          cause: err,
-        });
+      } catch (err) {
+        throw platformFailure(`Failed to get dataflow graph for ${workspace}`, 'e3_dataflow_graph', err);
       }
     }),
 
@@ -607,11 +552,8 @@ export function platformImplementation(options: PlatformImplementationOptions = 
             limit: Number(options.limit),
           }, requestOptions(token));
           return { data, offset, size, totalSize, complete };
-        } catch (err: any) {
-          throw new EastError(`Failed to get logs for task ${task} in ${workspace}: ${err.message}`, {
-            location: [{ filename: 'e3_task_logs', line: 0n, column: 0n }],
-            cause: err,
-          });
+        } catch (err) {
+          throw platformFailure(`Failed to get logs for task ${task} in ${workspace}`, 'e3_task_logs', err);
         }
       }
     ),
@@ -621,11 +563,8 @@ export function platformImplementation(options: PlatformImplementationOptions = 
       async (url: string, repo: string, workspace: string, fn: string, request: ValueTypeOf<typeof FunctionCallRequestType>, token: string) => {
         try {
           return await workspaceFunctionCall(url, repo, workspace, fn, request, requestOptions(token));
-        } catch (err: any) {
-          throw new EastError(`Failed to call function ${fn} in ${workspace}: ${err.message}`, {
-            location: [{ filename: 'e3_function_call', line: 0n, column: 0n }],
-            cause: err,
-          });
+        } catch (err) {
+          throw platformFailure(`Failed to call function ${fn} in ${workspace}`, 'e3_function_call', err);
         }
       }
     ),
@@ -634,11 +573,8 @@ export function platformImplementation(options: PlatformImplementationOptions = 
       async (url: string, repo: string, workspace: string, request: ValueTypeOf<typeof OneShotRequestType>, token: string) => {
         try {
           return await oneShotExecute(url, repo, workspace, request, requestOptions(token));
-        } catch (err: any) {
-          throw new EastError(`Failed to execute one-shot in ${workspace}: ${err.message}`, {
-            location: [{ filename: 'e3_one_shot_execute', line: 0n, column: 0n }],
-            cause: err,
-          });
+        } catch (err) {
+          throw platformFailure(`Failed to execute one-shot in ${workspace}`, 'e3_one_shot_execute', err);
         }
       }
     ),

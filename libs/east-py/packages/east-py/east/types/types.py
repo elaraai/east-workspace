@@ -1223,29 +1223,29 @@ class RecursiveTypeMarker:
         return f"<RecursiveMarker at {hex(id(self))}>"
 
 
-# Process-unique scope ids for recursive wrappers, and the canonical wrapper
-# registry. Mirrors the TS reference (_recursiveIntern in libs/east/src/types.ts):
-# structurally identical recursive types share ONE wrapper (and therefore one
-# id), which is what makes the id fast-paths in the equality family sound
-# within a process. Foreign ids (decoded wire types, another runtime's mint)
-# are handled by alpha-equivalence in is_type_equal.
+# A recursive type is written under the hash of its type table (east-c's
+# east_type_structural_id), the id TypeScript and east-c give it too, so one id
+# is one type in every process and runtime, which is what makes the id
+# fast-paths in the equality family sound. recursive_type builds a type under a
+# provisional id from this counter to have it hashed, then under its own. An id
+# read off the wire is its writer's word for it: a type value decoded from bytes
+# another release wrote is handled by alpha-equivalence in is_type_equal.
 #
-# The registry is keyed by the wrapper's alpha-normal structure (`_alpha_key`),
-# not scanned: TypeScript's linear scan never hurt there, but every wrapper
-# that reaches this registry from the C bridge carries a FRESH id, so a scan
-# compared it structurally against every entry with the id fast path never
-# hitting (#636). A bucket holds the wrappers of one key; is_type_equal still
-# decides membership, so the key can only shorten the scan, never change the
-# answer.
+# The canonical wrapper registry mirrors the TS reference (_recursiveIntern in
+# libs/east/src/types.ts): structurally identical recursive types share ONE
+# wrapper. It is keyed by the wrapper's alpha-normal structure (`_alpha_key`),
+# not scanned (#636). A bucket holds the wrappers of one key; is_type_equal
+# still decides membership, so the key can only shorten the scan, never change
+# the answer.
 _next_recursive_id: int = 1
 _recursive_intern: dict[tuple, list[EastVariant]] = {}
 
 
 def _mint_recursive_id() -> int:
-    """Allocate the next process-unique recursive scope id.
+    """Allocate the next provisional recursive scope id.
 
-    Shared with the C bridge's reverse type converter, so wrappers minted from
-    C pointers draw from the same sequence as recursive_type.
+    The id recursive_type builds a type under before east-c names it by the
+    hash of its type table; never written.
     """
     global _next_recursive_id
     rec_id = _next_recursive_id
@@ -1313,6 +1313,8 @@ def recursive_type(builder: Any) -> EastType:
     whole type is wrapped as ``Recursive wrapper{id, inner}``, matching the
     TypeScript reference (``toEastTypeValue`` of a ``RecursiveType``). The
     result is a finite tree: refs are leaves, and only the wrapper binds them.
+    The id is the hash of the type's type table, the one every runtime gives
+    the type, whatever the process built before it.
 
     Args:
         builder: Function that takes a self-reference and returns the node type
@@ -1342,8 +1344,11 @@ def recursive_type(builder: Any) -> EastType:
 
     node = builder(placeholder)
 
-    rec_id = _mint_recursive_id()
-    ref: EastVariant = EastVariant("Recursive", EastVariant("ref", rec_id))
+    # The type table east-c hashes for the id writes no id, so the type is
+    # built under a provisional one to be hashed, then again under its own;
+    # `finalize` reads `ref` as it stands.
+    provisional = _mint_recursive_id()
+    ref: EastVariant = EastVariant("Recursive", EastVariant("ref", provisional))
 
     def finalize(t: EastType, allowed: bool) -> EastType:
         """Replace our placeholders with ``ref(id)``, validating as we go.
@@ -1434,6 +1439,12 @@ def recursive_type(builder: Any) -> EastType:
         # Primitive types, return as-is
         return t
 
+    from east._eastc_bridge import recursive_type_id
+
+    rec_id = recursive_type_id(
+        EastVariant("Recursive", EastVariant("wrapper", {"id": provisional, "inner": finalize(node, True)}))
+    )
+    ref = EastVariant("Recursive", EastVariant("ref", rec_id))
     inner = finalize(node, True)
     built: EastVariant = EastVariant(
         "Recursive", EastVariant("wrapper", {"id": rec_id, "inner": inner})
@@ -1458,7 +1469,8 @@ def _recursive_ids_equal(t1: EastType, t2: EastType) -> bool | None:
 
     Returns True when the scope ids match or are assumed equal, None when both
     sides are wrappers with distinct ids (caller must compare inners under the
-    assumption), and False otherwise.
+    assumption), and False otherwise. One id is one type: every runtime writes
+    a recursive type under the hash of its type table.
     """
     p1, p2 = t1.value, t2.value
     id1 = p1.value if p1.type == "ref" else p1.value["id"]
@@ -1692,6 +1704,10 @@ def is_type_equal(
     Returns:
         True if types are structurally equal, False otherwise
     """
+    # One object is one type: the constructors intern, so a build compares
+    # the same object far more often than two copies (#1459).
+    if t1 is t2:
+        return True
     if r1 is None:
         r1 = t1
     if r2 is None:
@@ -1812,6 +1828,8 @@ def is_subtype(t1: EastType, t2: EastType) -> bool:
     Returns:
         True if t1 is a subtype of t2, False otherwise
     """
+    if t1 is t2:
+        return True
     # Handle Recursive types, mirroring the TS reference (isSubtypeValueImpl):
     # wrappers are transparent on either side; refs compare by scope id.
     if is_recursive_type(t1) and t1.value.type == "wrapper":

@@ -46,12 +46,13 @@ describe('compactCommand', () => {
     tempDir = createTempDir();
     storage = new LocalStorage(dirname(repo));
 
-    const counter = e3.record('counter', IntegerType, 0n);
-    const increment = e3.mutation.reduce(
-      'increment', counter,
-      East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)),
-    );
-    const pkg = e3.package('counters', '1.0.0', counter, increment);
+    const counter = e3.record('counter', IntegerType, {
+      initial: 0n,
+      mutations: (mutation) => ({
+        increment: mutation.reduce(East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))),
+      }),
+    });
+    const pkg = e3.package('counters', '1.0.0', counter);
     const zip = join(tempDir, 'counters.zip');
     await e3.export(pkg, zip);
     await packageImport(storage, repo, zip);

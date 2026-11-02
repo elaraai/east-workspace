@@ -312,7 +312,7 @@ export function flowchartKeys(name: string | undefined): {
 
 /**
  * A record of flows by name bound with its patch mutation, as the flowchart
- * reads it — what `Record.bind(record, [e3.mutation.patch(record)])` returns
+ * reads it — what `Record.bind(record), its record declaring patch: mutation.patch()` returns
  * for a record of `Flowchart.Types.Flows`.
  */
 export interface FlowchartRecordHandle {
@@ -471,7 +471,7 @@ function inspectorOf(inspector: unknown): ExprType<OptionType<FlowchartInspector
 }
 
 /** The refusal of a record not bound with its patch mutation. */
-const UNBOUND = "Flowchart: `record` is an e3 record bound with its patch mutation — Record.bind(record, [e3.mutation.patch(record)])";
+const UNBOUND = "Flowchart: `record` is an e3 record bound with its patch mutation — Record.bind(record), its record declaring patch: mutation.patch()";
 
 /** The arm the flows' type picked, and whether it holds many flows. */
 interface FlowchartArm {
@@ -515,7 +515,7 @@ function checkedRecord(record: unknown): FlowchartRecord {
     if (!isTypeEqual(recordType, FlowchartFlowsType)) {
         throw new Error(`Flowchart: \`record\` holds flows by name, Flowchart.Types.Flows — declare it with that type — and this record holds ${printType(recordType)}`);
     }
-    // The patch door: e3.mutation.patch's, the mutation named `patch` taking
+    // The patch door: the record's mutation.patch(), the mutation named `patch` taking
     // the record's patch.
     const door = fieldOf(fieldOf(type, "commit"), "patch");
     if (door === undefined || !isTypeEqual(door, AsyncFunctionType([StringType, PatchType(FlowchartFlowsType)], RecordOutcomeType))) {
@@ -750,7 +750,7 @@ export function createFlowchartPayload(props: object): ExprType<FlowchartPayload
     });
     const pagesFlows = sources.names.includes("flows");
     if (pagesFlows && record === undefined) {
-        throw new Error("Flowchart: `slice`'s `flows` source pages a record of flows, and these flows are the host's, which nothing narrows — bind the record as record={Record.bind(record, [e3.mutation.patch(record)])}, or leave `flows` out of the slice");
+        throw new Error("Flowchart: `slice`'s `flows` source pages a record of flows, and these flows are the host's, which nothing narrows — bind the record as record={Record.bind(record), its record declaring patch: mutation.patch()}, or leave `flows` out of the slice");
     }
     return Expr.block(($) => {
         const bound = sources.bind($);

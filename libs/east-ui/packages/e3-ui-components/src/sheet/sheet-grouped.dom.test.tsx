@@ -29,7 +29,7 @@ import {
 import { Paged, StatusValueType } from "@elaraai/east-ui";
 import { Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { system, UIStore, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
-import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { initializeStore, keptName } from "@elaraai/east-ui-components/internal";
 import { EastChakraSheet, type SheetValue } from "./frame/index.js";
 import { SHEET_PAGE_SIZE } from "./paging.js";
 import { sheetJournal } from "./journal.test-utils.js";
@@ -810,7 +810,7 @@ describe("what the viewer arranged survives a remount (#857)", () => {
 
     test("a persisted anchor whose item is gone lands at its index, clamped to the items", async () => {
         // Item 120 is plan 40's band: every plan is its band and two lines.
-        localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: null, folds: [], anchor: { key: "group:P19999", offset: 12, index: 120, element: null } }));
+        localStorage.setItem(keptName("sheet-grouped-test"), JSON.stringify({ view: null, folds: [], anchor: { key: "group:P19999", offset: 12, index: 120, element: null } }));
         const ui = mount(buildFramedInline(300));
         const f = framed(ui);
         await waitFor(() => expect(f.frame().scrollTop).toBe(40 * PLAN_PX));
@@ -818,14 +818,14 @@ describe("what the viewer arranged survives a remount (#857)", () => {
         ui.unmount();
         // Past the last of the 900 items: the last — plan 299's second line — which the scroll brings up
         // from below as far as the rows go: their end at the bottom of the view.
-        localStorage.setItem("sheet-grouped-end", JSON.stringify({ view: null, folds: [], anchor: { key: "group:P19999", offset: 12, index: 5_000, element: null } }));
+        localStorage.setItem(keptName("sheet-grouped-end"), JSON.stringify({ view: null, folds: [], anchor: { key: "group:P19999", offset: 12, index: 5_000, element: null } }));
         const end = mount(buildFramedInline(300), "sheet-grouped-end");
         await waitFor(() => expect(framed(end).frame().scrollTop).toBe(300 * PLAN_PX - 600));
         expect(end.container.querySelector('[data-slot="row"][data-group-id="P10299"][data-line="1"]')).not.toBeNull();
     });
 
     test("paged: the anchor's window is fetched first, and the view lands on its item", async () => {
-        localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: null, folds: [], anchor: { key: "group:P11500", offset: 20, index: 3, element: 1500 } }));
+        localStorage.setItem(keptName("sheet-grouped-test"), JSON.stringify({ view: null, folds: [], anchor: { key: "group:P11500", offset: 20, index: 3, element: 1500 } }));
         const ui = mount(buildFramedPlans());
         const f = framed(ui);
         // Window 7 (elements 1,400–1,599) is read, plan 1,500's band lands, and the view rests 20 px into it.
@@ -836,7 +836,7 @@ describe("what the viewer arranged survives a remount (#857)", () => {
 
     test("paged: an anchor past the end of a source that shrank lands on its last item, and hands the viewport back", async () => {
         // Plan 3,500 was in view; the source holds 2,000 plans now.
-        localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: null, folds: [], anchor: { key: "group:P13500", offset: 20, index: 3, element: 3_500 } }));
+        localStorage.setItem(keptName("sheet-grouped-test"), JSON.stringify({ view: null, folds: [], anchor: { key: "group:P13500", offset: 20, index: 3, element: 3_500 } }));
         const ui = mount(buildFramedPlans());
         const f = framed(ui);
         // The last plan's window is fetched, and the last plan is in view.
@@ -850,7 +850,7 @@ describe("what the viewer arranged survives a remount (#857)", () => {
     });
 
     test("paged: an anchor whose item is gone lands on the item now at its element — not at its index in another run", async () => {
-        localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: null, folds: [], anchor: { key: "group:P1GONE", offset: 20, index: 3, element: 1_500 } }));
+        localStorage.setItem(keptName("sheet-grouped-test"), JSON.stringify({ view: null, folds: [], anchor: { key: "group:P1GONE", offset: 20, index: 3, element: 1_500 } }));
         const ui = mount(buildFramedPlans());
         const f = framed(ui);
         await waitFor(() => expect(ui.band("P11500")).not.toBeNull(), { timeout: 10_000 });
@@ -873,7 +873,7 @@ describe("what the viewer arranged survives a remount (#857)", () => {
         for (let w = 0; w < 6; w++) held.add(w);
         const before = paged.asked.length;
         f.scrollTo(250 * PLAN_PX + 10);
-        const anchor = () => (JSON.parse(localStorage.getItem("sheet-grouped-test") ?? "{}") as { anchor?: { key: string; element: number | null } }).anchor;
+        const anchor = () => (JSON.parse(localStorage.getItem(keptName("sheet-grouped-test")) ?? "{}") as { anchor?: { key: string; element: number | null } }).anchor;
         // What it keeps once the frame reports where it rests, 150 ms after its last scroll, is the element the band draws
         // there — not the anchor the scroll down left, which names a band too where that scroll rested before windows 6–9
         // landed under it, at their element; the window under the view was asked for, and is on its way.
@@ -889,7 +889,7 @@ describe("what the viewer arranged survives a remount (#857)", () => {
     });
 
     test("paged: a band is never an anchor's item — one persisted over the tail band lands on its element, not on the band a remount draws", async () => {
-        localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: null, folds: [], anchor: { key: "band:tail", offset: 20, index: 1, element: 1_500 } }));
+        localStorage.setItem(keptName("sheet-grouped-test"), JSON.stringify({ view: null, folds: [], anchor: { key: "band:tail", offset: 20, index: 1, element: 1_500 } }));
         const ui = mount(buildFramedPlans());
         const f = framed(ui);
         await waitFor(() => expect(ui.band("P11500")).not.toBeNull(), { timeout: 10_000 });

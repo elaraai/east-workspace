@@ -72,7 +72,7 @@ const floor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Eas
     const frames = $.let(Data.bind(ex.schematicFrames));
     const slice = $.let(Slice.bindRecords(FLOOR, {
         racks: {
-            source: Data.bindPaged(ex.schematicRacks, { indexes: [ex.schematicRacksByArea, ex.schematicRacksByOwnerArea, ex.schematicRacksByName] }),
+            source: Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_area", "schematic_racks_by_owner_area", "schematic_racks_by_name"] }),
             search: ["name"],
             fields: { name: { label: "Rack" }, owner: { label: "Owner", hints: ["Harbour Labs", "Northwind Media", "Elmway College"] } },
         },

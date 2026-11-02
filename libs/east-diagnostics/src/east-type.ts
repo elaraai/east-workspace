@@ -26,6 +26,19 @@ export function isEastExprType(type: ts.Type): boolean {
   return false;
 }
 
+// An East function's expression — `East.function(…)` / `East.asyncFunction(…)`, or
+// any expression of their types (`FunctionExpr`, `AsyncFunctionExpr`): a function
+// value, which a program calls. Name-keyed, like `isEastExprType`.
+export function isEastFunctionExprType(type: ts.Type): boolean {
+  return someTypeName(type, (name) => name === "FunctionExpr" || name === "AsyncFunctionExpr");
+}
+
+// An East program's IR bundle — what `toIR()` gives (`EastIR`, `AsyncEastIR`): a
+// whole program, serialized. Name-keyed, like `isEastExprType`.
+export function isEastIRType(type: ts.Type): boolean {
+  return someTypeName(type, (name) => name === "EastIR" || name === "AsyncEastIR");
+}
+
 export function isBlockBuilderType(type: ts.Type): boolean {
   const name = type.aliasSymbol?.name ?? type.symbol?.name;
   return name === "BlockBuilder";
@@ -60,18 +73,25 @@ export function isEastPlatformDefinitionType(type: ts.Type): boolean {
 }
 
 // e3 program declarations: `e3.task` → `TaskDef`, `e3.input` → `DatasetDef`,
-// `e3.function` → `FunctionDef`, … . A module-scope helper returning one of these
-// (or a platform definition) is a DECLARATION factory — host-side composition of
-// the program's structure, which the host language is allowed to do — not a value
-// macro that hand-builds East IR.
+// `e3.function` → `FunctionDef`, … , and a record's parts as the builders its
+// declaration hands over draft them: `index.on(…)` → `IndexDraft`,
+// `mutation.patch()` → `MutationDraft`, `migration.value(…)` → `MigrationDraft`.
+// A module-scope helper returning one of these (or a platform definition) is a
+// DECLARATION factory — host-side composition of the program's structure, which
+// the host language is allowed to do — not a value macro that hand-builds East IR.
 const E3_DEFINITION_NAMES = new Set([
   "TaskDef",
   "DatasetDef",
   "DataTreeDef",
   "FunctionDef",
   "MutationDef",
+  "MigrationDef",
   "RecordDef",
+  "RecordIndexDef",
   "PackageDef",
+  "IndexDraft",
+  "MutationDraft",
+  "MigrationDraft",
 ]);
 
 export function isEastDefinitionType(type: ts.Type): boolean {

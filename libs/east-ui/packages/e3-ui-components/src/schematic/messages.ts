@@ -41,6 +41,7 @@
  * @packageDocumentation
  */
 
+import { none, some, variant } from "@elaraai/east";
 import type { Formatters } from "@elaraai/east-ui-components";
 import type { LoadingLineText } from "@elaraai/east-ui-components/internal";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
@@ -270,8 +271,8 @@ export interface SchematicMessages extends PagedLoadingMessages, HiddenWords {
     inspectorNoDetails: (p: { name: string }) => string;
     /** What a link or a net Details lists an item joined to is, under its name: its kind, and for a net the item's side. */
     inspectorJoin: (p: { kind: string; end: "source" | "destination" | undefined }) => string;
-    /** A record's last save in the drawing's Details — `Rack saved 14:02 by alice`: `when` is its time today, else its date and time. */
-    inspectorSaved: (p: { name: string; when: string; by: string }) => string;
+    /** A record's last save in the drawing's Details — `Rack saved 14:02 by alice`, or `Rack saved 14:02` where it names no one: `when` is its time today, else its date and time. */
+    inspectorSaved: (p: { name: string; when: string; by: string | undefined }) => string;
     /** An edit's step in the history — `Edit A03`, `Unplace A06`, `Delete A03`, `Remove A05 from PDU-B · A side`. */
     inspectorStep: (p: { edit: "edit" | "unplace" | "delete" | "remove"; name: string; from?: string }) => string;
     /** Why a net's side can't be emptied in its tags: a Delete takes the net. */
@@ -509,7 +510,7 @@ export const schematicMessages: SchematicMessages = {
     inspectorNoRow: () => "Its record holds no row of it",
     inspectorNoDetails: ({ name }) => `No ${name.toLowerCase()} details`,
     inspectorJoin: ({ kind, end }) => (end === undefined ? kind : `${kind} · ${end === "source" ? "source" : "destination"}`),
-    inspectorSaved: ({ name, when, by }) => `${name} saved ${when} by ${by}`,
+    inspectorSaved: ({ name, when, by }) => (by === undefined ? `${name} saved ${when}` : `${name} saved ${when} by ${by}`),
     inspectorStep: ({ edit, name, from }) => ({
         edit: `Edit ${name}`, unplace: `Unplace ${name}`, delete: `Delete ${name}`, remove: `Remove ${name} from ${from ?? ""}`,
     })[edit],
@@ -529,4 +530,17 @@ export const schematicMessages: SchematicMessages = {
 export interface SchematicWords extends Formatters {
     /** The message table in effect. */
     readonly m: SchematicMessages;
+}
+
+/**
+ * A coordinate or a length as the Schematic prints it, to the centimetre:
+ * Details' position and size, and a conflict's card.
+ *
+ * @param n - The value, in the drawing's unit
+ * @param words - The words
+ * @returns Its text, in the locale
+ */
+export function coordinate(n: number, words: SchematicWords): string {
+    const digits = some(2n);
+    return words.value(n, variant("number", { minimumFractionDigits: digits, maximumFractionDigits: digits, signDisplay: none }));
 }

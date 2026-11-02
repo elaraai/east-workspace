@@ -18,7 +18,7 @@
  * (B20, B12) — the height select's chevron and check Font Awesome's (#1263) —
  * nothing selected (B21), and the palette counting unsaved drafts. Save as
  * template (D7, #997). The publish preview (#998), in the canvas's place: its
- * bar (E1), the page (E2), the aside (E3–E5) — every mark in it Font Awesome's
+ * bar (E1), the page (E2), the aside (E3, E5) — every mark in it Font Awesome's
  * (#1263) — and the footer (E6). The toolbar on a row short of room (#1229):
  * its ladder, the ⋯ chip's bundle and menu, and Save as template hung from the
  * chip.
@@ -28,12 +28,11 @@ import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll, vi 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { East, SortedMap, applyFor, compareFor, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, Text, UIComponentType } from "@elaraai/east-ui/internal";
-import { StateRuntime } from "@elaraai/east-ui-components";
+import { StateRuntime, editingMessages } from "@elaraai/east-ui-components";
 import { foreignIcons, markOf } from "@elaraai/east-ui-components/testing";
-import { Record, Studio, StudioKeyType, StudioPagesType, builderKeys, fingerprintOf } from "@elaraai/e3-ui/internal";
+import { Record, Studio, StudioKeyType, StudioPagesType, builderKeys } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/studio/studio";
-import { act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
-import { studioMessages } from "./messages.js";
+import { conflictCards, act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
 // The builder is an extension: its renderer registers as it loads.
 import "./builder.js";
 
@@ -41,22 +40,19 @@ type Key = ValueTypeOf<typeof Studio.Types.Key>;
 type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
 type Pages = ValueTypeOf<typeof Studio.Types.Pages>;
 
-/** The pages record the builder reads and saves: the studio examples', by its name. */
-const RECORD = ex.studioPages.name;
+/** The pages record the builder reads and saves, the studio examples': its name in the words a card, a tile and the inspector name what a component reads in. */
+const RECORD_NAMED = "Studio pages";
 const keys = compareFor(StudioKeyType);
 const applyPages = applyFor(StudioPagesType);
 
-/** The components' code — the fingerprints a live version's cells store. */
+/** The components' code. */
 const kpiFn = East.function([], UIComponentType, (_$) => Text.Root("KPIs"));
 const trendFn = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const pages = $.let(Record.bind(ex.studioPages, [ex.studioPagesPatch]));
+    const pages = $.let(Record.bind(ex.studioPages, ["patch"]));
     return Text.Root(East.str`${East.print(pages.read().size())} pages`);
 })));
 const ordersFn = East.function([], UIComponentType, (_$) => Text.Root("Orders"));
 const barsFn = East.function([], UIComponentType, (_$) => Text.Root("Bars"));
-const kpiPrint = fingerprintOf(kpiFn);
-const trendPrint = fingerprintOf(trendFn);
-const ordersPrint = fingerprintOf(ordersFn);
 
 /** The listed components: four offered — the trend's code reads the pages record — and a deprecated one that is not. */
 const components = [
@@ -77,50 +73,50 @@ const REGIONAL: Key = { project: "ops", page: "f-regional" };
 /**
  * In ops: the Overview (never published — the page the builder opens first),
  * the Weekly (live as v1, as it stands), the Monthly (live as v3, its draft
- * resized since and its component's code changed since), the Double (the trend
- * placed twice), a template, and the Regional (live as v3; its draft resizes
- * the trend and adds the bars). Another project's page.
+ * resized since), the Double (the trend placed twice), a template, and the
+ * Regional (live as v3; its draft resizes the trend and adds the bars).
+ * Another project's page.
  */
 const PAGES: Pages = new SortedMap<Key, Entry>([
     [OVERVIEW, variant("page", {
         draft: {
             title: "Overview",
             cells: [
-                { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "" },
-                { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "" },
+                { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
+                { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
             ],
         },
         live: none,
     })],
     [{ project: "ops", page: "b-weekly" }, variant("page", {
-        draft: { title: "Weekly", cells: [{ key: "w-orders", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "orders_by_week", fingerprint: ordersPrint }] },
-        live: some({ version: 1n, page: { title: "Weekly", cells: [{ key: "w-orders", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "orders_by_week", fingerprint: ordersPrint }] } }),
+        draft: { title: "Weekly", cells: [{ key: "w-orders", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "orders_by_week" }] },
+        live: some({ version: 1n, page: { title: "Weekly", cells: [{ key: "w-orders", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "orders_by_week" }] } }),
     })],
     [{ project: "ops", page: "c-monthly" }, variant("page", {
-        draft: { title: "Monthly", cells: [{ key: "m-orders", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "orders_by_week", fingerprint: "" }] },
-        live: some({ version: 3n, page: { title: "Monthly", cells: [{ key: "m-orders", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "orders_by_week", fingerprint: "" }] } }),
+        draft: { title: "Monthly", cells: [{ key: "m-orders", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "orders_by_week" }] },
+        live: some({ version: 3n, page: { title: "Monthly", cells: [{ key: "m-orders", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "orders_by_week" }] } }),
     })],
     [{ project: "ops", page: "d-double" }, variant("page", {
         draft: {
             title: "Double",
             cells: [
-                { key: "d-trend-1", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "" },
-                { key: "d-trend-2", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "" },
+                { key: "d-trend-1", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
+                { key: "d-trend-2", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
             ],
         },
         live: none,
     })],
     [{ project: "ops", page: "e-starter" }, variant("template", {
         title: "Starter",
-        cells: [{ key: "s-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "" }],
+        cells: [{ key: "s-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" }],
     })],
     [REGIONAL, variant("page", {
         draft: {
             title: "Regional",
             cells: [
-                { key: "p-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: kpiPrint },
-                { key: "p-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: trendPrint },
-                { key: "p-bars", row: "r2", span: 4n, height: none, align: variant("top", null), title: none, component: "breakdown_bars", fingerprint: "" },
+                { key: "p-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
+                { key: "p-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
+                { key: "p-bars", row: "r2", span: 4n, height: none, align: variant("top", null), title: none, component: "breakdown_bars" },
             ],
         },
         live: some({
@@ -128,8 +124,8 @@ const PAGES: Pages = new SortedMap<Key, Entry>([
             page: {
                 title: "Regional",
                 cells: [
-                    { key: "p-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: kpiPrint },
-                    { key: "p-trend", row: "r2", span: 12n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: trendPrint },
+                    { key: "p-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
+                    { key: "p-trend", row: "r2", span: 12n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
                 ],
             },
         }),
@@ -154,7 +150,7 @@ beforeEach(async () => {
 const builder = {
     fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const listed = $.let(components);
-        const record = $.let(Record.bind(ex.studioPages, [ex.studioPagesPatch]));
+        const record = $.let(Record.bind(ex.studioPages, ["patch"]));
         return Studio.Builder({
             pages: record, components: listed, project: "ops",
             env: "Staging", audience: "Field ops · 24 users", rollout: "Immediate",
@@ -277,7 +273,7 @@ describe("<Studio.Builder> — the palette (#994)", () => {
         expect(heads).toEqual(["Display 2", "Charts 2"]);
         const trend = cardOf(container, "Revenue trend");
         expect(trend.querySelector("svg[data-icon=chart-area]")).not.toBeNull();
-        expect(within(trend).getByText(RECORD)).toBeTruthy();
+        expect(within(trend).getByText(RECORD_NAMED)).toBeTruthy();
         expect(within(cardOf(container, "KPI rail")).getByText("no data")).toBeTruthy();
         expect(within(trend).getByRole("img", { name: "Logic fixed by the developer" })).toBeTruthy();
         expect(within(palette(container)).getAllByRole("img", { name: "Logic fixed by the developer" })).toHaveLength(4);
@@ -383,13 +379,13 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         expect(status()).toBe("Template");
     });
 
-    test("B9: the selection bar names the selected placement — its component's icon and name, its key and what it reads; with none, what to do", async () => {
+    test("B9: the selection bar names the selected placement — its component's icon and name, and what it reads, never its key; with none, what to do", async () => {
         const { container } = await mountBuilder();
         const bar = () => container.querySelector<HTMLElement>("[data-snap-grid-selection]")!;
         expect(bar().textContent).toBe("No selectionClick a component on the grid to arrange it");
         await select(container, "c-trend");
         expect(bar().querySelector("svg")!.getAttribute("data-icon")).toBe("chart-area");
-        expect([...bar().children].slice(1).map((el) => el.textContent)).toEqual(["Revenue trend", `revenue_trend · ${RECORD}`]);
+        expect([...bar().children].slice(1).map((el) => el.textContent)).toEqual(["Revenue trend", RECORD_NAMED]);
     });
 
     test("B10: the grid panel holds the page's cells on the editing canvas — each its component's own UI — with its guides and its end zone", async () => {
@@ -402,7 +398,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         await waitFor(() => expect(tile(container, "c-trend").textContent).toBe("7 pages"));
     });
 
-    test("B11: a component dropped from the palette becomes a cell at its span, storing its fingerprint — Save commits it", async () => {
+    test("B11: a component dropped from the palette becomes a cell at its span — Save commits it", async () => {
         const { container } = await mountBuilder();
         const end = container.querySelector<HTMLElement>("[data-snap-grid-end]")!;
         await act(async () => {
@@ -420,7 +416,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         const overview = (await readRecord()).get(OVERVIEW)!;
         if (overview.type !== "page") throw new Error("expected a page");
         const cell = overview.value.draft.cells.at(-1)!;
-        expect([cell.key, cell.component, cell.span, cell.fingerprint]).toEqual([dropped, "orders_by_week", 6n, ordersPrint]);
+        expect([cell.key, cell.component, cell.span]).toEqual([dropped, "orders_by_week", 6n]);
     });
 
     test("B12: Save is one patch commit on the page, and the toolbar says when it saved", async () => {
@@ -436,7 +432,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     });
 
-    test("B12: a save another session's overtakes is a conflict, in the history item's words — and the other save stands", async () => {
+    test("B12: a save another session's overtakes, removing the tile this one changed, is a conflict: Save waits until it is settled — and the other save stands", async () => {
         const { container } = await mountBuilder();
         await keyOn(container, "c-trend", { key: "[" });
         // Another operator's save lands between this Save's read and its commit: the Overview's trend removed.
@@ -444,18 +440,45 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         if (stored.type !== "page") throw new Error("expected a page");
         const after: Entry = variant("page", { draft: { title: stored.value.draft.title, cells: stored.value.draft.cells.slice(0, 1) }, live: stored.value.live });
         await h.race(ex.studioPages, () => click(screen.getByRole("button", { name: "Save" })), withEntry(OVERVIEW, after));
-        // The commit is refused, and the canvas, reading the page back, finds its source moved under its drafts.
-        expect(container.querySelector("[data-slot=history]")!.textContent).toContain("Source changed — review or discard these drafts");
-        expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+        // The commit is refused, and the canvas, reading the page back, carries its drafts over to it: the tile it moved,
+        // the other save removed — a conflict, and Save waits for it.
+        expect(container.querySelector("[data-slot=history]")!.textContent).not.toContain("Source changed");
+        // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+        expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).getAttribute("aria-disabled")).toBe("true");
         expect(await commits()).toEqual(["patch", ...before]);
         const overview = (await readRecord()).get(OVERVIEW)!;
         if (overview.type !== "page") throw new Error("expected a page");
         expect(overview.value.draft.cells.map((c) => c.key)).toEqual(["c-kpi"]);
     });
 
+    test("B12: two Saves at once, of different fields of one tile: the one that lands first reads its own back beside the other's and is done, never left waiting on it", async () => {
+        const { container } = await mountBuilder();
+        await keyOn(container, "c-trend", { key: "]" });
+        // The other session's alignment of the same tile commits just after this Save, before this session has read its own back.
+        await h.followed(ex.studioPages, () => click(screen.getByRole("button", { name: "Save" })), (now) => {
+            const stored = now.get(OVERVIEW)!;
+            if (stored.type !== "page") throw new Error("expected a page");
+            const cells = stored.value.draft.cells.map((cell) => (cell.key === "c-trend" ? { ...cell, align: variant("center", null) } : cell));
+            return withEntry(OVERVIEW, variant("page", { draft: { title: stored.value.draft.title, cells }, live: stored.value.live }))(now);
+        });
+        const overview = (await readRecord()).get(OVERVIEW)!;
+        if (overview.type !== "page") throw new Error("expected a page");
+        const trend = overview.value.draft.cells.find((c) => c.key === "c-trend")!;
+        expect([trend.span, trend.align.type]).toEqual([9n, "center"]);
+        await waitFor(() => {
+            expect(container.querySelector("[data-frame-slot=toolbar]")!.textContent).not.toContain(editingMessages.historyStatus({ status: "reconciling" }));
+            expect([spanOf(container, "c-trend"), tile(container, "c-trend").getAttribute("data-align")]).toEqual(["9", "center"]);
+        });
+        expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+        expect(container.querySelector("[data-session-banner]")).toBeNull();
+    });
+
     test("B13: the palette and the inspector sit either side of the canvas under the toolbar, and the palette collapses to its rail", async () => {
         const { container } = await mountBuilder();
-        const body = container.querySelector("[data-frame-slot=toolbar]")!.nextElementSibling!;
+        // Under the toolbar the session's banners, then the panes.
+        const banners = container.querySelector("[data-frame-slot=toolbar]")!.nextElementSibling!;
+        expect(banners.getAttribute("data-frame-slot")).toBe("banners");
+        const body = banners.nextElementSibling!;
         expect([...body.children].map((el) => el.getAttribute("data-frame-slot"))).toEqual(["start", "main", "end"]);
         expect(body.querySelector('[data-frame-slot="main"] > [data-snap-grid-main]')).not.toBeNull();
         await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Collapse Components" })); });
@@ -512,27 +535,20 @@ describe("<Studio.Builder> — the inspector (#996)", () => {
         expect(rail.querySelector("svg[data-icon=sliders]")).not.toBeNull();
     });
 
-    test("B16–B18, B21: the selected placement's name and its component's key, what its code reads, its description fixed by its developer, and the footer", async () => {
+    test("B16–B18, B21: the selected placement's name, never its component's key, what its code reads in words, never a keypath, its description fixed by its developer, and the footer", async () => {
         const { container } = await mountBuilder();
         await select(container, "c-trend");
         const b = inspector(container);
         expect(b.querySelector("[data-inspector-name]")!.textContent).toBe("Revenue trend");
-        expect(b.querySelector("[data-inspector-meta]")!.textContent).toBe("revenue_trend");
-        expect(b.querySelector("[data-inspector-changed]")).toBeNull();
-        // Each path its code reads, as e3 prints a keypath.
-        expect([...b.querySelectorAll('[data-inspector="data"] li')].map((li) => li.textContent)).toEqual([`.records.${RECORD}`]);
+        expect(b.querySelector("[data-inspector-meta]")).toBeNull();
+        expect(b.querySelector('[data-inspector="selection"]')!.textContent).not.toContain("revenue_trend");
+        // What its code reads, each named in words: never a keypath.
+        expect([...b.querySelectorAll('[data-inspector="data"] li')].map((li) => li.textContent)).toEqual([RECORD_NAMED]);
         expect(b.querySelector('[data-inspector="config"]')!.textContent).toBe("Configurationfixed by developerWeekly revenue, as an area.");
         expect(b.querySelector('[data-inspector="footer"]')!.textContent).toBe("Published component · logic immutable");
         await select(container, "c-kpi");
         expect(inspector(container).querySelector('[data-inspector="data"]')!.textContent).toBe("Datareads no data");
         expect(inspector(container).querySelector('[data-inspector="config"] p')!.textContent).toBe("No description");
-    });
-
-    test("B16: a placement whose component's code changed since the page went live says so", async () => {
-        const { container } = await mountBuilder();
-        await openPage("c-monthly");
-        await select(container, "m-orders");
-        expect(inspector(container).querySelector("[data-inspector-changed]")!.textContent).toBe("logic changed since this page went live");
     });
 
     test("B20: the span stepper asks the canvas — each step a draft, held to the row's room — and Undo takes one back", async () => {
@@ -778,14 +794,13 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(saveButton(container).disabled).toBe(true);
     });
 
-    test("E3: a page never published is its first version — every placement added — and no banner", async () => {
+    test("E3: a page never published is its first version — every placement added", async () => {
         const { container } = await mountBuilder();
         await previewPage("a-overview");
         expect(part(container, "head")!.textContent).toBe("Ready to publish");
         expect(part(container, "versions")!.textContent).toBe("Overview · v1");
         expect(part(container, "count")!.textContent).toBe("2 changes · first version");
         expect(rows(container)).toEqual([["fas plus", "Added KPI rail", "row 1 · span 12"], ["fas plus", "Added Revenue trend", "row 2 · span 8"]]);
-        expect(part(container, "banner")).toBeNull();
         expect(publishButton(container).textContent).toBe("Publish v1 to Staging");
     });
 
@@ -802,55 +817,28 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         ]);
     });
 
-    test("E3: a page live as it stands is up to date — nothing to publish, and no banner", async () => {
+    test("E3: a page live as it stands is up to date — nothing to publish", async () => {
         const { container } = await mountBuilder();
         await previewPage("b-weekly");
         expect(part(container, "head")!.textContent).toBe("Up to date");
         expect(part(container, "versions")!.textContent).toBe("Weekly · v1 live");
         expect(part(container, "count")!.textContent).toBe("No changes since v1");
         expect(part(container, "changes")).toBeNull();
-        expect(part(container, "banner")).toBeNull();
         expect(publishButton(container).disabled).toBe(true);
         expect(saveButton(container).disabled).toBe(true);
     });
 
-    test("E3: a template is not published — no change list, and no banner", async () => {
+    test("E3: a template is not published — no change list", async () => {
         const { container } = await mountBuilder();
         await previewPage("e-starter");
         expect(part(container, "head")!.textContent).toBe("Templates are not published");
         expect(part(container, "versions")!.textContent).toBe("Starter · template");
         expect(part(container, "count")).toBeNull();
-        expect(part(container, "banner")).toBeNull();
         expect(publishButton(container).textContent).toBe("Publish");
         expect(publishButton(container).disabled).toBe(true);
     });
 
-    test("E4: the banner says the logic is unchanged — or names the components whose code changed since the live version", async () => {
-        const { container } = await mountBuilder();
-        await previewPage("f-regional");
-        const banner = () => part(container, "banner")!;
-        expect(banner().getAttribute("data-tone")).toBe("change");
-        // The design system's banner: its icon — Font Awesome's paired status icon of its tone (#1263) — then its words.
-        expect([markOf(banner().firstElementChild), banner().lastElementChild!.textContent])
-            .toEqual(["fas circle-check", "Component logic unchanged — only layout changed. Safe to publish."]);
-        await act(async () => { fireEvent.click(part(container, "exit")!); });
-        await previewPage("c-monthly");
-        expect(part(container, "head")!.textContent).toBe("Ready to publish");
-        expect(part(container, "count")!.textContent).toBe("1 change since v3");
-        expect(banner().getAttribute("data-tone")).toBe("warning");
-        expect(banner().getAttribute("role")).toBe("alert");
-        expect([markOf(banner().firstElementChild), banner().lastElementChild!.textContent])
-            .toEqual(["fas triangle-exclamation", "Logic changed since v3 in Orders by week — its placements publish with its new code"]);
-    });
-
-    test("E4: the banner's words — one component is its; several are theirs, named in the order they are placed", () => {
-        expect(studioMessages.logicChangedIn({ version: "v2", components: ["Revenue trend"] }))
-            .toBe("Logic changed since v2 in Revenue trend — its placements publish with its new code");
-        expect(studioMessages.logicChangedIn({ version: "v2", components: ["KPI rail", "Revenue trend", "Breakdown bars"] }))
-            .toBe("Logic changed since v2 in KPI rail, Revenue trend and Breakdown bars — their placements publish with their new code");
-    });
-
-    test("E6: Publish is one commit — the draft the next live version, each placement stamped with its code — and the page is up to date", async () => {
+    test("E6: Publish is one commit — the draft the next live version — and the page is up to date", async () => {
         const { container } = await mountBuilder();
         await previewPage("f-regional");
         await act(async () => { fireEvent.click(publishButton(container)); });
@@ -862,7 +850,6 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         if (regional.type !== "page" || regional.value.live.type !== "some") throw new Error("expected a published page");
         expect(regional.value.live.value.version).toBe(4n);
         expect(regional.value.live.value.page).toEqual(regional.value.draft);
-        expect(regional.value.draft.cells.map((c) => c.fingerprint)).toEqual([kpiPrint, trendPrint, fingerprintOf(barsFn)]);
         expect(part(container, "versions")!.textContent).toBe("Regional · v4 live");
     });
 
@@ -907,7 +894,7 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         await previewPage("f-regional");
         // Another operator publishes between this publish's read and its commit.
         const publish = East.compile(Studio.publish, []);
-        await h.race(ex.studioPages, () => { fireEvent.click(publishButton(container)); }, (now) => applyPages(now, publish(now, REGIONAL, [])));
+        await h.race(ex.studioPages, () => { fireEvent.click(publishButton(container)); }, (now) => applyPages(now, publish(now, REGIONAL)));
         await waitFor(() => expect(part(container, "refused")).not.toBeNull());
         expect(part(container, "refused")!.getAttribute("role")).toBe("alert");
         expect(part(container, "refused")!.textContent).toBe("Another write changed this page first — review it and publish again");
@@ -1110,5 +1097,25 @@ describe("<Studio.Builder> — the toolbar on a row short of room (#1229)", () =
         await waitFor(() => expect(stateOf(container).get("more")).toBe(0));
         expect(["save-template", "preview", "publish"].map((key) => stateOf(container).get(key))).toEqual([0, 0, 0]);
         expect(await commits()).toEqual(before);
+    });
+});
+
+describe("the conflicts example (studioConflicts)", () => {
+    test("a tile narrowed here, then Someone else saves, is one conflict named by the tile's title, the tile wearing the ring until it is chosen", async () => {
+        const { container } = await h.mount(ex.studioConflicts, { storageKey: "studio-conflicts" });
+        await settle();
+        await waitFor(() => expect(container.querySelector('[data-snap-grid-tile="a-orders"]')).not.toBeNull());
+        // Two columns narrower, 6: someone else's save makes it 7, a column narrower.
+        await keyOn(container, "a-orders", { key: "[" });
+        await keyOn(container, "a-orders", { key: "[" });
+        await act(async () => { fireEvent.click(within(container).getByRole("button", { name: "Someone else saves" })); });
+        await settle();
+        const [card, ...more] = await conflictCards(container);
+        expect(more).toEqual([]);
+        expect(card!.item).toBe("Orders by week");
+        expect(tile(container, "a-orders").hasAttribute("data-conflict")).toBe(true);
+        await act(async () => { fireEvent.click(card!.radio("source")); });
+        await settle();
+        expect(tile(container, "a-orders").hasAttribute("data-conflict")).toBe(false);
     });
 });

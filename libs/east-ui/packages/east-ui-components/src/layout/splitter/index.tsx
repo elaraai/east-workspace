@@ -5,6 +5,7 @@
 
 import React, { memo, useMemo, useCallback, useRef } from "react";
 import { usePersistedState } from "../../hooks/usePersistedState";
+import { keptRead } from "../../platform/kept.js";
 import { Box, Splitter as ChakraSplitter, useSlotRecipe } from "@chakra-ui/react";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Splitter } from "@elaraai/east-ui/internal";
@@ -50,6 +51,9 @@ interface SplitterPersistedState {
     panelSizes: number[];
 }
 
+/** The panels' sizes, as storage keeps them. */
+const readSplitterPersisted = keptRead.record<SplitterPersistedState>({ panelSizes: keptRead.array(keptRead.number) });
+
 export interface EastChakraSplitterProps {
     value: SplitterValue;
     /** Storage key for persisting panel sizes in localStorage. Omit for ephemeral state. */
@@ -75,6 +79,7 @@ export const EastChakraSplitter = memo(function EastChakraSplitter({ value, stor
     const { state: persistedState, setState: setPersistedState } = usePersistedState<SplitterPersistedState>(
         storageKey,
         { panelSizes: defaultSizes },
+        readSplitterPersisted,
     );
     const effectiveDefaultSize = useMemo(
         () => persistedState.panelSizes.length > 0 ? persistedState.panelSizes : defaultSizes,

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from east.runtime.errors import EastError
 
-from east_py_cli.loader import get_platform_version, load_platform
+from east_py_cli.loader import get_platform_version, installed_version, load_platform
 from east_py_cli.runner import execute_unit, print_result, run_program
 
 _EXIT_WITH_PARENT_HELP = (
@@ -60,8 +60,13 @@ def create_parser() -> argparse.ArgumentParser:
     export_parser.add_argument(
         "module", help="The module declaring `east_functions` (a dotted name, or a .py path)")
     export_parser.add_argument(
-        "-o", "--output", type=Path, required=True, metavar="FILE",
-        help="The manifest to write (.beast2)")
+        "-o", "--output", type=Path, metavar="FILE",
+        help="The manifest to write (.beast2); or several, with --batch")
+    export_parser.add_argument(
+        "--batch", type=Path, metavar="FILE",
+        help="Write several manifests from one import of the module: FILE is a beast2 batch "
+        "(FunctionExportBatchType), each entry naming its output and its -p packages and --only "
+        "functions. The entries run in order, and the first that fails ends the export")
     export_parser.add_argument(
         "-p", "--package", action="append", default=[], metavar="PACKAGE",
         help="Platform package implementing the functions' platform calls (can be repeated); "
@@ -375,10 +380,13 @@ def cmd_convert(args: argparse.Namespace) -> int:
 
 
 def cmd_version(args: argparse.Namespace) -> int:
-    """Execute the version command."""
+    """Execute the version command: each package's version as its installed
+    distribution records it. e3's export cache keys a package's manifests on
+    what this prints, so another east-py exports them again (#1459); a source
+    checkout, which installs no metadata, prints the module's ``__version__``."""
     from east_py_cli import __version__ as cli_version
 
-    print(f"east-py-cli {cli_version}")
+    print(f"east-py-cli {installed_version('elaraai-east-py-cli') or cli_version}")
 
     # Try to get east-py version
     try:
@@ -386,7 +394,8 @@ def cmd_version(args: argparse.Namespace) -> int:
 
         cy = east.CYTHON_EXTENSIONS
         accel = f"cython: {', '.join(cy)}" if cy else "pure python"
-        print(f"east-py {getattr(east, '__version__', 'unknown')} ({accel})")
+        version = installed_version("elaraai-east-py") or getattr(east, "__version__", "unknown")
+        print(f"east-py {version} ({accel})")
     except ImportError:
         print("east-py: not installed")
 
@@ -445,14 +454,47 @@ def cmd_export_functions(args: argparse.Namespace) -> int:
     the export to the named functions — what an importer actually uses — so
     a sibling function's platform call never fails an export that does not
     need it.
+
+    ``--batch`` takes the ``-o`` / ``-p`` / ``--only`` of several exports as a
+    batch (``FunctionExportBatchType``) and writes each entry's manifest from
+    one import of the module — what ``e3.export`` runs per package (#1459).
+    Each manifest is the one the entry's own ``-o … -p … --only …`` call
+    writes. The entries run in order and the first that fails ends the
+    export, so an entry whose manifest was not written is the one that
+    failed, or one after it.
+
+    The module's functions are built as the export first reads them, and
+    none is compiled (``deferred_builds``): a function no entry names, and no
+    named one calls, is never built (#1460).
     """
+    from east.expression.function import deferred_builds
+
+    with deferred_builds():
+        return _export_functions(args)
+
+
+def _export_functions(args: argparse.Namespace) -> int:
+    """The export :func:`cmd_export_functions` runs, builds deferred."""
     import importlib
     import importlib.metadata
     import importlib.util
 
     from east import East
+    from east.functions import FunctionExportBatchType
+    from east.serialization.beast2 import decode_beast2_with_header_for
 
     try:
+        if (args.output is None) == (args.batch is None):
+            raise ValueError("export-functions writes one manifest with -o FILE, or several with --batch FILE")
+        if args.batch is not None and (args.package or args.only):
+            raise ValueError("with --batch, each entry names its own -p packages and --only functions")
+        if args.batch is None:
+            entries = [(args.output, list(args.package), list(args.only))]
+        else:
+            batch = decode_beast2_with_header_for(FunctionExportBatchType)(args.batch.read_bytes())
+            entries = [(args.batch.parent / entry["output"], list(entry["packages"]), list(entry["only"]))
+                       for entry in batch]
+
         spec_name = args.module
         if spec_name.endswith(".py"):
             path = Path(spec_name)
@@ -465,33 +507,10 @@ def cmd_export_functions(args: argparse.Namespace) -> int:
         else:
             module = importlib.import_module(spec_name)
             top = spec_name.split(".")[0]
-        functions = getattr(module, "east_functions", None)
-        if not isinstance(functions, dict):
+        declared = getattr(module, "east_functions", None)
+        if not isinstance(declared, dict):
             raise ValueError(
                 f"{args.module} declares no `east_functions` dict (name -> East.function artifact)")
-        if args.only:
-            missing = [name for name in args.only if name not in functions]
-            if missing:
-                plural = "" if len(missing) == 1 else "s"
-                raise ValueError(
-                    f"{args.module} exports no function{plural} {', '.join(missing)} — its "
-                    f"east_functions are {', '.join(functions) or '(none)'}")
-            functions = {name: functions[name] for name in args.only}
-
-        providers: dict[str, str] = {}
-        for package in args.package:
-            for fn in load_platform(package):
-                providers.setdefault(fn["name"], package)
-        missing = sorted({
-            dep["name"]
-            for artifact in functions.values()
-            for dep in East.platform_dependencies(artifact)
-            if dep["name"] not in providers
-        })
-        if missing:
-            raise ValueError(
-                "platform function(s) no -p package provides: " + ", ".join(missing)
-                + " — pass the implementing package with -p")
 
         version = args.package_version
         if version is None:
@@ -499,10 +518,39 @@ def cmd_export_functions(args: argparse.Namespace) -> int:
                 version = importlib.metadata.version(top.replace("_", "-"))
             except importlib.metadata.PackageNotFoundError:
                 version = "0.0.0"
-        manifest = East.export_functions(args.name or top, version, functions, providers=providers)
-        args.output.write_bytes(East.encode_function_manifest(manifest))
-        print(f"Exported {len(functions)} function(s) of {args.name or top}@{version} to {args.output}",
-              file=sys.stderr)
+        platforms: dict[str, list] = {}
+        for output, packages, only in entries:
+            functions = declared
+            if only:
+                missing = [name for name in only if name not in declared]
+                if missing:
+                    plural = "" if len(missing) == 1 else "s"
+                    raise ValueError(
+                        f"{args.module} exports no function{plural} {', '.join(missing)} — its "
+                        f"east_functions are {', '.join(declared) or '(none)'}")
+                functions = {name: declared[name] for name in only}
+
+            providers: dict[str, str] = {}
+            for package in packages:
+                if package not in platforms:
+                    platforms[package] = load_platform(package)
+                for fn in platforms[package]:
+                    providers.setdefault(fn["name"], package)
+            missing = sorted({
+                dep["name"]
+                for artifact in functions.values()
+                for dep in East.platform_dependencies(artifact)
+                if dep["name"] not in providers
+            })
+            if missing:
+                raise ValueError(
+                    "platform function(s) no -p package provides: " + ", ".join(missing)
+                    + " — pass the implementing package with -p")
+
+            manifest = East.export_functions(args.name or top, version, functions, providers=providers)
+            output.write_bytes(East.encode_function_manifest(manifest))
+            print(f"Exported {len(functions)} function(s) of {args.name or top}@{version} to {output}",
+                  file=sys.stderr)
         return 0
     except (ImportError, ValueError, TypeError, OSError) as e:
         print(f"Error: {e}", file=sys.stderr)

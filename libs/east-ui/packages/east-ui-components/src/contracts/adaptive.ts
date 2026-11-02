@@ -53,8 +53,8 @@ function classify(width: number, compactBelow: number, wideAbove: number): Conta
 
 /**
  * Observe an element's inline size and call `onWidth` when it changes, what
- * it sets committed before the frame paints. Shared plumbing for the two
- * public container hooks.
+ * it sets committed before the frame paints. Shared plumbing for the public
+ * container hooks.
  */
 function useContainerWidthEffect(
     ref: RefObject<HTMLElement | null>,
@@ -81,6 +81,21 @@ function useContainerWidthEffect(
         ro.observe(el);
         return () => ro.disconnect();
     }, [ref, measure]);
+}
+
+/**
+ * The referenced element's width in whole pixels, re-rendering as it changes —
+ * for a component that lays its marks out on whole pixels, as the brush strip
+ * does its bars (#1438).
+ *
+ * @param ref - the element whose inline size is watched
+ * @returns its width, rounded; `0` until it is measured, and when
+ * `ResizeObserver` is unavailable (SSR, jsdom)
+ */
+export function useContainerWidth(ref: RefObject<HTMLElement | null>): number {
+    const [width, setWidth] = useState(0);
+    useContainerWidthEffect(ref, useCallback((w: number) => { setWidth(Math.round(w)); }, []));
+    return width;
 }
 
 /**

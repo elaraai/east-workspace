@@ -53,8 +53,8 @@ import { describe, test, expect, beforeEach, afterEach, vi, type MockInstance } 
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
-    ArrayType, DateTimeType, DictType, East, FloatType, OptionType, StringType, StructType,
-    none, printFor, some, variant, type ValueTypeOf,
+    ArrayType, DateTimeType, DictType, East, FloatType, OptionType, SortedMap, StringType, StructType,
+    compareFor, none, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
@@ -63,7 +63,7 @@ import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-windows";
 import * as rowDrop from "@elaraai/e3-ui/examples/plan/plan";
 import * as events from "@elaraai/e3-ui/examples/plan/plan-events";
-import { PrintJob, PrintStock, planLinkStock, planPrintJobTemplates, planPrintJobTemplatesByGroup } from "@elaraai/e3-ui/examples/plan/plan-events";
+import { PrintJob, PrintStock, planLinkStock, planPrintJobTemplates } from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
 import { boundFrame } from "../../sheet/frame.test-utils.js";
@@ -71,6 +71,7 @@ import { PLAN_GEOMETRY } from "../geometry.js";
 import { carry, carrySaid, dragTo, keyOn } from "../plan-move.test-utils.js";
 import { emulateWindowScroll } from "../window-scroll.test-utils.js";
 import { act, el, elementKey, entry, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
+import { conflictCards } from "../../e3-web-mount.test-utils.js";
 
 const h = planHarness({ "plan/plan-windows": ex, "plan/plan": rowDrop, "plan/plan-events": events });
 // A select scrolls its open listbox to the chosen option; jsdom does not scroll.
@@ -108,9 +109,9 @@ function servedOf(request: E3Request): Served | undefined {
     if (request.dataset === TEMPLATES) return "templates";
     if (request.dataset !== JOBS) return undefined;
     if (index === undefined) return "entries";
-    if (index === ex.planWindowJobsByTime.name) return "interval";
-    if (index === ex.planWindowJobsByDay.name) return "days";
-    if (index === ex.planWindowJobsUnscheduled.name) return "backlog";
+    if (index === "plan_window_jobs_by_time") return "interval";
+    if (index === "plan_window_jobs_by_day") return "days";
+    if (index === "plan_window_jobs_unscheduled") return "backlog";
     return undefined;
 }
 
@@ -175,9 +176,6 @@ async function writeJob(key: string, change: Partial<Job>) {
 
 // ── The Plan ─────────────────────────────────────────────────────────────────
 
-/** A week of paper in stock, as the stock's table reads it. */
-const StockWeek = StructType({ at: DateTimeType, value: OptionType(FloatType) });
-
 /**
  * The windows example's Plan (`planWindows`), unbounded — jsdom lays nothing
  * out, so a bounded canvas would mount no row — its jobs narrowed through its
@@ -190,20 +188,16 @@ const StockWeek = StructType({ at: DateTimeType, value: OptionType(FloatType) })
  */
 const windowsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
     const slice = $.const(Slice.bindRecords("plan.windows.dom", {
         job: {
-            source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth] }),
+            source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }),
             fields: { start: { label: "Dates" } }, range: "start",
         },
     }));
     const paper = $.const(Data.bind(planLinkStock));
-    const first = $.const(FIRST, DateTimeType);
     const axis = $.let(Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", now: NOW }));
-    // The paper in stock, each reading a week apiece from the window's first Monday.
-    const weekly = $.const(East.function([ArrayType(FloatType)], ArrayType(StockWeek), (_$2, readings) =>
-        East.Array.generate(readings.size(), StockWeek, (_$3, i) => ({ at: first.addWeeks(i), value: some(readings.get(i)) }))));
     return Plan({
         axis, inspector: true, slice: { slice },
         resources: {
@@ -218,7 +212,8 @@ const windowsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
             }),
         },
         rows: [Plan.over(paper, [
-            Plan.series.table(PrintStock, { key: "stock", title: "Paper stock", label: (s) => s.name, cells: (s) => Plan.tableCells(weekly(s.weekly)) }),
+            // The paper in stock, a reading a week, each at its week (#1436).
+            Plan.series.table(PrintStock, { key: "stock", title: "Paper stock", label: (s) => s.name, cells: Plan.tableCells(Plan.values("weekly", (level) => ({ value: level }))) }),
         ])],
         library: [Plan.library.backlog()],
     });
@@ -232,10 +227,10 @@ const windowsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
  */
 const jobsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.const(Data.bind(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
     const slice = $.const(Slice.bindRecords("plan.windows.jobs.dom", {
-        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime] }), fields: { start: { label: "Dates" } }, range: "start" },
+        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time"] }), fields: { start: { label: "Dates" } }, range: "start" },
     }));
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", now: NOW }),
@@ -404,8 +399,9 @@ describe("the backlog read through the rail's interval index (PB54, #1344)", () 
         const names = [...pane.querySelectorAll<HTMLElement>('[role="tabpanel"]:not([hidden]) [data-library-item]')]
             .map((card) => [...card.children].find((part) => part.tagName === "DIV" && part.querySelector(":scope > svg") === null)!.children[0]!.textContent);
         expect(names).toEqual(["Order forms", "Winter brochure", "Prospectus", "Proof sheets"]);
-        // Sought exactly under the unset start — the jobs with none, its span's — and never through the backlog index.
-        expect(of("interval")).toContain(`seek 0 ${printFor(OptionType(DateTimeType))(none)}`);
+        // Sought exactly under the unset start — the jobs with none, its span's — and never through the backlog index:
+        // `[on, 0, start]`, the interval index led by no field, so its `on` is `()` (#1432).
+        expect(of("interval")).toContain(`seek () 0 ${printFor(OptionType(DateTimeType))(none)}`);
         expect(of("backlog")).toEqual([]);
     });
 });
@@ -541,7 +537,9 @@ describe("the Plan's own rows after a paged kind's (PB55)", () => {
         const source = planLinkStock.source;
         if (source?.type !== "value") throw new Error("the stock is a value");
         const recounted = new Map(source.value as ReadonlyMap<string, ValueTypeOf<typeof PrintStock>>);
-        recounted.set("board", { name: "Board", weekly: [77.0, 22.0, 31.0, 18.0] });
+        recounted.set("board", { name: "Board", weekly: new SortedMap([
+            [FIRST, 77.0], [new Date("2026-10-12T00:00:00Z"), 22.0], [new Date("2026-10-19T00:00:00Z"), 31.0], [new Date("2026-10-26T00:00:00Z"), 18.0],
+        ], compareFor(DateTimeType)) });
         const reads = of("presses").length;
         await h.write(planLinkStock, recounted as unknown as Stock);
         await waitFor(() => expect(board()!.textContent).toContain("77"));
@@ -568,15 +566,15 @@ const Customer = StructType({ name: StringType });
  */
 const editedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
     const jobTemplates = $.const(Data.bind(planPrintJobTemplates));
     const slice = $.const(Slice.bindRecords("plan.windows.edited", {
         job: {
-            source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth] }),
+            source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }),
             range: "start",
         },
-        jobTemplates: { source: Data.bindPaged(planPrintJobTemplates, { indexes: [planPrintJobTemplatesByGroup] }) },
+        jobTemplates: { source: Data.bindPaged(planPrintJobTemplates, { indexes: ["plan_print_job_templates_by_group"] }) },
     }));
     const customers = $.const(new Map([["harbour-arts", { name: "Harbour Arts Society" }]]), DictType(StringType, Customer));
     return Plan({
@@ -668,6 +666,13 @@ const bannerTexts = (c: HTMLElement) => [...(slot(c, "banners")?.querySelectorAl
 const inspectorField = (c: HTMLElement, key: string) => slot(c, "end")!.querySelector<HTMLElement>(`[data-inspector-fields='form'] [data-field=${JSON.stringify(key)}]`)!;
 /** The customer the inspector's form shows. */
 const customerOf = (c: HTMLElement) => (within(inspectorField(c, "customer")).getByRole("textbox") as HTMLInputElement).value;
+/** A Save's drafts carried over to the record as another write left it: the banners given, and the history item checking nothing. */
+async function carriedOver(c: HTMLElement, kinds: readonly string[]): Promise<void> {
+    await waitFor(() => {
+        expect(bannerTexts(c).map((b) => b.kind)).toEqual(kinds);
+        expect(slot(c, "toolbar")!.textContent).not.toContain(editingMessages.historyStatus({ status: "carrying" }));
+    });
+}
 /** One of the inspector's facts: its value's words. */
 const factOf = (c: HTMLElement, name: string) => slot(c, "end")!.querySelector(`[data-fact=${JSON.stringify(name)}]`)?.textContent ?? null;
 /** Types a field's new text in the inspector's form, committed with Enter. */
@@ -830,7 +835,7 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         expect(h.requests("read", JOBS)).toEqual([]);
     });
 
-    test("a Save's conflict names the job another planner moved — read by its key at the record's new revision — and who changed the record last; the other job is not named", async () => {
+    test("a Save another planner's write beat carries the jobs' drafts over — each read by its key at the record's new revision: the customer both changed waits in the conflicts, named by its job and who changed the record last; the other job's draft beside it", async () => {
         const { container: c } = await h.mount(editedPlan, DRAG);
         await settle();
         await select(bar(c, "W-0001", "P-1001")!);
@@ -842,14 +847,19 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
             fireEvent.mouseDown(historyButton(c, SAVE), { button: 0 });
             fireEvent.click(historyButton(c, SAVE));
         }, (jobs) => jobWith(jobs, "W-0001", { customer: "Alder & Finch Group" }));
-        await waitFor(() => expect(bannerTexts(c).map((b) => b.kind)).toEqual(["conflict", "stale"]));
-        const conflict = bannerTexts(c)[0]!.text;
-        expect(conflict).toContain(editingMessages.bannerSource({ source: "Print job", title: editingMessages.bannerConflict({ n: 1, count: "1" }) }));
-        expect(conflict).toContain(editingMessages.bannerIssue({ where: "Brochure run", message: "Changed since this edit began — last changed by another session" }));
-        expect(conflict).not.toContain("Museum guide");
+        await carriedOver(c, ["conflicts"]);
+        // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+        expect(historyButton(c, SAVE).getAttribute("aria-disabled")).toBe("true");
+        const cards = await conflictCards(c);
+        expect(cards.map((card) => card.item)).toEqual(["Brochure run"]);
+        expect(cards[0]!.theirs).toContain("Changed since this edit began — last changed by another session");
         expect(of("entries")).toEqual(expect.arrayContaining([`seek "W-0001"`, `seek "W-0003"`]));
-        // Nothing of the job's draft was written; the other planner's stands.
+        // Nothing of the job's draft was written; the other planner's stands, and each draft stands over it.
         expect((await readJobs()).get("W-0001")!.customer).toBe("Alder & Finch Group");
+        await select(bar(c, "W-0001", "P-1001")!);
+        expect(customerOf(c)).toBe("Alder & Finch Ltd");
+        await select(bar(c, "W-0003", "P-1002")!);
+        expect(customerOf(c)).toBe("Driftwood Museum Trust");
         expect(h.requests("read", JOBS)).toEqual([]);
     });
 
@@ -933,7 +943,7 @@ describe("the key search standing (#1199)", () => {
 // ============================================================================
 
 describe("planRowDrop's data session, its record read a window at a time (#1199)", () => {
-    test("a Save's conflict names the entry another write moved — read by its key at the record's new revision — and the record is never read whole", async () => {
+    test("a Save another write beat carries the entry's draft over — read by its key at the record's new revision, never the record whole: the run both moved waits in the conflicts, by its row", async () => {
         const ops = rowDrop.planDropOps;
         const opsPath = pathText(ops.path as TreePath);
         // Its canvas is bounded: laid out, its rows mount.
@@ -956,14 +966,19 @@ describe("planRowDrop's data session, its record read a window at a time (#1199)
                 fireEvent.click(historyButton(container, SAVE));
             }, (now) => {
                 const p03 = now.get("p03")!;
-                const job = p03.jobs[0]!;
+                const [id, job] = [...p03.jobs][0]!;
                 const next = new Map(now);
-                next.set("p03", { ...p03, jobs: [{ ...job, start: new Date(job.start.getTime() + 14 * 86_400_000), end: new Date(job.end.getTime() + 14 * 86_400_000) }] });
+                next.set("p03", { ...p03, jobs: new Map([[id, { ...job, start: new Date(job.start.getTime() + 14 * 86_400_000), end: new Date(job.end.getTime() + 14 * 86_400_000) }]]) });
                 return next;
             });
-            await waitFor(() => expect(bannerTexts(container).map((b) => b.kind)).toEqual(["conflict", "stale"]));
-            expect(bannerTexts(container)[0]!.text)
-                .toContain(editingMessages.bannerIssue({ where: "H1-P03", message: "Changed since this edit began — last changed by another session" }));
+            await carriedOver(container, ["conflicts"]);
+            // The draft stands where both moved the run — its start and its end — and Save waits for them to be chosen.
+            const cards = await conflictCards(container);
+            expect(cards.map((card) => card.item?.split(" / ")[0])).toEqual(["H1-P03", "H1-P03"]);
+            expect(cards.every((card) => card.theirs?.includes("last changed by another session") === true)).toBe(true);
+            // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+            expect(historyButton(container, SAVE).getAttribute("aria-disabled")).toBe("true");
+            expect(pending(container)).toBe("1 pending");
             expect(h.requests("find", opsPath).some((request) => request.query.get("key") === '"p03"')).toBe(true);
             expect(h.requests("read", opsPath)).toEqual([]);
         } finally {

@@ -23,9 +23,9 @@ export type BuiltinName = "Is" | "Equal" | "NotEqual" | "Less" | "LessEqual" | "
   | "DateTimeGetYear" | "DateTimeGetMonth" | "DateTimeGetDayOfMonth" | "DateTimeGetHour" | "DateTimeGetMinute" | "DateTimeGetSecond" | "DateTimeGetDayOfWeek" | "DateTimeGetMillisecond" | "DateTimeAddMilliseconds" | "DateTimeDurationMilliseconds" | "DateTimeToEpochMilliseconds" | "DateTimeFromEpochMilliseconds" | "DateTimeFromComponents" | "DateTimePrintFormat" | "DateTimeParseFormat"
   | "BlobSize" | "BlobGetUint8" | "BlobDecodeUtf8" | "BlobDecodeUtf16" | "BlobDecodeBeast" | "BlobEncodeBeast" | "BlobDecodeBeast2" | "BlobEncodeBeast2" | "BlobOpenBeast2" | "BlobDecodeCsv" | "ArrayEncodeCsv"
   | "RefGet" | "RefUpdate" | "RefMerge"
-  | "ArrayGenerate" | "ArrayRange" | "ArrayLinspace" | "ArraySize" | "ArrayHas" | "ArrayGet" | "ArrayGetOrDefault" | "ArrayTryGet" | "ArrayUpdate" | "ArrayMerge" | "ArrayPushLast" | "ArrayPopLast" | "ArrayPushFirst" | "ArrayPopFirst" | "ArrayAppend" | "ArrayPrepend" | "ArrayMergeAll" | "ArrayClear" | "ArraySortInPlace" | "ArrayReverseInPlace" | "ArraySort" | "ArrayReverse" | "ArrayIsSorted" | "ArrayFindSortedFirst" | "ArrayFindSortedLast" | "ArrayFindSortedRange" | "ArrayFindFirst" | "ArrayConcat" | "ArraySlice" | "ArrayGetKeys" | "ArrayForEach" | "ArrayCopy" | "ArrayMap" | "ArrayFilter" | "ArrayFilterMap" | "ArrayFirstMap" | "ArrayMapReduce" | "ArrayFold" | "ArrayScan" | "ArrayStringJoin" | "ArrayToSet" | "ArrayToDict" | "ArrayFlattenToArray" | "ArrayFlattenToSet" | "ArrayFlattenToDict" | "ArrayGroupFold" | "ArrayToTree"
+  | "ArrayGenerate" | "ArrayRange" | "ArrayLinspace" | "ArraySize" | "ArrayHas" | "ArrayGet" | "ArrayGetOrDefault" | "ArrayTryGet" | "ArrayUpdate" | "ArrayMerge" | "ArrayPushLast" | "ArrayPopLast" | "ArrayPushFirst" | "ArrayPopFirst" | "ArrayAppend" | "ArrayPrepend" | "ArrayMergeAll" | "ArrayClear" | "ArraySortInPlace" | "ArrayReverseInPlace" | "ArraySort" | "ArrayReverse" | "ArrayIsSorted" | "ArrayFindSortedFirst" | "ArrayFindSortedLast" | "ArrayFindSortedRange" | "ArrayFindFirst" | "ArrayConcat" | "ArraySlice" | "ArrayGetKeys" | "ArrayForEach" | "ArrayCopy" | "ArrayMap" | "ArrayFilter" | "ArrayFilterMap" | "ArrayFirstMap" | "ArrayMapReduce" | "ArrayFold" | "ArrayScan" | "ArrayStringJoin" | "ArrayToSet" | "ArrayToDict" | "ArrayFlattenToArray" | "ArrayFlattenToSet" | "ArrayFlattenToDict" | "ArrayGroupFold" | "ArrayToTree" | "ArrayFlattenTree"
   | "SetGenerate" | "SetSize" | "SetHas" | "SetInsert" | "SetTryInsert" | "SetDelete" | "SetTryDelete" | "SetClear" | "SetUnionInPlace" | "SetUnion" | "SetIntersect" | "SetDiff" | "SetSymDiff" | "SetIsSubset" | "SetIsDisjoint" | "SetCopy" | "SetForEach" | "SetMap" | "SetFilter" | "SetFilterMap" | "SetFirstMap" | "SetMapReduce" | "SetReduce" | "SetScan" | "SetToArray" | "SetToSet" |"SetToDict" | "SetFlattenToArray" | "SetFlattenToSet" | "SetFlattenToDict" | "SetGroupFold" | "SetToTree"
-  | "DictGenerate" | "DictSize" | "DictHas" | "DictGet" | "DictGetOrDefault" | "DictTryGet" | "DictInsert" | "DictGetOrInsert" | "DictInsertOrUpdate" | "DictUpdate" | "DictSwap" | "DictMerge" | "DictDelete" | "DictTryDelete" | "DictPop" | "DictClear" | "DictUnionInPlace" | "DictMergeAll" | "DictKeys" | "DictGetKeys" | "DictForEach" | "DictCopy" | "DictMap" | "DictFilter" | "DictFilterMap" | "DictFirstMap" | "DictMapReduce" | "DictReduce" | "DictScan" | "DictToArray" | "DictToSet" | "DictToDict" | "DictFlattenToArray" | "DictFlattenToSet" | "DictFlattenToDict" | "DictGroupFold" | "DictToTree"
+  | "DictGenerate" | "DictSize" | "DictHas" | "DictGet" | "DictGetOrDefault" | "DictTryGet" | "DictInsert" | "DictGetOrInsert" | "DictInsertOrUpdate" | "DictUpdate" | "DictSwap" | "DictMerge" | "DictDelete" | "DictTryDelete" | "DictPop" | "DictClear" | "DictUnionInPlace" | "DictMergeAll" | "DictKeys" | "DictGetKeys" | "DictForEach" | "DictCopy" | "DictMap" | "DictFilter" | "DictFilterMap" | "DictFirstMap" | "DictMapReduce" | "DictReduce" | "DictScan" | "DictToArray" | "DictToSet" | "DictToDict" | "DictFlattenToArray" | "DictFlattenToSet" | "DictFlattenToDict" | "DictGroupFold" | "DictToTree" | "DictFlattenTree"
   | "VectorLength" | "VectorGet" | "VectorSet" | "VectorSlice" | "VectorConcat" | "VectorFromArray" | "VectorToArray" | "VectorToMatrix" | "VectorZeros" | "VectorOnes" | "VectorFill" | "VectorMap" | "VectorFold"
   | "VectorScale" | "VectorSum" | "VectorAddScaled" | "VectorMul" | "VectorAddScalar" | "VectorDot" | "VectorMax" | "VectorMin" | "VectorArgMax" | "VectorArgMin" | "VectorMean" | "VectorCumSum" | "VectorAbs" | "VectorClamp"
   | "VectorGather" | "VectorScatterAdd" | "VectorSearchSorted"
@@ -761,6 +761,13 @@ export const Builtins: Record<BuiltinName, BuiltinType> = {
     inputs: [ArrayType("T"), FunctionType(["T", IntegerType], "K"), FunctionType(["T", IntegerType], VariantType({ none: NullType, some: "K" })), FunctionType(["T", IntegerType, ArrayType("N")], "N")] as const,
     output: ArrayType("N"),
   },
+  // toTree's inverse: every node of a tree whose roots are the array, with
+  // its path of indices, depth first; children(x, i) names each node's.
+  ArrayFlattenTree: {
+    type_parameters: ["T"],
+    inputs: [ArrayType("T"), FunctionType(["T", IntegerType], ArrayType("T"))] as const,
+    output: ArrayType(StructType({ path: ArrayType(IntegerType), node: "T" as any })),
+  },
 
   SetGenerate: {
     type_parameters: ["K"],
@@ -1109,6 +1116,13 @@ export const Builtins: Record<BuiltinName, BuiltinType> = {
     type_parameters: ["K", "V", "N"],
     inputs: [DictType("K", "V"), FunctionType(["V", "K"], VariantType({ none: NullType, some: "K" })), FunctionType(["V", "K", ArrayType("N")], "N")] as const,
     output: ArrayType("N"),
+  },
+  // toTree's inverse: every node of a tree whose roots are the dict, with
+  // its path of keys, depth first; children(v, k) names each node's.
+  DictFlattenTree: {
+    type_parameters: ["K", "V"],
+    inputs: [DictType("K", "V"), FunctionType(["V", "K"], DictType("K", "V"))] as const,
+    output: ArrayType(StructType({ path: ArrayType("K"), node: "V" as any })),
   },
 
   // Vector builtins

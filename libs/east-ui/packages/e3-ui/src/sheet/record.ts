@@ -101,7 +101,7 @@ function checkIdField(element: EastType, id: string, rows: string): void {
 /**
  * Builds the rows a record hands a sheet, and the Apply back to it (#1182).
  *
- * @param record - The record, `Record.bind(record, [e3.mutation.patch(record)])`; a `Dict`
+ * @param record - The record, `Record.bind(record), its record declaring patch: mutation.patch()`; a `Dict`
  * @param options - `entry` for one entry's rows, or `window` to page the entries
  * @returns The rows, the options the form fixes, the root's own options, and the missing entry's key
  * @throws Error naming the prop and the remedy: a record that is not a Dict or is not bound with its patch mutation, `window` with `entry`, a window over another collection, or an `entry` whose rows or id field the entry type does not have
@@ -112,7 +112,7 @@ export function recordRows(record: unknown, options: SheetRecordRowsOptions<East
     const type = Expr.type(handle as unknown as Expr) as EastType;
     const read = type.type === "Struct" ? (type.fields as Record<string, EastType>)["read"] : undefined;
     if (type.type !== "Struct" || read === undefined || read.type !== "Function" || (type.fields as Record<string, EastType>)["binding"] === undefined) {
-        throw new Error("Sheet: `record` must be a record bound with its patch mutation — Record.bind(record, [e3.mutation.patch(record)])");
+        throw new Error("Sheet: `record` must be a record bound with its patch mutation — Record.bind(record), its record declaring patch: mutation.patch()");
     }
     const recordType = read.output as EastType;
     if (recordType.type !== "Dict") {

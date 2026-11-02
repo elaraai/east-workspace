@@ -193,7 +193,9 @@ export function DocList({
                     position="relative"
                     maxW={CONTENT_MAX_WIDTH}
                     mx="auto"
-                    h={`${virtualizer.getTotalSize()}px`}
+                    // Its height and each entry's offset inline: a style prop would mint a CSS class for every size and
+                    // place the list scrolls through, never removed (#1440).
+                    style={{ height: `${virtualizer.getTotalSize()}px` }}
                 >
                     {virtualItems.map(virtualRow => {
                         const item = items[virtualRow.index];
@@ -207,7 +209,7 @@ export function DocList({
                                  * transformed ancestor becomes the containing block for
                                  * `position: fixed` descendants, trapping <Expandable>'s
                                  * fill-the-window takeover inside the row. */
-                                top={`${virtualRow.start}px`}
+                                style={{ top: `${virtualRow.start}px` }}
                                 left={CONTENT_GUTTER}
                                 right={CONTENT_GUTTER}
                             >

@@ -164,6 +164,11 @@ east-py export-functions pricing.functions -o pricing.functions.beast2 -p east-p
 # Only the functions an importer uses (--only, repeatable): a sibling function's
 # platform call then needs no -p package
 east-py export-functions pricing.functions -o pricing.functions.beast2 --only score
+
+# Several manifests from one import of the module: batch.beast2 is a batch
+# (FunctionExportBatchType), each entry its own output, -p packages and --only
+# functions; e3.export runs one of these per workspace package
+east-py export-functions pricing.functions --batch batch.beast2 --name pricing
 ```
 
 ### Linting East bodies
@@ -265,7 +270,6 @@ See [LICENSE.md](LICENSE.md) for full details.
   - [@elaraai/east-ui-components](https://www.npmjs.com/package/@elaraai/east-ui-components): React renderer with Chakra UI v3 styling
   - [@elaraai/e3-ui](https://www.npmjs.com/package/@elaraai/e3-ui): e3 + UI bridge — Data bindings, `e3.ui()` task, manifest
   - [@elaraai/e3-ui-components](https://www.npmjs.com/package/@elaraai/e3-ui-components): React Query hooks and preview components for the e3 API
-  - [east-ui-preview](https://marketplace.visualstudio.com/items?itemName=ElaraAI.east-ui-preview): VS Code extension for live East UI component preview
 
 - **[e3 — East Execution Engine](https://github.com/elaraai/east-workspace/tree/main/libs/e3)**: Durable execution engine for running East pipelines at scale. Git-like content-addressable storage, automatic memoization, reactive dataflow, real-time monitoring.
   - [@elaraai/e3](https://www.npmjs.com/package/@elaraai/e3): SDK for authoring e3 packages with typed tasks and pipelines

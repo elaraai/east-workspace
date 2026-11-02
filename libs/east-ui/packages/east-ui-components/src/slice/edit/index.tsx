@@ -3,17 +3,15 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { cloneElement, useEffect, useId, useMemo, useRef, type MouseEvent, type ReactElement, type ReactNode } from "react";
-import { Popover as ChakraPopover, Portal, Box, chakra } from "@chakra-ui/react";
+import { cloneElement, useEffect, useId, useLayoutEffect, useMemo, useRef, type MouseEvent, type ReactElement, type ReactNode } from "react";
+import { Popover as ChakraPopover, Portal, Box, chakra, usePopoverContext } from "@chakra-ui/react";
 import { useSliceDensity } from "../density";
 import { useSlotStyles } from "../../theme/slot-styles.js";
 import { POPOVER_GUTTER } from "../../overlays/popover/gutter.js";
 import { frameBounds } from "../../overlays/popover/frame-bounds.js";
+import { FOCUSABLE } from "../../primitives/focusable.js";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
-
-/** A control the focus can go back to, in an anchored popover's anchor. */
-const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /** What a {@link SliceEditPopover} hangs from: its trigger, or an anchor. */
 export type SliceEditPopoverAnchor =
@@ -75,9 +73,36 @@ export type SliceEditPopoverProps = SliceEditPopoverAnchor & {
     /** The element the focus goes to as it opens — the first focusable in it
      *  (its head's ×) when omitted, or when this finds none. */
     initialFocusEl?: (() => HTMLElement | null) | undefined;
+    /**
+     * Whether it stays open as the focus leaves it — for one whose action
+     * moves the focus to what it is about, as a conflict's Go to does — while
+     * a press outside it, Escape and its × still close it. It closes as the
+     * focus leaves it by default.
+     */
+    keepOnFocusOut?: boolean | undefined;
+    /**
+     * A rect it hangs from in place of its trigger or anchor, read at every
+     * placement — `null` for theirs — and with no arrow: the conflicts popover
+     * hangs by its frame's other side where it would cover the item a Go to
+     * showed. Another function places it again; none, it hangs from its
+     * trigger.
+     */
+    hangFrom?: (() => DOMRectInit | null) | undefined;
     /** The editor body. */
     children: ReactNode;
 };
+
+/** Places an open popover again as what it hangs from changes: Zag places it again only as its anchor or the page moves. */
+function Rehang({ from }: { from: unknown }) {
+    const popover = usePopoverContext();
+    const last = useRef(from);
+    useLayoutEffect(() => {
+        if (Object.is(last.current, from)) return;
+        last.current = from;
+        if (popover.open) popover.reposition();
+    });
+    return null;
+}
 
 /**
  * The single overlay shape every compact `Slice.*` affordance opens to edit.
@@ -101,7 +126,7 @@ export type SliceEditPopoverProps = SliceEditPopoverAnchor & {
  * where there is no room below ({@link frameBounds}).
  */
 export function SliceEditPopover({
-    open, onOpenChange, trigger, anchor, label, size = "sm", flush, footLeft, footActions, initialFocusEl, children,
+    open, onOpenChange, trigger, anchor, label, size = "sm", flush, footLeft, footActions, initialFocusEl, keepOnFocusOut = false, hangFrom, children,
 }: SliceEditPopoverProps) {
     // Its styles made once for the theme and its variants (#1398, CL9): its trigger draws again with what it shows — a
     // timeline's date navigator's with each day its view crosses — and its recipe would work every slot out again.
@@ -112,11 +137,16 @@ export function SliceEditPopover({
     const triggerRef = useRef<HTMLButtonElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
     // Below its trigger, kept across the page to the builder's frame it opens in — its trigger's or its anchor's — while
-    // it fits there, read at every placement.
+    // it fits there, read at every placement; below the rect it hangs from in their place, where it is given one. Its
+    // bounds are made as it is placed: Zag copies the positioning it is given as the popover draws, which would keep what
+    // the bounds read then — the page's, the first time it opens, its content not there yet.
+    const hangRef = useRef(hangFrom);
+    hangRef.current = hangFrom;
     const positioning = useMemo(() => ({
         placement: "bottom" as const,
         gutter: POPOVER_GUTTER,
-        boundary: frameBounds(() => (anchored ? anchorRef.current : triggerRef.current), () => contentRef.current),
+        boundary: () => frameBounds(() => (anchored ? anchorRef.current : triggerRef.current), () => contentRef.current),
+        getAnchorRect: () => hangRef.current?.() ?? null,
     }), [anchored]);
     const regionId = useId();
     // An anchored popover has no trigger for Zag to give the focus back to: as
@@ -184,16 +214,20 @@ export function SliceEditPopover({
                 const target = e.detail.originalEvent?.target as Element | null | undefined;
                 if (target?.closest?.('[data-scope="select"], [data-scope="combobox"]')) e.preventDefault();
             }}
+            {...(keepOnFocusOut && { onFocusOutside: (e: { preventDefault: () => void }) => { e.preventDefault(); } })}
         >
             {anchored
                 ? <ChakraPopover.Anchor ref={anchorRef} css={styles.anchor}>{anchor}</ChakraPopover.Anchor>
                 : <ChakraPopover.Trigger ref={triggerRef} asChild>{trigger}</ChakraPopover.Trigger>}
+            <Rehang from={hangFrom} />
             <Portal>
                 <ChakraPopover.Positioner>
                     <ChakraPopover.Content ref={contentRef} css={styles.content}>
-                        <ChakraPopover.Arrow>
-                            <ChakraPopover.ArrowTip />
-                        </ChakraPopover.Arrow>
+                        {hangFrom === undefined && (
+                            <ChakraPopover.Arrow>
+                                <ChakraPopover.ArrowTip />
+                            </ChakraPopover.Arrow>
+                        )}
                         <Box css={styles.head}>
                             <Box as="span" css={styles.headLabel}>{label}</Box>
                             <ChakraPopover.CloseTrigger asChild>

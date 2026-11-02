@@ -1525,6 +1525,47 @@ class Translator:
             self.children(b2, value, path, push)
         self.walk_stack(b, v, kinds, path, each)
 
+    def flatten_walk(self, b: Block, v: A, fields: list[str], typ: EastType, path: str, emit: Emit) -> bool:
+        """``recurse(.a.b[])``, ``recurse(.[])`` and ``..`` over a value whose ``.a.b``, or the value itself, is a
+        Dict or an Array of values of its own type: the value, then each value inside it along that path, depth
+        first — East's ``flattenTree``, which walks without recursion and without the general walk's stack of
+        kinds. Emits nothing and gives ``False`` for any other shape, which the general walk takes.
+
+        Args:
+            fields: The fields read before the ``.[]``: none for ``..`` and ``recurse(.[])``
+            typ: The walk's output type: its values are all of the input's type
+        """
+        r = self.type(v)
+        if not type_equal(r, typ):
+            return False
+        at = r
+        for name in fields:
+            s = unwrap(at)
+            nxt = fields_of(s).get(name) if s.type == "Struct" else None
+            if nxt is None:
+                return False
+            at = nxt
+        c = unwrap(at)
+        if c.type not in ("Array", "Dict") or not type_equal(dict_value(c) if c.type == "Dict" else c.value, r):
+            return False
+        step = dict_key(c) if c.type == "Dict" else IntegerType
+
+        def along(x: A) -> A:
+            # The collection along the fields, of a value of the input's type.
+            for name in fields:
+                x = self.field(x, name)
+            return self.open(x)
+        emit(b, v)
+        if self.ended(b):
+            return True
+        children = self.bind(b, along(v), "children")
+        children_of = self.lambda_([r, step], c, ["node", "step"], lambda _b, node, _step: along(node), path)
+        out = ArrayType(StructType([("path", ArrayType(step)), ("node", r)]))
+        nodes = (self.b("DictFlattenTree", [step, r], [children, children_of], out, path) if c.type == "Dict"
+                 else self.b("ArrayFlattenTree", [r], [children, children_of], out, path))
+        self.for_each(b, nodes, lambda b2, entry, _key, _label: emit(b2, self.field(entry, "node")), path, "entry")
+        return True
+
     def walk_stack(self, b: Block, start: A, kinds: list[EastType], path: str,
                    visit: Callable[[Block, A, Emit], None]) -> None:
         """A depth-first walk with an explicit stack of values of several kinds."""

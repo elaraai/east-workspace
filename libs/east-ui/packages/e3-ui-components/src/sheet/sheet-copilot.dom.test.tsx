@@ -27,7 +27,7 @@ import {
 } from "@elaraai/east";
 import { Sheet, SheetPayloadType, sheetKeys, type SheetLibraryTab } from "@elaraai/e3-ui/internal";
 import { system, UIStore, getRegisteredPlatformImplementations, registerPlatformImplementation } from "@elaraai/east-ui-components";
-import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { initializeStore, keptName } from "@elaraai/east-ui-components/internal";
 import { markOf } from "@elaraai/east-ui-components/testing";
 import { EastChakraSheet, type SheetValue } from "./frame/index.js";
 import { sheetJournal, type PatchEvent } from "./journal.test-utils.js";
@@ -425,7 +425,7 @@ describe("proposals (B§5.2)", () => {
 describe("a column the viewer hides (#1186)", () => {
     test("a proposed row keeps its cells under a hidden column: the grid never draws the column, and the row taken carries them", async () => {
         // The viewer hid the notes in the library's Columns tab, in an earlier session.
-        localStorage.setItem(sheetKeys(undefined).columns, JSON.stringify(["notes"]));
+        localStorage.setItem(keptName(sheetKeys(undefined).columns), JSON.stringify(["notes"]));
         const { value, edits, draft } = withSpies(buildCopilotSheet({ library: [Sheet.library.columns()] }));
         const { container, key, type, editorKey, settle, proposals } = mount(value);
         expect([...container.querySelectorAll('[data-slot="headerCell"]')].map((c) => c.getAttribute("data-key"))).toEqual(["start", "end", "activity", "qty"]);

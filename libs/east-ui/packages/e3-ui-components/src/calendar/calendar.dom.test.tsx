@@ -13,6 +13,7 @@ import { Calendar, Record } from "@elaraai/e3-ui";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
 import { act, calendarHarness, card, event, settle, slot, width } from "./harness.test-utils.js";
+import { conflictCards, reloadPage } from "../e3-web-mount.test-utils.js";
 const h = calendarHarness();
 const history = (c: HTMLElement, name: string) => within(slot(c, "toolbar")).getByRole("button", { name });
 async function press(node: Element) { await act(async () => { fireEvent.click(node); }); await settle(); }
@@ -222,7 +223,7 @@ describe("Calendar explicit action forms", () => {
     });
     test("an explicit placement displays canDrop's refusal and records no draft", async () => {
         const guarded = { fn: East.function([], UIComponentType, _$ => Reactive.Root(East.function([], UIComponentType, $ => {
-            const jobs = $.let(Record.bind(ex.calendarJobs, [ex.calendarJobsPatch]));
+            const jobs = $.let(Record.bind(ex.calendarJobs, ["patch"]));
             return Calendar({ view: { period: "day", date: new Date("2026-10-01T00:00:00Z") },
                 events: { job: Calendar.events(jobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end" }) },
                 canDrop: East.function([Calendar.Types.Candidate], OptionType(StringType), () => some("Closed for maintenance")),
@@ -281,7 +282,7 @@ describe("Calendar explicit action forms", () => {
         expect(event(container, "job", "job1").hasAttribute("data-selected")).toBe(true);
         expect((await jobs()).get("job1")!.hours).toBeGreaterThan(0);
     });
-    test("a kind whose record another session changes while its Save is out conflicts and keeps its drafts, while another kind's patch commits", async () => {
+    test("a kind whose record another session changes while its Save is out carries its drafts over — the job deleted here and changed there waits to be chosen — while another kind's patch commits", async () => {
         const { container } = await h.mount(ex.calendarOperations);
         for (const [kind, key] of [["job", "job1"], ["service", "service1"]]) {
             await press(event(container, kind!, key!));
@@ -293,13 +294,96 @@ describe("Calendar explicit action forms", () => {
             others.set("job1", { ...others.get("job1")!, customer: "Changed elsewhere" });
             return others;
         });
-        expect(container.querySelector('[data-session-banner="conflict"]')).not.toBeNull();
+        // The jobs' draft is carried over to the record as the other session left it: nothing is out of date, the deletion
+        // stands until it is chosen, and Save is off.
+        await waitFor(() => {
+            expect([...container.querySelectorAll("[data-session-banner]")].map((b) => b.getAttribute("data-session-banner"))).toEqual(["conflicts"]);
+            expect(slot(container, "toolbar").textContent).not.toContain(editingMessages.historyStatus({ status: "carrying" }));
+        });
+        // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+        expect(history(container, editingMessages.apply()).getAttribute("aria-disabled")).toBe("true");
+        const [conflict, ...more] = await conflictCards(container);
+        expect(more).toEqual([]);
+        expect([conflict!.item, conflict!.yours]).toEqual(["job1", "Yours, Removed"]);
         expect((await jobs()).get("job1")!.customer).toBe("Changed elsewhere");
         expect((await h.read(ex.calendarServices)).has("service1")).toBe(false);
         expect(event(container, "job", "job1")).toBeNull();
         await press(history(container, editingMessages.discard()));
         expect(event(container, "job", "job1")).not.toBeNull(); expect(event(container, "service", "service1")).toBeNull();
     });
+    test("a conflict's event is named by its title, as its kind's banners name it", async () => {
+        const { container } = await h.mount(ex.calendarOperations);
+        await press(event(container, "job", "job1"));
+        const input = slot(container, "end").querySelector<HTMLInputElement>('[data-field="customer"] input')!;
+        const user = userEvent.setup(); await user.clear(input); await user.type(input, "Customer here{Enter}"); await settle();
+        // Another session sets the same customer otherwise while the jobs' patch is on its way to e3.
+        await h.race(ex.calendarJobs, () => { fireEvent.click(history(container, editingMessages.apply())); }, (now) => {
+            const others = new Map(now);
+            others.set("job1", { ...others.get("job1")!, customer: "Customer there" });
+            return others;
+        });
+        await waitFor(() => expect(container.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
+        const [conflict, ...more] = await conflictCards(container);
+        expect(more).toEqual([]);
+        expect([conflict!.item, conflict!.yours]).toEqual(["Mounting brackets · batch 42", "Yours, Customer here"]);
+        // The event wears the warn ring until the conflict is chosen.
+        expect(event(container, "job", "job1").hasAttribute("data-conflict")).toBe(true);
+        await act(async () => { fireEvent.click(conflict!.radio("draft")); });
+        expect(event(container, "job", "job1").hasAttribute("data-conflict")).toBe(false);
+    });
+    test("a conflict's Go to shows its event's day and selects it, wherever the view stood", async () => {
+        const { container } = await h.mount(ex.calendarOperations);
+        await press(event(container, "job", "job1"));
+        const input = slot(container, "end").querySelector<HTMLInputElement>('[data-field="customer"] input')!;
+        const user = userEvent.setup(); await user.clear(input); await user.type(input, "Customer here{Enter}"); await settle();
+        await h.race(ex.calendarJobs, () => { fireEvent.click(history(container, editingMessages.apply())); }, (now) => {
+            const others = new Map(now);
+            others.set("job1", { ...others.get("job1")!, customer: "Customer there" });
+            return others;
+        });
+        await waitFor(() => expect(container.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
+        // The view moved on a week, and another event chosen: the job is not drawn.
+        await press(within(slot(container, "toolbar")).getByRole("button", { name: "Next week" }));
+        expect(event(container, "job", "job1")).toBeNull();
+        const [conflict] = await conflictCards(container);
+        await press(conflict!.goTo());
+        await waitFor(() => expect(event(container, "job", "job1")?.hasAttribute("data-selected")).toBe(true));
+    });
+    test("two Saves at once, of different fields of one event: the one that lands first reads its own back beside the other's and is done, never left waiting on it", async () => {
+        const { container } = await h.mount(ex.calendarOperations);
+        await press(event(container, "job", "job1"));
+        const input = slot(container, "end").querySelector<HTMLInputElement>('[data-field="customer"] input')!;
+        const user = userEvent.setup(); await user.clear(input); await user.type(input, "Customer here{Enter}"); await settle();
+        // The other session's hours on the same job commit just after this Save, before this session has read its own back.
+        await h.followed(ex.calendarJobs, () => { fireEvent.click(history(container, editingMessages.apply())); }, (now) => {
+            const others = new Map(now);
+            others.set("job1", { ...others.get("job1")!, hours: 6.0 });
+            return others;
+        });
+        const saved = (await jobs()).get("job1")!;
+        expect([saved.customer, saved.hours]).toEqual(["Customer here", 6.0]);
+        await waitFor(() => {
+            expect(slot(container, "toolbar").textContent).not.toContain(editingMessages.historyStatus({ status: "reconciling" }));
+            expect(event(container, "job", "job1").hasAttribute("data-drafted")).toBe(false);
+        });
+        expect(container.querySelector("[data-session-banner]")).toBeNull();
+    });
+    test("a reload keeps each kind's drafts in this tab: the events deleted stay deleted, still to save, and Save sends each kind's", async () => {
+        const first = await h.mount(ex.calendarOperations);
+        for (const [kind, key] of [["job", "job1"], ["service", "service1"]]) {
+            await press(event(first.container, kind!, key!));
+            await act(async () => { fireEvent.keyDown(event(first.container, kind!, key!), { key: "Delete" }); }); await settle();
+        }
+        reloadPage();
+        const { container } = await h.mount(ex.calendarOperations);
+        // The drafts come back to save: Save is on, the deleted events not drawn.
+        await waitFor(() => expect(history(container, editingMessages.apply()).hasAttribute("disabled")).toBe(false));
+        expect([event(container, "job", "job1"), event(container, "service", "service1")]).toEqual([null, null]);
+        await press(history(container, editingMessages.apply()));
+        expect((await jobs()).has("job1")).toBe(false);
+        expect((await h.read(ex.calendarServices)).has("service1")).toBe(false);
+    });
+
     test("a write whose answers are lost leaves its kind unknown; Retry resends the same request, and nothing is written twice", async () => {
         const { container } = await h.mount(ex.calendarOperations);
         for (const [kind, key] of [["job", "job1"], ["service", "service1"]]) {
@@ -323,6 +407,33 @@ describe("Calendar explicit action forms", () => {
         expect(await commits(ex.calendarServices)).toEqual(["patch", ...deployed.services]);
     });
 
+});
+
+describe("the conflicts example (calendarConflicts)", () => {
+    test("a job moved here, then Someone else saves, is one conflict named by its title, its card wearing the ring until it is chosen", async () => {
+        const { container } = await h.mount(ex.calendarConflicts); await width(390);
+        const job = () => card(container, "job", "job1");
+        const move = within(job()).getByRole("button", { name: "Move" });
+        move.focus();
+        await press(move);
+        const dialog = within(document.body).getByRole("dialog");
+        // A day later: the start's day stepped up, taken as the focus leaves its field.
+        const start = dialog.querySelector<HTMLElement>('[data-field="start"]')!;
+        const user = userEvent.setup();
+        await user.click(start.querySelector<HTMLElement>('[role="spinbutton"][aria-label^="day"]')!);
+        await user.keyboard("{ArrowUp}");
+        while (start.contains(document.activeElement)) await user.tab();
+        await settle();
+        await press(within(dialog).getByRole("button", { name: "Move" }));
+        // Someone else's save moves every job an hour later: theirs and the move here differ.
+        await press(within(container).getByRole("button", { name: "Someone else saves" }));
+        const [conflict, ...more] = await conflictCards(container);
+        expect(more).toEqual([]);
+        expect(conflict!.item).toBe("Mounting brackets");
+        expect(job().hasAttribute("data-conflict")).toBe(true);
+        await act(async () => { fireEvent.click(conflict!.radio("source")); });
+        expect(job().hasAttribute("data-conflict")).toBe(false);
+    });
 });
 
 describe("the agenda keeps the keyboard as a card's action takes its card away (#1398)", () => {

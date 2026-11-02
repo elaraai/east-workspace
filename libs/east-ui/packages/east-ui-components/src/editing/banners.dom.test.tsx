@@ -12,7 +12,7 @@
  * with its source's name.
  */
 
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { IntegerType, StringType, StructType, none, some, variant, type ValueTypeOf } from "@elaraai/east";
@@ -24,8 +24,13 @@ import { SessionBanners } from "./banners.js";
 import type { HistoryAction } from "./HistoryBar.js";
 import { editingMessages, type EditingWords } from "./messages.js";
 import { EditSession, type EditIssue, type EditSessionBinding, type EntryVersion } from "./session.js";
+import { keepDrafts, keptDraftsKey } from "./keep.js";
+import { keptName, resetKept } from "../platform/kept.js";
 
-afterEach(cleanup);
+afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+});
 
 const Run = StructType({ id: StringType, end: IntegerType });
 const Draft = Editing.Types.Draft(Run);
@@ -72,7 +77,7 @@ test("a Save's conflict names each issue's place, the first three of them and a 
     const { container } = mount(session, { where: (i) => `Run ${i.entry}`, issueText: (message) => message.toUpperCase() });
     expect(kinds(container)).toEqual(["conflict"]);
     const conflict = banner(container, "conflict")!;
-    expect(conflict.textContent).toContain("Save stopped — 5 conflicts with the source");
+    expect(conflict.textContent).toContain(editingMessages.bannerConflict({ n: 5, count: "5" }));
     expect([...conflict.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
         "Run a: CHANGED SINCE THIS EDIT BEGAN — LAST CHANGED BY OPS",
         "Run b: CHANGED SINCE THIS EDIT BEGAN — LAST CHANGED BY OPS",
@@ -86,7 +91,7 @@ test("a refusal gives its reasons; an issue about the source as a whole names no
     await act(() => session.apply());
     const { container } = mount(session);
     expect(kinds(container)).toEqual(["rejected"]);
-    expect(banner(container, "rejected")!.textContent).toContain("The source refused these changes");
+    expect(banner(container, "rejected")!.textContent).toContain(editingMessages.bannerRejected());
     expect([...banner(container, "rejected")!.querySelectorAll("li")].map((li) => li.textContent))
         .toEqual(["The write ran out of time after 30000 ms and wrote nothing"]);
 });
@@ -96,7 +101,7 @@ test("a write with no answer says so with its error, and its Retry sends the sam
     await act(() => session.apply());
     const { container, actions } = mount(session);
     expect(kinds(container)).toEqual(["unknown"]);
-    expect(banner(container, "unknown")!.textContent).toContain("No answer from the source — the changes may have been saved");
+    expect(banner(container, "unknown")!.textContent).toContain(editingMessages.bannerUnknown());
     expect(banner(container, "unknown")!.textContent).toContain("The write got no answer");
     fireEvent.click(banner(container, "unknown")!.querySelector("[data-banner-action]")!);
     expect(actions).toEqual(["apply"]);
@@ -120,35 +125,62 @@ test("a Save whose result could not be read back says why, and its Retry reads i
     expect(kinds(container)).toEqual([]);
 });
 
-test("drafts the source moved under are out of date, with Discard; after a conflict's banner, in that order", async () => {
-    const session = drafted({ apply: () => variant("conflict", [issue("a", "Changed since this edit began")]) });
+test("drafts the source moved under, in a session that does not carry them over, are out of date, with Discard; after a conflict's banner, in that order", async () => {
+    const session = drafted({ apply: () => variant("conflict", [issue("a", "Changed since this edit began")]), carryOver: false });
     await act(() => session.apply());
     act(() => session.observeBase(variant("snapshot", [{ ...a, end: 9n }])));
     const { container, actions } = mount(session);
     expect(kinds(container)).toEqual(["conflict", "stale"]);
-    expect(banner(container, "stale")!.textContent).toContain("The source changed under these drafts");
+    expect(banner(container, "stale")!.textContent).toContain(editingMessages.bannerStale());
     fireEvent.click(banner(container, "stale")!.querySelector("[data-banner-action]")!);
     expect(actions).toEqual(["discard"]);
 });
 
+test("a banner's action that takes the banners away leaves the focus on the frame's main — its first control — never on the page", async () => {
+    const session = drafted({ apply: () => variant("conflict", [issue("a", "Changed since this edit began")]), carryOver: false });
+    await act(() => session.apply());
+    act(() => session.observeBase(variant("snapshot", [{ ...a, end: 9n }])));
+    const { container } = render(
+        <ChakraProvider value={system}>
+            <div data-builder-frame="">
+                <div data-frame-slot="toolbar"><button type="button">Filters</button></div>
+                <div data-frame-slot="banners">
+                    <SessionBanners session={session} words={WORDS} onAction={(action) => { if (action === "discard") session.discard(); }} />
+                </div>
+                <div data-frame-slot="main"><button type="button">Rows</button></div>
+            </div>
+        </ChakraProvider>,
+    );
+    const discard = banner(container, "stale")!.querySelector<HTMLElement>("[data-banner-action]")!;
+    act(() => { discard.focus(); });
+    await act(async () => {
+        fireEvent.click(discard);
+        await new Promise<void>((resolve) => { requestAnimationFrame(() => resolve()); });
+    });
+    expect(kinds(container)).toEqual([]);
+    expect(document.activeElement?.textContent).toBe("Rows");
+});
+
 test("a session one of several in a history titles each banner with its source's name, in the collection's words; with none, the titles name nothing", async () => {
-    const session = drafted({ apply: () => variant("conflict", [issue("a", "Changed since this edit began")]) });
+    const session = drafted({ apply: () => variant("conflict", [issue("a", "Changed since this edit began")]), carryOver: false });
     await act(() => session.apply());
     act(() => session.observeBase(variant("snapshot", [{ ...a, end: 9n }])));
     const conflict = editingMessages.bannerConflict({ n: 1, count: WORDS.number(1) });
     const stale = editingMessages.bannerStale();
     const named = mount(session, { name: "Runs" });
     expect(kinds(named.container)).toEqual(["conflict", "stale"]);
-    expect(banner(named.container, "conflict")!.textContent!.startsWith(editingMessages.bannerSource({ source: "Runs", title: conflict }))).toBe(true);
-    expect(banner(named.container, "stale")!.textContent!.startsWith(editingMessages.bannerSource({ source: "Runs", title: stale }))).toBe(true);
+    // Each banner's message, after its word: the title, named.
+    const title = (container: HTMLElement, kind: string) => banner(container, kind)!.querySelector("[data-banner-title]")!.textContent!;
+    expect(title(named.container, "conflict").startsWith(editingMessages.bannerSource({ source: "Runs", title: conflict }))).toBe(true);
+    expect(title(named.container, "stale").startsWith(editingMessages.bannerSource({ source: "Runs", title: stale }))).toBe(true);
+    expect(banner(named.container, "stale")!.querySelector("[data-banner-word]")!.textContent).toBe(editingMessages.bannerWord({ kind: "stale" }));
     named.unmount();
     const bare = mount(session);
-    expect([banner(bare.container, "conflict")!.textContent!.startsWith(conflict), banner(bare.container, "stale")!.textContent!.startsWith(stale)])
-        .toEqual([true, true]);
+    expect([title(bare.container, "conflict").startsWith(conflict), title(bare.container, "stale").startsWith(stale)]).toEqual([true, true]);
 });
 
 test("a banner leaves when what it reports does, following the session itself", async () => {
-    const session = drafted({ apply: () => variant("conflict", [issue("a", "Changed since this edit began")]) });
+    const session = drafted({ apply: () => variant("conflict", [issue("a", "Changed since this edit began")]), carryOver: false });
     await act(() => session.apply());
     const { container } = mount(session);
     expect(kinds(container)).toEqual(["conflict"]);
@@ -159,4 +191,34 @@ test("a banner leaves when what it reports does, following the session itself", 
     expect(kinds(container)).toEqual(["stale"]);
     act(() => session.discard());
     expect(kinds(container)).toEqual([]);
+});
+
+test("drafts a reload would lose say so, and why; drafts a reload kept but could not restore say so too", () => {
+    resetKept();
+    window.sessionStorage.clear();
+    const key = keptDraftsKey("", "runs", "runs.view");
+    const kept = (): EditSession<string> => {
+        const session = new EditSession<string>({
+            sourceId: "runs", entryType: Run, draftType: Draft, idField: "id", auto: false,
+            apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
+        });
+        keepDrafts(session, key, StringType);
+        return session;
+    };
+    // The tab's storage refuses the draft: a reload would lose it.
+    const refused = kept();
+    refused.observeBase(variant("snapshot", [a]));
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new DOMException("full", "QuotaExceededError"); });
+    refused.record([{ id: "a", before: version(a), after: version({ ...a, end: 2n }) }], "typed", "Edit a");
+    const full = mount(refused);
+    expect(kinds(full.container)).toEqual(["unkept"]);
+    expect(banner(full.container, "unkept")!.textContent).toContain(editingMessages.bannerUnkept({ reason: "full" }));
+    full.unmount();
+    vi.restoreAllMocks();
+    // Bytes this version does not read, kept from before a reload: not restored, and said so.
+    resetKept();
+    window.sessionStorage.setItem(keptName(key, { where: "tab" }), "AAECAwQF");
+    const lost = mount(kept());
+    expect(kinds(lost.container)).toEqual(["lost"]);
+    expect(banner(lost.container, "lost")!.textContent).toContain(editingMessages.bannerLost({ reason: "unreadable" }));
 });

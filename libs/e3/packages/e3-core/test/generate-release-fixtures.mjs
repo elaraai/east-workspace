@@ -70,11 +70,13 @@ const rows = e3.input('rows', RowsType, variant('value', new SortedMap(
   compareFor(IntegerType),
 )));
 const count = e3.task('count', [rows], East.function([RowsType], IntegerType, ($, rows) => rows.size()));
-const orders = e3.record('orders', DictType(StringType, OrderType), new Map([['o-1', { status: 'open' }], ['o-2', { status: 'shipped' }]]));
-const byStatus = e3.recordIndex('by_status', orders, {
-  key: East.function([StringType, OrderType], StringType, ($, _id, order) => order.status),
+const orders = e3.record('orders', DictType(StringType, OrderType), {
+  initial: new Map([['o-1', { status: 'open' }], ['o-2', { status: 'shipped' }]]),
+  indexes: (index) => ({
+    by_status: index.key(East.function([StringType, OrderType], StringType, ($, _id, order) => order.status)),
+  }),
 });
-const pkg = e3.package('released', '1.0.0', greeting, rows, count, orders, byStatus);
+const pkg = e3.package('released', '1.0.0', greeting, rows, count, orders);
 
 const sdkZip = join(out, 'sdk.zip');
 await e3.export(pkg, sdkZip);

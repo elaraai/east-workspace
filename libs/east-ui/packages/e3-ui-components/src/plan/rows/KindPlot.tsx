@@ -69,12 +69,12 @@ function PlanGhosts({ rowKey, styles, ctx }: { rowKey: string; styles: Styles; c
                 const title = ghost.op === "del" ? optimiseMessages.ghostRemoved({ run: ghost.run }) : optimiseMessages.ghostMoved({ run: ghost.run });
                 return ghost.shape === "span" ? (
                     <Box key={`ghost:${ghost.key}`} css={styles.bar} data-plan-ghost={ghost.key} data-op={ghost.op} aria-hidden="true" title={title}
-                        left={`calc(${Math.max(0, f0) * 100}% + ${PLAN_CELL_INSET}px)`} width={`calc(${Math.max(0, Math.min(1, f1) - Math.max(0, f0)) * 100}% - ${2 * PLAN_CELL_INSET}px)`}>
+                        style={{ left: `calc(${Math.max(0, f0) * 100}% + ${PLAN_CELL_INSET}px)`, width: `calc(${Math.max(0, Math.min(1, f1) - Math.max(0, f0)) * 100}% - ${2 * PLAN_CELL_INSET}px)` }}>
                         {ghost.label}
                     </Box>
                 ) : (
                     <Box key={`ghost:${ghost.key}`} css={styles.tile} data-plan-ghost={ghost.key} data-op={ghost.op} aria-hidden="true" title={title}
-                        position="absolute" left={`${f0 * 100}%`}>
+                        position="absolute" style={{ left: `${f0 * 100}%` }}>
                         {ghost.label}
                     </Box>
                 );
@@ -111,11 +111,10 @@ function KindPlotContent({ v, styles, derived, hasChildren, ctx, plotHeight, cha
         case "span":
             return (
                 // Bar heights are the canvas's geometry (#817), drawn by the
-                // recipe: the density's bar, or the rollup band's height for a
-                // collapsed parent.
+                // recipe: the density's bar, a parent's folded or open — what
+                // it rolls up is its bands.
                 <SpanRow rowKey={rowKey} rowId={rowId} kind={kind.value} styles={styles} ctx={ctx} move={move}
-                    bands={derived.bands.get(rowKey) ?? []}
-                    rolled={v.collapsed && hasChildren} />
+                    bands={derived.bands.get(rowKey) ?? []} />
             );
         case "chart":
             // What the row DRAWS (#824) — its layers folded to the period
@@ -143,7 +142,9 @@ function KindPlotContent({ v, styles, derived, hasChildren, ctx, plotHeight, cha
                 <TableRowCells rowKey={rowKey} rowId={rowId}
                     series={derived.tableSeries.get(rowKey) ?? kind.value.series}
                     split={kind.value.split.type} ctx={ctx}
-                    format={getSomeorUndefined(kind.value.format)} styles={styles} />
+                    format={getSomeorUndefined(kind.value.format)} styles={styles}
+                    // The positions taking a typed number (#1436, #1438), its own values deciding which buckets.
+                    typed={v.row.edits.values} own={kind.value.series} parent={hasChildren} />
             );
         case "cards":
             return (

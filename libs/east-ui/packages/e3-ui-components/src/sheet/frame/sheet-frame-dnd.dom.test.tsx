@@ -35,13 +35,13 @@ const stringEqual = equalFor(StringType);
 
 /** The batches example's step templates, a record of their own: the rail's `rowTemplates` source, which narrows their cards (#1345). */
 const stepTemplates = () => ({
-    source: Data.bindPaged(ex.sheetBatchStepTemplates, { indexes: [ex.sheetBatchStepTemplatesByGroup] }),
+    source: Data.bindPaged(ex.sheetBatchStepTemplates, { indexes: ["sheet_batch_step_templates_by_group"] }),
     fields: { group: { label: "Group", hints: ["Steps"] } },
 });
 
 /** A week's rows in the planner's order, with the step templates to drop: each sets its task, and 24 of it. */
 const weekSheet = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const plans = $.let(Record.bind(ex.sheetWeekPlans, [ex.sheetWeekPlansPatch]));
+    const plans = $.let(Record.bind(ex.sheetWeekPlans, ["patch"]));
     const steps = $.let(Data.bind(ex.sheetBatchStepTemplates));
     const slice = $.let(Slice.bindRecords("sheet_dnd_week", { rowTemplates: stepTemplates() }));
     return Sheet({
@@ -56,13 +56,13 @@ const weekSheet = { fn: East.function([], UIComponentType, (_$) => Reactive.Root
 
 /** The day's batches, where the sheet's `edits` add no line and no batch — its step and batch templates two records, each a source of the rail. */
 const batchesAddingNothing = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const days = $.let(Record.bind(ex.sheetBatchDays, [ex.sheetBatchDaysPatch]));
+    const days = $.let(Record.bind(ex.sheetBatchDays, ["patch"]));
     const steps = $.let(Data.bind(ex.sheetBatchStepTemplates));
     const batches = $.let(Data.bind(ex.sheetBatchTemplates));
     const slice = $.let(Slice.bindRecords("sheet_dnd_adding_nothing", {
         rowTemplates: stepTemplates(),
         groupTemplates: {
-            source: Data.bindPaged(ex.sheetBatchTemplates, { indexes: [ex.sheetBatchTemplatesByGroup] }),
+            source: Data.bindPaged(ex.sheetBatchTemplates, { indexes: ["sheet_batch_templates_by_group"] }),
             fields: { group: { label: "Group", hints: ["Batches"] } },
         },
     }));
@@ -81,7 +81,7 @@ const batchesAddingNothing = { fn: East.function([], UIComponentType, (_$) => Re
 
 /** The day's batches, where the sheet's `edits` move a line only within its batch. */
 const batchesMovingWithin = East.function([], SheetPayloadType, ($) => {
-    const days = $.let(Record.bind(ex.sheetBatchDays, [ex.sheetBatchDaysPatch]));
+    const days = $.let(Record.bind(ex.sheetBatchDays, ["patch"]));
     return Sheet.Payload({
         record: days, entry: { key: "2026-10-12", rows: "batches", id: "id" }, name: "moving-within",
         group: Sheet.group(ex.Batch, "steps", { title: "name", noun: { singular: "batch", plural: "batches" } }),

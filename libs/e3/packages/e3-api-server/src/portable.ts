@@ -44,6 +44,9 @@ export { createPackageTransferRoutes } from './routes/package-transfer.js';
 // Workspaces, and their deploys and exports as jobs
 export { createWorkspaceRoutes } from './routes/workspaces.js';
 
+// A workspace written out as a bundle, and made from one, within a request
+export { createWorkspaceBundleRoutes } from './routes/bundles.js';
+
 // Datasets — whole, paged and searched by key — and their uploads, and who may
 // keep an answer pinned to a hash
 export { createDatasetRoutes, type DatasetRouteOptions } from './routes/datasets.js';

@@ -110,7 +110,7 @@ function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date |
         hover: opts?.hover !== undefined ? some(opts.hover) : none,
         expandRender: opts?.expandRender !== undefined ? some(opts.expandRender) : none,
         pick: opts?.pick !== undefined ? some(opts.pick) : none,
-        slice: opts?.slice ?? none,
+        slice: opts?.slice ?? none, nested: none,
         footer: opts?.footer ?? [],
         id: none, sources: [], editing: none, canDrop: none,
         onSelect: none,
@@ -360,7 +360,7 @@ describe("Plan paged source (P-c)", () => {
             [`r${String(i).padStart(3, "0")}`, { at: W27, owner: "Team A", hall: i % 2 === 0 ? "Hall A" : "Hall B" }])));
         const rail = await bindRail(() => Slice.bindRecords("plan.paged.chrome", {
             rows: {
-                source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByHallAt] }),
+                source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_hall_at"] }),
                 fields: { hall: { label: "Hall", hints: ["Hall A", "Hall B"] } }, search: [],
             },
         }), ["fields", "summary"]);

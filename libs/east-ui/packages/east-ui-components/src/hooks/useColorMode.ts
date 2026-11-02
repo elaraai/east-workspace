@@ -14,11 +14,25 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { kept, type KeptCodec } from "../platform/kept.js";
 
 /** The two colour modes. */
 export type ColorMode = "light" | "dark";
 
-const STORAGE_KEY = "east-ui.color-mode";
+/** A mode as kept: `light` or `dark`, nothing else. */
+const MODE: KeptCodec<ColorMode> = { encode: (mode) => mode, decode: (text) => (text === "dark" || text === "light" ? text : undefined) };
+/** The mode last applied, kept for the device whoever signs in (`platform/kept.ts`): a sign-out leaves it. */
+const keptMode = kept("east-ui.color-mode", MODE, { scoped: false });
+
+/**
+ * The colour mode last applied on this device: what an app opens in,
+ * applying it before it renders. `undefined` while none was.
+ *
+ * @returns The mode
+ */
+export function storedColorMode(): ColorMode | undefined {
+    return keptMode.read();
+}
 
 /** The mode currently stamped on `<html>` (the `dark` class). */
 function currentMode(): ColorMode {
@@ -37,7 +51,7 @@ export function applyColorMode(mode: ColorMode): void {
     if (typeof document === "undefined") return;
     document.documentElement.classList.toggle("dark", mode === "dark");
     document.documentElement.style.colorScheme = mode;
-    try { localStorage.setItem(STORAGE_KEY, mode); } catch { /* ignore */ }
+    keptMode.write(mode);
 }
 
 /**

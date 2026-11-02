@@ -12,8 +12,9 @@
  *
  * Each handle has the shape its binding declares and the data the runtimes
  * give it — a record's and a function's descriptor, a dataset's paths, a paged
- * source's identity and whether it searches, an indexed source's declarations
- * — and every function in it refuses.
+ * source's identity and whether it searches, an indexed source's declarations,
+ * a Slice's narrowing of one (east-ui's) and the binding it narrows — and every
+ * function in it refuses.
  *
  * @packageDocumentation
  */
@@ -21,6 +22,7 @@
 import { fromEastTypeValue, none, some, type EastType, type EastTypeValue } from "@elaraai/east";
 import type { PlatformFunction } from "@elaraai/east/internal";
 import type { TreePath } from "@elaraai/e3-types";
+import { LiveSourceType, RecordSliceHandleType, recordSliceBindPlatform } from "@elaraai/east-ui/internal";
 import {
     bindIndexedPagedPlatformFn, bindPagedPinnedPlatformFn, bindPagedPlatformFn, bindPlatformFn, funcBindPlatformFn, recordBindPlatformFn,
 } from "@elaraai/e3-ui/internal";
@@ -104,22 +106,26 @@ const pinned = bindPagedPinnedPlatformFn.implement((type: EastTypeValue) => (pat
  * otherwise the first index with one entry a row, as the runtime chooses it.
  */
 const indexed = bindIndexedPagedPlatformFn.implement((...types: EastTypeValue[]) =>
-    (pathArg: unknown, metadataArg: unknown, joinedArg: unknown, entryKeys: unknown, recordId: unknown) => {
+    (pathArg: unknown, metadataArg: unknown, nested: unknown, joinedArg: unknown, entryKeys: unknown, recordId: unknown, maintenance: unknown, fill: unknown) => {
         const metadata = metadataArg as Record<string, Record<string, unknown>>;
         const joined = joinedArg === true;
         const [, row, , indexes] = types.map(fromEastTypeValue);
         const pathKey = pathText(pathArg as TreePath);
         const id = `${pathKey}@indexes:${Object.keys(metadata).join(",")}${joined ? "+join" : ""}`;
+        // One entry a row (#1432's metadata, `{ fields, kind }`): a plain or an area index led by no Set field.
         const oneEntryARow = (name: string): boolean => {
-            const fields = indexes?.type === "Struct" ? indexes.fields[name] : undefined;
-            return fields?.type === "Struct" && Object.entries(fields.fields as Record<string, EastType>).every(([field, marker]) =>
+            const index = indexes?.type === "Struct" ? indexes.fields[name] : undefined;
+            const led = index?.type === "Struct" ? index.fields.fields : undefined;
+            const kind = index?.type === "Struct" ? index.fields.kind : undefined;
+            const named = kind?.type === "Variant" ? Object.keys(kind.cases)[0] : undefined;
+            return (named === "plain" || named === "area") && led?.type === "Struct" && Object.entries(led.fields as Record<string, EastType>).every(([field, marker]) =>
                 marker.type === "Array" || (marker.type === "Null" && row?.type === "Struct" && row.fields[field]?.type !== "Set"));
         };
         const defaultIndex = joined ? "primary" : Object.keys(metadata).find(oneEntryARow);
         if (defaultIndex === undefined) throw new Error("A covering-only binding needs an index with one entry per record row");
         const what = `Data.bindPaged(${pathKey}, { indexes })`;
         return {
-            id, recordId, indexes: metadata, joined, defaultIndex, entryKeys,
+            id, recordId, indexes: metadata, nested, joined, defaultIndex, entryKeys, maintenance, fill,
             page: refusal(`${what}.page`), seek: refusal(`${what}.seek`), total: refusal(`${what}.total`),
             revision: refusal(`${what}.revision`), refresh: refusal(`${what}.refresh`),
         };
@@ -133,5 +139,23 @@ const functions = funcBindPlatformFn.implement((_handleType: EastTypeValue) => (
     return { ...Object.fromEntries(methods.map((method) => [method, refusal(`${what}.${method}`)])), binding: { name } };
 });
 
-/** Every binding e3-ui declares, each refusing to read, write or call: the platform its specs compile against. */
-export const refusingPlatform: PlatformFunction[] = [records, datasets, released, pinned, indexed, functions];
+/**
+ * `Slice.bindRecords`' binding of each of its sources (east-ui's): the handle
+ * its type declares, carrying what the runtime carries of the binding it
+ * narrows — its declarations (#1435) and the binding itself (#1438) — and its
+ * narrowed rows, a live source named as the runtime names it.
+ */
+const slices = recordSliceBindPlatform.implement((...types: EastTypeValue[]) => (keyArg: unknown, sourceArg: unknown, config: unknown) => {
+    const [sourceType, collection, metadata, nested] = types.map(fromEastTypeValue) as [EastType, EastType, EastType, EastType];
+    const key = keyArg as string;
+    const source = sourceArg as { id: string; recordId: string; indexes: unknown; nested: unknown };
+    const what = `Slice.bindRecords(${key})`;
+    return {
+        ...refusingFields(RecordSliceHandleType(collection, metadata, nested, sourceType), what),
+        key, config, sourceId: source.recordId, indexes: source.indexes, nested: source.nested, source,
+        data: { ...refusingFields(LiveSourceType(collection), `${what}.data`), id: `${source.id}@slice:${key}`, seek: some(refusal(`${what}.data.seek`)) },
+    };
+});
+
+/** Every binding e3-ui declares, and the Slice's, each refusing to read, write or call: the platform its specs compile against. */
+export const refusingPlatform: PlatformFunction[] = [records, datasets, released, pinned, indexed, functions, slices];

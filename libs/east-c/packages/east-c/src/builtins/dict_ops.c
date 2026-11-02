@@ -907,6 +907,25 @@ done:
     return result;
 }
 
+/* DictFlattenTree (dict, children_fn) -> Array<{path, node}> (#1434): every
+ * node of the tree whose roots are the dict's entries, with its path of keys,
+ * depth first (east_tree_flatten). children_fn takes (value, key). */
+static EastValue *dict_flatten_tree_children(void *ctx, EastValue *node, EastValue *step)
+{
+    EastValue *call_args[] = {node, step};
+    return call_fn(ctx, call_args, 2);
+}
+
+static EastValue *dict_flatten_tree_impl(EastValue **args, size_t n)
+{
+    (void)n;
+    EastValue *d = args[0];
+    d->iter_lock++;
+    EastValue *result = east_tree_flatten(d, dict_flatten_tree_children, args[1]);
+    d->iter_lock--;
+    return result;
+}
+
 /* --- factory functions --- */
 
 static BuiltinImpl dict_generate_factory(EastType **tp, size_t ntp)
@@ -1112,6 +1131,13 @@ static BuiltinImpl dict_to_tree_factory(EastType **tp, size_t ntp)
     return dict_to_tree_impl;
 }
 
+static BuiltinImpl dict_flatten_tree_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return dict_flatten_tree_impl;
+}
+
 /* --- registration --- */
 
 void east_register_dict_builtins(BuiltinRegistry *reg)
@@ -1153,4 +1179,5 @@ void east_register_dict_builtins(BuiltinRegistry *reg)
     builtin_registry_register(reg, "DictFlattenToDict", dict_flatten_to_dict_factory);
     builtin_registry_register(reg, "DictGroupFold", dict_group_fold_factory);
     builtin_registry_register(reg, "DictToTree", dict_to_tree_factory);
+    builtin_registry_register(reg, "DictFlattenTree", dict_flatten_tree_factory);
 }

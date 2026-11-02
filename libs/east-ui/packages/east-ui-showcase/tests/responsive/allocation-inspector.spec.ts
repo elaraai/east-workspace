@@ -12,7 +12,8 @@
  * drop's note (A40) — the shared inspector's parts, measured in the page in
  * both themes (§8).
  */
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { open, size, token } from "./allocation-page";
 import { settled } from "./settle";
 

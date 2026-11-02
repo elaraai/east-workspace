@@ -90,10 +90,14 @@ describe("a decoded function runs as it was built", () => {
 
 const Named = FunctionType([], StringType);
 const Key = StructType({ key: StringType });
-/** A maker of closures over a key, as a record Slice's methods are made over a descriptor: one body, many closures. */
-const greeter = East.compile(East.function([Key], Named, (_$, d) => East.function([], StringType, () => East.str`hello ${d.key}`)), []);
-/** The same maker built again: an IR of the very same content, another object. */
-const greeterAgain = East.compile(East.function([Key], Named, (_$, d) => East.function([], StringType, () => East.str`hello ${d.key}`)), []);
+/** A maker of closures over a key, as a record Slice's methods are made over a descriptor: one body, many
+ *  closures — built twice where it is written, so the second is an IR of the very same content, under a map
+ *  of the very same stacks, another object of each. (Written on another line, it would be another content:
+ *  its errors name its own lines.) */
+const greeters = [0, 1].map(() =>
+  East.compile(East.function([Key], Named, (_$, d) => East.function([], StringType, () => East.str`hello ${d.key}`)), []));
+const greeter = greeters[0]!;
+const greeterAgain = greeters[1]!;
 /** A maker of another body. */
 const shouter = East.compile(East.function([Key], Named, (_$, d) => East.function([], StringType, () => East.str`HEY ${d.key}`)), []);
 

@@ -18,7 +18,8 @@
  * cursor as it was.
  */
 
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { sizeBuilder, visitBuilder } from "./builder-page";
 import { RECORD_READS, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { recordField } from "./record-slice";

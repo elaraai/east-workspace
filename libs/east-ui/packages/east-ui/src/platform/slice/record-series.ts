@@ -6,41 +6,50 @@
 /**
  * Queries for e3's series and summary indexes (#1039), the twin of
  * `record-interval.ts` and `record-area.ts`: a record's events filed by the key
- * they are on — a Plan's resource — and by each time tile they touch,
- * `{ …on, __tile, <key> }`. A series index holds an entry for each event in
- * each tile it touches, carrying the row; a summary index one entry for each
- * key in each tile, `{ count, ms }`, standing for every event touching it.
+ * they are on — a Plan's resource — and by time (#1432, #1433).
  *
- * A **cell** is some keys in one tile: what a reader reads of either index for
- * a block of its rows. Each key of a cell is one search, `[…on, tile, key]`,
- * which holds exactly that key's entries in that tile, so a cell's searches
- * hold its keys' entries and no others, in whatever order its keys come — a
- * block of rows narrowed or ordered by another index included. A reader asks
- * every cell it wants in one batch of searches, which counts each cell's
- * entries before one is read, and reads them in one batch of runs.
+ * - A **series index** files each event once, `{ on, key, level, tile }`: at
+ *   the finest level, from its declared tile up to the year, whose shortest
+ *   tile holds the event's length, under that level's tile holding its start —
+ *   or, past a year, under each year it touches — carrying the row. An event
+ *   filed at a level ends before the end of the tile after the one holding its
+ *   start, so a reader finds every event at a level that overlaps a range by
+ *   reading that level's tiles from the one before the range's first: a
+ *   **run** ({@link levelRuns}).
+ * - A **summary index** keeps one entry for each key in each of its tiles,
+ *   `{ on, key, tile }` → `{ count, ms }`, standing for every event touching
+ *   it; a reader reads its tiles over the range ({@link summaryRun}).
+ *
+ * A **cell** is some keys over one run: what a reader reads of either index
+ * for a block of its rows. Each key of a cell is one range search — the key
+ * leads the tile in either index's key — holding exactly that key's entries in
+ * the run, so a cell's searches hold its keys' entries and no others, in
+ * whatever order its keys come — a block of rows narrowed or ordered by
+ * another index included. A reader asks every cell it wants in one batch of
+ * searches, which counts each cell's entries before one is read, and reads
+ * them in one batch of runs: one range a key a level, whatever the range's
+ * width.
  *
  * Neither index serves the rail's narrowing (`record-plan.ts`): a series index
- * files an event under each tile it touches, so its runs would count the event
- * more than once, and a summary index's entries name no row. A narrowing
- * reaches a cell through the index's leading fields, chosen exactly; what else
- * it chooses is the reader's to ask of the events it draws (`within`).
+ * files an event past a year under each year it touches, so its runs would
+ * count the event more than once, and a summary index's entries name no row.
+ * A narrowing reaches a cell through the index's leading fields, chosen
+ * exactly; what else it chooses is the reader's to ask of the events it draws
+ * (`within`).
  *
- * The tiles are e3's, to the millisecond (`e3.recordIndex.series`): a day and
+ * The tiles are e3's, to the millisecond (`index.series`): a day and
  * an ISO week counted in whole milliseconds from the epoch and from the Monday
  * before it, so an instant before 1970 is tiled as one after it; a month, a
  * quarter and a year by the UTC calendar.
  */
-import { DateTimeType, equalFor, none, printFor, variant, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, equalFor, printFor, variant, type ValueTypeOf } from "@elaraai/east";
 import type { SeekQueryType } from "../../contracts/source.js";
-import type { RecordSliceChoiceType, RecordSliceIndexType, RecordSliceTileType, RecordSliceTilingType } from "./record-types.js";
+import { RecordSliceTileType, type RecordSliceChoiceType, type RecordSliceIndexType, type RecordSliceTilingType } from "./record-types.js";
 import { MAX_RECORD_SLICE_RUNS } from "./record-plan.js";
 
 type Choice = ValueTypeOf<RecordSliceChoiceType>;
 type Index = ValueTypeOf<RecordSliceIndexType>;
 type Tiling = ValueTypeOf<RecordSliceTilingType>;
-
-/** A series or a summary index's tile field: the tile's start, after the index's leading fields and before its key. */
-export const TILE_FIELD = "__tile";
 
 /** A tile: a day, an ISO week from Monday, a calendar month, a quarter or a year, in UTC. */
 export type RecordTile = keyof RecordSliceTileType["cases"] & string;
@@ -67,10 +76,12 @@ const SUMMARY_MARKER = "__summary";
 const TILE_ROLES = ["key", "from", "to", "tile"] as const;
 
 /**
- * The names of the struct `Data.bindPaged` marks a series or a summary index's
- * `__tile` with in a binding's index metadata, as an area index's `__area` is
- * marked with its box: the key, start and end fields and the tile, each named
- * with its role (`key=…`), and `__summary` for a summary index.
+ * The names of the struct `Data.bindPaged` marks a series or a summary index
+ * with in a binding's index metadata — its kind's `series` or `summary` case
+ * (#1432), as an area index's case names its box: the key, start and end
+ * fields and the tile, each named with its role (`key=…`), and `__summary` for
+ * a summary index. A marker's names are the kind's own, never a row field
+ * among the index's.
  *
  * @param marker - How the index files the record's events
  * @returns The marker struct's field names, in order
@@ -80,8 +91,8 @@ export function tileMarkerFields(marker: TileMarker): string[] {
 }
 
 /**
- * Read a series or a summary index's filing back from its `__tile` marker's
- * field names ({@link tileMarkerFields}).
+ * Read a series or a summary index's filing back from its marker's field
+ * names ({@link tileMarkerFields}).
  *
  * @param names - The marker struct's field names
  * @returns The filing, or `undefined` when the names are not a tile marker's
@@ -162,31 +173,6 @@ export function tileNext(tile: RecordTile, start: Date): Date {
 }
 
 /**
- * The tiles a span `[from, to)` overlaps, as e3 files an event over them: each
- * tile's start, in order — the one tile holding `from` when `to` is at or
- * before it.
- *
- * @param tile - The tile
- * @param from - The span's start
- * @param to - Its end, exclusive
- * @param limit - The most tiles to list, at least one
- * @returns The tiles' starts; `undefined` when the span overlaps more than `limit` of them
- * @throws {Error} When `limit` is below one
- */
-export function tilesOver(tile: RecordTile, from: Date, to: Date, limit: number): Date[] | undefined {
-    if (!(limit >= 1)) throw new Error(`A span's tiles are listed one at least, not ${limit}`);
-    let at = tileStart(tile, from);
-    if (to.getTime() <= from.getTime()) return [at];
-    const tiles: Date[] = [];
-    while (at.getTime() < to.getTime()) {
-        if (tiles.length >= limit) return undefined;
-        tiles.push(at);
-        at = tileNext(tile, at);
-    }
-    return tiles;
-}
-
-/**
  * How a series or a summary index files a record's events: the index's own
  * metadata, or `undefined` for an index of another kind.
  *
@@ -208,7 +194,7 @@ export function tilingOf(index: Index): Tiling | undefined {
  */
 export function tileIndexServes(index: Index, where: ReadonlyMap<string, Choice>): boolean {
     if (tilingOf(index) === undefined) return false;
-    return index.fields.slice(0, -2).every(field => {
+    return index.fields.every(field => {
         const choice = where.get(field);
         return choice?.type === "values" && choice.value.length > 0 && (!index.sets.has(field) || new Set(choice.value).size === 1);
     });
@@ -243,40 +229,98 @@ export interface TileCellPlan {
     /** The searches, one for each combination of the leading fields' chosen values and each key, the keys inner. */
     readonly queries: ValueTypeOf<SeekQueryType>[];
     /** The fields of the narrowing the searches do not answer — every field but the index's leading fields and a
-     *  range of its start field, which the tiles cover. The reader asks of each event it draws whether the
+     *  range of its start field, which the runs cover. The reader asks of each event it draws whether the
      *  narrowing holds it (`within`); none, and every entry is the narrowing's. */
     readonly residual: readonly string[];
 }
 
 const printTile = printFor(DateTimeType);
+const printLevel = printFor(RecordSliceTileType);
 const sameInstant = equalFor(DateTimeType);
 
-/**
- * Plan a cell of a series or a summary index: some keys in one tile, a search
- * for each key under each combination of the narrowing's values of the index's
- * leading fields, `[…on, tile, key]`, holding that key's entries in that tile
- * and no other's. A range of the index's start field — the window — is the
- * reader's: its tiles cover it.
- *
- * @param index - A series or a summary index ({@link tileIndexFor})
- * @param where - The narrowing
- * @param tile - The tile's start ({@link tilesOver})
- * @param keys - The keys, as `.east` literals of the index's key field
- * @returns The cell's searches, and the fields the reader asks of each event
- * @throws {Error} When the index is neither, when the narrowing does not choose
- *   exact values of each of its leading fields (one of a Set's), when the
- *   combinations of them pass {@link MAX_RECORD_SLICE_RUNS}, or when `tile` is
- *   not the start of one of the index's tiles
- */
-export function tileCellQueries(index: Index, where: ReadonlyMap<string, Choice>, tile: Date, keys: readonly string[]): TileCellPlan {
-    const tiling = tilingOf(index);
-    if (tiling === undefined) throw new Error(`A cell reads a series or a summary index, and '${index.name}' is neither`);
-    if (!sameInstant(tileStart(tiling.tile.type, tile), tile)) {
-        throw new Error(`${printTile(tile)} starts no ${tiling.tile.type} tile of '${index.name}'`);
+/** The start of the tile before one, as e3 files it. */
+function tilePrevious(tile: RecordTile, start: Date): Date {
+    switch (tile) {
+        case "day": return new Date(start.getTime() - DAY_MS);
+        case "week": return new Date(start.getTime() - WEEK_MS);
+        case "month": return monthStart(start.getUTCFullYear(), start.getUTCMonth() - 1);
+        case "quarter": return monthStart(start.getUTCFullYear(), start.getUTCMonth() - 3);
+        case "year": return monthStart(start.getUTCFullYear() - 1, start.getUTCMonth());
     }
-    const leading = index.fields.slice(0, -2);
+}
+
+/** The start of the tile holding a range's last instant: `to` less a millisecond, or `from` for a range ending at or before it. */
+function lastTile(tile: RecordTile, from: Date, to: Date): Date {
+    return tileStart(tile, to.getTime() > from.getTime() ? new Date(to.getTime() - 1) : from);
+}
+
+/**
+ * The tiles of one level a reader reads, half-open: from the first tile's
+ * start to the start of the tile after the last.
+ */
+export interface TileRun {
+    /** The level. */
+    readonly level: RecordTile;
+    /** The first tile's start. */
+    readonly from: Date;
+    /** The start of the tile after the last. */
+    readonly to: Date;
+}
+
+/**
+ * The levels a series index declared at a tile files at (#1433), the finest
+ * first: the tile, and every coarser one up to the year.
+ *
+ * @param tile - The declared tile
+ * @returns The tile and every coarser one
+ */
+export function levelsOf(tile: RecordTile): readonly RecordTile[] {
+    return RECORD_TILES.slice(RECORD_TILES.indexOf(tile));
+}
+
+/**
+ * What a reader reads of a series index over a range `[from, to)` (#1433): a
+ * run a level, each from two tiles before the one holding `from` — the tile
+ * before it, which may hold an event reaching into the range, and the one a
+ * pan back reaches first — to the one after the tile holding the range's last
+ * instant, the one a pan on reaches first.
+ *
+ * @param tile - The declared tile
+ * @param from - The range's start
+ * @param to - Its end, exclusive
+ * @returns A run a level, the finest first
+ */
+export function levelRuns(tile: RecordTile, from: Date, to: Date): TileRun[] {
+    return levelsOf(tile).map(level => ({
+        level,
+        from: tilePrevious(level, tilePrevious(level, tileStart(level, from))),
+        to: tileNext(level, tileNext(level, lastTile(level, from, to))),
+    }));
+}
+
+/**
+ * What a reader reads of a summary index over a range `[from, to)` (#1433):
+ * its tiles from the one before the tile holding `from` to the one after the
+ * tile holding the range's last instant. A total is split by tile, so nothing
+ * before them carries in.
+ *
+ * @param tile - The summary's tile
+ * @param from - The range's start
+ * @param to - Its end, exclusive
+ * @returns The run, half-open
+ */
+export function summaryRun(tile: RecordTile, from: Date, to: Date): { readonly from: Date; readonly to: Date } {
+    return { from: tilePrevious(tile, tileStart(tile, from)), to: tileNext(tile, tileNext(tile, lastTile(tile, from, to))) };
+}
+
+/**
+ * The combinations of the narrowing's exact values of an index's leading
+ * fields, each a cell's search's first leaves, refused naming why where the
+ * narrowing does not choose them exactly.
+ */
+function leadingValues(index: Index, where: ReadonlyMap<string, Choice>): string[][] {
     let prefixes: string[][] = [[]];
-    for (const field of leading) {
+    for (const field of index.fields) {
         const choice = where.get(field);
         if (choice?.type !== "values" || choice.value.length === 0) {
             throw new Error(`A cell of '${index.name}' takes exact values of '${field}', which leads it: choose them, or read the cells of an index it does not lead`);
@@ -290,9 +334,77 @@ export function tileCellQueries(index: Index, where: ReadonlyMap<string, Choice>
         }
         prefixes = prefixes.flatMap(prefix => values.map(value => [...prefix, value]));
     }
-    const at = printTile(tile);
-    const queries = prefixes.flatMap(prefix => keys.map(key => variant("fields", { values: [...prefix, at, key], prefix: none })));
-    const residual = [...where].filter(([field, choice]) => !leading.includes(field) && !(field === tiling.from && choice.type === "range"))
+    return prefixes;
+}
+
+/** The fields of a narrowing a cell's searches leave to the reader: all but the leading fields and a range of the start field. */
+function residualOf(index: Index, tiling: Tiling, where: ReadonlyMap<string, Choice>): string[] {
+    return [...where].filter(([field, choice]) => !index.fields.includes(field) && !(field === tiling.from && choice.type === "range"))
         .map(([field]) => field);
-    return { queries, residual };
+}
+
+/** Refuses a run whose ends do not start tiles of its level. */
+function checkRun(index: Index, level: RecordTile, run: { readonly from: Date; readonly to: Date }): void {
+    for (const at of [run.from, run.to]) {
+        if (!sameInstant(tileStart(level, at), at)) throw new Error(`${printTile(at)} starts no ${level} tile of '${index.name}'`);
+    }
+}
+
+/**
+ * Plan a cell of a series index (#1433): some keys over one level's run, a
+ * range search for each key under each combination of the narrowing's values
+ * of the index's leading fields, `[…on, key, level, from]` to
+ * `[…on, key, level, to]` — the key flattened, the leading values one by one
+ * (#1432) — holding that key's entries at that level in the run's tiles and
+ * no other's. A range of the index's start field — the window — is the
+ * reader's: its runs cover it.
+ *
+ * @param index - A series index ({@link tileIndexFor})
+ * @param where - The narrowing
+ * @param run - The level and its tiles ({@link levelRuns})
+ * @param keys - The keys, as `.east` literals of the index's key field
+ * @returns The cell's searches, and the fields the reader asks of each event
+ * @throws {Error} When the index is no series index, when the narrowing does
+ *   not choose exact values of each of its leading fields (one of a Set's), when
+ *   the combinations of them pass {@link MAX_RECORD_SLICE_RUNS}, when the
+ *   index files at no such level, or when the run's ends do not start tiles of
+ *   its level
+ */
+export function levelCellQueries(index: Index, where: ReadonlyMap<string, Choice>, run: TileRun, keys: readonly string[]): TileCellPlan {
+    if (index.series.type !== "some") throw new Error(`A level's cell reads a series index, and '${index.name}' is none`);
+    const tiling = index.series.value;
+    if (!levelsOf(tiling.tile.type).includes(run.level)) {
+        throw new Error(`'${index.name}' files at ${levelsOf(tiling.tile.type).join(", ")}: no ${run.level} run`);
+    }
+    checkRun(index, run.level, run);
+    const level = printLevel(variant(run.level, null));
+    const from = printTile(run.from);
+    const to = printTile(run.to);
+    const queries = leadingValues(index, where).flatMap(prefix => keys.map(key =>
+        variant("range", { from: [...prefix, key, level, from], to: [...prefix, key, level, to] })));
+    return { queries, residual: residualOf(index, tiling, where) };
+}
+
+/**
+ * Plan a cell of a summary index (#1433): some keys over a run of its tiles, a
+ * range search for each key under each combination of the narrowing's values
+ * of the index's leading fields, `[…on, key, from]` to `[…on, key, to]`.
+ *
+ * @param index - A summary index
+ * @param where - The narrowing
+ * @param run - Its tiles ({@link summaryRun})
+ * @param keys - The keys, as `.east` literals of the index's key field
+ * @returns The cell's searches, and the fields the reader asks of each event
+ * @throws {Error} As {@link levelCellQueries} does, for a summary index
+ */
+export function summaryCellQueries(index: Index, where: ReadonlyMap<string, Choice>, run: { readonly from: Date; readonly to: Date },
+    keys: readonly string[]): TileCellPlan {
+    if (index.summary.type !== "some") throw new Error(`A summary's cell reads a summary index, and '${index.name}' is none`);
+    const tiling = index.summary.value;
+    checkRun(index, tiling.tile.type, run);
+    const from = printTile(run.from);
+    const to = printTile(run.to);
+    const queries = leadingValues(index, where).flatMap(prefix => keys.map(key =>
+        variant("range", { from: [...prefix, key, from], to: [...prefix, key, to] })));
+    return { queries, residual: residualOf(index, tiling, where) };
 }

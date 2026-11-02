@@ -7,11 +7,14 @@
  * The editing session's banners (#1184) — what the history bar says under its
  * buttons, for a host that leaves that line to its banners: a builder's
  * frame, whose toolbar keeps one row (`historyToolbarItem({ showError: false
- * })`). In the order a builder lists them: an Apply's conflicts, naming each
+ * })`). In the order a builder lists them: changes that conflict with newer
+ * ones, whose Choose opens the history bar's conflicts; an Apply's conflicts, naming each
  * issue's place; an Apply the source refused, with its reasons; a write with
  * no answer, with Retry; an Apply whose result could not be read back, with
- * Retry; and drafts the source moved under, with Discard. Each follows the
- * session, and leaves when what it reports does. A host whose one history
+ * Retry; drafts the source moved under, with Discard; and drafts a reload
+ * would lose — the tab's storage refused them — or kept drafts a reload could
+ * not restore (keep.ts). Each follows the session, and leaves when what it
+ * reports does. A host whose one history
  * holds several sessions (`EditHistory`, #1194) draws each session's banners,
  * each titled with its source's name.
  *
@@ -19,9 +22,14 @@
  */
 import { useMemo, useSyncExternalStore } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faNotEqual } from "@fortawesome/free-solid-svg-icons";
 import { BannerView } from "../feedback/banner/index.js";
+import { FOCUSABLE } from "../primitives/focusable.js";
 import type { HistoryAction } from "./HistoryBar.js";
 import type { EditIssue, EditSession } from "./session.js";
+import { useConflictsOpener } from "./conflicts.js";
+import { useDraftsKeeping } from "./keep.js";
 import { sessionErrorText, type EditingWords } from "./messages.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -54,10 +62,36 @@ export interface SessionBannersProps<W> {
     issueText?: ((message: string) => string) | undefined;
     /**
      * The source's name, for a host whose history holds several (#1194): each
-     * banner's title then names the source it reports on — `Print job: Save
-     * stopped — 1 conflict with the source`. Left out, the titles name none.
+     * banner's title then names the source it reports on — `Print job: Not
+     * saved — 1 conflict with newer changes`. Left out, the titles name none.
      */
     name?: string | undefined;
+    /**
+     * Its conflicts banner alone — for a session no history bar holds, beside
+     * the one a bar does: another flow's, say, whose drafts its own bar acts
+     * on once it is open. Every banner by default.
+     */
+    conflictsOnly?: boolean | undefined;
+    /**
+     * What the conflicts banner's Choose does while no history bar holds the
+     * session: open what holds it. A bar's conflicts popover, while one holds
+     * it; no Choose without either.
+     */
+    onChoose?: (() => void) | undefined;
+}
+
+/**
+ * Where the focus goes in a builder's frame once what held it has gone: its
+ * main's first control — the grid, the canvas, the first step — else its
+ * toolbar's. Nothing moves while the focus is still on something.
+ *
+ * @param frame - The builder's frame
+ */
+function keepFocusIn(frame: Element): void {
+    const at = document.activeElement;
+    if (at !== null && at !== document.body && at.isConnected) return;
+    const first = (slot: string) => frame.querySelector(`[data-frame-slot="${slot}"]`)?.querySelector<HTMLElement>(FOCUSABLE) ?? null;
+    (first("main") ?? first("toolbar"))?.focus({ preventScroll: true });
 }
 
 /**
@@ -68,8 +102,10 @@ export interface SessionBannersProps<W> {
  * @param props - The session, the collection's words, its history actions, and how it names an issue
  * @returns The banners that apply now, each wrapped in an element naming its kind (`data-session-banner`)
  */
-export function SessionBanners<W>({ session, words, onAction, where, issueText, name }: SessionBannersProps<W>) {
+export function SessionBanners<W>({ session, words, onAction, where, issueText, name, conflictsOnly = false, onChoose }: SessionBannersProps<W>) {
     useSyncExternalStore(session.subscribe, session.getSnapshot);
+    const choose = useConflictsOpener(session) ?? onChoose;
+    const keeping = useDraftsKeeping(session);
     const recipe = useSlotRecipe({ key: "editHistory" });
     const styles = useMemo(() => recipe({}) as unknown as Styles, [recipe]);
     const { m } = words;
@@ -90,43 +126,72 @@ export function SessionBanners<W>({ session, words, onAction, where, issueText, 
             </Box>
         );
     };
+    // One Default button at a banner's end. What it does may take the banner away, and the focus with it: the focus then
+    // goes to the frame's main, never to the page.
     const action = (label: string, run: HistoryAction) => (
-        <Button size="xs" variant="outline" data-banner-action={run} onClick={() => onAction(run)}>{label}</Button>
+        <Button size="md" variant="outline" data-banner-action={run} onClick={(event) => {
+            const frame = event.currentTarget.closest("[data-builder-frame]");
+            onAction(run);
+            if (frame !== null) requestAnimationFrame(() => keepFocusIn(frame));
+        }}>{label}</Button>
     );
+    const word = (kind: Parameters<typeof m.bannerWord>[0]["kind"]) => m.bannerWord({ kind });
     const errorText = error === undefined ? undefined : sessionErrorText(error, words);
+    const unsettled = session.unsettled;
     return (
         <>
+            {unsettled > 0 && (
+                <Box data-session-banner="conflicts">
+                    {/* No live role of its own: the conflicts button's live region says it, once. */}
+                    <BannerView status="guard" form="band" live={false} mark={<FontAwesomeIcon icon={faNotEqual} />} word={word("conflict")}
+                        title={titled(m.bannerConflicts({ n: unsettled, count: words.number(unsettled) }))}
+                        actions={choose === undefined ? undefined
+                            : <Button size="md" variant="outline" data-banner-action="choose" onClick={choose}>{m.conflictsChoose()}</Button>} />
+                </Box>
+            )}
+            {!conflictsOnly && <>
             {status === "conflict" && (
                 <Box data-session-banner="conflict">
-                    <BannerView status="warning" title={titled(m.bannerConflict({ n: session.issues.length, count: words.number(session.issues.length) }))}
+                    <BannerView status="error" form="band" word={word("conflict")} title={titled(m.bannerConflict({ n: session.issues.length, count: words.number(session.issues.length) }))}
                         description={issues(session.issues)} />
                 </Box>
             )}
             {status === "idle" && errorText !== undefined && (
                 <Box data-session-banner="prepare">
-                    <BannerView status="error" title={titled(m.bannerRejected())} description={errorText} actions={action(m.retryRequest(), "apply")} />
+                    <BannerView status="error" form="band" word={word("rejected")} title={titled(m.bannerRejected())} description={errorText} actions={action(m.retryRequest(), "apply")} />
                 </Box>
             )}
             {status === "rejected" && (
                 <Box data-session-banner="rejected">
-                    <BannerView status="error" title={titled(m.bannerRejected())} description={issues(session.issues)} />
+                    <BannerView status="error" form="band" word={word("rejected")} title={titled(m.bannerRejected())} description={issues(session.issues)} />
                 </Box>
             )}
             {status === "unknown" && (
                 <Box data-session-banner="unknown">
-                    <BannerView status="warning" title={titled(m.bannerUnknown())} description={errorText} actions={action(m.retryRequest(), "apply")} />
+                    <BannerView status="guard" form="band" word={word("unconfirmed")} title={titled(m.bannerUnknown())} description={errorText} actions={action(m.retryRequest(), "apply")} />
                 </Box>
             )}
             {status === "reconciling" && errorText !== undefined && (
                 <Box data-session-banner="confirm">
-                    <BannerView status="warning" title={titled(m.bannerConfirmFailed())} description={errorText} actions={action(m.retryRefresh(), "refresh")} />
+                    <BannerView status="guard" form="band" word={word("unconfirmed")} title={titled(m.bannerConfirmFailed())} description={errorText} actions={action(m.retryRefresh(), "refresh")} />
                 </Box>
             )}
             {stale && (
                 <Box data-session-banner="stale">
-                    <BannerView status="stale" title={titled(m.bannerStale())} actions={action(m.discard(), "discard")} />
+                    <BannerView status="stale" form="band" word={word("stale")} title={titled(m.bannerStale())} actions={action(m.discard(), "discard")} />
                 </Box>
             )}
+            {keeping.state === "unkept" && (
+                <Box data-session-banner="unkept">
+                    <BannerView status="guard" form="band" word={word("unkept")} title={titled(m.bannerUnkept({ reason: keeping.reason }))} />
+                </Box>
+            )}
+            {keeping.state === "lost" && (
+                <Box data-session-banner="lost">
+                    <BannerView status="guard" form="band" word={word("unkept")} title={titled(m.bannerLost({ reason: keeping.reason }))} />
+                </Box>
+            )}
+            </>}
         </>
     );
 }

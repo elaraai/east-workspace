@@ -4,7 +4,7 @@
  */
 import type { AST } from "../ast.js";
 import { get_location_id } from "../location.js";
-import { DictType, BooleanType, FunctionType, IntegerType, type EastType, NullType, OptionType, SetType, NeverType, VariantType, printType, FloatType, isTypeEqual, ArrayType } from "../types.js";
+import { DictType, BooleanType, FunctionType, IntegerType, type EastType, NullType, OptionType, SetType, NeverType, VariantType, printType, FloatType, isTypeEqual, ArrayType, StructType } from "../types.js";
 import { valueOrExprToAst, valueOrExprToAstTyped } from "./ast.js";
 import type { BooleanExpr } from "./boolean.js";
 import { equal, notEqual } from "./block.js";
@@ -1075,7 +1075,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
 
     return Expr.fromAst({
       ast_type: "Builtin",
-      type: this[TypeSymbol],
+      type: DictType(this.key_type, someType as EastType),
       loc_id: get_location_id(),
       builtin: "DictFilterMap",
       type_parameters: [this.key_type as EastType, this.value_type as EastType, someType as EastType],
@@ -1494,6 +1494,60 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
       type_parameters: [this.key_type as EastType, this.value_type as EastType, node],
       arguments: [this[AstSymbol], parentFnAst, buildFnAst],
     }) as ArrayExpr<N>;
+  }
+
+  /**
+   * Every node of a tree of any depth whose roots are the dictionary's entries, each with its path of keys from
+   * its root, depth first: the inverse of {@link toTree}.
+   *
+   * `childrenFn` names each node's children, a dictionary of the same key and value types — empty for a leaf. A
+   * root's path is `[key]`, its child's `[key, childKey]`, and so on down. The nodes come each before its
+   * descendants, siblings in key order, so a node's parent is the nearest node before it whose path its own
+   * extends.
+   *
+   * @param childrenFn - Function taking (value, key) and returning the node's children
+   * @returns An ArrayExpr of every node, `{ path, node }`, depth first
+   *
+   * @remarks
+   * - `childrenFn` runs once per node, in the result's order. A node's children are read as it is walked.
+   * - The walk is iterative, so a deep tree costs no stack. Each node's path is an array of its own, so a
+   *   chain n deep holds n(n+1)/2 path elements.
+   * - A path is an Array, so the result is an array rather than a dictionary keyed by path; {@link ArrayExpr.toTree}
+   *   takes it back, its key the path and a node's parent its path less its last key.
+   *
+   * @example
+   * ```ts
+   * const PartType = RecursiveType(self => StructType({ name: StringType, parts: DictType(StringType, self) }));
+   *
+   * const names = East.function([DictType(StringType, PartType)], ArrayType(StringType), ($, parts) => {
+   *   $.return(parts.flattenTree(($, part, key) => part.unwrap().parts)
+   *     .map(($, entry) => Expr.str`${entry.path.stringJoin("/")}: ${entry.node.unwrap().name}`));
+   * });
+   * const compiled = East.compile(names, []);
+   * compiled(new Map([
+   *   ["pump", { name: "Pump", parts: new Map([
+   *     ["motor", { name: "Motor", parts: new Map([["rotor", { name: "Rotor", parts: new Map() }]]) }],
+   *     ["seal", { name: "Seal", parts: new Map() }],
+   *   ]) }],
+   * ]));
+   * // ["pump: Pump", "pump/motor: Motor", "pump/motor/rotor: Rotor", "pump/seal: Seal"]
+   * ```
+   *
+   * @see {@link ArrayExpr.flattenTree} for a tree whose children are an array.
+   */
+  flattenTree(childrenFn: SubtypeExprOrValue<FunctionType<[T, K], DictType<K, T>>>): ArrayExpr<StructType<{ path: ArrayType<K>, node: T }>> {
+    const keyType = this.key_type as EastType;
+    const valueType = this.value_type as EastType;
+    const childrenFnAst = valueOrExprToAstTyped(childrenFn, FunctionType([valueType, keyType], DictType(keyType, valueType)));
+
+    return Expr.fromAst({
+      ast_type: "Builtin",
+      type: ArrayType(StructType({ path: ArrayType(this.key_type), node: this.value_type })),
+      loc_id: get_location_id(),
+      builtin: "DictFlattenTree",
+      type_parameters: [keyType, valueType],
+      arguments: [this[AstSymbol], childrenFnAst],
+    }) as ArrayExpr<StructType<{ path: ArrayType<K>, node: T }>>;
   }
 
   /** Group entries by key and perform a fold/reduce operation on each group.

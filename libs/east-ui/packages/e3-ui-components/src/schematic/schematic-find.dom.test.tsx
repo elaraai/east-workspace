@@ -51,11 +51,11 @@ const FLY_MS = 400;
  * default — and the frames, read whole, beside them.
  */
 const floor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+    const racks = $.let(Record.bind(ex.schematicRacks, ["patch"]));
     const rackEntries = $.let(Data.bindPaged(ex.schematicRacks));
     const frames = $.let(Data.bind(ex.schematicFrames));
     const slice = $.let(Slice.bindRecords(FLOOR, {
-        racks: { source: Data.bindPaged(ex.schematicRacks, { indexes: [ex.schematicRacksByOwner] }), fields: { owner: { label: "Owner" } } },
+        racks: { source: Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_owner"] }), fields: { owner: { label: "Owner" } } },
     }));
     return Schematic({
         id: "find",
@@ -70,11 +70,11 @@ const floor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Eas
 
 /** The floor, a narrowed-out rack drawn as context (`narrowed="dim"`): as {@link floor} otherwise. */
 const dimFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+    const racks = $.let(Record.bind(ex.schematicRacks, ["patch"]));
     const rackEntries = $.let(Data.bindPaged(ex.schematicRacks));
     const frames = $.let(Data.bind(ex.schematicFrames));
     const slice = $.let(Slice.bindRecords(FLOOR, {
-        racks: { source: Data.bindPaged(ex.schematicRacks, { indexes: [ex.schematicRacksByOwner] }), fields: { owner: { label: "Owner" } } },
+        racks: { source: Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_owner"] }), fields: { owner: { label: "Owner" } } },
     }));
     return Schematic({
         id: "findDim",

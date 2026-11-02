@@ -95,7 +95,7 @@ function dict<K extends EastType, V extends EastType>(
     kind: 'dict',
     type: DictType(key, value),
     emit: FunctionType([key, value], NullType),
-    ...(config?.merge !== undefined && { merge: East.function([key, value, value], value, config.merge as any).toIR() }),
+    ...(config?.merge !== undefined && { merge: East.function([key, value, value], value, config.merge).toIR() }),
   };
 }
 
@@ -134,7 +134,7 @@ function fold<T extends EastType>(
     type,
     emit: FunctionType([type], NullType),
     zero: config.zero,
-    combine: East.function([type, type], type, config.combine as any).toIR(),
+    combine: East.function([type, type], type, config.combine).toIR(),
   };
 }
 

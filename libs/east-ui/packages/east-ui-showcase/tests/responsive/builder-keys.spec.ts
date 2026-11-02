@@ -22,7 +22,8 @@
  * `pnpm exec playwright test builder-keys --project desktop`.
  */
 
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { visitBuilder } from "./builder-page";
 import { DATA_CENTRE, openSchematic, openTab } from "./schematic-page";
 import { settled } from "./settle";

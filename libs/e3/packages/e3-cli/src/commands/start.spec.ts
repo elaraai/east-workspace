@@ -24,7 +24,7 @@ describe('forcedTasks', () => {
   });
 });
 
-const AT = '2026-10-04T00:00:00.000Z';
+const AT = new Date('2026-10-04T00:00:00.000Z');
 
 /**
  * A remote run that has ended with `held` task completions, each its own

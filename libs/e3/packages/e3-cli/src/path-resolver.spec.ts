@@ -13,7 +13,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { variant } from '@elaraai/east';
+import { none, variant } from '@elaraai/east';
 import type { TreeNode } from '@elaraai/e3-core';
 import type { ListEntry } from '@elaraai/e3-api-client';
 import {
@@ -54,8 +54,8 @@ function remoteDataset(path: string): ListEntry {
   return variant('dataset', {
     path,
     type: variant('String', null),
-    hash: variant('none', null),
-    size: variant('none', null),
+    hash: none,
+    size: none,
   });
 }
 

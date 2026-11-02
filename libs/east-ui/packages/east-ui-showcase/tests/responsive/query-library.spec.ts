@@ -19,7 +19,8 @@
  * `pnpm exec playwright test query-library --project desktop`.
  */
 
-import { test, expect, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { settled } from "./settle";
 
 const HASH = "e3/query/query/queryLibrary";

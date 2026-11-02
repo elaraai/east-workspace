@@ -25,7 +25,8 @@
  * Measured in the page — never a screenshot.
  */
 
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { toolbarFaults } from "./builder-frame";
 import { visitBuilder } from "./builder-page";
 import { holdE3, installE3Faults, releaseE3 } from "./e3-faults";

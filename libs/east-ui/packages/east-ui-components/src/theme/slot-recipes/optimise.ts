@@ -55,6 +55,7 @@
 
 import { defineSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { CONFLICT_RING, CONFLICT_RING_INSET } from "../conflict-ring.js";
 
 /** The live-pulse cycle the eye's echo and halo run on (§8): 1440ms. */
 const PULSE = "calc({durations.slow} * 4)";
@@ -108,6 +109,9 @@ const LANDING = {
     // The highlight: the steady glow on every add and change, and the ghosts, for 8s (R16).
     "&[data-optimise-lit] [data-op=add], &[data-optimise-lit] [data-op=chg]": { boxShadow: STEADY },
     "&[data-optimise-lit] [data-fill=cell][data-op=add], &[data-optimise-lit] [data-fill=cell][data-op=chg]": { boxShadow: STEADY_INSET },
+    // A part holding a conflict keeps its ring over the highlight: the conflict's drawn first, on top.
+    "&[data-optimise-lit] [data-op=add][data-conflict], &[data-optimise-lit] [data-op=chg][data-conflict]": { boxShadow: `${CONFLICT_RING}, ${STEADY}` },
+    "&[data-optimise-lit] [data-fill=cell][data-op=add][data-conflict], &[data-optimise-lit] [data-fill=cell][data-op=chg][data-conflict]": { boxShadow: `${CONFLICT_RING_INSET}, ${STEADY_INSET}` },
     "&[data-optimise-lit] [data-op=del]": { ...GHOST, textDecoration: "line-through" },
     "&[data-optimise-lit] [data-op=from]": GHOST,
     "&[data-optimise-lit] [data-op=del] *, &[data-optimise-lit] [data-op=from] *": { color: "inherit" },

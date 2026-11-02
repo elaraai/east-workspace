@@ -84,7 +84,7 @@ export interface PlanRowFields {
 }
 
 /** A row that takes no gesture — every row but an editable series' (#880, #825). */
-const NO_EDITS = { drop: false, move: none };
+const NO_EDITS = { drop: false, move: none, values: [] };
 
 /**
  * THE row envelope (#822) — an entry's row, a derived parent, a section header,

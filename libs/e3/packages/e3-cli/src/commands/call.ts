@@ -28,7 +28,7 @@ import {
   decodeBeast2For,
   encodeBeast2For,
   fromEastTypeValue,
-  fromJSONFor,
+  decodeJSONFor,
   parseFor,
   printFor,
   none,
@@ -108,8 +108,7 @@ export async function encodeArg(raw: string, typeValue: EastTypeValue, index: nu
   }
 
   if (raw.endsWith('.json')) {
-    const content = await readFile(raw, 'utf-8');
-    const value = fromJSONFor(type)(JSON.parse(content));
+    const value = decodeJSONFor(type)(await readFile(raw));
     return encodeBeast2For(type)(value);
   }
 

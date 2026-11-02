@@ -5,7 +5,7 @@
 
 /**
  * The Plan's editing session under test (#880) — ONE canvas, a row per press
- * that takes dropped jobs as its decisions, built by the e3-ui factory and
+ * that takes dropped jobs as its marks, built by the e3-ui factory and
  * COMPILED over a source the test holds. The same canvas
  * inline and paged, so a test states one behaviour and runs it on both:
  *
@@ -34,6 +34,7 @@ import { system, getRegisteredPlatformImplementations, DragLayerProvider, useDra
 import { getStore } from "@elaraai/east-ui-components/internal";
 import { pointAt } from "@elaraai/east-ui-components/testing";
 import { patchRecord } from "../e3-web.test-utils.js";
+import { offering } from "../shared/schedule/keys.test-utils.js";
 import { E3Surface, currentHarness, e3Harness, settle as settleE3, type E3Harness } from "../e3-web-mount.test-utils.js";
 import { act } from "../test-runs.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
@@ -42,9 +43,9 @@ import { rowKey, rowSel } from "./plan.test-utils.js";
 
 // ── The canvas's data ───────────────────────────────────────────────────────
 
-/** A job dropped on a press — a decision at the bucket it landed in. */
+/** A job dropped on a press, under its id — a mark at the bucket it landed in. */
 export const Job = records.PlanPressJob;
-/** A press — its name, the crew that runs it (none yet), and the jobs dropped on it. */
+/** A press — its name, the crew that runs it (none yet), and the jobs dropped on it, by their ids. */
 export const Press = records.PlanPress;
 /** The canvas's source — presses by key: the presses' record's type. */
 export const Presses = records.planPresses.type;
@@ -72,23 +73,22 @@ const AXES = {
     ordinal: Plan.axis.ordinal({ values: PHASES }),
 };
 
-/** The presses as rows — each taking a dropped job into `jobs`. */
-const PRESS_ROWS = Plan.series.span(Press, {
+/** The presses as rows — each taking a dropped job into `jobs`, under the id the Plan mints (#1436). */
+const PRESS_ROWS = Plan.series.events(Press, {
     key: PRESSES, title: "Presses",
     label: (p) => p.label,
-    runs: () => [],
-    decisions: (p) => p.jobs.map((_$, j) => Plan.decision({ key: j.key, at: j.at, applied: false })),
-    edit: { items: "jobs", create: (drop) => ({ key: drop.from.key, at: drop.at }) },
+    marks: Plan.items("jobs", { at: "at" }, () => ({ kind: "milestone" })),
+    edit: { create: (drop) => ({ at: drop.at }) },
 });
 /** A second row per press that takes no gesture — its series names no field. */
 const LOADS = Plan.series.span(Press, { key: "loads", title: "Loads", label: (p) => p.label, runs: () => [] });
 /** The press's marks series' key. */
 export const MARKS = "press-marks";
-/** A row per press whose marks are its jobs, and move (#825) — a job's key and instant are a mark's. */
+/** A row per press whose marks are its jobs, and move (#825) — a job's id and instant are a mark's. */
 const MOVING = Plan.series.events(Press, {
     key: MARKS, title: "Marks", label: (p) => p.label,
-    marks: (p) => p.jobs.map((_$, j) => Plan.mark({ key: j.key, at: j.at, kind: "milestone" })),
-    edit: { items: "jobs", key: "key", at: "at" },
+    marks: Plan.items("jobs", { at: "at" }, () => ({ kind: "milestone" })),
+    edit: true,
 });
 /** The author's check: a press holds one job at most, and runs one only with its crew. */
 const READY = East.function([Press, StringType], Editing.Types.Readiness, ($, press) => {
@@ -198,7 +198,7 @@ function compileCanvas(o: Resolved): () => PlanRootValue {
         })
         : East.function([], Plan.Types.Root, ($) => {
             // The presses' record on e3: read a window at a time, pinned, and saved through its patch door.
-            const presses = $.const(Record.bind(records.planPresses, [records.planPressesPatch]));
+            const presses = $.const(Record.bind(records.planPresses, ["patch"]));
             const source = $.const(Data.bindPaged(records.planPresses));
             const onApply = $.const(Record.onApply(presses, { keyed: true }));
             return Plan.Root({
@@ -401,7 +401,7 @@ export function markOf(c: HTMLElement, press: string): "pending" | "incomplete" 
 export const marks = (c: HTMLElement, presses: readonly string[] = [...SEED.keys()]) =>
     Object.fromEntries(presses.map((p) => [p, markOf(c, p)]));
 
-/** The decisions a press's row draws — its jobs, by key. */
+/** The marks a press's row draws — its jobs, by id. */
 export const jobsDrawn = (c: HTMLElement, press: string): string[] =>
     [...pressRow(c, press).querySelectorAll("[data-mark]")].map((m) => m.getAttribute("data-mark")!);
 
@@ -461,6 +461,8 @@ export async function hoverJob(canvas: RenderResult, job: string, press: string)
     pointAt(dropCellOf(canvas.container, press));
     fireEvent.pointerMove(document, { clientX: 10, clientY: 10 });
     return async () => {
+        // The new job's id is the Plan's to mint (#1436): offered the card's key, so a test names it.
+        offering([job]);
         fireEvent.pointerUp(document, { clientX: 10, clientY: 10 });
         await settle();
     };

@@ -29,7 +29,7 @@ const entryEqual = equalFor(ex.LooseEntry);
 
 /** The week's work as `sheetLoose` declares it, given the inspector pane: Details for a loose task, and the batch's Issues. */
 const inspected = East.function([], SheetPayloadType, ($) => {
-    const work = $.let(Record.bind(ex.sheetLooseWork, [ex.sheetLooseWorkPatch]));
+    const work = $.let(Record.bind(ex.sheetLooseWork, ["patch"]));
     const newTask = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(ex.LooseTask), () => Sheet.patch(ex.LooseTask, { qty: none, notes: "" })));
     const newPackage = $.const(East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(ex.LoosePackage), () => Sheet.patch(ex.LoosePackage, { tasks: [] })));
     return Sheet.Payload({

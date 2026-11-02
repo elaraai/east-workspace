@@ -10,7 +10,8 @@
  * of bins are read a day at a time. What answers is the e3 function, in
  * either theme, so each runs in one.
  */
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { FILE, open, size } from "./allocation-page";
 import { settled } from "./settle";
 

@@ -5,6 +5,10 @@
  */
 import { ArrayType, BlobType, BooleanType, DateTimeType, FloatType, IntegerType, NullType, NeverType, printType, RecursiveType, StringType, StructType, VariantType, RefType, SetType, DictType, FunctionType, AsyncFunctionType, VectorType, MatrixType, type EastType, type_id_symbol, getTypeId, isPrimitiveType } from "./types.js"
 import { isVariant, variant } from "./containers/variant.js";
+import { isTypeValueEqual } from "./type_value_equal.js";
+import { recursiveTypeId } from "./serialization/beast2/v4/type-table.js";
+
+export { isTypeValueEqual };
 
 
 /** The type of primitive literal values in IR.
@@ -118,6 +122,36 @@ export type EastTypeValue =
 // the same type_id, so this cache ensures identity-based dedup of EastTypeValues.
 const toEastTypeValueCache = new Map<number, EastTypeValue>();
 
+/** Each recursive type's id, by its type_id. Interning gives one recursive
+ *  structure one type_id, so it is computed once per process. */
+const recursiveIds = new Map<number, bigint>();
+
+/**
+ * The id a recursive type is written under: the hash of its type table
+ * (`recursiveTypeId`), so the same type has the same id in every process and
+ * runtime, whatever the process built before it.
+ *
+ * The table writes no id, so the type value hashed may name the type by
+ * anything. While its id is computed, its self-references name it by a
+ * negative number, which no hash is.
+ */
+function recursiveIdOf(type: RecursiveType): bigint {
+  const tid = getTypeId(type)!;
+  const known = recursiveIds.get(tid);
+  if (known !== undefined) return known;
+  const provisional = -1n - BigInt(tid);
+  recursiveIds.set(tid, provisional);
+  try {
+    const inner = toEastTypeValueImpl(type.node, [type], false);
+    const id = recursiveTypeId(variant("Recursive", variant("wrapper", { id: provisional, inner })));
+    recursiveIds.set(tid, id);
+    return id;
+  } catch (error) {
+    recursiveIds.delete(tid);
+    throw error;
+  }
+}
+
 export function toEastTypeValue(type: EastType, stack?: EastType[], is_recursive?: boolean): EastTypeValue
 export function toEastTypeValue(type: EastType | string): EastTypeValue | string
 export function toEastTypeValue(type: EastType | string, stack: EastType[] = [], is_recursive: boolean = false): EastTypeValue | string {
@@ -210,16 +244,16 @@ function toEastTypeValueImpl(type: EastType, stack: EastType[], _is_recursive: b
     stack.pop();
     return ret;
   } else if (type.type === "Recursive") {
-    const tid = getTypeId(type)!;
+    const id = recursiveIdOf(type);
     // Self-reference: this RecursiveType is already on the stack.
     if (stack.indexOf(type) !== -1) {
-      return variant("Recursive", variant("ref", BigInt(tid)));
+      return variant("Recursive", variant("ref", id));
     }
     // First encounter: push, recurse into inner, produce wrapper.
     stack.push(type);
     const inner = toEastTypeValueImpl(type.node, stack, false);
     stack.pop();
-    return variant("Recursive", variant("wrapper", { id: BigInt(tid), inner }));
+    return variant("Recursive", variant("wrapper", { id, inner }));
   } else if (type.type === "Function") {
     stack.push(type);
     const ret = variant("Function", {
@@ -336,152 +370,6 @@ function fromImpl(t: EastTypeValue, ctx: Map<bigint, EastType>): EastType {
     throw new Error(`fromEastTypeValue: unhandled tag "${tag}"`);
 }
 
-const isTypeValueEqualCache = new Map<number, Map<number, boolean>>();
-
-/** One pair of wrappers an equality in progress has entered: a `ref` of the
- *  left id corresponds to a `ref` of the right id. */
-type WrapperPair = readonly [left: bigint, right: bigint];
-
-/**
- * Compares two EastTypeValue instances for type equality.
- *
- * @param t1 - First type value to compare
- * @param t2 - Second type value to compare
- * @returns `true` if the types are equal, `false` otherwise
- *
- * @remarks
- * This is the {@link EastTypeValue} version of {@link isTypeEqual}.
- *
- * Recursive types compare up to the naming of their wrappers. A wrapper's
- * `id` is a runtime artefact — a type id in the process that built the type,
- * a table index for a type read back off the wire — and is not part of the
- * type, so `wrapper({id: a, inner: A})` equals `wrapper({id: b, inner: B})`
- * when `A` equals `B` with `ref(a)` standing for `ref(b)`. Within one scope
- * `ref(N)` equals `ref(N)` and `wrapper({id: N})`: the same recursive type
- * seen from inside and from outside its wrapper.
- *
- * Two recursive types with one id are one type, and their bodies are not
- * read: within one build, its process numbers each recursive type once, by its
- * structure, and the type checker compares types as large as a UI component's
- * at every node. Two builds number theirs by their own counters, so a
- * recursive type edited between two exports can keep its id. Compare types two
- * builds made, as a deploy compares a package's with the one deployed before
- * it, with {@link isTypeValueStructurallyEqual}.
- */
-export function isTypeValueEqual(t1: EastTypeValue, t2: EastTypeValue): boolean {
-  return typeValueEqual(t1, t2, []);
-}
-
-/** The id a `Recursive` payload names — the wrapper's own id, or a ref's. */
-function recursiveId(payload: variant<"ref", bigint> | variant<"wrapper", { id: bigint; inner: any }>): bigint {
-  return payload.type === "ref" ? payload.value : payload.value.id;
-}
-
-function typeValueEqual(t1: EastTypeValue, t2: EastTypeValue, env: WrapperPair[]): boolean {
-  // Fast path: reference equality
-  if (t1 === t2) return true;
-
-  // Fast path: type_id equality
-  const tid1 = getTypeId(t1);
-  const tid2 = getTypeId(t2);
-  if (tid1 !== undefined && tid1 === tid2) return true;
-
-  // Recursive ref/wrapper equivalence: ref(N) and wrapper({id: N, inner})
-  // denote the same recursive type when the ids match, or when the ids are a
-  // pair of wrappers this comparison has already entered (alpha-equivalence).
-  if (t1.type === "Recursive" && t2.type === "Recursive") {
-    const id1 = recursiveId(t1.value);
-    const id2 = recursiveId(t2.value);
-    if (id1 === id2) return true;
-    for (const [left, right] of env) {
-      if (left === id1 && right === id2) return true;
-    }
-  }
-
-  // Check cache. Stamped values carry this process's type ids, under which
-  // structurally equal recursive types share one id, so their answer does not
-  // depend on `env`.
-  if (tid1 !== undefined && tid2 !== undefined) {
-    const innerCache = isTypeValueEqualCache.get(tid1);
-    if (innerCache) {
-      const cached = innerCache.get(tid2);
-      if (cached !== undefined) return cached;
-    }
-    const result = typeValueEqualImpl(t1, t2, env);
-    let cache = isTypeValueEqualCache.get(tid1);
-    if (!cache) { cache = new Map(); isTypeValueEqualCache.set(tid1, cache); }
-    cache.set(tid2, result);
-    return result;
-  }
-
-  return typeValueEqualImpl(t1, t2, env);
-}
-
-/** Structural comparison that uses typeValueEqual for children (handles ref/wrapper). */
-function typeValueEqualImpl(t1: EastTypeValue, t2: EastTypeValue, env: WrapperPair[]): boolean {
-  if (t1.type !== t2.type) return false;
-  switch (t1.type) {
-    case "Never": case "Null": case "Boolean": case "Integer":
-    case "Float": case "String": case "DateTime": case "Blob":
-      return true;
-    case "Ref": case "Array": case "Vector": case "Matrix":
-      return typeValueEqual(t1.value, (t2 as any).value, env);
-    case "Set":
-      return typeValueEqual(t1.value, (t2 as any).value, env);
-    case "Dict":
-      return typeValueEqual(t1.value.key, (t2 as any).value.key, env) &&
-             typeValueEqual(t1.value.value, (t2 as any).value.value, env);
-    case "Struct": {
-      const f1 = t1.value as { name: string; type: EastTypeValue }[];
-      const f2 = (t2 as any).value as { name: string; type: EastTypeValue }[];
-      if (f1.length !== f2.length) return false;
-      for (let i = 0; i < f1.length; i++) {
-        if (f1[i]!.name !== f2[i]!.name) return false;
-        if (!typeValueEqual(f1[i]!.type, f2[i]!.type, env)) return false;
-      }
-      return true;
-    }
-    case "Variant": {
-      const c1 = t1.value as { name: string; type: EastTypeValue }[];
-      const c2 = (t2 as any).value as { name: string; type: EastTypeValue }[];
-      if (c1.length !== c2.length) return false;
-      for (let i = 0; i < c1.length; i++) {
-        if (c1[i]!.name !== c2[i]!.name) return false;
-        if (!typeValueEqual(c1[i]!.type, c2[i]!.type, env)) return false;
-      }
-      return true;
-    }
-    case "Function": case "AsyncFunction": {
-      const fn1 = t1.value as { inputs: EastTypeValue[]; output: EastTypeValue };
-      const fn2 = (t2 as any).value as { inputs: EastTypeValue[]; output: EastTypeValue };
-      if (fn1.inputs.length !== fn2.inputs.length) return false;
-      for (let i = 0; i < fn1.inputs.length; i++) {
-        if (!typeValueEqual(fn1.inputs[i]!, fn2.inputs[i]!, env)) return false;
-      }
-      return typeValueEqual(fn1.output, fn2.output, env);
-    }
-    case "Recursive": {
-      const v1 = t1.value;
-      const v2 = (t2 as any).value as typeof v1;
-      // Same or paired ids were answered by typeValueEqual. Two wrappers
-      // with different ids are equal when their bodies are, with each body's
-      // refs standing for its own wrapper; a ref and a wrapper of different
-      // ids, or two refs of different ids, are different scopes.
-      if (v1.type === "wrapper" && v2.type === "wrapper") {
-        env.push([v1.value.id, v2.value.id]);
-        try {
-          return typeValueEqual(v1.value.inner, v2.value.inner, env);
-        } finally {
-          env.pop();
-        }
-      }
-      return false;
-    }
-    default:
-      return false;
-  }
-}
-
 /**
  * Renames a type value's recursive types canonically: each `wrapper` is
  * numbered in preorder from 0, and each `ref` takes the number of the
@@ -492,11 +380,12 @@ function typeValueEqualImpl(t1: EastTypeValue, t2: EastTypeValue, env: WrapperPa
  *   recursive ids depend on the type alone
  *
  * @remarks
- * A wrapper's `id` is a runtime artefact, so two runtimes, or two processes of
- * one, give the same type different ids. A type value stored as data, as a
- * segment manifest stores its collection's type, is renamed first so that
- * equal types encode to equal bytes. The numbering is the one east-c's IR
- * normalizer gives a type.
+ * Every runtime writes a recursive type under a hash of its structure, but a
+ * type value read off the wire carries whatever ids its writer gave it. A type
+ * value stored as data, as a segment manifest stores its collection's type, is
+ * renamed first, so that equal types encode to equal bytes whichever runtime,
+ * or release, wrote the type it was read from. The numbering is the one
+ * east-c's IR normalizer gives a type.
  */
 export function canonicalTypeValue(type: EastTypeValue): EastTypeValue {
   let next = 0n;
@@ -762,7 +651,10 @@ function isSubtypeValueImpl(
 // Cache for memoizing expandTypeValue results (top-level calls only)
 const expandTypeValueCache = new Map<number, EastTypeValue>();
 
-/** Expand recursive types one level deeper, if necessary */
+/**
+ * A copy of a type value. A `ref` names its wrapper by id wherever it sits, so
+ * a type read out of a recursive type's body needs no unfolding.
+ */
 export function expandTypeValue(type: EastTypeValue, root: EastTypeValue = type, depth = 0n): EastTypeValue {
   // Fast path: primitive types cannot contain recursive references
   if (type.type === "Never" || type.type === "Null" || type.type === "Boolean" ||
@@ -822,9 +714,6 @@ function expandTypeValueImpl(type: EastTypeValue, root: EastTypeValue, depth: bi
       inputs: type.value.inputs.map(i => expandTypeValue(i, root, depth + 1n)),
       output: expandTypeValue(type.value.output, root, depth + 1n),
     });
-  } else if (type.type === "Recursive" && type.value.type === "ref" && depth === type.value.value) {
-    // Unfold once (self-reference at matching depth)
-    return root;
   } else if (type.type === "Recursive" && type.value.type === "wrapper") {
     // Recursive wrapper: expand the inner type
     return variant("Recursive", variant("wrapper", { id: type.value.value.id, inner: expandTypeValue(type.value.value.inner, root, depth) })) as EastTypeValue;

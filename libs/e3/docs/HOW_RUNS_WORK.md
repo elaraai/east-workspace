@@ -176,17 +176,17 @@ A task reads a record as it reads any collection. It gets the record's rows,
 staged as their manifest and read lazily, and `e3.partition` can split the work
 over them.
 
-A record changes through its mutations, which the API or `e3 mutate` runs, not
-the dataflow. A mutation is one unit, never split, and takes a core like
+A record changes through the mutations its declaration names, which the API or
+`e3 mutate` runs, not the dataflow. A mutation is one unit, never split, and takes a core like
 anything else. The exception is a `patch` on a record with no index, whose
 changes are applied without running anything.
 
-- **`e3.mutation.edit`** reads the state lazily and writes changes by key. Its
+- **`mutation.edit`** reads the state lazily and writes changes by key. Its
   commit rewrites only the segments the changed rows are in, one at a time, so
   touching ten rows of a two-million-row record decodes ten segments.
-- **`e3.mutation.patch`** applies changes by key that the caller sends, in the
+- **`mutation.patch`** applies changes by key that the caller sends, in the
   same way.
-- **`e3.mutation.reduce`** takes the whole state and returns the new one, so the
+- **`mutation.reduce`** takes the whole state and returns the new one, so the
   state must fit in the runner's memory. For a Dict or Set record only the write
   is limited to what changed. It is the form for a record that is neither.
 

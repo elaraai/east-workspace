@@ -7,10 +7,7 @@
 import { East, example, some, variant } from "@elaraai/east";
 import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
 import { Calendar, Data, Record } from "@elaraai/e3-ui";
-import {
-    planSeriesPresses, planSeriesPressesByHall, planWindowJobs, planWindowJobsByPressMonth, planWindowJobsByPressWeek, planWindowJobsByTime,
-    planWindowJobsPatch, planWindowPresses,
-} from "../plan/plan-windows.examples.js";
+import { planSeriesPresses, planWindowJobs, planWindowPresses } from "../plan/plan-windows.examples.js";
 
 // A Calendar over records too large to read whole (#1424), the print works of
 // the Plan's windows example: 2,000 presses, generated where data is made, paged
@@ -26,22 +23,22 @@ import {
 
 export const calendarWindows = example({
     inputs: [],
-    description: "A Calendar read a page at a time — 2,000 presses paged 200 to a window (`Calendar.resources` over `Data.bindPaged`), the timeline's rows the pages around the view and its Choosers searching the presses by key, and the print jobs on them read a cell at a time through one Slice.bindRecords rail: its `job` source lists the interval index, a series index (`e3.recordIndex.series`, the jobs by press and week) and a summary index (`e3.recordIndex.summary`, each press's busy share by month), and the Calendar reads only the jobs of the presses and the weeks on screen, two requests a change, a press's months shaded from the summary past 10,000 — the time grids and the agenda the window counted first, its Backlog paged through the source, one job by its key through the record's own entries, never a record whole",
+    description: "A Calendar read a page at a time — 2,000 presses paged 200 to a window (`Calendar.resources` over `Data.bindPaged`), the timeline's rows the pages around the view and its Choosers searching the presses by key, and the print jobs on them read a cell at a time through one Slice.bindRecords rail: its `job` source lists the interval index, a series index (`index.series`, the jobs by press and week) and a summary index (`index.summary`, each press's busy share by month), and the Calendar reads only the jobs of the presses and the weeks on screen, two requests a change, a press's months shaded from the summary past 10,000 — the time grids and the agenda the window counted first, its Backlog paged through the source, one job by its key through the record's own entries, never a record whole",
     keywords: [
         "Calendar", "Schedule", "Calendar.resources", "Calendar.events", "Slice", "Slice.bindRecords", "source", "range", "window",
-        "interval", "interval index", "series", "series index", "summary", "summary index", "e3.recordIndex", "e3.recordIndex.series",
-        "e3.recordIndex.summary", "tile", "cell", "paged", "page", "Data.bindPaged", "backlog", "large record", "key search",
+        "interval", "interval index", "series", "series index", "summary", "summary index", "index.on", "index.series",
+        "index.summary", "tile", "cell", "paged", "page", "Data.bindPaged", "backlog", "large record", "key search",
         "timeline", "scroll", "shading", "presses", "jobs", "Record.bind", "entries", "by key", "Save", "#1424",
     ],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         // The presses a window at a time; the jobs bound with their patch door, and read through the rail's source.
         const presses = $.let(Data.bindPaged(planWindowPresses));
-        const jobs = $.let(Record.bind(planWindowJobs, [planWindowJobsPatch]));
+        const jobs = $.let(Record.bind(planWindowJobs));
         const entries = $.let(Data.bindPaged(planWindowJobs));
         // One rail: its `job` source lists the series and the summary beside the interval index, its range the window the
         // Calendar's navigation writes — the Calendar reads the jobs' cells through them.
         const slice = $.let(Slice.bindRecords("ex.calendarWindows", {
-            job: { source: Data.bindPaged(planWindowJobs, { indexes: [planWindowJobsByTime, planWindowJobsByPressWeek, planWindowJobsByPressMonth] }),
+            job: { source: Data.bindPaged(planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }),
                 label: "Print jobs", icon: { prefix: "fas", name: "file-lines" }, fields: { start: { label: "Dates" } }, range: "start" },
         }));
         return <Box height="720px"><Calendar id="windows" inspector
@@ -68,20 +65,20 @@ export const calendarWindowsByHall = example({
     description: "The Calendar of calendarWindows, its 2,000 presses a record narrowed by hall through the rail — a `presses` source named after the paged resource kind's slot, `Data.bindPaged(record, { indexes })` over the presses' hall index — the timeline paging the narrowing's presses themselves in the index's order, and reading the jobs' cells for the presses of the hall on screen alone; a choice keeps the last view standing until its presses land",
     keywords: [
         "Calendar", "Schedule", "Calendar.resources", "Slice", "Slice.bindRecords", "source", "rail", "narrow", "narrowing", "filter",
-        "resource kind", "hall", "e3.recordIndex", "index", "paged", "Data.bindPaged", "series index", "summary index", "cell",
+        "resource kind", "hall", "index.on", "index", "paged", "Data.bindPaged", "series index", "summary index", "cell",
         "large record", "presses", "jobs", "timeline", "#1424",
     ],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const presses = $.let(Data.bindPaged(planSeriesPresses));
-        const jobs = $.let(Record.bind(planWindowJobs, [planWindowJobsPatch]));
+        const jobs = $.let(Record.bind(planWindowJobs));
         const entries = $.let(Data.bindPaged(planWindowJobs));
         // The `presses` source narrows the paged kind by hall, through the presses' hall index: the timeline pages the
         // narrowing's presses. The `job` source reads the jobs a cell at a time, as in calendarWindows.
         const slice = $.let(Slice.bindRecords("ex.calendarWindowsByHall", {
-            presses: { source: Data.bindPaged(planSeriesPresses, { indexes: [planSeriesPressesByHall] }), label: "Presses",
+            presses: { source: Data.bindPaged(planSeriesPresses, { indexes: ["plan_series_presses_by_hall"] }), label: "Presses",
                 icon: { prefix: "fas", name: "print" },
                 fields: { hall: { label: "Hall", hints: ["Hall 1", "Hall 2", "Hall 3", "Hall 4", "Hall 5", "Hall 6", "Hall 7", "Hall 8"] } } },
-            job: { source: Data.bindPaged(planWindowJobs, { indexes: [planWindowJobsByTime, planWindowJobsByPressWeek, planWindowJobsByPressMonth] }),
+            job: { source: Data.bindPaged(planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }),
                 label: "Print jobs", icon: { prefix: "fas", name: "file-lines" }, fields: { start: { label: "Dates" } }, range: "start" },
         }));
         return <Box height="720px"><Calendar id="windowsByHall" inspector
@@ -109,10 +106,10 @@ export const calendarWindowsMobile = example({
     keywords: ["Calendar", "mobile", "agenda", "cards", "paged", "Data.bindPaged", "series index", "summary index", "presses", "jobs", "key search", "#1424"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const presses = $.let(Data.bindPaged(planWindowPresses));
-        const jobs = $.let(Record.bind(planWindowJobs, [planWindowJobsPatch]));
+        const jobs = $.let(Record.bind(planWindowJobs));
         const entries = $.let(Data.bindPaged(planWindowJobs));
         const slice = $.let(Slice.bindRecords("ex.calendarWindowsMobile", {
-            job: { source: Data.bindPaged(planWindowJobs, { indexes: [planWindowJobsByTime, planWindowJobsByPressWeek, planWindowJobsByPressMonth] }),
+            job: { source: Data.bindPaged(planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }),
                 label: "Print jobs", icon: { prefix: "fas", name: "file-lines" }, fields: { start: { label: "Dates" } }, range: "start" },
         }));
         return <Box width="100%" maxWidth="390px" height="760px"><Calendar id="windowsMobile" inspector

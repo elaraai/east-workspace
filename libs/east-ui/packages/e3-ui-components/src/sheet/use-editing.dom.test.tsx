@@ -144,7 +144,7 @@ test("a child edit after applied reorder preserves the new first child's hidden 
     expect(decodeBeast2For(Group)(raw.value).rows).toEqual([{ qty: 9n, hidden: "beta" }, { qty: 1n, hidden: "alpha" }]);
 });
 
-test("paged deletion retires only after its exact committed revision and a loaded absence", async () => {
+test("paged deletion retires only once read past the revision it was drafted at, with a loaded absence", async () => {
     initializeStore(new UIStore());
     let domain = [...rows];
     let revision = "r0";
@@ -179,7 +179,8 @@ test("paged deletion retires only after its exact committed revision and a loade
     act(() => hook.result.current.record([variant("remove", { rowIds: ["a"] })]));
     await act(async () => { await hook.result.current.session.apply(); });
     expect(domain.map(row => row.id)).toEqual(["b"]);
-    revision = "unrelated"; loaded = true; hook.rerender();
+    // The revision drafted at holds nothing of the commit, whatever its page reads.
+    revision = "r0"; loaded = true; hook.rerender();
     expect(hook.result.current.session.status).toBe("reconciling");
     revision = "r1"; loaded = false; hook.rerender();
     expect(hook.result.current.session.status).toBe("reconciling");

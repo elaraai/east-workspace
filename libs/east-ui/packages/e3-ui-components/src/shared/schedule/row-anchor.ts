@@ -32,6 +32,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { StringType, equalFor } from "@elaraai/east";
 import type { RowRuns } from "@elaraai/east-ui-components/internal";
+import { keptRead } from "@elaraai/east-ui-components/internal";
 
 const sameText = equalFor(StringType);
 
@@ -40,6 +41,9 @@ export interface RowAnchor {
     readonly key: string;
     readonly offset: number;
 }
+
+/** A view's resting place, as storage keeps it. */
+export const readRowAnchor = keptRead.record<RowAnchor>({ key: keptRead.string, offset: keptRead.number });
 
 /** The narrowing a builder's rows are under, and whether its rows are in. */
 export interface RowNarrowing {

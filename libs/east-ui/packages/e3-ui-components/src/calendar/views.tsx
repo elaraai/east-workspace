@@ -60,7 +60,7 @@ import { tileNext } from "@elaraai/east-ui/internal";
 import { optimiseMessages, takeKey, useDragEventChip, useDragEventEdge, useDragMessages, useDropCell, type CellCoord, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import {
     LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderShape, UnloadedRun, VirtualRows, devicePixels, loadingLineText, useRowsTop, useSlotClass,
-    type RowRuns, type RunCell, type RunFailure,
+    type RowRuns, type RunCell, type RunFailure, keptRead
 } from "@elaraai/east-ui-components/internal";
 import { pagedLoadingMessages, type PeriodRead } from "../shared/loading.js";
 import type { ScheduleCellShade, ScheduleCellShading } from "../shared/schedule/cells.js";
@@ -78,7 +78,7 @@ import { TIMELINE_GUTTER, recentredView, shiftedScroll, timelinePixels, timeline
 import { coversShown, useVisibleDays, type TravelStore, type VisibleDaysStore } from "./visible.js";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
-import { useRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
+import { readRowAnchor, useRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
 import { useAgendaLanding } from "./agenda-focus.js";
 import { EventActions, type CalendarShownResources } from "./controls.js";
 import { calendarCoord, type CalendarDrag } from "./drag.js";
@@ -276,6 +276,9 @@ export interface CalendarAnchor {
     readonly gridHour?: number | undefined;
     readonly timeline?: RowAnchor | undefined;
 }
+
+/** Where each layout's view rests, as storage keeps it. */
+export const readCalendarAnchor = keptRead.record<CalendarAnchor>({ gridHour: keptRead.optional(keptRead.number), timeline: keptRead.optional(readRowAnchor) });
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 /** The hour the time grid opens at, the first time: half past five, the working day just above the fold. */
 const OPENING_HOUR = 5.5;
@@ -580,6 +583,8 @@ interface EventFacts {
     readonly selected: boolean;
     readonly overlap: boolean;
     readonly drafted: boolean;
+    /** Whether it holds a conflict not yet chosen: the warn ring. */
+    readonly conflict: boolean;
     /** What a run of the optimiser did to it while it is the run's draft (#1409, R7, R17): its mark, and its provenance on hover. */
     readonly op: "add" | "chg" | undefined;
     readonly provenance: string | undefined;
@@ -621,6 +626,7 @@ function eventFacts(view: EventView, item: CalendarItem, window: { readonly from
         layout: view.view.layout, period: view.view.period, resource: resourceLabel(item, view.rows),
         surface: view.drag.surface, draggable: view.grips === true && view.editing?.available(item.kind) === true,
         selected: view.selected.has(id), overlap: view.overlaps.peers.has(id), drafted, op: marked,
+        conflict: view.editing?.conflicted(item.kind, item.key) === true,
         provenance: marked === "add" ? optimiseMessages.entryAdded({ run })
             : marked === "chg" && was !== undefined ? optimiseMessages.entryChanged({ previous: previousWords(was, view), run }) : undefined,
         revealing: view.reveal !== undefined && view.reveal === id, onRevealed: view.onRevealed,
@@ -814,7 +820,7 @@ const EventBlock = memo(function EventBlock({ item, facts, geometry, size, along
     return <div {...handle} ref={attachEvent} className={slot(styles.event)} style={geometry} data-along={along} data-chip={chip ? "" : undefined} data-compact={fits.compact ? "" : undefined}
         tabIndex={0} role="button" aria-label={provenance === undefined ? label : `${label}. ${provenance}`} title={provenance === undefined ? label : `${provenance} · ${label}`} aria-pressed={selected}
         data-calendar-event={id} data-selected={selected ? "" : undefined} data-overlap={facts.overlap ? "" : undefined} data-op={facts.op}
-        data-draft={drafted ? "" : undefined} data-drafted={drafted ? "" : undefined} data-draggable={enabled ? "" : undefined}
+        data-draft={drafted ? "" : undefined} data-drafted={drafted ? "" : undefined} data-conflict={facts.conflict ? "" : undefined} data-draggable={enabled ? "" : undefined}
         onPointerDown={event => {
             const cell = event.currentTarget.closest<HTMLElement>("[data-calendar-cell]");
             if (cell !== null) {
@@ -1848,7 +1854,8 @@ function AgendaCard({ props, item, day }: { props: CalendarViewsProps; item: Cal
     const run = op?.run ?? "";
     const provenance = marked === "add" ? optimiseMessages.entryAdded({ run }) : marked === "chg" && was !== undefined ? optimiseMessages.entryChanged({ previous: previousWords(was, props), run }) : undefined;
     return <Box css={props.styles.card} data-calendar-card={id} data-selected={props.selected.has(id) ? "" : undefined} data-op={marked} title={provenance}
-        data-draft={drafted ? "" : undefined} data-drafted={drafted ? "" : undefined} data-overlap={props.overlaps.peers.has(id) ? "" : undefined}>
+        data-draft={drafted ? "" : undefined} data-drafted={drafted ? "" : undefined} data-overlap={props.overlaps.peers.has(id) ? "" : undefined}
+        data-conflict={props.editing?.conflicted(item.kind, item.key) === true ? "" : undefined}>
         <chakra.button ref={head} type="button" css={props.styles.cardHead} onClick={event => props.select(item, event.shiftKey || event.metaKey || event.ctrlKey)} aria-pressed={props.selected.has(id)}>
             <Box css={props.styles.cardTitle}>{item.title}</Box>
             <Box css={props.styles.detail}>{item.start.type === "some" && props.format.time(item.start.value)}–{item.end.type === "some" && props.format.time(item.end.value)} · {resourceLabel(item, props.rows)}</Box>

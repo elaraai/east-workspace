@@ -40,7 +40,7 @@ const SHEETS_FORMAT = East.compile(East.function([], TickFormatType, (_$) => For
 
 /** The print job kind as Plan takes it: bars, its lifecycle, its sheets and its backlog. */
 const jobProgram = East.function([], Schedule.Types.PlanKind, ($) => {
-    const jobs = $.let(Record.bind(sx.schedulePrintJobs, [sx.schedulePrintJobsPatch]));
+    const jobs = $.let(Record.bind(sx.schedulePrintJobs, ["patch"]));
     return Schedule.events(jobs, {
         name: "Print job", icon: "file-lines", draw: "span",
         title: "title", start: "start", end: "end",
@@ -53,7 +53,7 @@ const jobProgram = East.function([], Schedule.Types.PlanKind, ($) => {
 
 /** The stop kind: one instant each, drawn as marks, a plate change dropped from the library. */
 const stopProgram = East.function([], Schedule.Types.PlanKind, ($) => {
-    const stops = $.let(Record.bind(sx.schedulePrintStops, [sx.schedulePrintStopsPatch]));
+    const stops = $.let(Record.bind(sx.schedulePrintStops, ["patch"]));
     return Schedule.events(stops, {
         name: "Stop", icon: "screwdriver-wrench", draw: "marks",
         title: "title", at: "at",
@@ -70,7 +70,7 @@ const stopInspector = East.function([sx.SchedulePrintStop, FunctionType([sx.Sche
 
 /** The stop kind with its own inspector. */
 const inspectedStopProgram = East.function([], Schedule.Types.PlanKind, ($) => {
-    const stops = $.let(Record.bind(sx.schedulePrintStops, [sx.schedulePrintStopsPatch]));
+    const stops = $.let(Record.bind(sx.schedulePrintStops, ["patch"]));
     return Schedule.events(stops, {
         name: "Stop", icon: "screwdriver-wrench", draw: "marks",
         title: "title", at: "at",
@@ -81,7 +81,7 @@ const inspectedStopProgram = East.function([], Schedule.Types.PlanKind, ($) => {
 
 /** The delivery kind: instants drawn as tiles in their lanes, which may share a press at once. */
 const deliveryProgram = East.function([], Schedule.Types.PlanKind, ($) => {
-    const deliveries = $.let(Record.bind(sx.schedulePrintDeliveries, [sx.schedulePrintDeliveriesPatch]));
+    const deliveries = $.let(Record.bind(sx.schedulePrintDeliveries, ["patch"]));
     return Schedule.events(deliveries, {
         name: "Delivery", icon: "truck", draw: "buckets",
         title: "title", at: "at",
@@ -92,7 +92,7 @@ const deliveryProgram = East.function([], Schedule.Types.PlanKind, ($) => {
 
 /** The crew shift kind: chips, their lifecycle read from the shift. */
 const shiftProgram = East.function([], Schedule.Types.PlanKind, ($) => {
-    const shifts = $.let(Record.bind(sx.schedulePrintShifts, [sx.schedulePrintShiftsPatch]));
+    const shifts = $.let(Record.bind(sx.schedulePrintShifts, ["patch"]));
     return Schedule.events(shifts, {
         name: "Crew shift", icon: "user-clock", draw: "cards",
         title: "title", start: "start", end: "end",
@@ -102,7 +102,7 @@ const shiftProgram = East.function([], Schedule.Types.PlanKind, ($) => {
 
 /** The crew shift kind with none of Plan's options. */
 const plainShiftProgram = East.function([], Schedule.Types.PlanKind, ($) => {
-    const shifts = $.let(Record.bind(sx.schedulePrintShifts, [sx.schedulePrintShiftsPatch]));
+    const shifts = $.let(Record.bind(sx.schedulePrintShifts, ["patch"]));
     return Schedule.events(shifts, {
         name: "Crew shift", icon: "user-clock",
         title: "title", start: "start", end: "end",
@@ -305,7 +305,7 @@ describe("Schedule.events — the kind's own inspector (PB60)", () => {
 describe("Schedule.events — the Calendar's kind with Plan's options present (PB5)", () => {
     /** The job kind as the Calendar takes it, with or without Plan's options. */
     const calendarJobs = (withPlan: boolean) => East.function([], Schedule.Types.Kind, ($) => {
-        const jobs = $.let(Record.bind(sx.schedulePrintJobs, [sx.schedulePrintJobsPatch]));
+        const jobs = $.let(Record.bind(sx.schedulePrintJobs, ["patch"]));
         const plan = withPlan
             ? {
                 draw: "span" as const, state: "state" as const, quantity: { field: "sheets" as const, unit: "sheets" }, overlaps: "allow" as const,

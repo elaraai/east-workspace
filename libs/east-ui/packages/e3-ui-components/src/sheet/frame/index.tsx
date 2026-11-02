@@ -70,7 +70,7 @@ import {
     BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, usePersistedState, useTrackedEvaluation,
     type EditIssue,
 } from "@elaraai/east-ui-components";
-import { LoadingReveal } from "@elaraai/east-ui-components/internal";
+import { LoadingReveal, keptRead } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../../shared/schedule/follow-sources.js";
 import { sourcePart, type KeyVisibilityWords } from "../../shared/schedule/visibility.js";
 import type { SheetDropCard, SheetDropHost, SheetDropTemplate } from "../drop.js";
@@ -79,6 +79,7 @@ import {
     SheetGrid, SheetProvider, SheetRoot, useSheetFooter, useSheetHistory, useSheetLoading, useSheetOptimise, useSheetToolbarItems, useSheetToolbarRef, type SheetHost,
 } from "../index.js";
 import { todayUtc } from "../parse/date.js";
+import { authorOf } from "../../shared/records/author.js";
 import { issueText, useSheetWords, type SheetWords } from "../words.js";
 import { useSheetInspector, type SheetLastCommit } from "./inspector.js";
 import { tabLibrary, templateCardKey, templatesLibrary, useSheetLibrary } from "./library.js";
@@ -161,7 +162,9 @@ function useLastCommit(history: SheetValue["history"], words: SheetWords): Sheet
     const { result } = useTrackedEvaluation(read);
     const last = result.ok && result.value.type === "some" ? result.value.value[0] : undefined;
     const when = last === undefined ? undefined : stringEqual(words.date(last.at), words.date(todayUtc())) ? words.time(last.at) : words.dateTime(last.at);
-    const by = last?.actor;
+    // The person who made it; the platform's own commits — the deploy's (`system:deploy`) — and a write that named no
+    // one name no one.
+    const by = last === undefined ? undefined : authorOf(last.actor) ?? "";
     // Held by its words: a render that reads the same commit hands the inspector the same one.
     return useMemo(() => (when === undefined || by === undefined ? undefined : { when, by }), [when, by]);
 }
@@ -179,7 +182,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     // grid leaves them out, and the library's Columns tab shows and hides them.
     // A sheet without that tab hides none — nothing on it could show them
     // again, and another sheet under the same name may have hidden them.
-    const { state: stored, setState: store } = usePersistedState<readonly string[]>(keys.columns, NONE_HIDDEN);
+    const { state: stored, setState: store } = usePersistedState<readonly string[]>(keys.columns, NONE_HIDDEN, keptRead.texts);
     const listsColumns = value.library.some((tab) => tab.type === "columns");
     const hidden = useMemo(() => (listsColumns ? hiddenOf(stored) : NO_COLUMN_HIDDEN), [listsColumns, stored]);
     const onToggleColumn = useCallback((key: string) => {

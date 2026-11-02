@@ -867,9 +867,9 @@ export const sheetMessages: SheetMessages = {
     inspectorLastCommit: ({ when, by }) => (when === undefined ? "Not saved yet" : by !== undefined && by !== "" ? `saved ${when} by ${by}` : `saved ${when}`),
     inspectorHint: ({ n }) => (n === 1 ? "Click a cell to see its row's every field here"
         : n === 2 ? "Click a row number to select it — shift-click to select several"
-            : "Changes stay drafts until Save; the history item undoes each one"),
+            : "Changes wait for Save; Undo takes back each one"),
     inspectorReading: () => "Reading the row…",
-    inspectorNoIssues: ({ part }) => (part === "title" ? "No issues" : "Every draft is complete — nothing stands in the way of Save."),
+    inspectorNoIssues: ({ part }) => (part === "title" ? "No issues" : "Every change is complete — nothing stands in the way of Save."),
     inspectorIssueAt: ({ where, field }) => (field === undefined ? where : `${where} · ${field}`),
     inspectorIssueHidden: () => "hidden by the filters",
     inspectorIssueHiddenBy: ({ filters, also }) => hiddenBy(filters, also),

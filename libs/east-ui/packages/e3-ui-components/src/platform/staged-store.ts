@@ -48,6 +48,7 @@
 import { BlobType, equalFor } from "@elaraai/east";
 import type { TreePath } from "@elaraai/e3-types";
 import { datasetCacheKey } from "./dataset-store.js";
+import { onClearKept } from "@elaraai/east-ui-components/internal";
 
 const blobEqual = equalFor(BlobType);
 
@@ -141,6 +142,12 @@ export interface StagedStoreInterface {
      *  failures fall back to a console warning. Lets a host surface a
      *  'not durably saved' state, mirroring `BindRuntime.onWriteError`. */
     onPersistError(cb: (key: string, err: unknown) => void): () => void;
+    /**
+     * Drop every staged entry, in memory and persisted, in every scope —
+     * what one person staged is never another's: east-ui-components' kept
+     * state clears it at a sign-out (`clearKept`), and a test between cases.
+     */
+    clear(): Promise<void>;
 }
 
 // ============================================================================
@@ -285,6 +292,8 @@ export class StagedStore implements StagedStoreInterface {
     private adapter: StagedPersistenceAdapter;
     private hydrated: Promise<void>;
     private inFlight: Set<Promise<void>> = new Set();
+    /** A wipe of what is persisted, in flight: what flushes the store waits for it, and it waits on the writes alone. */
+    private wiping: Promise<void> | undefined;
     // Per-key persistence chain — serializes save/remove for a key so they
     // land in IndexedDB in call order (last write wins) instead of racing.
     private saveChains: Map<string, Promise<void>> = new Map();
@@ -304,9 +313,9 @@ export class StagedStore implements StagedStoreInterface {
 
     async flushPending(): Promise<void> {
         // Snapshot the in-flight set; new writes during await are tolerated
-        // by re-checking until idle.
-        while (this.inFlight.size > 0) {
-            await Promise.all([...this.inFlight]);
+        // by re-checking until idle. A wipe in flight is waited for too.
+        while (this.inFlight.size > 0 || this.wiping !== undefined) {
+            await Promise.all([...this.inFlight, ...(this.wiping === undefined ? [] : [this.wiping])]);
         }
     }
 
@@ -396,18 +405,28 @@ export class StagedStore implements StagedStoreInterface {
         return () => { this.errorListeners.delete(cb); };
     }
 
-    /** Test-only: clear in-memory + persisted state, in every scope. */
-    async clear(): Promise<void> {
+    clear(): Promise<void> {
         const keys = [...this.entries.keys()];
         this.entries.clear();
         for (const key of new Set(keys.map(cacheKeyOf))) this.notify(key);
         // Drain in-flight saves/removes before wiping persistence, so a save
-        // that lands after the wipe can't resurrect a discarded entry.
-        await this.flushPending();
-        await this.adapter.clear();
+        // that lands after the wipe can't resurrect a discarded entry. The wipe
+        // is in flight itself, apart from the writes: what flushes the store
+        // waits for it, and it waits on the writes alone — never on itself.
+        const wiping: Promise<void> = this.drainWrites().then(() => this.adapter.clear()).then(
+            () => undefined,
+            (err: unknown) => { this.emitPersistError("", err); },
+        ).then(() => { if (this.wiping === wiping) this.wiping = undefined; });
+        this.wiping = wiping;
+        return wiping;
     }
 
     // ----- internals -------------------------------------------------------
+
+    /** Waits for every save and remove in flight, those started meanwhile too. */
+    private async drainWrites(): Promise<void> {
+        while (this.inFlight.size > 0) await Promise.all([...this.inFlight]);
+    }
 
     /** The key a path's entry is held under in the current scope. */
     private keyOf(workspace: string, path: TreePath): string {
@@ -510,6 +529,9 @@ function detectDefaultAdapter(): StagedPersistenceAdapter {
 }
 
 let _stagedStore: StagedStoreInterface | null = null;
+
+// A sign-out clears what is staged with what is kept (east-ui-components' kept state): the store installed then.
+onClearKept(() => { void _stagedStore?.clear(); });
 
 /**
  * The staged store the package uses: the one installed

@@ -118,7 +118,7 @@ const StampType = StructType({ at: DateTimeType });
  *
  * @typeParam R - The period's row type
  * @typeParam SF - The status field
- * @param record - The app's record of periods, `Record.bind(record, [e3.mutation.patch(record)])`: a `Dict` keyed by each period's start
+ * @param record - The app's record of periods, `Record.bind(record), its record declaring patch: mutation.patch()`: a `Dict` keyed by each period's start
  * @param config - What a period is, its status field and cases, the Roster's dismissals, and its read by key
  * @returns The periods, for a builder's `periods`
  * @throws {Error} Naming the option: a record not bound with its patch mutation, not keyed by DateTime, or whose rows
@@ -136,11 +136,15 @@ const StampType = StructType({ at: DateTimeType });
  *     state: VariantType({ open: NullType, issued: StructType({ at: DateTimeType }) }),
  *     dismissed: SetType(StringType),
  * });
- * const rotaWeeks = e3.record("rota_weeks", DictType(DateTimeType, RotaWeek), new Map());
- * const rotaWeeksPatch = e3.mutation.patch(rotaWeeks);
+ * const rotaWeeks = e3.record("rota_weeks", DictType(DateTimeType, RotaWeek), {
+ *     initial: new Map(),
+ *     mutations: (mutation) => ({
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  *
  * // Inside a builder's Reactive body: a week each, published when it is issued.
- * const periods = Schedule.periods(Record.bind(rotaWeeks, [rotaWeeksPatch]), {
+ * const periods = Schedule.periods(Record.bind(rotaWeeks), {
  *     every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed",
  * });
  * ```
@@ -156,7 +160,7 @@ export function schedulePeriods(record: unknown, input: unknown): SchedulePeriod
     const read = handleType.type === "Struct" ? (handleType.fields as Record<string, EastType>)["read"] : undefined;
     if (handleType.type !== "Struct" || read === undefined || read.type !== "Function"
         || (handleType.fields as Record<string, EastType>)["binding"] === undefined) {
-        throw new Error(`${where}: \`record\` is the app's record of periods, bound with its patch mutation — Record.bind(record, [e3.mutation.patch(record)])`);
+        throw new Error(`${where}: \`record\` is the app's record of periods, bound with its patch mutation — Record.bind(record), its record declaring patch: mutation.patch()`);
     }
     const recordType = read.output as EastType;
     if (recordType.type !== "Dict" || !isTypeEqual(recordType.key as EastType, DateTimeType)) {

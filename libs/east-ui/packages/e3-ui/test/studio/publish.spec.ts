@@ -6,9 +6,8 @@
 /**
  * The builder's publish preview (#998): what it shows of the open page — where
  * it stands, the changes from its live version to the layout that publishes,
- * each placement named (E3), the components whose code changed since it went
- * live (E4), and whether the canvas holds unsaved drafts — computed in East;
- * and what refused a publish (E6).
+ * each placement named (E3), and whether the canvas holds unsaved drafts —
+ * computed in East; and what refused a publish (E6).
  */
 
 import { ArrayType, East, FloatType, OptionType, none, some, variant } from "@elaraai/east";
@@ -17,21 +16,18 @@ import e3 from "@elaraai/e3";
 import { Reactive, Text, UIComponentType } from "@elaraai/east-ui/internal";
 
 import { Data, Studio } from "@elaraai/e3-ui";
-import { fingerprintOf, publishRefusal, publishSummary } from "@elaraai/e3-ui/internal";
+import { publishRefusal, publishSummary } from "@elaraai/e3-ui/internal";
 
 /** A dataset a component reads. */
 const salesDaily = e3.input("publish_sales_daily", ArrayType(FloatType), variant("value", []));
 
-/** The components' code — the fingerprints a live version's cells store. */
+/** The components' code. */
 const kpiFn = East.function([], UIComponentType, (_$) => Text.Root("KPIs"));
 const trendFn = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const sales = $.let(Data.bind(salesDaily));
     return Text.Root(East.print(sales.read().size()));
 })));
 const barsFn = East.function([], UIComponentType, (_$) => Text.Root("Bars"));
-const kpiPrint = fingerprintOf(kpiFn);
-const trendPrint = fingerprintOf(trendFn);
-const barsPrint = fingerprintOf(barsFn);
 
 /** The components the surface lists. */
 const kpiRail = Studio.component("kpi_rail", { name: "KPI rail", category: "Display", icon: "gauge-high", frame: "none" }, kpiFn);
@@ -45,17 +41,17 @@ describeEast("The publish preview — what it shows (#998)", (test) => {
             page: {
                 title: "Overview",
                 cells: [
-                    { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: kpiPrint },
-                    { key: "c-trend", row: "r2", span: 12n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: trendPrint },
+                    { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
+                    { key: "c-trend", row: "r2", span: 12n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
                 ],
             },
         }), OptionType(Studio.Types.Live));
         const layout = $.const({
             title: "Overview",
             cells: [
-                { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: kpiPrint },
-                { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: trendPrint },
-                { key: "c-bars", row: "r2", span: 4n, height: none, align: variant("top", null), title: none, component: "breakdown_bars", fingerprint: barsPrint },
+                { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
+                { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
+                { key: "c-bars", row: "r2", span: 4n, height: none, align: variant("top", null), title: none, component: "breakdown_bars" },
             ],
         }, Studio.Types.Page);
         const summary = $.let(publishSummary([kpiRail, revenueTrend, breakdownBars], live, layout, layout.cells, false));
@@ -65,7 +61,6 @@ describeEast("The publish preview — what it shows (#998)", (test) => {
             { change: variant("resized", { cell: "c-trend", component: "revenue_trend", detail: "span 12 → 8" }), name: "Revenue trend" },
             { change: variant("added", { cell: "c-bars", component: "breakdown_bars", detail: "row 2 · span 4" }), name: "Breakdown bars" },
         ]));
-        $(Assert.equal(summary.changed, []));
         $(Assert.equal(summary.unsaved, false));
     });
 
@@ -75,15 +70,15 @@ describeEast("The publish preview — what it shows (#998)", (test) => {
             page: {
                 title: "Overview",
                 cells: [
-                    { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: kpiPrint },
-                    { key: "c-old", row: "r2", span: 12n, height: none, align: variant("top", null), title: none, component: "retired_widget", fingerprint: "fp-retired" },
+                    { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
+                    { key: "c-old", row: "r2", span: 12n, height: none, align: variant("top", null), title: none, component: "retired_widget" },
                 ],
             },
         }), OptionType(Studio.Types.Live));
         const layout = $.const({
             title: "Overview",
             cells: [
-                { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: some("Headline numbers"), component: "kpi_rail", fingerprint: kpiPrint },
+                { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: some("Headline numbers"), component: "kpi_rail" },
             ],
         }, Studio.Types.Page);
         const summary = $.let(publishSummary([kpiRail], live, layout, layout.cells, false));
@@ -96,8 +91,8 @@ describeEast("The publish preview — what it shows (#998)", (test) => {
         const layout = $.const({
             title: "Detail",
             cells: [
-                { key: "d-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "" },
-                { key: "d-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "" },
+                { key: "d-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
+                { key: "d-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
             ],
         }, Studio.Types.Page);
         const summary = $.let(publishSummary([kpiRail, revenueTrend], none, layout, layout.cells, false));
@@ -107,66 +102,27 @@ describeEast("The publish preview — what it shows (#998)", (test) => {
             { change: variant("added", { cell: "d-kpi", component: "kpi_rail", detail: "row 1 · span 12" }), name: "KPI rail" },
             { change: variant("added", { cell: "d-trend", component: "revenue_trend", detail: "row 2 · span 8" }), name: "Revenue trend" },
         ]));
-        $(Assert.equal(summary.changed, []));
     });
 
-    test("E4: the components whose code changed since the live version, once each, in the order they are placed — a layout unchanged is still ready; a component not listed never counts", $ => {
+    test("up to date: a live page whose layout is as it went live has nothing to publish", $ => {
         const cells = $.const([
-            { key: "c-trend", row: "r1", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "an older fingerprint" },
-            { key: "c-bars", row: "r1", span: 4n, height: none, align: variant("top", null), title: none, component: "breakdown_bars", fingerprint: "an older fingerprint" },
-            { key: "c-trend-2", row: "r2", span: 12n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "an older fingerprint" },
-            { key: "c-kpi", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: kpiPrint },
-            { key: "c-old", row: "r4", span: 12n, height: none, align: variant("top", null), title: none, component: "retired_widget", fingerprint: "an older fingerprint" },
-        ], ArrayType(Studio.Types.Cell));
-        const live = $.const(some({ version: 2n, page: { title: "Overview", cells } }), OptionType(Studio.Types.Live));
-        const layout = $.const({ title: "Overview", cells }, Studio.Types.Page);
-        const summary = $.let(publishSummary([kpiRail, revenueTrend, breakdownBars], live, layout, cells, false));
-        $(Assert.equal(summary.changes, []));
-        $(Assert.equal(summary.changed, ["Revenue trend", "Breakdown bars"]));
-        $(Assert.equal(summary.standing, variant("ready", null)));
-    });
-
-    test("E4: a component placed anew beside a live placement of it whose code changed counts; one the live version does not place does not", $ => {
-        const live = $.const(some({
-            version: 1n,
-            page: {
-                title: "Overview",
-                cells: [
-                    { key: "c-trend", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "an older fingerprint" },
-                ],
-            },
-        }), OptionType(Studio.Types.Live));
-        const layout = $.const({
-            title: "Overview",
-            cells: [
-                { key: "c-trend", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "an older fingerprint" },
-                { key: "c-bars", row: "r2", span: 4n, height: none, align: variant("top", null), title: none, component: "breakdown_bars", fingerprint: "an older fingerprint" },
-            ],
-        }, Studio.Types.Page);
-        const summary = $.let(publishSummary([revenueTrend, breakdownBars], live, layout, layout.cells, false));
-        $(Assert.equal(summary.changed, ["Revenue trend"]));
-    });
-
-    test("up to date: a live page whose layout and code are as they went live has nothing to publish", $ => {
-        const cells = $.const([
-            { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: kpiPrint },
-            { key: "c-trend", row: "r2", span: 12n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: trendPrint },
+            { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
+            { key: "c-trend", row: "r2", span: 12n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
         ], ArrayType(Studio.Types.Cell));
         const summary = $.let(publishSummary([kpiRail, revenueTrend], some({ version: 4n, page: { title: "Overview", cells } }), { title: "Overview", cells }, cells, false));
         $(Assert.equal(summary.standing, variant("current", null)));
         $(Assert.equal(summary.live, some(4n)));
         $(Assert.equal(summary.changes, []));
-        $(Assert.equal(summary.changed, []));
     });
 
     test("unsaved: the layout that publishes holds drafts the page has not saved", $ => {
         const saved = $.const([
-            { key: "c-trend", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: trendPrint },
+            { key: "c-trend", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
         ], ArrayType(Studio.Types.Cell));
         const drawn = $.const({
             title: "Overview",
             cells: [
-                { key: "c-trend", row: "r1", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: trendPrint },
+                { key: "c-trend", row: "r1", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
             ],
         }, Studio.Types.Page);
         const summary = $.let(publishSummary([revenueTrend], some({ version: 1n, page: { title: "Overview", cells: saved } }), drawn, saved, false));
@@ -174,18 +130,17 @@ describeEast("The publish preview — what it shows (#998)", (test) => {
         $(Assert.equal(summary.changes.size(), 1n));
     });
 
-    test("a template is not published: no change list, and nothing changed", $ => {
+    test("a template is not published: no change list", $ => {
         const layout = $.const({
             title: "Ops board",
             cells: [
-                { key: "t-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "an older fingerprint" },
+                { key: "t-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
             ],
         }, Studio.Types.Page);
         const summary = $.let(publishSummary([kpiRail], none, layout, layout.cells, true));
         $(Assert.equal(summary.standing, variant("template", null)));
         $(Assert.equal(summary.live, none));
         $(Assert.equal(summary.changes, []));
-        $(Assert.equal(summary.changed, []));
     });
 }, { platformFns: TestImpl });
 

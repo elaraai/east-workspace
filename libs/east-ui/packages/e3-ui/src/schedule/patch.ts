@@ -67,7 +67,7 @@ export function SchedulePatchTypeFor<R extends StructType>(rowType: R): Schedule
  *     press: OptionType(StringType), customer: StringType,
  * });
  * const CustomerType = StructType({ name: StringType, town: StringType });
- * const customers = e3.record("customers", DictType(StringType, CustomerType), new Map());
+ * const customers = e3.record("customers", DictType(StringType, CustomerType), { initial: new Map() });
  *
  * // Inside a Plan's Reactive body: a card per customer, which sets the job it is dropped on.
  * const customerTab = Plan.library.tab(Record.bind(customers, []).read(), {

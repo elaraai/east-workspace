@@ -144,16 +144,16 @@ export const RosterComponent = EastUI.component("Roster", RosterPayloadType, { o
  * @typeParam R - The app's duty row type: the duty kind's row
  */
 export interface RosterProps<R extends EastType = EastType> {
-    /** Exactly one event kind, the duties: `{ duty: Schedule.events(Record.bind(duties, [dutiesPatch]), { start, end, resource, shift, group, … }) }`. */
+    /** Exactly one event kind, the duties: `{ duty: Schedule.events(Record.bind(duties), { start, end, resource, shift, group, … }) }`. */
     events: Readonly<Record<string, ScheduleEventKind<EastType, R>>>;
     /**
      * Who is rostered: `people`, the staff — `Schedule.resources(staff.read(), { name, icon, label, group, … })`, every
      * person the calculation scope — and optionally `agencies`, whom positions are requested from.
      */
     resources: { readonly people: ScheduleResourceKind<EastType, EastType>; readonly agencies?: ScheduleResourceKind<EastType, EastType> };
-    /** What it publishes, the app's weeks: `Schedule.periods(Record.bind(weeks, [weeksPatch]), { every: "week", status, dismissed? })`. Omitted, no Publish. */
+    /** What it publishes, the app's weeks: `Schedule.periods(Record.bind(weeks), { every: "week", status, dismissed? })`. Omitted, no Publish. */
     periods?: SchedulePeriods;
-    /** The app's targets, a row per slot: `Roster.targets(Record.bind(cover, [coverPatch]), { day, group, shift, positions, hours })`. */
+    /** The app's targets, a row per slot: `Roster.targets(Record.bind(cover), { day, group, shift, positions, hours })`. */
     targets?: RosterTargets;
     /** The shifts: `Roster.shifts(rows, { label, code, start, hours, order?, color? })`; `color` an `Option<ColorToken>`, the People tiles' fill (#1406). */
     shifts: RosterShifts;
@@ -234,16 +234,16 @@ export interface RosterProps<R extends EastType = EastType> {
 
 /** The props §2 removed, each refused by name with the form that replaces it. */
 const REMOVED: readonly (readonly [string, string])[] = [
-    ["weeks", "`weeks` is gone — the Roster writes the app's own duties, events={{ duty: Schedule.events(Record.bind(duties, [dutiesPatch]), " +
-        "{ start, end, resource, shift, group }) }}, and publishes the app's own weeks, periods={Schedule.periods(Record.bind(weeks, [weeksPatch]), { every: \"week\", status })}"],
+    ["weeks", "`weeks` is gone — the Roster writes the app's own duties, events={{ duty: Schedule.events(Record.bind(duties), " +
+        "{ start, end, resource, shift, group }) }}, and publishes the app's own weeks, periods={Schedule.periods(Record.bind(weeks), { every: \"week\", status })}"],
     ["window", "`window` is gone — the Roster reads a week's duties through the duty kind's source of its slice, an interval index from the start to the " +
-        "end: slice={{ slice: Slice.bindRecords(key, { duty: { source: Data.bindPaged(duties, { indexes: [byTime] }), range: \"start\" } }) }}, the kind given " +
+        "end: slice={{ slice: Slice.bindRecords(key, { duty: { source: Data.bindPaged(duties, { indexes: [\"by_time\"] }), range: \"start\" } }) }}, the kind given " +
         "`entries`; or the record whole"],
     ["people", "`people` moves to `resources`: resources={{ people: Schedule.resources(staff.read(), { name, icon, label, group, … }) }}, every person's " +
         "position, skills, contract and flags its accessors"],
     ["agencies", "`agencies` moves to `resources`: resources={{ people, agencies: Schedule.resources(firms.read(), { name, icon, label }) }}"],
     ["forecast", "`forecast` is gone — the targets are the app's own record, which its forecast fills: " +
-        "targets={Roster.targets(Record.bind(cover, [coverPatch]), { day, group, shift, positions, hours })}"],
+        "targets={Roster.targets(Record.bind(cover), { day, group, shift, positions, hours })}"],
     ["costs", "`costs` is gone — pay is the app's own, in its own pay codes: pay={…} currency=\"…\", an East function from " +
         "Roster.Types.PayRequest(R) to Roster.Types.Pay"],
     ["visiblePeople", "`visiblePeople` is gone — the Roster reads its people from `slice`'s `people` source: " +
@@ -451,14 +451,14 @@ export function createRosterPayload<R extends EastType>(props: RosterProps<R>): 
         throw new Error(`Roster: \`letters\` is true or false — whether a month's marks carry the shift's letter — and it is ${String(props.letters)}`);
     }
     if (props.targets !== undefined && !isRosterTargets(props.targets)) {
-        throw new Error("Roster: `targets` is Roster.targets(Record.bind(record, [patch]), { day, group, shift, positions, hours }) over the app's own targets");
+        throw new Error("Roster: `targets` is Roster.targets(Record.bind(record), { day, group, shift, positions, hours }) over the app's own targets");
     }
 
     // The duty kind: exactly one event kind.
     const kinds = Object.entries(props.events ?? {});
     if (kinds.length !== 1) {
         throw new Error(kinds.length === 0
-            ? "Roster: `events` holds the duties — events={{ duty: Schedule.events(Record.bind(duties, [dutiesPatch]), { start, end, resource, shift, group }) }}"
+            ? "Roster: `events` holds the duties — events={{ duty: Schedule.events(Record.bind(duties), { start, end, resource, shift, group }) }}"
             : `Roster: \`events\` holds one kind, the duties — and it holds ${kinds.length} (${kinds.map(([slot]) => slot).join(", ")})`);
     }
     const [slot, kind] = kinds[0]!;

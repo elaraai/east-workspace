@@ -18,7 +18,8 @@
  * `pnpm exec playwright test studio-page-library --project desktop`.
  */
 
-import { test, expect, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { settled } from "./settle";
 
 /** Open the page library example and return its frame, at rest, as wide as the mock's (1240px). */

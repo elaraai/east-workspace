@@ -46,7 +46,7 @@ const whereEqual = equalFor(RecordSliceWhereType);
  * and due date over the dispatch queue's index, status then due: a due date the rail holds only after a status.
  */
 const program = East.function([], undefined, ($) => {
-    const orders = $.let(Data.bindPaged(ex.workOrders, { indexes: [ex.workQueue] }));
+    const orders = $.let(Data.bindPaged(ex.workOrders, { indexes: ["by_status"] }));
     const fields = { status: { label: "Status" }, due: { label: "Due" } };
     return {
         week: bindRecord("hidden-pick.week", orders, { fields }),

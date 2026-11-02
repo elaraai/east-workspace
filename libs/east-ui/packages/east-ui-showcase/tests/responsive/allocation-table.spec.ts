@@ -10,7 +10,8 @@
  * every width, scrolling inside main with nothing overflowing the page; and a
  * chip's drag onto a free row (A45, A47).
  */
-import { expect, test, type Locator } from "playwright/test";
+import { expect, type Locator } from "playwright/test";
+import { test } from "./kept-page";
 import { open, size, token } from "./allocation-page";
 import { settled } from "./settle";
 
@@ -81,6 +82,8 @@ for (const theme of ["light", "dark"] as const) {
         const list = page.locator("[data-chooser]");
         await expect(list.getByRole("option", { name: /K-601/ })).toBeVisible();
         await expect(list.locator("[role=group][aria-label='Gaps that fit']")).toHaveCount(1);
+        // The fit's answer in: until it lands every resource is listed as being checked, and none refused.
+        await expect(list.locator("[role=option][data-state=refused]").first()).toBeVisible();
         await page.locator("[data-chooser]").evaluate(el => Promise.all(el.closest("[data-scope=popover]")!.getAnimations({ subtree: true }).filter(a => a.effect?.getTiming().iterations !== Infinity).map(a => a.finished)));
         const measure = await list.evaluate(root => {
             const r = (el: Element | null) => el === null ? null : Math.round(el.getBoundingClientRect().height);

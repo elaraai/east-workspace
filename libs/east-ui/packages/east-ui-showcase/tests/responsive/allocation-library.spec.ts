@@ -10,7 +10,8 @@
  * phone over main with a strip of it left; and a card dragged onto the board
  * (§10).
  */
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { open, size, token } from "./allocation-page";
 import { settled } from "./settle";
 

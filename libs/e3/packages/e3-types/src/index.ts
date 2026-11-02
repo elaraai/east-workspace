@@ -128,6 +128,24 @@ export {
   type RecordIndexForm,
   RecordSummaryTotalsType,
   type RecordSummaryTotals,
+  RecordLevelType,
+  type RecordLevel,
+  RecordRollupType,
+  type RecordRollup,
+  RecordNestedRunType,
+  type RecordNestedRun,
+  RecordNestedPathType,
+  type RecordNestedPath,
+  RecordNestedItemType,
+  type RecordNestedItem,
+  NestedEntryKeyType,
+  NestedSpanKeyType,
+  nestedSpanName,
+  RecordNestedTotalsType,
+  type RecordNestedTotals,
+  NestedEntryType,
+  RecordNestedDeclType,
+  type RecordNestedDecl,
   RecordSummaryOpType,
   type RecordSummaryOp,
   RECORD_STATE_KIND,
@@ -190,6 +208,16 @@ export {
   WorkspaceRecordType,
   type WorkspaceRecord,
 } from './workspace.js';
+
+// A workspace as it is, in one stream
+export {
+  WorkspaceBundleHeadType,
+  type WorkspaceBundleHead,
+  WorkspaceBundleEntryType,
+  type WorkspaceBundleEntry,
+  WorkspaceBundleType,
+  type WorkspaceBundle,
+} from './bundle.js';
 
 // Execution status
 export {
@@ -317,6 +345,7 @@ export {
   PackageNotFoundErrorType,
   PackageExistsErrorType,
   PackageInvalidErrorType,
+  BundleInvalidErrorType,
   DatasetNotFoundErrorType,
   TaskNotFoundErrorType,
   ExecutionNotFoundErrorType,

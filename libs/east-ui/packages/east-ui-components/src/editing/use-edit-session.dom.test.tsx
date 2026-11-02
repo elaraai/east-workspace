@@ -100,7 +100,7 @@ test("a keyed paged source's reconcile seeks each entry by its key's `.east` lit
     expect(queries).not.toContain("b");
 });
 
-test("a keyed paged source's conflicting Save is named by its entries read at the revision it moves to — each sought by its key and read from a one-row page (#1199)", async () => {
+test("a keyed paged source's conflicting Save carries its drafts over to the revision it moves to — each entry sought by its key and read from a one-row page, a part another write changed differently a conflict (#1199)", async () => {
     initializeStore(new UIStore());
     // The source as it holds the runs now: another write moves b's end, and the source moves to r2.
     const held = { revision: "r1", runs: RUNS };
@@ -155,8 +155,9 @@ test("a keyed paged source's conflicting Save is named by its entries read at th
     // Each entry the Save changed was sought by its literal and read from a one-row page at r2.
     expect(queries).toEqual(expect.arrayContaining(["\"b\"", "\"c\""]));
     expect(pages).toEqual(expect.arrayContaining(["r2 1+1", "r2 2+1"]));
-    expect(session().issues).toEqual([issue("b", "b moved")]);
-    expect(session().stale).toBe(true);
+    // Carried over to r2: c's change stands; b's end, another write's too, is a conflict, and Save waits for it.
+    expect([session().stale, session().status, session().unsettled, session().canApply]).toEqual([false, "idle", 1, false]);
+    expect([...session().conflicts.keys()]).toEqual(["b"]);
 });
 
 

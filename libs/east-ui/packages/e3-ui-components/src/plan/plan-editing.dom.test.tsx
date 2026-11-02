@@ -47,7 +47,7 @@ const labels = (canvas: EditingCanvas) => canvas.patches.map((p) => p.label);
 /** The jobs each press draws, as the canvas draws them. */
 const jobs = (c: HTMLElement, presses: readonly string[] = ["p1", "p2", "p3"]) => presses.map((p) => jobsDrawn(c, p));
 /** A job another writer puts on a press — in the axis's second week. */
-const ELSEWHERE = { key: "job-9", at: variant("time", new Date("2026-07-06T00:00:00Z")) };
+const ELSEWHERE = { at: variant("time", new Date("2026-07-06T00:00:00Z")) };
 
 for (const arm of ["inline", "paged"] as const) {
     describe(`${arm}: every change is a draft (#880)`, () => {
@@ -65,7 +65,7 @@ for (const arm of ["inline", "paged"] as const) {
             expect(canvas.patches[0]!.draftChanges.map((d) => d.id)).toEqual(["p2"]);
             // A draft: nothing saved, the source as it was.
             expect(canvas.applies).toHaveLength(0);
-            expect((await canvas.stored()).get("p2")!.jobs).toEqual([]);
+            expect((await canvas.stored()).get("p2")!.jobs.size).toBe(0);
             expect(samePresses(await canvas.stored(), SEED)).toBe(true);
             expect(historyButton(canvas, "Save").disabled).toBe(false);
         });
@@ -140,10 +140,10 @@ for (const arm of ["inline", "paged"] as const) {
             expect(canvas.applies).toHaveLength(1);
             expect(await canvas.writes()).toBe(1);
             const stored = await canvas.stored();
-            expect(stored.get("p1")!.jobs.map((j) => j.key)).toEqual(["job-1"]);
-            expect(stored.get("p2")!.jobs.map((j) => j.key)).toEqual(["job-2"]);
+            expect([...stored.get("p1")!.jobs.keys()]).toEqual(["job-1"]);
+            expect([...stored.get("p2")!.jobs.keys()]).toEqual(["job-2"]);
             // Committed — but not read back yet: the drafts stand.
-            expect(statusLine(canvas)).toBe("Saved — loading the confirmed revision…");
+            expect(statusLine(canvas)).toBe("Saved — reading it back…");
             expect(marks(c)).toEqual({ p1: "pending", p2: "pending" });
             await canvas.confirm();
             // Read back: the source's own rows, as the drafts drew them — no longer drafts.
@@ -154,29 +154,23 @@ for (const arm of ["inline", "paged"] as const) {
             expect(canvas.applies).toHaveLength(1);
         });
 
-        test("a source that moves under pending drafts refuses them — until they are discarded, from the out-of-date banner", async () => {
+        test("a source that moves under pending drafts carries them over: another writer's job on another press stands beside them, and Save stays on", async () => {
             const canvas = await mountCanvas({ arm });
             const c = canvas.container;
             await dropJob(canvas, "job-1", "p1");
-            expect(banner(c, "stale")).toBeNull();
             // Another writer puts a job on Press 2.
-            await canvas.move(new Map([...SEED, ["p2", { ...SEED.get("p2")!, jobs: [ELSEWHERE] }]]));
-            expect(statusLine(canvas)).toBe("Source changed — review or discard these drafts");
-            expect(banner(c, "stale")).not.toBeNull();
-            expect(historyButton(canvas, "Save").disabled).toBe(true);
-            expect(historyButton(canvas, "Undo").disabled).toBe(true);
-            // The canvas takes no gesture meanwhile: no press is a drop target.
-            expect(dropCellOf(c, "p3")).toBeNull();
-            await bannerAction(c, "stale", "discard");
+            await canvas.move(new Map([...SEED, ["p2", { ...SEED.get("p2")!, jobs: new Map([["job-9", ELSEWHERE]]) }]]));
             expect(banner(c, "stale")).toBeNull();
             expect(statusLine(canvas)).toBeNull();
-            // The source as it now stands…
-            expect(jobs(c)).toEqual([[], ["job-9"], []]);
-            expect(marks(c)).toEqual({});
-            // …and it takes a gesture again.
-            await dropJob(canvas, "job-1", "p1");
+            // The draft, over the source as it now stands.
+            expect(jobs(c)).toEqual([["job-1"], ["job-9"], []]);
             expect(marks(c)).toEqual({ p1: "pending" });
-            expect(canvas.applies).toHaveLength(0);
+            expect(historyButton(canvas, "Save").disabled).toBe(false);
+            // The history starts over at the drafts carried over; the canvas takes a gesture.
+            expect(historyButton(canvas, "Undo").disabled).toBe(true);
+            expect(dropCellOf(c, "p3")).not.toBeNull();
+            await history(canvas, "Save");
+            expect(canvas.applies).toHaveLength(1);
         });
 
         test("an acknowledgement lost after the write freezes the session — and Retry sends the SAME request, written once", async () => {

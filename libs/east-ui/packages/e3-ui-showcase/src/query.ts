@@ -9,8 +9,8 @@
  *
  * The `@elaraai/e3-ui/examples/query/query` barrel re-exports #875's shared
  * fixture as `e3.input` datasets (orders, customers, forecast, model, bom),
- * the saved queries record seeded with the mock's seven, an empty one, and
- * each record's patch mutation; they are forwarded as `extras` so the deployed
+ * the saved queries record seeded with the mock's seven and an empty one, each
+ * declaring its patch mutation; they are forwarded as `extras` so the deployed
  * workspace can bind them at render time, and a run reaches them through e3's
  * one-shot call.
  *
@@ -21,8 +21,8 @@ import * as examples from '@elaraai/e3-ui/examples/query/query';
 import pkgInfo from '../package.json' with { type: 'json' };
 import { buildShowcasePackage } from './utils.js';
 
-const { orders, customers, forecast, model, bom, queries, queriesPatch, queriesEmpty, queriesEmptyPatch } = examples;
+const { orders, customers, forecast, model, bom, queries, queriesEmpty } = examples;
 
 export default await buildShowcasePackage('query', pkgInfo.version, examples, {
-    extras: [orders, customers, forecast, model, bom, queries, queriesPatch, queriesEmpty, queriesEmptyPatch],
+    extras: [orders, customers, forecast, model, bom, queries, queriesEmpty],
 });

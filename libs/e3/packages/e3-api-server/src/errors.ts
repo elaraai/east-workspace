@@ -15,6 +15,7 @@ import {
   PackageNotFoundError,
   PackageExistsError,
   PackageInvalidError,
+  WorkspaceBundleInvalidError,
   DatasetNotFoundError,
   DatasetTypeMismatchError,
   TaskNotFoundError,
@@ -41,6 +42,7 @@ export function errorToHttpStatus(err: unknown): number {
   if (err instanceof PackageNotFoundError) return 404;
   if (err instanceof PackageExistsError) return 409;
   if (err instanceof PackageInvalidError) return 422;
+  if (err instanceof WorkspaceBundleInvalidError) return 422;
   if (err instanceof DatasetNotFoundError) return 404;
   // A write refused at the door is the client's payload, not a server fault.
   if (err instanceof DatasetTypeMismatchError) return 422;
@@ -67,6 +69,7 @@ function errorToType(err: unknown): string {
   if (err instanceof PackageNotFoundError) return 'package_not_found';
   if (err instanceof PackageExistsError) return 'package_exists';
   if (err instanceof PackageInvalidError) return 'package_invalid';
+  if (err instanceof WorkspaceBundleInvalidError) return 'bundle_invalid';
   if (err instanceof DatasetNotFoundError) return 'dataset_not_found';
   if (err instanceof DatasetTypeMismatchError) return 'dataset_type_mismatch';
   if (err instanceof TaskNotFoundError) return 'task_not_found';
@@ -163,6 +166,9 @@ export function errorToVariant(err: unknown): Error {
   }
   if (err instanceof PackageInvalidError) {
     return variant('package_invalid', { reason: err.message });
+  }
+  if (err instanceof WorkspaceBundleInvalidError) {
+    return variant('bundle_invalid', { reason: err.message });
   }
   if (err instanceof DatasetNotFoundError) {
     return variant('dataset_not_found', {

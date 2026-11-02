@@ -44,7 +44,8 @@
  * `pnpm exec playwright test schematic-window`.
  */
 
-import { test, expect, type Locator } from "playwright/test";
+import { expect, type Locator } from "playwright/test";
+import { test } from "./kept-page";
 import { e3Requests, heldE3, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { recordField } from "./record-slice";
 import { RECORD_INDEXES, cardOverlaps, cardsIn, openSchematic, screenPoint, sizeTo, viewOf, zoomInto, type WorldBox } from "./schematic-page";

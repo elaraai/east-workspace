@@ -7,8 +7,9 @@
  * Showcase configuration. No hardcoded category lists, no hardcoded
  * pathKey lists — everything is derived from `../east-ui/test/<cat>/*.examples.ts`
  * at build time. Entries flow full-width in document order and size to
- * their content, so this file holds only the section names, the name each
- * area's e3 package is served under and the pathKey → category mapping.
+ * their content, so this file holds only the section names, the e3 repository
+ * and workspaces the e3 examples run in and the name each area's workspace
+ * bundle is served under, and the pathKey → category mapping.
  *
  * Add a new example: drop `test/<category>/<component>.examples.ts`. Done.
  *
@@ -22,30 +23,107 @@ export const SECTION_EAST = "East Components";
 export const SECTION_E3 = "e3 Components";
 export const SECTION_CODE = "Code Reference";
 
+/** The repository of the e3 the page runs, which every area's workspace is
+ *  made in (`showcase-e3.ts`), and of the e3 the build makes them in. */
+export const SHOWCASE_REPO = "default";
+
 /**
- * The name an area's e3 package is served under (#849, #1397) — an area is the
- * e3 examples of one category, one directory of e3-ui's `test/`: the dev
- * server answers `/<name>`, and the build emits it as an asset of this name
- * and its content's hash (`assets/e3-showcase-<area>-<hash>.zip`), whose URL
- * the bundle carries. The e3 the page runs deploys it into the area's
- * workspace (`showcase-e3.ts`); `scripts/vite-plugin-e3-showcase.ts` makes it.
+ * The workspace an area's examples bind (#1397): an area is the e3 examples of
+ * one category, one directory of e3-ui's `test/`.
  *
- * @param area - The area, e.g. `schematic`
- * @returns The zip's name, e.g. `e3-showcase-schematic.zip`
+ * @param area - The area
+ * @returns The area's own name
  */
-export function e3ShowcaseZip(area: string): string {
-    return `e3-showcase-${area}.zip`;
+export function showcaseE3Workspace(area: string): string {
+    return area;
 }
 
 /**
- * The area whose e3 package a zip's name names: what {@link e3ShowcaseZip}
- * names it, read back.
+ * The page's address sharing its e3 with the other tabs of a set (`?shared`,
+ * `?shared=<set>`): opened so, the page's e3 keeps its repository in the
+ * browser (`e3-shared.worker.ts`), and every tab of the set reads and writes
+ * the same workspaces — as two people would: a Save in one reaches the other
+ * at its next poll, and its drafts carry over there, a part both changed a
+ * conflict to choose. A set of another name starts every area afresh.
+ */
+export const SHARED_PARAM = "shared";
+
+/**
+ * The set of tabs a page's address shares its e3 with: the set's name, its
+ * letters and digits, lower case — `1` for `?shared` alone.
  *
- * @param name - The zip's name, e.g. `e3-showcase-schematic.zip`
+ * @param search - The address's query, as `location.search` holds it
+ * @returns The set; `undefined` for a page whose e3 is its own
+ */
+export function sharedSetFromAddress(search: string): string | undefined {
+    const text = new URLSearchParams(search).get(SHARED_PARAM);
+    if (text === null) return undefined;
+    const set = text.toLowerCase().replace(/[^a-z0-9]+/g, "");
+    return set === "" ? "1" : set;
+}
+
+/**
+ * The workspace a set of shared tabs reads an area's examples from: the
+ * area's own, the set's, and the bundle's it is made from — a build that
+ * makes another bundle starts the area afresh, never over a workspace another
+ * build made.
+ *
+ * @param area - The area
+ * @param set - The set ({@link sharedSetFromAddress})
+ * @param bundle - The address the area's bundle is served at
+ * @returns The workspace's name
+ */
+export function sharedE3Workspace(area: string, set: string, bundle: string): string {
+    // The bundle's address, which the build names by its content.
+    return `${showcaseE3Workspace(area)}-shared-${set}-${nameHash(bundle)}`;
+}
+
+/**
+ * The repository a page shared with other tabs keeps in the browser, and
+ * every set's workspaces with it: the bundles' it is made from. A build of
+ * other packages starts it afresh — under the same versions, a package of
+ * other contents is one e3 refuses beside the one it holds — while every tab
+ * of a set on the same build finds the one its first tab made.
+ *
+ * @param bundlesKey - What names the bundles (`virtual:e3-showcase-bundles`)
+ * @returns The repository's name
+ */
+export function sharedE3Repo(bundlesKey: string): string {
+    return `shared-${nameHash(bundlesKey)}`;
+}
+
+/** A short name for a text: FNV-1a over it, in base 36. */
+function nameHash(text: string): string {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0;
+    return hash.toString(36);
+}
+
+/**
+ * The name an area's workspace bundle is served under (#849, #1397): the
+ * area's workspace as the build made it — its package deployed and its
+ * dataflow run — written out in one stream of beast2, which the e3 the page
+ * runs makes the area's workspace from (`showcase-e3.ts`). The dev server
+ * answers `/<name>`, and the build emits it as an asset of this name and its
+ * content's hash (`assets/e3-showcase-<area>-<hash>.beast2`), whose URL the
+ * page's code carries; `scripts/vite-plugin-e3-showcase.ts` makes it.
+ *
+ * @param area - The area, e.g. `schematic`
+ * @returns The bundle's name, e.g. `e3-showcase-schematic.beast2`
+ */
+export function e3ShowcaseBundle(area: string): string {
+    return `e3-showcase-${area}.beast2`;
+}
+
+/**
+ * The area whose workspace a bundle's name names: what
+ * {@link e3ShowcaseBundle} names it, read back.
+ *
+ * @param name - The bundle's name, e.g. `e3-showcase-schematic.beast2`
  * @returns Its area, e.g. `schematic`, or `undefined` for any other name
  */
-export function e3ShowcaseZipArea(name: string): string | undefined {
-    return /^e3-showcase-([^/]+)\.zip$/.exec(name)?.[1];
+export function e3ShowcaseBundleArea(name: string): string | undefined {
+    return /^e3-showcase-([^/]+)\.beast2$/.exec(name)?.[1];
 }
 
 /** Title-case the first path segment of a pathKey to use as a category name.

@@ -7,15 +7,19 @@
  * The series and summary indexes (#1039) on the real runners.
  *
  * Their keys and totals are East the SDK generates, so every runtime must file
- * every event under the same tiles with the same shares, byte for byte; a
- * maintained series index must be the one a reindex rebuilds, and a maintained
- * summary the totals a reindex sums — a build split into pieces too, whose
- * totals of one key its merge adds. This deploys the same record to a
- * workspace per runtime — its patch door, and its series and summary indexes
- * on that runtime — writes the same jobs through the door, then moves,
- * stretches, unschedules, recrews and deletes some, and compares the states
- * hash for hash: across the runtimes, and against a rebuild in each. Jobs
- * before 1970 hold every runtime to the floor of a negative instant's tile.
+ * every event in the same places — once, at the level its length fits, or once
+ * a year past a year (#1433) — and split it over a summary's tiles with the
+ * same shares, byte for byte; a maintained series index must be the one a
+ * reindex rebuilds, and a maintained summary the totals a reindex sums — a
+ * build split into pieces too, whose totals of one key its merge adds. This
+ * deploys the same record to a workspace per runtime — its patch door, and its
+ * series and summary indexes on that runtime — writes the same thousand jobs
+ * through the door, from instants to ten years long, then moves, stretches
+ * past a level, shrinks back, re-keys, unschedules, recrews and deletes some,
+ * and compares the states hash for hash: across the runtimes, and against a
+ * rebuild in each. Jobs before 1970 hold every runtime to the floor of a
+ * negative instant's tile, and jobs on a level's tile edge to its half-open
+ * tiles.
  *
  * The parity compares every runtime installed and skips with fewer than two,
  * as the area index's does; the rest runs on each runtime installed.
@@ -30,7 +34,7 @@ import {
   StructType, compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, parseFor, some, type ValueTypeOf,
 } from '@elaraai/east';
 import { RecordSummaryTotalsType } from '@elaraai/e3-types';
-import e3 from '@elaraai/e3';
+import e3, { type PartRunner } from '@elaraai/e3';
 import { readDatasetWhole } from './dataset-open.js';
 import { recordHistory, recordMutate, recordReindex, readRecordState } from './records.js';
 import { summarizeDelta } from './record-apply.js';
@@ -110,8 +114,8 @@ const later = East.compile(East.function([OptionType(DateTimeType), IntegerType]
 /** Monday 5 October 2026, which most jobs are scheduled around. */
 const OCT_5 = millisecondsOf(at('2026-10-05T00:00:00.000'));
 
-/** A runner selection, as the SDK's constructors take one. */
-type RunnerConfig = Parameters<typeof e3.mutation.reduce>[3];
+/** A runner selection, as a record's builders take one. */
+type RunnerConfig = PartRunner;
 
 /**
  * The record, its patch door, and its series and summary indexes, on a runner:
@@ -120,23 +124,23 @@ type RunnerConfig = Parameters<typeof e3.mutation.reduce>[3];
  * a quarter led by the Set, and one a year.
  */
 function declared(runner?: RunnerConfig) {
-  const jobs = e3.record('jobs', JobsType, new Map());
-  return {
-    jobs,
-    patch: e3.mutation.patch(jobs, 'patch', runner),
-    indexes: [
-      e3.recordIndex.series('jobs_by_press_week', jobs, { key: 'press', from: 'start', to: 'end', tile: 'week' }, runner),
-      e3.recordIndex.series('jobs_by_state_press_day', jobs, { on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'day' }, runner),
-      e3.recordIndex.series('jobs_by_crew_press_month', jobs, { on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'month' }, runner),
-      e3.recordIndex.summary('jobs_by_press_week_totals', jobs, { key: 'press', from: 'start', to: 'end', tile: 'week' }, runner),
-      e3.recordIndex.summary('jobs_by_crew_press_quarter_totals', jobs, { on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'quarter' }, runner),
-      e3.recordIndex.summary('jobs_by_press_year_totals', jobs, { key: 'press', from: 'start', to: 'end', tile: 'year' }, runner),
-    ] as const,
-  };
+  return e3.record('jobs', JobsType, {
+    initial: new Map(),
+    indexes: (index) => ({
+      jobs_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }, runner),
+      jobs_by_state_press_day: index.series({ on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'day' }, runner),
+      jobs_by_crew_press_month: index.series({ on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'month' }, runner),
+      jobs_by_press_week_totals: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'week' }, runner),
+      jobs_by_crew_press_quarter_totals: index.summary({ on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'quarter' }, runner),
+      jobs_by_press_year_totals: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'year' }, runner),
+    }),
+    mutations: (mutation) => ({ patch: mutation.patch(runner) }),
+  });
 }
 
-/** The indexes, in declaration order. */
-const INDEXES = declared().indexes;
+/** The record as declared, and its indexes in declaration order. */
+const DECLARED = declared();
+const INDEXES = Object.values(DECLARED.indexes);
 
 /** A seeded stream of numbers in [0, 1) (mulberry32): the same rows on every run. */
 function stream(seed: number): () => number {
@@ -162,22 +166,32 @@ function job(n: number, start: bigint | undefined, end: bigint | undefined): Job
   };
 }
 
+/** The lengths the jobs are drawn from: each level's edges, and past a year. */
+const LENGTHS = [
+  0n, 8n * HOUR, 7n * DAY, 28n * DAY, 29n * DAY, 90n * DAY, 91n * DAY, 365n * DAY, 366n * DAY, 3n * 365n * DAY, 10n * 365n * DAY,
+];
+/** Instants on a level's tile edge: a Monday, a month's first, a quarter's, a year's, and the Monday before the epoch. */
+const EDGES = [
+  '2026-10-05T00:00:00.000', '2026-11-01T00:00:00.000', '2026-10-01T00:00:00.000', '2027-01-01T00:00:00.000', '1969-12-29T00:00:00.000',
+].map((text) => millisecondsOf(at(text)));
+
 /**
- * The jobs the test writes first: an hour to a few weeks long over the autumn,
- * a few a year or three long, some across the epoch and before it, some from a
- * tile's start exactly; some instants, some ending before they start, and some
- * not yet scheduled.
+ * The jobs the test writes first: a thousand, an instant to ten years long —
+ * each level's edges among the lengths — over the autumn, before 1970 one in
+ * eight, from a level's tile edge one in nine; some instants, some ending
+ * before they start, and some not yet scheduled.
  */
 function seeded(): Jobs {
-  const next = stream(1039);
+  const next = stream(1433);
   const rows = new SortedMap<string, Job>(undefined, keyOrder);
-  for (let n = 0; n < 400; n++) {
-    const start = OCT_5 + BigInt(Math.floor((next() - 0.5) * 200)) * DAY + BigInt(Math.floor(next() * 96)) * HOUR / 4n;
-    const length = n % 50 === 7
-      ? BigInt(Math.floor(365 + next() * 730)) * DAY
-      : HOUR + BigInt(Math.floor(next() ** 3 * 30 * 24)) * HOUR;
+  for (let n = 0; n < 1_000; n++) {
+    const jitter = BigInt(Math.floor(next() * 96)) * HOUR / 4n;
+    const start = n % 9 === 0 ? EDGES[(n / 9) % EDGES.length]!
+      : n % 8 === 0 ? OCT_5 - BigInt(Math.floor(57 * 365 + next() * 40 * 365)) * DAY + jitter
+        : OCT_5 + BigInt(Math.floor((next() - 0.5) * 400)) * DAY + jitter;
+    const length = LENGTHS[n % LENGTHS.length]!;
     const key = `W-${String(n).padStart(4, '0')}`;
-    if (n % 11 === 0) rows.set(key, job(n, undefined, undefined));
+    if (n % 37 === 0) rows.set(key, job(n, undefined, undefined));
     else if (n % 13 === 0) rows.set(key, job(n, start, undefined));
     else if (n % 17 === 0) rows.set(key, job(n, start, start - HOUR));
     else rows.set(key, job(n, start, start + length));
@@ -198,8 +212,9 @@ function seeded(): Jobs {
 
 /**
  * The same jobs after another session's edits: some deleted, unscheduled,
- * nudged an hour, moved far, stretched, made instants, moved to another press,
- * recrewed, or retitled and confirmed; and some new ones, scheduled and not.
+ * nudged an hour, moved far, stretched past a level, shrunk back to an hour,
+ * made instants, moved to another press, recrewed, or retitled and confirmed;
+ * and some new ones, scheduled and not.
  */
 function edited(rows: Jobs): Jobs {
   const next = new SortedMap<string, Job>([...rows], keyOrder);
@@ -207,7 +222,7 @@ function edited(rows: Jobs): Jobs {
   for (const [key, row] of rows) {
     n++;
     const moved = (by: bigint) => ({ start: later(row.start, by), end: later(row.end, by) });
-    switch (n % 10) {
+    switch (n % 11) {
       case 1: next.delete(key); break;
       case 2: next.set(key, { ...row, start: none }); break;
       case 3: next.set(key, { ...row, ...moved(HOUR) }); break;
@@ -217,6 +232,7 @@ function edited(rows: Jobs): Jobs {
       case 7: next.set(key, { ...row, press: 'P-1009' }); break;
       case 8: next.set(key, { ...row, crews: new SortedSet(['east'], keyOrder) }); break;
       case 9: next.set(key, { ...row, title: `${row.title}, reprinted`, state: 'confirmed' }); break;
+      case 10: next.set(key, { ...row, end: later(row.start, HOUR) }); break;
       default: break;
     }
   }
@@ -248,8 +264,7 @@ describe('the series and summary indexes on the real runners', () => {
     storage = new LocalStorage(dirname(repo));
     realRunner = new LocalTaskRunner(repo);
     for (const { ws, runner } of runtimes) {
-      const { jobs, patch, indexes } = declared(runner);
-      const pkg = e3.package(`series-${ws}`, '1.0.0', jobs, patch, ...indexes);
+      const pkg = e3.package(`series-${ws}`, '1.0.0', declared(runner));
       const zip = join(tempDir, `series-${ws}.zip`);
       await e3.export(pkg, zip);
       await packageImport(storage, repo, zip);
@@ -302,39 +317,37 @@ describe('the series and summary indexes on the real runners', () => {
     return total;
   }
 
-  const [byPressWeek, , , weekTotals, , yearTotals] = INDEXES;
+  const { jobs_by_press_week: byPressWeek, jobs_by_press_week_totals: weekTotals, jobs_by_press_year_totals: yearTotals } = DECLARED.indexes;
 
-  it('carries each job whole under each tile it touches, and totals each tile as its series counts it, on each runtime', async () => {
+  it('files each job once, at the level its length fits — past a year, once a year it touches — carrying it whole, and totals cover every job\'s length, on each runtime', async () => {
     const rows = seeded();
     // Each job's length; one with no end, or one at or before its start, covers none.
     let covered = 0n;
-    for (const row of rows.values()) {
-      if (row.start.type === 'none' || row.end.type === 'none') continue;
-      const length = millisecondsOf(row.end.value) - millisecondsOf(row.start.value);
-      if (length > 0n) covered += length;
+    // How many places each scheduled job is filed: once, or once a year it touches past 365 days.
+    const places = new SortedMap<string, number>(undefined, keyOrder);
+    const yearOf = (ms: bigint) => new Date(Number(ms)).getUTCFullYear();
+    for (const [key, row] of rows) {
+      if (row.start.type === 'none') continue;
+      const from = millisecondsOf(row.start.value);
+      const to = row.end.type === 'none' ? from : millisecondsOf(row.end.value);
+      if (to > from) covered += to - from;
+      places.set(key, to - from > 365n * DAY ? yearOf(to - 1n) - yearOf(from) + 1 : 1);
     }
     for (const { ws } of runtimes) {
       await write(ws, new SortedMap<string, Job>(undefined, keyOrder), rows);
-      const series = await seriesEntries(ws, byPressWeek);
-      const filed = new SortedSet<string>(undefined, keyOrder);
-      const counted = new SortedMap<ValueTypeOf<typeof byPressWeek.keyType>, bigint>(undefined, compareFor(byPressWeek.keyType));
-      for (const [entry, row] of series) {
+      const filed = new SortedMap<string, number>(undefined, keyOrder);
+      for (const [entry, row] of await seriesEntries(ws, byPressWeek)) {
         const written = rows.get(entry.k);
         assert.ok(written !== undefined && sameJob(row, written), `${ws}: ${entry.k}'s entry carries its row`);
-        filed.add(entry.k);
-        counted.set(entry.ik, (counted.get(entry.ik) ?? 0n) + 1n);
+        filed.set(entry.k, (filed.get(entry.k) ?? 0) + 1);
       }
-      for (const [key, row] of rows) {
-        assert.strictEqual(filed.has(key), row.start.type === 'some', `${ws}: ${key} is filed exactly when it has a start`);
-      }
-      const totals = await summaryTotals(ws, weekTotals);
-      assert.strictEqual(totals.size, counted.size, `${ws}: a total for each week and press the series files a job under`);
-      for (const [entry, total] of totals) {
-        assert.ok(sameInteger(total.count, counted.get(entry.ik) ?? 0n), `${ws}: a week's count is its series' entries`);
-      }
+      assert.deepStrictEqual([...filed], [...places], `${ws}: each job with a start filed once, or once a year past a year`);
       let years = 0n;
       for (const total of (await summaryTotals(ws, yearTotals)).values()) years += total.ms;
       assert.ok(sameInteger(years, covered), `${ws}: the years' totals cover every job's length, ${years} ms of ${covered}`);
+      let weeks = 0n;
+      for (const total of (await summaryTotals(ws, weekTotals)).values()) weeks += total.ms;
+      assert.ok(sameInteger(weeks, covered), `${ws}: and the weeks' totals the same`);
     }
   });
 
@@ -394,18 +407,48 @@ describe('the series and summary indexes on the real runners', () => {
     }
   });
 
-  it('refuses a job touching more than 4,096 days, naming it, its span and the tile, and writes nothing, on each runtime', async () => {
+  it('refuses a job touching more than 4,096 of a summary\'s weeks, naming it, its span and the tile, and writes nothing, on each runtime', async () => {
+    // Eighty years: a series files it under each year, and the week summary's tiles run out.
     const noon = millisecondsOf(at('2026-01-01T12:00:00.000'));
-    const long = new SortedMap<string, Job>([['X-long', job(1, noon, noon + 4_096n * DAY)]], keyOrder);
+    const long = new SortedMap<string, Job>([['X-long', job(1, noon, noon + 80n * 365n * DAY)]], keyOrder);
     for (const { ws } of runtimes) {
       const before = await state(ws);
       const outcome = await recordMutate(storage, realRunner, repo, ws, 'jobs', 'patch',
         [encodeBeast2For(PatchType(JobsType))(diffFor(JobsType)(new SortedMap<string, Job>(undefined, keyOrder), long))], { actor: 'cli:test' });
       assert.ok(outcome.kind === 'failed', `${ws}: ${JSON.stringify(outcome)}`);
       assert.match(outcome.stderr,
-        /"X-long", from 2026-01-01T12:00:00\.000 to 2037-03-20T12:00:00\.000, touches more than 4096 day tiles: declare a coarser tile/,
+        /"X-long", from 2026-01-01T12:00:00\.000 to 2105-12-13T12:00:00\.000, touches more than 4096 week tiles: declare a coarser tile/,
         `${ws}: the refusal names the job, its span and the tile`);
       assert.deepStrictEqual(await state(ws), before, `${ws}: nothing is written`);
+    }
+  });
+
+  it('files a job across 4,096 years under each, and refuses one across more, naming it and its span, on each runtime', async () => {
+    // A record with a series index alone: no summary's tiles run out first.
+    const noon = millisecondsOf(at('2026-01-01T12:00:00.000'));
+    const ages = (years: number) => millisecondsOf(at(`${2026 + years}-07-01T00:00:00.000`));
+    for (const { ws, runner } of runtimes) {
+      const jobs = e3.record('ages', JobsType, {
+        initial: new Map(),
+        indexes: (index) => ({ ages_by_press_day: index.series({ key: 'press', from: 'start', to: 'end', tile: 'day' }, runner) }),
+        mutations: (mutation) => ({ patch: mutation.patch(runner) }),
+      });
+      const zip = join(tempDir, `ages-${ws}.zip`);
+      await e3.export(e3.package(`ages-${ws}`, '1.0.0', jobs), zip);
+      await packageImport(storage, repo, zip);
+      await workspaceCreate(storage, repo, `${ws}-ages`);
+      await workspaceDeploy(storage, repo, `${ws}-ages`, `ages-${ws}`, '1.0.0', { runner: realRunner });
+      const empty = new SortedMap<string, Job>(undefined, keyOrder);
+      const written = (rows: Jobs) => recordMutate(storage, realRunner, repo, `${ws}-ages`, 'ages', 'patch',
+        [encodeBeast2For(PatchType(JobsType))(diffFor(JobsType)(empty, rows))], { actor: 'cli:test' });
+      // From 2026 into 6121: 4,096 years, each filed.
+      const most = await written(new SortedMap<string, Job>([['X-most', job(1, noon, ages(4_095))]], keyOrder));
+      assert.strictEqual(most.kind, 'committed', `${ws}: ${JSON.stringify(most)}`);
+      const refused = await written(new SortedMap<string, Job>([['X-ages', job(1, noon, ages(4_096))]], keyOrder));
+      assert.ok(refused.kind === 'failed', `${ws}: ${JSON.stringify(refused)}`);
+      assert.match(refused.stderr,
+        /"X-ages", from 2026-01-01T12:00:00\.000 to 6122-07-01T00:00:00\.000, touches more than 4096 year tiles: end it within 4096 years of its start/,
+        `${ws}: the refusal names the job and its span`);
     }
   });
 

@@ -15,6 +15,7 @@
  * @packageDocumentation
  */
 
+import type { EditIssue } from "@elaraai/east-ui-components";
 import type { SheetKind } from "./model.js";
 import type { SheetDropRefusalWord } from "./messages.js";
 import type { ParseOutcome } from "./parse/index.js";
@@ -149,7 +150,8 @@ export type SheetNotice =
     | { id: "pasted"; rows: number; cols: number; skipped: number }
     | { id: "copied"; rows: number; cols: number }
     | { id: "newGroup"; noun: string | undefined }
-    | { id: "issue"; where: string; message: string }
+    /** An issue gone to: where it is, as the sheet names it, and the issue — the note goes once the session no longer holds it. */
+    | { id: "issue"; where: string; issue: EditIssue }
     /** A card's ⏎ refused below the ring's row (#1187, SB45): why. */
     | { id: "dropRefused"; word: SheetDropRefusalWord }
     | { id: "text"; text: string };

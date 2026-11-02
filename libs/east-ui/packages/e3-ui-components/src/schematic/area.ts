@@ -103,15 +103,15 @@ import { IntegerType, StringType, compareFor, equalFor, printFor, type ValueType
 import { SeekQueryType, type SeekRangeType } from "@elaraai/east-ui";
 import {
     RecordSliceWhereType, areaCells,
-    type AreaCell, type RecordSliceBindType, type RecordSliceCell, type RecordSliceEntry, type RecordSliceJoined,
+    type AreaCell, type RecordOnPrinter, type RecordSliceBindType, type RecordSliceCell, type RecordSliceEntry, type RecordSliceJoined,
 } from "@elaraai/east-ui/internal";
 import {
     SCHEMATIC_WINDOW_READ_ROWS, SCHEMATIC_WINDOW_ROWS, schematicDensityCells, schematicRaster, schematicWindowPlan,
     type SchematicAreaIndexes, type SchematicDensityCell, type SchematicRaster, type SchematicWindowPlan,
 } from "@elaraai/e3-ui/internal";
 import {
-    recordSliceBounds, recordSliceCellEntries, recordSliceCellJoins, recordSliceCellRuns, recordSliceRevision, recordSliceRunEntries,
-    recordSliceRunJoins, recordSliceWithin,
+    recordSliceBounds, recordSliceCellEntries, recordSliceCellJoins, recordSliceCellRuns, recordSliceOnPrinter, recordSliceRevision,
+    recordSliceRunEntries, recordSliceRunJoins, recordSliceWithin,
 } from "@elaraai/east-ui-components/internal";
 import { defaultPagedRuntime, pagedSourceOf, type PagedRow } from "../platform/paged-runtime.js";
 import { SCHEMATIC_CARD_MAX_PX, type LodTier, type WorldBox } from "./canvas/model.js";
@@ -492,6 +492,8 @@ interface Planned {
     readonly where: Where;
     readonly window: SchematicWindow;
     readonly plan: SchematicWindowPlan;
+    /** The plan's index's `on` printer: its searches of the key's own fields name its leading values as one (#1432). */
+    readonly printOn: RecordOnPrinter;
     readonly cells: readonly RecordSliceCell[];
     readonly places: readonly AreaCell[];
 }
@@ -740,10 +742,11 @@ export class SchematicAreaReader {
         const last = slot.planned;
         if (last !== undefined && Object.is(last.config, part.config) && Object.is(last.where, where) && Object.is(last.window, window)) return last;
         const plan = schematicWindowPlan(areas, where, window.box);
+        const printOn = recordSliceOnPrinter(part, plan.index.name);
         // A cell a search: the same search in every window that holds it (`areaCells`), so a pan asks only the cells it adds.
-        const places = plan.prefixes.flatMap((prefix) => areaCells(prefix, window.box, plan.cell));
+        const places = plan.prefixes.flatMap((prefix) => areaCells(prefix, window.box, plan.cell, printOn));
         const cells = places.map((place) => ({ id: printQuery(place.query), queries: [place.query] }));
-        const planned = { config: part.config, where, window, plan, cells, places };
+        const planned = { config: part.config, where, window, plan, printOn, cells, places };
         slot.planned = planned;
         return planned;
     }
@@ -836,7 +839,7 @@ export class SchematicAreaReader {
     private rasteredOf(slot: Slot, planned: Planned): Rastered {
         const last = slot.rastered;
         if (last !== undefined && Object.is(last.planned, planned)) return last;
-        const raster = schematicRaster(planned.plan, planned.window.reach);
+        const raster = schematicRaster(planned.plan, planned.window.reach, planned.printOn);
         const ranges = raster.cells.flat().map((cell) => cell.query);
         const rastered = { planned, raster, cells: ranges.length, queries: [...ranges, ...raster.coarse.map((cell) => cell.query)] };
         slot.rastered = rastered;
@@ -910,7 +913,7 @@ export class SchematicAreaReader {
         let planned = slot.overviewPlanned;
         if (planned === undefined || !Object.is(planned.config, part.config) || !Object.is(planned.where, where) || !sameBox(planned.extent, extent)) {
             const plan = schematicWindowPlan(areas, where, extent);
-            const raster = schematicRaster(plan, extent);
+            const raster = schematicRaster(plan, extent, recordSliceOnPrinter(part, plan.index.name));
             const ranges = raster.cells.flat().map((cell) => cell.query);
             planned = { config: part.config, where, extent, plan, raster, cells: ranges.length, queries: [...ranges, ...raster.coarse.map((cell) => cell.query)] };
             slot.overviewPlanned = planned;
@@ -956,7 +959,7 @@ export class SchematicAreaReader {
         let planned = slot.fitPlanned;
         if (planned === undefined || !Object.is(planned.config, part.config) || !Object.is(planned.where, where) || !sameBox(planned.extent, extent)) {
             const plan = schematicWindowPlan(areas, where, extent);
-            const raster = schematicRaster(plan, extent);
+            const raster = schematicRaster(plan, extent, recordSliceOnPrinter(part, plan.index.name));
             const ranges = raster.cells.flat().map((cell) => cell.query);
             planned = { config: part.config, where, extent, plan, raster, cells: ranges.length, queries: [...ranges, ...raster.coarse.map((cell) => cell.query)] };
             slot.fitPlanned = planned;

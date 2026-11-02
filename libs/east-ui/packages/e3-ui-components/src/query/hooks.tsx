@@ -47,6 +47,7 @@ import {
     type DatasetStatusDetail, type ExecuteResult, type OneShotRequest, type SplitCallPlan, type SplitCallProgress, type SplitCallRequest, type TreePath,
 } from "@elaraai/e3-types";
 import { useDataStable, usePersistedState } from "@elaraai/east-ui-components";
+import { keptRead } from "@elaraai/east-ui-components/internal";
 import { e3RequestOptions, useE3ConfigOptional, type E3Config } from "../platform/e3-config.js";
 import { pagedSourceOf } from "../platform/paged-runtime.js";
 import { SUMMARY_LIMITS, SummaryCache, type Summary, type SummaryRequest } from "./model/summaries.js";
@@ -492,7 +493,7 @@ export const RECENT_RUNS = 10;
  * @returns The runs, and `remember(run)`
  */
 export function useRecentQueries(key: string): { recent: readonly SavedQuery[]; remember: (run: SavedQuery) => void } {
-    const { state, setState } = usePersistedState<string[]>(key, []);
+    const { state, setState } = usePersistedState<string[]>(key, [], keptRead.array(keptRead.string));
     const recent = useMemo(() => state.flatMap((text) => {
         const read = parseSaved(text);
         return read.success ? [read.value] : [];

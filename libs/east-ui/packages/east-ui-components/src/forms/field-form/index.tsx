@@ -7,9 +7,10 @@
  * `FieldForm` (#1147) — the typed form over an East struct that a builder's
  * inspector shows. east-ui's `Fields.specs(R, hints)` resolves a struct's
  * fields and hints into specs, and this draws each one with the form
- * renderers this package already has: the shared `Field` — its label, its key
- * (the field's path, as the field's `schemaKey`) and its help line — around
- * the shared input the field's East type takes, told by East's `isTypeEqual`.
+ * renderers this package already has: the shared `Field` — its label and its
+ * help line, never its key, which is no word for the people a builder is for
+ * — around the shared input the field's East type takes, told by East's
+ * `isTypeEqual`.
  * Each edit comes back as the field's path and its new value, typed as the
  * field.
  *
@@ -37,7 +38,7 @@
  * tinted. A nested struct's fields sit under its name. Read-only, every field
  * is printed, and tags and a checklist keep their shape without their
  * controls. A host may draw a field's control itself (`renderControl`), what
- * no input shows — the field keeps its label, key and help line.
+ * no input shows — the field keeps its label and help line.
  *
  * Every field is one column (#1220): its label, its control's line and its
  * help line, the control filling the line and an Option's Set or Clear at its
@@ -114,7 +115,7 @@ export interface FieldFormProps {
     /**
      * Draws a field's control itself, in place of the input its editor takes —
      * what no input shows (a sheet's link chips, #1188); the field keeps its
-     * label, key and help line. `undefined` for a field the form draws. Keep it
+     * label and help line. `undefined` for a field the form draws. Keep it
      * stable (`useCallback`): each field's memo compares it.
      */
     renderControl?: ((spec: FieldSpecValue) => ReactNode | undefined) | undefined;
@@ -518,7 +519,7 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
         control,
         helperText: help.length === 0 ? none : some(help.join(" · ")),
         readOnly: printed || readOnly ? some(true) : none,
-        style: some({ ...FIELD_STYLE, schemaKey: some(key) }),
+        style: some(FIELD_STYLE),
     };
     // The text a one-line box holds, whole — a value printed, a text field's, or the words of a choice made — its control's
     // title: an ellipsis ends it where the box cuts it short (the `fieldForm` recipe, a select's own), and the title says

@@ -62,12 +62,12 @@ describe('seedCommand', () => {
     storage = new LocalStorage(dirname(repo));
 
     // A record declared with no initial value: unassigned until seeded
-    const counter = e3.record('counter', IntegerType);
-    const increment = e3.mutation.reduce(
-      'increment', counter,
-      East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)),
-    );
-    const pkg = e3.package('counters', '1.0.0', counter, increment);
+    const counter = e3.record('counter', IntegerType, {
+      mutations: (mutation) => ({
+        increment: mutation.reduce(East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))),
+      }),
+    });
+    const pkg = e3.package('counters', '1.0.0', counter);
     const zip = join(tempDir, 'counters.zip');
     await e3.export(pkg, zip);
     await packageImport(storage, repo, zip);

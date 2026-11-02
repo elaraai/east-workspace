@@ -4,18 +4,19 @@
  */
 
 /**
- * `Plan.series.views` with a bare `children` accessor (#1219): more of the
- * views' own entries, each drawn as its members' rows, to any depth — the
- * views' `match` and `collapsed` at every level, a span member's `rollup` over
- * the children nested under its row, and a gesture on a nested member row
- * written back into its entry. A gesture whose row names an entry the tree
- * lacks writes nothing, through a views' walk or a data series' own.
+ * `Plan.series.views` over a tree (#1219, #1436): `children` names the field
+ * holding more of the views' own entries, each drawn as its members' rows, to
+ * any depth — the views' `match` and `collapsed` at every level, a span
+ * member's `rollup` over the children nested under its row, and a gesture on a
+ * nested member row written back into its entry, through that field. A
+ * gesture whose row names an entry the tree lacks writes nothing, through a
+ * views' walk or a data series' own.
  */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DateTimeType, DictType, East, NullType, OptionType, RecursiveType, StringType, StructType,
+    ArrayType, DateTimeType, DictType, East, OptionType, RecursiveType, StringType, StructType,
     decodeBeast2For, encodeBeast2For, equalFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
@@ -34,29 +35,24 @@ function rowsOf(root: Root) {
     return root.rows.value.flatMap((b) => b.rows);
 }
 
-// ── Flat resources, each naming the one it nests under ───────────────────────
+// ── Resources, each holding the ones nested under it ─────────────────────────
 
-const Res = StructType({ name: StringType, parent: OptionType(StringType) });
+const Res = RecursiveType((self) => StructType({ name: StringType, kids: DictType(StringType, self) }));
 const Resources = DictType(StringType, Res);
+type ResValue = ValueTypeOf<typeof Res>;
+const leaf = (name: string): ResValue => ({ name, kids: new Map() });
 /** A ← B ← (C, E), and D on its own. */
-const RES = new Map([
-    ["a", { name: "A", parent: none }],
-    ["b", { name: "B", parent: some("a") }],
-    ["c", { name: "C", parent: some("b") }],
-    ["d", { name: "D", parent: none }],
-    ["e", { name: "E", parent: some("b") }],
+const RES: ValueTypeOf<typeof Resources> = new Map([
+    ["a", { name: "A", kids: new Map([["b", { name: "B", kids: new Map([["c", leaf("C")], ["e", leaf("E")]]) }]]) }],
+    ["d", leaf("D")],
 ]);
 
-test("a bare accessor's children draw as the members' rows, to any depth, each entry's after all of its parent's, under its first", () => {
+test("a tree's children draw as the members' rows, to any depth, each entry's after all of its parent's, under its first", () => {
     const root = East.compile(East.function([], Plan.Types.Root, ($) => {
-        const all = $.const(RES, Resources);
-        const roots = $.let(all.filter((_$, r) => r.parent.hasTag("none")));
+        const roots = $.const(RES, Resources);
         return Plan.Root({
             axis, data: roots,
-            series: [Plan.series.views(Res, {
-                key: "res", title: "Resources",
-                children: (_r, k) => all.filter((_$, c) => c.parent.hasTag("some").and(() => c.parent.unwrap("some").equal(k))),
-            }, [
+            series: [Plan.series.views(Res, { key: "res", title: "Resources", children: "kids" }, [
                 Plan.series.span(Res, { key: "res.span", title: "Bars", label: (r) => r.name, runs: () => [] }),
                 Plan.series.events(Res, { key: "res.marks", title: "Marks", label: (r) => r.name, marks: () => [] }),
             ])],
@@ -84,8 +80,7 @@ test("a bare accessor's children draw as the members' rows, to any depth, each e
 
 test("each member's match picks an entry's rows, and its children nest under the first that shows; the views' match and collapsed hold at every level", () => {
     const root = East.compile(East.function([], Plan.Types.Root, ($) => {
-        const all = $.const(RES, Resources);
-        const roots = $.let(all.filter((_$, r) => r.parent.hasTag("none")));
+        const roots = $.const(RES, Resources);
         return Plan.Root({
             axis, data: roots,
             series: [Plan.series.views(Res, {
@@ -94,7 +89,7 @@ test("each member's match picks an entry's rows, and its children nest under the
                 match: (r) => r.name.equal("C").not(),
                 // B starts folded, at the second.
                 collapsed: (r) => r.name.equal("B"),
-                children: (_r, k) => all.filter((_$, c) => c.parent.hasTag("some").and(() => c.parent.unwrap("some").equal(k))),
+                children: "kids",
             }, [
                 // B has no bars row, so its children nest under its marks.
                 Plan.series.span(Res, { key: "res.span", title: "Bars", label: (r) => r.name, runs: () => [], match: (r) => r.name.equal("B").not() }),
@@ -120,14 +115,10 @@ test("each member's match picks an entry's rows, and its children nest under the
 
 test("a span member that declares rollup rolls up the children nested under its row — only a row with children, and only when declared", () => {
     const build = (rollup: boolean) => rowsOf(East.compile(East.function([], Plan.Types.Root, ($) => {
-        const all = $.const(RES, Resources);
-        const roots = $.let(all.filter((_$, r) => r.parent.hasTag("none")));
+        const roots = $.const(RES, Resources);
         return Plan.Root({
             axis, data: roots,
-            series: [Plan.series.views(Res, {
-                key: "res", title: "Resources",
-                children: (_r, k) => all.filter((_$, c) => c.parent.hasTag("some").and(() => c.parent.unwrap("some").equal(k))),
-            }, [Plan.series.span(Res, {
+            series: [Plan.series.views(Res, { key: "res", title: "Resources", children: "kids" }, [Plan.series.span(Res, {
                 key: "res.span", title: "Bars", label: (r) => r.name, runs: () => [],
                 ...(rollup ? { rollup: "byStatus" as const } : {}),
             })])],
@@ -142,34 +133,36 @@ test("a span member that declares rollup rolls up the children nested under its 
 
 // ── Entries that hold more of themselves — a gesture on a nested member row ──
 
-const Job = StructType({ key: StringType, start: DateTimeType, end: DateTimeType });
-const Node = RecursiveType((self) => StructType({ name: StringType, jobs: ArrayType(Job), kids: DictType(StringType, self) }));
+const Job = StructType({ start: DateTimeType, end: DateTimeType });
+const Node = RecursiveType((self) => StructType({ name: StringType, jobs: DictType(StringType, Job), kids: DictType(StringType, self) }));
 const Nodes = DictType(StringType, Node);
 type JobValue = ValueTypeOf<typeof Job>;
-/** Where a card lands, and the job it becomes there: an hour long. */
+type Jobs = [string, JobValue][];
+/** Where a card lands, and the job it becomes there: an hour long, under the id the renderer minted. */
 const AT = new Date("2026-10-06T06:00:00Z");
-const DROPPED: JobValue = { key: "card", start: AT, end: new Date("2026-10-06T07:00:00Z") };
+const DROPPED: Jobs = [["minted", { start: AT, end: new Date("2026-10-06T07:00:00Z") }]];
 /** A ← B ← C, their jobs as given. */
-const treeOf = (a: JobValue[], b: JobValue[], c: JobValue[]) => ({
-    name: "A", jobs: a, kids: new Map([["b", {
-        name: "B", jobs: b, kids: new Map([["c", { name: "C", jobs: c, kids: new Map() }]]),
+const treeOf = (a: Jobs, b: Jobs, c: Jobs) => ({
+    name: "A", jobs: new Map(a), kids: new Map([["b", {
+        name: "B", jobs: new Map(b), kids: new Map([["c", { name: "C", jobs: new Map(c), kids: new Map() }]]),
     }]]),
 });
-/** A card dropped on a row, at {@link AT}. */
-const dropOn = (row: RowId) => variant("drop", { from: { library: "jobs", key: "card" }, row, at: variant("time", AT), duplicate: false });
+/** A card dropped on a row, at {@link AT}, its item's id minted. */
+const dropOn = (row: RowId) => variant("drop", { from: { library: "jobs", key: "card" }, row, at: variant("time", AT), duplicate: false, id: "minted" });
 const encodeNode = encodeBeast2For(Node);
 const decodeNode = decodeBeast2For(Node);
 const sameNode = equalFor(Node);
 
-test("a card dropped on a nested member row is written into its entry, through the field `children` reads — at every depth", () => {
+test("a card dropped on a nested member row is written into its entry, through the field `children` names — at every depth", () => {
     const root = East.compile(East.function([], Plan.Types.Root, ($) => {
         const data = $.const(new Map([["a", treeOf([], [], [])]]), Nodes);
         return Plan.Root({
             axis, data,
-            series: [Plan.series.views(Node, { key: "v", title: "Nodes", children: (n) => n.kids }, [
+            series: [Plan.series.views(Node, { key: "v", title: "Nodes", children: "kids" }, [
                 Plan.series.span(Node, {
-                    key: "v.span", title: "Bars", label: (n) => n.name, runs: () => [],
-                    edit: { items: "jobs", create: (drop) => ({ key: drop.from.key, start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addHours(1n) }) },
+                    key: "v.span", title: "Bars", label: (n) => n.name,
+                    runs: Plan.items("jobs", { from: "start", to: "end" }, (_job, id) => ({ label: id, state: "confirmed" })),
+                    edit: { create: (drop) => ({ start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addHours(1n) }) },
                 }),
                 Plan.series.events(Node, { key: "v.marks", title: "Marks", label: (n) => n.name, marks: () => [] }),
             ])],
@@ -187,11 +180,11 @@ test("a card dropped on a nested member row is written into its entry, through t
         return out?.type === "some" ? decodeNode(out.value) : undefined;
     };
     const top = written(id("v.span", "a"));
-    assert.ok(top !== undefined && sameNode(top, treeOf([DROPPED], [], [])));
+    assert.ok(top !== undefined && sameNode(top, treeOf(DROPPED, [], [])));
     const second = written(id("v.span", "a", "b"));
-    assert.ok(second !== undefined && sameNode(second, treeOf([], [DROPPED], [])));
+    assert.ok(second !== undefined && sameNode(second, treeOf([], DROPPED, [])));
     const third = written(id("v.span", "a", "b", "c"));
-    assert.ok(third !== undefined && sameNode(third, treeOf([], [], [DROPPED])));
+    assert.ok(third !== undefined && sameNode(third, treeOf([], [], DROPPED)));
     // A member that takes no gesture, and an entry the tree lacks — at the end of the path or on the way — write nothing.
     assert.equal(written(id("v.marks", "a", "b")), undefined);
     assert.equal(written(id("v.span", "a", "x")), undefined);
@@ -204,8 +197,9 @@ test("a data series' own walk writes a nested drop, and nothing for a row naming
         return Plan.Root({
             axis, data,
             series: [Plan.series.span(Node, {
-                key: "s", title: "Nodes", label: (n) => n.name, runs: () => [], children: (n) => n.kids,
-                edit: { items: "jobs", create: (drop) => ({ key: drop.from.key, start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addHours(1n) }) },
+                key: "s", title: "Nodes", label: (n) => n.name, children: "kids",
+                runs: Plan.items("jobs", { from: "start", to: "end" }, (_job, id) => ({ label: id, state: "confirmed" })),
+                edit: { create: (drop) => ({ start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addHours(1n) }) },
             })],
             editing: {},
         });
@@ -217,21 +211,7 @@ test("a data series' own walk writes a nested drop, and nothing for a row naming
         return out;
     };
     const nested = written(id("s", "a", "b", "c"));
-    assert.ok(nested?.type === "some" && sameNode(decodeNode(nested.value), treeOf([], [], [DROPPED])));
+    assert.ok(nested?.type === "some" && sameNode(decodeNode(nested.value), treeOf([], [], DROPPED)));
     assert.equal(written(id("s", "a", "x", "c"))?.type, "none");
     assert.equal(written(id("s", "a", "b", "x"))?.type, "none");
-});
-
-test("a member that takes gestures under a computed `children` collection is refused at build — a write could not follow it back", () => {
-    const Rv = StructType({ name: StringType, jobs: ArrayType(Job), parent: OptionType(StringType) });
-    assert.throws(() => East.function([], NullType, ($) => {
-        const all = $.const(new Map(), DictType(StringType, Rv));
-        $(East.value(Plan.series.views(Rv, {
-            key: "v", title: "V",
-            children: (_r, k) => all.filter((_$, c) => c.parent.hasTag("some").and(() => c.parent.unwrap("some").equal(k))),
-        }, [Plan.series.span(Rv, {
-            key: "v.span", title: "Bars", label: (r) => r.name, runs: () => [],
-            edit: { items: "jobs", create: (drop) => ({ key: drop.from.key, start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addHours(1n) }) },
-        })])));
-    }), /a member takes gestures, and one on a child row is written back into its entry through `children` — which must read a field of the entry/);
 });

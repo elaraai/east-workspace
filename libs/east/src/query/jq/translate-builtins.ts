@@ -28,6 +28,7 @@ import {
   SetType, StringType, StructType, isTypeEqual, printType, type EastType,
 } from "../../types.js";
 import { BUILTINS, delPaths, type DelStep } from "./catalog.js";
+import { walkSteps } from "./check.js";
 import { jqTypeNames, nullablePayload, unify, unwrap } from "./shapes.js";
 import { childPath, jqChildren, type JqNode } from "./spans.js";
 import { formatTokens } from "./strftime.js";
@@ -221,10 +222,16 @@ rule("range", (t, c) => {
 
 rule("recurse", (t, c) => {
   if (c.args.length === 0) {
-    // `recurse` is `..`: jq defines both as `recurse(.[]?)`.
-    t.descend(c.$, input(t, c), c.path, c.emit);
+    // `recurse` is `..`: jq defines both as `recurse(.[]?)`. A Dict or an Array of the value's own type, every
+    // value inside it of that type too, is flattenTree's.
+    const v = input(t, c);
+    if (t.flattenWalk(c.$, v, [], t.type(v), c.path, c.emit)) return;
+    t.descend(c.$, v, c.path, c.emit);
     return;
   }
+  // `recurse(.a.b[])` where `.a.b` is a Dict or an Array of the value's own type: flattenTree.
+  const steps = c.args.length === 1 ? walkSteps(c.args[0]!) : undefined;
+  if (steps !== undefined && t.flattenWalk(c.$, input(t, c), steps.fields, outputType(t, c), c.path, c.emit)) return;
   // `recurse(f)`, `recurse(f; cond)`: the value, then f of it, and so on, depth first.
   const type = outputType(t, c);
   const start = t.widenTo(c.$, input(t, c), type, c.path);

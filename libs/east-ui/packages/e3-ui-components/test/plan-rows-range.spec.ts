@@ -44,7 +44,7 @@ async function payloadOf(build: ($: BlockBuilder<typeof PlanPayloadType>) => Exp
 
 /** The jobs as the canvas's rows, through the slice's `rows` source over their interval index — naming a range of their starts, or not. */
 const rowsPlan = (range: boolean) => ($: BlockBuilder<typeof PlanPayloadType>) => {
-    const source = { source: Data.bindPaged(events.planPrintJobs, { indexes: [events.planPrintJobsByTime] }), fields: { start: { label: "Dates" } } };
+    const source = { source: Data.bindPaged(events.planPrintJobs, { indexes: ["plan_print_jobs_by_time"] }), fields: { start: { label: "Dates" } } };
     const slice = $.let(Slice.bindRecords("spec.rows.range", { rows: range ? { ...source, range: "start" as const } : source }));
     return Plan.Payload({
         axis: Plan.axis({ window: WINDOW, resolution: "day" }),
@@ -62,12 +62,12 @@ const rowsPlan = (range: boolean) => ($: BlockBuilder<typeof PlanPayloadType>) =
  */
 const resourcesPlan = (range: boolean) => ($: BlockBuilder<typeof PlanPayloadType>) => {
     const dated = $.let(Data.bind(records.planDatedRows));
-    const jobs = $.let(Record.bind(events.planPrintJobs, [events.planPrintJobsPatch]));
+    const jobs = $.let(Record.bind(events.planPrintJobs, ["patch"]));
     const entries = $.let(Data.bindPaged(events.planPrintJobs));
-    const rows = { source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }), fields: { at: { label: "At" } } };
+    const rows = { source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_at"] }), fields: { at: { label: "At" } } };
     const slice = $.let(Slice.bindRecords("spec.resources.range", {
         dated: range ? { ...rows, range: "at" as const } : rows,
-        job: { source: Data.bindPaged(events.planPrintJobs, { indexes: [events.planPrintJobsByTime] }), fields: { start: { label: "Dates" } }, range: "start" },
+        job: { source: Data.bindPaged(events.planPrintJobs, { indexes: ["plan_print_jobs_by_time"] }), fields: { start: { label: "Dates" } }, range: "start" },
     }));
     return Plan.Payload({
         axis: Plan.axis({ window: WINDOW, resolution: "day" }),

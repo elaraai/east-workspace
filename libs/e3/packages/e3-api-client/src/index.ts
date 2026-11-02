@@ -130,6 +130,8 @@ export {
   workspaceList,
   workspaceCreate,
   workspaceCopy,
+  workspaceBundle,
+  workspaceBundleImport,
   workspaceGet,
   workspaceStatus,
   workspaceStatusSince,

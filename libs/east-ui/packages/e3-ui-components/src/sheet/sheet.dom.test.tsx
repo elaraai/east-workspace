@@ -1314,7 +1314,7 @@ describe("failure is local (#853)", () => {
             fireEvent.click(within(bar).getByRole("button", { name: "Save" }));
             await waitFor(() => expect(confirm()?.textContent).toContain("read-back refused"));
             expect(within(bar).queryByRole("alert")).toBeNull();
-            expect(within(bar).getByRole("status").textContent).toBe("Saved — loading the confirmed revision…");
+            expect(within(bar).getByRole("status").textContent).toBe("Saved — reading it back…");
             expect(within(bar).getByRole("button", { name: "1 issue" })).toBeTruthy();
             expect(held.state.refreshes).toBe(1);
             // Retry asks the source again — the bar's, and then the banner's; the read fails again each time, and the banner says so again.

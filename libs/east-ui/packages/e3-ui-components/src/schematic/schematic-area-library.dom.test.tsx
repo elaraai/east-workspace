@@ -57,12 +57,12 @@ const RACKS_DATASET = `records.${ex.schematicRacks.name}`;
  * name — editable through their patch door; the floor's areas, read whole; and a library of the Backlog.
  */
 const floor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+    const racks = $.let(Record.bind(ex.schematicRacks, ["patch"]));
     const rackEntries = $.let(Data.bindPaged(ex.schematicRacks));
     const areas = $.let(Data.bind(ex.schematicAreas));
     const slice = $.let(Slice.bindRecords(FLOOR, {
         racks: {
-            source: Data.bindPaged(ex.schematicRacks, { indexes: [ex.schematicRacksByArea, ex.schematicRacksByOwnerArea, ex.schematicRacksByName] }),
+            source: Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_area", "schematic_racks_by_owner_area", "schematic_racks_by_name"] }),
             search: ["name"],
             fields: { name: { label: "Rack" }, owner: { label: "Owner", hints: ["Harbour Labs", "Northwind Media", "Elmway College"] } },
         },
@@ -138,7 +138,7 @@ test("a kind read by area pages its Backlog through its area index's unplaced cl
     expect(card(container, "racks", "A06")).toBeNull();
     expect(h.requests("read", RACKS_DATASET)).toEqual([]);
     const indexes = h.requests(undefined, RACKS_DATASET).map((request) => request.query.get("index"));
-    expect(indexes).toContain(ex.schematicRacksByArea.name);
+    expect(indexes).toContain("schematic_racks_by_area");
 });
 
 test("a choice of owners, which an area index leads, narrows the pages exactly: `1 of 2` (#1393, D51)", async () => {
@@ -147,7 +147,7 @@ test("a choice of owners, which an area index leads, narrows the pages exactly: 
     await narrow(new SortedMap([["owner", variant("values", [printText("Elmway College")])]], compareString));
     await waitFor(() => expect(cards(container).map((c) => c.key)).toEqual([rack("A06")]));
     expect(tab(container)).toBe("Backlog 1 of 2");
-    expect(h.requests(undefined, RACKS_DATASET).map((request) => request.query.get("index"))).toContain(ex.schematicRacksByOwnerArea.name);
+    expect(h.requests(undefined, RACKS_DATASET).map((request) => request.query.get("index"))).toContain("schematic_racks_by_owner_area");
 });
 
 test("a choice no area index leads is asked of each page's rows: a row it leaves out draws as context, faded and never dragged (#1393, D51, D28)", async () => {
@@ -196,7 +196,7 @@ const indexRow = (container: HTMLElement, name: string) => [...panel(container).
     .find((row) => row.querySelector("[data-index-name]")!.textContent === name)!;
 
 /** The area index the racks' window reads through, as a request names it. */
-const byArea = (request: { readonly query: URLSearchParams }) => request.query.get("index") === ex.schematicRacksByArea.name;
+const byArea = (request: { readonly query: URLSearchParams }) => request.query.get("index") === "schematic_racks_by_area";
 
 test("an open zone lists the racks its box holds, read through the area index — no read of the record whole — counted once read (#1393, D52)", async () => {
     const { container } = await open();

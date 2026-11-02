@@ -44,14 +44,14 @@ from east import (
 
 ROW = StructType([("id", StringType), ("csv", StringType)])
 KEY = StructType([
-    ("chit", StringType),
-    ("tank", OptionType(StringType)),
+    ("ref", StringType),
+    ("slot", OptionType(StringType)),
     ("side", StringType),
 ])
 # What the reported function actually emitted: a bare String in the Option slot.
-BAD_KEY_FUNCTION = East.function([ROW], StructType([("chit", StringType), ("tank", StringType), ("side", StringType)]), lambda _b, r: {
-    "chit": r["id"],
-    "tank": r["csv"],
+BAD_KEY_FUNCTION = East.function([ROW], StructType([("ref", StringType), ("slot", StringType), ("side", StringType)]), lambda _b, r: {
+    "ref": r["id"],
+    "slot": r["csv"],
     "side": "from",
 })
 

@@ -78,9 +78,9 @@ const JOBS = datasetPathToString(ex.planWindowJobs.path);
 const RUNS = datasetPathToString(ex.planWindowRuns.path);
 const PRESSES = datasetPathToString(ex.planWindowPresses.output.path);
 /** The jobs' day index and backlog index, and the runs' day index. */
-const BY_DAY = ex.planWindowJobsByDay.name;
-const UNSCHEDULED = ex.planWindowJobsUnscheduled.name;
-const RUNS_BY_DAY = ex.planWindowRunsByDay.name;
+const BY_DAY = "plan_window_jobs_by_day";
+const UNSCHEDULED = "plan_window_jobs_unscheduled";
+const RUNS_BY_DAY = "plan_window_runs_by_day";
 
 /** Whether a request searches, or pages, a dataset — through an index, or its own entries when none is named. */
 const finds = (dataset: string, index?: string) => (request: E3Request) =>
@@ -107,9 +107,9 @@ async function hashOf(path: TreePath): Promise<string> {
 
 /** The jobs' kind as the example declares them for a Plan with no rail: read by day, its backlog by its index, one job by key. */
 function windowedJobs($: BlockBuilder<EastType>) {
-    const jobs = $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
-    const days = $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsByDay, join: true }));
-    const backlog = $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsUnscheduled, join: true }));
+    const jobs = $.let(Record.bind(ex.planWindowJobs, ["patch"]));
+    const days = $.let(Data.bindPaged(ex.planWindowJobs, { index: "plan_window_jobs_by_day", join: true }));
+    const backlog = $.let(Data.bindPaged(ex.planWindowJobs, { index: "plan_window_jobs_unscheduled", join: true }));
     const entries = $.let(Data.bindPaged(ex.planWindowJobs));
     return Schedule.events(jobs, {
         name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -121,7 +121,7 @@ function windowedJobs($: BlockBuilder<EastType>) {
 
 /** The jobs' kind as the windows example declares it beside its rail (#1039): narrowed through its source of the slice, one job read by its key. */
 function railJobs($: BlockBuilder<EastType>) {
-    const jobs = $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.let(Record.bind(ex.planWindowJobs, ["patch"]));
     const entries = $.let(Data.bindPaged(ex.planWindowJobs));
     return Schedule.events(jobs, {
         name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -133,7 +133,7 @@ function railJobs($: BlockBuilder<EastType>) {
 
 /** The same jobs read whole: the kind declared the same way, with no window. */
 function wholeJobs($: BlockBuilder<EastType>) {
-    const jobs = $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.let(Record.bind(ex.planWindowJobs, ["patch"]));
     return Schedule.events(jobs, {
         name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
         resource: { field: "press", of: "presses" }, state: "state",
@@ -149,7 +149,7 @@ async function kindOf(declare: ($: BlockBuilder<EastType>) => { buildPlan(slot: 
 }
 
 /** The day index as the kind reads it, its entries joined to their rows. */
-const dayIndex = Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsByDay, join: true });
+const dayIndex = Data.bindPaged(ex.planWindowJobs, { index: "plan_window_jobs_by_day", join: true });
 const dayIndexProgram = East.function([], Expr.type(dayIndex), ($) => $.return(dayIndex));
 
 const at = (text: string): Date => new Date(text);
@@ -237,9 +237,9 @@ describe("an event kind read by its day index (PB54)", () => {
         ], compareString);
         await h.patch(ex.planWindowRuns, runs);
         const kind = await kindOf(($) => {
-            const bound = $.let(Record.bind(ex.planWindowRuns, [ex.planWindowRunsPatch]));
-            const window = $.let(Data.bindPaged(ex.planWindowRuns, { index: ex.planWindowRunsByDay, join: true }));
-            const backlogWindow = $.let(Data.bindPaged(ex.planWindowRuns, { index: ex.planWindowRunsUnscheduled, join: true }));
+            const bound = $.let(Record.bind(ex.planWindowRuns, ["patch"]));
+            const window = $.let(Data.bindPaged(ex.planWindowRuns, { index: "plan_window_runs_by_day", join: true }));
+            const backlogWindow = $.let(Data.bindPaged(ex.planWindowRuns, { index: "plan_window_runs_unscheduled", join: true }));
             const entries = $.let(Data.bindPaged(ex.planWindowRuns));
             return Schedule.events(bound, {
                 name: "Print run", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -436,7 +436,7 @@ describe("a resource kind paged on the canvas (PB55)", () => {
     const program = East.function([], PlanPayloadType, ($) => {
         const presses = $.let(Data.bindPaged(ex.planWindowPresses));
         const slice = $.let(Slice.bindRecords("spec.windows.paged", {
-            job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth] }), range: "start" },
+            job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }), range: "start" },
         }));
         return Plan.Payload({
             axis: Plan.axis({ window: AXIS_WINDOW, resolution: "day" }),
@@ -454,7 +454,7 @@ describe("a resource kind paged on the canvas (PB55)", () => {
     const measured = East.function([], PlanPayloadType, ($) => {
         const presses = $.let(Data.bindPaged(ex.planWindowPresses));
         const slice = $.let(Slice.bindRecords("spec.windows.measured", {
-            job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth] }), range: "start" },
+            job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }), range: "start" },
         }));
         return Plan.Payload({
             axis: Plan.axis({ window: AXIS_WINDOW, resolution: "day" }),
@@ -603,7 +603,7 @@ describe("a kind's window counted first, and read only within the cap (#1039)", 
     /** The week after the proofs, Monday 12 to Monday 19 October, and its seven jobs. */
     const AFTER = ["2026-10-12T00:00:00Z", "2026-10-19T00:00:00Z"] as const;
     const AFTER_JOBS = ["W-0005", "W-0006", "W-0007", "W-0008", "W-0010", "W-0012", "W-0013"];
-    const INTERVAL = ex.planWindowJobsByTime.name;
+    const INTERVAL = "plan_window_jobs_by_time";
     const countEqual = equalFor(OptionType(IntegerType));
 
     /** Another session's 10,001 proofs on the Monday, a minute each, thirty presses in turn: past the cap, with the fortnight's jobs. */
@@ -626,7 +626,7 @@ describe("a kind's window counted first, and read only within the cap (#1039)", 
     const narrowed = East.function([], PlanPayloadType, ($) => {
         const presses = $.let(Data.bind(ex.planWindowPresses));
         const slice = $.let(Slice.bindRecords("spec.windows.counted", {
-            job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime] }), range: "start" },
+            job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time"] }), range: "start" },
         }));
         return Plan.Payload({
             axis: Plan.axis({ window: { min: at(FORTNIGHT[0]), max: at(FORTNIGHT[1]) }, resolution: "day" }),
@@ -710,9 +710,9 @@ describe("a kind's window counted first, and read only within the cap (#1039)", 
 describe("a window that reads no rows", () => {
     test("is refused as it is read, naming `join: true`", async () => {
         const jobs = await kindOf(($) => {
-            const bound = $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
-            const days = $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsByDay }));
-            const backlog = $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsUnscheduled, join: true }));
+            const bound = $.let(Record.bind(ex.planWindowJobs, ["patch"]));
+            const days = $.let(Data.bindPaged(ex.planWindowJobs, { index: "plan_window_jobs_by_day" }));
+            const backlog = $.let(Data.bindPaged(ex.planWindowJobs, { index: "plan_window_jobs_unscheduled", join: true }));
             const all = $.let(Data.bindPaged(ex.planWindowJobs));
             return Schedule.events(bound, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",

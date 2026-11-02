@@ -48,6 +48,12 @@ test("no-unexecuted: silent when the value is bound to a const", () => {
   assert.equal(rule(wrap("  const x = $.let(0n, IntegerType);"), "no-unexecuted-east-expression").length, 0);
 });
 
+test("no-unexecuted: silent when the value is assigned to a variable, as a choice between two functions is", () => {
+  const src = `${PRELUDE}let g = East.function([IntegerType], IntegerType, ($, x) => x);\n` +
+    `if (Math.random() > 2) {\n  g = East.function([IntegerType], IntegerType, ($, x) => x.add(1n));\n}\nexport { g };\n`;
+  assert.deepEqual(rule(src, "no-unexecuted-east-expression"), []);
+});
+
 // ── no-reinlined-east-binding ───────────────────────────────────────
 test("no-reinlined: flags a JS-const East expr used twice in a block", () => {
   assert.equal(

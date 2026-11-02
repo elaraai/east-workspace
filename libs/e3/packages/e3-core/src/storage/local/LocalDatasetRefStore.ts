@@ -24,7 +24,7 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { encodeBeast2For, decodeBeast2For, variant, StructType, StringType } from '@elaraai/east';
 import { DatasetRefType, type DatasetRef } from '@elaraai/e3-types';
-import { DatasetRefConflictError, checkName } from '../../errors.js';
+import { DatasetRefConflictError, checkName, isNotFoundError } from '../../errors.js';
 import { OBJECT_CONCURRENCY, eachAtMost } from '../../concurrency.js';
 import { acquireWorkspaceLock } from './LocalLockService.js';
 import { atomicWriteFile, isTransientFsError, moveRevision, workspaceRevisionPath } from './localHelpers.js';
@@ -66,8 +66,8 @@ export class LocalDatasetRefStore implements DatasetRefStore {
   private async readBytes(filePath: string): Promise<Buffer | null> {
     try {
       return await fs.readFile(filePath);
-    } catch (err: any) {
-      if (err.code === 'ENOENT') return null;
+    } catch (err) {
+      if (isNotFoundError(err)) return null;
       throw err;
     }
   }
@@ -231,8 +231,8 @@ export class LocalDatasetRefStore implements DatasetRefStore {
 
     try {
       await this.walkDir(dataDir, dataDir, paths);
-    } catch (err: any) {
-      if (err.code === 'ENOENT') return [];
+    } catch (err) {
+      if (isNotFoundError(err)) return [];
       throw err;
     }
 
@@ -297,8 +297,8 @@ export class LocalDatasetRefStore implements DatasetRefStore {
     const filePath = this.refPath(repo, ws, datasetPath);
     try {
       await fs.unlink(filePath);
-    } catch (err: any) {
-      if (err.code === 'ENOENT') return; // Already removed
+    } catch (err) {
+      if (isNotFoundError(err)) return; // Already removed
       throw err;
     }
     await moveRevision(workspaceRevisionPath(repo, ws));
@@ -308,8 +308,8 @@ export class LocalDatasetRefStore implements DatasetRefStore {
     const dataDir = this.dataDir(repo, ws);
     try {
       await fs.rm(dataDir, { recursive: true, force: true });
-    } catch (err: any) {
-      if (err.code === 'ENOENT') return; // Already removed
+    } catch (err) {
+      if (isNotFoundError(err)) return; // Already removed
       throw err;
     }
     await moveRevision(workspaceRevisionPath(repo, ws));

@@ -16,7 +16,6 @@ import {
   WorkspaceLockError,
   coreEventToApiEvent,
   summaryToApiStatus,
-  type ApiDataflowEvent,
   type WorkspaceStatusResult as CoreWorkspaceStatusResult,
   type DatasetStatusInfo as CoreDatasetStatusInfo,
   type TaskStatusInfo as CoreTaskStatusInfo,
@@ -413,58 +412,6 @@ export async function getTaskLogs(
   }
 }
 
-/** An API-visible event as the poll serves it. */
-function apiEventValue(apiEvent: ApiDataflowEvent): DataflowExecutionState['events'][number] {
-  switch (apiEvent.type) {
-    case 'start':
-      return variant('start', {
-        task: apiEvent.task,
-        timestamp: apiEvent.timestamp,
-      });
-    case 'complete':
-      return variant('complete', {
-        task: apiEvent.task,
-        timestamp: apiEvent.timestamp,
-        duration: apiEvent.duration ?? 0,
-        peakBytes: apiEvent.peakBytes === undefined ? none : some(apiEvent.peakBytes),
-      });
-    case 'cached':
-      return variant('cached', {
-        task: apiEvent.task,
-        timestamp: apiEvent.timestamp,
-      });
-    case 'failed':
-      return variant('failed', {
-        task: apiEvent.task,
-        timestamp: apiEvent.timestamp,
-        duration: apiEvent.duration ?? 0,
-        exitCode: apiEvent.exitCode ?? BigInt(-1),
-      });
-    case 'error':
-      return variant('error', {
-        task: apiEvent.task,
-        timestamp: apiEvent.timestamp,
-        message: apiEvent.message ?? 'Unknown error',
-      });
-    case 'input_unavailable':
-      return variant('input_unavailable', {
-        task: apiEvent.task,
-        timestamp: apiEvent.timestamp,
-        reason: apiEvent.reason ?? 'Upstream task failed',
-      });
-    case 'requeued':
-      // coreEventToApiEvent gives a requeue each of these.
-      return variant('requeued', {
-        task: apiEvent.task,
-        timestamp: apiEvent.timestamp,
-        unit: apiEvent.unit!,
-        reason: variant(apiEvent.requeueReason!, null),
-        peak: apiEvent.peak!,
-        reserves: apiEvent.reserves!,
-      });
-  }
-}
-
 /** Whether one event sequence number comes before another. */
 const seqBefore = lessFor(IntegerType);
 
@@ -555,7 +502,7 @@ export async function getDataflowExecution(
           const apiEvent = coreEventToApiEvent(event);
           if (apiEvent !== null) {
             if (apiEvents.length >= limit) break paging;
-            apiEvents.push(apiEventValue(apiEvent));
+            apiEvents.push(apiEvent);
           }
           nextSeq = event.value.seq;
         }
@@ -615,11 +562,6 @@ export async function getDataflowExecution(
     summary = none;
   }
 
-  // Get completedAt value (handle Option type)
-  const completedAtValue = run.completedAt.type === 'some'
-    ? some(run.completedAt.value.toISOString())
-    : none;
-
   // The waits and each split task's progress, while the run is in flight:
   // nothing stores them, so the orchestrator answers them from its memory
   // where it runs the run, and has none of a run it does not hold.
@@ -635,8 +577,8 @@ export async function getDataflowExecution(
   const state: DataflowExecutionState = {
     runId: run.id,
     status,
-    startedAt: run.startedAt.toISOString(),
-    completedAt: completedAtValue,
+    startedAt: run.startedAt,
+    completedAt: run.completedAt,
     summary,
     events: apiEvents,
     nextSeq,

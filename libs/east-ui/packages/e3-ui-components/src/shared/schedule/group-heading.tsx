@@ -8,15 +8,18 @@ import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faChevronRight } from "@fortawesome/free-solid-svg-icons";
 import { usePersistedState } from "@elaraai/east-ui-components";
+import { keptRead } from "@elaraai/east-ui-components/internal";
 
 /**
  * A group's fold follows its surface through layouts, resizes and remounts. Its `toggle` is the same function while the
  * fold's store is, so a row that draws a band draws again only as its fold changes (#1398, CL9).
  */
 export function useGroupCollapse(surface: string) {
-    const { state: collapsed, setState: setCollapsed } = usePersistedState<string[]>(`${surface}.collapsed-groups`, []);
+    const { state: collapsed, setState: setCollapsed } = usePersistedState<string[]>(`${surface}.collapsed-groups`, [], keptRead.array(keptRead.string));
     const toggle = useCallback((group: string) => setCollapsed(current => current.includes(group) ? current.filter(key => key !== group) : [...current, group]), [setCollapsed]);
-    return { collapsed, toggle };
+    // A group opened to show a row of it, as a Go to shows one: an open group stays as it is.
+    const open = useCallback((group: string) => setCollapsed(current => current.includes(group) ? current.filter(key => key !== group) : current), [setCollapsed]);
+    return { collapsed, toggle, open };
 }
 
 /**

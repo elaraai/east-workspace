@@ -99,9 +99,10 @@ export function packageTransferTests(setup: TestSetup<TestContext>): void {
       try {
         await packageImport(ctx.config.baseUrl, ctx.repoName, exported, opts);
         // If it succeeds (idempotent), that's fine too
-      } catch (err: any) {
+      } catch (err) {
         // PackageExistsError is expected
-        assert.ok(err.code === 'package_exists' || err.message.includes('already exists'),
+        assert.ok(err instanceof Error, `Unexpected error: ${String(err)}`);
+        assert.ok((err instanceof ApiError && err.code === 'package_exists') || err.message.includes('already exists'),
           `Unexpected error: ${err.message}`);
       }
     });
@@ -136,7 +137,7 @@ export function packageTransferTests(setup: TestSetup<TestContext>): void {
 
       await assert.rejects(
         () => packageExport(ctx.config.baseUrl, ctx.repoName, 'no-such-pkg', '9.9.9', opts),
-        (err: any) => {
+        (err: unknown) => {
           assert.ok(err instanceof ApiError);
           assert.strictEqual(err.code, 'package_not_found');
           return true;
@@ -203,9 +204,9 @@ export function packageTransferTests(setup: TestSetup<TestContext>): void {
 
       await assert.rejects(
         () => packageImport(ctx.config.baseUrl, ctx.repoName, garbage, opts),
-        (err: any) => {
+        (err: unknown) => {
           // Import should fail — either ApiError or Error with failure message
-          assert.ok(err instanceof Error, `Expected Error, got ${err}`);
+          assert.ok(err instanceof Error, `Expected Error, got ${String(err)}`);
           return true;
         }
       );

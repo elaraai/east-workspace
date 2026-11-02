@@ -15,11 +15,7 @@ import e3 from "@elaraai/e3";
 import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
 import { Data, Func, Record, Roster, Schedule } from "@elaraai/e3-ui";
 import { WarehouseDuty } from "./warehouse.js";
-import {
-    rosterActivities, rosterActivitiesByGroup, rosterAgencies, rosterCover, rosterCoverPatch, rosterDuties, rosterDutiesByTime, rosterDutiesPatch,
-    rosterPatterns, rosterPositions, rosterShiftTimes, rosterStaff, rosterStaffByAgency, rosterStaffByName, rosterStaffByPosition, rosterStaffBySkill,
-    rosterStaffByTeamName, rosterStaffByTrainer, rosterStaffFit, rosterSuggestions, rosterTeams, rosterWeeks, rosterWeeksPatch,
-} from "./roster.examples.js";
+import { rosterActivities, rosterAgencies, rosterCover, rosterDuties, rosterPatterns, rosterPositions, rosterShiftTimes, rosterStaff, rosterStaffFit, rosterSuggestions, rosterTeams, rosterWeeks } from "./roster.examples.js";
 
 /** One person on one day of the week: who is booked when, so a run never books the same person twice on a day. */
 const Booked = StructType({ day: IntegerType, person: StringType });
@@ -123,16 +119,16 @@ export const rosterOptimise = example({
     inputs: [], description: "The warehouse roster with the Elara eye (#1409): `optimise` is Func.bind of the warehouse's optimiser on e3 — Roster.Types.OptimiseRequest(WarehouseDuty) in, the week in view, the run number, the week's duties as drafted, its targets by slot and the Roster's context; Roster.Types.OptimiseResult(WarehouseDuty) out, the duties complete: every slot short of its heads filled from the people of its group, then everyone to their contract from their usual shift — on any week, an empty one too — within their contract and ten hours clear of their other duties. A click on the eye runs it once over the week; the result lands in the session as one edit, which one Undo reverts and Save commits with everything else.",
     keywords: ["Roster", "optimise", "Optimise", "Elara", "OptimiseRequest", "OptimiseResult", "Func.bind", "e3.function", "one edit", "Undo", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Roster.patterns", "people", "week", "fit"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const rota = $.let(Record.bind(rosterDuties, [rosterDutiesPatch]));
+        const rota = $.let(Record.bind(rosterDuties));
         const entries = $.let(Data.bindPaged(rosterDuties));
-        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: [rosterDutiesByTime] }));
-        const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));
-        const cover = $.let(Record.bind(rosterCover, [rosterCoverPatch]));
+        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] }));
+        const weeks = $.let(Record.bind(rosterWeeks));
+        const cover = $.let(Record.bind(rosterCover));
         // Every person and activity is the calculation scope — and the optimiser's: the narrowing only chooses which show (#1342).
         const people = $.let(Data.bind(rosterStaff));
         const acts = $.let(Data.bind(rosterActivities));
-        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
-        const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
+        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: ["roster_staff_by_team_name", "roster_staff_by_position", "roster_staff_by_trainer", "roster_staff_by_agency", "roster_staff_by_skill", "roster_staff_by_name"] }));
+        const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: ["roster_activities_by_group"] }));
         const slice = $.let(Slice.bindRecords("ex.rosterOptimise", {
             duty: { source: byTime, range: "start" },
             people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],

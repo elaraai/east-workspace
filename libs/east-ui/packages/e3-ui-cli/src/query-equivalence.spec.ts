@@ -69,6 +69,11 @@
  * numpy, whose OpenBLAS otherwise starts a spinning thread a core as it
  * loads — about a second of CPU a unit on a many-core machine, for nothing a
  * query runs.
+ *
+ * `E3_UI_QUERY_PART=k/n` asks a part of the queries: every n-th from the k-th,
+ * in their order, over repositories of the part's own. CI asks its parts in
+ * jobs side by side (#1466): the queries are some minutes of calls, the most
+ * of them east-node's, which starts a process a unit.
  */
 
 import { describe, it, before, after, type TestContext } from 'node:test';
@@ -99,6 +104,25 @@ import * as bench from './testing/query-bench.js';
 import { assertThisTreesRunner, runnerFile } from './testing/runners.js';
 
 const enabled = process.env['E3_UI_INTEGRATION'] === '1';
+
+/**
+ * A part of the queries, `k/n` (`E3_UI_QUERY_PART`): every n-th from the k-th.
+ *
+ * @param text - The part, `k/n` with k from 1 to n; unset or empty asks every query
+ * @returns The part's place and how many parts there are
+ * @throws {Error} When the text is not a part
+ */
+function queryPart(text: string | undefined): { readonly part: number; readonly of: number } {
+    if (text === undefined || text === '') return { part: 1, of: 1 };
+    const match = /^([1-9]\d*)\/([1-9]\d*)$/.exec(text);
+    const part = Number(match?.[1]);
+    const of = Number(match?.[2]);
+    if (match === null || part > of) throw new Error(`E3_UI_QUERY_PART is k/n, k from 1 to n, not ${text}`);
+    return { part, of };
+}
+
+/** The part of the queries this run asks. */
+const PART = queryPart(process.env['E3_UI_QUERY_PART']);
 
 // ─── The fixture: its types, as `libs/east/test/query.fixture.ts` writes them ─
 
@@ -840,7 +864,8 @@ describe('query plans answer as one unit does (E3_UI_INTEGRATION=1)', { skip: !e
         assert.ok(corpus.split.length > 0, 'some corpus queries split');
     });
 
-    for (const asked of [...corpus.split, ...BENCH, ...JOINS]) {
+    for (const [index, asked] of [...corpus.split, ...BENCH, ...JOINS].entries()) {
+        if (index % PART.of !== PART.part - 1) continue;
         const which = asked.workspace === 'corpus' ? 'corpus' : asked.workspace === 'bench' ? 'benchmark' : 'join';
         it(`${which} ${asked.label}: the split calls answer as one unit does, and every runner at every -j runs the same units`, (t) => equivalence(t, asked));
     }

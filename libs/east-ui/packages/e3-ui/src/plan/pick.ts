@@ -77,46 +77,59 @@ export interface PlanPickOptions {
     hidden?: readonly string[];
 }
 
-/** The shared accessors — see {@link createPlanPick}. */
+/** One arm's identity, with the KIND's glyph when the series declares none. */
+const ident = (v: ExprType<StructType>, tag: PlanSeriesArm) => East.value({
+    key:      v["key"] as SubtypeExprOrValue<StringType>,
+    title:    v["title"] as SubtypeExprOrValue<StringType>,
+    subtitle: v["subtitle"] as SubtypeExprOrValue<OptionType<StringType>>,
+    icon:     (v["icon"] as ExprType<OptionType<IconType>>).match({
+        some: (_$, ic) => East.value(some(ic), OptionType(IconType)),
+        none: (_$) => East.value(
+            some({ name: KIND_ICONS[tag], prefix: "fas", label: none, style: none }),
+            OptionType(IconType)),
+    }),
+}, PlanSeriesIdentityType);
+
+/**
+ * A series' identity: ONE reified match, which each accessor calls — every
+ * arm carries the same four fields, so matching per accessor would build four
+ * copies of the same traversal (`shared/reify.ts`: reify once, then call). The
+ * arms are spelled out rather than generated, mirroring `applySeriesValue` —
+ * an arm added to the variant should fail this match, not fall through a
+ * computed map.
+ *
+ * @param itemType - The series' type, as the list holding them gives it
+ * @returns The function
+ */
+const seriesIdentity = (itemType: EastType) => East.function([itemType], PlanSeriesIdentityType, (_$, s) =>
+    (s as unknown as PlanSeriesValue).match({
+        span:    (_$2, v) => ident(v as unknown as ExprType<StructType>, "span"),
+        buckets: (_$2, v) => ident(v as unknown as ExprType<StructType>, "buckets"),
+        chart:   (_$2, v) => ident(v as unknown as ExprType<StructType>, "chart"),
+        heat:    (_$2, v) => ident(v as unknown as ExprType<StructType>, "heat"),
+        table:   (_$2, v) => ident(v as unknown as ExprType<StructType>, "table"),
+        cards:   (_$2, v) => ident(v as unknown as ExprType<StructType>, "cards"),
+        events:  (_$2, v) => ident(v as unknown as ExprType<StructType>, "events"),
+        group:   (_$2, v) => ident(v as unknown as ExprType<StructType>, "group"),
+        section: (_$2, v) => ident(v as unknown as ExprType<StructType>, "section"),
+        views:   (_$2, v) => ident(v as unknown as ExprType<StructType>, "views"),
+        rows:    (_$2, v) => ident(v as unknown as ExprType<StructType>, "rows"),
+    }) as never);
+
+/**
+ * The shared accessors — see {@link createPlanPick} — each calling the series'
+ * identity held in the block they are built in: a function written into each
+ * would write its match over every series kind out once an accessor, and the
+ * pick's derivations call them five times.
+ *
+ * @param identityOf - The series' identity ({@link seriesIdentity}), held in a variable
+ * @param options - The initial hidden set
+ * @returns The accessors
+ */
 function planPickOptions(
-    allExpr: ExprType<ArrayType<EastType>>,
+    identityOf: (s: ExprType<EastType>) => ExprType<typeof PlanSeriesIdentityType>,
     options?: PlanPickOptions,
 ): PickOptions<EastType> {
-    const itemType: EastType = (Expr.type(allExpr) as ArrayType<EastType>).value;
-
-    /** One arm's identity, with the KIND's glyph when the series declares none. */
-    const ident = (v: ExprType<StructType>, tag: PlanSeriesArm) => East.value({
-        key:      v["key"] as SubtypeExprOrValue<StringType>,
-        title:    v["title"] as SubtypeExprOrValue<StringType>,
-        subtitle: v["subtitle"] as SubtypeExprOrValue<OptionType<StringType>>,
-        icon:     (v["icon"] as ExprType<OptionType<IconType>>).match({
-            some: (_$, ic) => East.value(some(ic), OptionType(IconType)),
-            none: (_$) => East.value(
-                some({ name: KIND_ICONS[tag], prefix: "fas", label: none, style: none }),
-                OptionType(IconType)),
-        }),
-    }, PlanSeriesIdentityType);
-
-    // ONE reified match, CALLED by each accessor — every arm carries the same
-    // four fields, so matching per accessor would build four copies of the same
-    // traversal (`shared/reify.ts`: reify once, then call). The arms are spelled
-    // out rather than generated, mirroring `applySeriesValue` — an arm added to
-    // the variant should fail this match, not fall through a computed map.
-    const identityOf = East.function([itemType], PlanSeriesIdentityType, (_$, s) =>
-        (s as unknown as PlanSeriesValue).match({
-            span:    (_$2, v) => ident(v as unknown as ExprType<StructType>, "span"),
-            buckets: (_$2, v) => ident(v as unknown as ExprType<StructType>, "buckets"),
-            chart:   (_$2, v) => ident(v as unknown as ExprType<StructType>, "chart"),
-            heat:    (_$2, v) => ident(v as unknown as ExprType<StructType>, "heat"),
-            table:   (_$2, v) => ident(v as unknown as ExprType<StructType>, "table"),
-            cards:   (_$2, v) => ident(v as unknown as ExprType<StructType>, "cards"),
-            events:  (_$2, v) => ident(v as unknown as ExprType<StructType>, "events"),
-            group:   (_$2, v) => ident(v as unknown as ExprType<StructType>, "group"),
-            section: (_$2, v) => ident(v as unknown as ExprType<StructType>, "section"),
-            views:   (_$2, v) => ident(v as unknown as ExprType<StructType>, "views"),
-            rows:    (_$2, v) => ident(v as unknown as ExprType<StructType>, "rows"),
-        }) as never);
-
     return {
         id:       (s) => identityOf(s).key,
         title:    (s) => identityOf(s).title,
@@ -144,9 +157,11 @@ function planPickOptions(
  * The handle is STATE (`State.bind` underneath), so it is built inside a
  * `Reactive`. Pass it to the canvas as `pick`, in place of `series`: the Plan
  * shows the picked series, and its library's Series tab
- * (`Plan.library.series()`) lists them, each with its eye. The data flagship,
- * `planTargetState`, picks its whole series list this way, one hidden to
- * start.
+ * (`Plan.library.series()`) lists them, each with its eye. What a viewer
+ * switches there is kept under `key` in the browser's storage, so a reload
+ * opens the series as they were left; a pick the tab never wrote opens with
+ * `hidden`. The data flagship, `planTargetState`, picks its whole series list
+ * this way, one hidden to start.
  *
  * @param key - The store key; also the persistence key
  * @param all - Every series that COULD show, in layout order
@@ -160,10 +175,32 @@ export function createPlanPick(
 ): PickHandle<ReturnType<typeof PlanSeriesType>> {
     checkSeries(all, "Plan.pick");
     const allExpr = East.value(all as SubtypeExprOrValue<ArrayType<EastType>>) as ExprType<ArrayType<EastType>>;
+    const itemType: EastType = (Expr.type(allExpr) as ArrayType<EastType>).value;
     // Typed at the SERIES shape, not the erased element type: that is what
     // makes `Pick.active(shown)` assignable straight back to the `series` prop.
-    return createPickBind(key, allExpr, planPickOptions(allExpr, options)) as unknown as
-        PickHandle<ReturnType<typeof PlanSeriesType>>;
+    // Built in a block of its own, which holds the series' identity once.
+    const pick = Expr.block(($) => {
+        const identityOf = $.const(seriesIdentity(itemType));
+        return createPickBind(key, allExpr, planPickOptions(identityOf, options));
+    }) as unknown as PickHandle<ReturnType<typeof PlanSeriesType>>;
+    if (Array.isArray(all)) PICKED.set(pick, all);
+    return pick;
+}
+
+/** The series each pick was built from, where `Plan.pick` was given them as a list (#1438). */
+const PICKED = new WeakMap<object, readonly unknown[]>();
+
+/**
+ * The series a pick was built from, as they were written (#1438): a Plan over
+ * a record's paged rows holds them to the rows' nested series index as it
+ * holds its `series`, and reads what each reads a cell at a time.
+ *
+ * @param pick - The pick
+ * @returns The list `Plan.pick` was given; `undefined` where it was given an East expression of one
+ * @internal
+ */
+export function pickedSeriesOf(pick: object): readonly unknown[] | undefined {
+    return PICKED.get(pick);
 }
 
 /**
@@ -181,5 +218,6 @@ export function createPlanPick(
 export function createPlanPickItems(all: PlanSeriesInput): ExprType<ArrayType<PickItemType>> {
     checkSeries(all, "Plan.pickItems");
     const allExpr = East.value(all as SubtypeExprOrValue<ArrayType<EastType>>) as ExprType<ArrayType<EastType>>;
-    return pickItems(allExpr, planPickOptions(allExpr));
+    const itemType: EastType = (Expr.type(allExpr) as ArrayType<EastType>).value;
+    return Expr.block(($) => pickItems(allExpr, planPickOptions($.const(seriesIdentity(itemType)))));
 }

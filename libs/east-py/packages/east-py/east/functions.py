@@ -46,6 +46,8 @@ __all__ = [
     "PlatformDependencyType",
     "FunctionExportType",
     "FunctionManifestType",
+    "FunctionExportBatchEntryType",
+    "FunctionExportBatchType",
     "function_ir",
     "platform_dependencies",
     "export_functions",
@@ -92,6 +94,23 @@ FunctionManifestType = StructType([
     ("package", StringType),
     ("version", StringType),
 ])
+
+#: One manifest an ``export-functions`` process writes from a batch
+#: (``--batch <file>``): the functions it exports (``only``, every one when
+#: empty), the platform packages providing their platform calls
+#: (``packages``, as ``-p`` names them) and the file it is written to
+#: (``output``, relative to the batch's directory). The module is imported
+#: once for the whole batch, and each entry's manifest is byte for byte what
+#: ``-o <output> -p … --only …`` writes alone.
+FunctionExportBatchEntryType = StructType([
+    ("only", ArrayType(StringType)),
+    ("output", StringType),
+    ("packages", ArrayType(StringType)),
+])
+
+#: The batch ``export-functions --batch`` reads: one manifest per entry,
+#: written in order.
+FunctionExportBatchType = ArrayType(FunctionExportBatchEntryType)
 
 
 # ── the IR behind a function ─────────────────────────────────────────────────
@@ -150,7 +169,8 @@ def _walk(node: Any, visit: Any) -> None:
         for _name, child in node.items():
             _walk(child, visit)
         return
-    if is_east_array(node) or isinstance(node, (list, tuple)):
+    # a python list first: EastArray's isinstance is an ABC's, a python call
+    if isinstance(node, (list, tuple)) or is_east_array(node):
         for child in node:
             _walk(child, visit)
 
@@ -187,6 +207,10 @@ def platform_dependencies(fn_or_ir: Any, providers: dict[str, str] | None = None
     signature and asyncness each ``Platform`` node carries. Unresolved imports
     (:data:`IMPORT_PLATFORM`) are not dependencies and are skipped.
 
+    A built function answers from its skeleton, where the platform calls of
+    the functions it calls are found without expanding it: an export asks
+    before it expands each function, which it does once (#1459).
+
     Args:
         fn_or_ir: An ``East.function`` artifact, expression, or IR value.
         providers: Platform name → the package that implements it, when known.
@@ -194,18 +218,24 @@ def platform_dependencies(fn_or_ir: Any, providers: dict[str, str] | None = None
     Returns:
         An ``EastArray`` of ``PlatformDependencyType`` values.
     """
-    ir = function_ir(fn_or_ir)
-    providers = providers or {}
-    seen: dict[str, Any] = {}
+    skeleton = None if is_east_variant(fn_or_ir) else getattr(fn_or_ir, "_east_skeleton", None)
+    if skeleton is not None:
+        calls = skeleton.calls
+    else:
+        calls = {}
 
-    def visit(node: Any) -> None:
-        if node.type != "Platform":
-            return
+        def visit(node: Any) -> None:
+            if node.type == "Platform":
+                calls.setdefault(node.value["name"], node)
+
+        _walk(function_ir(fn_or_ir), visit)
+    providers = providers or {}
+    dependencies: list[EastStruct] = []
+    for name, node in calls.items():
+        if name == IMPORT_PLATFORM:
+            continue
         p = node.value
-        name = p["name"]
-        if name == IMPORT_PLATFORM or name in seen:
-            return
-        seen[name] = EastStruct({
+        dependencies.append(EastStruct({
             "async": bool(p["async"]),
             "inputs": EastArray(EastTypeType, [a.value["type"] for a in p["arguments"]]),
             "name": name,
@@ -213,10 +243,8 @@ def platform_dependencies(fn_or_ir: Any, providers: dict[str, str] | None = None
             "output": p["type"],
             "provider": some(providers[name]) if name in providers else none,
             "type_parameters": EastArray(EastTypeType, list(p["type_parameters"])),
-        })
-
-    _walk(ir, visit)
-    return EastArray(PlatformDependencyType, list(seen.values()))
+        }))
+    return EastArray(PlatformDependencyType, dependencies)
 
 
 # ── export ───────────────────────────────────────────────────────────────────
@@ -236,7 +264,10 @@ def export_functions(package: str, version: str, functions: dict[str, Any],
     locations its IR names, renumbered into a source map of its own, so the
     frames of an error or a profile name its python source wherever it is
     linked (#1271); a bare IR value, which carries no map, exports without
-    locations.
+    locations. A built function is expanded from its skeleton, once, into the
+    IR its final form holds, so a function only called by the exported ones
+    is never finalized (#1459); and the manifest writes each distinct type
+    once, every node of it sharing the one value.
 
     Args:
         package: The exporting package's name (what importers name).
@@ -255,44 +286,63 @@ def export_functions(package: str, version: str, functions: dict[str, Any],
         manifest = East.export_functions("maths", "1.0.0", {"double": double})
         Path("maths.functions.beast2").write_bytes(East.encode_function_manifest(manifest))
     """
-    from east.expression.finalize import _arrayify_tree, _free_vars, _rehome_ir
+    from east.expression.finalize import (
+        _arrayify_tree,
+        _expand,
+        _free_vars,
+        _rehome_ir,
+        _SharedTypes,
+    )
     from east.expression.location import SourceMap
 
     if not package:
         raise ValueError("export_functions: the package name is empty")
     exports: list[EastStruct] = []
+    types = _SharedTypes()
     for name in sorted(functions):
-        try:
-            ir = function_ir(functions[name])
-        except TypeError as e:
-            raise TypeError(f"export_functions: {name}: {e}") from None
-        source_map = getattr(functions[name], "_east_source_map", None)
-        root = _root_function(ir, f"export_functions: {name}")
+        # Every check below walks one lazy copy of the function whose
+        # locations index a map of its own (only the stacks this function
+        # names: the build's map may hold its siblings' too).
+        own = SourceMap()
+        skeleton = getattr(functions[name], "_east_skeleton", None)
+        if skeleton is not None:
+            root = skeleton.root
+            tree = _expand(skeleton, own)
+            shared = types
+        else:
+            try:
+                ir = function_ir(functions[name])
+            except TypeError as e:
+                raise TypeError(f"export_functions: {name}: {e}") from None
+            source_map = getattr(functions[name], "_east_source_map", None)
+            root = _root_function(ir, f"export_functions: {name}")
+            ir = _rename_hoisted_constants(ir, package, name)
+            # The final form is read once (#1459): every read of it
+            # materializes fresh objects. Its types already share what its
+            # build's finalize converted.
+            tree = _rehome_ir(ir, source_map, own)
+            shared = None
         # Closed means the exported IR BINDS every name it reads. The Lets an
         # earlier python build hoisted above its function travel with it (the
         # whole Block is what is exported below), so a capture naming one
         # resolves wherever the IR lands; only a name nothing in the IR binds
         # is a closure over an enclosing body (#669).
         free: dict[str, Any] = {}
-        _free_vars(ir, frozenset(), free)
+        _free_vars(tree, frozenset(), free)
         if free:
             raise ValueError(
                 f"export_functions: {name} reads {', '.join(free)}, which its own IR does not "
                 "bind — an exported function is a closed value: it may bind what it reads "
                 "(a Block root's Lets do), but it may not close over an enclosing body")
-        ir = _rename_hoisted_constants(ir, package, name)
-        imports = _count_imports(ir)
+        imports = _count_imports(tree)
         if imports:
             raise ValueError(
                 f"export_functions: {name} holds {imports} unresolved import(s) — link it "
                 "(link_imports) before exporting; exports do not chain")
-        # Only the stacks this function names, in a map of its own: the
-        # build's map may hold its siblings' too.
-        own = SourceMap()
         exports.append(EastStruct({
-            "ir": _arrayify_tree(_rehome_ir(ir, source_map, own)),
+            "ir": _arrayify_tree(tree, types=shared),
             "name": name,
-            "platforms": platform_dependencies(ir, providers),
+            "platforms": platform_dependencies(tree, providers),
             "source_map": EastArray(ArrayType(LocationType),
                                     [location_stack(*stack) for stack in own.entries()]),
             "type": root.value["type"],

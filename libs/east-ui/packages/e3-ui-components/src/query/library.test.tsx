@@ -43,6 +43,7 @@ import { QueryOpenType, type QueryOpen } from "./open-query.js";
 import { CustomersType, savedQuery } from "./fixture.test-utils.js";
 import { act, queryHarness, settle } from "./query.test-utils.js";
 import type { SavedQuery } from "./session.js";
+import { keptName } from "@elaraai/east-ui-components/internal";
 
 type TreePath = ValueTypeOf<typeof TreePathType>;
 
@@ -90,7 +91,7 @@ const fromEqual = equalFor(OptionType(SavedQueryType));
 
 /** This viewer's recent runs, the most recent first, as the builder keeps them in the browser. */
 function remember(...runs: SavedQuery[]) {
-    localStorage.setItem(queryKeys(undefined).recent, JSON.stringify(runs.map((run) => printSaved(run))));
+    localStorage.setItem(keptName(queryKeys(undefined).recent), JSON.stringify(runs.map((run) => printSaved(run))));
 }
 
 const h = queryHarness();

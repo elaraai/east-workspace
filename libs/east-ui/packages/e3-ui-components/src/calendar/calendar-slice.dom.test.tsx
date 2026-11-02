@@ -239,9 +239,9 @@ describe("the windowed Calendar's own navigation picks its days (#1343)", () => 
     test("it reads the days through the day index, and selection and Save read by key without downloading the record", async () => {
         const { container } = await h.mount(ex.calendarWindowed);
         expect(event(container, "job", "job1")).not.toBeNull();
-        expect(h.requests("find", JOBS).some(request => searched(request, ex.calendarJobsByDay.name, "2026-10-01"))).toBe(true);
+        expect(h.requests("find", JOBS).some(request => searched(request, "calendar_jobs_by_day", "2026-10-01"))).toBe(true);
         await press(toolbar(container).getByRole("button", { name: "Next day" }));
-        expect(h.requests("find", JOBS).some(request => searched(request, ex.calendarJobsByDay.name, "2026-10-02"))).toBe(true);
+        expect(h.requests("find", JOBS).some(request => searched(request, "calendar_jobs_by_day", "2026-10-02"))).toBe(true);
         expect(event(container, "job", "job1")).toBeNull(); expect(event(container, "job", "job4")).not.toBeNull();
         await width(390); expect(card(container, "job", "job4")).not.toBeNull();
         await width(900);
@@ -265,7 +265,7 @@ describe("a window read through interval indexes re-renders its reader, never th
      * (#1424), goes on; every one is counted.
      */
     function holdIntervalSearches() {
-        const intervals = new Set<string>([ex.calendarJobsByTime.name, ex.calendarServicesByTime.name, ex.calendarShiftsByTime.name]);
+        const intervals = new Set<string>(["calendar_jobs_by_time", "calendar_services_by_time", "calendar_shifts_by_time"]);
         const searching = (request: E3Request) => request.kind === "find" && request.method === "POST" && intervals.has(request.query.get("index") ?? "");
         const held = h.e3.hold(request => searching(request) && request.searches.length > 1);
         /** Lets every held request but the last land, one at a time, then the rest. */

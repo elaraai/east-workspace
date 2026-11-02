@@ -38,6 +38,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { conflictRing } from "../conflict-ring.js";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { schedulePaneBase } from "./schedule-pane.js";
 
@@ -153,6 +154,8 @@ export const flowchartSlotRecipe = defineSlotRecipe({
                 borderWidth: "1.5px",
                 borderColor: "brand.600",
             },
+            /* A conflict not yet chosen: the warn ring at the node's edge; a selection keeps its edge inside it. */
+            ...conflictRing,
             /* The state an author's card sets (#1249, FB33): the brand's tint and rule. */
             "&[data-drop-target]": {
                 [`${TAKEN} > &`]: {

@@ -132,7 +132,8 @@ test("a missing required field blocks Save and the issue button focuses its cell
     expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     await ui.press("1 issue");
     expect(ui.cell().hasAttribute("data-selected")).toBe(true);
-    expect(ui.container.querySelector('[data-slot="footerMessage"]')!.textContent).toMatch(/qty/);
+    // The footer names the cell's column as the sheet heads it.
+    expect(ui.container.querySelector('[data-slot="footerMessage"]')!.textContent).toBe("Quantity: A value is required");
     expect(document.activeElement).toBe(ui.container.querySelector("[data-sheet-card]"));
 });
 

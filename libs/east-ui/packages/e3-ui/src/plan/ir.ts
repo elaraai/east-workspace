@@ -35,6 +35,7 @@ import {
     PlanUiBindType,
     PlanEditingType,
 } from "./types.js";
+import { PlanNestedType } from "./nested-read.js";
 
 // ============================================================================
 // Resolved types — the UIComponent-coupled shapes at `UIComponentType`
@@ -83,6 +84,10 @@ export const PlanRootType = StructType({
     // one rail. Its `rows` source pages the canvas's rows; every source holding
     // a `range` holds the window with the others.
     slice: OptionType(RecordSlicesChromeType),
+    // Paged rows beside their nested series index (#1438): what the reader reads
+    // of it a cell at a time, and the window its rows are drawn from with what it
+    // read; none for rows read whole or listing no nested index.
+    nested: OptionType(PlanNestedType),
     footer: ArrayType(PlanFooterItemType),
     // DnD target role — the shared grammar (contracts/drag.ts); no id, no
     // library card lands (#824 — it used to be `""`), though the canvas's own

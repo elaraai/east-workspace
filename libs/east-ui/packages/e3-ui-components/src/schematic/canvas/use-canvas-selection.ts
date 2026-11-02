@@ -302,9 +302,9 @@ export function useSelectionSteps({ data, layers, inertKeys, narrowedOut, items,
         return order;
     }, [shownZones, items, inertKeys]);
 
-    const flyToItem = useCallback((item: DrawnItem) => {
+    const flyToItem = useCallback((item: DrawnItem, clearRight = 0) => {
         const size = renderSnapRef.current.size;
-        flyTo(size === null ? pointFrame(item) : itemFrame(item, size));
+        flyTo(size === null ? pointFrame(item) : itemFrame(item, size), clearRight);
         // A fly-to focus (Find's pick, a step, the Index's) is always
         // single-focus REPLACE — the item alone, no zone or link beside it;
         // its purpose is the camera move; Shift-add is marquee-only.

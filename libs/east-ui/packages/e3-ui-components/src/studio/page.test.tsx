@@ -46,7 +46,7 @@ const PAGES = new SortedMap<Key, Entry>([
         draft: {
             title: "Overview",
             cells: [
-                { key: "o-note", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "note", fingerprint: "" },
+                { key: "o-note", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "note" },
             ],
         },
         live: some({
@@ -54,10 +54,10 @@ const PAGES = new SortedMap<Key, Entry>([
             page: {
                 title: "Overview",
                 cells: [
-                    { key: "o-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi", fingerprint: "" },
-                    { key: "o-count-1", row: "r2", span: 6n, height: none, align: variant("top", null), title: none, component: "counter", fingerprint: "" },
-                    { key: "o-count-2", row: "r2", span: 6n, height: none, align: variant("top", null), title: none, component: "counter", fingerprint: "" },
-                    { key: "o-gone", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, component: "retired", fingerprint: "" },
+                    { key: "o-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi" },
+                    { key: "o-count-1", row: "r2", span: 6n, height: none, align: variant("top", null), title: none, component: "counter" },
+                    { key: "o-count-2", row: "r2", span: 6n, height: none, align: variant("top", null), title: none, component: "counter" },
+                    { key: "o-gone", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, component: "retired" },
                 ],
             },
         }),
@@ -66,7 +66,7 @@ const PAGES = new SortedMap<Key, Entry>([
         draft: {
             title: "Detail",
             cells: [
-                { key: "d-note", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "note", fingerprint: "" },
+                { key: "d-note", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "note" },
             ],
         },
         live: none,
@@ -74,7 +74,7 @@ const PAGES = new SortedMap<Key, Entry>([
     [{ project: "ops", page: "c-template" }, variant("template", {
         title: "Starter",
         cells: [
-            { key: "t-kpi", row: "t1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi", fingerprint: "" },
+            { key: "t-kpi", row: "t1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi" },
         ],
     })],
 ], compareFor(StudioKeyType));

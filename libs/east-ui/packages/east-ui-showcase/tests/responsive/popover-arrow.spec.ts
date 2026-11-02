@@ -18,7 +18,8 @@
  * `pnpm exec playwright test popover-arrow --project desktop`.
  */
 
-import { test, expect, type Page } from "playwright/test";
+import { expect, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { settled } from "./settle";
 
 /** Open an example's entry at rest, and press a button in it. */

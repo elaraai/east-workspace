@@ -431,9 +431,17 @@ export {
     type AssignmentMessagesProviderProps,
 } from "./collections/shared/assignment-messages.js";
 
+// Kept state: what the components keep in the browser for a reload — who it is
+// kept for (a host sets it as someone signs in), its clearing (a sign-out), and
+// the values storage could not keep.
+export {
+    setKeptScope, clearKept, onKeptFailure, keptReachable,
+    type KeptFailure, type KeptFailureReason, type KeptWhere,
+} from "./platform/kept.js";
+
 // Hooks
 export { usePersistedState, type PersistedStateResult } from "./hooks/usePersistedState.js";
-export { useColorMode, applyColorMode, type ColorMode } from "./hooks/useColorMode.js";
+export { useColorMode, applyColorMode, storedColorMode, type ColorMode } from "./hooks/useColorMode.js";
 // The #809 data gates — a renderer memoizes with `equivalentFor`, and these keep
 // its local state and derivations on DATA changes only.
 export { useValueSync } from "./hooks/useValueSync.js";
@@ -544,6 +552,7 @@ export {
     type ContainerBreakpointThresholds,
     useContainerBreakpoint,
     useContainerBelow,
+    useContainerWidth,
     useCoarsePointer,
     useHoverCapable,
 } from "./contracts/index.js";
@@ -596,22 +605,28 @@ export {
 // (`takeKey`, #1398) — the banners a builder shows its error in instead (#1184), and
 // the session's words — its error, too, in the surface's (#936). A builder
 // whose entries live in several sources keeps a session per source and one
-// history over them (#1194): the Plan's event kinds, the Calendar's.
+// history over them (#1194): the Plan's event kinds, the Calendar's. A session's
+// drafts are kept through a reload of the tab where its builder says how its
+// projection of an entry is typed (`wireType`): a ref's, `EntryRefType`.
 export {
     EditSession,
     EditHistory,
+    EditingScope,
     useEditSession,
     useEditHistory,
     historyKeyOf,
+    EntryRefType,
     liftDraft,
     historyToolbarItem,
     historyShortcut,
     typedInto,
     takeKey,
     SessionBanners,
+    useConflictsOpener,
     editingMessages,
     sessionErrorText,
     type BatchReadiness,
+    type DraftedEntry,
     type EditHistoryJoined,
     type EditHistoryPaged,
     type EditHistoryPart,
@@ -631,6 +646,7 @@ export {
     type Origin,
     type Placement,
     type SessionBannersProps,
+    type SessionDrafts,
     type TakenKey,
 } from "./editing/index.js";
 // The Optimise run's shared parts (#1409) — for the sibling renderer packages

@@ -1360,7 +1360,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const columnTop = items.length > 0 ? items[0]!.start - margin : 0;
     const overlayInColumn = !measureRows && items.length > 0;
     const virtualWindow = () => (
-        <Box ref={setRows} position="relative" height={`${total}px`} minWidth={minWidth}
+        <Box ref={setRows} position="relative" style={{ height: `${total}px` }} minWidth={minWidth}
             // The extent, as data: the height compiles to a class, which jsdom
             // does not resolve — this is what a DOM test holds geometry to.
             data-virtual-extent={total} {...rowsProps}>
@@ -1500,7 +1500,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                 // Zero height, pinned just under the header: the strip draws
                 // over the rows without moving them (the rows' offset — the
                 // scroll margin — is the header's alone), below the header.
-                <Box position="sticky" top={`${itemsOffset}px`} height="0" zIndex={headerZIndex - 1}
+                <Box position="sticky" height="0" style={{ top: `${itemsOffset}px`, zIndex: headerZIndex - 1 }}
                     minWidth={minWidth} data-virtual-sticky="">
                     {stickyNode}
                 </Box>

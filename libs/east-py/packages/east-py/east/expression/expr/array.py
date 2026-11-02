@@ -419,6 +419,27 @@ class ArrayExpression(Expression):
             out,
         )
 
+    def flatten_tree(self, children: Any) -> ArrayExpression:
+        """Traced ArrayFlattenTree: every node of a tree of any depth whose
+        roots are the array's elements, each with its path of indices from its
+        root, depth first — the inverse of ``to_tree`` (TS ``flattenTree``).
+
+        ``children(element, index)`` names each node's children, an array of
+        the array's own element type — empty for a leaf. The result is an
+        ``Array<{path, node}>``: a root's path is ``[i]``, its child's
+        ``[i, j]``, each node before its descendants, siblings in array order.
+        ``children`` runs once per node, in the result's order; the walk is
+        iterative."""
+        elem_t = self._elem()
+        children_t = ArrayType(elem_t)
+        children_node, c_out = self._callback(children, out_hint=children_t)
+        if c_out != children_t:
+            raise ExpressionError(
+                f".flatten_tree() children must return an array of the array's own type, got {c_out.type}")
+        out = ArrayType(StructType([("path", ArrayType(IntegerType)), ("node", elem_t)]))
+        return self._expr(
+            _builtin("ArrayFlattenTree", out, [elem_t], [self.ir, children_node]), out)
+
     def to_vector(self) -> VectorExpression:
         """Traced VectorFromArray on an Array of Float/Integer/Boolean
         elements (#601 — the construction seam the sparse builtins need)."""

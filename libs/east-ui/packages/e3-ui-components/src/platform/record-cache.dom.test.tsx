@@ -4,7 +4,7 @@
  * @vitest-environment jsdom
  *
  * A record Slice's bounded caches on e3 itself (#1375): the work orders, grown to thousands through their patch door,
- * bound with their dispatch queue (`Data.bindPaged(workOrders, { indexes: [workQueue] })`) and narrowed by status —
+ * bound with their dispatch queue (`Data.bindPaged(workOrders, { indexes: ["by_status"] })`) and narrowed by status —
  * the record Slice, the paging runtime and the editing session reading, paging and saving through e3, a page at a time.
  * What a test counts it reads from the request log.
  */
@@ -16,7 +16,7 @@ import {
     none, printFor, some, toEastTypeValue, variant,
     type EastType, type option, type StructType, type ValueTypeOf, type VariantType,
 } from "@elaraai/east";
-import { Editing, RecordSliceBindType, RecordSliceWhereType, bindRecord, recordSliceReadPlatform } from "@elaraai/east-ui/internal";
+import { Editing, RecordSliceBindType, RecordSliceReadType, RecordSliceWhereType, bindRecord, recordSliceReadPlatform } from "@elaraai/east-ui/internal";
 import { getRegisteredPlatformImplementations, useEditSession, useTrackedEvaluation, type EditingValue } from "@elaraai/east-ui-components";
 import { RecordSliceImpl } from "@elaraai/east-ui-components/platform";
 import { createTrackedRead, prepareRecordSliceSave, RecordSliceSaveNotice, type EditSource } from "@elaraai/east-ui-components/internal";
@@ -32,6 +32,9 @@ const Row = ex.WorkOrderRow;
 const Orders = ex.workOrders.type;
 type Order = ValueTypeOf<typeof Row>;
 type Where = ValueTypeOf<RecordSliceWhereType>;
+type Read = ValueTypeOf<RecordSliceReadType>;
+/** A read of a narrowing alone (#1432): no read by area's clause beside it. */
+const readOf = (where: Where): Read => ({ where, area: none });
 const compareString = compareFor(StringType);
 const printString = printFor(StringType);
 const orderEqual = equalFor(Row);
@@ -40,8 +43,8 @@ const encodeOrders = encodeBeast2For(Orders);
 
 /** The work orders bound with their dispatch queue and narrowed by status, as a record Slice binds them; and the Apply that commits a batch of them through their patch door. */
 const program = East.function([], undefined, ($) => {
-    const orders = $.let(Data.bindPaged(ex.workOrders, { indexes: [ex.workQueue] }));
-    const record = $.let(Record.bind(ex.workOrders, [ex.workOrdersPatch]));
+    const orders = $.let(Data.bindPaged(ex.workOrders, { indexes: ["by_status"] }));
+    const record = $.let(Record.bind(ex.workOrders, ["patch"]));
     return {
         slice: bindRecord("record-cache.orders", orders, { fields: { status: { label: "Status", hints: ["late", "open", "planned"] } } }),
         apply: Record.onApply(record, { keyed: true }),
@@ -59,7 +62,7 @@ const decodeBatch = decodeBeast2For(Batch);
 type Bound = {
     slice: ValueTypeOf<RecordSliceBindType> & {
         data: { revision: () => option<string>; refresh: (target: option<string>) => null };
-        pageWhere: (where: Where, offset: bigint, limit: bigint) => option<{ key: string }[]>;
+        pageWhere: (read: Read, offset: bigint, limit: bigint) => option<{ key: string }[]>;
     };
     apply: (batch: ValueTypeOf<typeof Batch>) => Promise<ValueTypeOf<typeof Editing.Types.ApplyResult>>;
 };
@@ -118,16 +121,17 @@ function settled<T>(read: () => option<T>): Promise<T> {
     });
 }
 
+// The scan reads a read (#1432): a narrowing, and a read by area's clause beside it — none here.
 const scan = East.compile(East.function([
-    StringType, FunctionType([], OptionType(StringType)), FunctionType([RecordSliceWhereType], OptionType(IntegerType)),
-    FunctionType([RecordSliceWhereType, IntegerType, IntegerType], OptionType(Entries)), RecordSliceWhereType,
-], OptionType(Entries), (_$, id, revision, total, page, where) => recordSliceReadPlatform([Entries], id, revision, total, page, where)), RecordSliceImpl) as
-    (id: string, revision: () => option<string>, total: (where: Where) => option<bigint>, page: (where: Where, offset: bigint, limit: bigint) => option<unknown>, where: Where) => option<{ key: string }[]>;
+    StringType, FunctionType([], OptionType(StringType)), FunctionType([RecordSliceReadType], OptionType(IntegerType)),
+    FunctionType([RecordSliceReadType, IntegerType, IntegerType], OptionType(Entries)), RecordSliceReadType,
+], OptionType(Entries), (_$, id, revision, total, page, read) => recordSliceReadPlatform([Entries], id, revision, total, page, read)), RecordSliceImpl) as
+    (id: string, revision: () => option<string>, total: (read: Read) => option<bigint>, page: (read: Read, offset: bigint, limit: bigint) => option<unknown>, read: Read) => option<{ key: string }[]>;
 
 test("an indexed scan exceeds both page-cache caps, finishes linearly and still evicts old pages", async () => {
     const f = await fixture(12_800);
     const where: Where = new Map();
-    const read = () => scan("all", f.slice.data.revision, (w) => f.slice.countWhere(w), (w, offset, limit) => f.slice.pageWhere(w, offset, limit), where);
+    const read = () => scan("all", f.slice.data.revision, (r) => f.slice.countWhere(r), (r, offset, limit) => f.slice.pageWhere(r, offset, limit), readOf(where));
     const hook = renderHook(() => useTrackedEvaluation(read));
     await waitFor(() => expect(hook.result.current.result.ok && hook.result.current.result.value.type).toBe("some"), { timeout: 60_000 });
     const result = hook.result.current.result;
@@ -144,7 +148,7 @@ test("an indexed scan exceeds both page-cache caps, finishes linearly and still 
     // Completion must not pin decoded pages indefinitely. The oldest raw and
     // narrowed window were both evicted while the active result was assembled.
     const before = pages.length;
-    await settled(() => f.slice.pageWhere(where, 0n, 256n));
+    await settled(() => f.slice.pageWhere(readOf(where), 0n, 256n));
     expect(pagesAsked()).toHaveLength(before + 1);
 }, 120_000);
 
@@ -156,7 +160,7 @@ test("a source's visibility reads more than 32 pages and replaces its keys when 
             id: `orders:${start}:${count}`, revision: f.slice.data.revision, refresh: f.slice.data.refresh, seek: none,
             total: () => some(BigInt(count)),
             page: (offset: bigint, limit: bigint) => {
-                const rows = f.slice.pageWhere(new Map(), BigInt(start) + offset, limit);
+                const rows = f.slice.pageWhere(readOf(new Map()), BigInt(start) + offset, limit);
                 return rows.type === "none" ? none : some(rows.value.map((row) => row.key));
             },
         })),
@@ -177,13 +181,13 @@ test("one bounded window resumes across more short provider pages than the raw c
     // e3 cuts a page to its byte budget; these orders' pages arrive cut to one row each, as a server holding a tighter
     // budget cuts them: e3's answer, its first row alone.
     h.e3.fail(ownPage, { alter: (body) => encodeOrders(new SortedMap([...decodeOrders(body)].slice(0, 1), compareString)) as Uint8Array<ArrayBuffer> });
-    const result = await settled(() => f.slice.pageWhere(new Map(), 0n, 40n));
+    const result = await settled(() => f.slice.pageWhere(readOf(new Map()), 0n, 40n));
     expect(result.map((entry) => entry.key)).toEqual(f.ids);
     // One page a row, after the one-row page that learned the count: the window went on from each, never again from 0.
     expect(pagesAsked()).toHaveLength(41);
     expect(pagesAsked().slice(1).map((page) => page.offset)).toEqual(f.ids.map((_, i) => i));
     // The first page, long since evicted, is asked again.
-    await settled(() => f.slice.pageWhere(new Map(), 0n, 1n));
+    await settled(() => f.slice.pageWhere(readOf(new Map()), 0n, 1n));
     expect(pagesAsked()).toHaveLength(42);
 }, 120_000);
 
@@ -225,7 +229,7 @@ test("40 drafts survive paging, filters and remounts; Save confirms all original
     // The drafts' own status narrows them out: the stored orders are open.
     act(() => { f.choose("late"); });
     hook.rerender({ rows: [], positions: [] });
-    for (let i = 40; i < 80; i++) await act(async () => { await settled(() => f.slice.pageWhere(new Map(), BigInt(i), 1n)); });
+    for (let i = 40; i < 80; i++) await act(async () => { await settled(() => f.slice.pageWhere(readOf(new Map()), BigInt(i), 1n)); });
     expect(session.pending).toBe(40);
     expect([...hook.result.current.drafts.keys()]).toEqual(f.ids.slice(0, 40));
     act(() => session.undo()); expect(session.pending).toBe(39);

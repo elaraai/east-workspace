@@ -60,7 +60,7 @@ const floor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Eas
     const uplinks = $.let(Data.bind(ex.schematicStressUplinks));
     const slice = $.let(Slice.bindRecords(FLOOR, {
         racks: {
-            source: Data.bindPaged(ex.schematicStressRacks, { indexes: [ex.schematicStressRacksByArea, ex.schematicStressRacksByHallArea, ex.schematicStressRacksByModel] }),
+            source: Data.bindPaged(ex.schematicStressRacks, { indexes: ["schematic_stress_racks_by_area", "schematic_stress_racks_by_hall_area", "schematic_stress_racks_by_model"] }),
             fields: { hall: { label: "Hall" }, model: { label: "Model" } },
         },
     }));
@@ -88,7 +88,7 @@ const fitFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(
     const uplinks = $.let(Data.bind(ex.schematicStressUplinks));
     const slice = $.let(Slice.bindRecords(FLOOR, {
         racks: {
-            source: Data.bindPaged(ex.schematicStressRacks, { indexes: [ex.schematicStressRacksByArea, ex.schematicStressRacksByHallArea, ex.schematicStressRacksByModel] }),
+            source: Data.bindPaged(ex.schematicStressRacks, { indexes: ["schematic_stress_racks_by_area", "schematic_stress_racks_by_hall_area", "schematic_stress_racks_by_model"] }),
             fields: { hall: { label: "Hall" }, model: { label: "Model" } },
         },
     }));
@@ -145,7 +145,7 @@ test("at Fit the canvas shades every rack's density from the area index's counts
     expect(h.requests("runs", RACKS)).toEqual([]);
     expect(h.requests("page", RACKS).filter((request) => Number(request.query.get("limit")) > 1)).toEqual([]);
     expect(h.requests("read", RACKS)).toEqual([]);
-    expect(h.requests("find", RACKS).every((request) => request.query.get("index") === ex.schematicStressRacksByArea.name)).toBe(true);
+    expect(h.requests("find", RACKS).every((request) => request.query.get("index") === "schematic_stress_racks_by_area")).toBe(true);
     expect(card(container, "racks", "R100000")).toBeNull();
 });
 

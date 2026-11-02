@@ -19,7 +19,7 @@
  */
 
 import { useCallback, useLayoutEffect, useRef } from "react";
-import type { ValueTypeOf } from "@elaraai/east";
+import { none, type ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { schematicAreaIndexes, schematicUnplacedPlan } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined, useTrackedEvaluation } from "@elaraai/east-ui-components";
@@ -36,19 +36,19 @@ export const NO_AREA_COUNTS: ReadonlyMap<string, SchematicDrawingCount> = new Ma
 /** One item kind's stored rows with a position its narrowing holds (see the module docs). */
 function itemCount(kind: SchematicValue["items"][number], part: Part): SchematicDrawingCount {
     const where = part.read().where;
-    const all = part.countWhere(where);
+    const all = part.countWhere({ where, area: none });
     if (!kind.backlog) return all.type === "some" ? counted(Number(all.value)) : COUNT_READING;
     const areas = schematicAreaIndexes(part.config.indexes, kind.box, "items", `Schematic.items: "${kind.name}"`);
     if (areas === undefined) return uncounted("filters");
     const plan = schematicUnplacedPlan(areas, where);
     if (plan.residual.length > 0) return uncounted("filters");
-    const unplaced = part.countWhere(plan.where);
+    const unplaced = part.countWhere(plan.read);
     return all.type === "some" && unplaced.type === "some" ? counted(Number(all.value - unplaced.value)) : COUNT_READING;
 }
 
 /** One zone kind's stored rows its narrowing holds. */
 function zoneCount(part: Part): SchematicDrawingCount {
-    const all = part.countWhere(part.read().where);
+    const all = part.countWhere({ where: part.read().where, area: none });
     return all.type === "some" ? counted(Number(all.value)) : COUNT_READING;
 }
 

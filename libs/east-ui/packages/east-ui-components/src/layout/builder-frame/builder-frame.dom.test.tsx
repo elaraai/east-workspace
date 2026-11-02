@@ -26,6 +26,7 @@ import { DragLayerProvider, useDragSourceItem } from "../../dnd/drag-layer";
 import { pointAt } from "../../testing/drag-layer.js";
 import type { ToolbarItem } from "../../toolbar/index.js";
 import { BuilderFrame, type BuilderFrameDock, type BuilderFrameProps } from "./index.js";
+import { keptName } from "../../platform/kept.js";
 
 // ── jsdom's layout, laid out by the test ────────────────────────────────────
 
@@ -289,7 +290,7 @@ describe("BuilderFrame — auto, overlay and the scrim (#1125 F1)", () => {
         frameAt(700);
         expect([paneOf("start"), paneOf("end")]).toEqual([["overlay", true], ["overlay", true]]);
         // The frame closed them: nothing is written.
-        expect([localStorage.getItem("frame-test.start.dock.collapsed"), localStorage.getItem("frame-test.end.dock.collapsed")]).toEqual([null, null]);
+        expect([localStorage.getItem(keptName("frame-test.start.dock.collapsed")), localStorage.getItem(keptName("frame-test.end.dock.collapsed"))]).toEqual([null, null]);
         narrow.unmount();
 
         mount({ start: library({ persist: "local" }), end: properties({ persist: "local" }) });
@@ -297,7 +298,7 @@ describe("BuilderFrame — auto, overlay and the scrim (#1125 F1)", () => {
         expect([paneOf("start"), paneOf("end")]).toEqual([["pinned", false], ["pinned", false]]);
         // The viewer's own collapse is kept.
         await press("Collapse Properties");
-        expect(localStorage.getItem("frame-test.end.dock.collapsed")).toBe("true");
+        expect(localStorage.getItem(keptName("frame-test.end.dock.collapsed"))).toBe("true");
     });
 
     test("a pane's width that is not a plain px length is measured as the browser lays it out", () => {

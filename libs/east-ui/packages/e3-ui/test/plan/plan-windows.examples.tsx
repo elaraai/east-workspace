@@ -16,6 +16,7 @@ import {
     none,
     some,
     variant,
+    type ValueTypeOf,
 } from "@elaraai/east";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui";
@@ -76,14 +77,16 @@ export const planWindowPresses = e3.task("plan_window_presses", [planWindowPress
  * `generateWindowPresses` makes, stored, so the rail narrows them — a resource
  * kind's source of the slice is an index of its record.
  */
-export const planSeriesPresses = e3.record("plan_series_presses", DictType(StringType, PrintPress), East.compile(generateWindowPresses, [])(2_000n));
+export const planSeriesPresses = e3.record("plan_series_presses", DictType(StringType, PrintPress), {
+    initial: () => East.compile(generateWindowPresses, [])(2_000n),
+    indexes: (index) => ({
+        // The presses by hall (#1344): each hall's presses, in their key order — what
+        // the rail's `presses` source narrows them through, and the order a Plan pages
+        // the presses of the halls chosen in.
+        plan_series_presses_by_hall: index.on(["hall"]),
+    }),
+});
 
-/**
- * The presses by hall (#1344): each hall's presses, in their key order — what
- * the rail's `presses` source narrows them through, and the order a Plan pages
- * the presses of the halls chosen in.
- */
-export const planSeriesPressesByHall = e3.recordIndex("plan_series_presses_by_hall", planSeriesPresses, { on: ["hall"] });
 
 // ============================================================================
 // The jobs — a record read through its indexes
@@ -93,100 +96,126 @@ export const planSeriesPressesByHall = e3.recordIndex("plan_series_presses_by_ha
  * The print jobs on the presses, from Monday 5 October 2026: a night run into
  * the next day, a run over three days, jobs on presses in each window of 200,
  * jobs in the weeks after the first two, and four waiting in the backlog.
+ *
+ * @returns The jobs, by their keys
  */
-export const planWindowJobs = e3.record("plan_window_jobs", DictType(StringType, PrintJob), new Map([
-    ["W-0001", { title: "Brochure run", start: some(new Date("2026-10-05T06:00:00Z")), end: some(new Date("2026-10-05T14:00:00Z")), press: some("P-1001"), state: variant("actual", null), sheets: 40000.0, customer: "Alder & Finch", stock: variant("coated", null), due: some(new Date("2026-10-07T00:00:00Z")) }],
-    ["W-0002", { title: "Night catalogue", start: some(new Date("2026-10-05T22:00:00Z")), end: some(new Date("2026-10-06T06:00:00Z")), press: some("P-1001"), state: variant("actual", null), sheets: 96000.0, customer: "Larkspur Home", stock: variant("coated", null), due: some(new Date("2026-10-08T00:00:00Z")) }],
-    ["W-0003", { title: "Museum guide", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T12:00:00Z")), press: some("P-1002"), state: variant("actual", null), sheets: 72000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
-    ["W-0004", { title: "Course handbooks", start: some(new Date("2026-10-07T06:00:00Z")), end: some(new Date("2026-10-09T18:00:00Z")), press: some("P-1003"), state: variant("confirmed", null), sheets: 144000.0, customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-12T00:00:00Z")) }],
-    ["W-0005", { title: "Event posters", start: some(new Date("2026-10-12T07:00:00Z")), end: some(new Date("2026-10-12T12:00:00Z")), press: some("P-1004"), state: variant("confirmed", null), sheets: 60000.0, customer: "Granite Hall", stock: variant("uncoated", null), due: some(new Date("2026-10-13T00:00:00Z")) }],
-    ["W-0006", { title: "Menu cards", start: some(new Date("2026-10-14T06:00:00Z")), end: some(new Date("2026-10-14T08:00:00Z")), press: some("P-1010"), state: variant("in-progress", null), sheets: 24000.0, customer: "Copperleaf Cafe", stock: variant("board", null), due: some(new Date("2026-10-15T00:00:00Z")) }],
-    ["W-0007", { title: "Seed catalogue", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-15T16:00:00Z")), press: some("P-1150"), state: variant("proposed", variant("added", null)), sheets: 100000.0, customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-17T00:00:00Z")) }],
-    ["W-0008", { title: "Tour brochure", start: some(new Date("2026-10-16T06:00:00Z")), end: some(new Date("2026-10-16T14:00:00Z")), press: some("P-1200"), state: variant("proposed", variant("recommended", null)), sheets: 80000.0, customer: "Bluewater Tours", stock: variant("coated", null), due: some(new Date("2026-10-19T00:00:00Z")) }],
-    ["W-0009", { title: "Timetables", start: some(new Date("2026-10-08T06:00:00Z")), end: some(new Date("2026-10-08T10:00:00Z")), press: some("P-1201"), state: variant("actual", null), sheets: 48000.0, customer: "Bluewater Tours", stock: variant("uncoated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
-    ["W-0010", { title: "Annual report", start: some(new Date("2026-10-13T06:00:00Z")), end: some(new Date("2026-10-13T12:00:00Z")), press: some("P-1250"), state: variant("confirmed", null), sheets: 60000.0, customer: "Harbour Arts Society", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
-    ["W-0011", { title: "Gift boxes", start: some(new Date("2026-10-09T06:00:00Z")), end: some(new Date("2026-10-09T12:00:00Z")), press: some("P-1333"), state: variant("confirmed", null), sheets: 48000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-12T00:00:00Z")) }],
-    ["W-0012", { title: "Store flyers", start: some(new Date("2026-10-14T06:00:00Z")), end: some(new Date("2026-10-14T16:00:00Z")), press: some("P-1401"), state: variant("in-progress", null), sheets: 150000.0, customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
-    ["W-0013", { title: "Magazine run", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-16T18:00:00Z")), press: some("P-1460"), state: variant("proposed", variant("added", null)), sheets: 180000.0, customer: "Meridian Monthly", stock: variant("coated", null), due: some(new Date("2026-10-19T00:00:00Z")) }],
-    ["W-0014", { title: "Ticket books", start: some(new Date("2026-10-22T06:00:00Z")), end: some(new Date("2026-10-22T08:00:00Z")), press: some("P-1001"), state: variant("estimated", null), sheets: 24000.0, customer: "Heathfield Theatre", stock: variant("uncoated", null), due: some(new Date("2026-10-26T00:00:00Z")) }],
-    ["W-0015", { title: "Wall calendars", start: some(new Date("2026-10-26T06:00:00Z")), end: some(new Date("2026-10-26T18:00:00Z")), press: some("P-1002"), state: variant("estimated", null), sheets: 50000.0, customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
-    ["W-0016", { title: "Exhibition book", start: some(new Date("2026-10-28T06:00:00Z")), end: some(new Date("2026-10-28T12:00:00Z")), press: some("P-1470"), state: variant("estimated", null), sheets: 54000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-11-02T00:00:00Z")) }],
-    ["W-0017", { title: "Order forms", start: none, end: none, press: none, state: variant("estimated", null), sheets: 40000.0, customer: "Larkspur Home", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
-    ["W-0018", { title: "Winter brochure", start: none, end: none, press: none, state: variant("estimated", null), sheets: 64000.0, customer: "Bluewater Tours", stock: variant("coated", null), due: some(new Date("2026-10-21T00:00:00Z")) }],
-    ["W-0019", { title: "Prospectus", start: none, end: none, press: none, state: variant("estimated", null), sheets: 100000.0, customer: "Elmway College", stock: variant("coated", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
-    ["W-0020", { title: "Proof sheets", start: none, end: none, press: none, state: variant("estimated", null), sheets: 2000.0, customer: "Alder & Finch", stock: variant("uncoated", null), due: none }],
-]));
+function windowJobs(): ValueTypeOf<DictType<StringType, typeof PrintJob>> {
+    return new Map([
+        ["W-0001", { title: "Brochure run", start: some(new Date("2026-10-05T06:00:00Z")), end: some(new Date("2026-10-05T14:00:00Z")), press: some("P-1001"), state: variant("actual", null), sheets: 40000.0, customer: "Alder & Finch", stock: variant("coated", null), due: some(new Date("2026-10-07T00:00:00Z")) }],
+        ["W-0002", { title: "Night catalogue", start: some(new Date("2026-10-05T22:00:00Z")), end: some(new Date("2026-10-06T06:00:00Z")), press: some("P-1001"), state: variant("actual", null), sheets: 96000.0, customer: "Larkspur Home", stock: variant("coated", null), due: some(new Date("2026-10-08T00:00:00Z")) }],
+        ["W-0003", { title: "Museum guide", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T12:00:00Z")), press: some("P-1002"), state: variant("actual", null), sheets: 72000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
+        ["W-0004", { title: "Course handbooks", start: some(new Date("2026-10-07T06:00:00Z")), end: some(new Date("2026-10-09T18:00:00Z")), press: some("P-1003"), state: variant("confirmed", null), sheets: 144000.0, customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-12T00:00:00Z")) }],
+        ["W-0005", { title: "Event posters", start: some(new Date("2026-10-12T07:00:00Z")), end: some(new Date("2026-10-12T12:00:00Z")), press: some("P-1004"), state: variant("confirmed", null), sheets: 60000.0, customer: "Granite Hall", stock: variant("uncoated", null), due: some(new Date("2026-10-13T00:00:00Z")) }],
+        ["W-0006", { title: "Menu cards", start: some(new Date("2026-10-14T06:00:00Z")), end: some(new Date("2026-10-14T08:00:00Z")), press: some("P-1010"), state: variant("in-progress", null), sheets: 24000.0, customer: "Copperleaf Cafe", stock: variant("board", null), due: some(new Date("2026-10-15T00:00:00Z")) }],
+        ["W-0007", { title: "Seed catalogue", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-15T16:00:00Z")), press: some("P-1150"), state: variant("proposed", variant("added", null)), sheets: 100000.0, customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-17T00:00:00Z")) }],
+        ["W-0008", { title: "Tour brochure", start: some(new Date("2026-10-16T06:00:00Z")), end: some(new Date("2026-10-16T14:00:00Z")), press: some("P-1200"), state: variant("proposed", variant("recommended", null)), sheets: 80000.0, customer: "Bluewater Tours", stock: variant("coated", null), due: some(new Date("2026-10-19T00:00:00Z")) }],
+        ["W-0009", { title: "Timetables", start: some(new Date("2026-10-08T06:00:00Z")), end: some(new Date("2026-10-08T10:00:00Z")), press: some("P-1201"), state: variant("actual", null), sheets: 48000.0, customer: "Bluewater Tours", stock: variant("uncoated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
+        ["W-0010", { title: "Annual report", start: some(new Date("2026-10-13T06:00:00Z")), end: some(new Date("2026-10-13T12:00:00Z")), press: some("P-1250"), state: variant("confirmed", null), sheets: 60000.0, customer: "Harbour Arts Society", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+        ["W-0011", { title: "Gift boxes", start: some(new Date("2026-10-09T06:00:00Z")), end: some(new Date("2026-10-09T12:00:00Z")), press: some("P-1333"), state: variant("confirmed", null), sheets: 48000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-12T00:00:00Z")) }],
+        ["W-0012", { title: "Store flyers", start: some(new Date("2026-10-14T06:00:00Z")), end: some(new Date("2026-10-14T16:00:00Z")), press: some("P-1401"), state: variant("in-progress", null), sheets: 150000.0, customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+        ["W-0013", { title: "Magazine run", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-16T18:00:00Z")), press: some("P-1460"), state: variant("proposed", variant("added", null)), sheets: 180000.0, customer: "Meridian Monthly", stock: variant("coated", null), due: some(new Date("2026-10-19T00:00:00Z")) }],
+        ["W-0014", { title: "Ticket books", start: some(new Date("2026-10-22T06:00:00Z")), end: some(new Date("2026-10-22T08:00:00Z")), press: some("P-1001"), state: variant("estimated", null), sheets: 24000.0, customer: "Heathfield Theatre", stock: variant("uncoated", null), due: some(new Date("2026-10-26T00:00:00Z")) }],
+        ["W-0015", { title: "Wall calendars", start: some(new Date("2026-10-26T06:00:00Z")), end: some(new Date("2026-10-26T18:00:00Z")), press: some("P-1002"), state: variant("estimated", null), sheets: 50000.0, customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
+        ["W-0016", { title: "Exhibition book", start: some(new Date("2026-10-28T06:00:00Z")), end: some(new Date("2026-10-28T12:00:00Z")), press: some("P-1470"), state: variant("estimated", null), sheets: 54000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-11-02T00:00:00Z")) }],
+        ["W-0017", { title: "Order forms", start: none, end: none, press: none, state: variant("estimated", null), sheets: 40000.0, customer: "Larkspur Home", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+        ["W-0018", { title: "Winter brochure", start: none, end: none, press: none, state: variant("estimated", null), sheets: 64000.0, customer: "Bluewater Tours", stock: variant("coated", null), due: some(new Date("2026-10-21T00:00:00Z")) }],
+        ["W-0019", { title: "Prospectus", start: none, end: none, press: none, state: variant("estimated", null), sheets: 100000.0, customer: "Elmway College", stock: variant("coated", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
+        ["W-0020", { title: "Proof sheets", start: none, end: none, press: none, state: variant("estimated", null), sheets: 2000.0, customer: "Alder & Finch", stock: variant("uncoated", null), due: none }],
+    ]);
+}
 
-/** The jobs' patch door: every Save commits through it. */
-export const planWindowJobsPatch = e3.mutation.patch(planWindowJobs);
-
-/**
- * The jobs over their interval index (#1344): a job is filed by the interval
- * it runs over, so a window reads each job overlapping it once, however many
- * days it runs, and a job in the backlog under its Unset start — what the
- * rail's `job` source narrows them through.
- */
-export const planWindowJobsByTime = e3.recordIndex.interval("plan_window_jobs_by_time", planWindowJobs, { from: "start", to: "end" });
-
-/**
- * The jobs by the press each is on and the weeks each touches (#1039): a job
- * is filed under every week it runs into, carrying its row, so the jobs of
- * fifty presses over a week are one contiguous range of the index — a cell —
- * and `planWindows` reads only the cells around the rows in view.
- */
-export const planWindowJobsByPressWeek = e3.recordIndex.series("plan_window_jobs_by_press_week", planWindowJobs, {
-    key: "press", from: "start", to: "end", tile: "week",
-});
-
-/**
- * How busy each press is, a month at a time (#1039): under each press and
- * month, how many jobs touch it and the milliseconds of it they cover — what
- * `planWindows` shades where the jobs in view are too many to draw.
- */
-export const planWindowJobsByPressMonth = e3.recordIndex.summary("plan_window_jobs_by_press_month", planWindowJobs, {
-    key: "press", from: "start", to: "end", tile: "month",
-});
-
-/**
- * The jobs' monthly summary declared again (#1039): no example lists it — a
- * Plan refuses two summaries of one tile over the same fields, naming both,
- * and the series spec lists it beside `planWindowJobsByPressMonth` to see it
- * refused.
- */
-export const planWindowJobsByPressMonthAgain = e3.recordIndex.summary("plan_window_jobs_by_press_month_again", planWindowJobs, {
-    key: "press", from: "start", to: "end", tile: "month",
-});
-
-/**
- * The jobs by the days each touches (`Schedule.days`): a scheduled job is
- * filed under every day it runs into, and a job in the backlog under none —
- * the index a kind with no rail reads the days in view through (`window`), on
- * resources read whole: on paged presses, a Plan refuses it.
- */
-export const planWindowJobsByDay = e3.recordIndex("plan_window_jobs_by_day", planWindowJobs, {
-    keys: East.function([StringType, PrintJob], SetType(DateTimeType), ($, _id, job) => {
-        const days = $.const(Schedule.days);
-        const filed = $.let(new Set<Date>(), SetType(DateTimeType));
-        $.match(job.start, {
-            some: ($2, start) => {
-                $2.match(job.end, { some: ($3, end) => { $3.assign(filed, days(start, end)); } });
-            },
-        });
-        return filed;
+/** The print jobs on the presses ({@link windowJobs}), read through their indexes. */
+export const planWindowJobs = e3.record("plan_window_jobs", DictType(StringType, PrintJob), {
+    initial: windowJobs(),
+    indexes: (index) => ({
+        // The jobs over their interval index (#1344): a job is filed by the interval
+        // it runs over, so a window reads each job overlapping it once, however many
+        // days it runs, and a job in the backlog under its Unset start — what the
+        // rail's `job` source narrows them through.
+        plan_window_jobs_by_time: index.interval({ from: "start", to: "end" }),
+        // The jobs by the press each is on and by time (#1039): a job is filed once,
+        // at the level its length fits from the week up, carrying its row (#1433), so
+        // a press's jobs at a level over any span are one contiguous range of the
+        // index — fifty presses' ranges a cell — and `planWindows` reads only the
+        // cells around the rows in view.
+        plan_window_jobs_by_press_week: index.series({
+            key: "press", from: "start", to: "end", tile: "week",
+        }),
+        // How busy each press is, a month at a time (#1039): under each press and
+        // month, how many jobs touch it and the milliseconds of it they cover — what
+        // `planWindows` shades where the jobs in view are too many to draw.
+        plan_window_jobs_by_press_month: index.summary({
+            key: "press", from: "start", to: "end", tile: "month",
+        }),
+        // The jobs' monthly summary declared again (#1039): no example lists it — a
+        // Plan refuses two summaries of one tile over the same fields, naming both,
+        // and the series spec lists it beside `planWindowJobsByPressMonth` to see it
+        // refused.
+        plan_window_jobs_by_press_month_again: index.summary({
+            key: "press", from: "start", to: "end", tile: "month",
+        }),
+        // The jobs by the days each touches (`Schedule.days`): a scheduled job is
+        // filed under every day it runs into, and a job in the backlog under none —
+        // the index a kind with no rail reads the days in view through (`window`), on
+        // resources read whole: on paged presses, a Plan refuses it.
+        plan_window_jobs_by_day: index.keys(East.function([StringType, PrintJob], SetType(DateTimeType), ($, _id, job) => {
+            const days = $.const(Schedule.days);
+            const filed = $.let(new Set<Date>(), SetType(DateTimeType));
+            $.match(job.start, {
+                some: ($2, start) => {
+                    $2.match(job.end, { some: ($3, end) => { $3.assign(filed, days(start, end)); } });
+                },
+            });
+            return filed;
+        })),
+        // The jobs with no start, by when they are due (`Schedule.unscheduled`): the
+        // index a kind with no rail reads its backlog through (`backlogWindow`), and
+        // nothing scheduled in it.
+        plan_window_jobs_unscheduled: index.keys(East.function([StringType, PrintJob], SetType(OptionType(DateTimeType)), ($, _id, job) => {
+            const unscheduled = $.const(Schedule.unscheduled);
+            return unscheduled(job.start, job.due);
+        })),
+    }),
+    mutations: (mutation) => ({
+        // The jobs' patch door: every Save commits through it.
+        patch: mutation.patch(),
     }),
 });
 
 /**
- * The jobs with no start, by when they are due (`Schedule.unscheduled`): the
- * index a kind with no rail reads its backlog through (`backlogWindow`), and
- * nothing scheduled in it.
+ * The same jobs ({@link windowJobs}) by their stock, then the press each is on
+ * and the weeks each touches, and their monthly totals by their stock (#1432):
+ * a series and a summary index led by a field, which a narrowing choosing the
+ * stock reads exactly — its cells hold that stock's jobs alone, so the stock is
+ * asked of none of them, and its totals shade zoomed out. The interval index
+ * led by the stock is what the rail narrows them through, the window beside
+ * the stock. A record of their own: every write maintains every index its
+ * record declares, and the jobs' others need none of these.
  */
-export const planWindowJobsUnscheduled = e3.recordIndex("plan_window_jobs_unscheduled", planWindowJobs, {
-    keys: East.function([StringType, PrintJob], SetType(OptionType(DateTimeType)), ($, _id, job) => {
-        const unscheduled = $.const(Schedule.unscheduled);
-        return unscheduled(job.start, job.due);
+export const planStockJobs = e3.record("plan_stock_jobs", DictType(StringType, PrintJob), {
+    initial: windowJobs(),
+    indexes: (index) => ({
+        plan_stock_jobs_by_stock_time: index.interval({ on: ["stock"], from: "start", to: "end" }),
+        plan_stock_jobs_by_stock_press_week: index.series({
+            on: ["stock"], key: "press", from: "start", to: "end", tile: "week",
+        }),
+        plan_stock_jobs_by_stock_press_month: index.summary({
+            on: ["stock"], key: "press", from: "start", to: "end", tile: "month",
+        }),
+    }),
+    mutations: (mutation) => ({
+        // Its patch door: every Save commits through it.
+        patch: mutation.patch(),
     }),
 });
+
+
+
+
+
+
+
+
 
 // ============================================================================
 // The series benchmark's jobs (#1039)
@@ -199,23 +228,29 @@ export const planWindowJobsUnscheduled = e3.recordIndex("plan_window_jobs_unsche
  * week on each of the first two hundred of 50,000 presses over a quarter, and
  * reads them a cell at a time.
  */
-export const planBenchJobs = e3.record("plan_bench_jobs", DictType(StringType, PrintJob), new Map());
-
-/** The benchmark jobs' patch door: what the benchmark fills them through. */
-export const planBenchJobsPatch = e3.mutation.patch(planBenchJobs);
-
-/** The benchmark jobs over their interval index: the rail's window and its exact count. */
-export const planBenchJobsByTime = e3.recordIndex.interval("plan_bench_jobs_by_time", planBenchJobs, { from: "start", to: "end" });
-
-/** The benchmark jobs by the press each is on and the weeks each touches: its cells. */
-export const planBenchJobsByPressWeek = e3.recordIndex.series("plan_bench_jobs_by_press_week", planBenchJobs, {
-    key: "press", from: "start", to: "end", tile: "week",
+export const planBenchJobs = e3.record("plan_bench_jobs", DictType(StringType, PrintJob), {
+    initial: new Map(),
+    indexes: (index) => ({
+        // The benchmark jobs over their interval index: the rail's window and its exact count.
+        plan_bench_jobs_by_time: index.interval({ from: "start", to: "end" }),
+        // The benchmark jobs by the press each is on and the weeks each touches: its cells.
+        plan_bench_jobs_by_press_week: index.series({
+            key: "press", from: "start", to: "end", tile: "week",
+        }),
+        // How busy each press is, a month at a time: the benchmark's shading.
+        plan_bench_jobs_by_press_month: index.summary({
+            key: "press", from: "start", to: "end", tile: "month",
+        }),
+    }),
+    mutations: (mutation) => ({
+        // The benchmark jobs' patch door: what the benchmark fills them through.
+        patch: mutation.patch(),
+    }),
 });
 
-/** How busy each press is, a month at a time: the benchmark's shading. */
-export const planBenchJobsByPressMonth = e3.recordIndex.summary("plan_bench_jobs_by_press_month", planBenchJobs, {
-    key: "press", from: "start", to: "end", tile: "month",
-});
+
+
+
 
 // ============================================================================
 // Print runs of the windows spec's own: a day that fills a page
@@ -227,32 +262,34 @@ export const planBenchJobsByPressMonth = e3.recordIndex.summary("plan_bench_jobs
  * day, so a window of the first day reads the page after it to find where the
  * day ends. Empty until the spec commits them.
  */
-export const planWindowRuns = e3.record("plan_window_runs", DictType(StringType, PrintJob), new Map());
-
-/** The runs' patch door: the spec's commit goes through it. */
-export const planWindowRunsPatch = e3.mutation.patch(planWindowRuns);
-
-/** The runs by the days each touches (`Schedule.days`), as the jobs are. */
-export const planWindowRunsByDay = e3.recordIndex("plan_window_runs_by_day", planWindowRuns, {
-    keys: East.function([StringType, PrintJob], SetType(DateTimeType), ($, _id, job) => {
-        const days = $.const(Schedule.days);
-        const filed = $.let(new Set<Date>(), SetType(DateTimeType));
-        $.match(job.start, {
-            some: ($2, start) => {
-                $2.match(job.end, { some: ($3, end) => { $3.assign(filed, days(start, end)); } });
-            },
-        });
-        return filed;
+export const planWindowRuns = e3.record("plan_window_runs", DictType(StringType, PrintJob), {
+    initial: new Map(),
+    indexes: (index) => ({
+        // The runs by the days each touches (`Schedule.days`), as the jobs are.
+        plan_window_runs_by_day: index.keys(East.function([StringType, PrintJob], SetType(DateTimeType), ($, _id, job) => {
+            const days = $.const(Schedule.days);
+            const filed = $.let(new Set<Date>(), SetType(DateTimeType));
+            $.match(job.start, {
+                some: ($2, start) => {
+                    $2.match(job.end, { some: ($3, end) => { $3.assign(filed, days(start, end)); } });
+                },
+            });
+            return filed;
+        })),
+        // The runs with no start, by when they are due (`Schedule.unscheduled`), as the jobs are.
+        plan_window_runs_unscheduled: index.keys(East.function([StringType, PrintJob], SetType(OptionType(DateTimeType)), ($, _id, job) => {
+            const unscheduled = $.const(Schedule.unscheduled);
+            return unscheduled(job.start, job.due);
+        })),
+    }),
+    mutations: (mutation) => ({
+        // The runs' patch door: the spec's commit goes through it.
+        patch: mutation.patch(),
     }),
 });
 
-/** The runs with no start, by when they are due (`Schedule.unscheduled`), as the jobs are. */
-export const planWindowRunsUnscheduled = e3.recordIndex("plan_window_runs_unscheduled", planWindowRuns, {
-    keys: East.function([StringType, PrintJob], SetType(OptionType(DateTimeType)), ($, _id, job) => {
-        const unscheduled = $.const(Schedule.unscheduled);
-        return unscheduled(job.start, job.due);
-    }),
-});
+
+
 
 // ============================================================================
 // planWindows — a Plan read a window at a time (§9.11), its jobs a cell at a time (#1039)
@@ -282,21 +319,21 @@ export const planWindowRunsUnscheduled = e3.recordIndex("plan_window_runs_unsche
 export const planWindows = example({
     keywords: [
         "Plan", "Schedule", "Schedule.resources", "Schedule.events", "Slice", "Slice.bindRecords", "source", "range", "window",
-        "interval", "interval index", "series", "series index", "summary", "summary index", "e3.recordIndex", "e3.recordIndex.series",
-        "e3.recordIndex.summary", "tile", "cell", "paged", "page", "Data.bindPaged", "backlog", "large record", "key search", "seek",
+        "interval", "interval index", "series", "series index", "summary", "summary index", "index.on", "index.series",
+        "index.summary", "tile", "cell", "paged", "page", "Data.bindPaged", "backlog", "large record", "key search", "seek",
         "scroll", "pan", "zoom", "resolutions", "shading", "brush", "presses", "jobs", "e3.task", "Record.bind", "e3.record", "entries",
         "by key", "revision", "editing", "Save", "#1199", "#1344", "#1039",
     ],
-    description: "A Plan read a window at a time — 2,000 presses paged 200 to a window as the canvas scrolls (`Schedule.resources` over `Data.bindPaged`, the key search seeking a press), and the jobs on them read a cell at a time through one Slice.bindRecords rail: its `job` source lists the interval index, a series index (`e3.recordIndex.series`, the jobs by press and week) and a summary index (`e3.recordIndex.summary`, each press's busy share by month), and the Plan reads only the cells around the rows in view, two requests a change, shading from the summary when zoomed out past what it draws — the window, its count and the backlog the interval index's, one job by its key through the record's own entries, and its editing a session over the record's revision, never the record whole",
+    description: "A Plan read a window at a time — 2,000 presses paged 200 to a window as the canvas scrolls (`Schedule.resources` over `Data.bindPaged`, the key search seeking a press), and the jobs on them read a cell at a time through one Slice.bindRecords rail: its `job` source lists the interval index, a series index (`index.series`, the jobs by press and week) and a summary index (`index.summary`, each press's busy share by month), and the Plan reads only the cells around the rows in view, two requests a change, shading from the summary when zoomed out past what it draws — the window, its count and the backlog the interval index's, one job by its key through the record's own entries, and its editing a session over the record's revision, never the record whole",
     fn: East.function([], UIComponentType, (_$) => {
         return (<Reactive>{$ => {
             const presses = $.let(Data.bindPaged(planWindowPresses));
-            const jobs = $.let(Record.bind(planWindowJobs, [planWindowJobsPatch]));
+            const jobs = $.let(Record.bind(planWindowJobs));
             const jobEntries = $.let(Data.bindPaged(planWindowJobs));
             // One rail: its `job` source lists the series and the summary beside the interval index, its range the window
             // in view — the Plan reads the jobs' cells through them.
             const slice = $.let(Slice.bindRecords("ex.plan.windows", {
-                job: { source: Data.bindPaged(planWindowJobs, { indexes: [planWindowJobsByTime, planWindowJobsByPressWeek, planWindowJobsByPressMonth] }),
+                job: { source: Data.bindPaged(planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }),
                     label: "Print jobs", fields: { start: { label: "Dates" } }, range: "start" },
             }));
             const axis = $.let(Plan.axis({
@@ -354,22 +391,22 @@ export const planWindows = example({
 export const planSeriesByHall = example({
     keywords: [
         "Plan", "Schedule", "Schedule.resources", "Schedule.events", "Slice", "Slice.bindRecords", "source", "rail", "narrow",
-        "narrowing", "filter", "resource kind", "hall", "e3.recordIndex", "index", "paged", "Data.bindPaged", "series index",
+        "narrowing", "filter", "resource kind", "hall", "index.on", "index", "paged", "Data.bindPaged", "series index",
         "summary index", "cell", "large record", "million rows", "presses", "jobs", "#1344", "#1039",
     ],
     description: "The Plan of planWindows, its 2,000 presses a record narrowed by hall through the rail — a `presses` source named after the paged resource kind's slot, `Data.bindPaged(record, { indexes })` over the presses' hall index — the canvas paging the narrowing's presses themselves in the index's order, counting the hall's, and reading the jobs' cells for the presses of the hall in view alone; a choice keeps the last view standing until its presses land, and drafts Save whatever the halls chosen",
     fn: East.function([], UIComponentType, (_$) => {
         return (<Reactive>{$ => {
             const presses = $.let(Data.bindPaged(planSeriesPresses));
-            const jobs = $.let(Record.bind(planWindowJobs, [planWindowJobsPatch]));
+            const jobs = $.let(Record.bind(planWindowJobs));
             const jobEntries = $.let(Data.bindPaged(planWindowJobs));
             // The `presses` source narrows the paged kind by hall, through the presses' hall index: the canvas pages the
             // narrowing's presses. The `job` source reads the jobs a cell at a time, as in planWindows.
             const slice = $.let(Slice.bindRecords("ex.plan.series.halls", {
-                presses: { source: Data.bindPaged(planSeriesPresses, { indexes: [planSeriesPressesByHall] }), label: "Presses",
+                presses: { source: Data.bindPaged(planSeriesPresses, { indexes: ["plan_series_presses_by_hall"] }), label: "Presses",
                     icon: { prefix: "fas", name: "print" },
                     fields: { hall: { label: "Hall", hints: ["Hall 1", "Hall 2", "Hall 3", "Hall 4", "Hall 5", "Hall 6", "Hall 7", "Hall 8"] } } },
-                job: { source: Data.bindPaged(planWindowJobs, { indexes: [planWindowJobsByTime, planWindowJobsByPressWeek, planWindowJobsByPressMonth] }),
+                job: { source: Data.bindPaged(planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }),
                     label: "Print jobs", fields: { start: { label: "Dates" } }, range: "start" },
             }));
             const axis = $.let(Plan.axis({

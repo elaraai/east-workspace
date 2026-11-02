@@ -738,7 +738,7 @@ supported("range", [1, 2, 3], "ArrayRange, or a Float loop, streamed", ctx => {
   const mult = args.reduce((m, a) => piped(m, a!.result.mult), ONE);
   return { shape: typed(float ? FloatType : IntegerType), mult: piped(mult, MANY) };
 });
-supported("recurse", [0, 1, 2], "a depth-first walk with an explicit stack", ctx => {
+supported("recurse", [0, 1, 2], "a depth-first walk with an explicit stack; over a Dict or an Array of the value's own type, flattenTree", ctx => {
   if (ctx.args.length === 0) {
     // `recurse` is `..`: jq defines both as `recurse(.[]?)`.
     if (ctx.refuseRoot()) return { shape: ERROR, mult: ONE };

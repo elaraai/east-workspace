@@ -34,7 +34,7 @@ const SECTION = {
 export const studioInspectorSlotRecipe = defineSlotRecipe({
     className: "elara-studio-inspector",
     slots: [
-        "root", "selection", "eyebrow", "name", "meta", "warning",
+        "root", "selection", "eyebrow", "name", "meta",
         "data", "reads", "read", "noReads",
         "config", "configHead", "lockNote", "description",
         "layout", "field", "fieldLabel", "rowField", "heightField",
@@ -53,16 +53,7 @@ export const studioInspectorSlotRecipe = defineSlotRecipe({
         eyebrow: { textStyle: "caption.eyebrow" },
         name: { textStyle: "title.card.md", color: "fg", overflowWrap: "anywhere" },
         meta: { textStyle: "mono.sm", color: "fg.subtle", overflowWrap: "anywhere" },
-        /* Its component's code changed since the page went live. */
-        warning: {
-            textStyle: "mono.sm",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "6px",
-            color: "fg.warning",
-            "& svg": { fontSize: "9px", flexShrink: 0 },
-        },
-        /* What its component's code reads. */
+        /* What its component's code reads, each named in words: the body's face, as a name, never a keypath's. */
         data: { ...SECTION, gap: "10px" },
         reads: {
             display: "flex",
@@ -72,8 +63,8 @@ export const studioInspectorSlotRecipe = defineSlotRecipe({
             padding: "0",
             listStyle: "none",
         },
-        read: { textStyle: "mono.md", color: "fg", overflowWrap: "anywhere" },
-        noReads: { textStyle: "mono.md", color: "fg.subtle" },
+        read: { textStyle: "body.sm", color: "fg", overflowWrap: "anywhere" },
+        noReads: { textStyle: "body.sm", color: "fg.subtle" },
         /* Its description, fixed by its developer, on the quiet panel. */
         config: { ...SECTION, gap: "9px", background: "bg.panel" },
         configHead: {

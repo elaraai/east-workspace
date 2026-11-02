@@ -44,6 +44,19 @@ await workspaceDeploy(repoPath, 'dev', 'my-pkg@1.0.0');
 const status = await workspaceStatus(storage, new LocalTaskRunner(repoPath), repoPath, 'dev');
 ```
 
+A workspace's bundle is the workspace as it is, in one stream of beast2: its
+package, every dataset's ref, the executions its tasks' outputs come from, and
+every object those reach. Another repository, in any store, makes the workspace
+from it under a name no workspace there has.
+
+```typescript
+import { workspaceBundleExport, workspaceBundleImport } from '@elaraai/e3-core';
+
+// Written to a WHATWG stream, and made from one, or from chunks
+await workspaceBundleExport(storage, repoPath, 'dev', writable);
+await workspaceBundleImport(otherStorage, otherRepo, 'dev', readable);
+```
+
 ### Datasets
 
 ```typescript
@@ -152,7 +165,6 @@ BSL 1.1. See [LICENSE.md](./LICENSE.md).
   - [@elaraai/east-ui-components](https://www.npmjs.com/package/@elaraai/east-ui-components): React renderer with Chakra UI v3 styling
   - [@elaraai/e3-ui](https://www.npmjs.com/package/@elaraai/e3-ui): e3 + UI bridge — Data bindings, `e3.ui()` task, manifest
   - [@elaraai/e3-ui-components](https://www.npmjs.com/package/@elaraai/e3-ui-components): React Query hooks and preview components for the e3 API
-  - [east-ui-preview](https://marketplace.visualstudio.com/items?itemName=ElaraAI.east-ui-preview): VS Code extension for live East UI component preview
 
 - **[e3 — East Execution Engine](https://github.com/elaraai/east-workspace/tree/main/libs/e3)**: Durable execution engine for running East pipelines at scale. Git-like content-addressable storage, automatic memoization, reactive dataflow, real-time monitoring.
   - [@elaraai/e3](https://www.npmjs.com/package/@elaraai/e3): SDK for authoring e3 packages with typed tasks and pipelines

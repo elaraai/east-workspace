@@ -105,6 +105,7 @@ _HAND: dict[str, Spelling] = {
     "ArrayGroupFold": _s("{0}.group_reduce({1}, {2}, {3})", {1: CB, 2: CB, 3: CB}),
     # toTree takes its node type first — the builtin's last type parameter
     "ArrayToTree": _s("{0}.to_tree({T2}, {1}, {2}, {3})", {1: CB, 2: CB, 3: CB}),
+    "ArrayFlattenTree": _s("{0}.flatten_tree({1})", {1: CB}),
     "ArrayFlattenToArray": _s("{0}.flat_map({1})", {1: CB}),
     "ArrayFlattenToSet": _s("{0}.flatten_to_set({1})", {1: CB}),
     "ArrayFlattenToDict": _s("{0}.flatten_to_dict({1}, {2})", {1: CB, 2: CB}),
@@ -193,6 +194,7 @@ _HAND: dict[str, Spelling] = {
     "DictToDict": _s("{0}.to_dict({1}, {2}, {3})", {1: CB, 2: CB, 3: CB}),
     "DictGroupFold": _s("{0}.group_reduce({1}, {2}, {3})", {1: CB, 2: CB, 3: CB}),
     "DictToTree": _s("{0}.to_tree({T2}, {1}, {2})", {1: CB, 2: CB}),
+    "DictFlattenTree": _s("{0}.flatten_tree({1})", {1: CB}),
     "DictFlattenToArray": _s("{0}.flatten_to_array({1})", {1: CB}),
     "DictFlattenToSet": _s("{0}.flatten_to_set({1})", {1: CB}),
     "DictFlattenToDict": _s("{0}.flatten_to_dict({1}, {2})", {1: CB, 2: CB}),

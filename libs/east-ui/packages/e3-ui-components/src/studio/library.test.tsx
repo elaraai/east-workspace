@@ -46,7 +46,7 @@ const PAGES: Pages = new SortedMap<Key, Entry>([
         draft: {
             title: "Detail",
             cells: [
-                { key: "c-trend", row: "r1", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "" },
+                { key: "c-trend", row: "r1", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
             ],
         },
         live: none,
@@ -55,9 +55,9 @@ const PAGES: Pages = new SortedMap<Key, Entry>([
         draft: {
             title: "Overview",
             cells: [
-                { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "" },
-                { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "" },
-                { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "" },
+                { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
+                { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
+                { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
             ],
         },
         live: some({
@@ -65,9 +65,9 @@ const PAGES: Pages = new SortedMap<Key, Entry>([
             page: {
                 title: "Overview",
                 cells: [
-                    { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "" },
-                    { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "" },
-                    { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "" },
+                    { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
+                    { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
+                    { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
                 ],
             },
         }),
@@ -80,9 +80,9 @@ const PAGES: Pages = new SortedMap<Key, Entry>([
     [{ project: "ops", page: "t-summary" }, variant("template", {
         title: "Summary",
         cells: [
-            { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "" },
-            { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "" },
-            { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "" },
+            { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
+            { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
+            { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
         ],
     })],
     [{ project: "retail", page: "home" }, variant("page", {
@@ -105,7 +105,7 @@ beforeEach(async () => {
 const library = {
     fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const listed = $.let(components);
-        const record = $.let(Record.bind(ex.studioPages, [ex.studioPagesPatch]));
+        const record = $.let(Record.bind(ex.studioPages, ["patch"]));
         const told = $.let(State.bind([StringType], "library-test.told", "nothing"));
         const onOpen = $.const(East.function([StudioKeyType], NullType, ($2, key) => { $2(told.write(East.str`${key.project}/${key.page}`)); }));
         return Stack.VStack([

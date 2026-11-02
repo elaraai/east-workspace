@@ -28,6 +28,7 @@ import { StringType, equalFor, none, type ValueTypeOf } from "@elaraai/east";
 import { useTrackedEvaluation, type Formatters } from "@elaraai/east-ui-components";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { RecordSliceSaveNotice } from "@elaraai/east-ui-components/internal";
+import { authorOf } from "../shared/records/author.js";
 import type { FlowchartWords } from "./messages.js";
 import type { FlowchartModel, FlowchartValue } from "./model.js";
 
@@ -92,15 +93,15 @@ export function FlowchartFooter({ styles, name, links, counts, pending, saved, m
 export interface FlowchartLastSave {
     /** Its time when it was today, its date and time otherwise. */
     readonly when: string;
-    /** Who made it: the commit's actor. */
-    readonly by: string;
+    /** Who made it, where it names a person. */
+    readonly by: string | undefined;
 }
 
 /**
  * When a record of flows was last saved, and who saved it (FB10, #1250): its
  * newest commit's time when it was today, its date and time otherwise, and
- * its actor — read where the flowchart renders, and again when the record
- * commits.
+ * the person it names — read where the flowchart renders, and again when
+ * the record commits.
  *
  * @param source - Where the flows come from
  * @param words - The formatters the time prints with, in the app's locale
@@ -114,6 +115,6 @@ export function useLastSave(source: FlowchartValue["source"], words: Formatters)
     return useMemo(() => {
         if (newest === undefined) return undefined;
         const at = newest.at;
-        return { when: stringEqual(words.date(at), words.date(new Date())) ? words.time(at) : words.dateTime(at), by: newest.actor };
+        return { when: stringEqual(words.date(at), words.date(new Date())) ? words.time(at) : words.dateTime(at), by: authorOf(newest.actor) };
     }, [newest, words]);
 }

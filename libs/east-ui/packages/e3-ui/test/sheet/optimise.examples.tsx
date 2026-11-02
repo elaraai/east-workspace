@@ -29,8 +29,12 @@ export const optimiseWorkOrderRows: SortedMap<string, ValueTypeOf<typeof Optimis
     ["WO-1008", { reference: "WO-1008", job: "Pack", status: "Ready", due: none, quantity: 500n }],
 ], compareFor(StringType));
 /** The work orders, the shop's own record, which the sheet writes through its patch door. */
-export const optimiseWorkOrders = e3.record("optimise_work_orders", DictType(StringType, OptimiseWorkOrder), optimiseWorkOrderRows);
-export const optimiseWorkOrdersPatch = e3.mutation.patch(optimiseWorkOrders);
+export const optimiseWorkOrders = e3.record("optimise_work_orders", DictType(StringType, OptimiseWorkOrder), {
+    initial: optimiseWorkOrderRows,
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 
 /**
  * The shop's optimiser's body: every order with no due date is given one — the day after the latest due the orders hold,
@@ -62,7 +66,7 @@ export const sheetOptimise = example({
     description: "A sheet of work orders with the Elara eye (#1409): `optimise` is Func.bind of the shop's optimiser on e3 — Sheet.Types.OptimiseRequest(OptimiseWorkOrder) in, the run number and the rows in view by key as the session holds them; Sheet.Types.OptimiseResult(OptimiseWorkOrder) out, the rows complete, each order with no due date given one and set Scheduled. A click on the eye runs it once; the result lands in the session as one edit, cell by cell, which one Undo reverts and Save commits with everything else.",
     keywords: ["Sheet", "optimise", "Optimise", "Elara", "OptimiseRequest", "OptimiseResult", "Func.bind", "e3.function", "one edit", "Undo", "Record.bind", "Sheet.column.date", "Sheet.column.integer"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const orders = $.let(Record.bind(optimiseWorkOrders, [optimiseWorkOrdersPatch]));
+        const orders = $.let(Record.bind(optimiseWorkOrders));
         // The app's optimiser: the eye calls it once per run over the rows in view, and its answer is one edit.
         const optimise = $.let(Func.bind(setDueDates));
         return <Box height="560px">

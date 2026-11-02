@@ -50,8 +50,8 @@ function plansOf(n: number): SortedMap<string, Row> {
     compareFor(StringType));
 }
 
-/** A summary index's entry (#1039): a week, then a press, standing for every row of its key. */
-const WeekPressType = StructType({ __tile: IntegerType, press: StringType });
+/** A summary index's entry (#1039): its leading fields under `on` — none here — then a week and a press (#1432), standing for every row of its key. */
+const WeekPressType = StructType({ on: StructType({}), tile: IntegerType, key: StringType });
 const SummaryEntryType = StructType({ ik: WeekPressType, k: NullType });
 const SummaryType = DictType(SummaryEntryType, RecordSummaryTotalsType);
 type SummaryEntry = ValueTypeOf<typeof SummaryEntryType>;
@@ -60,7 +60,7 @@ const entryOrder = compareFor(SummaryEntryType);
 const HOUR = 3_600_000n;
 
 /** The entry of a press in a week. */
-const weekOf = (week: number, press: string): SummaryEntry => ({ ik: { __tile: BigInt(week), press }, k: null });
+const weekOf = (week: number, press: string): SummaryEntry => ({ ik: { on: {}, tile: BigInt(week), key: press }, k: null });
 const pressOf = (p: number): string => `P-${1000 + p}`;
 
 /** Every press's totals, a week at a time: between one and five rows, an hour each. */
@@ -451,17 +451,17 @@ describe('applying a mutation delta', () => {
       // The press P-1007 holds three rows covering three hours each week.
       const held = weekOf(5, pressOf(7));
       const refusal = (count: string, ms: string, why: string) => (err: unknown) => err instanceof SummaryIntegrityError && err.message ===
-        `by_week: the total under (ik=(__tile=5, press="P-1007"), k=null) would be ${count} rows covering ${ms} ms — ${why}: ` +
+        `by_week: the total under (ik=(on=(), tile=5, key="P-1007"), k=null) would be ${count} rows covering ${ms} ms — ${why}: ` +
         'the summary disagrees with its record; rebuild it (e3 reindex)';
       await assert.rejects(applySummary(hash, [[held, { count: -4n, ms: -3n * HOUR }]]), refusal('-1', '0', 'fewer than no rows'));
       await assert.rejects(applySummary(hash, [[held, { count: -1n, ms: -4n * HOUR }]]), refusal('2', '-3600000', 'less than no time'));
       await assert.rejects(applySummary(hash, [[held, { count: -3n, ms: -2n * HOUR }]]), refusal('0', '3600000', 'time with no row'));
       // A total past the largest Integer agrees with its record, and a rebuild sums it too: the remedy is a finer tile.
       await assert.rejects(applySummary(hash, [[held, { count: (1n << 63n) - 1n, ms: 0n }]]), (err: unknown) => err instanceof SummaryIntegrityError
-        && err.message === `by_week: the total under (ik=(__tile=5, press="P-1007"), k=null) would be ${(1n << 63n) + 2n} rows covering 10800000 ms — `
+        && err.message === `by_week: the total under (ik=(on=(), tile=5, key="P-1007"), k=null) would be ${(1n << 63n) + 2n} rows covering 10800000 ms — `
           + 'past the largest Integer, which no total holds and a rebuild sums too: declare a finer tile, whose totals are smaller');
       await assert.rejects(applySummary(hash, [[weekOf(5, `${pressOf(7)}a`), { count: -1n, ms: 0n }]]),
-        (err: unknown) => err instanceof SummaryIntegrityError && /under \(ik=\(__tile=5, press="P-1007a"\), k=null\) would be -1 rows/.test(err.message),
+        (err: unknown) => err instanceof SummaryIntegrityError && /under \(ik=\(on=\(\), tile=5, key="P-1007a"\), k=null\) would be -1 rows/.test(err.message),
         'taking from a key the summary does not hold');
     });
 
@@ -471,7 +471,7 @@ describe('applying a mutation delta', () => {
         { target: 'by_week', key: weekOf(5, pressOf(1)), op: variant('add', { count: 1n, ms: 0n }) },
         { target: 'by_week', key: weekOf(5, pressOf(2)), op: variant('delete', { count: 3n, ms: 3n * HOUR }) },
       ]), (err: unknown) => err instanceof SummaryIntegrityError
-        && /^by_week: a summary's arm carries 'delete' under \(ik=\(__tile=5, press="P-1002"\), k=null\), where every op adds to a total$/.test(err.message));
+        && /^by_week: a summary's arm carries 'delete' under \(ik=\(on=\(\), tile=5, key="P-1002"\), k=null\), where every op adds to a total$/.test(err.message));
     });
   });
 });

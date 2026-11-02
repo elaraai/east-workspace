@@ -21,9 +21,11 @@ import { test, expect, vi } from "vitest";
 import { cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { East, SortedMap, StringType, compareFor, type ValueTypeOf } from "@elaraai/east";
 import { Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
-import { formatters } from "@elaraai/east-ui-components";
+import { editingMessages, formatters } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import { act, sheetHarness, settle, slot, tabs } from "./harness.test-utils.js";
+import { conflictCards } from "../../e3-web-mount.test-utils.js";
+import { keptName } from "@elaraai/east-ui-components/internal";
 
 const h = sheetHarness();
 const JOBS = ex.sheetJobs;
@@ -34,12 +36,12 @@ const WORDS = formatters("en-US");
 
 /** Builds a sheet's payload over the jobs record, as `<Sheet>` does — both panes, named `jobs` — and mounts it as given. */
 const jobsPayload = East.function([], SheetPayloadType, ($) => {
-    const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+    const jobs = $.let(Record.bind(ex.sheetJobs, ["patch"]));
     return Sheet.Payload({ record: jobs, columns: { task: Sheet.column.text(ex.SheetJob, { header: "Task" }) },
         library: [Sheet.library.rows(), Sheet.library.columns()], inspector: true, name: "jobs" });
 });
 const missingWeek = East.function([], SheetPayloadType, ($) => {
-    const plans = $.let(Record.bind(ex.sheetWeekPlans, [ex.sheetWeekPlansPatch]));
+    const plans = $.let(Record.bind(ex.sheetWeekPlans, ["patch"]));
     return Sheet.Payload({ record: plans, entry: { key: "2026-W50", rows: "rows", id: "id" }, columns: { task: Sheet.column.text(ex.WeekRow, { header: "Task" }) } });
 });
 
@@ -72,6 +74,14 @@ async function typeTask(container: HTMLElement, row: number, task: string) {
     await settle();
     fireEvent.keyDown(input, { key: "Enter" });
     await settle();
+}
+
+/** The drafts carried over to the record as another write left it: the banners given, and the history item checking nothing. */
+async function carriedOver(container: HTMLElement, expected: readonly string[]): Promise<void> {
+    await waitFor(() => {
+        expect(banners(container)).toEqual(expected);
+        expect(slot(container, "toolbar")!.textContent).not.toContain(editingMessages.historyStatus({ status: "carrying" }));
+    });
 }
 
 function press(button: Element) {
@@ -130,39 +140,58 @@ test("the toolbar is the frame's one row, the sheet's items in §7.1's order; th
     expect(slot(container, "toolbar")!.contains(document.activeElement)).toBe(true);
 });
 
-test("a Save's conflict is a banner naming its row and who changed the record last, then the out-of-date notice, both gone with Discard (SB23)", async () => {
+test("a Save another session's write beat carries the draft over to the row as it stands: the task both changed waits in the conflicts, saying who changed it last, and kept, it saves (SB23)", async () => {
     const { container, getByRole } = await h.mount(ex.sheetBasic);
-    await typeTask(container, 0, "Panel cutting, oak");
+    await typeTask(container, 0, "Panel cutting, maple");
     expect(banners(container)).toEqual([]);
     // Another session moves the job just as Save goes: the Save's patch reaches e3 after its write.
     await h.race(JOBS, () => press(getByRole("button", { name: "Save" })), (jobs) => withTask(jobs, "J-0001", "Panel cutting, walnut"));
-    expect(banners(container)).toEqual(["conflict", "stale"]);
-    const conflict = slot(container, "banners")!.querySelector('[data-session-banner="conflict"]')!;
-    expect(conflict.textContent).toContain("Save stopped — 1 conflict with the source");
-    expect(conflict.textContent).toContain("J-0001: Changed since this edit began — last changed by another session");
+    await carriedOver(container, ["conflicts"]);
+    // Nothing goes out of date: the draft's task stands where both changed it, and Save waits for it to be chosen.
+    expect(slot(container, "banners")!.textContent).toContain(editingMessages.bannerConflicts({ n: 1, count: "1" }));
+    expect(container.querySelector('[data-slot="row"] [data-key="task"]')!.textContent).toBe("Panel cutting, maple");
+    // The cell both changed wears the warn ring; the row's other cells do not.
+    const ringed = () => [...container.querySelectorAll('[data-slot="row"] [data-conflict]')].map((cell) => cell.getAttribute("data-key"));
+    expect(ringed()).toEqual(["task"]);
+    // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+    expect((getByRole("button", { name: "Save" }) as HTMLButtonElement).getAttribute("aria-disabled")).toBe("true");
+    expect((await readJobs()).get("J-0001")!.task).toBe("Panel cutting, walnut");
     // The history item says nothing under its buttons: the toolbar keeps one row.
     expect(slot(container, "toolbar")!.querySelector('[role="alert"]')).toBeNull();
 
-    press(slot(container, "banners")!.querySelector('[data-session-banner="stale"] [data-banner-action="discard"]')!);
-    await settle();
+    // The banner's Choose opens the conflict: the job, each side's task, who changed the record last, and what both began from.
+    await act(async () => { press(slot(container, "banners")!.querySelector('[data-banner-action="choose"]')!); });
+    const [card, ...more] = await conflictCards(container);
+    expect(more).toEqual([]);
+    expect([card!.item, card!.yours, card!.theirs]).toEqual([
+        "Panel cutting, maple", "Yours, Panel cutting, maple",
+        "Theirs, Panel cutting, walnut, Changed since this edit began — last changed by another session · was Panel cutting",
+    ]);
+    // Kept, the draft's task saves over the newer one; chosen, the ring goes.
+    await act(async () => { fireEvent.click(card!.radio("draft")); });
     expect(banners(container)).toEqual([]);
-    expect(container.querySelector('[data-slot="row"] [data-key="task"]')!.textContent).toBe("Panel cutting, walnut");
+    expect(ringed()).toEqual([]);
+    await act(async () => { press(getByRole("button", { name: "Save" })); });
+    await settle();
+    expect((await readJobs()).get("J-0001")!.task).toBe("Panel cutting, maple");
 });
 
-test("a record read a window at a time names a Save's conflicting row — read by its key at the record's new revision — and never reads the record whole (#1199, SB23)", async () => {
+test("a record read a window at a time carries a Save's drafts over to the rows another write moved — each read by its key at the record's new revision, never the record whole (#1199, SB23)", async () => {
     const { container, getByRole } = await h.mount(ex.sheetPaged);
     expect([...container.querySelectorAll('[data-slot="row"] [data-key="task"]')].slice(0, 4).map((cell) => cell.textContent))
         .toEqual(["Panel cutting", "Edge banding", "CNC routing", "Spray finish"]);
-    await typeTask(container, 0, "Panel cutting, oak");
+    await typeTask(container, 0, "Panel cutting, maple");
     await typeTask(container, 1, "Edge banding, both edges");
     // Another session moves the first job just as Save goes; the second it leaves as its edit began.
     const asked = h.requests("find", JOBS_DATASET).length;
     await h.race(JOBS, () => press(getByRole("button", { name: "Save" })), (jobs) => withTask(jobs, "J-0001", "Panel cutting, walnut"));
-    await waitFor(() => expect(banners(container)).toEqual(["conflict", "stale"]));
-    const conflict = slot(container, "banners")!.querySelector('[data-session-banner="conflict"]')!;
-    expect(conflict.textContent).toContain("Save stopped — 1 conflict with the source");
-    expect(conflict.textContent).toContain("J-0001: Changed since this edit began — last changed by another session");
-    expect(conflict.textContent).not.toContain("J-0002");
+    await carriedOver(container, ["conflicts"]);
+    // The first job's task, which both changed, waits to be chosen; the second's draft is carried over beside it.
+    expect((await conflictCards(container)).map((card) => card.item)).toEqual(["Panel cutting, maple"]);
+    expect([...container.querySelectorAll('[data-slot="row"] [data-key="task"]')].slice(0, 2).map((cell) => cell.textContent))
+        .toEqual(["Panel cutting, maple", "Edge banding, both edges"]);
+    // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+    expect((getByRole("button", { name: "Save" }) as HTMLButtonElement).getAttribute("aria-disabled")).toBe("true");
     // Each row the Save changed was sought by its key once it answered; the record never whole.
     const sought = h.requests("find", JOBS_DATASET).slice(asked).map((request) => request.query.get("key"));
     expect(sought).toEqual(expect.arrayContaining(['"J-0001"', '"J-0002"']));
@@ -179,7 +208,7 @@ test("a write with no answer is a banner with Retry, which sends the same reques
     await act(async () => { press(getByRole("button", { name: "Save" })); });
     await waitFor(() => expect(banners(container)).toEqual(["unknown"]), { timeout: 15_000 });
     const unknown = slot(container, "banners")!.querySelector('[data-session-banner="unknown"]')!;
-    expect(unknown.textContent).toContain("No answer from the source — the changes may have been saved");
+    expect(unknown.textContent).toContain(editingMessages.bannerUnknown());
     expect(unknown.textContent).toContain("fetch failed: the test lost e3's answer");
     expect(slot(container, "toolbar")!.querySelector('[role="alert"]')).toBeNull();
 
@@ -236,8 +265,8 @@ test("the panes are BuilderFrame's: their open tab and collapsed state persist u
     fireEvent.click([...slot(first.container, "start")!.querySelectorAll('[role="tab"]')].find((tab) => tab.textContent === "Columns 1")!);
     fireEvent.click(slot(first.container, "end")!.querySelector('button[aria-label="Collapse Inspector"]')!);
     await settle();
-    expect(localStorage.getItem("sheet.jobs.frame.start.dock.tab")).toBe(JSON.stringify({ key: "columns" }));
-    expect(localStorage.getItem("sheet.jobs.frame.end.dock.collapsed")).toBe("true");
+    expect(localStorage.getItem(keptName("sheet.jobs.frame.start.dock.tab"))).toBe(JSON.stringify({ key: "columns" }));
+    expect(localStorage.getItem(keptName("sheet.jobs.frame.end.dock.collapsed"))).toBe("true");
     first.unmount();
 
     const again = await h.mountPayload(jobsPayload);

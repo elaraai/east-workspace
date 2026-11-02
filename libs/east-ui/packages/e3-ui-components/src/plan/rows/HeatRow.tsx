@@ -147,7 +147,7 @@ export function HeatCells({ rowKey, rowId, cells, styles, ctx, onCellClick }: He
                             data-nodata={v === undefined ? "" : undefined}
                             data-warn={warned ? "" : undefined}
                             data-level={level}
-                            left={box.left} width={box.width}
+                            style={{ left: box.left, width: box.width }}
                             onClick={clickCell(c.at)}
                         >
                             {/* Its number: drawn whole, or — wider than the cell — off its line, out of sight, and said
@@ -180,8 +180,7 @@ export function HeatCells({ rowKey, rowId, cells, styles, ctx, onCellClick }: He
                             data-plan-bucket={b.index}
                             {...cellAttrs(c.at, b, words)}
                             data-planned={c.planned ? "" : undefined}
-                            left={`calc(${b.x0 * 100}% + 4px)`}
-                            width={`calc((${(b.x1 - b.x0) * 100}% - 8px) * ${frac})`}
+                            style={{ left: `calc(${b.x0 * 100}% + 4px)`, width: `calc((${(b.x1 - b.x0) * 100}% - 8px) * ${frac})` }}
                             onClick={clickCell(c.at)}>
                             {cellWords(b, words)}
                         </Box>
@@ -203,8 +202,7 @@ export function HeatCells({ rowKey, rowId, cells, styles, ctx, onCellClick }: He
                     <Box key={i} css={styles.segmentTrack}
                         data-plan-bucket={b.index}
                         {...cellAttrs(c.at, b, words)}
-                        left={`calc(${b.x0 * 100}% + 4px)`}
-                        width={`calc(${(b.x1 - b.x0) * 100}% - 8px)`}
+                        style={{ left: `calc(${b.x0 * 100}% + 4px)`, width: `calc(${(b.x1 - b.x0) * 100}% - 8px)` }}
                         onClick={clickCell(c.at)}>
                         {c.segments.map((s, j) => {
                             const share = total > 0 ? Math.max(0, s.weight) / total : 0;
@@ -212,7 +210,7 @@ export function HeatCells({ rowKey, rowId, cells, styles, ctx, onCellClick }: He
                             const fillTag = s.fill.type;
                             return (
                                 <Box key={j} css={styles.segmentPart}
-                                    width={`${share * 100}%`}
+                                    style={{ width: `${share * 100}%` }}
                                     // The fill names its meaning; the recipe paints it.
                                     data-fill={fillTag}
                                     aria-hidden={element ? undefined : "true"}

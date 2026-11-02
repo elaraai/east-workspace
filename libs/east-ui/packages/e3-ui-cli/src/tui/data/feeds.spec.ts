@@ -92,7 +92,7 @@ describe('feeds', () => {
         const feeds = createFeeds({ store, api: () => api, clock });
         feeds.start();
         await settle();
-        api.run({ events: [variant('start', { task: 'a', timestamp: 't' }), variant('complete', { task: 'a', timestamp: 't', duration: 1_500, peakBytes: none })], final: 'completed' });
+        api.run({ events: [variant('start', { task: 'a', timestamp: new Date(1) }), variant('complete', { task: 'a', timestamp: new Date(1), duration: 1_500, peakBytes: none })], final: 'completed' });
         await api.dataflowExecuteLaunch('main');
         feeds.refresh();
         await settle();
@@ -107,7 +107,7 @@ describe('feeds', () => {
         execution = store.getState().data.execution['main']!;
         assert.equal(execution.events.length, 2);
         // A new run resets the cursor: its events restart at 0.
-        api.run({ events: [variant('cached', { task: 'a', timestamp: 't2' })], final: 'completed' });
+        api.run({ events: [variant('cached', { task: 'a', timestamp: new Date(2) })], final: 'completed' });
         await api.dataflowExecuteLaunch('main');
         await clock.advance(5_000);
         execution = store.getState().data.execution['main']!;
@@ -118,7 +118,7 @@ describe('feeds', () => {
 
     test('the execution cursor tells runs apart by their ids: a run that started in the same millisecond as the last still restarts it', async () => {
         const api = fakeRepo();
-        const at = new Date(0).toISOString();
+        const at = new Date(0);
         api.workspace('main', {
             execution: {
                 id: 'run-a', status: 'completed', startedAt: at, completedAt: at,
@@ -152,7 +152,7 @@ describe('feeds', () => {
         feeds.start();
         await settle();
         // 2,500 events: a poll is served at most 1,000 of them.
-        api.run({ events: Array.from({ length: 2_500 }, (_, i) => variant('start', { task: `t${i}`, timestamp: 't' })), final: 'completed' });
+        api.run({ events: Array.from({ length: 2_500 }, (_, i) => variant('start', { task: `t${i}`, timestamp: new Date(1) })), final: 'completed' });
         await api.dataflowExecuteLaunch('main');
         const before = api.calls.length;
         feeds.fire('execution:main');
@@ -170,7 +170,7 @@ describe('feeds', () => {
 
     test('the execution feed leaves a run that started while it read the last one\'s events to its next turn', async () => {
         const api = fakeRepo();
-        const at = new Date(0).toISOString();
+        const at = new Date(0);
         api.workspace('main', {
             execution: { id: 'run-a', status: 'completed', startedAt: at, completedAt: at, events: Array.from({ length: 2_500 }, (_, i) => variant('start', { task: `t${i}`, timestamp: at })) },
         });
@@ -210,7 +210,7 @@ describe('feeds', () => {
         const api = fakeRepo();
         // Polls take a moment, so a feed that polled on without end would poll many times below.
         api.latencyMs = 1;
-        const at = new Date(0).toISOString();
+        const at = new Date(0);
         // A run whose summary has run ahead of the events its store holds.
         api.workspace('main', {
             execution: { id: 'run-a', lastSeq: 5, status: 'completed', startedAt: at, completedAt: at, events: [variant('start', { task: 'a', timestamp: at }), variant('cached', { task: 'a', timestamp: at })] },
@@ -308,7 +308,7 @@ describe('feeds', () => {
             state: { operation: variant('workspace_copy', null), holder: variant('process', { pid: 4242n, bootId: 'boot', startTime: 1n, command }), acquiredAt: new Date(0), expiresAt: none },
             progress: none,
         };
-        api.workspace('scratch', { lock: { pid: 4242, acquiredAt: new Date(0).toISOString(), command }, lockStatus: copying as never });
+        api.workspace('scratch', { lock: { pid: 4242, acquiredAt: new Date(0), command }, lockStatus: copying as never });
         const store = createStore(initialState({ columns: 120, rows: 36 }, '/x'));
         store.dispatch({ type: 'session', session });
         store.dispatch({ type: 'view/root', view: { kind: 'dashboard', ws: 'scratch', list: { sel: 0, top: 0 } } });

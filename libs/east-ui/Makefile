@@ -1,4 +1,4 @@
-# east-ui — UI packages and VS Code extension
+# east-ui — UI packages
 # Dependencies are managed by pnpm from the monorepo root.
 
 # The checkout's paths: where east-ui's suites are exported (EAST_UI_TEST_IR)
@@ -25,46 +25,91 @@ EAST_UI_EXAMPLE_ITEM_KEYS := $(shell for f in $$(find packages/east-ui/test \( -
 E3_UI_EXAMPLE_KEYS := $(shell find packages/e3-ui/test \( -name '*.examples.ts' -o -name '*.examples.tsx' \) 2>/dev/null \
                              | sed -e 's|^packages/e3-ui/test/||' -e 's|\.examples\.tsx$$||' -e 's|\.examples\.ts$$||')
 
-.PHONY: build test test-group test-export lint showcase build-showcase design probe-slice probe-collections clean extension extension-install extension-uninstall examples test-responsive \
+.PHONY: build build-js build-checked check-apps test test-group test-export lint showcase build-showcase build-showcase-js design probe-slice probe-collections clean examples test-responsive \
         east-ui-examples-html-all $(EAST_UI_EXAMPLE_KEYS:%=east-ui-examples-html-%) \
         $(EAST_UI_EXAMPLE_ITEM_KEYS:%=east-ui-examples-html-%) \
         e3-ui-examples-html-all $(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%) select-responsive help
 
-## The packages: those under packages/, and the extension's webview
-PACKAGES := --filter='./packages/*' --filter='./packages/east-ui-extension/webview'
+## The packages: those under packages/
+PACKAGES := --filter='./packages/*'
 
 ## Build all packages, in dependency order
 build:
 	pnpm -r $(PACKAGES) run build
 
+## The JavaScript the tests run, and no more (#1466): east-ui and e3-ui compile
+## with tsc (e3-ui against east-ui's declarations, its specs into dist), and the
+## renderers bundle with no type-check and no declarations. CI's test jobs run
+## on it; `build-checked` and `check-apps` type-check every package beside them.
+build-js:
+	pnpm --filter @elaraai/east-ui --filter @elaraai/e3-ui run build
+	EAST_UI_DECLARATIONS=0 pnpm --filter @elaraai/east-ui-components --filter @elaraai/e3-ui-components exec vite build
+
+## Every package a test or lint reads built as `build` builds it, type-checked
+## and its declarations written: all but the showcase, which `check-apps`
+## checks over it (#1466).
+build-checked:
+	pnpm -r $(PACKAGES) --filter='!@elaraai/east-ui-showcase' run build
+
+## What no test reads, over what `build-checked` built: the showcase
+## type-checked. CI checks it in a job of its own, and builds the showcase's
+## bundle in another, for the browser shards (#1466). The theme's Chakra types are written first: they live
+## in node_modules, which `build-checked`'s artifact does not carry.
+check-apps:
+	pnpm --filter @elaraai/east-ui-components run chakra:typegen
+	pnpm --filter @elaraai/east-ui-showcase run typecheck
+
 ## Run tests for all packages
 test:
 	pnpm -r $(PACKAGES) run test
 
-## The four CI groups together run every package's tests once. The e3
-## renderer's Vitest files are sharded; its Node specs stay in `rest` once.
-## New packages land in `rest` automatically.
-TEST_GROUP_components := --filter=@elaraai/east-ui-components
-TEST_GROUP_ir := --filter=@elaraai/east-ui --filter=@elaraai/e3-ui
-TEST_GROUP_rest := --filter='./packages/*' --filter='./packages/east-ui-extension/webview' \
+## The CI groups together run every package's tests once, each over what is
+## built, never building first (#1466): `components`; `ir`, east-ui's and
+## e3-ui's, side by side, since neither keeps a runner's cores busy alone; `node`, the e3 renderer's Node specs; `showcase`, the showcase
+## package's; `e3-components`, the renderer's Vitest files, sharded; `rest`,
+## every other package, the CLI's specs among them, which read the renderers'
+## declarations; and `queries`, the CLI's query-equivalence spec, which CI asks
+## in parts side by side. New packages land in `rest` automatically.
+TEST_GROUP_rest := --filter='./packages/*' \
                    --filter='!@elaraai/east-ui-components' --filter='!@elaraai/east-ui' --filter='!@elaraai/e3-ui' \
-                   --filter='!@elaraai/e3-ui-components'
+                   --filter='!@elaraai/e3-ui-components' --filter='!@elaraai/east-ui-showcase' --filter='!@elaraai/e3-ui-cli'
+
+## The CLI's built specs, relative to its package, but its query equivalence:
+## the `queries` group's.
+CLI_SPECS = $(patsubst packages/e3-ui-cli/%,%,$(filter-out %/query-equivalence.spec.js,$(shell find packages/e3-ui-cli/dist -name '*.spec.js')))
 
 ifneq ($(filter test-group,$(MAKECMDGOALS)),)
-ifeq ($(filter components ir e3-components rest,$(GROUP)),)
-$(error test-group needs GROUP=components, ir, e3-components or rest)
+ifeq ($(filter components ir node showcase e3-components rest queries,$(GROUP)),)
+$(error test-group needs GROUP=components, ir, node, showcase, e3-components, rest or queries)
 endif
 endif
 
-## Run one CI group; SHARD=n/4 applies to GROUP=e3-components only.
+## Run one CI group. SHARD=n/count applies to GROUP=e3-components only, its
+## shards split by recorded time (#1466); REPORT=file writes its JSON report
+## too, the times `scripts/vitest-timings.ts` refreshes them from. PART=k/n
+## applies to GROUP=queries only: every n-th query from the k-th (#1466).
 test-group:
 ifeq ($(GROUP),e3-components)
-	pnpm --filter @elaraai/e3-ui-components run test:components $(if $(SHARD),--shard=$(SHARD))
-else
-	pnpm -r $(TEST_GROUP_$(GROUP)) run test
-ifeq ($(GROUP),rest)
+	pnpm --filter @elaraai/e3-ui-components run test:components $(if $(SHARD),--shard=$(SHARD)) \
+		$(if $(REPORT),--reporter=default --reporter=json --outputFile.json=$(REPORT))
+else ifeq ($(GROUP),components)
+	pnpm --filter @elaraai/east-ui-components run test
+else ifeq ($(GROUP),ir)
+	@logs=$$(mktemp -d); \
+	pnpm --filter @elaraai/east-ui run test:built > $$logs/east-ui.log 2>&1 & east=$$!; \
+	pnpm --filter @elaraai/e3-ui run test > $$logs/e3-ui.log 2>&1; e3=$$?; \
+	wait $$east; east=$$?; \
+	cat $$logs/east-ui.log $$logs/e3-ui.log; rm -rf $$logs; \
+	exit $$((east | e3))
+else ifeq ($(GROUP),node)
 	pnpm --filter @elaraai/e3-ui-components run test:node
-endif
+else ifeq ($(GROUP),showcase)
+	pnpm --filter @elaraai/east-ui-showcase run test
+else ifeq ($(GROUP),queries)
+	E3_UI_QUERY_PART=$(PART) pnpm --filter @elaraai/e3-ui-cli run test:queries
+else
+	pnpm -r $(TEST_GROUP_rest) run test
+	pnpm --filter @elaraai/e3-ui-cli exec node --enable-source-maps --test-reporter=spec --test $(CLI_SPECS)
 endif
 
 ## Export east-ui's suites as IR to EAST_UI_TEST_IR, this checkout's
@@ -92,6 +137,11 @@ build-showcase:
 	# dist .d.ts must exist before e3-ui compiles (pnpm topo-orders the filter set).
 	pnpm --filter @elaraai/east-py-datascience --filter @elaraai/east-ui --filter @elaraai/east-ui-components --filter @elaraai/e3-ui --filter @elaraai/e3-ui-components run build
 	pnpm --filter @elaraai/east-ui-showcase run build
+
+## The showcase's bundle alone, over what `build-js` built: what CI's browser
+## shards serve (#1466). `build-showcase` type-checks it first.
+build-showcase-js:
+	pnpm --filter @elaraai/east-ui-showcase exec vite build
 
 
 ## Pixel-perfect audit of the Slice.Edit popover — opens each editor case in the
@@ -184,47 +234,21 @@ $(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%): e3-ui-examples-html-%:
 	-pnpm --filter @elaraai/e3-ui-components exec playwright install chromium
 	pnpm --filter @elaraai/e3-ui-components exec tsx scripts/snapshot.ts --file=$*
 
-## Build and package the VSCode extension
-extension:
-	@command -v zip >/dev/null 2>&1 || { echo "  ✗ 'zip' not found — needed to inject the tsserver plugin into the .vsix. Install: apt install zip  /  brew install zip"; exit 1; }
-	rm -f packages/east-ui-extension/*.vsix
-	cd packages/east-ui-extension && pnpm run build && pnpm run package
-
-## Package and install the VSCode extension.
-##
-## The `code` CLI under Remote-SSH needs VSCODE_IPC_HOOK_CLI to point at a
-## live Unix socket. If the current value is stale (e.g. inherited from a
-## prior session), we fall back to the newest socket under /run/user/$UID.
-extension-install: extension
-	@$(MAKE) --no-print-directory _code-run ARGS="--install-extension packages/east-ui-extension/*.vsix"
-
-## Uninstall the VSCode extension
-extension-uninstall:
-	@$(MAKE) --no-print-directory _code-run ARGS="--uninstall-extension elaraai.east-ui-preview" || true
-
-## Internal: run `code` with a valid VSCODE_IPC_HOOK_CLI socket
-_code-run:
-	@sock="$$VSCODE_IPC_HOOK_CLI"; \
-	if [ -z "$$sock" ] || [ ! -S "$$sock" ]; then \
-		sock=$$(ls -t /run/user/$$(id -u)/vscode-ipc-*.sock 2>/dev/null | head -1); \
-	fi; \
-	if [ -z "$$sock" ] || [ ! -S "$$sock" ]; then \
-		echo "error: no live VS Code IPC socket found; open a VS Code terminal and retry" >&2; \
-		exit 1; \
-	fi; \
-	VSCODE_IPC_HOOK_CLI="$$sock" code $(ARGS)
-
 ## Clean build artifacts
 clean:
-	rm -rf packages/*/dist packages/east-ui-extension/*.vsix
+	rm -rf packages/*/dist
 
 ## Show available targets
 help:
-	@echo "east-ui (UI packages + VS Code extension)"
+	@echo "east-ui (UI packages)"
 	@echo ""
 	@echo "  build             - Build all packages"
+	@echo "  build-js          - The JavaScript the tests run: no type-check, no declarations (CI's test build)"
+	@echo "  build-checked     - Every package a test or lint reads, type-checked with its declarations (CI's check)"
+	@echo "  check-apps        - Over build-checked: the showcase type-checked (CI's apps check)"
+	@echo "  build-showcase-js - The showcase's bundle alone, over build-js (CI's browser shards)"
 	@echo "  test              - Run tests"
-	@echo "  test-group GROUP=components|ir|e3-components|rest - Run a CI group (e3-components supports SHARD=n/4)"
+	@echo "  test-group GROUP=components|ir|node|showcase|e3-components|rest - Run a CI group over what is built (e3-components takes SHARD=n/count and REPORT=file)"
 	@echo "  test-export       - Export east-ui's suites as IR to this checkout's tmp/east-ui-tests"
 	@echo "  lint              - Run linters"
 	@echo "  showcase          - Run showcase dev server"
@@ -234,9 +258,6 @@ help:
 	@echo "  test-responsive               - The showcase's Playwright suite (desktop + mobile); SHARD=n/total and TEST_LIST=file optional"
 	@echo "  select-responsive BASE=ref OUTPUT_DIR=dir - Select browser checks from the complete diff to HEAD"
 	@echo "  east-ui-examples-html-<pathKey> - Snapshot a single example (e.g. east-ui-examples-html-disclosure/tabs)"
-	@echo "  extension         - Build and package VS Code extension"
-	@echo "  extension-install - Install VS Code extension"
-	@echo "  extension-uninstall - Uninstall VS Code extension"
 	@echo "  clean             - Clean build artifacts"
 	@echo ""
 	@echo "Dependencies are managed by pnpm from the monorepo root."
@@ -245,7 +266,8 @@ help:
 ## The responsive suite (#357, #833): Playwright drives the BUILT showcase
 ## over every catalog page at desktop + mobile viewports. These are DOM specs
 ## (packages/east-ui-showcase/tests/responsive/) with no pixel comparisons.
-## CI runs this target across at most 16 shards, using the selected TEST_LIST.
+## CI runs this target across at most 24 jobs, the selected TEST_LIST split by
+## the times CI recorded (packages/east-ui-showcase/responsive.timings.json).
 ##
 ## It serves what `make build` built, building the showcase only when its
 ## dist is missing, so rebuild after a change. A failing spec leaves its

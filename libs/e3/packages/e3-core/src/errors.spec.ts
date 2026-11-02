@@ -116,14 +116,14 @@ describe('errors', () => {
     it('includes holder info in message when provided', () => {
       const holder: LockHolderInfo = {
         pid: 12345,
-        acquiredAt: '2025-01-15T10:30:00Z',
+        acquiredAt: new Date('2025-01-15T10:30:00Z'),
         bootId: 'abc123',
         command: 'e3 start',
       };
       const err = new WorkspaceLockError('myws', holder);
       assert.ok(err.message.includes('myws'));
       assert.ok(err.message.includes('12345'));
-      assert.ok(err.message.includes('2025-01-15T10:30:00Z'));
+      assert.ok(err.message.includes('(since 2025-01-15T10:30:00.000)'), err.message);
       assert.strictEqual(err.workspace, 'myws');
       assert.strictEqual(err.holder, holder);
     });

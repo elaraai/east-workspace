@@ -11,8 +11,7 @@
  *
  * `Studio.component(key, meta, fn)` returns it as a `Studio.Types.Component`
  * struct, the way `Slice.config` returns a slice config: what the palette
- * shows, what the function reads, the fingerprint of its code, and the
- * function itself. A surface lists the components it offers, and the Studio's
+ * shows, what the function reads, and the function itself. A surface lists the components it offers, and the Studio's
  * renderers draw a placement by calling its component's function, so a
  * surface's `ui()` task holds every listed component's function and its
  * manifest is the union of theirs.
@@ -25,24 +24,20 @@ import {
     BooleanType,
     East,
     FunctionType,
-    IRType,
     IntegerType,
     NullType,
     OptionType,
     StringType,
     StructType,
     VariantType,
-    encodeBeast2For,
     none,
-    sha256Hex,
     some,
     variant,
     type CallableFunctionExpr,
     type ExprType,
-    type IR,
 } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui/internal";
-import { DataManifestType } from "@elaraai/e3-types";
+import { DataManifestType, TreePathType } from "@elaraai/e3-types";
 import { deriveManifest } from "../utils/derive.js";
 
 // ============================================================================
@@ -67,8 +62,8 @@ export type StudioFrameType = typeof StudioFrameType;
 export type StudioFrameLiteral = "card" | "none";
 
 /**
- * A Studio component — what the palette shows, what the component reads, the
- * fingerprint of its code, and the East UI function that renders it.
+ * A Studio component — what the palette shows, what the component reads, and
+ * the East UI function that renders it.
  *
  * @property key - The component's identity; a cell stores it
  * @property name - Its name, in the palette and the inspector
@@ -81,7 +76,6 @@ export type StudioFrameLiteral = "card" | "none";
  * @property collections - Its collections, which the palette's Filter menu offers
  * @property deprecated - Hidden from the palette; placements keep rendering
  * @property reads - The datasets, functions and records its function binds, derived from its code
- * @property fingerprint - A hash of its code; a cell stores it when placed and when its page publishes, so a code change since shows
  * @property render - The East UI function that renders it
  */
 export const StudioComponentType = StructType({
@@ -96,12 +90,44 @@ export const StudioComponentType = StructType({
     collections: ArrayType(StringType),
     deprecated: BooleanType,
     reads: DataManifestType,
-    fingerprint: StringType,
     render: FunctionType([], UIComponentType),
 });
 
 /** Type representing a Studio component. */
 export type StudioComponentType = typeof StudioComponentType;
+
+// ============================================================================
+// What a component reads, in words
+// ============================================================================
+
+/**
+ * The name of the data at a path, in words, as the people who build pages
+ * read it — never its keypath, nor its name as code spells it: a task's
+ * output by its task's name, anything else by its own, its words apart and
+ * the first upper case (`.inputs.sales_daily` "Sales daily",
+ * `.tasks.weeklyForecast.output` "Weekly forecast").
+ */
+export const dataName = East.function([TreePathType], StringType, ($, path) => {
+    const last = $.let(path.size().subtract(1n));
+    // A task's output, `.tasks.<task>.output`, is its task's.
+    const output = $.let(path.size().equal(3n)
+        .and(() => path.get(0n).unwrap("field").equal("tasks"))
+        .and(() => path.get(last).unwrap("field").equal("output")));
+    const name = $.let(output.ifElse(() => path.get(1n).unwrap("field"), () => path.get(last).unwrap("field")));
+    const words = $.let(name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().lowerCase());
+    return words.length().equal(0n).ifElse(
+        () => name,
+        () => words.substring(0n, 1n).upperCase().concat(words.substring(1n, words.length())),
+    );
+});
+
+/**
+ * The data a component's code reads — each dataset and record it binds, whole
+ * or a window at a time — each named in words ({@link dataName}), as the
+ * palette's cards, the canvas's tiles and the inspector name it.
+ */
+export const readNames = East.function([DataManifestType], ArrayType(StringType), (_$, reads) =>
+    reads.paths.concat(reads.pages).map((_$2, path) => dataName(path)));
 
 /**
  * What the palette shows of a component — its `meta`. Only `name`,
@@ -139,64 +165,6 @@ export interface StudioComponentMeta {
 }
 
 // ============================================================================
-// The fingerprint
-// ============================================================================
-
-const encodeIR = encodeBeast2For(IRType);
-
-/**
- * The IR in a canonical form: every location id zeroed and every variable
- * renamed by its first appearance, so the same code has the same IR wherever
- * it is written and whatever was built before it.
- *
- * @remarks
- * The East types a node carries are kept as they are, not copied: equal types
- * are one shared object, which the encoder writes once, and a copy would make
- * it write a UI type again at every node.
- */
-function canonicalIR(ir: IR): IR {
-    const names = new Map<string, string>();
-    const walk = (node: unknown): unknown => {
-        if (Array.isArray(node)) return node.map(walk);
-        if (node === null || typeof node !== "object") return node;
-        const proto = Object.getPrototypeOf(node);
-        if (proto !== Object.prototype && proto !== null) return node;
-        const out: Record<string, unknown> = {};
-        for (const [field, value] of Object.entries(node)) {
-            out[field] = field === "loc_id" ? 0n
-                : (field === "type" && typeof value === "object") || field === "type_parameters" ? value
-                    : walk(value);
-        }
-        const value = out["value"];
-        if (out["type"] === "Variable" && value !== null && typeof value === "object") {
-            const variable = value as Record<string, unknown>;
-            const name = variable["name"];
-            if (typeof name === "string") {
-                let canonical = names.get(name);
-                if (canonical === undefined) {
-                    canonical = `v${names.size}`;
-                    names.set(name, canonical);
-                }
-                out["value"] = { ...variable, name: canonical };
-            }
-        }
-        return out;
-    };
-    return walk(ir) as IR;
-}
-
-/**
- * A function's fingerprint: the SHA-256 of its IR in canonical form. The same
- * code fingerprints the same; a change to it changes the fingerprint.
- *
- * @param fn - The function
- * @returns The fingerprint, hex
- */
-export function fingerprintOf(fn: { toIR(): { ir: IR } }): string {
-    return sha256Hex(encodeIR(canonicalIR(fn.toIR().ir)));
-}
-
-// ============================================================================
 // Authoring
 // ============================================================================
 
@@ -207,7 +175,7 @@ export function fingerprintOf(fn: { toIR(): { ir: IR } }): string {
  * @remarks
  * `fn` is exactly what `ui()` takes, so a component written for a `ui()` body
  * moves into `Studio.component` unchanged. Its `reads` come from its code
- * (`deriveManifest`), and its `fingerprint` from its IR — neither is written.
+ * (`deriveManifest`), never written.
  * Call it at module scope or inside an East function, as `Slice.config` is.
  *
  * @param key - The component's identity; a cell stores it
@@ -257,7 +225,6 @@ function createComponent(
         collections: meta.collections ?? [],
         deprecated: meta.deprecated ?? false,
         reads,
-        fingerprint: fingerprintOf(fn),
         render: fn,
     }, StudioComponentType);
 }

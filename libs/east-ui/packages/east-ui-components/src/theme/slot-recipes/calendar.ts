@@ -19,7 +19,7 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
 import { INSPECTOR_STATUS } from "./inspector.js";
 import { BOOKED_FILL, NO_DATA_HATCH } from "./plan/cells.js";
-import { PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSelected } from "./plan/focus.js";
+import { PLAN_OVERLAP_RING, planElementConflict, planElementDrafted, planElementFocus, planElementSelected } from "./plan/focus.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { retainedColumn, retainedRow } from "./loading.js";
 import { moveGhostSlots, moveGhostBase } from "./time/move-ghost.js";
@@ -31,6 +31,7 @@ import { shellBase } from "./plan/shell.js";
 import { nowSlots, nowBase } from "./time/now.js";
 import { timeAxisText, timeHeaderText, timeRulerBase } from "./time/axis.js";
 import { timeResizeEdge } from "./time/resize.js";
+import { CONFLICT_RING } from "../conflict-ring.js";
 
 /**
  * A column of the Resources view over a paged resource kind (#1424), at its own offset: past the hour column, its place
@@ -105,7 +106,7 @@ export const calendarSlotRecipe = defineSlotRecipe({
         hour: { position: "absolute", left: 0, right: 0, borderTopWidth: "1px", borderColor: "border.subtle", pointerEvents: "none", "&[data-half]": { opacity: 0.45 } },
         shade: { position: "absolute", background: "bg.muted", opacity: 0.45, pointerEvents: "none", "&[data-along=y]": { left: 0, right: 0 }, "&[data-along=x]": { top: 0, bottom: 0 } },
         event: {
-            ...planElementDrafted, ...planElementSelected, ...planElementFocus,
+            ...planElementDrafted, ...planElementSelected, ...planElementFocus, ...planElementConflict,
             position: "absolute", display: "flex", flexDirection: "column", gap: "2px", padding: "4px 6px",
             borderWidth: "1px", borderColor: "border.strong", borderRadius: "sm", background: "bg.panel", color: "fg",
             textAlign: "left", cursor: "pointer", minHeight: "16px", minWidth: "4px", overflow: "hidden",
@@ -113,6 +114,8 @@ export const calendarSlotRecipe = defineSlotRecipe({
             "&[data-compact]": { flexDirection: "row", alignItems: "center", paddingY: 0, gap: "5px" },
             "&[data-chip]": { height: "21px", flexShrink: 0 },
             "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
+            // An event in an overlap holding a conflict: the conflict's ring in the overlap's place.
+            "&[data-overlap][data-conflict]": { boxShadow: CONFLICT_RING },
             "&[data-dragging]": { zIndex: 10 },
             // Retained while a newer read of its period is in flight (#1398, CL5, CL8): its words in the third ink, its own edge
             // kept, and inert to the pointer — the default cursor over it and its edges, which take no gesture meanwhile.
@@ -184,7 +187,7 @@ export const calendarSlotRecipe = defineSlotRecipe({
         },
         // The narrow agenda: the shared part the Roster and the Allocation take too, a card in an overlap pair ringed in warn.
         agenda: scheduleAgenda, agendaGroup: scheduleAgendaGroup, agendaHead: scheduleAgendaHead,
-        card: { ...scheduleCard, "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING }, "[data-calendar-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },
+        card: { ...scheduleCard, "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING }, "&[data-overlap][data-conflict]": { boxShadow: CONFLICT_RING }, "[data-calendar-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },
         cardHead: scheduleCardHead, cardTitle: scheduleCardTitle, actions: scheduleCardActions,
         section: { display: "flex", flexDirection: "column", gap: "12px", padding: "16px", borderBottomWidth: "1px", borderColor: "border.subtle", minWidth: 0 },
         status: INSPECTOR_STATUS,

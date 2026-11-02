@@ -88,7 +88,7 @@ export interface CalendarProps {
      * (`Calendar.resources(Data.bindPaged(record), { … })`, #1424): its resources come a window at a time, the timeline's
      * rows and the Resources view's columns the windows around the view, its Choosers searching it by key. An event kind
      * placed on it is read a cell at a time: its source of the slice lists a series index and a summary index of its
-     * record (`e3.recordIndex.series`, `e3.recordIndex.summary`, filed by its resource field over its own times) beside
+     * record (`index.series`, `index.summary`, filed by its resource field over its own times) beside
      * its interval index, or it is refused.
      */
     resources?: Readonly<Record<string, ScheduleResourceKind<EastType, EastType>>>;
@@ -262,14 +262,18 @@ export interface CalendarNamespace extends Omit<ScheduleNamespace, "Types"> {
  * import e3 from "@elaraai/e3";
  *
  * export const CalendarAppointment = StructType({ title: StringType, start: DateTimeType, end: DateTimeType });
- * export const calendarAppointments = e3.record("calendar_appointments", DictType(StringType, CalendarAppointment), new Map([
- *     ["check", { title: "Safety check", start: new Date("2026-10-01T09:00:00Z"), end: new Date("2026-10-01T10:00:00Z") }],
- *     ["review", { title: "Production review", start: new Date("2026-10-01T11:00:00Z"), end: new Date("2026-10-01T12:00:00Z") }],
- * ]));
- * export const calendarAppointmentsPatch = e3.mutation.patch(calendarAppointments);
+ * export const calendarAppointments = e3.record("calendar_appointments", DictType(StringType, CalendarAppointment), {
+ *     initial: new Map([
+ *         ["check", { title: "Safety check", start: new Date("2026-10-01T09:00:00Z"), end: new Date("2026-10-01T10:00:00Z") }],
+ *         ["review", { title: "Production review", start: new Date("2026-10-01T11:00:00Z"), end: new Date("2026-10-01T12:00:00Z") }],
+ *     ]),
+ *     mutations: (mutation) => ({
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  *
  * const appointmentsCalendar = East.function([], UIComponentType, _$ => <Reactive>{$ => {
- *     const appointments = $.let(Record.bind(calendarAppointments, [calendarAppointmentsPatch]));
+ *     const appointments = $.let(Record.bind(calendarAppointments));
  *     return <Box height="640px"><Calendar inspector view={{ period: "day", date: new Date("2026-10-01T00:00:00Z") }}
  *         events={{ appointment: Calendar.events(appointments, { name: "Appointment", icon: "calendar", title: "title", start: "start", end: "end" }) }} />
  *     </Box>;

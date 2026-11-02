@@ -47,10 +47,10 @@ type Payload = ValueTypeOf<typeof AllocationPayloadType>;
 
 /** The kiln yard's payload, the tag over its records as the kiln yard's example binds them. */
 const program = East.function([], AllocationPayloadType, ($) => {
-    const bins = $.let(Record.bind(ax.kilnBins, [ax.kilnBinsPatch]));
+    const bins = $.let(Record.bind(ax.kilnBins, ["patch"]));
     const entries = $.let(Data.bindPaged(ax.kilnBins));
-    const byTime = $.let(Data.bindPaged(ax.kilnBins, { indexes: [ax.kilnBinsByTime] }));
-    const days = $.let(Record.bind(ax.yardDays, [ax.yardDaysPatch]));
+    const byTime = $.let(Data.bindPaged(ax.kilnBins, { indexes: ["kiln_bins_by_time"] }));
+    const days = $.let(Record.bind(ax.yardDays, ["patch"]));
     const yard = $.let(Data.bind(ax.kilns));
     const loads = $.let(Data.bind(ax.arrivals));
     const bays = $.let(Data.bind(ax.yardBays));

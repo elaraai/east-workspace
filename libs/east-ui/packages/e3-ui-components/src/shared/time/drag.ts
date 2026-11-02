@@ -102,7 +102,9 @@ export function moveSpan<I, K extends string>(scale: Scale<I, K>, span: Span<I>,
 
 /**
  * An element resized: one end moved `k` units, never past the other, so it
- * keeps at least one unit (where an end names its last bucket, one bucket).
+ * keeps at least one unit (where an end names its last bucket, one bucket) —
+ * or, an element shorter than one, its own length: a resize never lengthens it
+ * while it shrinks it, nor moves an end against its step.
  *
  * @param scale - The scale
  * @param span - The element's extent
@@ -117,11 +119,13 @@ export function resizeSpan<I, K extends string>(scale: Scale<I, K>, span: Span<I
     const unit = scale.endInclusive ? 0 : 1;
     if (edge === "end") {
         const moved = moveSpan(scale, { start: span.end, end: span.end }, k, fine).end;
-        const least = scale.shift(span.start, unit, fine);
+        const unitOn = scale.shift(span.start, unit, fine);
+        const least = order(span.end) < order(unitOn) ? span.end : unitOn;
         return { start: span.start, end: order(moved) < order(least) ? least : moved };
     }
     const moved = moveSpan(scale, { start: span.start, end: span.start }, k, fine).start;
-    const most = scale.shift(span.end, -unit, fine);
+    const unitBefore = scale.shift(span.end, -unit, fine);
+    const most = order(span.start) > order(unitBefore) ? span.start : unitBefore;
     return { start: order(moved) > order(most) ? most : moved, end: span.end };
 }
 
@@ -144,18 +148,32 @@ export function proposeAt<I, K extends string>(
     return mode === "move" ? moveSpan(scale, span, k, fine) : resizeSpan(scale, span, mode, k, fine);
 }
 
+/** A keyboard carry's steps since its element was picked up, a bucket each: of the whole element, and of each end. */
+export interface CarrySteps {
+    /** The whole element's. */
+    readonly move: number;
+    /** Its start's. */
+    readonly start: number;
+    /** Its end's. */
+    readonly end: number;
+}
+
+/** No steps yet. */
+export const NO_STEPS: CarrySteps = { move: 0, start: 0, end: 0 };
+
 /**
- * Where a keyboard step lands: the element moved, or one of its ends, one
- * bucket per step.
+ * Where a keyboard carry's steps land, counted from the element as it was
+ * picked up: moved by its whole steps, then each end by its own. Steps taken
+ * back land it where it began.
  *
  * @param scale - The scale
- * @param span - The element's extent now
- * @param mode - What the step moves
- * @param k - The signed number of buckets
+ * @param span - The element's extent as it was picked up
+ * @param steps - The steps since
  * @returns The proposed extent
  */
-export function stepSpan<I, K extends string>(scale: Scale<I, K>, span: Span<I>, mode: MoveMode, k: number): Span<I> {
-    return mode === "move" ? moveSpan(scale, span, k, false) : resizeSpan(scale, span, mode, k, false);
+export function stepSpan<I, K extends string>(scale: Scale<I, K>, span: Span<I>, steps: CarrySteps): Span<I> {
+    const moved = moveSpan(scale, span, steps.move, false);
+    return resizeSpan(scale, resizeSpan(scale, moved, "end", steps.end, false), "start", steps.start, false);
 }
 
 /**

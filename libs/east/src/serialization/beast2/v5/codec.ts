@@ -52,7 +52,8 @@ import { BufferWriter, BufferReader } from "../../binary-utils.js";
 import { compareFor } from "../../../comparison.js";
 import { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL, EAST_SOURCE_MAP_SYMBOL, type RuntimeContext } from "../../../compile.js";
 import { InternalError } from "../../../error.js";
-import type { FunctionIR, AsyncFunctionIR } from "../../../ir.js";
+import type { FunctionIR, AsyncFunctionIR, IR } from "../../../ir.js";
+import { mapLocIds } from "../../../ir_locations.js";
 import { SourceMap, type Location } from "../../../location.js";
 import { type Beast2DecodeOptions, type PlatformDecodeContext, buildPlatformContext, checkDecodeType, describeNoIrValue, finishDecodedFunction, irTypeValue } from "../shared.js";
 import { writeTypeSection, readTypeSection, asTypeValue } from "./type-section.js";
@@ -88,7 +89,7 @@ export interface V5EncodeContext {
   /** Whether any REF crossed a root-segment boundary. */
   crossSegmentRef: boolean;
   /** The stream's source map (header map, or adopted from the first function
-   *  value that carries one). */
+   *  value that carries one). Never written to: it is a program's own. */
   sourceMap: SourceMap | null;
   /** Number of source-map stacks already written (header + inline deltas),
    *  including the index-0 empty sentinel. */
@@ -96,6 +97,26 @@ export interface V5EncodeContext {
   /** Self-contained mode: inline source-map growth is forbidden (stacks
    *  emitted mid-stream would be unreachable from later segments). */
   selfContained: boolean;
+  /** The blob's map, once a closure of another program brings stacks the
+   *  stream's map lacks: the stream map's stacks, then each one brought, by
+   *  content, in its own map's order. Null while every stack a closure names
+   *  is the stream map's. */
+  merged: SourceMap | null;
+  /** How the loc_ids of each closure map other than the stream's stand in the
+   *  blob's map: each id's place, 0 where the blob holds none of its stack, or
+   *  `null` for a map whose stacks stand where they are. */
+  translations: Map<SourceMap, readonly bigint[] | null>;
+  /** Each closure's IR as written translated, by the translation, so a
+   *  closure written many times is translated once. */
+  translated: WeakMap<object, Map<readonly bigint[], IR>>;
+  /** A whole-value encode, which writes the blob's map once the value is
+   *  encoded: in the header, or else in the first closure's delta, where an
+   *  encode of the value decoded puts it, since its closures then share it. */
+  deferred: boolean;
+  /** Where a deferred encode's map goes: the header, or the first closure's
+   *  delta — its offsets in the logical bytes, and the size of the map it was
+   *  written from — or, before the first closure, not yet anywhere. */
+  blobMapAt: "header" | { start: number; end: number; written: number } | null;
 }
 
 /** Creates a fresh v5 encode context.
@@ -103,9 +124,11 @@ export interface V5EncodeContext {
  * @param sourceMap - the pre-resolved header source map, if any
  * @param selfContained - whether the writer's segments must decode on their
  *   own, which forbids inline source-map growth
+ * @param deferred - a whole-value encode, which writes the blob's map once the
+ *   value is encoded
  * @returns the initialized context
  */
-export function createV5EncodeContext(sourceMap: SourceMap | null, selfContained: boolean): V5EncodeContext {
+export function createV5EncodeContext(sourceMap: SourceMap | null, selfContained: boolean, deferred = false): V5EncodeContext {
   return {
     containerIndex: new Map(),
     containerCount: 0,
@@ -114,7 +137,131 @@ export function createV5EncodeContext(sourceMap: SourceMap | null, selfContained
     sourceMap,
     sourceMapEmitted: sourceMap ? Number(sourceMap.size) : 1,
     selfContained,
+    merged: null,
+    translations: new Map(),
+    translated: new WeakMap(),
+    deferred,
+    blobMapAt: deferred && sourceMap !== null ? "header" : null,
   };
+}
+
+/** The loc_ids of a closure with no map: they index nothing, so none names a
+ *  stack of the blob it is written into. */
+const NO_LOCATIONS: readonly bigint[] = [];
+
+/**
+ * How a closure's loc_ids stand in the blob's map: `null` when they stand
+ * where they are, as a closure of the stream's map's do; else each id's place.
+ *
+ * @remarks
+ * A stack the blob holds is found by its content. One it lacks is added, in
+ * its map's order, unless the stream is self-contained: a segment decoded on
+ * its own sees only the header's stacks, so the id is written as 0, no
+ * location. A closure names its own lines or none, never another's.
+ */
+function blobLocationsOf(ctx: V5EncodeContext, sm: SourceMap | null): readonly bigint[] | null {
+  if (sm === null) return NO_LOCATIONS;
+  if (sm === ctx.sourceMap) return null;
+  const known = ctx.translations.get(sm);
+  if (known !== undefined) return known;
+  const stacks = sm.entries();
+  const table: bigint[] = [0n];
+  for (let i = 1; i < stacks.length; i++) {
+    const stack = stacks[i]!;
+    const held = (ctx.merged ?? ctx.sourceMap)?.find(stack);
+    if (held !== undefined) {
+      table.push(held);
+    } else if (ctx.selfContained || ctx.sourceMap === null) {
+      table.push(0n);
+    } else {
+      ctx.merged ??= copyOf(ctx.sourceMap);
+      table.push(ctx.merged.intern_stack([...stack]));
+    }
+  }
+  const translation = table.every((id, i) => id === BigInt(i)) ? null : table;
+  ctx.translations.set(sm, translation);
+  return translation;
+}
+
+/** A map of the same stacks, under the same ids, that an encode may add to. */
+function copyOf(map: SourceMap): SourceMap {
+  const copy = new SourceMap();
+  for (const stack of map.entries()) copy.intern_stack([...stack]);
+  return copy;
+}
+
+/** A closure's IR with its loc_ids where its stacks stand in the blob's map. */
+function translatedIR(ctx: V5EncodeContext, ir: IR, translation: readonly bigint[]): IR {
+  let byTranslation = ctx.translated.get(ir);
+  if (byTranslation === undefined) {
+    byTranslation = new Map();
+    ctx.translated.set(ir, byTranslation);
+  }
+  let translated = byTranslation.get(translation);
+  if (translated === undefined) {
+    translated = mapLocIds(ir, (id) => translation[Number(id)] ?? 0n);
+    byTranslation.set(translation, translated);
+  }
+  return translated;
+}
+
+/**
+ * Writes a closure's source-map delta. A self-contained stream writes none. A
+ * deferred encode writes its first closure's — every stack the blob's map holds
+ * so far — and none after it, the stacks later closures bring being left to
+ * {@link finishBlobMap}; with a header holding the map, none at all. Any other
+ * stream writes the stacks of the blob's map not yet written.
+ */
+function writeStacksDelta(ctx: V5EncodeContext, writer: BufferWriter): void {
+  const map = ctx.merged ?? ctx.sourceMap;
+  if (ctx.selfContained || (ctx.deferred && ctx.blobMapAt !== null)) {
+    writer.writeVarint(0);
+    return;
+  }
+  if (ctx.deferred) {
+    const start = writer.size;
+    if (map === null) writer.writeVarint(0);
+    else writeStacksFrom(map, 1, writer);
+    ctx.sourceMapEmitted = map === null ? 1 : Number(map.size);
+    ctx.blobMapAt = { start, end: writer.size, written: ctx.sourceMapEmitted };
+    return;
+  }
+  const pending = map === null ? 0 : Number(map.size) - ctx.sourceMapEmitted;
+  if (pending <= 0) {
+    writer.writeVarint(0);
+    return;
+  }
+  writeStacksFrom(map!, ctx.sourceMapEmitted, writer);
+  ctx.sourceMapEmitted = Number(map!.size);
+}
+
+/** Writes `varint(n)` and a map's stacks from `from` on: a delta. */
+function writeStacksFrom(map: SourceMap, from: number, writer: BufferWriter): void {
+  const entries = map.entries();
+  writer.writeVarint(entries.length - from);
+  for (let i = from; i < entries.length; i++) writeStack(entries[i]!, writer);
+}
+
+/**
+ * The logical bytes of a deferred encode, the first closure's delta holding the
+ * blob's map: as written, when a header holds the map, or when the map is the
+ * one the delta was written from; otherwise written again, holding every stack
+ * the value's closures brought. The logical bytes hold no byte offset, so
+ * nothing after the delta changes meaning.
+ */
+function finishBlobMap(ctx: V5EncodeContext, logical: BufferWriter): Uint8Array {
+  const bytes = logical.toUint8Array();
+  const at = ctx.blobMapAt;
+  const map = ctx.merged ?? ctx.sourceMap;
+  if (at === null || at === "header" || map === null || Number(map.size) === at.written) return bytes;
+  const delta = new BufferWriter();
+  writeStacksFrom(map, 1, delta);
+  const written = delta.toUint8Array();
+  const out = new Uint8Array(bytes.length - (at.end - at.start) + written.length);
+  out.set(bytes.subarray(0, at.start), 0);
+  out.set(written, at.start);
+  out.set(bytes.subarray(at.end), at.start + written.length);
+  return out;
 }
 
 /** Mutable state threaded through a v5 decode pass. */
@@ -418,27 +565,14 @@ export function buildV5Encoder(type: EastTypeValue, typeCtx: Map<bigint, V5Encod
         const ir = value[EAST_IR_SYMBOL] as FunctionIR | AsyncFunctionIR | undefined;
         if (!ir) throw new Error(`Cannot serialize function: no IR attached (${describeNoIrValue(value)})`);
 
-        // Source-map delta: stacks of the stream's map not yet on the wire.
+        // A stream with no map yet takes the first closure's that carries one,
+        // whose stacks then stand where they are; any other closure's loc_ids
+        // are written where its stacks stand in the blob's map.
         const sm = (value as any)[EAST_SOURCE_MAP_SYMBOL] as SourceMap | undefined ?? null;
-        if (ctx.sourceMap === null && sm) ctx.sourceMap = sm;
-        if (ctx.sourceMap !== null && sm === ctx.sourceMap && Number(ctx.sourceMap.size) > ctx.sourceMapEmitted) {
-          if (ctx.selfContained) {
-            throw new Error(
-              `beast2 v5: self-contained streams cannot add function source maps mid-stream; ` +
-              `pass the source map to the writer up front or disable selfContained`
-            );
-          }
-          const entries = ctx.sourceMap.entries();
-          writer.writeVarint(entries.length - ctx.sourceMapEmitted);
-          for (let i = ctx.sourceMapEmitted; i < entries.length; i++) {
-            writeStack(entries[i]!, writer);
-          }
-          ctx.sourceMapEmitted = entries.length;
-        } else {
-          writer.writeVarint(0);
-        }
-
-        fnIrEncoder(ir, writer, ctx);
+        if (ctx.sourceMap === null && sm !== null && !ctx.selfContained) ctx.sourceMap = sm;
+        const translation = blobLocationsOf(ctx, sm);
+        writeStacksDelta(ctx, writer);
+        fnIrEncoder(translation === null ? ir : translatedIR(ctx, ir as IR, translation), writer, ctx);
 
         const captures = value[EAST_CAPTURES_SYMBOL] as RuntimeContext | undefined;
         const captureList = ir.value.captures;
@@ -861,17 +995,18 @@ export function encodeBeast2V5For(type: EastTypeValue | EastType, options?: Beas
     const sourceMap = options?.sourceMap
       ?? ((value as any)?.[EAST_SOURCE_MAP_SYMBOL] as SourceMap | undefined)
       ?? null;
-    const ctx = createV5EncodeContext(sourceMap, false);
-
+    // The value is encoded before the header is written: the blob's map is
+    // known once every closure in it has been.
+    const ctx = createV5EncodeContext(sourceMap, false, true);
     const writer = new BufferWriter();
-    writer.writeBytes(headBytes);
-    writeSourceMapSectionV5(sourceMap, writer);
 
     if (!withIndex) {
       // Single frame carrying the whole logical value encoding.
       const logical = new BufferWriter();
       valueEncoder(value, logical, ctx);
-      writeFrame(writer, logical.toUint8Array(), codec);
+      writer.writeBytes(headBytes);
+      writeSourceMapSectionV5(sourceMap === null ? null : ctx.merged ?? sourceMap, writer);
+      writeFrame(writer, finishBlobMap(ctx, logical), codec);
       return writer.toUint8Array();
     }
 
@@ -881,16 +1016,20 @@ export function encodeBeast2V5For(type: EastTypeValue | EastType, options?: Beas
     ctx.containerIndex.set(value, 0);
     ctx.segmentBaseDef = 1;
 
-    writeFrame(writer, new Uint8Array([TAG_NEW]), "none");
-
     const count = typeValue.type === "Array" ? value.length : value.size;
-    const segments: { offset: number; count: number }[] = [];
+    let logical: BufferWriter | null = null;
     if (count > 0) {
-      const logical = new BufferWriter();
+      logical = new BufferWriter();
       logical.writeVarint(count);
       encodeSegmentElements(typeValue, value, logical, ctx, setupTypeCtx);
+    }
+    writer.writeBytes(headBytes);
+    writeSourceMapSectionV5(sourceMap === null ? null : ctx.merged ?? sourceMap, writer);
+    writeFrame(writer, new Uint8Array([TAG_NEW]), "none");
+    const segments: { offset: number; count: number }[] = [];
+    if (logical !== null) {
       segments.push({ offset: writer.size, count });
-      writeFrame(writer, logical.toUint8Array(), codec);
+      writeFrame(writer, finishBlobMap(ctx, logical), codec);
     }
     writeFrame(writer, new Uint8Array([0x00]), "none");
 

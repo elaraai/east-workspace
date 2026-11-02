@@ -18,7 +18,7 @@ import {
     decodeBeast2For, encodeBeast2For, equalFor, printFor, toEastTypeValue, variant, type IR,
 } from "@elaraai/east";
 import { type TreePath } from "@elaraai/e3-types";
-import { input, mutation, record, recordIndex } from "@elaraai/e3";
+import { input, record } from "@elaraai/e3";
 import { Button, Reactive, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import {
     Data, DataBindHandleType, Decision, DecisionType, JudgementsType, Record, UiAccessType, deriveUiAccess, type UiAccess,
@@ -45,11 +45,15 @@ const rows = input("rows", ArrayType(StringType), variant("value", []));
 
 const Plan = StructType({ title: StringType, owner: StringType });
 const PlansType = DictType(StringType, Plan);
-const plans = record("plans", PlansType, new Map());
-const reassign = mutation.reduce("reassign", plans,
-    East.function([PlansType, StringType, StringType], PlansType, (_$, state, _id, _owner) => state));
-const byOwner = recordIndex("by_owner", plans, {
-    key: East.function([StringType, Plan], StringType, (_$, _id, plan) => plan.owner),
+const plans = record("plans", PlansType, {
+    initial: new Map(),
+    indexes: (index) => ({
+        by_owner: index.key(East.function([StringType, Plan], StringType, (_$, _id, plan) => plan.owner)),
+        by_title: index.on(["title"]),
+    }),
+    mutations: (mutation) => ({
+        reassign: mutation.reduce(East.function([PlansType, StringType, StringType], PlansType, (_$, state, _id, _owner) => state)),
+    }),
 });
 
 const decisions = input("decisions", ArrayType(DecisionType), variant("value", []));
@@ -82,8 +86,8 @@ describe("deriveUiAccess", () => {
 
     test("a UI that calls a record's mutation and reads it through an index names both, and writes no dataset", () => {
         const ui = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-            const queue = $.let(Data.bindPaged(plans, { index: byOwner }));
-            const bound = $.let(Record.bind(plans, [reassign]));
+            const queue = $.let(Data.bindPaged(plans, { index: "by_owner" }));
+            const bound = $.let(Record.bind(plans));
             const take = $.const(East.function([], NullType, ($) => {
                 $(bound.mutate.reassign("p-1", "me"));
             }));
@@ -98,13 +102,12 @@ describe("deriveUiAccess", () => {
     });
 
     test("indexed Slice bindings name every declared index, including computed keys, before and after decoding", () => {
-        const byTitle = recordIndex("by_title", plans, { on: ["title"] });
         for (const alsoFixed of [false, true]) {
             const ui = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-                $(Data.bindPaged(plans, { indexes: [byOwner, byTitle] }));
+                $(Data.bindPaged(plans, { indexes: ["by_owner", "by_title"] }));
                 // The indexed binding alone names its record; a fixed-index
                 // read of the same record must not repeat either index.
-                if (alsoFixed) $(Data.bindPaged(plans, { index: byOwner }));
+                if (alsoFixed) $(Data.bindPaged(plans, { index: "by_owner" }));
                 return Text.Root("Browse plans");
             })));
             const expected: UiAccess = {
@@ -236,8 +239,8 @@ describe("deriveUiAccess: the IR it reads", () => {
     test("reads a UI decoded off the wire as it reads the one built here", () => {
         const ui = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const view = $.let(Data.bind(threshold));
-            const bound = $.let(Record.bind(plans, [reassign]));
-            const queue = $.let(Data.bindPaged(plans, { index: byOwner }));
+            const bound = $.let(Record.bind(plans));
+            const queue = $.let(Data.bindPaged(plans, { index: "by_owner" }));
             const act = $.const(East.function([], NullType, ($) => {
                 $(view.write(1.0));
                 $(bound.mutate.reassign("p-1", "me"));

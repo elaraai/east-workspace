@@ -104,13 +104,13 @@ export const QueryBuilderComponent = EastUI.component("QueryBuilder", QueryBuild
 /**
  * `<Query.Builder>` options.
  *
- * @property queries - The saved queries record, bound with its patch mutation — `Record.bind(queries, [queriesPatch])`
+ * @property queries - The saved queries record, bound with its patch mutation — `Record.bind(queries)`
  * @property datasets - The data sources a query may read: each name, as a query reads it, to its binding
  * @property query - The saved query the builder opens first, by name
  * @property id - Names the builder, when a surface holds two — and the query library that opens queries in it
  */
 export interface QueryBuilderOptions {
-    /** The saved queries record, bound with its patch mutation — `Record.bind(queries, [queriesPatch])`. */
+    /** The saved queries record, bound with its patch mutation — `Record.bind(queries)`. */
     queries: QueriesHandle;
     /**
      * The data sources a query may read: each name, as a query reads it
@@ -166,7 +166,7 @@ export interface QueryBuilderOptions {
  *     <Reactive>{$ => {
  *         const orders    = $.let(Data.bindPaged(d.orders));
  *         const customers = $.let(Data.bind(d.customers));
- *         const saved     = $.let(Record.bind(d.queries, [d.queriesPatch]));
+ *         const saved     = $.let(Record.bind(d.queries));
  *         return <Query.Builder queries={saved} datasets={{ orders, customers }} query="Top shipped orders, 2026" />;
  *     }}</Reactive>
  * )));

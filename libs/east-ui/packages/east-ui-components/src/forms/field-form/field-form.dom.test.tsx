@@ -170,12 +170,13 @@ describe("FieldForm — each field the shared Field around the shared input its 
             "task:text", "rush:checkbox", "due:datetime", "steps:checklist", "note:text", "stock:readonly",
             "site.room:text", "site.floor:number",
         ]);
-        // Each is the shared Field: its label, its key in mono beside it, its help line.
+        // Each is the shared Field: its label and its help line.
         for (const el of container.querySelectorAll<HTMLElement>("[data-field]")) {
             expect(el.querySelector("[data-scope=field][data-part=root]")).not.toBeNull();
         }
-        expect(field("site.room").querySelector("label")!.textContent).toBe("Roomsite.room");
-        expect(within(screen.getByRole("group", { name: "Site" })).getAllByText(/^site\./).map((el) => el.textContent)).toEqual(["site.room", "site.floor"]);
+        // A nested struct's fields sit under its name, each by its own label.
+        expect(field("site.room").querySelector("label")!.textContent).toBe("Room");
+        expect(within(screen.getByRole("group", { name: "Site" })).getAllByText(/^(Room|Floor)$/).map((el) => el.textContent)).toEqual(["Room", "Floor"]);
         // The shared inputs, by type.
         expect(within(field("task")).getByRole("textbox")).toBeTruthy();
         expect(field("crew").querySelector("[data-scope=number-input]")).not.toBeNull();
@@ -192,10 +193,10 @@ describe("FieldForm — each field the shared Field around the shared input its 
         expect((within(field("stock")).getByRole("textbox") as HTMLInputElement).value).toBe(printFor(DictType(StringType, IntegerType))(JOB.stock));
     });
 
-    test("each control is named by its Field's label alone, as the shared Ark inputs are: the key beside the label is for the eye", () => {
+    test("each control is named by its Field's label, as the shared Ark inputs are; the label holds no key, no word for the people a builder is for", () => {
         const { field } = mount();
-        // The label's text holds the key after it; the names hold the label's words, never the two run together.
-        expect(field("crew").querySelector("label")!.textContent).toBe("Crewcrew");
+        expect(field("crew").querySelector("label")!.textContent).toBe("Crew");
+        expect(field("crew").querySelector("[data-field-key]")).toBeNull();
         expect(namesOf(field("task"), "textbox")).toEqual(["Task"]);
         expect(namesOf(field("site.room"), "textbox")).toEqual(["Room"]);
         expect(namesOf(field("stock"), "textbox")).toEqual(["Stock"]);
@@ -466,14 +467,14 @@ describe("FieldForm — a draft's missing field, a date's precision, and a host'
         expect(segments("at")).toBeGreaterThan(3);
     });
 
-    test("a host draws a field's control itself: the field keeps its label and key, and no input or Set is drawn", () => {
+    test("a host draws a field's control itself: the field keeps its label, and no input or Set is drawn", () => {
         const { field } = mountDraft({ ...JOB }, {
             renderControl: (spec) => (spec.path[0] === "steps" ? <span data-testid="own">2 steps · Edit in sheet</span> : undefined),
         });
         const steps = field("steps");
         expect(steps.getAttribute("data-editor")).toBe("custom");
         expect(within(steps).getByTestId("own").textContent).toBe("2 steps · Edit in sheet");
-        expect(steps.querySelector("label")!.textContent).toBe("Stepssteps");
+        expect(steps.querySelector("label")!.textContent).toBe("Steps");
         expect(steps.querySelector("input, [data-checklist-items], [data-field-set], [data-field-clear]")).toBeNull();
         // Every other field is the form's own.
         expect(field("task").getAttribute("data-editor")).toBe("text");

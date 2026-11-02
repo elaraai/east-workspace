@@ -55,7 +55,7 @@ const statusEqual = equalFor(Schedule.Types.PeriodStatus);
 
 /** The warehouse's duty kind, every one of the Roster's roles mapped, its hours less the unpaid break. */
 const dutyProgram = East.function([], Schedule.Types.RosterKind, ($) => {
-    const duties = $.let(Record.bind(sx.scheduleDuties, [sx.scheduleDutiesPatch]));
+    const duties = $.let(Record.bind(sx.scheduleDuties, ["patch"]));
     return Schedule.events(duties, {
         name: "Duty", icon: "user-clock",
         start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
@@ -66,7 +66,7 @@ const dutyProgram = East.function([], Schedule.Types.RosterKind, ($) => {
 
 /** A duty kind with only the Roster's required roles: no title, no position, no activity, no hours accessor. */
 const plainProgram = East.function([], Schedule.Types.RosterKind, ($) => {
-    const duties = $.let(Record.bind(sx.schedulePlainDuties, [sx.schedulePlainDutiesPatch]));
+    const duties = $.let(Record.bind(sx.schedulePlainDuties, ["patch"]));
     return Schedule.events(duties, {
         name: "Duty", icon: "user-clock", start: "start", end: "end", resource: { field: "person", of: "people" }, shift: "shift", group: "team",
     }).buildRoster("duty");
@@ -74,7 +74,7 @@ const plainProgram = East.function([], Schedule.Types.RosterKind, ($) => {
 
 /** The yard's bin kind, every one of the Allocation's roles mapped. */
 const binProgram = East.function([], Schedule.Types.AllocationKind, ($) => {
-    const bins = $.let(Record.bind(sx.scheduleBins, [sx.scheduleBinsPatch]));
+    const bins = $.let(Record.bind(sx.scheduleBins, ["patch"]));
     return Schedule.events(bins, {
         name: "Bin", icon: "box", at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
         quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec",
@@ -83,13 +83,13 @@ const binProgram = East.function([], Schedule.Types.AllocationKind, ($) => {
 
 /** The warehouse's weeks: its status mapped, and the proposals each dismissed. */
 const weekProgram = East.function([], Schedule.Types.PeriodsKind, ($) => {
-    const weeks = $.let(Record.bind(sx.scheduleWeeks, [sx.scheduleWeeksPatch]));
+    const weeks = $.let(Record.bind(sx.scheduleWeeks, ["patch"]));
     return Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed" }).build();
 });
 
 /** The yard's days: a published case holding nothing, and no dismissals. */
 const dayProgram = East.function([], Schedule.Types.PeriodsKind, ($) => {
-    const days = $.let(Record.bind(sx.scheduleDays, [sx.scheduleDaysPatch]));
+    const days = $.let(Record.bind(sx.scheduleDays, ["patch"]));
     return Schedule.periods(days, { every: "day", status: { field: "state", draft: "draft", published: "issued" } }).build();
 });
 
@@ -258,7 +258,7 @@ describe("Schedule.events — the Allocation's roles (buildAllocation)", () => {
 describe("Schedule.events — `title` is optional (B3)", () => {
     test("a kind with no title builds, its events titled with nothing", async () => {
         const program = East.function([], Schedule.Types.Kind, ($) => {
-            const duties = $.let(Record.bind(sx.schedulePlainDuties, [sx.schedulePlainDutiesPatch]));
+            const duties = $.let(Record.bind(sx.schedulePlainDuties, ["patch"]));
             return Schedule.events(duties, { name: "Duty", icon: "i", start: "start", end: "end" }).build("duty");
         });
         const { platform } = await h.platform(program);
@@ -362,8 +362,8 @@ describe("reads bounded to the period, the record never read whole (B14)", () =>
 
     test("a duty kind read by its day index: its period's rows from the days in view alone, `none` in flight, the record never read whole", async () => {
         const program = East.function([], Schedule.Types.RosterKind, ($) => {
-            const duties = $.let(Record.bind(sx.scheduleDuties, [sx.scheduleDutiesPatch]));
-            const days = $.let(Data.bindPaged(sx.scheduleDuties, { index: sx.scheduleDutiesByDay, join: true }));
+            const duties = $.let(Record.bind(sx.scheduleDuties, ["patch"]));
+            const days = $.let(Data.bindPaged(sx.scheduleDuties, { index: "schedule_duties_by_day", join: true }));
             const entries = $.let(Data.bindPaged(sx.scheduleDuties));
             return Schedule.events(duties, {
                 name: "Duty", icon: "user-clock", start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
@@ -376,7 +376,7 @@ describe("reads bounded to the period, the record never read whole (B14)", () =>
         assert.deepEqual([...rows.keys()], ["d1", "d2"], "d3 is filed under a later day");
         // The week's days sought, from its first midnight to its end, and one page from the start of the page they start in:
         // the entry past the week ends the read.
-        const byDay = sx.scheduleDutiesByDay.name;
+        const byDay = "schedule_duties_by_day";
         assert.deepEqual(h.requests().filter(finds("schedule_duties", byDay)).map((request) => [request.query.getAll("from"), request.query.getAll("to")]),
             [[[printAt(at("2027-03-07T00:00:00Z"))], [printAt(at("2027-03-14T00:00:00Z"))]]]);
         assert.deepEqual(h.requests().filter(pages("schedule_duties", byDay)).map((request) => [request.query.get("offset"), request.query.get("limit")]), [["0", "256"]]);
@@ -392,7 +392,7 @@ describe("reads bounded to the period, the record never read whole (B14)", () =>
 
     test("the periods read by key through `entries`: one key search and one page a span, `none` in flight, the record never read whole", async () => {
         const program = East.function([], Schedule.Types.PeriodsKind, ($) => {
-            const weeks = $.let(Record.bind(sx.scheduleWeeks, [sx.scheduleWeeksPatch]));
+            const weeks = $.let(Record.bind(sx.scheduleWeeks, ["patch"]));
             const entries = $.let(Data.bindPaged(sx.scheduleWeeks));
             return Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed", entries }).build();
         });

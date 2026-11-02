@@ -150,19 +150,23 @@ function fixturePackage(): ReturnType<typeof e3.package> {
     return list.size();
   }), { runner: WITH_TEST_PLATFORM });
 
-  const counts = e3.record('counts', CountsType, new SortedMap<string, bigint>([], compareFor(StringType)));
-  const add = e3.mutation.reduce('add', counts, East.function([CountsType, StringType, IntegerType], CountsType, ($, state, key, n) => {
-    const next = $.let(state.copy());
-    $(next.insertOrUpdate(key, n, ($, existing, added) => existing.add(added)));
-    return next;
-  }));
-  const byCount = e3.recordIndex('by_count', counts, {
-    key: East.function([StringType, IntegerType], IntegerType, ($, _key, n) => n),
+  const counts = e3.record('counts', CountsType, {
+    initial: new SortedMap<string, bigint>([], compareFor(StringType)),
+    indexes: (index) => ({
+      by_count: index.key(East.function([StringType, IntegerType], IntegerType, ($, _key, n) => n)),
+    }),
+    mutations: (mutation) => ({
+      add: mutation.reduce(East.function([CountsType, StringType, IntegerType], CountsType, ($, state, key, n) => {
+        const next = $.let(state.copy());
+        $(next.insertOrUpdate(key, n, ($, existing, added) => existing.add(added)));
+        return next;
+      })),
+    }),
   });
 
   return e3.package(FIXTURE_PACKAGE, FIXTURE_VERSION,
     lengths, count, sums, distinct, tallies, doubled, total, nothing, fails, chatty, splitCounts, command, customRuntime, ioTask,
-    readsFile, greets, waits, ticking, counts, add, byCount);
+    readsFile, greets, waits, ticking, counts);
 }
 
 /**

@@ -136,7 +136,7 @@
 
 import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Box, Button, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { ArrayType, StringType, compareFor, equalFor, equivalentFor, none, printFor, some, type option } from "@elaraai/east";
+import { ArrayType, StringType, compareFor, equalFor, equivalentFor, none, printFor, some, type EastType, type PatchPath, type option } from "@elaraai/east";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { Schematic, schematicAreaIndexes, schematicKeys } from "@elaraai/e3-ui/internal";
 import {
@@ -144,7 +144,7 @@ import {
     implementUIComponent, takeKey, typedInto, useContainerBelow, useDataStable, useFormatters, usePersistedState, useSlicesReactivity,
     type EditIssue, type EditingWords, type HistoryAction,
 } from "@elaraai/east-ui-components";
-import { LoadingReveal, loadingLineText, schematicColorTokens, type LoadingLineText, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
+import { LoadingReveal, loadingLineText, schematicColorTokens, type LoadingLineText, type LoadingLineValue, keptRead } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import type { SourceHiding } from "../shared/schedule/hidden.js";
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
@@ -181,7 +181,7 @@ import { SchematicIndexArea, type IndexAreaKind } from "./index-area.js";
 import { KindRows } from "./kind-rows.js";
 import { layersInForce, useSchematicLayerView } from "./layers-view.js";
 import { SchematicBacklogCountReader, schematicLibraryId, useSchematicLibrary, type SchematicBacklogNarrowing } from "./library.js";
-import { schematicMessages, type SchematicWords } from "./messages.js";
+import { coordinate, schematicMessages, type SchematicWords } from "./messages.js";
 import { NO_SELECTED_ROWS, SchematicSelectedReader, type SchematicSelectedRows } from "./selected-rows.js";
 import { looksAtMatches, narrowedDrawing, narrowedLook, schematicNarrowing, type SchematicNarrowedLook } from "./narrowing.js";
 import { useSchematicToolbarItems, type SchematicLinkChoice } from "./toolbar.js";
@@ -589,7 +589,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const findKinds = useMemo((): FindKind[] => value.items.map((kind) => ({
         slot: kind.key, name: kind.name, part: sourcePart(chrome, kind.key), rows: kind.rows, read: kind.read, codec: rowCodec(kind.rowType),
     })), [value.items, chrome]);
-    const reveal = useCallback((entity: string) => canvasRef.current?.reveal(entity), []);
+    const reveal = useCallback((entity: string, avoid?: DOMRectReadOnly) => canvasRef.current?.reveal(entity, undefined, avoid), []);
     const hiddenLayers = useMemo(() => new Set(layersNow.flatMap((layer) => (getSomeorUndefined(layer.visible) === false ? [layer.key] : []))), [layersNow]);
     const drawnItems = useMemo(() => new Set(drawing.items.map((item) => item.key)), [drawing.items]);
     const onFound = useCallback((item: FoundItem) => {
@@ -640,15 +640,44 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         if (active instanceof HTMLElement) active.blur();
         history.act(action);
     }, [history]);
-    // An issue a Save raised: the canvas flies to the item it names, and selects it.
+    // An issue a Save raised: the canvas flies to the item it names, and selects it — a conflict's Go to, beside the
+    // conflicts popover open over the canvas, which stays open.
     const sessions = editing.schedule.sessions;
     const onIssue = useCallback((issue: EditIssue) => {
         const key = history.sourceOf(issue);
         const part = key === undefined ? undefined : sessions.find((held) => stringEqual(held.key, key));
-        if (part !== undefined) reveal(entityId({ kind: recordSlot(part.kind), key: issue.entry }));
+        const popover = document.querySelector("[data-conflict-card]")?.closest("[data-part='content']")?.getBoundingClientRect();
+        if (part !== undefined) reveal(entityId({ kind: recordSlot(part.kind), key: issue.entry }), popover);
     }, [history, sessions, reveal]);
+    // A conflict's item in the history bar's popover, named as its session's banners name its issues — by the names this
+    // render draws, read as the popover draws.
+    const namesNow = useRef<ReadonlyMap<string, string>>(new Map());
+    const where = useCallback((issue: EditIssue) => {
+        const key = history.sourceOf(issue);
+        const part = key === undefined ? undefined : sessions.find((held) => stringEqual(held.key, key));
+        return (part === undefined ? undefined : namesNow.current.get(entityId({ kind: recordSlot(part.kind), key: issue.entry }))) ?? issue.entry;
+    }, [history, sessions]);
+    // A conflict's value as Details writes it: an item's box — its x, its y, its width or its height — to the centimetre,
+    // in the drawing's unit.
+    const unit = getSomeorUndefined(value.scaleUnit);
+    const conflictValue = useCallback((issue: EditIssue, path: PatchPath, held: unknown, type: EastType | undefined) => {
+        const key = history.sourceOf(issue);
+        const part = key === undefined ? undefined : sessions.find((s) => stringEqual(s.key, key));
+        const kind = part === undefined ? undefined : value.items.find((k) => stringEqual(k.key, recordSlot(part.kind)));
+        if (kind === undefined || type?.type !== "Float") return undefined;
+        let field: string | undefined;
+        for (const step of path) {
+            if (step.kind !== "field") continue;
+            if (field !== undefined) return undefined;
+            field = step.name;
+        }
+        const box = [kind.box.x, kind.box.y, getSomeorUndefined(kind.box.width), getSomeorUndefined(kind.box.height)];
+        if (field === undefined || !box.some((name) => name !== undefined && stringEqual(name, field))) return undefined;
+        const text = coordinate(held as number, words);
+        return unit === undefined ? text : `${text} ${unit}`;
+    }, [history, sessions, value.items, unit, words]);
     const historyItem = editing.edits
-        ? historyToolbarItem({ session: history, words: editingWords, editing: false, showError: false, onIssue, onAction })
+        ? historyToolbarItem({ session: history, words: editingWords, editing: false, showError: false, onIssue, where, conflictValue, onAction })
         : undefined;
     const items = useSchematicToolbarItems({
         styles, words, chrome, nouns, tools, held, links: narrow ? NO_LINK_CHOICES : linkChoices, onTools: pickTools, find,
@@ -804,6 +833,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // and a session's banners: an item's or a zone's label, a link's ends, a net's label or its ends; never a minted key. An
     // unsaved change the drawing leaves out is named so too, as its draft has it.
     const names = useMemo(() => entityNames(withWaiting(inspectorDrawn, waiting), words), [inspectorDrawn, waiting, words]);
+    namesNow.current = names;
     // The zones a point lands in, smallest first, as the Index files an item: what a drop's words name.
     const hosts = useMemo(() => hostZones(shownZones), [shownZones]);
     // A kind takes a drop while its session takes an edit and nothing the canvas draws is retained (#1398, CL8).
@@ -980,7 +1010,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // Its rows in flight: what the frame's reveal waits on too, so its placeholders show by the same clock (#1398, CL4).
     const inspectorReading = inspectedRows.ref !== undefined && (inspectedRows.row.state === "reading" || inspectedRows.details?.state === "reading");
     // Its open tab, kept per viewer; Enter, or a double-click on an entity, opens Details — the pane too, collapsed.
-    const { state: inspectorTab, setState: setInspectorTab } = usePersistedState<{ tab: string }>(`${keys.frame}.inspector.tab`, { tab: "details" });
+    const { state: inspectorTab, setState: setInspectorTab } = usePersistedState<{ tab: string }>(`${keys.frame}.inspector.tab`, { tab: "details" }, keptRead.record({ tab: keptRead.string }));
     const onInspectorTab = useCallback((tab: string) => setInspectorTab({ tab }), [setInspectorTab]);
     const frameRef = useRef<HTMLDivElement>(null);
     const inspectorName = words.m.inspectorPane();
@@ -998,6 +1028,14 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const wholeItems = useMemo(() => new Set(value.items.filter((kind) => kind.entries.type === "none").map((kind) => kind.key)), [value.items]);
     const heldItems = useMemo(() => new Set([...drawing.items.map((item) => item.key), ...backlog.map((entry) => entry.id)]), [drawing.items, backlog]);
     const historyVersion = editing.version;
+    // The items holding a conflict not yet chosen, by their ids: each wears the conflicts' warn ring. Read again as the
+    // history moves (its version), which every choice and every carry-over moves.
+    const conflicted = useMemo(() => {
+        const out = new Set<string>();
+        for (const part of sessions) for (const id of part.session.conflicts.keys()) out.add(entityId({ kind: recordSlot(part.kind), key: id }));
+        return out;
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version says they moved
+    }, [sessions, historyVersion]);
     const issues = useMemo(() => [
         ...sessionIssues(sessions, kindName, (id) => names.get(id)),
         ...drawingIssues({
@@ -1064,7 +1102,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
                     liveFooter
                     onKeyDown={onKeyDown}
                 >
-                    <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} narrowing={canvasNarrowing} tool={held.tool} linkKind={held.link}
+                    <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} narrowing={canvasNarrowing} conflicted={conflicted} tool={held.tool} linkKind={held.link}
                         words={words} editing={canvasEditing} onRefused={setRefusal} onAction={refusal === undefined ? undefined : dropRefusal}
                         onSelection={onSelection} onOpen={value.inspector ? openDetails : undefined}
                         onZoneInView={listsIndex ? setInView : undefined} drop={drop.canvas} connectValues={connectValues}

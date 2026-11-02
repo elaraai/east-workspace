@@ -40,6 +40,7 @@ const WRITES: Record<string, string[]> = {
     sheetLoose: ["sheet_loose_work"],
     sheetPaged: ["sheet_jobs"],
     sheetUpkeep: ["sheet_machine_upkeep"],
+    sheetConflicts: ["sheet_conflict_jobs"],
 };
 
 describe("Sheet examples read e3", () => {

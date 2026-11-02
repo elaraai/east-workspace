@@ -17,7 +17,7 @@ import { render, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
     ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, RecursiveType,
-    StringType, StructType, none, some, type ValueTypeOf,
+    SortedMap, StringType, StructType, compareFor, none, some, type ValueTypeOf,
 } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
@@ -66,23 +66,23 @@ const ids = (c: HTMLElement) => rowItems(c).map(idOf);
 const itemById = (c: HTMLElement, id: string) => rowItems(c).find((it) => idOf(it) === id);
 
 describe("nesting comes from the data (#822)", () => {
+    // A statement's accounts hold accounts, by id, their readings keyed by week (#1436).
     const Account = RecursiveType((self) => StructType({
         name: StringType,
-        values: ArrayType(StructType({ at: DateTimeType, value: OptionType(FloatType) })),
-        children: ArrayType(self),
+        values: DictType(DateTimeType, OptionType(FloatType)),
+        children: DictType(StringType, self),
     }));
+    const account = (name: string, value: number | undefined, children: [string, unknown][] = []) =>
+        ({ name, values: new SortedMap(value === undefined ? [] : [[W27, some(value)]], compareFor(DateTimeType)), children: new Map(children) });
     const ACCOUNTS = new Map([
-        ["pnl", { name: "P&L", values: [], children: [
-            { name: "Revenue", values: [], children: [
-                { name: "Product", values: [], children: [
-                    { name: "Widgets", values: [{ at: W27, value: some(10.0) }], children: [] },
-                    { name: "Gadgets", values: [{ at: W27, value: some(5.0) }], children: [] },
-                ] },
-                { name: "Services", values: [{ at: W27, value: some(3.0) }], children: [] },
-            ] },
-            { name: "Costs", values: [{ at: W27, value: some(-7.0) }], children: [] },
-        ] }],
-    ]);
+        ["pnl", account("P&L", undefined, [
+            ["a-revenue", account("Revenue", undefined, [
+                ["a-product", account("Product", undefined, [["a-widgets", account("Widgets", 10.0)], ["b-gadgets", account("Gadgets", 5.0)]])],
+                ["b-services", account("Services", 3.0)],
+            ])],
+            ["b-costs", account("Costs", -7.0)],
+        ])],
+    ]) as never;
     const statement = East.function([], Plan.Types.Root, ($) => {
         const accounts = $.const(ACCOUNTS, DictType(StringType, Account));
         return Plan.Root({
@@ -91,9 +91,9 @@ describe("nesting comes from the data (#822)", () => {
             series: [Plan.series.table(Account, {
                 key: "accounts", title: "Accounts",
                 label: (a) => a.name,
-                cells: (a) => Plan.tableCells(a.values),
+                cells: Plan.tableCells(Plan.values("values", (v) => ({ value: v }))),
                 aggregate: "sum",
-                children: (a) => a.children,
+                children: "children",
             })],
         });
     });
@@ -102,8 +102,9 @@ describe("nesting comes from the data (#822)", () => {
         const { container } = renderPlan(planOf(statement), "plan-822-statement");
         const rows = rowItems(container);
         expect(rows.map(idOf)).toEqual([
-            "entry accounts pnl", "entry accounts pnl/0", "entry accounts pnl/0/0",
-            "entry accounts pnl/0/0/0", "entry accounts pnl/0/0/1", "entry accounts pnl/0/1", "entry accounts pnl/1",
+            "entry accounts pnl", "entry accounts pnl/a-revenue", "entry accounts pnl/a-revenue/a-product",
+            "entry accounts pnl/a-revenue/a-product/a-widgets", "entry accounts pnl/a-revenue/a-product/b-gadgets",
+            "entry accounts pnl/a-revenue/b-services", "entry accounts pnl/b-costs",
         ]);
         expect(rows.map((r) => r.getAttribute("aria-level"))).toEqual(["1", "2", "3", "4", "4", "3", "2"]);
         // Every parent's W27 number is its subtree's sum — derived at each level
@@ -121,40 +122,40 @@ describe("nesting comes from the data (#822)", () => {
                 series: [Plan.series.table(Account, {
                     key: "accounts", title: "Accounts",
                     label: (a) => a.name,
-                    cells: (a) => Plan.tableCells(a.values),
+                    cells: Plan.tableCells(Plan.values("values", (v) => ({ value: v }))),
                     aggregate: "sum",
-                    children: (a) => a.children,
+                    children: "children",
                     collapsed: (a) => a.name.equal("Revenue"),
                 })],
             });
         });
         const { container } = renderPlan(planOf(folded), "plan-822-folded");
-        expect(ids(container)).toEqual(["entry accounts pnl", "entry accounts pnl/0", "entry accounts pnl/1"]);
-        expect(itemById(container, "entry accounts pnl/0")!.getAttribute("aria-expanded")).toBe("false");
-        fireEvent.click(itemById(container, "entry accounts pnl/0")!.querySelector("[role='rowheader']")!);
+        expect(ids(container)).toEqual(["entry accounts pnl", "entry accounts pnl/a-revenue", "entry accounts pnl/b-costs"]);
+        expect(itemById(container, "entry accounts pnl/a-revenue")!.getAttribute("aria-expanded")).toBe("false");
+        fireEvent.click(itemById(container, "entry accounts pnl/a-revenue")!.querySelector("[role='rowheader']")!);
         expect(ids(container)).toHaveLength(7);
-        expect(itemById(container, "entry accounts pnl/0")!.getAttribute("aria-expanded")).toBe("true");
+        expect(itemById(container, "entry accounts pnl/a-revenue")!.getAttribute("aria-expanded")).toBe("true");
     });
 
     test("collapsing a level hides exactly its subtree — and changes no number above it", () => {
         const { container } = renderPlan(planOf(statement), "plan-822-statement-collapse");
-        const revenue = itemById(container, "entry accounts pnl/0")!;
+        const revenue = itemById(container, "entry accounts pnl/a-revenue")!;
         fireEvent.click(revenue.querySelector("[role='rowheader']")!);
-        expect(ids(container)).toEqual(["entry accounts pnl", "entry accounts pnl/0", "entry accounts pnl/1"]);
+        expect(ids(container)).toEqual(["entry accounts pnl", "entry accounts pnl/a-revenue", "entry accounts pnl/b-costs"]);
         expect(itemById(container, "entry accounts pnl")!.querySelector("[data-cell]")!.textContent).toBe("11");
-        expect(itemById(container, "entry accounts pnl/0")!.querySelector("[data-cell]")!.textContent).toBe("18");
+        expect(itemById(container, "entry accounts pnl/a-revenue")!.querySelector("[data-cell]")!.textContent).toBe("18");
     });
 
     test("a step-down: a hall's presses as views and its crews as cards, each under its section header", () => {
-        const Job = StructType({ key: StringType, start: DateTimeType, end: DateTimeType });
-        const Press = StructType({ jobs: ArrayType(Job), load: FloatType });
+        const Job = StructType({ start: DateTimeType, end: DateTimeType });
+        const Press = StructType({ jobs: DictType(StringType, Job), load: FloatType });
         const Crew = StructType({ hours: FloatType });
         const Hall = StructType({ presses: DictType(StringType, Press), crews: DictType(StringType, Crew) });
         const HALLS = new Map([
             ["H1", {
                 presses: new Map([
-                    ["p03", { jobs: [{ key: "b1", start: W27, end: W28 }], load: 40.0 }],
-                    ["p04", { jobs: [], load: 60.0 }],
+                    ["p03", { jobs: new Map([["b1", { start: W27, end: W28 }]]), load: 40.0 }],
+                    ["p04", { jobs: new Map(), load: 60.0 }],
                 ]),
                 crews: new Map([["crewA", { hours: 80.0 }]]),
             }],
@@ -167,12 +168,12 @@ describe("nesting comes from the data (#822)", () => {
                 series: [Plan.series.group(Hall, {
                     key: "halls", title: "Halls", label: (_h, k) => k,
                     children: [
-                        Plan.children((h) => h.presses, [
+                        Plan.children("presses", [
                             Plan.series.section(Press, { key: "press-block", title: "Presses" }, [
                                 Plan.series.views(Press, { key: "presses", title: "Presses" }, [
                                     Plan.series.span(Press, {
                                         key: "press-jobs", title: "Jobs", label: (_p, k) => k,
-                                        runs: (p) => p.jobs.map((_$, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.key, state: "confirmed" })),
+                                        runs: Plan.items("jobs", { from: "start", to: "end" }, (_job, id) => ({ label: id, state: "confirmed" })),
                                     }),
                                     Plan.series.heat(Press, {
                                         key: "press-load", title: "Load", label: (_p, k) => k,
@@ -181,7 +182,7 @@ describe("nesting comes from the data (#822)", () => {
                                 ]),
                             ]),
                         ]),
-                        Plan.children((h) => h.crews, [
+                        Plan.children("crews", [
                             Plan.series.section(Crew, { key: "crew-block", title: "Crews" }, [
                                 Plan.series.cards(Crew, { key: "crews", title: "Crews", label: (_c, k) => k, chips: _c => [] }),
                             ]),
@@ -226,7 +227,7 @@ describe("nesting comes from the data (#822)", () => {
                 data,
                 series: [Plan.series.views(Row, {
                     key: "presses", title: "Presses",
-                    children: Plan.children((r) => r.kids, [
+                    children: Plan.children("kids", [
                         Plan.series.heat(Kid, { key: "parts", title: "Parts", label: (_k, key) => key, cells: _k => Plan.heatCells([]) }),
                     ]),
                 }, [

@@ -15,8 +15,10 @@
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { coarseHitArea } from "../../../style/hit-area.js";
+import { CONFLICT_RING, CONFLICT_RING_INSET, CONFLICT_RING_INSIDE_FOCUS } from "../../conflict-ring.js";
+import { fieldInRingedControl } from "../../field-chrome.js";
 import { lifecycleStates } from "./states.js";
-import { PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
+import { PLAN_OVERLAP_RING, planElementConflict, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
 
 /**
  * The no-data hatch (#1039): a 45° rule in the ink at 7% across what no value shades — a heat cell, and the Calendar's
@@ -30,7 +32,8 @@ export const BOOKED_FILL = "{colors.brand.solid}";
 /** The slots this part styles. */
 export const cellsSlots = [
     "heatCell", "heatLabel", "weightBar", "segmentTrack", "segmentPart", "cellWash", "cell", "cellTiles",
-    "tile", "tileLabel", "tileMore", "laneLabel", "markerIcon", "cardChip", "cardChipIcon", "cardChipLabel", "tableCellText", "tableCellGroup", "tableCellPart",
+    "tile", "tileLabel", "tileMore", "laneLabel", "markerIcon", "cardChip", "cardChipIcon", "cardChipLabel", "tableCellText", "tableCellGroup", "tableCellPart", "tableCellDot", "tableCellMeasure",
+    "tableCellInput", "tableCellField", "tableCellFieldInput", "tableCellRefusal", "tableCellPopover",
 ] as const;
 
 /**
@@ -301,6 +304,9 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         },
         ...planElementSelected,
         ...planElementFocus,
+        ...planElementConflict,
+        // A confirmed tile keeps its inset brand ring inside the warn.
+        "&[data-conflict][data-state='appr']": { boxShadow: `inset 0 0 0 1px {colors.brand.solid}, ${CONFLICT_RING}` },
     },
     // A tile's label (`data-plan-label`) — a labelled tile's, or a resting
     // proposal's `plan`. Its own flex item, so a label wider than the tile
@@ -462,6 +468,9 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         },
         ...planElementSelected,
         ...planElementFocus,
+        ...planElementConflict,
+        // A confirmed chip keeps its inset brand ring inside the warn.
+        "&[data-conflict][data-state='appr']": { boxShadow: `inset 0 0 0 1px {colors.brand.solid}, ${CONFLICT_RING}` },
     },
     // A chip's icon (`data-plan-icon`) — Font Awesome's, 1.25em wide in the
     // chip's font; a chip narrower inside than that draws none, never a part
@@ -525,7 +534,29 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
             textTransform: "uppercase",
             color: "fg.subtle",
         },
-        ...planElementFocus,
+        // A cell taking a typed number (#1438) wears a faint well, about a paper step of ink, inside its edges: the
+        // column's rule shows around it and the row's wash — selected, drafted — through it. Hovered, an input's edge.
+        // A summary — a parent's subtotal, or any cell coarser than the Plan's finest zoom — takes none, and stays plain.
+        "&[data-typed]::after": {
+            content: '""',
+            position: "absolute",
+            inset: "1px",
+            borderRadius: "2px",
+            background: "color-mix(in oklch, {colors.fg} 3%, transparent)",
+            pointerEvents: "none",
+            zIndex: -1,
+        },
+        "&[data-typed]:hover:not(:focus-visible)": { boxShadow: "inset 0 0 0 1px {colors.border.strong}" },
+        // A cell holding a conflict not yet chosen wears the warn ring inside it, hovered too; focused, just inside the
+        // focus's 2px of brand. It sits on its row's plain surface: the row's selection tint under it greyed the ring's
+        // warm glow, where the Sheet's cell, on its paper, reads warm.
+        "&[data-conflict]": { boxShadow: CONFLICT_RING_INSET, background: "bg.surface" },
+        "&[data-conflict][data-typed]:hover:not(:focus-visible)": { boxShadow: CONFLICT_RING_INSET },
+        "&[data-conflict]:focus-visible": { boxShadow: `inset 0 0 0 2px {colors.brand.solid}, ${CONFLICT_RING_INSIDE_FOCUS}` },
+        // Focused, the ring its input draws while open, and the Sheet's cell: 2px of brand INSIDE the cell. A cell is
+        // its row's whole height, so a ring outside it, as other elements draw theirs, lost its top and bottom to the
+        // row (#1438).
+        _focusVisible: { outline: "none", boxShadow: "inset 0 0 0 2px {colors.brand.solid}" },
     },
     // One value position inside a table cell — tone derives per cell
     // (neg / em-dash) or from the SERIES' declaration; `strong` is the
@@ -547,10 +578,109 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
             gap: "1px",
             lineHeight: "var(--plan-table-line-h)",
         },
+        // A dotted cell's numerals (#1438): kept for its hover to say, never drawn.
+        "[data-plan-dotted] > &": { display: "none" },
     },
     tableCellPart: {
         "&[data-tone='neg']":   { color: "{colors.status.neg}" },
         "&[data-tone='muted']": { color: "fg.subtle" },
         "&[data-strong]":       { fontWeight: "semibold", color: "fg.default" },
+    },
+    // A cell's value wider than its column (#1269, #1438): a dot in its place, in its numerals' ink, so a value never
+    // leaves its cell looking empty — its numerals kept, hidden, and the cell's hover saying them. At the cell's
+    // centre, off its line: a 9px column's padding leaves the line less room than the dot, which would wrap off it,
+    // out of sight, as numerals do.
+    tableCellDot: {
+        position: "absolute",
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
+        width: "4px",
+        height: "4px",
+        borderRadius: "full",
+        background: "fg.muted",
+        "&[data-tone='neg']": { background: "{colors.status.neg}" },
+        "&[data-strong]":     { background: "fg.default" },
+    },
+    // What a table row measures its plot's width by, beside its cells: the plot's width, no height, never seen.
+    tableCellMeasure: {
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        height: 0,
+        visibility: "hidden",
+        pointerEvents: "none",
+    },
+    // ── Typing a number into a table cell (#1436, #1438) — the cell's field
+    //    over its bucket's column at the row's height, the brand ring its
+    //    chrome (the neg ring while its text is refused), its text in the
+    //    table's numerals; the renderer sets left/width per bucket ──
+    tableCellInput: {
+        position: "absolute",
+        top: 0,
+        bottom: 0,
+        zIndex: 10,
+        display: "flex",
+        alignItems: "center",
+        boxSizing: "border-box",
+        paddingX: "2px",
+        borderRadius: "2px",
+        background: "bg.surface",
+        boxShadow: "inset 0 0 0 2px {colors.brand.solid}",
+        "&[data-invalid]": { boxShadow: "inset 0 0 0 2px {colors.status.neg}" },
+        // Below 480px of main it opens in a popover anchored to its cell (#1438): a field of its own at a row's height.
+        "&[data-popover]": { position: "relative", height: "32px", width: "100%" },
+        "&[data-popover] input": { fontSize: "13px", _coarse: { fontSize: "16px" } },
+    },
+    // The common number field inside the ring: no border, no focus ring of its own.
+    tableCellField: {
+        flex: "1",
+        minWidth: "0",
+        height: "100%",
+        borderWidth: "0",
+        borderRadius: "0",
+        boxShadow: "none",
+        background: "transparent",
+        _focusWithin: { boxShadow: "none", borderColor: "transparent" },
+        _hover: { borderColor: "transparent" },
+    },
+    tableCellFieldInput: {
+        ...fieldInRingedControl,
+        width: "100%",
+        height: "100%",
+        minWidth: "0",
+        padding: "0",
+        border: "none",
+        outline: "none",
+        background: "transparent",
+        textAlign: "center",
+        fontFamily: "mono",
+        fontSize: "10.5px",
+        fontWeight: "medium",
+        color: "fg",
+        // A phone zooms into type under 16 px.
+        _coarse: { fontSize: "16px" },
+    },
+    // The popover a tap opens the field in below 480px of main, anchored to its cell: the design system's smallest, xs
+    // 240 — the width the frame's bounds weigh before it is drawn (`frameBounds`) the width it is drawn at.
+    tableCellPopover: {
+        padding: "8px",
+        width: "240px",
+    },
+    // Why its text was refused: under the field, on the surface, in the neg tone.
+    tableCellRefusal: {
+        position: "absolute",
+        top: "100%",
+        left: 0,
+        marginTop: "2px",
+        paddingX: "6px",
+        paddingY: "2px",
+        borderRadius: "2px",
+        background: "bg.surface",
+        boxShadow: "sm",
+        whiteSpace: "nowrap",
+        fontSize: "11px",
+        color: "{colors.status.neg}",
     },
 };

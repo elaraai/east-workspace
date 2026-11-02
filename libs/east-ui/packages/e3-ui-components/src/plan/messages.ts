@@ -54,6 +54,9 @@ export type PlanPart =
 /** The unit a horizon caption counts in — a time resolution, or a number axis's step. */
 export type PlanHorizonUnit = "hour" | "day" | "week" | "month" | "quarter" | "year" | "step";
 
+/** The period a horizon's bars count by (#1438). */
+export type PlanHorizonBucket = "month" | "quarter" | "year";
+
 /** A chart layer kind, as the chart's summary names it. */
 export type PlanChartLayerWord = "line" | "area" | "column" | "scatter" | "band";
 
@@ -286,6 +289,18 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     // ── The horizon, the ruler, the axis in words ──────────────────────────
     /** The horizon strip's caption — `HORIZON · 26 WK`. */
     horizon: (p: { n: number; count: string; unit: PlanHorizonUnit }) => string;
+    /** The horizon strip's meta line (#1438) — `max 1,559 items / mo`: its largest bucket's count, and the period its buckets are. */
+    horizonMax: (p: { n: number; count: string; unit: PlanHorizonBucket }) => string;
+    /** The horizon strip's meta line where nothing is in the horizon (#1438). */
+    horizonNoData: () => string;
+    /** A horizon bucket's count, after its period in its tooltip (#1438) — `1,284 items`. */
+    horizonCount: (p: { n: number; count: string }) => string;
+    /** The horizon brush's start handle, as a reader hears it (#1438). */
+    horizonStart: () => string;
+    /** The horizon brush's window, between its handles (#1438). */
+    horizonWindow: () => string;
+    /** The horizon brush's end handle (#1438). */
+    horizonEnd: () => string;
     /** The ruler's now chip. */
     now: () => string;
 
@@ -442,6 +457,23 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     valueRange: (p: { from: string; to: string }) => string;
     /** A bucket-quantised element's accessible name — `Week of Jun 29, 2026: 72`. */
     cellName: (p: { bucket: string; value: string }) => string;
+    /** A table cell's input's accessible name — `Week of Jun 29, 2026: type a number` (#1438). */
+    typedName: (p: { bucket: string }) => string;
+    /** The history's step for a number typed into a table cell — `Set Orders, Week of Jun 29, 2026 to 15` (#1438). */
+    typedStep: (p: { row: string; bucket: string; value: string }) => string;
+    /** The history's step for a table cell cleared — `Clear Orders, Week of Jun 29, 2026` (#1438). */
+    clearedStep: (p: { row: string; bucket: string }) => string;
+    /** A table cell's typed text that reads as no number (#1438). */
+    typedNotNumber: () => string;
+    /** A fraction typed into a table cell whose values are whole numbers (#1438). */
+    typedNotWhole: () => string;
+    /** What a table cell folding several values of a position that takes typing says: the resolution they are at, and the
+     *  Plan's zoom showing them apart — `Holds several values, one each week: zoom to week to type one` — or that it has
+     *  none (#1438). */
+    typedFolded: (p: { resolution: string | undefined; zoom: string | undefined }) => string;
+    /** What a table cell of a position taking typing says at a zoom coarser than the Plan's finest, where it is a summary
+     *  and takes none — `Zoom to week to edit`; a double click on it does (#1438). */
+    typedZoomTo: (p: { zoom: string }) => string;
     /** A tone-strip block's value — `101, beyond threshold`. */
     toneValue: (p: { value: string; warn: boolean }) => string;
     /** A chart layer's name in the chart's summary — `line`, or `columns 2`
@@ -486,6 +518,8 @@ const plural = (n: number, one: string, many: string): string => (n === 1 ? one 
 const HORIZON_UNIT: Record<PlanHorizonUnit, string> = {
     hour: "HR", day: "D", week: "WK", month: "MO", quarter: "Q", year: "YR", step: "STEPS",
 };
+
+const HORIZON_PER: Record<PlanHorizonBucket, string> = { month: "mo", quarter: "q", year: "yr" };
 
 const STATE_WORD: Record<PlanStateWord, string> = {
     estimated: "estimated",
@@ -653,6 +687,12 @@ export const planMessages: PlanMessages = {
     inspectorOverlapPair: ({ first, second }) => `${first} · ${second}`,
 
     horizon: ({ count, unit }) => `HORIZON · ${count} ${HORIZON_UNIT[unit]}`,
+    horizonMax: ({ n, count, unit }) => `max ${count} ${plural(n, "item", "items")} / ${HORIZON_PER[unit]}`,
+    horizonNoData: () => "no data",
+    horizonCount: ({ n, count }) => `${count} ${plural(n, "item", "items")}`,
+    horizonStart: () => "Window start",
+    horizonWindow: () => "Window",
+    horizonEnd: () => "Window end",
     now: () => "NOW",
 
     allRows: () => "← All rows",
@@ -734,6 +774,16 @@ export const planMessages: PlanMessages = {
     noValue: () => "no value",
     valueRange: ({ from, to }) => `${from}–${to}`,
     cellName: ({ bucket, value }) => `${bucket}: ${value}`,
+    typedName: ({ bucket }) => `${bucket}: type a number`,
+    typedStep: ({ row, bucket, value }) => `Set ${row}, ${bucket} to ${value}`,
+    clearedStep: ({ row, bucket }) => `Clear ${row}, ${bucket}`,
+    typedNotNumber: () => "Type a number",
+    typedNotWhole: () => "Type a whole number",
+    typedFolded: ({ resolution, zoom }) => {
+        const several = resolution === undefined ? "Holds several values" : `Holds several values, one each ${resolution}`;
+        return zoom === undefined ? `${several}, and no zoom shows them apart` : `${several}: zoom to ${zoom} to type one`;
+    },
+    typedZoomTo: ({ zoom }) => `Zoom to ${zoom} to edit`,
     toneValue: ({ value, warn }) => (warn ? `${value}, beyond threshold` : value),
     chartLayer: ({ kind, index }) => (index !== undefined ? `${LAYER_WORD[kind]} ${index}` : LAYER_WORD[kind]),
     chartLayerValues: ({ layer, min, max, last, n, breaches }) =>

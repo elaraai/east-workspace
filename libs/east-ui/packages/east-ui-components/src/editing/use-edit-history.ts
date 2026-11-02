@@ -26,7 +26,9 @@ import { useTrackedEvaluation } from "../reactive/index.js";
 import { liftDraft } from "./draft.js";
 import type { EditHistory } from "./history.js";
 import { bindingOf, gateOf, historyKeyOf, keptHistory, keptSession, sessionKeyOf, sourceSessionsOf, type SourceSessions } from "./kept.js";
-import { EditSession, keyReader, type EditSessionBinding, type EntryVersion } from "./session.js";
+import { keepDrafts, keptDraftsKey } from "./keep.js";
+import { useEditingScope } from "./scope.js";
+import { EditSession, keyReader, type ConflictRange, type ConflictTogether, type EditSessionBinding, type EntryVersion } from "./session.js";
 import type { EditingValue } from "./use-edit-session.js";
 
 /**
@@ -65,6 +67,16 @@ export interface EditHistorySource<W> {
     readonly ready?: EditSessionBinding<W>["ready"] | undefined;
     /** How a source read a window at a time is read (#1199); omitted, the source is read whole. */
     readonly paged?: EditHistoryPaged | undefined;
+    /**
+     * The type of the collection's projection of an entry: given, the
+     * source's drafts are kept through a reload of the tab, the projection
+     * with them (keep.ts).
+     */
+    readonly wireType?: EastType | undefined;
+    /** Its entries' fields that read as one, each an item's start and end (the session's `ranges`). */
+    readonly ranges?: readonly ConflictRange[] | undefined;
+    /** Its entries' fields that change together, each a value and those that follow it (the session's `together`). */
+    readonly together?: readonly ConflictTogether[] | undefined;
 }
 
 /**
@@ -153,7 +165,9 @@ export function useEditHistory<W>(
     joined: readonly EditHistoryJoined<W>[] = NO_JOINED as readonly EditHistoryJoined<W>[],
 ): EditHistoryState<W> {
     const store = getStore();
-    const history = useMemo(() => keptHistory<W>(store, storageKey), [store, storageKey]);
+    // The data set its host names: another's sources of the same names hold sessions, drafts and a history of their own.
+    const scope = useEditingScope();
+    const history = useMemo(() => keptHistory<W>(store, scope, storageKey), [store, scope, storageKey]);
     // Each source's session, kept by its source, the view and its schema, as
     // `useEditSession` keeps one: sources that share a session share its key.
     const parts = useMemo(() => sources.map((source): Part<W> => {
@@ -165,14 +179,19 @@ export function useEditHistory<W>(
         const entryType = fromEastTypeValue(editing.entryType);
         const draftType = fromEastTypeValue(editing.draftType);
         const keyType = fromEastTypeValue(editing.keyType.value);
-        const binding = { ...bindingOf<W>(editing, { entryType, draftType, keyType }, source.ready, paged?.refresh), prepare: source.prepare };
-        const kept = sourceSessionsOf(store, editing.sourceId);
-        const session = keptSession<W>(kept, sessionKeyOf(storageKey, editing.entryType, editing.draftType), () => new EditSession<W>(binding));
+        const binding = { ...bindingOf<W>(editing, { entryType, draftType, keyType }, source.ready, paged?.refresh), prepare: source.prepare, ranges: source.ranges, together: source.together };
+        const kept = sourceSessionsOf(store, scope, editing.sourceId);
+        const session = keptSession<W>(kept, sessionKeyOf(storageKey, editing.entryType, editing.draftType), () => {
+            const next = new EditSession<W>(binding);
+            // Its drafts kept through a reload: what the tab kept restored at its first base.
+            if (source.wireType !== undefined) keepDrafts(next, keptDraftsKey(scope, editing.sourceId, storageKey), source.wireType);
+            return next;
+        });
         return {
             key: historyKeyOf(storageKey, editing), editing, binding, sources: kept, session, draftType,
             keyOf: keyReader(keyType), decodeSnapshot: decodeBeast2For(DictType(keyType, entryType)), paged,
         };
-    }), [store, storageKey, sources]);
+    }), [store, scope, storageKey, sources]);
     const byKey = useMemo(() => new Map(parts.map((part) => [part.key, part] as const)), [parts]);
 
     // Each session's callbacks for its next request, and its gate.
@@ -247,6 +266,8 @@ export function useEditHistory<W>(
             part.session.reconcile(base, readOf);
             part.session.nameConflicts(base, readOf);
             part.session.observeBase(base);
+            // A source that moved under the drafts carries them over, once each is read at its new revision.
+            part.session.merge(base, readOf);
         }
     }, [parts, result, observed]);
 

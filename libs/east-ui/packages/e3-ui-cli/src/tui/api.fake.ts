@@ -134,8 +134,8 @@ export interface FakeExecution {
      *  store's summary might. */
     lastSeq?: number | undefined;
     status: 'running' | 'completed' | 'failed' | 'aborted';
-    startedAt: string;
-    completedAt: string | null;
+    startedAt: Date;
+    completedAt: Date | null;
     events: DataflowEvent[];
     /** The tasks and units waiting for room, which the poll serves while the run runs. */
     waiting?: UnitWait[] | undefined;
@@ -152,7 +152,7 @@ export interface FakeWorkspace {
     tasks: FakeTask[];
     inputs: FakeInput[];
     records?: FakeRecord[] | undefined;
-    lock?: { pid: number; acquiredAt: string; command: string } | undefined;
+    lock?: { pid: number; acquiredAt: Date; command: string } | undefined;
     /** What holds the workspace exclusively, as the lock route serves it: a deploy, and how far it has got. */
     lockStatus?: LockStatus | undefined;
     /** The latest execution, or null for never run. */
@@ -719,12 +719,12 @@ export class FakeApi implements Api {
             if (w.execution?.status === 'running') throw new ApiError('workspace_locked', { workspace: ws, holder: variant('unknown', null) });
             const script = this.script ?? { events: [], final: 'completed' as const };
             this.launches += 1;
-            const state: FakeExecution = { id: `run-${this.launches}`, status: 'running', startedAt: new Date().toISOString(), completedAt: null, events: [] };
+            const state: FakeExecution = { id: `run-${this.launches}`, status: 'running', startedAt: new Date(), completedAt: null, events: [] };
             w.execution = state;
             const step = script.stepMs ?? 0;
             const finish = (): void => {
                 state.status = script.final;
-                state.completedAt = new Date().toISOString();
+                state.completedAt = new Date();
             };
             if (step === 0) {
                 state.events.push(...script.events);
@@ -759,7 +759,7 @@ export class FakeApi implements Api {
             const limit = Math.min(window.limit ?? DATAFLOW_POLL_EVENTS_MAX, DATAFLOW_POLL_EVENTS_MAX);
             const served = done.slice(from, from + limit);
             return {
-                runId: state.id ?? `run-at-${state.startedAt}`,
+                runId: state.id ?? `run-at-${state.startedAt.getTime()}`,
                 status: variant(state.status, null),
                 startedAt: state.startedAt,
                 completedAt: state.completedAt !== null ? some(state.completedAt) : none,
@@ -770,7 +770,7 @@ export class FakeApi implements Api {
                     skipped: BigInt(done.filter(e => e.type === 'input_unavailable').length),
                     // A task left waiting on an unassigned input has no event: the fake's runs leave none
                     waiting: 0n,
-                    duration: state.completedAt !== null ? Date.parse(state.completedAt) - Date.parse(state.startedAt) : 0,
+                    duration: state.completedAt !== null ? state.completedAt.getTime() - state.startedAt.getTime() : 0,
                 }),
                 events: served,
                 nextSeq: served.length === 0 ? since : BigInt(from + served.length),
@@ -796,7 +796,7 @@ export class FakeApi implements Api {
             if (state === null || state === undefined || state.status !== 'running') throw new ApiError('dataflow_error', { message: 'No active execution for this workspace' });
             this.dispose();
             state.status = 'aborted';
-            state.completedAt = new Date().toISOString();
+            state.completedAt = new Date();
         });
     }
 

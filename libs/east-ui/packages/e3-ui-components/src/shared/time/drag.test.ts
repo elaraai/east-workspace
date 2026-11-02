@@ -97,10 +97,28 @@ describe("resizing an element", () => {
         expect(resizeSpan(WEEKS, span, "end", -40, true)).toEqual(spanOf("2026-07-06T00:00:00", "2026-07-07T00:00:00"));
     });
 
+    it("an element shorter than one unit: a shrink leaves it as it is, never longer, and a step of its start never takes it back", () => {
+        const short = spanOf("2026-07-06T06:00:00", "2026-07-06T14:00:00");
+        expect(resizeSpan(WEEKS, short, "end", -1, false)).toEqual(short);
+        expect(resizeSpan(WEEKS, short, "start", 1, false)).toEqual(short);
+        expect(resizeSpan(WEEKS, short, "end", 1, false)).toEqual(spanOf("2026-07-06T06:00:00", "2026-07-13T14:00:00"));
+        expect(resizeSpan(WEEKS, short, "start", -1, false)).toEqual(spanOf("2026-06-29T06:00:00", "2026-07-06T14:00:00"));
+    });
+
     it("a keyboard step is one bucket, for a move or either end", () => {
-        expect(stepSpan(WEEKS, span, "move", 1)).toEqual(spanOf("2026-07-13T00:00:00", "2026-08-03T00:00:00"));
-        expect(stepSpan(WEEKS, span, "end", -1)).toEqual(spanOf("2026-07-06T00:00:00", "2026-07-20T00:00:00"));
-        expect(stepSpan(WEEKS, span, "start", 1)).toEqual(spanOf("2026-07-13T00:00:00", "2026-07-27T00:00:00"));
+        expect(stepSpan(WEEKS, span, { move: 1, start: 0, end: 0 })).toEqual(spanOf("2026-07-13T00:00:00", "2026-08-03T00:00:00"));
+        expect(stepSpan(WEEKS, span, { move: 0, start: 0, end: -1 })).toEqual(spanOf("2026-07-06T00:00:00", "2026-07-20T00:00:00"));
+        expect(stepSpan(WEEKS, span, { move: 0, start: 1, end: 0 })).toEqual(spanOf("2026-07-13T00:00:00", "2026-07-27T00:00:00"));
+    });
+
+    it("a keyboard carry's steps count from the element as it was picked up: steps taken back land it where it began", () => {
+        const short = spanOf("2026-07-06T06:00:00", "2026-07-06T14:00:00");
+        // Its end a week out, then back: the steps cancel.
+        expect(stepSpan(WEEKS, short, { move: 0, start: 0, end: 1 })).toEqual(spanOf("2026-07-06T06:00:00", "2026-07-13T14:00:00"));
+        expect(stepSpan(WEEKS, short, { move: 0, start: 0, end: 0 })).toEqual(short);
+        // Moved and its end out, then both back.
+        expect(stepSpan(WEEKS, span, { move: 2, start: 0, end: 1 })).toEqual(spanOf("2026-07-20T00:00:00", "2026-08-17T00:00:00"));
+        expect(stepSpan(WEEKS, span, { move: 0, start: 0, end: 0 })).toEqual(span);
     });
 });
 

@@ -219,7 +219,7 @@ const racksTab = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(
     const frames = $.let(Data.bind(ex.schematicFrames));
     const racks = $.let(Data.bind(ex.schematicRacks));
     const slice = $.let(Slice.bindRecords("schematic.library.racks", {
-        racks: { source: Data.bindPaged(ex.schematicRacks, { indexes: [ex.schematicRacksByOwner] }), fields: { owner: { label: "Owner" } } },
+        racks: { source: Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_owner"] }), fields: { owner: { label: "Owner" } } },
     }));
     return Schematic({
         id: "racksTab",

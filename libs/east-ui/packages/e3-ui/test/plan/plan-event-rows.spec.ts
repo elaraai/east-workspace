@@ -40,7 +40,7 @@ const WINDOW = { min: FIRST, max: LAST };
 describe("the event rows' refusals", () => {
     const axis = Plan.axis({ window: WINDOW, resolution: "day" });
     const jobsOf = ($: BlockBuilder<NullType>) => {
-        const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+        const jobs = $.let(Record.bind(ex.planPrintJobs));
         return Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } });
     };
     const pressesOf = ($: BlockBuilder<NullType>, measures: readonly unknown[] = []) => {

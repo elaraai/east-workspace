@@ -129,13 +129,7 @@ export type TreePath = ValueTypeOf<typeof TreePathType>;
  * ```
  */
 export function pathToString(path: TreePath): string {
-  return path.map(segment => {
-    if (segment.type === 'field') {
-      return '.' + printIdentifier(segment.value);
-    } else {
-      throw new Error(`pathToString: unsupported path segment type: ${segment.type}`);
-    }
-  }).join('');
+  return path.map(segment => '.' + printIdentifier(segment.value)).join('');
 }
 
 /**

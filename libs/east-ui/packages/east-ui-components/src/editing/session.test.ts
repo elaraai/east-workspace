@@ -6,12 +6,16 @@
  * projection a collection draws an entry with — here a bar, not a sheet's
  * wire row — and records the collections' own gestures under their origins.
  * An Apply retires its drafts once the source reads back as it left them
- * (#1185): a positional snapshot whole, a keyed one by the batch's own
+ * (#1185): a positional snapshot whole — or, beside another write's, by the
+ * batch's own entries where it placed them — a keyed one by the batch's own
  * entries, and at a revision the entries read there.
  */
 
 import { expect, test } from "vitest";
-import { ArrayType, IntegerType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import {
+    ArrayType, DictType, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant,
+    type ValueTypeOf, type option,
+} from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
 import { liftDraft } from "./draft.js";
 import { editingMessages } from "./messages.js";
@@ -168,14 +172,74 @@ test("a source at a revision confirms at the one the commit made, its entries re
     expect(session.entries.size).toBe(0);
 });
 
-test("a positional snapshot confirms only once its whole collection reads back, its order included", async () => {
+test("two Saves at once: one reads its own back at the later revision the other made — its change beside the other's, or changed again since, is acknowledged; still as its edit began, it waits", async () => {
+    const saved = async () => {
+        const session = keyed("r1");
+        session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+        await session.apply();
+        return session;
+    };
+    // Its change beside another write's, read at r3: never at r1, where it was drafted.
+    const beside = await saved();
+    expect([beside.readIdsAt("r1"), beside.readIdsAt("r3")]).toEqual([[], ["J1"]]);
+    expect(beside.reconcile(variant("revision", "r1"), () => some({ ...cut, qty: 5n }))).toBe(false);
+    expect(beside.reconcile(variant("revision", "r3"), () => some({ task: "Panel cutting, maple", qty: 5n }))).toBe(true);
+    expect([beside.status, beside.entries.size]).toEqual(["idle", 0]);
+    // Its quantity changed again by another write since: acknowledged, the newer value the source's.
+    const again = await saved();
+    expect(again.reconcile(variant("revision", "r3"), () => some({ ...cut, qty: 9n }))).toBe(true);
+    expect([again.status, again.entries.size, again.pending]).toEqual(["idle", 0, 0]);
+    // Still as its edit began — read before the commit landed: a later read judges it.
+    const early = await saved();
+    expect(early.reconcile(variant("revision", "r3"), () => some(cut))).toBe(false);
+    expect(early.status).toBe("reconciling");
+    expect(early.reconcile(variant("revision", "r4"), () => some({ ...cut, qty: 5n }))).toBe(true);
+});
+
+test("a positional snapshot confirms once its whole collection reads back as the commit left it, and the history stands", async () => {
     const session = create();
-    const b: RunValue = { id: "b", start: 4n, end: 6n };
     session.record([{ id: "a", before: version(a), after: version({ ...a, end: 5n }) }], "resize", "Resize a");
     await session.apply();
-    // Another entry beside the commit's: the collection is not the one the commit left.
-    expect(session.reconcile(variant("snapshot", [{ ...a, end: 5n }, b]), () => undefined)).toBe(false);
+    // The collection as the edit began: nothing of the commit in it yet.
+    expect(session.reconcile(variant("snapshot", [a]), () => undefined)).toBe(false);
     expect(session.reconcile(variant("snapshot", [{ ...a, end: 5n }]), () => undefined)).toBe(true);
+    expect([session.status, session.pending, session.canUndo]).toEqual(["idle", 0, true]);
+});
+
+test("two Saves at once over a positional snapshot: beside another write's — another field of its entry, another entry — it confirms by its own entries, and its versions go; another write's alone, it waits", async () => {
+    const b: RunValue = { id: "b", start: 4n, end: 6n };
+    const saved = async () => {
+        const session = create();
+        session.record([{ id: "a", before: version(a), after: version({ ...a, end: 5n }) }], "resize", "Resize a");
+        await session.apply();
+        return session;
+    };
+    // Another write's start of the same entry, landed before the commit: nothing of the commit in it yet.
+    const field = await saved();
+    expect(field.reconcile(variant("snapshot", [{ ...a, start: 2n }]), () => undefined)).toBe(false);
+    expect(field.status).toBe("reconciling");
+    // The commit, the other write's start beside it: the collection is the source's, and the session's versions go with their history.
+    expect(field.reconcile(variant("snapshot", [{ ...a, start: 2n, end: 5n }]), () => undefined)).toBe(true);
+    expect([field.status, field.pending, field.entries.size, field.canUndo]).toEqual(["idle", 0, 0, false]);
+    // The commit, and another write's entry beside it.
+    const entry = await saved();
+    expect(entry.reconcile(variant("snapshot", [{ ...a, end: 5n }, b]), () => undefined)).toBe(true);
+    expect([entry.status, entry.pending, entry.entries.size]).toEqual(["idle", 0, 0]);
+});
+
+test("a move alone over a positional snapshot confirms once its entry stands where the commit placed it, beside another write's entry; as the edit began, it waits", async () => {
+    const b: RunValue = { id: "b", start: 4n, end: 6n };
+    const c: RunValue = { id: "c", start: 7n, end: 8n };
+    const session = create();
+    session.observeBase(variant("snapshot", [a, b]));
+    const placed = (place: Placement): EntryVersion<Bar> => ({ ...version(a), place });
+    session.record([{ id: "a", before: placed(some(variant("ordered", variant("before", "b")))), after: placed(some(variant("ordered", variant("after", "b")))) }], "move", "Move a");
+    await session.apply();
+    expect(session.status).toBe("reconciling");
+    // Its value is not the change, its place is: as the edit began, a stands before b.
+    expect(session.reconcile(variant("snapshot", [a, b]), () => undefined)).toBe(false);
+    expect(session.reconcile(variant("snapshot", [c, b, a]), () => undefined)).toBe(true);
+    expect([session.status, session.pending]).toEqual(["idle", 0]);
 });
 
 test("an entry the record still holds as its edit began never confirms, though the change, undone, would apply to it — a line taken out of an order's lines (#1185)", async () => {
@@ -207,6 +271,58 @@ test("a move alone confirms at the revision it committed: its entry's value is n
     expect(session.status).toBe("reconciling");
     expect(session.reconcile(variant("revision", "r2"), () => some(a))).toBe(true);
     expect(session.status).toBe("idle");
+});
+
+// ── The drafts a preview of the Save reads (#1437) ───────────────────────────
+
+/** Whether an entry's version, as the source holds one, is the job given — `none` for an absent one. */
+const isJob = (version: option<unknown>, job: option<JobValue>) => equalFor(OptionType(Job))(version as option<JobValue>, job);
+
+test("lists each entry drafted away from its original, each as the source holds an entry, and the revision the drafts began from (#1437)", () => {
+    const session = keyed("r1");
+    expect(session.drafts.entries.size).toBe(0);
+    session.record([
+        { id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) },
+        { id: "J4", before: absentJob, after: job(spray) },
+        { id: "J2", before: job(band), after: absentJob },
+    ], "typed", "Edit jobs");
+    const { revision, entries } = session.drafts;
+    expect(revision).toBe("r1");
+    expect([...entries.keys()].sort()).toEqual(["J1", "J2", "J4"]);
+    const [updated, inserted, removed] = [entries.get("J1")!, entries.get("J4")!, entries.get("J2")!];
+    expect(updated.key).toBe("J1");
+    expect(isJob(updated.before, some(cut)) && isJob(updated.after, some({ ...cut, qty: 5n }))).toBe(true);
+    expect(isJob(inserted.before, none) && isJob(inserted.after, some(spray))).toBe(true);
+    expect(isJob(removed.before, some(band)) && isJob(removed.after, none)).toBe(true);
+    // Each version as the session holds it.
+    expect(updated.draft).toBe(session.entries.get("J1"));
+    expect(updated.original).toBe(session.originals.get("J1"));
+});
+
+test("keeps a drafted entry the same object while its original and its draft hold — another entry's gestures, an Undo and a Redo — and leaves out one undone to its original, discarded or saved (#1437)", async () => {
+    const session = keyed("r1");
+    session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    const drafts = session.drafts;
+    expect(session.drafts).toBe(drafts);
+    const J1 = drafts.entries.get("J1")!;
+    session.record([{ id: "J3", before: job(route), after: job({ ...route, qty: 2n }) }], "typed", "Set quantity");
+    expect(session.drafts).not.toBe(drafts);
+    expect(session.drafts.entries.get("J1")).toBe(J1);
+    session.undo();
+    expect([...session.drafts.entries.keys()]).toEqual(["J1"]);
+    session.undo();
+    expect(session.drafts.entries.size).toBe(0);
+    session.redo();
+    // The history keeps the versions it recorded: the same draft, the same view of it.
+    expect(session.drafts.entries.get("J1")).toBe(J1);
+    session.discard();
+    expect(session.drafts.entries.size).toBe(0);
+    session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 7n }) }], "typed", "Set quantity");
+    await session.apply();
+    expect(session.reconcile(variant("revision", "r2"), () => some({ ...cut, qty: 7n }))).toBe(true);
+    // Saved: the source holds the draft, at the revision the Save made.
+    expect(session.drafts.entries.size).toBe(0);
+    expect(session.drafts.revision).toBe("r2");
 });
 
 // ── Naming a Save's conflicts at a revision (#1199) ─────────────────────────
@@ -420,4 +536,317 @@ test("partial conflict naming restarts on a new revision and preserves every dra
     expect(session.nameConflicts(variant("revision", "r3"), id => id === "J1" ? some(cut) : undefined)).toBe(true);
     expect(session.issues).toEqual([said("J2")]);
     expect(session.pending).toBe(2);
+});
+
+test("drafts carried over after a Save refused for a conflict keep what the source said of each entry, for the conflicts there (#1199)", async () => {
+    const session = conflicting([recordIssue, said("J1"), said("J2")]);
+    await session.apply();
+    // The source moves on: another write set J1's quantity; J2 stands as its edit began.
+    session.observeBase(variant("revision", "r2"));
+    expect(session.merge(variant("revision", "r2"), (id) => (id === "J1" ? some({ ...cut, qty: 3n }) : some(band)))).toBe("merged");
+    expect([session.status, session.issues, session.unsettled]).toEqual(["idle", [], 1]);
+    const conflict = session.conflicts.get("J1")!;
+    expect(conflict.said).toBe(said("J1").message);
+    // Chosen, it keeps them; undone, the conflict says them again.
+    expect(session.settle("J1", conflict.points[0]!.path, "draft")).toBe(true);
+    expect(session.settled.map((settled) => [settled.id, settled.said])).toEqual([["J1", said("J1").message]]);
+    session.undo();
+    expect(session.conflicts.get("J1")!.said).toBe(said("J1").message);
+});
+
+test("drafts carried over with no refused Save before them hold nothing the source said", () => {
+    const session = conflicting([]);
+    session.observeBase(variant("revision", "r2"));
+    session.merge(variant("revision", "r2"), (id) => (id === "J1" ? some({ ...cut, qty: 3n }) : some(band)));
+    expect(session.conflicts.get("J1")!.said).toBeUndefined();
+});
+
+// ── A refused Save sent again ───────────────────────────────────────────────
+
+const JobBatch = Editing.Types.ChangeSet(Job, StringType);
+type Answer = ValueTypeOf<typeof Editing.Types.ApplyResult>;
+const lastConflict = (): Answer => variant("conflict", [recordIssue, said("J1")]);
+/**
+ * A keyed session over the jobs at revision r1, J1's and J2's quantities
+ * drafted, whose Saves the source answers in turn with `answers` — refused,
+ * once they run out, as another write got there first — and the revision each
+ * Save it was sent was drafted at.
+ */
+const answering = (answers: Answer[]) => {
+    const bases: string[] = [];
+    const session = new EditSession<Bar>({
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, auto: false,
+        apply: (bytes) => {
+            const base = decodeBeast2For(JobBatch)(bytes).base;
+            bases.push(base.type === "revision" ? base.value : "snapshot");
+            return answers.shift() ?? lastConflict();
+        },
+        patch: undefined, refresh: undefined,
+    });
+    session.observeBase(variant("revision", "r1"));
+    session.record([
+        { id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) },
+        { id: "J2", before: job(band), after: job({ ...band, qty: 8n }) },
+    ], "typed", "Edit jobs");
+    return { session, bases };
+};
+/** The source moved to `revision`, J1's task renamed there by another write: the drafts carried over, nothing to choose. */
+const renamedAt = (session: EditSession<Bar>, revision: string) => {
+    session.observeBase(variant("revision", revision));
+    return session.merge(variant("revision", revision), (id) => (id === "J1" ? some({ ...cut, task: `Panel cutting, ${revision}` }) : some(band)));
+};
+/** Lets the session's own Save run to its answer. */
+const answered = async () => { for (let i = 0; i < 4; i++) await Promise.resolve(); };
+
+test("a Save refused because another write got there first is sent again by itself, at the revision its drafts carried over to, once nothing is left to choose", async () => {
+    const { session, bases } = answering([lastConflict(), variant("applied", { revision: some("r3") })]);
+    await session.apply();
+    expect([session.status, bases]).toEqual(["conflict", ["r1"]]);
+    expect(renamedAt(session, "r2")).toBe("merged");
+    await answered();
+    // Sent again with no Save of the person's: the drafts as they carried over, at r2.
+    expect([session.status, bases]).toEqual(["reconciling", ["r1", "r2"]]);
+    expect(session.pending).toBe(2);
+});
+
+test("a refused Save whose drafts carry over to a part both changed waits for the person: chosen, Save is theirs to press", async () => {
+    const { session, bases } = answering([lastConflict()]);
+    await session.apply();
+    session.observeBase(variant("revision", "r2"));
+    // Another write set J1's quantity too: a conflict.
+    expect(session.merge(variant("revision", "r2"), (id) => (id === "J1" ? some({ ...cut, qty: 3n }) : some(band)))).toBe("merged");
+    await answered();
+    expect([session.status, session.unsettled, bases]).toEqual(["idle", 1, ["r1"]]);
+    expect(session.settleAll("draft")).toBe(true);
+    await answered();
+    expect([session.status, session.canApply, bases]).toEqual(["idle", true, ["r1"]]);
+});
+
+test("a Save refused again and again is sent again three times in a row at most; the person's Save then sends it, and may be sent again as many times after it", async () => {
+    const { session, bases } = answering([]);
+    await session.apply();
+    for (const revision of ["r2", "r3", "r4"]) {
+        renamedAt(session, revision);
+        await answered();
+        expect(session.status).toBe("conflict");
+    }
+    expect(bases).toEqual(["r1", "r2", "r3", "r4"]);
+    // The fourth carry-over sends nothing by itself.
+    renamedAt(session, "r5");
+    await answered();
+    expect([session.status, session.canApply, bases.length]).toEqual(["idle", true, 4]);
+    // The person's Save, refused, is sent again by itself.
+    await session.apply();
+    renamedAt(session, "r6");
+    await answered();
+    expect(bases).toEqual(["r1", "r2", "r3", "r4", "r5", "r6"]);
+});
+
+test("a refused Save carried over again before it is sent again goes once, at the revision it carried over to last; a Discard drops it", async () => {
+    const twice = answering([lastConflict(), variant("applied", { revision: some("r4") })]);
+    await twice.session.apply();
+    // The source moves twice before the re-send runs: it goes once, from r3.
+    renamedAt(twice.session, "r2");
+    twice.session.observeBase(variant("revision", "r3"));
+    await answered();
+    expect([twice.session.carrying, twice.bases]).toEqual([true, ["r1"]]);
+    twice.session.merge(variant("revision", "r3"), (id) => (id === "J1" ? some({ ...cut, task: "Panel cutting, r3" }) : some(band)));
+    await answered();
+    expect([twice.session.status, twice.bases]).toEqual(["reconciling", ["r1", "r3"]]);
+
+    const dropped = answering([lastConflict()]);
+    await dropped.session.apply();
+    renamedAt(dropped.session, "r2");
+    dropped.session.discard();
+    await answered();
+    expect([dropped.session.pending, dropped.bases]).toEqual([0, ["r1"]]);
+});
+
+// ── Drafts carried over a source that moved (#1438) ─────────────────────────
+
+const Bench = StructType({ name: StringType, jobs: DictType(StringType, IntegerType) });
+const BenchDraft = Editing.Types.Draft(Bench);
+type BenchValue = ValueTypeOf<typeof Bench>;
+/** A bench whose jobs are each one's hours. */
+const benchOf = (jobs: [string, bigint][]): BenchValue => ({ name: "Bench 1", jobs: new SortedMap(jobs, compareFor(StringType)) });
+const benchVersion = (value: BenchValue): EntryVersion<Bar> => ({ draft: liftDraft(BenchDraft, value), wire: { key: "B1", caption: "" }, place: keyOrder });
+const sameBenchDraft = equalFor(BenchDraft);
+/** A version's draft, as the session holds a bench's: its fields' drafts. */
+const benchDraftOf = (version: EntryVersion<Bar> | undefined) => version?.draft as ValueTypeOf<typeof BenchDraft>;
+/** A keyed session over the benches at revision r1, one job moved off bench B1 and drafted. */
+const movedOff = () => {
+    const session = new EditSession<Bar>({
+        sourceId: "benches", entryType: Bench, draftType: BenchDraft, keyType: StringType, auto: false,
+        apply: () => variant("applied", { revision: some("r3") }), patch: undefined, refresh: undefined,
+    });
+    session.observeBase(variant("revision", "r1"));
+    session.record([{ id: "B1", before: benchVersion(benchOf([["j1", 1n], ["j2", 2n]])), after: benchVersion(benchOf([["j2", 2n]])) }], "typed", "Move j1 off");
+    // Another write moves the source on.
+    session.observeBase(variant("revision", "r2"));
+    return session;
+};
+
+test("drafts carried over a source that moved, where each change still applies: another write's change of another job stands beside them (#1438)", () => {
+    const session = movedOff();
+    expect([session.carrying, session.stale]).toEqual([true, false]);
+    // While the bench is read at the new revision, nothing moves.
+    expect(session.merge(variant("revision", "r2"), () => undefined)).toBe("waiting");
+    expect([session.carrying, session.stale]).toEqual([true, false]);
+    // Another write changed j2's hours: the move of j1 still applies.
+    const now = benchOf([["j1", 1n], ["j2", 5n]]);
+    expect(session.merge(variant("revision", "r2"), () => some(now))).toBe("merged");
+    expect([session.carrying, session.stale, session.writable, session.pending]).toEqual([false, false, true, 1]);
+    expect(sameBenchDraft(benchDraftOf(session.originals.get("B1")), benchDraftOf(benchVersion(now)))).toBe(true);
+    expect(sameBenchDraft(benchDraftOf(session.entries.get("B1")), benchDraftOf(benchVersion(benchOf([["j2", 5n]]))))).toBe(true);
+    // The history starts over at the drafts: an undo would take the bench back to its version at the old revision.
+    expect(session.canUndo).toBe(false);
+});
+
+/** The bench as another write left it at r2: j1's hours changed, where the draft moved j1 off. */
+const changedJ1 = () => some(benchOf([["j1", 3n], ["j2", 2n]]));
+
+test("a part another write changed differently is a conflict: the draft carried over keeps its value there, and Save waits for it", () => {
+    const session = movedOff();
+    expect(session.merge(variant("revision", "r2"), changedJ1)).toBe("merged");
+    expect([session.carrying, session.writable, session.unsettled, session.canApply]).toEqual([false, true, 1, false]);
+    expect(session.conflicts.get("B1")!.points.map((point) => point.kind)).toEqual(["changed"]);
+    expect(sameBenchDraft(benchDraftOf(session.entries.get("B1")), benchDraftOf(benchVersion(benchOf([["j2", 2n]]))))).toBe(true);
+});
+
+test("settling a conflict for the source's value writes it into the draft; Undo brings the conflict back, Redo settles it again", () => {
+    const session = movedOff();
+    session.merge(variant("revision", "r2"), changedJ1);
+    const [point] = session.conflicts.get("B1")!.points;
+    expect(session.settle("B1", point!.path, "source")).toBe(true);
+    // The draft is the source's value now: nothing pending, nothing to settle.
+    expect([session.unsettled, session.pending]).toEqual([0, 0]);
+    session.undo();
+    expect([session.unsettled, session.pending]).toEqual([1, 1]);
+    session.redo();
+    expect([session.unsettled, session.pending]).toEqual([0, 0]);
+});
+
+test("keeping the draft's value settles the conflict: Save sends the draft's change against the source's newer value", () => {
+    const session = movedOff();
+    session.merge(variant("revision", "r2"), changedJ1);
+    const [point] = session.conflicts.get("B1")!.points;
+    expect(session.settle("B1", point!.path, "draft")).toBe(true);
+    expect([session.unsettled, session.canApply]).toEqual([0, true]);
+    const drafted = session.drafts.entries.get("B1")!;
+    expect((equalFor(OptionType(Bench)) as (a: unknown, b: unknown) => boolean)(drafted.before, changedJ1())).toBe(true);
+    expect(sameBenchDraft(benchDraftOf(drafted.draft), benchDraftOf(benchVersion(benchOf([["j2", 2n]]))))).toBe(true);
+    session.undo();
+    expect([session.unsettled, session.canApply]).toEqual([1, false]);
+});
+
+test("another write to another part, while a conflict stands, is carried over beside it and is no new conflict", () => {
+    const session = movedOff();
+    session.merge(variant("revision", "r2"), changedJ1);
+    session.observeBase(variant("revision", "r3"));
+    expect([session.carrying, session.stale]).toEqual([true, false]);
+    expect(session.merge(variant("revision", "r3"), () => some({ ...benchOf([["j1", 3n], ["j2", 2n]]), name: "Bench one" }))).toBe("merged");
+    expect(session.unsettled).toBe(1);
+    expect(sameBenchDraft(benchDraftOf(session.entries.get("B1")), benchDraftOf(benchVersion({ ...benchOf([["j2", 2n]]), name: "Bench one" })))).toBe(true);
+});
+
+test("settling every conflict one way is one step of the history", () => {
+    const session = new EditSession<Bar>({
+        sourceId: "benches", entryType: Bench, draftType: BenchDraft, keyType: StringType, auto: false,
+        apply: () => variant("applied", { revision: some("r3") }), patch: undefined, refresh: undefined,
+    });
+    session.observeBase(variant("revision", "r1"));
+    session.record([
+        { id: "B1", before: benchVersion(benchOf([["j1", 1n]])), after: benchVersion(benchOf([["j1", 4n]])) },
+        { id: "B2", before: benchVersion(benchOf([["k1", 1n]])), after: benchVersion(benchOf([["k1", 4n]])) },
+    ], "typed", "Change both");
+    session.observeBase(variant("revision", "r2"));
+    session.merge(variant("revision", "r2"), (id) => some(id === "B1" ? benchOf([["j1", 2n]]) : benchOf([["k1", 2n]])));
+    expect(session.unsettled).toBe(2);
+    expect(session.settleAll("draft")).toBe(true);
+    expect([session.unsettled, session.canApply]).toEqual([0, true]);
+    session.undo();
+    expect(session.unsettled).toBe(2);
+});
+
+// ── The fields that go with a range: a duty's shift with its times ──────────
+
+const Duty = StructType({ start: IntegerType, end: IntegerType, shift: StringType, person: StringType });
+const DutyDraft = Editing.Types.Draft(Duty);
+type DutyValue = ValueTypeOf<typeof Duty>;
+const dutyVersion = (value: DutyValue): EntryVersion<Bar> => ({ draft: liftDraft(DutyDraft, value), wire: { key: "d1", caption: "" }, place: keyOrder });
+/** Whether a version holds a duty: its fields' drafts, as the session holds them. */
+const holds = (version: EntryVersion<Bar> | undefined, value: DutyValue): boolean =>
+    (equalFor(DutyDraft) as (a: unknown, b: unknown) => boolean)(version?.draft, liftDraft(DutyDraft, value));
+/** A late duty, its times in hours: what both began from. */
+const late: DutyValue = { start: 14n, end: 22n, shift: "late", person: "w1" };
+/**
+ * A keyed session over the duties at r1, its times a range its shift goes with: the duty drafted here, then another
+ * write moving the source on to `theirs` at r2, carried over.
+ */
+const carriedDuty = (mine: DutyValue, theirs: DutyValue) => {
+    const session = new EditSession<Bar>({
+        sourceId: "duties", entryType: Duty, draftType: DutyDraft, keyType: StringType, auto: false,
+        apply: () => variant("applied", { revision: some("r3") }), patch: undefined, refresh: undefined,
+        ranges: [{ start: "start", end: "end", with: ["shift"] }],
+    });
+    session.observeBase(variant("revision", "r1"));
+    session.record([{ id: "d1", before: dutyVersion(late), after: dutyVersion(mine) }], "typed", "Move");
+    session.observeBase(variant("revision", "r2"));
+    session.merge(variant("revision", "r2"), () => some(theirs));
+    return session;
+};
+const paths = (session: EditSession<Bar>) => session.conflicts.get("d1")!.points.map((point) => point.path);
+
+test("a duty moved to another shift here, and later there: its times one conflict, Theirs takes their shift with their times — nothing left to save — and Yours keeps mine whole", () => {
+    const early: DutyValue = { start: 6n, end: 14n, shift: "early", person: "w1" };
+    const theirs: DutyValue = { ...late, start: 15n, end: 23n };
+    const session = carriedDuty(early, theirs);
+    // One to choose: its times, start and end.
+    expect([session.unsettled, paths(session).length]).toEqual([1, 2]);
+    // While it waits, the draft is mine whole.
+    expect(holds(session.entries.get("d1"), early)).toBe(true);
+    expect(session.settleTogether("d1", paths(session), "source")).toBe(true);
+    // Their times, and their shift with them: the duty is theirs whole, and nothing is left to save.
+    expect([session.unsettled, session.pending]).toEqual([0, 0]);
+    session.undo();
+    expect(holds(session.entries.get("d1"), early)).toBe(true);
+    expect(session.settleTogether("d1", paths(session), "draft")).toBe(true);
+    expect([session.unsettled, session.canApply]).toEqual([0, true]);
+    const drafted = session.drafts.entries.get("d1")!;
+    expect((equalFor(OptionType(Duty)) as (a: unknown, b: unknown) => boolean)(drafted.before, some(theirs))).toBe(true);
+    expect(holds(drafted.draft, early)).toBe(true);
+});
+
+test("a duty moved to another shift there, and later here: while its times wait, the shift both began from stands with mine, and Yours sends it back", () => {
+    const later: DutyValue = { ...late, start: 16n, end: 23n };
+    const theirs: DutyValue = { start: 6n, end: 14n, shift: "early", person: "w1" };
+    const session = carriedDuty(later, theirs);
+    // Mine whole: my times, and the shift both began from — never their early shift with my late times.
+    expect(holds(session.entries.get("d1"), later)).toBe(true);
+    expect(session.settleTogether("d1", paths(session), "draft")).toBe(true);
+    const drafted = session.drafts.entries.get("d1")!;
+    expect((equalFor(OptionType(Duty)) as (a: unknown, b: unknown) => boolean)(drafted.before, some(theirs))).toBe(true);
+    expect(holds(drafted.draft, later)).toBe(true);
+    session.undo();
+    expect(session.settleTogether("d1", paths(session), "source")).toBe(true);
+    expect([session.unsettled, session.pending]).toEqual([0, 0]);
+});
+
+test("a change to a field that goes with the times, with no conflict at the times, combines as any other", () => {
+    // Moved to the early shift here with its times as they were; a later time there.
+    const session = carriedDuty({ ...late, shift: "early" }, { ...late, start: 15n, end: 23n });
+    expect(session.unsettled).toBe(0);
+    expect(holds(session.entries.get("d1"), { ...late, start: 15n, end: 23n, shift: "early" })).toBe(true);
+});
+
+test("an inline source that moved under the drafts carries them over at once: a change apart combines, one of the same field conflicts", () => {
+    const apart = create();
+    apart.record([{ id: "a", before: version(a), after: version({ ...a, end: 5n }) }], "resize", "Resize a");
+    apart.observeBase(variant("snapshot", [{ ...a, start: 2n }]));
+    expect([apart.carrying, apart.unsettled, apart.canApply]).toEqual([false, 0, true]);
+    expect(apart.entries.get("a")!.draft).toEqual(liftDraft(Draft, { ...a, start: 2n, end: 5n }));
+    const clash = create();
+    clash.record([{ id: "a", before: version(a), after: version({ ...a, end: 5n }) }], "resize", "Resize a");
+    clash.observeBase(variant("snapshot", [{ ...a, end: 4n }]));
+    expect([clash.carrying, clash.unsettled, clash.canApply]).toEqual([false, 1, false]);
 });

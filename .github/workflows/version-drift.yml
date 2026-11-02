@@ -1,13 +1,14 @@
 name: Version Drift Check
 
 on:
-  # Run on every PR to main with no paths filter. The previous manifest-scoped
-  # filter let a release's plugin.json drift sit undetected until a PR happened
-  # to touch a manifest; checking alignment on every PR catches latent drift
-  # before merge regardless of what the PR changes. (A drifted *release* is still
-  # blocked pre-publish by check-version-drift inside release.yml's set-version.)
+  # Run on every PR, whatever its base (a PR stacked on another PR's branch is
+  # checked as one into main is), with no paths filter. The previous
+  # manifest-scoped filter let a release's plugin.json drift sit undetected
+  # until a PR happened to touch a manifest; checking alignment on every PR
+  # catches latent drift before merge regardless of what the PR changes. (A
+  # drifted *release* is still blocked pre-publish by check-version-drift
+  # inside release.yml's set-version.)
   pull_request:
-    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

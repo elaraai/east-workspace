@@ -19,8 +19,8 @@
  */
 
 import {
-  ArrayType, BooleanType, DateTimeType, DictType, EastTypeType, FunctionType, IntegerType, NullType,
-  OptionType, PatchType, StringType, StructType, VariantType,
+  ArrayType, BooleanType, DateTimeType, DictType, EastTypeType, FloatType, FunctionType, IntegerType, NullType,
+  OptionType, PatchType, RecursiveType, StringType, StructType, VariantType,
   decodeBeast2For, dictPatchOpsType, setPatchOpsType, toEastTypeValue,
   type EastType, type EastTypeValue, type PatchTypeOf, type ValueTypeOf,
 } from '@elaraai/east';
@@ -186,6 +186,198 @@ export type RecordSummaryTotalsType = typeof RecordSummaryTotalsType;
 export type RecordSummaryTotals = ValueTypeOf<typeof RecordSummaryTotalsType>;
 
 /**
+ * The level a series index files an event at (#1433): the finest, from the
+ * index's tile up, whose shortest tile holds the event's length, or the year
+ * for an event longer than a year. It names a level with the tiles' own
+ * words, as east-ui's `RecordSliceTileType` does.
+ *
+ * @property day - Filed under the UTC day holding its start
+ * @property week - Under the ISO week from Monday holding its start
+ * @property month - Under the UTC month holding its start
+ * @property quarter - Under the UTC quarter holding its start
+ * @property year - Under the UTC year holding its start, or every year it touches
+ */
+export const RecordLevelType = VariantType({
+  day: NullType, week: NullType, month: NullType, quarter: NullType, year: NullType,
+});
+export type RecordLevelType = typeof RecordLevelType;
+export type RecordLevel = ValueTypeOf<typeof RecordLevelType>;
+
+/**
+ * A rollup, as a nested series index keeps it (#1434): how a node's own values
+ * in a tile fold, and how a parent aggregates what its children draw.
+ *
+ * @property fold - Its own values in a tile, in key order: their sum, mean,
+ *   least, greatest, the value at the latest instant, or how many
+ * @property aggregate - What its children draw in a tile, in key order: their
+ *   sum, mean, least or greatest; `count`, the leaf rows beneath that draw a
+ *   value, a child drawing its own counting one
+ */
+export const RecordRollupType = StructType({
+  fold: VariantType({ sum: NullType, mean: NullType, min: NullType, max: NullType, last: NullType, count: NullType }),
+  aggregate: VariantType({ sum: NullType, mean: NullType, min: NullType, max: NullType, count: NullType }),
+});
+export type RecordRollupType = typeof RecordRollupType;
+export type RecordRollup = ValueTypeOf<typeof RecordRollupType>;
+
+/**
+ * Which run of a node's entries a nested series index files an entry in
+ * (#1434). Each run is contiguous in the key, so a read of one never reads
+ * another.
+ *
+ * @property items - The node's own items or values, each at the level it is filed at
+ * @property totals - The node's own totals, a summary tile at a time
+ * @property subtotals - A parent's subtotals by one of the collection's rollups, at each level from the index's tile up
+ * @property subtree - The items of the node's descendants, filed under it too (`items(…, { rollup: true })`)
+ * @property subtreeTotals - Its descendants' items' totals, a summary tile at a time
+ */
+export const RecordNestedRunType = VariantType({
+  items: NullType,
+  totals: NullType,
+  subtotals: RecordRollupType,
+  subtree: NullType,
+  subtreeTotals: NullType,
+});
+export type RecordNestedRunType = typeof RecordNestedRunType;
+export type RecordNestedRun = ValueTypeOf<typeof RecordNestedRunType>;
+
+/**
+ * A path in a nested series index's key (#1434): field names, or Dict keys,
+ * from a row down — `end` for none, else one `step` and the rest. A key holds
+ * no Array, which East may change in place, so a path is this list: it is
+ * immutable, and it sorts as an Array of its names would, a path before every
+ * path it leads (`[] < ["a"] < ["a", "b"] < ["b"]`).
+ *
+ * @property end - No more names
+ * @property step - One name, and the path after it
+ */
+export const RecordNestedPathType = RecursiveType((self) => VariantType({
+  end: NullType,
+  step: StructType({ key: StringType, rest: self }),
+}));
+export type RecordNestedPathType = typeof RecordNestedPathType;
+export type RecordNestedPath = ValueTypeOf<typeof RecordNestedPathType>;
+
+/**
+ * Which item a nested series index's entry is (#1434).
+ *
+ * @property id - An item, by its id
+ * @property at - A value, by its instant
+ * @property under - A descendant's item filed under an ancestor: the Dict keys
+ *   from the ancestor down to the node holding it, and its id
+ * @property none - A total or a subtotal, of which a node has one a tile a run
+ */
+export const RecordNestedItemType = VariantType({
+  id: StringType,
+  at: DateTimeType,
+  under: StructType({ path: RecordNestedPathType, id: StringType }),
+  none: NullType,
+});
+export type RecordNestedItemType = typeof RecordNestedItemType;
+export type RecordNestedItem = ValueTypeOf<typeof RecordNestedItemType>;
+
+/**
+ * The key a nested series index files an entry under (#1434): its
+ * collection, its row, the node it is about, its run, its level and tile, and
+ * the item — in that order, so a node's run at one level is one contiguous
+ * range across tiles.
+ *
+ * @param rowKey - The record's key type
+ * @returns The entry key's struct type
+ * @property collection - The collection's place: the field names from the row down to it, a recursive step adding none
+ * @property row - The record row's key
+ * @property path - The Dict keys from the row down to the node the entry is about: `end` for the row itself
+ * @property run - Which of the node's runs ({@link RecordNestedRunType})
+ * @property level - The level the entry is filed at; a total's, the summary tile's
+ * @property tile - The start of the level's tile
+ * @property item - Which item ({@link RecordNestedItemType})
+ */
+export function NestedEntryKeyType<K extends EastType>(rowKey: K) {
+  return StructType({
+    collection: RecordNestedPathType, row: rowKey, path: RecordNestedPathType,
+    run: RecordNestedRunType, level: RecordLevelType, tile: DateTimeType, item: RecordNestedItemType,
+  });
+}
+
+/**
+ * The key a nested series index's span keeps its totals under (#1438): a
+ * collection's place, as an entry's key names it, and a month its items or
+ * values touch. Each holds how many of them touch it and the milliseconds of it
+ * its items cover ({@link RecordSummaryTotalsType}), summed across the record's
+ * rows as a summary index's totals are, so a collection's first and last month
+ * held are its span across the rows, and its months' counts how much it holds
+ * in each.
+ *
+ * @property collection - The collection's place: the field names from the row down to it, a recursive step adding none
+ * @property tile - The start of a month its items or values touch
+ */
+export const NestedSpanKeyType = StructType({ collection: RecordNestedPathType, tile: DateTimeType });
+export type NestedSpanKeyType = typeof NestedSpanKeyType;
+
+/**
+ * The name of the index a nested series index's span is kept in, beside it
+ * (#1438): an index of its record's, built with it and never declared.
+ *
+ * @param index - The nested series index's name
+ * @returns The span's
+ */
+export function nestedSpanName(index: string): string {
+  return `${index}_span`;
+}
+
+/**
+ * One collection's totals in one summary tile (#1434), for one node, or for
+ * its descendants' items under `subtreeTotals`.
+ *
+ * @property count - How many items touch the tile
+ * @property ms - The milliseconds of the tile they cover; an instant covers none
+ * @property values - For a collection of Float or Integer values: their sum,
+ *   the least, the greatest, and the value at the latest instant in the tile,
+ *   as Floats, taken in key order; `none` for any other collection
+ */
+export const RecordNestedTotalsType = StructType({
+  count: IntegerType,
+  ms: IntegerType,
+  values: OptionType(StructType({ sum: FloatType, min: FloatType, max: FloatType, last: FloatType })),
+});
+export type RecordNestedTotalsType = typeof RecordNestedTotalsType;
+export type RecordNestedTotals = ValueTypeOf<typeof RecordNestedTotalsType>;
+
+/**
+ * What a nested series index's entry carries (#1434): an item or a value as
+ * its collection holds it, its variant nesting as the declaration nests
+ * (`.item .members .load 0.82`); a node's totals in a tile; or a parent's
+ * subtotal.
+ *
+ * @param places - The items' variant: `VariantType({ jobs: Job, members: VariantType({ load: FloatType }) })`
+ * @returns The value's variant type
+ */
+export function NestedEntryType<P extends EastType>(places: P) {
+  return VariantType({ item: places, totals: RecordNestedTotalsType, subtotal: FloatType });
+}
+
+/**
+ * A nested series index's declaration, as its definition holds it (#1434):
+ * each collection a row nests by its field — things people drag, with the
+ * fields their times are read from and whether each is filed under its
+ * ancestors too; values, with the rollups a parent's subtotals are kept by;
+ * child rows, their own collections declared the same way; or more rows of
+ * the row's own type. The field names are data, as an index's `on` is, and
+ * the binding reads them (#1435).
+ */
+export const RecordNestedDeclType = RecursiveType((self) => DictType(StringType, VariantType({
+  items: StructType({
+    times: VariantType({ span: StructType({ from: StringType, to: StringType }), at: StringType }),
+    rollup: BooleanType,
+  }),
+  values: StructType({ rollups: ArrayType(RecordRollupType) }),
+  rows: self,
+  recursive: NullType,
+})));
+export type RecordNestedDeclType = typeof RecordNestedDeclType;
+export type RecordNestedDecl = ValueTypeOf<typeof RecordNestedDeclType>;
+
+/**
  * Which collection an index builds (#1039).
  *
  * - `entries` — an entry per index key a row has, `Dict<{ik, k}, P>`: the
@@ -222,7 +414,8 @@ export type RecordIndexForm = ValueTypeOf<typeof RecordIndexFormType>;
  */
 export const RecordIndexObjectType = StructType({
   /** Hash of the encoded EastIR bundle: `(K, V) -> IK`, or `-> Set<IK>` when
-   *  {@link multi}. */
+   *  {@link multi}; a summary's or a nested series index's `(K, V) ->
+   *  Dict<IK, P>`, a row's entries with their values (#1039, #1434). */
   keyIr: StringType,
   /** Declared with `keys` (a Set return) rather than `key`: one entry per
    *  element, so a row that names five resources appears under five keys. */
@@ -502,11 +695,10 @@ export function indexCollectionType(keyType: EastType, indexKeyType: EastType, v
  *   patches are sparse and addressed by key.
  */
 export function patchOpsType(collectionType: EastType): EastType {
-  const collection = collectionType as unknown as { type: string; key: EastType; value: EastType };
-  if (collection.type === 'Dict') return dictPatchOpsType(collection.value);
-  if (collection.type === 'Set') return setPatchOpsType(collection.key);
+  if (collectionType.type === 'Dict') return dictPatchOpsType(collectionType.value);
+  if (collectionType.type === 'Set') return setPatchOpsType(collectionType.key);
   throw new Error(
-    `a mutation delta addresses Dict and Set targets by key; this one holds ${collection.type}`,
+    `a mutation delta addresses Dict and Set targets by key; this one holds ${collectionType.type}`,
   );
 }
 
@@ -578,7 +770,7 @@ export const DELTA_CONFLICT = '$conflict';
  * @param targets - the primary and each index, in canonical case order
  * @returns `Dict<DeltaKey, DeltaOp>`
  */
-export function mutationDeltaType(targets: readonly DeltaTarget[]): EastType {
+export function mutationDeltaType(targets: readonly DeltaTarget[]): DictType<VariantType<Record<string, EastType>>, VariantType<Record<string, EastType>>> {
   const keys: Record<string, EastType> = { [DELTA_CONFLICT]: StringType };
   const ops: Record<string, EastType> = { [DELTA_CONFLICT]: NullType };
   for (const target of targets) {
@@ -618,14 +810,15 @@ export function editTypeOf<K extends EastType, V extends EastType>(recordType: D
 }>;
 export function editTypeOf(recordType: EastType): EastType;
 export function editTypeOf(recordType: EastType): EastType {
-  const dict = recordType as unknown as { type: string; key: EastType; value: EastType };
-  if (dict.type !== 'Dict') {
-    throw new Error(`an edit mutation writes a Dict record; this one holds ${dict.type}`);
+  if (recordType.type !== 'Dict') {
+    throw new Error(`an edit mutation writes a Dict record; this one holds ${recordType.type}`);
   }
+  const keyType: EastType = recordType.key;
+  const valueType: EastType = recordType.value;
   return StructType({
-    set: FunctionType([dict.key, dict.value], NullType),
-    delete: FunctionType([dict.key], NullType),
-    update: FunctionType([dict.key, PatchType(dict.value)], NullType),
+    set: FunctionType([keyType, valueType], NullType),
+    delete: FunctionType([keyType], NullType),
+    update: FunctionType([keyType, PatchType(valueType)], NullType),
   });
 }
 

@@ -27,6 +27,11 @@
  * Every kind but a value is emitted through the program's trailing parameter,
  * whose type the kind fixes: (T) -> Null, or (K, V) -> Null for a dict.
  *
+ * A collection that holds functions is written under the program's source
+ * map — a merge unit's, under its first part's, which a unit wrote so — so the
+ * closures in it keep their lines; any other output's bytes never depend on
+ * where the program was written.
+ *
  * A run unit says how its collection inputs are read: lazily, a segment at a
  * time as the program reads them, or decoded whole before it runs (`whole`).
  *
@@ -117,9 +122,12 @@ typedef struct {
 bool east_unit_write_result(const char *path, const EastUnitResult *result);
 
 /* Writes a value output: a collection as a manifest directory at `path`,
- * anything else as one blob there. A paged value is read whole first. False
+ * anything else as one blob there. A paged value is read whole first. A
+ * collection that holds functions is written under `source_map` (borrowed;
+ * the program's, or NULL for none), so its closures keep their lines. False
  * with the message posted. */
-bool east_unit_write_value(const char *path, EastValue *value, EastType *type);
+bool east_unit_write_value(const char *path, EastValue *value, EastType *type,
+                           EastSourceMap *source_map);
 
 /* Where a running program's output goes. */
 typedef struct EastUnitSink EastUnitSink;
@@ -127,12 +135,13 @@ typedef struct EastUnitSink EastUnitSink;
 /* Opens a running program's output. `type` is the program's result type for a
  * value, and its emit parameter's type for every other kind. `merge_fn` (a
  * dict's) and `combine_fn` (a fold's) are borrowed and must outlive the sink;
- * `zero` (a fold's) is retained. NULL with the message posted: an emit
- * parameter or function that does not fit the kind, or an output directory
- * that holds anything already. */
+ * `zero` (a fold's) and `source_map` — the program's, which a collection
+ * holding functions is written under; NULL for none — are retained. NULL with
+ * the message posted: an emit parameter or function that does not fit the
+ * kind, or an output directory that holds anything already. */
 EastUnitSink *east_unit_sink_new(const EastUnitOutput *output, EastType *type,
                                  EastCompiledFn *merge_fn, EastCompiledFn *combine_fn,
-                                 EastValue *zero);
+                                 EastValue *zero, EastSourceMap *source_map);
 
 /* The emit capability: a function value of `fn_type` (borrowed; the emit
  * parameter's type) whose invoke writes the output. NULL for a value output,

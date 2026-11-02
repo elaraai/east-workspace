@@ -14,9 +14,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   StringType, carveBeast2, compareFor, encodeBeast2For, encodeBeast2FenceFor, encodeBeast2SegmentsFor, isVariant, openBeast2PagesFor,
-  readBeast2Extents, readBeast2Type, segmentKeyTypeOf, toEastTypeValue, type EastType, type EastTypeValue,
+  readBeast2Extents, readBeast2Type, segmentKeyTypeOf, toEastTypeValue, variant, type EastType, type EastTypeValue,
 } from '@elaraai/east';
-import { COLLECTION_MANIFEST_KIND, encodeCollectionManifest, type CollectionManifestEntry, type ExecutionStatus } from '@elaraai/e3-types';
+import {
+  COLLECTION_MANIFEST_KIND, encodeCollectionManifest, type CollectionManifestEntry, type ExecutionStatus, type Structure,
+} from '@elaraai/e3-types';
 import type { BackendDamage } from './contract/index.js';
 import { checkHash, checkId } from './errors.js';
 import { openZip } from './package-files.js';
@@ -293,6 +295,19 @@ export function inMemoryDamage(storage: InMemoryStorage, repo: string): BackendD
       return Promise.resolve();
     },
   };
+}
+
+/**
+ * A tree of writable String datasets, by name: the structure many specs'
+ * packages share.
+ *
+ * @param names - The datasets, by name
+ * @returns The structure
+ */
+export function writableStrings(names: readonly string[]): Structure {
+  return variant('struct', new Map(names.map((name): [string, Structure] => [
+    name, variant('value', { type: toEastTypeValue(StringType), writable: true }),
+  ])));
 }
 
 /**

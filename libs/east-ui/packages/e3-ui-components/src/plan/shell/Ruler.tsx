@@ -64,7 +64,7 @@ export function PlanRuler({ styles, gridTemplate, caption, cursorChipRef }: Plan
     const units = useMemo(() => timeRulerUnits(scale, words), [scale, words]);
 
     return (
-        <Box css={styles.ruler} gridTemplateColumns={gridTemplate} data-slot="ruler" data-time={units !== undefined ? "" : undefined}>
+        <Box css={styles.ruler} style={{ gridTemplateColumns: gridTemplate }} data-slot="ruler" data-time={units !== undefined ? "" : undefined}>
             <Box css={styles.brushCaption}>{caption}</Box>
             <Box css={styles.rulerTrack}>
                 {units !== undefined && <TimeRulerRow scale={units} styles={styles} band="units" owner="plan" />}

@@ -47,7 +47,7 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { StringType, compareFor, equalFor, match, printFor, toEastTypeValue, type EastTypeValue, type ValueTypeOf, type option } from "@elaraai/east";
+import { StringType, compareFor, equalFor, match, none, printFor, toEastTypeValue, type EastTypeValue, type ValueTypeOf, type option } from "@elaraai/east";
 import { RecordSliceWhereType, findKeyInline, type DatasetKeyMatchRange, type DatasetKeyQuery, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation, type KeySearchSource } from "@elaraai/east-ui-components";
 import { awaitTracked, recordSlicePage, recordSliceRevision, recordSliceSeek, recordSliceWithin, toSeekQuery } from "@elaraai/east-ui-components/internal";
@@ -262,7 +262,7 @@ async function matchesOf(run: FindRun, offset: number, n: number, pick: SourceHi
     const part = kind.part;
     const from = run.start + offset;
     // Every record Slice binding reads joined entries of its record's String keys: record.ts' bind refuses any other.
-    const entries = await awaitTracked(() => recordSlicePage(part, WHOLE, BigInt(from), BigInt(n))) as readonly RecordEntry[];
+    const entries = await awaitTracked(() => recordSlicePage(part, { where: WHOLE, area: none }, BigInt(from), BigInt(n))) as readonly RecordEntry[];
     const listed = entries.map((entry) => ({ key: entry.key, row: someOf(entry.row) }));
     const rows = listed.flatMap(({ key, row }) => (row === undefined ? [] : [{ key, row }]));
     const where = part.read().where;

@@ -47,6 +47,7 @@ import {
     useContainerBelow,
     type Formatters,
 } from '@elaraai/east-ui-components';
+import { keptRead } from '@elaraai/east-ui-components/internal';
 
 import { boundSliceConfig } from '@elaraai/east-ui-components/platform';
 
@@ -95,6 +96,9 @@ interface DecisionQueueToolbarState {
     groupKey: string;
     collapsed: string[];
 }
+
+/** The toolbar's state, as storage keeps it. */
+const readQueueToolbar = keptRead.record<DecisionQueueToolbarState>({ groupKey: keptRead.string, collapsed: keptRead.array(keptRead.string) });
 
 /** A decision value through its declared format, in the app's locale (#850). */
 function decisionValue(words: Formatters, d: Decision, n: number, showSign = false): string {
@@ -527,7 +531,7 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
         groupKey: defaultGroupKey ?? 'urgency',
         // The urgency grouping's routine tail ships collapsed.
         collapsed: [URGENCY_GROUP_LABEL.routine],
-    });
+    }, readQueueToolbar);
     // A stale persisted key (a custom facet since removed) falls back to the default.
     const activeOption = groupOptions.find(o => o.key === toolbar.groupKey) ?? groupOptions[0]!;
 

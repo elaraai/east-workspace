@@ -5,7 +5,10 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { IntegerType, OptionType, SetType, StringType, StructType, decodeBeast2For, encodeBeast2For, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import {
+    DateTimeType, IntegerType, OptionType, SetType, StringType, StructType, decodeBeast2For, encodeBeast2For, none, parseFor, printFor, some, variant,
+    type ValueTypeOf,
+} from "@elaraai/east";
 import { RecordSliceConfigType, RecordSliceStateType, RecordSliceChoiceType, RecordSliceController, type RecordSliceBinding } from "@elaraai/east-ui/internal";
 
 const Config = RecordSliceConfigType;
@@ -86,6 +89,120 @@ test("extent never returns a partial result during loading, propagates failures,
     assert.deepEqual(service.controller.domain("due"), some({ from: ".some 2", to: ".some 100" }));
     service.controller.choose("status", undefined);
     assert.deepEqual(service.controller.domain("due"), none, "a trailing range needs its leading choices");
+});
+
+/**
+ * Jobs filed by an interval index led by their press (#1432), its key
+ * `{ on, node, at }`: each press's starts at its tree's root, `node` 0, in
+ * order, its 4 unset first. Each press holds a trillion, so the extent reads
+ * boundary entries and one search past the unset, never the rows between.
+ */
+function intervals() {
+    const size = 1_000_000_000_000n;
+    const config = decodeBeast2For(Config)(encodeBeast2For(Config)({
+        fields: [
+            { fieldId: "press", label: "Press", kind: "string", optional: false, multiple: true, set: false, values: [
+                { value: '"P-1"', label: "P-1" }, { value: '"P-2"', label: "P-2" },
+            ], format: none },
+            { fieldId: "start", label: "Start", kind: "datetime", optional: true, multiple: true, set: false, values: [{ value: ".none", label: "Unset" }], format: none },
+        ],
+        indexes: [{
+            name: "jobs_by_press_time", fields: ["press"], sets: new Set(), structured: true,
+            interval: some({ from: "start", to: "end", optional: true }), area: none, series: none, summary: none,
+        }],
+        range: some("start"), search: [], presets: [],
+    }));
+    const Key = StructType({ on: StructType({ press: StringType }), node: IntegerType, at: OptionType(DateTimeType) });
+    const instant = (text: string): Date => {
+        const read = parseFor(DateTimeType)(text);
+        assert.ok(read.success, text);
+        return read.value;
+    };
+    const presses = ["P-1", "P-2"];
+    const first = [instant("2026-10-05T08:00:00.000"), instant("2026-10-01T06:00:00.000")];
+    const last = [instant("2026-11-02T17:30:00.000"), instant("2026-10-20T12:00:00.000")];
+    const printOn = printFor(Key.fields.on);
+    const seeks: string[][] = [];
+    const pages: bigint[] = [];
+    const binding: RecordSliceBinding = {
+        id: "jobs", recordId: "jobs", defaultIndex: "primary", revision: () => some("A"), refresh: () => null,
+        total: () => some(2n * size), entryKeys: () => [],
+        seek(index, query) {
+            assert.equal(index, "jobs_by_press_time");
+            assert.equal(query.type, "fields");
+            const asked = query.type === "fields" ? query.value.values : [];
+            seeks.push(asked);
+            const press = presses.findIndex(name => asked[0] === printOn({ press: name }));
+            assert.ok(press >= 0 && asked[1] === "0", `a search names its press's on as one literal, then the root: ${asked.join(", ")}`);
+            const row = BigInt(press) * size;
+            if (asked.length === 2) return some({ found: true, row, count: size });
+            assert.deepEqual(asked.slice(2), [".none"]);
+            return some({ found: true, row, count: 4n });
+        },
+        page(index, offset, limit) {
+            assert.equal(index, "jobs_by_press_time");
+            assert.equal(limit, 1n);
+            pages.push(offset);
+            const press = Number(offset / size);
+            const row = offset % size;
+            assert.ok(row === 0n || row === 4n || row === size - 1n, `only boundary entries are read: ${row}`);
+            const at = row < 4n ? none : some(row === 4n ? first[press]! : last[press]!);
+            return some([{ ik: variant("jobs_by_press_time", { on: { press: presses[press]! }, node: 0n, at }) }]);
+        },
+    };
+    let current = decodeBeast2For(RecordSliceStateType)(encodeBeast2For(RecordSliceStateType)({
+        where: new Map([["press", values('"P-1"', '"P-2"')]]), preset: none, resolution: none,
+    }));
+    const Row = StructType({ press: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType) });
+    const controller = new RecordSliceController(binding, config, Row, () => current, next => { current = next; }, StringType, undefined,
+        { jobs_by_press_time: Key });
+    return { controller, seeks, pages };
+}
+
+test("an interval index's start extent reads its root's boundary entries under each press, past the unset by one search of `[on, 0, .none]` (#1432)", () => {
+    const { controller, seeks, pages } = intervals();
+    assert.deepEqual(controller.domain("start"), some({ from: ".some 2026-10-01T06:00:00.000", to: ".some 2026-11-02T17:30:00.000" }),
+        "the earliest first start of either press, and the latest last");
+    assert.deepEqual(seeks.map(asked => asked.join(" ")).sort(), [
+        '(press="P-1") 0', '(press="P-1") 0 .none', '(press="P-2") 0', '(press="P-2") 0 .none',
+    ]);
+    assert.equal(pages.length, 6, "three entries a press: its first, its last, and its first set");
+});
+
+test("a field named `area`, `__area`, `tile` or `__tile` is offered, chosen and counted like any other: e3's parts are an index's kind's, never a field's name (#1432)", () => {
+    const names = ["area", "__area", "tile", "__tile"];
+    const config = decodeBeast2For(Config)(encodeBeast2For(Config)({
+        fields: names.map(name => ({ fieldId: name, label: name, kind: "string", optional: false, multiple: true, set: false,
+            values: [{ value: '"a"', label: "A" }, { value: '"b"', label: "B" }], format: none })),
+        indexes: names.map(name => ({ name: `by_${name}`, fields: [name], sets: new Set<string>(), structured: false, interval: none, area: none, series: none, summary: none })),
+        range: none, search: [], presets: [],
+    }));
+    // Each field's index files its `a` rows first, as many as its place among the names plus one, then ten `b` rows.
+    const printString = printFor(StringType);
+    const seeks: string[] = [];
+    const binding: RecordSliceBinding = {
+        id: "named", recordId: "named", defaultIndex: "primary", revision: () => some("A"), refresh: () => null,
+        total: () => some(20n), entryKeys: () => [], page: () => none,
+        seek(index, query) {
+            assert.equal(query.type, "key");
+            const value = query.type === "key" ? query.value : "";
+            seeks.push(`${index} ${value}`);
+            const held = BigInt(names.indexOf(index.slice(3)) + 1);
+            return some(value === printString("a") ? { found: true, row: 0n, count: held } : { found: true, row: held, count: 10n });
+        },
+    };
+    const Row = StructType(Object.fromEntries(names.map(name => [name, StringType])));
+    let current = decodeBeast2For(RecordSliceStateType)(encodeBeast2For(RecordSliceStateType)({ where: new Map(), preset: none, resolution: none }));
+    const controller = new RecordSliceController(binding, config, Row, () => current, next => { current = next; });
+    for (const [i, name] of names.entries()) {
+        assert.deepEqual(controller.values(name).map(choice => [choice.label, choice.count]), [["A", some(BigInt(i + 1))], ["B", some(10n)]],
+            `${name} offers its values, each counted`);
+        controller.choose(name, values(printString("a")));
+        assert.deepEqual([...controller.readState().where.keys()], [name], `${name} is chosen`);
+        assert.deepEqual(controller.count(), some(BigInt(i + 1)), `${name}'s choice counted through its index`);
+        controller.clearAll();
+    }
+    assert.ok(names.every(name => seeks.includes(`by_${name} ${printString("a")}`)), "each read through its own index");
 });
 
 test("which rows a narrowing holds is asked by each row's maintained entry keys, a row held when any of its entries is; nothing narrowed holds every row (#1349)", () => {

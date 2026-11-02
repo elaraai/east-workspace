@@ -21,7 +21,8 @@ import {
     isSubtype, isTypeEqual, none, some, variant, type BlockBuilder, type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import {
-    RecordSliceBindType, RecordSliceChoiceType, RecordSliceConfigType, RecordSliceStateType, RecordSliceWhereType, recordSliceReadPlatform,
+    RecordSliceBindType, RecordSliceChoiceType, RecordSliceConfigType, RecordSliceReadType, RecordSliceStateType, RecordSliceWhereType,
+    recordSliceReadPlatform,
 } from "@elaraai/east-ui/internal";
 
 /**
@@ -37,7 +38,7 @@ export const SCHEDULE_EVENT_CAP = 10_000;
 export function ScheduleRecordSliceType<K extends EastType, R extends EastType>(key: K, row: R) {
     return StructType({ ...RecordSliceBindType.fields,
         data: StructType({ id: StringType, revision: FunctionType([], OptionType(StringType)) }),
-        pageWhere: FunctionType([RecordSliceWhereType, IntegerType, IntegerType],
+        pageWhere: FunctionType([RecordSliceReadType, IntegerType, IntegerType],
             OptionType(ArrayType(StructType({ key, row: OptionType(row) })))),
     });
 }
@@ -60,8 +61,8 @@ type Entries = ArrayType<StructType<{ key: EastType; row: OptionType<EastType> }
 type Source = ExprType<StructType<{
     config: RecordSliceConfigType;
     read: FunctionType<[], RecordSliceStateType>;
-    countWhere: FunctionType<[RecordSliceWhereType], OptionType<IntegerType>>;
-    pageWhere: FunctionType<[RecordSliceWhereType, IntegerType, IntegerType], OptionType<Entries>>;
+    countWhere: FunctionType<[RecordSliceReadType], OptionType<IntegerType>>;
+    pageWhere: FunctionType<[RecordSliceReadType, IntegerType, IntegerType], OptionType<Entries>>;
     data: StructType<{ id: StringType; revision: FunctionType<[], OptionType<StringType>> }>;
 }>>;
 
@@ -96,18 +97,18 @@ function checkedSource(part: ScheduleKindPart, slot: string, key: EastType, row:
 }
 
 /**
- * The narrowing a window `[from, to)` is read under, built in a read's block —
- * its window's read and its count build it alike, so they ask the same
- * searches: the source's choices but its start field's and, on the start
- * field, the window's half-open range — or, for a backlog, the start Unset;
- * exact start values a choice holds stand for a window. Refused as it is read
- * when the source's range is not the start field, or it declares no interval
- * index from the start to the end.
+ * The read a window `[from, to)` asks, built in a read's block — its window's
+ * read and its count build it alike, so they ask the same searches: the
+ * source's choices but its start field's and, on the start field, the
+ * window's half-open range — or, for a backlog, the start Unset; exact start
+ * values a choice holds stand for a window. No read by area (#1432). Refused
+ * as it is read when the source's range is not the start field, or it
+ * declares no interval index from the start to the end.
  */
-function windowWhere(
+function windowRead(
     $: BlockBuilder<EastType>, source: Source, from: ExprType<DateTimeType>, to: ExprType<DateTimeType>,
     start: string, end: string, optional: boolean, backlog: boolean, label: string,
-): ExprType<typeof RecordSliceWhereType> {
+): ExprType<typeof RecordSliceReadType> {
     const config = $.const(source.config);
     const read = $.const(source.read);
     $.if(config.range.match({ none: () => true, some: (_$2, field) => field.notEqual(start) }), $2 => {
@@ -134,7 +135,7 @@ function windowWhere(
         } });
     }
     $(where.insert(start, time));
-    return where;
+    return $.let({ where, area: none }, RecordSliceReadType);
 }
 
 /**
@@ -169,11 +170,11 @@ export function scheduleRecordWindow(part: ScheduleKindPart, slot: string, key: 
         const pageWhere = $.const(source.pageWhere);
         const id = $.const(source.data.id);
         const revision = $.const(source.data.revision);
-        const where = windowWhere($ as unknown as BlockBuilder<EastType>, source, from, to, start, end, optional, backlog, label);
+        const window = windowRead($ as unknown as BlockBuilder<EastType>, source, from, to, start, end, optional, backlog, label);
         const result = $.let(none, OptionType(Held));
         // The window's entries, read a page at a time once their count is known: the rows by their keys.
         const read = ($b: BlockBuilder<EastType>) => {
-            $b.match(recordSliceReadPlatform([entriesType], id, revision, countWhere, pageWhere, where), {
+            $b.match(recordSliceReadPlatform([entriesType], id, revision, countWhere, pageWhere, window), {
                 some: ($2, entries) => {
                     const held = $2.let(new Map(), Held);
                     $2.for(entries, ($3, entry) => {
@@ -190,7 +191,7 @@ export function scheduleRecordWindow(part: ScheduleKindPart, slot: string, key: 
             read($ as unknown as BlockBuilder<EastType>);
         } else {
             // Counted first, as the read counts first: past the cap, no page is read and the window answers none.
-            $.match(countWhere(where), {
+            $.match(countWhere(window), {
                 some: ($2, count) => { $2.if(count.lessEqual(BigInt(cap)), ($3) => { read($3 as unknown as BlockBuilder<EastType>); }); },
             });
         }
@@ -220,7 +221,6 @@ export function scheduleRecordCount(part: ScheduleKindPart, slot: string, key: E
     return East.function([DateTimeType, DateTimeType], OptionType(IntegerType), ($, from, to) => {
         const source = $.const(part as unknown as Source);
         const countWhere = $.const(source.countWhere);
-        const where = windowWhere($ as unknown as BlockBuilder<EastType>, source, from, to, start, end, optional, false, label);
-        return countWhere(where);
+        return countWhere(windowRead($ as unknown as BlockBuilder<EastType>, source, from, to, start, end, optional, false, label));
     }) as unknown as ExprType<FunctionType<[DateTimeType, DateTimeType], OptionType<IntegerType>>>;
 }

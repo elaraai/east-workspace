@@ -35,7 +35,8 @@ import { StudioLibrary } from "./library.js";
 export {
     StudioComponentType,
     StudioFrameType,
-    fingerprintOf,
+    dataName,
+    readNames,
     type StudioComponentMeta,
     type StudioFrameLiteral,
 } from "./component.js";
@@ -180,7 +181,7 @@ export const Studio: StudioNamespace = {
 export interface StudioInternalNamespace extends Omit<StudioNamespace, "Types"> {
     /** Saves a page's placements — the builder canvas's Apply, one patch to the page's draft. */
     save: typeof StudioPages.save;
-    /** Publishes a page: the patch that makes its draft its next live version, each placement stamped with the code it goes live with. */
+    /** Publishes a page: the patch that makes its draft its next live version. */
     publish: typeof StudioPages.publish;
     /** Reverts a page: the patch that makes its live version's layout its draft. */
     revert: typeof StudioPages.revert;

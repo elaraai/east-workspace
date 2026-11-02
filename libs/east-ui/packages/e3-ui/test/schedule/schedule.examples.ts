@@ -56,46 +56,66 @@ export const ScheduleVisit = StructType({
 });
 
 /** The shifts about Thursday 1 October 2026: a day shift, a night running on past midnight, and one a week later. */
-export const scheduleShifts = e3.record("schedule_shifts", DictType(StringType, ScheduleShift), new Map([
-    ["s1", { title: "Day shift", start: new Date("2026-10-01T06:00:00Z"), end: new Date("2026-10-01T14:00:00Z"), person: some("p1"),
-        status: variant("confirmed", null), crew: 1n, skills: new Set<string>(), handover: [] }],
-    ["s2", { title: "Night shift", start: new Date("2026-10-01T22:00:00Z"), end: new Date("2026-10-02T06:00:00Z"), person: none,
-        status: variant("tentative", null), crew: 2n, skills: new Set<string>(), handover: [] }],
-    ["s3", { title: "Day shift", start: new Date("2026-10-08T06:00:00Z"), end: new Date("2026-10-08T14:00:00Z"), person: some("p2"),
-        status: variant("done", null), crew: 1n, skills: new Set<string>(), handover: [] }],
-]));
-export const scheduleShiftsPatch = e3.mutation.patch(scheduleShifts);
+export const scheduleShifts = e3.record("schedule_shifts", DictType(StringType, ScheduleShift), {
+    initial: new Map([
+        ["s1", { title: "Day shift", start: new Date("2026-10-01T06:00:00Z"), end: new Date("2026-10-01T14:00:00Z"), person: some("p1"),
+            status: variant("confirmed", null), crew: 1n, skills: new Set<string>(), handover: [] }],
+        ["s2", { title: "Night shift", start: new Date("2026-10-01T22:00:00Z"), end: new Date("2026-10-02T06:00:00Z"), person: none,
+            status: variant("tentative", null), crew: 2n, skills: new Set<string>(), handover: [] }],
+        ["s3", { title: "Day shift", start: new Date("2026-10-08T06:00:00Z"), end: new Date("2026-10-08T14:00:00Z"), person: some("p2"),
+            status: variant("done", null), crew: 1n, skills: new Set<string>(), handover: [] }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 /** The jobs: one scheduled, and two in the backlog, one of them due. */
-export const scheduleJobs = e3.record("schedule_jobs", DictType(StringType, ScheduleJob), new Map([
-    ["j1", { title: "Bearing swap", start: some(new Date("2026-10-01T09:00:00Z")), end: some(new Date("2026-10-01T11:00:00Z")), machine: some("m1"),
-        status: variant("confirmed", null), work_order: "WO-1041", estimate_h: 2, due: none }],
-    ["j2", { title: "Belt check", start: none, end: none, machine: none,
-        status: variant("tentative", null), work_order: "", estimate_h: 2.5, due: some(new Date("2026-10-02T00:00:00Z")) }],
-    ["j3", { title: "Filter change", start: none, end: none, machine: none,
-        status: variant("tentative", null), work_order: "WO-1050", estimate_h: 1, due: none }],
-]));
-export const scheduleJobsPatch = e3.mutation.patch(scheduleJobs);
+export const scheduleJobs = e3.record("schedule_jobs", DictType(StringType, ScheduleJob), {
+    initial: new Map([
+        ["j1", { title: "Bearing swap", start: some(new Date("2026-10-01T09:00:00Z")), end: some(new Date("2026-10-01T11:00:00Z")), machine: some("m1"),
+            status: variant("confirmed", null), work_order: "WO-1041", estimate_h: 2, due: none }],
+        ["j2", { title: "Belt check", start: none, end: none, machine: none,
+            status: variant("tentative", null), work_order: "", estimate_h: 2.5, due: some(new Date("2026-10-02T00:00:00Z")) }],
+        ["j3", { title: "Filter change", start: none, end: none, machine: none,
+            status: variant("tentative", null), work_order: "WO-1050", estimate_h: 1, due: none }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 /** The inspections: a safety walk of the north site. */
-export const scheduleInspections = e3.record("schedule_inspections", DictType(StringType, ScheduleInspection), new Map([
-    ["i1", { title: "Safety walk", start: new Date("2026-10-01T11:00:00Z"), end: new Date("2026-10-01T12:00:00Z"),
-        target: some(variant("site", "north")), status: variant("tentative", null), contact: { name: "Cal Moss", phone: "0400 000 001" } }],
-]));
-export const scheduleInspectionsPatch = e3.mutation.patch(scheduleInspections);
+export const scheduleInspections = e3.record("schedule_inspections", DictType(StringType, ScheduleInspection), {
+    initial: new Map([
+        ["i1", { title: "Safety walk", start: new Date("2026-10-01T11:00:00Z"), end: new Date("2026-10-01T12:00:00Z"),
+            target: some(variant("site", "north")), status: variant("tentative", null), contact: { name: "Cal Moss", phone: "0400 000 001" } }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 /** The tasks, each estimated in a unit of its own. */
-export const scheduleTasks = e3.record("schedule_tasks", DictType(StringType, ScheduleTask), new Map([
-    ["t1", { title: "Deburr", start: none, end: none, estimate: variant("minutes", 90) }],
-    ["t2", { title: "Paint", start: none, end: none, estimate: variant("hours", 1.5) }],
-    ["t3", { title: "Cure", start: none, end: none, estimate: variant("days", 2) }],
-    ["t4", { title: "Audit", start: none, end: none, estimate: variant("weeks", 1) }],
-    ["t5", { title: "Overhaul", start: none, end: none, estimate: variant("months", 1) }],
-]));
-export const scheduleTasksPatch = e3.mutation.patch(scheduleTasks);
+export const scheduleTasks = e3.record("schedule_tasks", DictType(StringType, ScheduleTask), {
+    initial: new Map([
+        ["t1", { title: "Deburr", start: none, end: none, estimate: variant("minutes", 90) }],
+        ["t2", { title: "Paint", start: none, end: none, estimate: variant("hours", 1.5) }],
+        ["t3", { title: "Cure", start: none, end: none, estimate: variant("days", 2) }],
+        ["t4", { title: "Audit", start: none, end: none, estimate: variant("weeks", 1) }],
+        ["t5", { title: "Overhaul", start: none, end: none, estimate: variant("months", 1) }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 /** The visits: one, its dotted field and its contact's phone told apart. */
-export const scheduleVisits = e3.record("schedule_visits", DictType(StringType, ScheduleVisit), new Map([
-    ["v1", { title: "Site visit", start: new Date("2026-10-01T10:00:00Z"), end: new Date("2026-10-01T11:00:00Z"),
-        "contact.phone": "0400 000 003", contact: { phone: "0400 000 004" } }],
-]));
-export const scheduleVisitsPatch = e3.mutation.patch(scheduleVisits);
+export const scheduleVisits = e3.record("schedule_visits", DictType(StringType, ScheduleVisit), {
+    initial: new Map([
+        ["v1", { title: "Site visit", start: new Date("2026-10-01T10:00:00Z"), end: new Date("2026-10-01T11:00:00Z"),
+            "contact.phone": "0400 000 003", contact: { phone: "0400 000 004" } }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 
 // ── Plan Builder Spec §3.1: a print works ───────────────────────────────────
 
@@ -113,28 +133,44 @@ export const SchedulePrintShift = StructType({ title: StringType, start: DateTim
 export const SchedulePrintDelivery = StructType({ title: StringType, at: DateTimeType, press: StringType, slot: StringType });
 
 /** The jobs about Monday 5 October 2026: a brochure run on press A, and a catalogue run waiting, due on the 9th. */
-export const schedulePrintJobs = e3.record("schedule_print_jobs", DictType(StringType, SchedulePrintJob), new Map([
-    ["j1", { title: "Brochure run", start: some(new Date("2026-10-05T06:00:00Z")), end: some(new Date("2026-10-05T12:00:00Z")), press: some("pa"),
-        state: variant("proposed", variant("added", null)), sheets: 40000, customer: "Harbour Lane Books", stock: variant("coated", null), due: none }],
-    ["j2", { title: "Catalogue run", start: none, end: none, press: none,
-        state: variant("estimated", null), sheets: 24000, customer: "Fernhill Garden Club", stock: variant("uncoated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
-]));
-export const schedulePrintJobsPatch = e3.mutation.patch(schedulePrintJobs);
+export const schedulePrintJobs = e3.record("schedule_print_jobs", DictType(StringType, SchedulePrintJob), {
+    initial: new Map([
+        ["j1", { title: "Brochure run", start: some(new Date("2026-10-05T06:00:00Z")), end: some(new Date("2026-10-05T12:00:00Z")), press: some("pa"),
+            state: variant("proposed", variant("added", null)), sheets: 40000, customer: "Harbour Lane Books", stock: variant("coated", null), due: none }],
+        ["j2", { title: "Catalogue run", start: none, end: none, press: none,
+            state: variant("estimated", null), sheets: 24000, customer: "Fernhill Garden Club", stock: variant("uncoated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 /** The stops: a plate change on press A as the brochure run ends. */
-export const schedulePrintStops = e3.record("schedule_print_stops", DictType(StringType, SchedulePrintStop), new Map([
-    ["s1", { title: "Plate change", at: new Date("2026-10-05T12:00:00Z"), press: "pa", kind: variant("plate_change", null) }],
-]));
-export const schedulePrintStopsPatch = e3.mutation.patch(schedulePrintStops);
+export const schedulePrintStops = e3.record("schedule_print_stops", DictType(StringType, SchedulePrintStop), {
+    initial: new Map([
+        ["s1", { title: "Plate change", at: new Date("2026-10-05T12:00:00Z"), press: "pa", kind: variant("plate_change", null) }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 /** The crews' shifts: crew 1's early shift. */
-export const schedulePrintShifts = e3.record("schedule_print_shifts", DictType(StringType, SchedulePrintShift), new Map([
-    ["h1", { title: "Early", start: new Date("2026-10-05T06:00:00Z"), end: new Date("2026-10-05T14:00:00Z"), crew: "c1", state: variant("confirmed", null) }],
-]));
-export const schedulePrintShiftsPatch = e3.mutation.patch(schedulePrintShifts);
+export const schedulePrintShifts = e3.record("schedule_print_shifts", DictType(StringType, SchedulePrintShift), {
+    initial: new Map([
+        ["h1", { title: "Early", start: new Date("2026-10-05T06:00:00Z"), end: new Date("2026-10-05T14:00:00Z"), crew: "c1", state: variant("confirmed", null) }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 /** The deliveries: a van to the depot from press B, in the morning's lane. */
-export const schedulePrintDeliveries = e3.record("schedule_print_deliveries", DictType(StringType, SchedulePrintDelivery), new Map([
-    ["d1", { title: "Van to depot", at: new Date("2026-10-05T09:00:00Z"), press: "pb", slot: "AM" }],
-]));
-export const schedulePrintDeliveriesPatch = e3.mutation.patch(schedulePrintDeliveries);
+export const schedulePrintDeliveries = e3.record("schedule_print_deliveries", DictType(StringType, SchedulePrintDelivery), {
+    initial: new Map([
+        ["d1", { title: "Van to depot", at: new Date("2026-10-05T09:00:00Z"), press: "pb", slot: "AM" }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 
 // ── Builder Interfaces Spec §4: a warehouse's duties, a kiln yard's bins ────
 
@@ -161,42 +197,62 @@ export const ScheduleWeek = StructType({
 export const ScheduleDay = StructType({ state: VariantType({ draft: NullType, issued: NullType }), notes: StringType });
 
 /** The duties: a lead's early shift and an agency's late in the week of 8 March 2027, and the lead's a fortnight on. */
-export const scheduleDuties = e3.record("schedule_duties", DictType(StringType, ScheduleDuty), new Map([
-    ["d1", { who: variant("staff", "w-01"), start: new Date("2027-03-08T05:00:00Z"), end: new Date("2027-03-08T15:00:00Z"),
-        shift: "early", team: "inbound", role: "lead", task: some("unloading"), unpaidBreak: 30, costCentre: "CC-10", note: "keys" }],
-    ["d2", { who: variant("agency", "a-1"), start: new Date("2027-03-09T14:00:00Z"), end: new Date("2027-03-09T22:00:00Z"),
-        shift: "late", team: "dispatch", role: "crew", task: none, unpaidBreak: 0, costCentre: "CC-20", note: "" }],
-    ["d3", { who: variant("staff", "w-01"), start: new Date("2027-03-20T05:00:00Z"), end: new Date("2027-03-20T13:00:00Z"),
-        shift: "early", team: "inbound", role: "lead", task: some("unloading"), unpaidBreak: 30, costCentre: "CC-10", note: "a later week" }],
-]));
-export const scheduleDutiesPatch = e3.mutation.patch(scheduleDuties);
-/** The duties by the days each touches, as a large record's day index files them. */
-export const scheduleDutiesByDay = e3.recordIndex("schedule_duties_by_day", scheduleDuties, {
-    keys: East.function([StringType, ScheduleDuty], SetType(DateTimeType), ($, _id, duty) => {
-        const days = $.const(Schedule.days);
-        return days(duty.start, duty.end);
+export const scheduleDuties = e3.record("schedule_duties", DictType(StringType, ScheduleDuty), {
+    initial: new Map([
+        ["d1", { who: variant("staff", "w-01"), start: new Date("2027-03-08T05:00:00Z"), end: new Date("2027-03-08T15:00:00Z"),
+            shift: "early", team: "inbound", role: "lead", task: some("unloading"), unpaidBreak: 30, costCentre: "CC-10", note: "keys" }],
+        ["d2", { who: variant("agency", "a-1"), start: new Date("2027-03-09T14:00:00Z"), end: new Date("2027-03-09T22:00:00Z"),
+            shift: "late", team: "dispatch", role: "crew", task: none, unpaidBreak: 0, costCentre: "CC-20", note: "" }],
+        ["d3", { who: variant("staff", "w-01"), start: new Date("2027-03-20T05:00:00Z"), end: new Date("2027-03-20T13:00:00Z"),
+            shift: "early", team: "inbound", role: "lead", task: some("unloading"), unpaidBreak: 30, costCentre: "CC-10", note: "a later week" }],
+    ]),
+    indexes: (index) => ({
+        // The duties by the days each touches, as a large record's day index files them.
+        schedule_duties_by_day: index.keys(East.function([StringType, ScheduleDuty], SetType(DateTimeType), ($, _id, duty) => {
+            const days = $.const(Schedule.days);
+            return days(duty.start, duty.end);
+        })),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
     }),
 });
 /** Duties with only the Roster's required roles. */
-export const schedulePlainDuties = e3.record("schedule_plain_duties", DictType(StringType, SchedulePlainDuty), new Map([
-    ["p1", { person: "w-02", start: new Date("2027-03-08T06:00:00Z"), end: new Date("2027-03-08T14:00:00Z"), shift: "early", team: "inbound" }],
-]));
-export const schedulePlainDutiesPatch = e3.mutation.patch(schedulePlainDuties);
+export const schedulePlainDuties = e3.record("schedule_plain_duties", DictType(StringType, SchedulePlainDuty), {
+    initial: new Map([
+        ["p1", { person: "w-02", start: new Date("2027-03-08T06:00:00Z"), end: new Date("2027-03-08T14:00:00Z"), shift: "early", team: "inbound" }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 /** The bins: one on Tuesday 11 May 2027, on its kiln. */
-export const scheduleBins = e3.record("schedule_bins", DictType(StringType, ScheduleBin), new Map([
-    ["3103", { bay: "B-1", at: new Date("2027-05-11T02:15:00Z"), load: some("LD-2203"), m3: 24, kilns: new Map([["K-109", 24]]),
-        dryFor: variant("days", 9), spec: some("MC14"), specMeasured: "MC14", instruction: some("Hold at 40 °C on arrival") }],
-]));
-export const scheduleBinsPatch = e3.mutation.patch(scheduleBins);
+export const scheduleBins = e3.record("schedule_bins", DictType(StringType, ScheduleBin), {
+    initial: new Map([
+        ["3103", { bay: "B-1", at: new Date("2027-05-11T02:15:00Z"), load: some("LD-2203"), m3: 24, kilns: new Map([["K-109", 24]]),
+            dryFor: variant("days", 9), spec: some("MC14"), specMeasured: "MC14", instruction: some("Hold at 40 °C on arrival") }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 /** The weeks: one issued, the next open, the one after cancelled. */
-export const scheduleWeeks = e3.record("schedule_weeks", DictType(DateTimeType, ScheduleWeek), new SortedMap([
-    [new Date("2027-03-07T00:00:00Z"), { state: variant("issued", { at: new Date("2027-03-05T09:00:00Z") }), dismissed: new Set(["pr-1"]), approver: some("Ops") }],
-    [new Date("2027-03-14T00:00:00Z"), { state: variant("open", null), dismissed: new Set<string>(), approver: none }],
-    [new Date("2027-03-21T00:00:00Z"), { state: variant("cancelled", null), dismissed: new Set<string>(), approver: none }],
-], compareFor(DateTimeType)));
-export const scheduleWeeksPatch = e3.mutation.patch(scheduleWeeks);
+export const scheduleWeeks = e3.record("schedule_weeks", DictType(DateTimeType, ScheduleWeek), {
+    initial: new SortedMap([
+        [new Date("2027-03-07T00:00:00Z"), { state: variant("issued", { at: new Date("2027-03-05T09:00:00Z") }), dismissed: new Set(["pr-1"]), approver: some("Ops") }],
+        [new Date("2027-03-14T00:00:00Z"), { state: variant("open", null), dismissed: new Set<string>(), approver: none }],
+        [new Date("2027-03-21T00:00:00Z"), { state: variant("cancelled", null), dismissed: new Set<string>(), approver: none }],
+    ], compareFor(DateTimeType)),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 /** The days: Tuesday 11 May 2027, a draft. */
-export const scheduleDays = e3.record("schedule_days", DictType(DateTimeType, ScheduleDay), new SortedMap([
-    [new Date("2027-05-11T00:00:00Z"), { state: variant("draft", null), notes: "" }],
-], compareFor(DateTimeType)));
-export const scheduleDaysPatch = e3.mutation.patch(scheduleDays);
+export const scheduleDays = e3.record("schedule_days", DictType(DateTimeType, ScheduleDay), {
+    initial: new SortedMap([
+        [new Date("2027-05-11T00:00:00Z"), { state: variant("draft", null), notes: "" }],
+    ], compareFor(DateTimeType)),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});

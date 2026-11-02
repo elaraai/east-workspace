@@ -44,6 +44,24 @@ from `app_design_system/tokens/*.css`. Recipes and renderers name these
 tokens, never a raw hex, a raw palette step (`brand.600`) or a size outside
 the scale.
 
+**A computed place is written inline (#1440).** A position or size a
+renderer computes — a bar's left and width, a row's height, a grid's
+template, a clip — goes through `style` (or a CSS variable set there), never
+a Chakra style prop. A prop mints an emotion class for each distinct value,
+each carrying a copy of its element's recipe, and the page never removes
+one: a canvas that zoomed or panned grew its style sheet by thousands of
+rules a gesture (planNestedAll's Year zoom alone, 57,000), every frame's
+styling slowed with it, and past about 262,000 rules Chrome applies no new
+one, so whatever then draws at a new place draws unstyled. A value from a
+bounded set — a token, a state's literal — stays a prop, and so does a
+number passed through whole, which Chakra may read as a token (`w={10}` is
+2.5rem). The lint rule `east-ui/inline-places` (`eslint/inline-places.js`,
+its cases in `test/lint/`) refuses a Chakra style prop given a number worked
+out as the component renders — a sum, a template, `Math.round(x)`, or a
+local or helper of this code holding one — and the responsive suite's
+`plan-geometry.spec.ts` holds planNestedAll's rule count still across zooms,
+pans and strip drags.
+
 | Target (from `libs/east-ui/`) | What it does |
 |---|---|
 | `make design` | Serves the design system's download (`app_design_system/`) on :5174. |
@@ -247,7 +265,10 @@ component, nothing in east-ui.
   wrapper there is either no box at all or a box the host's own then scrolls.
   Every colour is the `elara` tokens'. The `HistoryBar` takes `locked` while
   a run is out: Undo, Redo, Discard and Save `aria-disabled`, their size and
-  the focus kept.
+  the focus kept. A button that runs out under the focus — Discard pressed
+  from the keyboard — keeps it the same way until the focus moves on, and a
+  session banner's action that takes the banners away leaves the focus on
+  the frame's main, its first control: never on the page.
 - **Panes.** A `BuilderFramePane` is either a description the frame draws as
   a `DockPane` (`BuilderFrameDock`: `label`, `body` or `tabs` — each tab's
   `count`, when given, follows its name, the Calendar's and the Sheet
@@ -316,7 +337,9 @@ component, nothing in east-ui.
   `RecordSliceController.values`). The editor (`SliceEditPopover`) keeps to
   the frame's sides while it fits between them, else to the page's, and down
   the page always to the page's, so it flips above its trigger as it did
-  (`overlays/popover/frame-bounds.ts`, read live at every placement). A
+  (`overlays/popover/frame-bounds.ts`, read live at every placement: passed
+  as a function, since Zag copies a popover's positioning each time it draws,
+  so the first open, its content not yet there, keeps to the frame too). A
   choice the narrowing as it stands cannot take names the fields to choose
   first — `Choose Kiln group first.`: those an index taking it needs exact
   choices of, the fewest (east-ui's `recordChoiceNeeds`) — and a String
@@ -499,6 +522,29 @@ component, nothing in east-ui.
   session; each session keeps its own banners (`SessionBanners`' `name`
   titles them by their source). `useEditHistory` keeps it in the UI store
   per view, beside each source's kept session.
+- **A session's drafts, as a preview reads them** (`EditSession.drafts`,
+  #1437). The revision of the source the drafts began from, and each entry
+  drafted away from its original — its original and its draft as the session
+  holds them, and each as the source holds an entry — the same objects until
+  a gesture, an Undo, a Redo, a Discard or a confirmed Save replaces one; a
+  draft not yet complete is none of them. e3-ui-components' record drafts
+  (`shared/records/drafts.ts`) preview each one's Save from it.
+- **Drafts carried over a source that moved** (`EditSession.rebase`, #1438).
+  A session never moves its drafts by itself: a source moving under pending
+  drafts makes it stale, Save off. A builder that can read each drafted
+  entry whole at the new base — the Plan over rows read beside their nested
+  series index — hands them to `rebase`, which carries each entry's change
+  over to the entry as it now stands where the change still applies (the
+  session's keyed apply, a `ConflictError` where it does not), so another
+  write's change of what no draft changed stands beside the drafts and Save
+  sends only the drafts' changes. One that does not apply leaves the session
+  stale; a rebase starts the history over at the drafts.
+- **The data set editing belongs to** (`EditingScope`, `src/editing/scope.ts`).
+  A host whose sources are one data set's names it — e3-ui-components'
+  `E3Provider` names the server, repository and workspace — and each
+  session, history and draft kept through a reload is held under it, so the
+  same view over another data set in the tab, its sources of the same names,
+  never takes them. With none named, a page's sources are its own.
 
 ## Field form
 

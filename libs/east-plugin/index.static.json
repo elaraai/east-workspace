@@ -663,17 +663,20 @@
       "skill": "e3",
       "package": "e3",
       "file": "static",
-      "suite": "e3.mutation",
-      "test": "Write a record only through mutations — reduce the whole state, edit a few entries, or apply a client's patch",
+      "suite": "e3.record",
+      "test": "Declare a record whole: its mutations (reduce the whole state, edit a few entries, or apply a client's patch) and its indexes, in its declaration",
       "keywords": [
         "e3",
         "record",
+        "declared whole",
+        "mutations",
         "mutation",
         "reduce",
         "edit",
         "patch",
         "editType",
-        "recordIndex",
+        "indexes",
+        "index.key",
         "audited",
         "commit",
         "compare-and-swap",
@@ -684,23 +687,23 @@
         "import { East, DictType, NullType, StringType, StructType } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "const PlanType = StructType({ title: StringType, owner: StringType });\nconst plans = e3.record('plans', DictType(StringType, PlanType), new Map());\n\n// reduce: the reducer returns the whole new state — any record.\nconst addPlan = e3.mutation.reduce('add_plan', plans,\n  East.function([plans.type, StringType, PlanType], plans.type, ($, state, id, plan) => {\n    const next = $.let(state.copy());   // the state is a frozen input\n    $(next.insert(id, plan));\n    return next;\n  }));\n\n// edit: reads the state lazily and writes through `edit`, so a write costs the\n// segments it touches — a Dict or Set record.\nconst reassign = e3.mutation.edit('reassign', plans,\n  East.function([plans.type, StringType, StringType, e3.mutation.editType(plans.type)], NullType,\n    ($, state, id, owner, edit) => { $(edit.set(id, { title: state.get(id).title, owner })); }));\n\n// An index: a second collection in another order, maintained in the same commit.\nconst byOwner = e3.recordIndex('by_owner', plans, {\n  key: East.function([StringType, PlanType], StringType, ($, _id, plan) => plan.owner),\n});\n\n// patch: no body — the argument is the change, a PatchType of the state.\nconst pkg = e3.package('planning', '1.0.0', plans, addPlan, reassign, e3.mutation.patch(plans), byOwner);"
+      "source": "const PlanType = StructType({ title: StringType, owner: StringType });\nconst PlansType = DictType(StringType, PlanType);\n\nconst plans = e3.record('plans', PlansType, {\n  initial: new Map(),\n  // An index: a second collection in another order, maintained in the same commit.\n  indexes: (index) => ({\n    by_owner: index.key(East.function([StringType, PlanType], StringType, ($, _id, plan) => plan.owner)),\n  }),\n  mutations: (mutation) => ({\n    // reduce: the reducer returns the whole new state — any record.\n    add_plan: mutation.reduce(East.function([PlansType, StringType, PlanType], PlansType, ($, state, id, plan) => {\n      const next = $.let(state.copy());   // the state is a frozen input\n      $(next.insert(id, plan));\n      return next;\n    })),\n    // edit: reads the state lazily and writes through `edit`, so a write costs the\n    // segments it touches — a Dict or Set record.\n    reassign: mutation.edit(East.function([PlansType, StringType, StringType, e3.mutation.editType(PlansType)], NullType,\n      ($, state, id, owner, edit) => { $(edit.set(id, { title: state.get(id).title, owner })); })),\n    // patch: no body — the argument is the change, a PatchType of the state.\n    patch: mutation.patch(),\n  }),\n});\n\n// The record carries its parts by name (plans.mutations.reassign, plans.indexes.by_owner), and a package takes it whole.\nconst pkg = e3.package('planning', '1.0.0', plans);"
     },
     {
       "id": "e3:static:record-migration",
       "skill": "e3",
       "package": "e3",
       "file": "static",
-      "suite": "e3.migration",
+      "suite": "e3.record",
       "test": "Change a record's type between package versions with a migration a deploy runs once per workspace",
       "keywords": [
         "e3",
         "migration",
+        "migrations",
         "record",
         "rows",
         "rekey",
         "value",
-        "after",
         "chain",
         "deploy",
         "schema",
@@ -713,7 +716,7 @@
         "import { East, DictType, StringType, StructType } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "const RowV1Type = StructType({ title: StringType });\nconst RowV2Type = StructType({ title: StringType, owner: StringType });\nconst plans = e3.record('plans', DictType(StringType, RowV2Type), new Map());\n\n// A deploy runs the steps a workspace has not applied, in order, a\n// `$migrate:<name>` commit each; once applied, a step is known by its name.\n// rows: a Dict's rows, one at a time and a piece at a time; rekey changes the\n// keys too, and value takes the whole state.\nconst addOwner = e3.migration.rows('add_owner', plans,\n  East.function([StringType, RowV1Type], RowV2Type,\n    ($, _id, row) => ({ title: row.title, owner: 'unassigned' })));\n\n// The next version's step names this one: { after: addOwner }.\nconst pkg = e3.package('planning', '2.0.0', plans, addOwner);\n// e3 workspace deploy <repo> <ws> --from-zip planning.zip --plan   → what it would do; writes nothing"
+      "source": "const RowV1Type = StructType({ title: StringType });\nconst RowV2Type = StructType({ title: StringType, owner: StringType });\n\n// A deploy runs the steps a workspace has not applied, in the order the record\n// lists them, a `$migrate:<name>` commit each; once applied, a step is known by\n// its name. rows: a Dict's rows, one at a time and a piece at a time; rekey\n// changes the keys too, and value takes the whole state.\nconst plans = e3.record('plans', DictType(StringType, RowV2Type), {\n  initial: new Map(),\n  migrations: (migration) => [\n    migration.rows('add_owner', East.function([StringType, RowV1Type], RowV2Type,\n      ($, _id, row) => ({ title: row.title, owner: 'unassigned' }))),\n  ],\n});\n\n// The next version lists this step, then its own after it.\nconst pkg = e3.package('planning', '2.0.0', plans);\n// e3 workspace deploy <repo> <ws> --from-zip planning.zip --plan   → what it would do; writes nothing"
     },
     {
       "id": "e3:static:web-e3",

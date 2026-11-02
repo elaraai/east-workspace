@@ -47,15 +47,15 @@ type View = ValueTypeOf<typeof Sheet.Types.RecordView>;
 /** The rail's sources: the orders — the sheet's rows — and the operation and order templates, each a record of its own. */
 const sources = () => ({
     rows: {
-        source: Data.bindPaged(ex.sheetWorkshopOrders, { indexes: [ex.sheetWorkshopOrdersByStatus] }), label: "Orders",
+        source: Data.bindPaged(ex.sheetWorkshopOrders, { indexes: ["sheet_workshop_orders_by_status"] }), label: "Orders",
         fields: { status: { label: "Status", hints: ["PLANNED", "RELEASED", "ON HOLD"] } },
     },
     rowTemplates: {
-        source: Data.bindPaged(ex.sheetWorkshopOperationTemplates, { indexes: [ex.sheetWorkshopOperationTemplatesByGroup] }), label: "Operation templates",
+        source: Data.bindPaged(ex.sheetWorkshopOperationTemplates, { indexes: ["sheet_workshop_operation_templates_by_group"] }), label: "Operation templates",
         fields: { group: { label: "Group", hints: ["Operations", "Dispatch"] } },
     },
     groupTemplates: {
-        source: Data.bindPaged(ex.sheetWorkshopOrderTemplates, { indexes: [ex.sheetWorkshopOrderTemplatesByGroup] }), label: "Order templates",
+        source: Data.bindPaged(ex.sheetWorkshopOrderTemplates, { indexes: ["sheet_workshop_order_templates_by_group"] }), label: "Order templates",
         fields: { group: { label: "Group", hints: ["Orders"] } },
     },
 });
@@ -68,7 +68,7 @@ const sources = () => ({
  * it stands over the orders, and nothing builds the sheet again (#1354).
  */
 const sheet = (opts: { views?: readonly View[]; activeView?: string } = {}) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const orders = $.let(Record.bind(ex.sheetWorkshopOrders, [ex.sheetWorkshopOrdersPatch]));
+    const orders = $.let(Record.bind(ex.sheetWorkshopOrders, ["patch"]));
     const operations = $.let(Data.bind(ex.sheetWorkshopOperationTemplates));
     const orderTemplates = $.let(Data.bind(ex.sheetWorkshopOrderTemplates));
     const views = $.let(State.bind([ArrayType(Sheet.Types.RecordView)], `${KEY}.views`, [...(opts.views ?? [])]));

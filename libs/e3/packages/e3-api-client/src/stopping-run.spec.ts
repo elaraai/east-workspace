@@ -23,7 +23,7 @@ import { ApiError } from './http.js';
 import { workspaceDeploy, workspaceRemove } from './workspaces.js';
 
 const BASE = 'https://e3.test';
-const AT = '2026-10-13T00:00:00.000Z';
+const AT = new Date('2026-10-13T00:00:00.000Z');
 
 /** A BEAST2 success, as the server sends one. */
 function success<T extends EastType>(type: T, value: ValueTypeOf<T>, status = 200): globalThis.Response {

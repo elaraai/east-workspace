@@ -93,7 +93,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode, type RefObject } from "react";
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { StringType, StructType, equalFor, fromEastTypeValue, none, parseFor, printFor, some, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
+import { StringType, StructType, equalFor, fromEastTypeValue, none, parseFor, printFor, some, variant, type EastType, type PatchPath, type ValueTypeOf, type option } from "@elaraai/east";
 import { Sheet, SheetBatchReadinessType, SheetDraftFieldType } from "@elaraai/e3-ui/internal";
 import {
     focusKeySearch, getSomeorUndefined, optimiseMessages, useCoarsePointer, useLanding, useLandingStyles, useSlicesReactivity, useDataStable, usePersistedState, useDragLayerOptional,
@@ -103,12 +103,12 @@ import {
 } from "@elaraai/east-ui-components";
 import { DensityProvider, useDensityHeights, VirtualRows, devicePixels, kindOfIssue, recordSliceNoun, recordSliceWithinAt, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import type { SeekQueryType } from "@elaraai/east-ui";
-import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
+import { EditingIssueType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import {
     BOTTOM_PAD_PX, DEFAULT_BLANKS, DEFAULT_GUTTER_PX, NEW_LINE_KEY, NULL_CELL, TITLE_KEY,
     blankIdOf, bodyIndexOfId, buildBody, buildLensBody, cellIsBlank, cellText, countNoun, densityOf, drawnPx, driverKeyOf, groupBandPx, indexColumns, indexGroup, indexRegisters, isLooseRow, isRowSpace, itemPx,
     latencyOf, layoutLensRun, layoutRun, lineAddress, lineId, lineRowsOf, parseWidth, resolveMember as resolveRegisterMember, rowIsBlank, segmentOf, stickyRows, withLine, withProposals, withoutLines,
-    type LineGroup, type SheetBodyItem, type SheetColumnMeta, type SheetGeometry,
+    type LineGroup, type SheetBodyItem, type SheetColumnIndex, type SheetColumnMeta, type SheetGeometry,
 } from "./model.js";
 import { SHEET_PAGE_SIZE, useSheetPaging, type SheetViewport } from "./paging.js";
 import { placeInOrder } from "./placement.js";
@@ -210,6 +210,7 @@ const sheetRootDataEqual = equalFor(Sheet.Types.Root);
 const stringEqual = equalFor(StringType);
 const cellEqual = equalFor(Sheet.Types.Cell);
 const readinessEqual = equalFor(SheetBatchReadinessType);
+const issueEqual = equalFor(EditingIssueType);
 const printString = printFor(StringType);
 /** A live source's rows under one narrowing, named apart (#1354): the source and its narrowing, as East prints them. */
 const printNarrowedSource = printFor(StructType({ source: StringType, narrowing: StringType }));
@@ -234,6 +235,37 @@ function narrowingOfSource(source: { query?: (() => string) | undefined } | unde
 function viewTitle(view: SheetSavedView, words: SheetWords): string {
     const q = narrowingQuery(view.narrowing).trim();
     return words.m.viewTitle({ scope: narrowingScope(view.narrowing), query: q });
+}
+
+/**
+ * A record field's value as a column's cell holds it — the case its East type
+ * names, through an option — or `undefined` for none, and for a type no cell
+ * holds.
+ */
+function cellOfValue(value: unknown, type: EastType | undefined): SheetCellValue | undefined {
+    if (type?.type === "Variant" && "some" in type.cases && "none" in type.cases) {
+        const held = value as option<unknown>;
+        return held.type === "some" ? cellOfValue(held.value, type.cases.some) : undefined;
+    }
+    switch (type?.type) {
+        case "Boolean": return variant("Boolean", value as boolean);
+        case "Integer": return variant("Integer", value as bigint);
+        case "Float": return variant("Float", value as number);
+        case "String": return variant("String", value as string);
+        case "DateTime": return variant("DateTime", value as Date);
+        default: return undefined;
+    }
+}
+
+/** A row as the sheet names it — its first text column's text — where it holds one. */
+function rowNameOf(row: SheetRowValue | undefined, columns: SheetColumnIndex): string | undefined {
+    if (row === undefined) return undefined;
+    for (const column of columns.list) {
+        if (column.kind !== "text") continue;
+        const cell = row.cells.get(column.key);
+        if (cell?.type === "String" && cell.value.trim().length > 0) return cell.value;
+    }
+    return undefined;
 }
 
 /** The decoded rows with the local layer applied — its placements in one linear pass (#859), and a keyed source's rows in key order (#1182). */
@@ -756,7 +788,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // they left them on, and where the frame's scroll rests — the Plan's
     // rule (#813). Read once, at mount; written when either changes, and only
     // when it differs from what storage holds.
-    const { state: stored, setState: setStored } = usePersistedState<SheetPersisted>(storageKey, NOT_PERSISTED);
+    const { state: stored, setState: setStored } = usePersistedState<SheetPersisted>(storageKey, NOT_PERSISTED, persistedOf);
     const [restored] = useState(() => persistedOf(stored));
     const persistedRef = useRef(restored);
     const persist = useCallback((next: SheetPersisted) => {
@@ -2754,10 +2786,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const column = field === undefined ? -1 : columns.list.findIndex(col => stringEqual(col.key, field));
         dispatch({ t: "select.set", r, c: Math.max(0, column) });
         setScrollTarget({ index, align: "auto" });
-        dispatchStore({ t: "patch", patch: { msg: { id: "issue", where: field ?? issue.entry, message: issue.message } } });
+        // The note names the place as the sheet does: the column by its header, else the row by its first text.
+        const where = column >= 0 ? columns.list[column]!.header : rowNameOf(rows.find((row) => stringEqual(row.id, issue.entry)), columns) ?? issue.entry;
+        dispatchStore({ t: "patch", patch: { msg: { id: "issue", where, issue } } });
         cardRef.current?.focus({ preventScroll: true });
         setPendingIssue(undefined);
-    }, [pendingIssue, body, rowSpace, columns, dispatch]);
+    }, [pendingIssue, body, rowSpace, columns, rows, dispatch]);
 
     // ── The view tabs and the lens's chrome (B§8) ─────────────────────────
     // A grouped sheet counts LINES (#740) — and its loose rows, each a row of its own (#846). A row is
@@ -3882,6 +3916,28 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             seekSearch.jump(range.row);
         }).catch(() => { /* superseded or cleared */ });
     }, [onIssue, body, seekSearch, keyIsText, rowsPick]);
+    // A conflict's row as the sheet shows it, in the cards of the history's popover: its first text column's text —
+    // `Panel cutting` — where it holds one, else its key. Read as the popover draws, so the history item is the same
+    // while the rows move.
+    const namingNow = useRef({ rows, columns });
+    namingNow.current = { rows, columns };
+    const rowWhere = useCallback((issue: EditIssue) => {
+        const { rows: shown, columns: drawn } = namingNow.current;
+        return rowNameOf(shown.find((r) => stringEqual(r.id, issue.entry)), drawn) ?? issue.entry;
+    }, []);
+    // A conflict's value as its column writes it — a date in the column's format — where the field it is in is a
+    // column's own; else as the card reads it.
+    const conflictValue = useCallback((_issue: EditIssue, path: PatchPath, value: unknown, type: EastType | undefined) => {
+        let field: string | undefined;
+        for (const step of path) {
+            if (step.kind !== "field") continue;
+            if (field !== undefined) return undefined;
+            field = step.name;
+        }
+        const meta = field === undefined ? undefined : namingNow.current.columns.byKey.get(field);
+        const cell = meta === undefined ? undefined : cellOfValue(value, type);
+        return meta === undefined || cell === undefined ? undefined : cellText(cell, meta, words);
+    }, [words]);
     // The issues' rows the narrowing may hide — those the body does not draw — asked of e3 as the Issues tab lists them,
     // and what an issue's line says of one it hides, in the sheet's words for an issue (the hidden pick).
     const drawnEntries = useMemo(() => {
@@ -3907,6 +3963,16 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         return [...(ready.type === "ready" ? [] : ready.value), ...session.issues];
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session.
     }, [session, readiness, draftVersion]);
+    // The footer's note of an issue gone to goes once the session no longer holds the issue: a conflict chosen, a
+    // check met, a refusal answered. The session is mutable: draftVersion moves with its conflicts.
+    const noted = ui.msg?.id === "issue" ? ui.msg.issue : undefined;
+    useEffect(() => {
+        if (noted === undefined || issueList.some((issue) => issueEqual(issue, noted))) return;
+        for (const entry of session.conflicts.values()) {
+            if (stringEqual(entry.id, noted.entry) && entry.points.some((point) => issueEqual(session.conflictIssue(entry.id, point), noted))) return;
+        }
+        dispatchStore({ t: "patch", patch: { msg: null } });
+    }, [noted, issueList, session, draftVersion]);
     const kindOf = useCallback((issue: EditIssue): "incomplete" | "invalid" => {
         const ready = session.readiness;
         // The very issue the readiness raised (identity, not equality): an Apply's look alike and are not its.
@@ -4201,7 +4267,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         search: pickSearch,
         // The session's error is the frame's banner (#1184), never a line under the item. Its issues button goes to the
         // first issue as the Issues tab's lines do: sought where its row is not drawn, its filters cleared where they hide it.
-        history: !readOnly ? historyToolbarItem({ session, words, editing: ui.edit !== null, onAction: onHistoryAction, onIssue: goToIssue, showError: false, locked }) : undefined,
+        history: !readOnly ? historyToolbarItem({ session, words, editing: ui.edit !== null, onAction: onHistoryAction, onIssue: goToIssue, where: rowWhere, conflictValue, showError: false, locked }) : undefined,
         optimise: optimiseParts.toolbarItem,
         flash,
     });

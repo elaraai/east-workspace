@@ -26,6 +26,7 @@ import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll, vi 
 import { act, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { none, some, variant } from "@elaraai/east";
 import { initializeStore } from "../../platform/state-runtime.js";
+import { resetKept } from "../../platform/kept.js";
 import { UIStore } from "../../platform/state-store.js";
 import { layOut } from "../../testing/drag-layer.js";
 import { faIcons, loneGlyphs } from "../../testing/icons.js";
@@ -528,8 +529,10 @@ describe("the builder's frame (#995)", () => {
         // The canvas's frame is the builder frame (#1125), the editor's first child.
         const frame = editor.firstElementChild as HTMLElement;
         expect(frame.hasAttribute("data-builder-frame")).toBe(true);
-        const [row, body] = [...frame.children] as HTMLElement[];
+        const [row, banners, body] = [...frame.children] as HTMLElement[];
         expect(row!.getAttribute("data-frame-slot")).toBe("toolbar");
+        // The session's banners under the toolbar, the frame's full width.
+        expect(banners!.getAttribute("data-frame-slot")).toBe("banners");
         expect([...body!.children].map((el) => el.getAttribute("data-frame-slot"))).toEqual(["start", "main", "end"]);
         // The SnapGrid's own East panes, each placed as it is.
         expect(body!.querySelector('[data-frame-slot="start"]')!.textContent).toBe("Palette");
@@ -608,13 +611,32 @@ describe("a pane beside the canvas (#996)", () => {
         expect(origins(canvas)).toEqual(["typed"]);
         await history(canvas, "Save");
         expect(canvas.stored().find((t) => t.id === "trend")!.align.type).toBe("center");
+        // A canvas without edit.align, in a tab of its own: nothing kept from the first.
         cleanup();
         initializeStore(new UIStore());
+        window.sessionStorage.clear();
+        resetKept();
         const plain = await mountSnapGrid();
         await plain.hostAsks({ key: "trend", change: variant("align", variant("stretch", null)) });
         expect(plain.patches).toHaveLength(0);
         expect(tileEl(plain.container, "trend").getAttribute("data-align")).toBe("top");
         expect(plain.boundRequest()).toBeNull();
+    }, 30_000);
+
+    test("a reload keeps the drafts in this tab: the tile resized is drawn as it was, still to save, and Save saves it", async () => {
+        const canvas = await mountSnapGrid({ drafted: true });
+        const spans = (rows: readonly TileValue[]) => rows.map((t) => `${t.id}:${t.span}`);
+        await clickTile(canvas.container, "trend");
+        await key(canvas.container, { key: "[" }, "trend");
+        expect(spans(canvas.heard()!)).toEqual(["kpi:12", "trend:7", "region:4", "board:12"]);
+        // A reload: the page and its UI store go; the tab's storage stays.
+        cleanup();
+        initializeStore(new UIStore());
+        resetKept();
+        const again = await mountSnapGrid({ drafted: true });
+        await waitFor(() => expect(spans(again.heard()!)).toEqual(["kpi:12", "trend:7", "region:4", "board:12"]));
+        await history(again, "Save");
+        expect(again.stored().find((t) => t.id === "trend")!.span).toBe(7n);
     }, 30_000);
 
     test("a request for a tile the canvas does not hold changes nothing, and keeps the selection", async () => {
@@ -709,7 +731,39 @@ describe("an Apply a screen asks for (#998)", () => {
         expect(canvas.applies).toHaveLength(0);
     }, 30_000);
 
-    test("drafts the source moved under are refused, in the history item's words", async () => {
+    test("a tile changed here and otherwise by another write is a conflict: the frame's banner says so, and its Choose opens the card, which names the tile as the page shows it and its span as a side panel does", async () => {
+        const canvas = await mountSnapGrid({ applies: true });
+        const c = canvas.container;
+        await clickTile(c, "trend");
+        await key(c, { key: "[" }, "trend");
+        hostWrites(SEED.map((t) => (t.id === "trend" ? { ...t, span: 5n } : t)));
+        await canvas.confirm();
+        await waitFor(() => expect(c.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
+        await act(async () => { fireEvent.click(c.querySelector('[data-session-banner="conflicts"] [data-banner-action="choose"]')!); });
+        await waitFor(() => expect(document.querySelectorAll("[data-conflict-card]")).toHaveLength(1));
+        expect(document.querySelector("[data-conflict-card] [data-conflict-item]")!.textContent).toBe("Revenue trend");
+        expect(document.querySelector("[data-conflict-card] [data-conflict-label]")!.textContent).toBe("Column span");
+    }, 30_000);
+
+    test("a tile holding a conflict not yet chosen wears the warn ring, and no other tile does; choosing takes it off, and Undo puts it back", async () => {
+        const canvas = await mountSnapGrid({ applies: true });
+        const c = canvas.container;
+        const ringed = () => SEED.filter((t) => tileEl(c, t.id).hasAttribute("data-conflict")).map((t) => t.id);
+        await clickTile(c, "trend");
+        await key(c, { key: "[" }, "trend");
+        expect(ringed()).toEqual([]);
+        hostWrites(SEED.map((t) => (t.id === "trend" ? { ...t, span: 5n } : t)));
+        await canvas.confirm();
+        await waitFor(() => expect(ringed()).toEqual(["trend"]));
+        await act(async () => { fireEvent.click(c.querySelector('[data-session-banner="conflicts"] [data-banner-action="choose"]')!); });
+        await waitFor(() => expect(document.querySelectorAll("[data-conflict-card]")).toHaveLength(1));
+        await act(async () => { fireEvent.click(document.querySelector<HTMLInputElement>("[data-conflict-card] [data-choice=source] input")!); });
+        await waitFor(() => expect(ringed()).toEqual([]));
+        await history(canvas, "Undo");
+        await waitFor(() => expect(ringed()).toEqual(["trend"]));
+    }, 30_000);
+
+    test("drafts the source moved under are carried over — another write's change of another tile beside them — and the Apply asked saves them", async () => {
         const canvas = await mountSnapGrid({ applies: true });
         const c = canvas.container;
         await clickTile(c, "trend");
@@ -717,8 +771,9 @@ describe("an Apply a screen asks for (#998)", () => {
         hostWrites(SEED.map((t) => (t.id === "board" ? { ...t, span: 6n } : t)));
         await canvas.confirm();
         await canvas.hostAsksApply("ask-4");
-        expect(canvas.boundApply()).toEqual(variant("refused", { id: "ask-4", reason: "Source changed — review or discard these drafts" }));
-        expect(canvas.applies).toHaveLength(0);
+        expect(canvas.applies).toHaveLength(1);
+        const stored = canvas.stored();
+        expect([stored.find((t) => t.id === "trend")!.span, stored.find((t) => t.id === "board")!.span]).toEqual([7n, 6n]);
     }, 30_000);
 });
 

@@ -46,12 +46,12 @@ const TASKS = `records.${plans.planSliceJobs.name}`;
 
 /**
  * The operations' cells the series index was searched for since a point in the
- * request log: each search's fields — its tile's start and its work order, as
- * the index files them.
+ * request log: each search a range a work order a level (#1433), from
+ * `[order, level, tile]` to the same order and level at the run's end.
  */
 const cellsSearched = (from: number) => h.requests().slice(from)
-    .filter((r) => r.dataset === OPERATIONS && r.kind === "find" && r.query.get("index") === records.planOperationsByWorkWeek.name)
-    .flatMap((r) => r.searches.map((search) => ("fields" in search ? search.fields.join(" ") : JSON.stringify(search))));
+    .filter((r) => r.dataset === OPERATIONS && r.kind === "find" && r.query.get("index") === "plan_operations_by_work_week")
+    .flatMap((r) => r.searches.map((search) => ("from" in search && "to" in search ? `${search.from?.join(" ")} .. ${search.to?.join(" ")}` : JSON.stringify(search))));
 
 /** The keys of the rows the canvas draws, in order. */
 const keysOf = (c: HTMLElement) => [...slot(c, "main").querySelectorAll("[data-plan-row]")].map((el) => el.getAttribute("data-plan-row"));
@@ -91,9 +91,10 @@ describe("the work orders Plan: its rows hold still while its dates move", () =>
         expect(from).toBe(OCT(1).getTime());
         // The operations' source holds the window, the fortnight from the first of October.
         expect(stateOf("operation").where.get("start")).toEqual(range(OCT(1), OCT(15)));
-        // Every cell searched so far — those of the first fifty orders over the weeks of 21 September to 19 October.
+        // Every cell searched so far — the first fifty orders', one at each level the index files at, the week to the
+        // year (#1433).
         const searched = new Set(cellsSearched(0));
-        expect(searched.size).toBe(5 * 50);
+        expect(searched.size).toBe(4 * 50);
         let at = h.requests().length;
         /** The window `moved` days on, ending `ends` days on: no work order read, the rows as they were, the cells it read none read before. */
         const still = (moved: number, ends: number, cells: number) => {
@@ -107,8 +108,8 @@ describe("the work orders Plan: its rows hold still while its dates move", () =>
             for (const cell of read) searched.add(cell);
             at = h.requests().length;
         };
-        // A pan, `]`: a day on — the weeks the canvas reads, two days either side of the window, and one either side of
-        // those, are the ones it holds.
+        // A pan, `]`: a day on — the tiles the canvas reads, two days either side of the window, one either side of
+        // those and the one before, are the ones it holds.
         await press(c, "]");
         still(1, 1, 0);
         // A step of the date navigator: a day on again, the same weeks.
@@ -118,7 +119,7 @@ describe("the work orders Plan: its rows hold still while its dates move", () =>
         await press(c, "]");
         still(3, 3, 50);
         // The brush: its horizon the operations' dates, the ninety days from the first of October in whole days, on a
-        // 1800px track — twenty a day — its low edge dragged from 4 October three days on. The weeks it reads are held.
+        // 1800px track — twenty a day — its low edge dragged from 4 October three days on. The tiles it reads are held.
         expect(within(slot(c, "main")).getByText("HORIZON · 90 D")).toBeTruthy();
         const track = slot(c, "main").querySelector<HTMLElement>("[data-brush-track]")!;
         Object.defineProperty(track, "getBoundingClientRect", {
@@ -132,7 +133,7 @@ describe("the work orders Plan: its rows hold still while its dates move", () =>
         await settle();
         still(6, 3, 0);
         // A resolution re-buckets the window: no part of the orders' narrowing, so it reads none of them, and of the
-        // operations only the cells of the weeks it reads that the canvas does not hold.
+        // operations only the cells of the tiles it reads that the canvas does not hold.
         await act(async () => { fireEvent.click(within(slot(c, "toolbar")).getByRole("radio", { name: "WEEK" })); });
         await settle();
         expect(readsOf(ORDERS, at)).toEqual([]);

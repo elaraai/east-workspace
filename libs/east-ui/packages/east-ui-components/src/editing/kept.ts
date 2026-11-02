@@ -33,21 +33,26 @@ export interface SourceSessions {
 
 const stores = new WeakMap<UIStoreInterface, Map<string, SourceSessions>>();
 const histories = new WeakMap<UIStoreInterface, Map<string, EditHistory<unknown>>>();
+const sourceKey = printFor(StructType({ scope: StringType, source: StringType }));
+const viewKey = printFor(StructType({ scope: StringType, view: StringType }));
 const sessionKey = printFor(StructType({ view: StringType, entry: EastTypeType, draft: EastTypeType }));
 const historyKey = printFor(StructType({ source: StringType, view: StringType, entry: EastTypeType, draft: EastTypeType }));
 
 /**
- * The views of one source, in a UI store.
+ * The views of one source of a data set, in a UI store: another data set's
+ * source of the same name is another's (the host's `EditingScope`).
  *
  * @param store - The UI store
+ * @param scope - The data set, as its host names it
  * @param sourceId - The source's identity
  * @returns Its views' sessions, and the one holding its request
  */
-export function sourceSessionsOf(store: UIStoreInterface, sourceId: string): SourceSessions {
+export function sourceSessionsOf(store: UIStoreInterface, scope: string, sourceId: string): SourceSessions {
     let sources = stores.get(store);
     if (!sources) { sources = new Map(); stores.set(store, sources); }
-    let record = sources.get(sourceId);
-    if (!record) { record = { sessions: new Map(), owner: undefined }; sources.set(sourceId, record); }
+    const key = sourceKey({ scope, source: sourceId });
+    let record = sources.get(key);
+    if (!record) { record = { sessions: new Map(), owner: undefined }; sources.set(key, record); }
     return record;
 }
 
@@ -146,17 +151,20 @@ export function bindingOf<W>(
 }
 
 /**
- * The history over several sessions kept for a view, made the first time.
+ * The history over several sessions kept for a view of a data set, made the
+ * first time.
  *
  * @typeParam W - The sessions' projection of an entry
  * @param store - The UI store
+ * @param scope - The data set, as its host names it (the host's `EditingScope`)
  * @param view - The view's key
  * @returns The history
  */
-export function keptHistory<W>(store: UIStoreInterface, view: string): EditHistory<W> {
+export function keptHistory<W>(store: UIStoreInterface, scope: string, view: string): EditHistory<W> {
     let views = histories.get(store);
     if (!views) { views = new Map(); histories.set(store, views); }
-    let history = views.get(view);
-    if (!history) { history = new EditHistory<unknown>(); views.set(view, history); }
+    const key = viewKey({ scope, view });
+    let history = views.get(key);
+    if (!history) { history = new EditHistory<unknown>(); views.set(key, history); }
     return history as EditHistory<W>;
 }

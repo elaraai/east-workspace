@@ -291,14 +291,13 @@ test-all: services-up test-export
 # ── Versioning ───────────────────────────────────────────────────────
 
 ## The release workflow's bump: one version into every manifest, npm (incl.
-## root), Python, VSIX and plugin. release.yml's prepare job runs it; nobody
+## root), Python and plugin. release.yml's prepare job runs it; nobody
 ## runs it by hand, since CI alone sets versions.
 ## Usage (CI): make set-version VERSION=1.2.3  or  make set-version VERSION=1.2.3-beta.0
 set-version:
 	@test -n "$(VERSION)" || (echo "Usage: make set-version VERSION=x.y.z"; exit 1)
 	node scripts/set-npm-version.mjs $(VERSION)
 	node scripts/set-python-version.mjs $(VERSION)
-	node scripts/set-vsix-version.mjs $(VERSION)
 	node scripts/set-plugin-version.mjs $(VERSION)
 	node scripts/check-version-drift.mjs
 

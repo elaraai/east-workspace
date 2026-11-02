@@ -29,7 +29,8 @@
  * `pnpm exec playwright test schematic-narrowing`.
  */
 
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { toolbarFaults } from "./builder-frame";
 import { RECORD_READS, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { expectSourceCounts, type SourceCount } from "./record-counts";
@@ -176,7 +177,7 @@ for (const theme of ["light", "dark"] as const) {
     });
 }
 
-test("a field's editor opens inside the frame at every width it fits — the rail's first, at the frame's side, never hanging past it — and inside the page on a phone, whose frame it is wider than (#1393)", async ({ page }) => {
+test("a field's editor opens inside the frame at every width it fits — the rail's first, at the frame's side, never hanging past it, the first time it opens as every time after — and inside the page on a phone, whose frame it is wider than (#1393)", async ({ page }) => {
     const root = await open(page, "light");
     /** How far the open editor hangs past each side of the frame, and of the page. */
     const past = () => root.evaluate((el) => {
@@ -193,8 +194,10 @@ test("a field's editor opens inside the frame at every width it fits — the rai
         await page.keyboard.press("Escape");
         await expect(page.getByRole("dialog")).toHaveCount(0);
     };
-    // An editor that grows as its field's section opens is placed again as it grows: each is read once placed.
-    for (const width of [1440, 1024, 768]) {
+    // An editor that grows as its field's section opens is placed again as it grows: each is read once placed. The first
+    // opens at 1024, under the folded rail at the frame's start, where one centred under it would hang past the frame:
+    // never opened before, its content not yet drawn, it keeps to the frame as every later one does.
+    for (const width of [1024, 1440, 768]) {
         await sizeTo(page, root, width);
         await recordField(page, root, "name", "racks");
         await expect.poll(async () => (await past()).frame, { message: `${width}px: how far the editor hangs past each side of the frame` }).toEqual({ left: 0, right: 0 });

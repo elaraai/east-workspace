@@ -31,7 +31,9 @@ export interface PopoverBounds {
  * placement can come before the popover shows — its content mounted, still
  * closed — and land after a later one: so whether it fits is weighed by the
  * width its styles give it until it is laid out ({@link popoverWidth}), the same
- * answer every placement gives.
+ * answer every placement gives. Zag copies the positioning a popover is given
+ * each time the popover draws, reading these then: a popover passes them as a
+ * function it calls as it places, `boundary: () => frameBounds(…)`.
  *
  * @param origin - What the popover hangs from: its trigger or its anchor
  * @param floating - The popover's content, whose width decides whether it fits

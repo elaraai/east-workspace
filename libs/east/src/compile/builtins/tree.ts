@@ -3,7 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/* The walk the Array, Set and Dict `toTree` builtins share. */
+/* The walks the Array, Set and Dict `toTree` builtins, and the Array and Dict
+ * `flattenTree` builtins, share. */
 
 /**
  * The walk behind `toTree`, over each element's parent: `parents[i]` is the
@@ -98,4 +99,32 @@ export function buildTree(order: Int32Array, childCounts: Int32Array, build: (i:
     built.push(build(i, children));
   }
   return built;
+}
+
+/**
+ * The walk behind `flattenTree`: every node of a tree of any depth, depth
+ * first — each node before its descendants, siblings in the order their
+ * collection holds them — by an explicit stack, so a deep tree costs no stack.
+ *
+ * `roots` are the root nodes, each with its step: its key, or its index.
+ * `visit` sees each node with its path of steps from its root, a new array of
+ * its own, and then `children` gives the node's own children, with their
+ * steps, which are visited before the node's next sibling.
+ *
+ * @internal
+ */
+export function walkTree<S, N>(
+  roots: readonly (readonly [S, N])[],
+  children: (node: N, step: S) => readonly (readonly [S, N])[],
+  visit: (path: S[], node: N) => void,
+): void {
+  // The nodes still to visit, the next on top: a node's children are pushed last first.
+  const stack: [S[], N][] = [];
+  for (let i = roots.length - 1; i >= 0; i--) stack.push([[roots[i]![0]], roots[i]![1]]);
+  while (stack.length > 0) {
+    const [path, node] = stack.pop()!;
+    visit(path, node);
+    const own = children(node, path[path.length - 1]!);
+    for (let i = own.length - 1; i >= 0; i--) stack.push([[...path, own[i]![0]], own[i]![1]]);
+  }
 }

@@ -173,7 +173,7 @@ export function PlanStickyParent({ parent, path, styles, gridTemplate, onGo }: {
     onGo: () => void;
 }) {
     return (
-        <Box css={styles.stickyParent} gridTemplateColumns={gridTemplate}
+        <Box css={styles.stickyParent} style={{ gridTemplateColumns: gridTemplate }}
             data-plan-sticky={parent.key} aria-hidden="true" onClick={onGo}>
             <Box css={styles.groupName}>
                 {path.map((a) => <Box as="span" key={a.key} css={styles.stickyPath}>{a.gutter.label}</Box>)}
@@ -204,7 +204,7 @@ export function PlanGapBand({ gap, h, styles, gridTemplate, dispatch }: {
     const { active, focusSeq } = usePlanItemNav(itemKey);
     const grid = usePlanGridRow(itemKey, active, focusSeq);
     return (
-        <Box ref={grid.ref} css={styles.focusGap} gridTemplateColumns={gridTemplate}
+        <Box ref={grid.ref} css={styles.focusGap} style={{ gridTemplateColumns: gridTemplate }}
             role="row" aria-level={1} tabIndex={grid.tabIndex} onFocus={grid.onFocus}
             data-plan-item={itemKey}
             data-plan-gap={gap.rows + gap.groups}

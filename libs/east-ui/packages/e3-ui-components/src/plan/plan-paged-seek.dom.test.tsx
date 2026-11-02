@@ -518,7 +518,7 @@ const WEEK_MS = 7 * 86_400_000;
  *  East bodies never call host helpers. */
 const HALLS = new Map(Array.from({ length: 1_001 }, (_, i) => {
     const hall = `H${String(i).padStart(4, "0")}`;
-    return [hall, new Map(Array.from({ length: i === 200 ? 40 : 1 }, (_u, p) => [
+    return [hall, { presses: new Map(Array.from({ length: i === 200 ? 40 : 1 }, (_u, p) => [
         `${hall}-P${String(p + 1).padStart(2, "0")}`,
         {
             start: new Date(W27.getTime() + (p % 4) * WEEK_MS),
@@ -530,10 +530,12 @@ const HALLS = new Map(Array.from({ length: 1_001 }, (_, i) => {
                 label: none,
             })),
         },
-    ] as const))] as const;
+    ] as const)) }] as const;
 }));
+/** A hall: its presses, by id — the field its strip steps down to (#1436). */
 const Presses = DictType(StringType, PressRow);
-const Halls = DictType(StringType, Presses);
+const HallRow = StructType({ presses: Presses });
+const Halls = DictType(StringType, HallRow);
 
 /** The halls as a source built to the contract — a window of halls at a time, in key order. */
 const HALLS_PAGE = East.function([IntegerType, IntegerType], OptionType(Halls), ($, offset, limit) => {
@@ -558,11 +560,11 @@ describe("a parent sits whole in its window (#823)", () => {
             const series = [
                 // One strip per hall, its presses its members — collapsed, it
                 // rests as their summed load.
-                Plan.series.group(Presses, {
+                Plan.series.group(HallRow, {
                     key: "halls", title: "Halls", label: (_g, hall) => hall,
-                    match: (g) => g.size().greater(1n),
+                    match: (g) => g.presses.size().greater(1n),
                     summaryAggregate: "sum", collapsed: true,
-                    children: Plan.children((g) => g, [
+                    children: Plan.children("presses", [
                         Plan.series.heat(PressRow, {
                             key: "load", title: "Load", label: (_p, k) => k,
                             cells: (p) => Plan.heatCells(p.load, { min: 0, max: 100 }),
@@ -571,11 +573,11 @@ describe("a parent sits whole in its window (#823)", () => {
                 }),
                 // One row per hall, rolling its presses' runs into bands —
                 // each band sums their sheets, the unit riding each quantity.
-                Plan.series.span(Presses, {
+                Plan.series.span(HallRow, {
                     key: "hall-jobs", title: "Jobs", label: (_g, hall) => hall,
-                    match: (g) => g.size().greater(1n),
+                    match: (g) => g.presses.size().greater(1n),
                     runs: () => [], collapsed: true,
-                    children: Plan.children((g) => g, [
+                    children: Plan.children("presses", [
                         Plan.series.span(PressRow, {
                             key: "press-jobs", title: "Press jobs", label: (_p, k) => k,
                             runs: (p, k) => [Plan.run({ key: "run", start: p.start, end: p.end, label: k, quantity: Plan.quantity(p.sheets, { unit: "k sheets" }), state: "actual" })],

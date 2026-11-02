@@ -119,7 +119,7 @@ describe('dataflow routes', () => {
       wait: () => new Promise(() => {}),
       getStatus: async (handle) => stateToStatus((await stateStore.read(handle.repo, handle.workspace, handle.id))!),
       getProgress: () => Promise.resolve({
-        waiting: [{ task: 'train', unit: none, needs: 1024n, since: new Date(0).toISOString() }],
+        waiting: [{ task: 'train', unit: none, needs: 1024n, since: new Date(0) }],
         splits: [],
       }),
       cancel: async (handle) => {

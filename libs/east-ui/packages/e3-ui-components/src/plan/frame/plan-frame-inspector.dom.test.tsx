@@ -171,7 +171,7 @@ describe("selecting events (#1197, the Calendar's B15)", () => {
     test("an element of a row no event kind draws — a run of a series over a dataset — is no toggle: its click selects its row", async () => {
         const program = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const presses = $.let(Record.bind(ex.planPrintPresses, []));
-            const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+            const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
             const stock = $.let(Data.bind(ex.planLinkStock));
             const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
             return Plan({
@@ -416,7 +416,7 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
     test("a Plan given no inspector has no end pane: given a library, its start pane is all it draws beside main", async () => {
         const program = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const presses = $.let(Record.bind(ex.planPrintPresses, []));
-            const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+            const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
             const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
             return Plan({
                 axis,

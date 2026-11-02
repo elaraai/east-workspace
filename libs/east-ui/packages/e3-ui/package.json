@@ -25,6 +25,10 @@
       "types": "./dist/test/*.examples.d.ts",
       "default": "./dist/test/*.examples.js"
     },
+    "./fixtures/*": {
+      "types": "./dist/test/*.fixtures.d.ts",
+      "default": "./dist/test/*.fixtures.js"
+    },
     "./examples-package": {
       "types": "./dist/test/examples-package.d.ts",
       "default": "./dist/test/examples-package.js"

@@ -17,31 +17,37 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    DateTimeType, East, Expr, OptionType, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant,
-    type ValueTypeOf,
+    ArrayType, DateTimeType, East, Expr, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isValueOf, none,
+    printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { SeekQueryType } from "@elaraai/east-ui";
-import { AREA_UNPLACED, RecordSliceWhereType, areaQueries, bindRecord, type RecordSliceJoined } from "@elaraai/east-ui/internal";
+import {
+    RecordSliceReadType, RecordSliceWhereType, areaQueries, bindRecord, resolveRowSource, type RecordSliceJoined, type ResolvedRowSource,
+} from "@elaraai/east-ui/internal";
 import { createRecordSliceImplementation, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
 import {
-    recordSliceCellEntries, recordSliceCellJoins, recordSliceCellRuns, recordSlicePlace, recordSliceWithin, recordSliceWithinAt,
+    recordSliceCellEntries, recordSliceCellJoins, recordSliceCellRuns, recordSliceOnPrinter, recordSlicePlace, recordSliceWithin, recordSliceWithinAt,
 } from "@elaraai/east-ui-components/internal";
 import { datasetGetStatus } from "@elaraai/e3-api-client";
-import type { TreePath } from "@elaraai/e3-types";
+import {
+    RecordLevelType, RecordNestedPathType, RecordNestedRunType, type RecordLevel, type RecordNestedPath, type RecordNestedRun, type TreePath,
+} from "@elaraai/e3-types";
 import { Data, deriveManifest } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
+import * as nx from "@elaraai/e3-ui/fixtures/bind/data/data-nested";
 import { patchRecord, readDataset } from "../src/e3-web.test-utils.js";
+import { recordSliceBatchesOf } from "../src/platform/indexed-paged.js";
 import { PagedRuntime, createDefaultPagedApi } from "../src/platform/paged-runtime.js";
 import { e3Spec } from "./fixtures/e3.js";
 
-const h = e3Spec({ "bind/data/data": ex });
+const h = e3Spec({ "bind/data/data": ex, "bind/data/data-nested.fixtures": nx });
 
 const people = ex.indexedPeople;
 const Person = ex.IndexedPerson;
-const binding = Data.bindPaged(people, { indexes: [ex.peopleByName, ex.peopleBySkill] });
+const binding = Data.bindPaged(people, { indexes: ["by_name", "by_skill"] });
 const Binding = Expr.type(binding);
 const program = East.function([], Binding, $ => $.return(binding));
-const coverBinding = Data.bindPaged(people, { indexes: [ex.peopleByName, ex.peopleBySkill], join: false });
+const coverBinding = Data.bindPaged(people, { indexes: ["by_name", "by_skill"], join: false });
 const coverProgram = East.function([], Expr.type(coverBinding), $ => $.return(coverBinding));
 const stringEqual = equalFor(StringType);
 const revisionEqual = equalFor(OptionType(StringType));
@@ -192,13 +198,13 @@ test("record Slice binds typed controls, reads each narrowing when its rows are 
     const create = East.compile(sliceProgram, implementations);
     const handle = create();
     assert.equal(handle.sourceId, people.name, "editing identity is the primary record, independent of index selection");
-    const otherSource = Data.bindPaged(people, { indexes: [ex.peopleByName] });
+    const otherSource = Data.bindPaged(people, { indexes: ["by_name"] });
     const otherSlice = bindRecord("test.names", otherSource, { search: "name" });
     const otherHandle = East.compile(East.function([], Expr.type(otherSlice), () => otherSlice), implementations)();
     assert.equal(otherHandle.sourceId, handle.sourceId, "different index lists share the record's save gate");
     assert.equal(await h.ready(() => handle.count()), 2n);
     assert.equal(await h.ready(() => handle.total()), 3n);
-    assert.equal(await h.ready(() => handle.countWhere(new Map([["skills", variant("values", ['"a"'])]]))), 1n);
+    assert.equal(await h.ready(() => handle.countWhere({ where: new Map([["skills", variant("values", ['"a"'])]]), area: none })), 1n);
     assert.equal(await h.ready(() => handle.count()), 2n, "counting a saved query never changes the current narrowing");
     assert.deepEqual((await h.ready(() => handle.data.page(0n, 10n))).map(row => row.key), ["p1", "p3"]);
     assert.deepEqual(handle.config.fields.map(field => [field.fieldId, field.kind, field.set]), [["name", "string", false], ["skills", "string", true]]);
@@ -261,7 +267,7 @@ test("record Slice binds typed controls, reads each narrowing when its rows are 
     const confirmed = await h.ready(() => decoded.readEntry("p2"));
     assert.ok(confirmed.type === "some" && equalFor(Person)(decodeBeast2For(Person)(confirmed.value), { name: "Abe Moss", skills: new Set<string>() }), "decoded confirmation uses the new host");
     assert.equal(decoded.sourceId, handle.sourceId, "narrowing does not change editing identity");
-    assert.equal(await h.ready(() => decoded.countWhere(new Map([["name", variant("prefix", "Abe M")]]))), 1n,
+    assert.equal(await h.ready(() => decoded.countWhere({ where: new Map([["name", variant("prefix", "Abe M")]]), area: none })), 1n,
         "saved-query counts survive serialization and use the decoder's data");
     assert.equal(await h.ready(() => decoded.contains(decoded.read().where, "p1")), true, "membership survives serialization");
     decoded.togglePreset("a");
@@ -287,7 +293,7 @@ function _recordTypeRefusals() {
 test("interval Slice pages and counts overlapping original records once, including carry-in and optional backlog", async () => {
     const events = ex.indexedIntervals;
     const rows = await h.read(events);
-    const source = Data.bindPaged(events, { indexes: [ex.intervalsByStart, ex.intervalsByStatusTime, ex.intervalsByTime] });
+    const source = Data.bindPaged(events, { indexes: ["by_start", "by_status_time", "by_time"] });
     const from = new Date("2026-10-02T00:00:00Z");
     const to = new Date("2026-10-03T00:00:00Z");
     const sliced = bindRecord("test.intervals", source, { range: "start", initial: { status: ["Ready"], start: { from, to } } });
@@ -326,27 +332,46 @@ test("interval Slice pages and counts overlapping original records once, includi
     runtime.clear();
 });
 
+test("a String search through an interval index finds the values its leading field holds, each once with its count, and none past the text (#1432)", async () => {
+    const events = ex.indexedIntervals;
+    // The status leads an interval index alone: its values are its key's leading field, under `on`.
+    const source = Data.bindPaged(events, { indexes: ["by_start", "by_status_time", "by_time"] });
+    const sliced = bindRecord("test.intervals.search", source, { range: "start", search: "status" });
+    const program = East.function([], Expr.type(sliced), $ => $.return(sliced));
+    const { runtime } = newRuntime();
+    StateRuntime.initializeStore(new UIStore());
+    const handle = East.compile(program, slicePlatform(runtime))();
+    const found = (text: string) => h.ready(() => handle.suggest("status", text));
+    assert.deepEqual((await found("")).map(value => [value.label, value.count]), [["Cancelled", some(1n)], ["Ready", some(8n)]],
+        "each status once, in the index's order, counted under no other choice");
+    assert.deepEqual((await found("Re")).map(value => [value.label, value.count]), [["Ready", some(8n)]]);
+    assert.deepEqual(await found("Rex"), [], "no status starts so");
+    assert.deepEqual(await found("re"), [], "a search keeps the text's case");
+    assert.equal(h.requests("read", `records.${events.name}`).length, 0, "the record is never read whole");
+    runtime.clear();
+});
+
 test("a window over an area index reads the racks whose box meets it from the index alone, each with its row, once (#1385)", async () => {
     const racks = ex.indexedRacks;
     const stored = await h.read(racks);
-    const source = Data.bindPaged(racks, { indexes: [ex.racksByArea, ex.racksByHallArea, ex.racksByHall] });
+    const source = Data.bindPaged(racks, { indexes: ["racks_by_area", "racks_by_hall_area", "racks_by_hall"] });
     const sliced = bindRecord("test.racks", source, { fields: { hall: { label: "Hall", hints: ["A", "B"] } } });
     const program = East.function([], Expr.type(sliced), $ => $.return(sliced));
     const { runtime } = newRuntime();
     StateRuntime.initializeStore(new UIStore());
     const handle = East.compile(program, slicePlatform(runtime))();
-    // The binding marks each area index's `__area` with its box, which the slice reads back; the rail is offered the
-    // leading fields alone.
+    // The binding marks each area index's kind with its box, which the slice reads back; the rail is offered the
+    // leading fields alone (#1432).
     assert.deepEqual(handle.config.fields.map(field => field.fieldId), ["hall"]);
     const area = (name: string) => handle.config.indexes.find(index => index.name === name)!.area;
     const box = { x: "x", y: "y", width: some("w"), height: some("h"), centre: true, cell: 2 ** -7, optional: true };
     assert.deepEqual([area("racks_by_area"), area("racks_by_hall_area"), area("racks_by_hall")], [some(box), some(box), none]);
     const rowOf = equalFor(ex.IndexedRack);
     const keyOrder = compareFor(StringType);
-    /** A window's racks, by key, each read once and carrying the row the record holds. */
-    const windowed = async (where: ValueTypeOf<typeof RecordSliceWhereType>) => {
-        const rows = await h.ready(() => handle.pageWhere(where, 0n, 100n));
-        assert.equal(await h.ready(() => handle.countWhere(where)), BigInt(rows.length), "the count is the rows the window reads");
+    /** A read by area's racks, by key, each read once and carrying the row the record holds. */
+    const windowed = async (read: ValueTypeOf<typeof RecordSliceReadType>) => {
+        const rows = await h.ready(() => handle.pageWhere(read, 0n, 100n));
+        assert.equal(await h.ready(() => handle.countWhere(read)), BigInt(rows.length), "the count is the rows the window reads");
         for (const row of rows) {
             assert.ok(row.row.type === "some" && rowOf(row.row.value, stored.get(row.key)!), `${row.key} carries its row`);
             assert.deepEqual(row.value, some(null), "beside an index that carries nothing, the binding's projection is Null (D29)");
@@ -356,19 +381,16 @@ test("a window over an area index reads the racks whose box meets it from the in
         return keys;
     };
     // Hall A's row of racks: every rack whose box meets the window is read, and the far one and the unplaced one never.
+    // A read by area asks its window, or its unplaced rows, beside the narrowing, never as a field's choice (#1432).
     type Choice = ValueTypeOf<typeof RecordSliceWhereType> extends Map<string, infer C> ? C : never;
-    const rowWindow: Choice = variant("window", { minX: 0.5, minY: 0.4, maxX: 3.5, maxY: 1.6 });
-    const row = await windowed(new Map<string, Choice>([["__area", rowWindow]]));
+    const NOTHING = new Map<string, Choice>();
+    const row = await windowed({ where: NOTHING, area: some(variant("window", { minX: 0.5, minY: 0.4, maxX: 3.5, maxY: 1.6 })) });
     assert.ok(["r1", "r2", "r3"].every(key => row.includes(key)), `the row's racks: ${row.join(", ")}`);
     assert.ok(!row.includes("far") && !row.includes("unplaced"));
     // The rail's hall beside the window reads through the area index it leads: hall B's rack across the aisle.
-    const across = new Map<string, Choice>([["hall", variant("values", ['"B"'])], ["__area", variant("window", { minX: 1.5, minY: 3.0, maxX: 2.5, maxY: 4.0 })]]);
-    assert.deepEqual(await windowed(across), ["r4"]);
-    assert.deepEqual(await windowed(new Map<string, Choice>([["__area", variant("values", [AREA_UNPLACED])]])), ["unplaced"]);
-    // A window's membership seeks each rack's maintained key against the window's searches.
-    const captured = new Map<string, Choice>([["__area", rowWindow]]);
-    assert.equal(await h.ready(() => handle.contains(captured, "r2")), true);
-    assert.equal(await h.ready(() => handle.contains(captured, "far")), false);
+    const across = new Map<string, Choice>([["hall", variant("values", ['"B"'])]]);
+    assert.deepEqual(await windowed({ where: across, area: some(variant("window", { minX: 1.5, minY: 3.0, maxX: 2.5, maxY: 4.0 })) }), ["r4"]);
+    assert.deepEqual(await windowed({ where: NOTHING, area: some(variant("unplaced", null)) }), ["unplaced"]);
     // From the index alone: no page and no run of the record is joined, and the record is never read whole.
     const reads = [...pagesOf(racks), ...h.requests("runs", `records.${racks.name}`)].filter(request => request.query.has("index"));
     assert.ok(reads.length > 0 && reads.every(request => !request.query.has("join")), "an area index's reads join nothing");
@@ -376,10 +398,47 @@ test("a window over an area index reads the racks whose box meets it from the in
     runtime.clear();
 });
 
+test("a row's fields named `area`, `__area`, `tile` and `__tile` are each offered, chosen and counted on e3, and `area` and `__area` beside a window read through the area index they lead (#1432)", async () => {
+    const racks = ex.namedRacks;
+    const source = Data.bindPaged(racks, {
+        indexes: ["named_by_area", "named_by_under_area", "named_by_tile", "named_by_under_tile", "named_by_place", "named_by_area_place"],
+    });
+    const sliced = bindRecord("test.named", source, {
+        fields: { area: { hints: ["A1", "A2"] }, __area: { hints: ["B", "C"] }, tile: { hints: ["T1", "T2"] }, __tile: { hints: ["U1", "U2"] } },
+    });
+    const { runtime } = newRuntime();
+    StateRuntime.initializeStore(new UIStore());
+    const handle = East.compile(East.function([], Expr.type(sliced), $ => $.return(sliced)), slicePlatform(runtime))();
+    assert.deepEqual(handle.config.fields.map(field => field.fieldId), ["area", "__area", "tile", "__tile"], "each offered");
+    const printString = printFor(StringType);
+    for (const [field, value, expected] of [["area", "A1", 4n], ["__area", "B", 4n], ["tile", "T1", 3n], ["__tile", "U1", 3n]] as const) {
+        handle.choose(field, [printString(value)]);
+        assert.deepEqual([...handle.read().where.keys()], [field], `${field} chosen`);
+        assert.equal(await h.ready(() => handle.count()), expected, `${field} counted on e3`);
+        handle.clearAll();
+    }
+    // A read by area asks its window, or its unplaced rows, beside the choice of both: through the area index they lead.
+    type Choice = ValueTypeOf<typeof RecordSliceWhereType> extends Map<string, infer C> ? C : never;
+    const where = new Map<string, Choice>([["area", variant("values", [printString("A1")])], ["__area", variant("values", [printString("B")])]]);
+    const keysOf = async (read: ValueTypeOf<typeof RecordSliceReadType>) => {
+        const rows = await h.ready(() => handle.pageWhere(read, 0n, 100n));
+        assert.equal(await h.ready(() => handle.countWhere(read)), BigInt(rows.length));
+        return rows.map(row => row.key).sort(compareFor(StringType));
+    };
+    assert.deepEqual(await keysOf({ where, area: some(variant("window", { minX: 0, minY: 0, maxX: 3, maxY: 3 })) }), ["n1"],
+        "the window's rack in A1 by B: never the one by C or in A2 inside it, nor the far one");
+    assert.deepEqual(await keysOf({ where, area: some(variant("unplaced", null)) }), ["unplaced"]);
+    const searched = h.requests("find", `records.${racks.name}`).filter(request => request.query.get("index") === "named_by_area_place");
+    assert.ok(searched.length > 0, "read through the area index `area` and `__area` lead");
+    const leading = searched.flatMap(request => request.searches.flatMap(search => "fields" in search ? [search.fields[0]] : []));
+    assert.ok(leading.length > 0 && leading.every(on => on === '(area="A1", __area="B")'), `each exact search names both as one \`on\`: ${leading.join(", ")}`);
+    runtime.clear();
+});
+
 test("a window's details are read by the runs its area index's cells are — the keys read by e3, none sent — pinned to both records, and read again as either moves (#1393)", async () => {
     const racks = ex.indexedRacks;
     const loads = ex.indexedRackLoads;
-    const source = Data.bindPaged(racks, { indexes: [ex.racksByArea, ex.racksByHallArea, ex.racksByHall] });
+    const source = Data.bindPaged(racks, { indexes: ["racks_by_area", "racks_by_hall_area", "racks_by_hall"] });
     const sliced = bindRecord("test.racks.details", source, { fields: { hall: { label: "Hall", hints: ["A", "B"] } } });
     const program = East.function([], Expr.type(sliced), $ => $.return(sliced));
     const loadsBinding = Data.bindPaged(loads);
@@ -394,7 +453,7 @@ test("a window's details are read by the runs its area index's cells are — the
     const printSeek = printFor(SeekQueryType);
     /** A window's cells, a search each, as the Schematic's window reads them. */
     const cellsOf = (box: { minX: number; minY: number; maxX: number; maxY: number }) =>
-        areaQueries([], box, 2 ** -7).map((query) => ({ id: printSeek(query), queries: [query] }));
+        areaQueries([], box, 2 ** -7, recordSliceOnPrinter(handle, "racks_by_area")).map((query) => ({ id: printSeek(query), queries: [query] }));
     /** What a read of the loads holds, by its rack's key: each a load as the loads' record types it. */
     const byKey = (read: ReadonlyMap<string, readonly RecordSliceJoined[]>) =>
         new Map([...read.values()].flat().map((joined) => [joined.key as string, joined.row as ValueTypeOf<OptionType<typeof ex.IndexedRackLoad>>] as const));
@@ -467,7 +526,7 @@ test("a record Slice places its narrowing's rows in the record, and asks which o
     const within = h.requests("within", `records.${people.name}`);
     assert.deepEqual(within.map(request => [request.method, request.query.get("hash")]), [["POST", R1]]);
     const body = JSON.parse(new TextDecoder().decode(within[0]!.body)) as { index: string; keys: string[] };
-    assert.equal(body.index, ex.peopleBySkill.name);
+    assert.equal(body.index, "by_skill");
     assert.equal(body.keys.length, 3);
     assert.deepEqual(pagesOf(people).filter(request => !request.query.has("index")), [], "no page of the record's own rows");
     // Asked again, both answer from what the runtime holds.
@@ -507,7 +566,7 @@ test("which of a page's rows a narrowing holds, asked again at every read while 
 
 test("a window over an interval index is two requests — its searches in one, the runs they select in one — and its count's readers re-fire once (#1351)", async () => {
     const events = ex.indexedIntervals;
-    const source = Data.bindPaged(events, { indexes: [ex.intervalsByStart, ex.intervalsByStatusTime, ex.intervalsByTime] });
+    const source = Data.bindPaged(events, { indexes: ["by_start", "by_status_time", "by_time"] });
     const from = new Date("2026-10-02T00:00:00Z");
     const to = new Date("2026-10-03T00:00:00Z");
     const sliced = bindRecord("test.intervals.batched", source, { range: "start", initial: { status: ["Ready"], start: { from, to } } });
@@ -526,13 +585,216 @@ test("a window over an interval index is two requests — its searches in one, t
     assert.equal(fired, 1, "the count's reader re-fires once, as every search lands together");
     const searches = findsOf(events);
     assert.deepEqual(searches.map(request => [request.method, request.query.get("index"), request.query.get("hash")]),
-        [["POST", ex.intervalsByStatusTime.name, R1]], "one request for the window's searches");
+        [["POST", "by_status_time", R1]], "one request for the window's searches");
     assert.ok(searches[0]!.searches.length > 50, "the start range and the carry-in ranges at each span");
     assert.deepEqual(handle.count(), some(4n));
     const rows = await h.ready(() => handle.data.page(0n, 4n));
     assert.deepEqual(rows.map(row => row.key).sort(compareFor(StringType)), ["carry", "inside", "instant-at-from", "span"]);
     assert.deepEqual(h.requests("runs", `records.${events.name}`).map(request => [request.method, request.query.get("index"), request.query.get("hash")]),
-        [["POST", ex.intervalsByStatusTime.name, R1]], "one request for the runs the searches select");
+        [["POST", "by_status_time", R1]], "one request for the runs the searches select");
     assert.deepEqual([pagesOf(events).length, findsOf(events).length], [0, 1], "no run is paged, and no search asked, on its own");
     runtime.clear();
 });
+
+// ── Beside a nested series index (#1435) ─────────────────────────────────────
+
+const machines = nx.nestedMachines;
+type Machine = ValueTypeOf<typeof nx.NestedMachine>;
+const machinesBinding = Data.bindPaged(machines, { indexes: ["machines_by_site_status", "machines_in_time"] });
+const machinesProgram = East.function([], Expr.type(machinesBinding), $ => $.return(machinesBinding));
+const keyOrder = compareFor(StringType);
+const instantOrder = compareFor(DateTimeType);
+const machineEqual = equalFor(nx.NestedMachine);
+const printString = printFor(StringType);
+const printInstant = printFor(DateTimeType);
+const printPath = printFor(RecordNestedPathType);
+const printRun = printFor(RecordNestedRunType);
+const printLevel = printFor(RecordLevelType);
+/** Monday 5 October 2026, the machines' week, and the Monday after it. */
+const WEEK = new Date(Date.UTC(2026, 9, 5));
+const NEXT_WEEK = new Date(Date.UTC(2026, 9, 12));
+const DAY_MS = 86_400_000;
+
+/** A machine as the record's other indexes carry it beside its nested series index: each collection it files, empty. */
+function leanOf(machine: Machine): Machine {
+    return {
+        ...machine, jobs: new SortedMap(undefined, keyOrder), stops: new SortedMap(undefined, keyOrder), alarms: new SortedMap(undefined, keyOrder),
+        load: new SortedMap(undefined, instantOrder), output: new SortedMap(undefined, instantOrder),
+    };
+}
+
+/** A place, or a node's path, as a nested key holds it: its names, folded from the last. */
+function pathOf(names: readonly string[]): RecordNestedPath {
+    return names.reduceRight<RecordNestedPath>((rest, key) => variant("step", { key, rest }), variant("end", null));
+}
+
+/** A search over one run of a nested index at one level (#1433, #1434): its tiles from `from` to before `to`. */
+function nestedRange(collection: readonly string[], row: string, path: readonly string[], run: RecordNestedRun, level: RecordLevel["type"], from: Date, to: Date) {
+    const lead = [printPath(pathOf(collection)), printString(row), printPath(pathOf(path)), printRun(run), printLevel(variant(level, null))];
+    return variant("range", { from: [...lead, printInstant(from)], to: [...lead, printInstant(to)] });
+}
+
+test("beside a nested series index, a window of two hundred machines through another index is one request, joins none, and carries each machine without its collections (#1435)", async () => {
+    const stored = await h.read(machines);
+    const { runtime } = newRuntime();
+    const handle = East.compile(machinesProgram, platform(runtime))();
+    assert.deepEqual([handle.joined, handle.defaultIndex], [false, "machines_by_site_status"], "never joined; the unfiltered view pages the machines");
+    const window = await h.ready(() => handle.page("machines_by_site_status", 0n, 200n));
+    assert.equal(window.length, nx.MACHINE_COUNT);
+    assert.deepEqual(pagesOf(machines).map(request => [request.query.get("index"), request.query.has("join"), request.query.get("limit")]),
+        [["machines_by_site_status", false, "200"]], "one request through the index, joining none");
+    const ordered = [...stored].sort(([ka, a], [kb, b]) => keyOrder(a.site, b.site) || keyOrder(a.status, b.status) || keyOrder(ka, kb)).map(([key]) => key);
+    assert.deepEqual(window.map(entry => entry.key), ordered, "in the index's order: by site, then state");
+    for (const entry of window) {
+        const lean = leanOf(stored.get(entry.key)!);
+        assert.ok(entry.value.type === "some" && machineEqual(entry.value.value, lean), `${entry.key} carries its lean row as its value`);
+        assert.ok(entry.row.type === "some" && machineEqual(entry.row.value, lean), `${entry.key} carries its lean row as its row`);
+    }
+    assert.equal(await h.ready(() => handle.total("primary")), 200n, "counted through the index paging the machines");
+    assert.ok(pagesOf(machines).every(request => request.query.get("index") === "machines_by_site_status" && !request.query.has("join")),
+        "no page of the record's own rows");
+    runtime.clear();
+});
+
+test("the nested index's cells — a block of machines' jobs at a level, a ledger's subtotals, a part's subtree — are read by their searches in one request and their runs in one more, never paged (#1435)", async () => {
+    const stored = await h.read(machines);
+    const { runtime } = newRuntime();
+    const handle = East.compile(machinesProgram, platform(runtime))();
+    const reads = recordSliceBatchesOf(handle)!;
+    const R1 = await h.ready(() => handle.revision());
+    // Five machines' jobs in the week, a range a machine: each one's 8- and 30-hour jobs; its 40-day one is filed at the quarter.
+    const block = ["M-000", "M-001", "M-002", "M-003", "M-004"];
+    const found = await h.ready(() => reads.seekAll("machines_in_time",
+        block.map(row => nestedRange(["jobs"], row, [], variant("items", null), "week", WEEK, NEXT_WEEK))));
+    const entries = await h.ready(() => reads.runsAll("machines_in_time", found));
+    const expected = block.flatMap(row => [...stored.get(row)!.jobs].filter(([id]) => !id.endsWith("-c")).map(([id, job]) => ({ row, id, job })));
+    const entryEqual = equalFor(OptionType(nx.nestedMachines.indexes.machines_in_time.valueType));
+    assert.deepEqual(entries.map(entry => entry.key), expected.map(({ row }) => row));
+    for (const [i, { id, job }] of expected.entries()) {
+        const entry = entries[i]!;
+        const value = entry.value!;
+        assert.ok(isValueOf(value, OptionType(nx.nestedMachines.indexes.machines_in_time.valueType)) && entryEqual(value as Parameters<typeof entryEqual>[0], some(variant("item", variant("jobs", job)))), `${id} carried whole`);
+        assert.deepEqual(entry.row, none, `${id} names its machine, and carries no row`);
+    }
+    assert.deepEqual(h.requests("find", `records.${machines.name}`).map(request => [request.method, request.query.get("index"), request.query.get("hash"), request.searches.length]),
+        [["POST", "machines_in_time", R1, block.length]], "every search in one request");
+    assert.deepEqual(h.requests("runs", `records.${machines.name}`).map(request => [request.method, request.query.get("index"), request.query.has("join")]),
+        [["POST", "machines_in_time", false]], "the runs they select in one more, joining none");
+    assert.equal(pagesOf(machines).length, 0, "nothing paged");
+    // A ledger's subtotals of its measures' readings over two weeks: each week, the sum of each measure's sum.
+    const ledgers = Data.bindPaged(nx.nestedLedgers, { indexes: ["ledgers_by_name", "ledgers_in_time"] });
+    const ledgerReads = recordSliceBatchesOf(East.compile(East.function([], Expr.type(ledgers), $ => $.return(ledgers)), platform(runtime))())!;
+    const SUM = variant("subtotals", { fold: variant("sum", null), aggregate: variant("sum", null) });
+    const weeks = [WEEK, NEXT_WEEK];
+    const sought = await h.ready(() => ledgerReads.seekAll("ledgers_in_time",
+        [nestedRange(["measures", "readings"], "L-1", [], SUM, "week", WEEK, new Date(NEXT_WEEK.getTime() + 7 * DAY_MS))]));
+    const subtotals = await h.ready(() => ledgerReads.runsAll("ledgers_in_time", sought));
+    const ledger = (await h.read(nx.nestedLedgers)).get("L-1")!;
+    const sums = weeks.map(week => [...ledger.measures.values()].reduce((sum, measure) => sum + [...measure.readings]
+        .filter(([at]) => instantOrder(at, week) >= 0 && at.getTime() < week.getTime() + 7 * DAY_MS).reduce((own, [, reading]) => own + reading, 0), 0));
+    const subtotalEqual = equalFor(OptionType(nx.nestedLedgers.indexes.ledgers_in_time.valueType));
+    assert.equal(subtotals.length, weeks.length, "a subtotal a week");
+    for (const [i, entry] of subtotals.entries()) {
+        const value = entry.value!;
+        assert.ok(isValueOf(value, OptionType(nx.nestedLedgers.indexes.ledgers_in_time.valueType)) && subtotalEqual(value as Parameters<typeof subtotalEqual>[0], some(variant("subtotal", sums[i]!))),
+            `the week of ${printInstant(weeks[i]!)}: the measures' sums' sum, ${sums[i]}`);
+    }
+    // A part's subtree: the jobs of the parts beneath the frame, each by its path below it.
+    const assemblies = Data.bindPaged(nx.nestedAssemblies, { indexes: ["assemblies_by_name", "assemblies_in_time"] });
+    const assemblyReads = recordSliceBatchesOf(East.compile(East.function([], Expr.type(assemblies), $ => $.return(assemblies)), platform(runtime))())!;
+    const beneath = await h.ready(() => assemblyReads.seekAll("assemblies_in_time",
+        [nestedRange(["parts", "jobs"], "A-1", ["frame"], variant("subtree", null), "week", WEEK, NEXT_WEEK)]));
+    const subtree = await h.ready(() => assemblyReads.runsAll("assemblies_in_time", beneath));
+    const printKey = printFor(nx.nestedAssemblies.indexes.assemblies_in_time.keyType);
+    assert.deepEqual(subtree.map(entry => printKey(entry.ik.value as never)), [
+        subtreeKey(["motor"], "wind"), subtreeKey(["motor", "rotor"], "turn"),
+    ].map(key => printKey(key as never)), "the motor's job and the rotor's, under the frame, by their paths beneath it");
+    runtime.clear();
+});
+
+/** An entry of the frame's subtree in the machines' week (#1434): a descendant's job, by its path beneath the frame. */
+function subtreeKey(beneath: readonly string[], id: string) {
+    return {
+        collection: pathOf(["parts", "jobs"]), row: "A-1", path: pathOf(["frame"]), run: variant("subtree", null), level: variant("week", null), tile: WEEK,
+        item: variant("under", { path: pathOf(beneath), id }),
+    };
+}
+
+test("a machine is read whole by its key beside a nested series index, and the nested index refuses a page, a count, a placement and a membership read, in its words (#1435)", async () => {
+    const stored = await h.read(machines);
+    const { runtime } = newRuntime();
+    const handle = East.compile(machinesProgram, platform(runtime))();
+    const reads = recordSliceBatchesOf(handle)!;
+    const rows = await h.ready(() => reads.rowsAll(["M-007", "M-404"]));
+    assert.ok(rows[0]!.type === "some" && machineEqual(rows[0]!.value as Machine, stored.get("M-007")!), "M-007 whole, its collections with it");
+    assert.equal(rows[1]!.type, "none", "a key the record does not hold");
+    const refusal = { message: `Data.bindPaged: '${"machines_in_time"}' is a nested series index, whose entries are items, totals and subtotals: a reader reads its cells` };
+    assert.throws(() => handle.page("machines_in_time", 0n, 10n), refusal);
+    assert.throws(() => handle.total("machines_in_time"), refusal);
+    assert.throws(() => reads.placeAll("machines_in_time", [{ found: true, row: 0n, count: 1n }]), refusal);
+    assert.throws(() => reads.withinAll("machines_in_time", [{ found: true, row: 0n, count: 1n }], []), refusal);
+    assert.equal(pagesOf(machines).length, 0, "nothing paged");
+    runtime.clear();
+});
+
+test("a record Slice over the machines carries its binding's index metadata and nested part on its handle, through encode and decode (#1435)", async () => {
+    const { runtime } = newRuntime();
+    StateRuntime.initializeStore(new UIStore());
+    const binding = East.compile(machinesProgram, platform(runtime))();
+    const sliced = bindRecord("test.machines", machinesBinding, { fields: { site: { label: "Site", hints: [...nx.SITES] } } });
+    const Sliced = Expr.type(sliced);
+    const handle = East.compile(East.function([], Sliced, $ => $.return(sliced)), slicePlatform(runtime))();
+    const nestedEqual = equalFor(Expr.type(machinesBinding).fields.nested);
+    const indexesEqual = equalFor(Expr.type(machinesBinding).fields.indexes);
+    assert.ok(nestedEqual(handle.nested, binding.nested), "the nested part, as the binding gives it");
+    assert.ok(indexesEqual(handle.indexes, binding.indexes), "each index's metadata, as the binding gives it");
+    assert.deepEqual(handle.config.indexes.map(index => index.name), ["machines_by_site_status"], "the rail plans through no part of the nested index");
+    const decoded = decodeBeast2For(Sliced, { platform: slicePlatform(runtime) })(encodeBeast2For(Sliced)(handle));
+    assert.ok(nestedEqual(decoded.nested, binding.nested) && indexesEqual(decoded.indexes, binding.indexes), "carried through encode and decode");
+    const rows = await h.ready(() => handle.data.page(0n, 3n));
+    assert.ok(rows.every(entry => entry.row.type === "some" && entry.row.value.jobs.size === 0), "the narrowed rows lean");
+    // The binding itself (#1438): what a reader of the narrowed rows' nested index reads its cells, maintenance and fill through.
+    assert.ok(Object.is(handle.source, binding), "the binding the Slice narrows, the same handle");
+    runtime.clear();
+});
+
+test("the binding fills a page's lean machines with the cells read of them: each machine its week's jobs, and nothing it was not read (#1438)", async () => {
+    const stored = await h.read(machines);
+    const { runtime } = newRuntime();
+    const handle = East.compile(machinesProgram, platform(runtime))();
+    const reads = recordSliceBatchesOf(handle)!;
+    assert.ok(handle.fill.type === "some", "a nested series index listed: its fill");
+    const block = ["M-000", "M-001", "M-002"];
+    const found = await h.ready(() => reads.seekAll("machines_in_time",
+        block.map(row => nestedRange(["jobs"], row, [], variant("items", null), "week", WEEK, NEXT_WEEK))));
+    const entries = await h.ready(() => reads.runsAll("machines_in_time", found));
+    // The entries as a reader hands them to the fill: each one's key and value, as the index holds them.
+    const index = machines.indexes.machines_in_time;
+    const Items = ArrayType(StructType({ ik: index.keyType, value: index.valueType }));
+    const items = entries.map(entry => ({ ik: (entry.ik as { value: unknown }).value, value: (entry.value as { value: unknown }).value }));
+    const page = new SortedMap(block.map(key => [key, leanOf(stored.get(key)!)] as const), keyOrder);
+    const filled = handle.fill.value(page, encodeBeast2For(Items)(items as never)) as ReadonlyMap<string, Machine>;
+    for (const key of block) {
+        const machine = stored.get(key)!;
+        const weekJobs = new SortedMap([...machine.jobs].filter(([id]) => !id.endsWith("-c")), keyOrder);
+        assert.ok(machineEqual(filled.get(key)!, { ...leanOf(machine), jobs: weekJobs }), `${key}: its week's jobs, every other collection empty`);
+    }
+    runtime.clear();
+});
+
+test("a component given the binding as its rows pages its unfiltered view: lean machines in its default index's order, joining none (#1435)", async () => {
+    const stored = await h.read(machines);
+    const { runtime } = newRuntime();
+    const resolved = resolveRowSource(machinesBinding, "Rows") as Extract<ResolvedRowSource, { kind: "ordered" }>;
+    assert.deepEqual([resolved.kind, resolved.pinned, resolved.query], ["ordered", true, false]);
+    const Window = OptionType(resolved.collectionType);
+    const source = resolved.source as unknown as { page(offset: bigint, limit: bigint): Expr };
+    const page = East.compile(East.function([], Window, $ => $.return(source.page(0n, 4n) as never)), platform(runtime));
+    const window = await h.ready(() => page() as never) as { key: string; value: { type: string; value: Machine }; row: { type: string; value: Machine } }[];
+    const ordered = [...stored].sort(([ka, a], [kb, b]) => keyOrder(a.site, b.site) || keyOrder(a.status, b.status) || keyOrder(ka, kb)).map(([key]) => key);
+    assert.deepEqual(window.map(entry => entry.key), ordered.slice(0, 4), "the default index's order");
+    for (const entry of window) assert.ok(entry.row.type === "some" && machineEqual(entry.row.value, leanOf(stored.get(entry.key)!)), `${entry.key} lean`);
+    assert.deepEqual(pagesOf(machines).map(request => [request.query.get("index"), request.query.has("join")]), [["machines_by_site_status", false]]);
+    runtime.clear();
+});
+

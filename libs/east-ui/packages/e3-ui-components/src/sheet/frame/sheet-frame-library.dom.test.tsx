@@ -24,6 +24,7 @@ import { ArrayType, East, StringType, StructType, some } from "@elaraai/east";
 import { Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import { act, sheetHarness, settle, slot, tabs } from "./harness.test-utils.js";
+import { keptName, resetKept } from "@elaraai/east-ui-components/internal";
 
 const h = sheetHarness();
 
@@ -41,7 +42,7 @@ const TASK = { task: Sheet.column.text(ex.SheetJob, { header: "Task" }) };
 
 /** The jobs sheet with a library of the templates, the crews — an author's tab whose card dropped on a job names its task — and the columns. */
 const crewsPayload = East.function([], SheetPayloadType, ($) => {
-    const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+    const jobs = $.let(Record.bind(ex.sheetJobs, ["patch"]));
     const crews = $.let(CREWS, ArrayType(Crew));
     return Sheet.Payload({ record: jobs, columns: TASK, name: "crews", library: [
         Sheet.library.rows(),
@@ -52,18 +53,18 @@ const crewsPayload = East.function([], SheetPayloadType, ($) => {
 });
 /** The jobs sheet with a library of the columns alone. */
 const columnsPayload = East.function([], SheetPayloadType, ($) => {
-    const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+    const jobs = $.let(Record.bind(ex.sheetJobs, ["patch"]));
     return Sheet.Payload({ record: jobs, columns: TASK, name: "crews", library: [Sheet.library.columns()] });
 });
 /** The jobs sheet over two columns, its library the Rows tab alone: no Columns tab. */
 const noColumnsTabPayload = East.function([], SheetPayloadType, ($) => {
-    const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+    const jobs = $.let(Record.bind(ex.sheetJobs, ["patch"]));
     return Sheet.Payload({ record: jobs, name: "plain", library: [Sheet.library.rows()],
         columns: { task: Sheet.column.text(ex.SheetJob, { header: "Task" }), start: Sheet.column.date(ex.SheetJob, { header: "Start" }) } });
 });
 /** The jobs sheet with an author's tab with no rows, listed first, then no templates and the columns. */
 const emptyPayload = East.function([], SheetPayloadType, ($) => {
-    const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+    const jobs = $.let(Record.bind(ex.sheetJobs, ["patch"]));
     const crews = $.let([], ArrayType(Crew));
     return Sheet.Payload({ record: jobs, columns: TASK, name: "crews", library: [
         Sheet.library.tab(crews, { name: "Crews", key: c => c.code, label: c => c.name }), Sheet.library.rows(), Sheet.library.columns(),
@@ -241,7 +242,7 @@ test("Columns lists the columns in order with their kind and an eye; a hidden co
     const end = cardNamed(first.container, "End");
     expect(end.hasAttribute("data-filtered")).toBe(true);
     expect(end.querySelector('[role="img"]')!.getAttribute("aria-label")).toBe("Hidden — click to show");
-    expect(localStorage.getItem("sheet.workshop.columns")).toBe(JSON.stringify(["end"]));
+    expect(localStorage.getItem(keptName("sheet.workshop.columns"))).toBe(JSON.stringify(["end"]));
     first.unmount();
 
     // Kept for the viewer, under the sheet's name.
@@ -252,11 +253,11 @@ test("Columns lists the columns in order with their kind and an eye; a hidden co
     await settle();
     expect(headerKeys(again.container)).toEqual(["activity", "start", "end", "qty", "machines", "notes"]);
     expect(bandCells(again.container)).toBeGreaterThan(0);
-    expect(localStorage.getItem("sheet.workshop.columns")).toBe(JSON.stringify([]));
+    expect(localStorage.getItem(keptName("sheet.workshop.columns"))).toBe(JSON.stringify([]));
 });
 
 test("a sheet whose library lists no Columns tab hides no column, whatever its viewer hid under its name — nothing on it could show the column again (SB36)", async () => {
-    localStorage.setItem("sheet.plain.columns", JSON.stringify(["start"]));
+    localStorage.setItem(keptName("sheet.plain.columns"), JSON.stringify(["start"]));
     const { container } = await h.mountPayload(noColumnsTabPayload);
     expect(headerKeys(container)).toEqual(["task", "start"]);
 });
@@ -269,15 +270,18 @@ test("the last column shown stays, and its eye says so (SB36)", async () => {
     await settle();
     expect(headerKeys(container)).toEqual(["task"]);
     expect(cardNamed(container, "Task").hasAttribute("data-filtered")).toBe(false);
-    expect(localStorage.getItem("sheet.crews.columns")).toBe(JSON.stringify([]));
+    // The last column shown is never kept hidden: nothing is kept.
+    expect(localStorage.getItem(keptName("sheet.crews.columns"))).toBeNull();
 });
 
 test("a store holding something other than a list of keys hides nothing", async () => {
-    localStorage.setItem("sheet.workshop.columns", JSON.stringify({ end: true }));
+    localStorage.setItem(keptName("sheet.workshop.columns"), JSON.stringify({ end: true }));
     const { container } = await h.mount(ex.sheetWorkshop);
     expect(headerKeys(container)).toEqual(["activity", "start", "end", "qty", "machines", "notes"]);
     cleanup();
-    localStorage.setItem("sheet.workshop.columns", JSON.stringify(["notes", 7, "end"]));
+    // A page of its own: a list holding something other than a key keeps its keys.
+    resetKept();
+    localStorage.setItem(keptName("sheet.workshop.columns"), JSON.stringify(["notes", 7, "end"]));
     const listed = await h.mount(ex.sheetWorkshop);
     expect(headerKeys(listed.container)).toEqual(["activity", "start", "qty", "machines"]);
 });

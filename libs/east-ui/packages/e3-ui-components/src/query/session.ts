@@ -46,6 +46,7 @@ import { problemWords, type QueryWords } from "./model/words.js";
 import { prepareQuery, type QueryRoot } from "./one-shot.js";
 import type { QueryOpen } from "./open-query.js";
 import { queryEast } from "./query-east.js";
+import { authorOf } from "../shared/records/author.js";
 
 // ============================================================================
 // Entries
@@ -506,12 +507,12 @@ function compiledApply(): ApplyEntries {
     return compiledEntries;
 }
 
-/** The actor who changed the record last, when its history is in. */
+/** The person who changed the record last, when its history is in and its last commit names one. */
 function latestActor(handle: QueriesHandle): string | undefined {
     const history = handle.history();
     if (history.type !== "some") return undefined;
     const head = history.value[0];
-    return head === undefined ? undefined : head.actor;
+    return head === undefined ? undefined : authorOf(head.actor);
 }
 
 // ============================================================================

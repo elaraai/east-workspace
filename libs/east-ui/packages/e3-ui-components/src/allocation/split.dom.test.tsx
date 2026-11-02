@@ -69,9 +69,9 @@ const fitsOf = (a: FitResult, except: readonly string[] = []) => [...a.resources
 const whyOf = (a: FitResult, key: string) => { const f = a.resources.get(key)!; return f.type === "fits" ? `${f.value.why}${f.value.warn.type === "some" ? ` · ${f.value.warn.value}` : ""}` : f.value.reason; };
 /** A bin as the yard's bins record holds it. */
 const saved = async (bin: string) => (await h.read(ex.kilnBins)).get(bin)!;
-/** A bin's parts as Assigned to lists them: each field's resource — its key, and its label the resource's name — and its quantity. */
+/** A bin's parts as Assigned to lists them: each field's resource — its key, and its label the resource's name alone, no key beside it — and its quantity. */
 const partsShown = (c: HTMLElement) => [...details(c).querySelectorAll<HTMLElement>("[data-allocation-parts] [data-field]")].map(f => {
-    expect(f.querySelector("label")?.textContent).toBe(`${f.getAttribute("data-field")}${f.getAttribute("data-field")}`);
+    expect(f.querySelector("label")?.textContent).toBe(f.getAttribute("data-field"));
     return [f.getAttribute("data-field"), Number(f.querySelector("input")?.value)];
 });
 const remainder = (c: HTMLElement) => text(details(c).querySelector("[data-allocation-remainder]"));

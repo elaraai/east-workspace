@@ -31,7 +31,7 @@ import {
   workspaceList as workspaceListRemote,
   workspaceRemove as workspaceRemoveRemote,
 } from '@elaraai/e3-api-client';
-import { some, none } from '@elaraai/east';
+import { DateTimeType, none, printFor, some } from '@elaraai/east';
 import { parseRepoLocation, formatError, exitError } from '../utils.js';
 import { getValidToken } from '../credentials.js';
 
@@ -198,7 +198,7 @@ export const repoCommand = {
             if (state) {
               console.log(`  ${ws}`);
               console.log(`    Package: ${state.packageName}@${state.packageVersion}`);
-              console.log(`    Deployed: ${state.deployedAt.toISOString()}`);
+              console.log(`    Deployed: ${printFor(DateTimeType)(state.deployedAt)} UTC`);
             } else {
               console.log(`  ${ws} (not deployed)`);
             }

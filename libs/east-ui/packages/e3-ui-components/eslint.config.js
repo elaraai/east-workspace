@@ -3,6 +3,7 @@ import tsparser from '@typescript-eslint/parser';
 import headers from 'eslint-plugin-headers';
 import reactHooks from 'eslint-plugin-react-hooks';
 import east, { hostValueRules } from '@elaraai/eslint-plugin-east';
+import inlinePlaces from '../east-ui-components/eslint/inline-places.js';
 
 // East values through East (#963): source and tests run the rules over host code
 // that builds or holds East values. The IR-authoring rules are for East programs,
@@ -115,7 +116,9 @@ export default [
       '@typescript-eslint': tseslint,
       'headers': headers,
       'react-hooks': reactHooks,
-      'east': east
+      'east': east,
+      // A place a renderer works out goes through `style`, never a Chakra style prop (#1440).
+      'east-ui': { rules: { 'inline-places': inlinePlaces } }
     },
     rules: {
       ...tseslint.configs.recommended.rules,
@@ -127,6 +130,7 @@ export default [
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
       'east/east-rules': EAST_HOST_VALUES,
+      'east-ui/inline-places': 'error',
       // This is a BROWSER renderer package. The bare '@elaraai/e3-ui' barrel
       // re-exports ui(), which value-imports the Node-only '@elaraai/e3'
       // (node:fs via sha256/export) and so drags node:fs into browser bundles

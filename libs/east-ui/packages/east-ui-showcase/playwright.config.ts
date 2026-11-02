@@ -9,7 +9,8 @@
  * reference, the Plan's geometry, the Sheet's ring under the keyboard and
  * the load, at desktop and mobile viewports. It is one suite, run the same way everywhere:
  * `make test-responsive` (libs/east-ui) locally, and in CI sharded with
- * `SHARD=n/16`. Nothing here compares pixels.
+ * `SHARD=n/total`, the tests split by the times CI recorded
+ * (`responsive.timings.json`). Nothing here compares pixels.
  *
  * Browser resolution: `npx playwright install chromium` where supported;
  * on hosts Playwright can't provision (e.g. non-LTS Ubuntu) point
@@ -25,15 +26,19 @@ export default defineConfig({
     testDir: "./tests/responsive",
     timeout: 60_000,
     fullyParallel: true,
-    // Each e3 page deploys a fresh in-browser workspace. Two concurrent
-    // browsers made cold starts exceed readiness deadlines on hosted runners.
-    // Parallelize across the 16 jobs instead, preserving those deadlines.
+    // One browser a job on CI. Each e3 page runs its own in-browser e3, and two
+    // browsers sharing a hosted runner left the Plan's timing-sensitive specs
+    // flaky (a run's click and focus, a crowded works' redraw), even with a
+    // spec file's tests sharing a page (`tests/responsive/kept-page.ts`, #1466).
+    // Parallelize across the jobs instead.
     ...(process.env.CI ? { workers: 1 } : {}),
     // A spec that is not deterministic under load is fixed, never retried.
     retries: 0,
     // A committed `test.only` would quietly shrink the CI run to one test.
     forbidOnly: !!process.env.CI,
-    reporter: [["list"]],
+    // In CI, each job also writes a JSON report (`RESPONSIVE_REPORT`), whose
+    // test times `scripts/responsive-timings.ts` makes the times jobs are split by.
+    reporter: process.env.RESPONSIVE_REPORT ? [["list"], ["json", { outputFile: process.env.RESPONSIVE_REPORT }]] : [["list"]],
     webServer: {
         // The production build `make build` made; dev-mode HMR and overlay
         // noise are excluded. `make test-responsive` builds it only when it

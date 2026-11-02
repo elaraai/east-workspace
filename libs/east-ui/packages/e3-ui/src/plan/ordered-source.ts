@@ -4,11 +4,15 @@
  */
 
 /** Preserve index order while the existing Plan series and editing use primary keys. */
-import { ArrayType, BlobType, DictType, East, IntegerType, OptionType, StringType, type EastType, type ExprType, type StructType, none, some } from "@elaraai/east";
+import {
+    ArrayType, BlobType, DictType, East, Expr, IntegerType, OptionType, SetType, StringType, type EastType, type ExprType, type FunctionType, type StructType,
+    none, some,
+} from "@elaraai/east";
 import { type ResolvedRowSource } from "@elaraai/east-ui/internal";
 import { orderedRowSource } from "../utils/ordered-source.js";
 import { PlanBlocksType, PlanEditingType, PlanRowsCollectionType } from "./types.js";
 import { applySeries, type PlanSeriesInput } from "./series.js";
+import { PlanNestedShadingType, planNestedShaded } from "./nested-read.js";
 
 type Ordered = Extract<ResolvedRowSource, { kind: "ordered" }>;
 
@@ -33,13 +37,16 @@ export const planIndexOrder = East.function([PlanBlocksType, ArrayType(StringTyp
 
 /** Build one bounded window adapter; its primary-key map is never a predicate. */
 export function orderedPlanSource(source: Ordered) {
-    const { resolved, entries: _entries, window, rows, keys } = orderedRowSource(source, "Plan");
+    const { resolved, entries: _entries, window, rows, keys, idOf } = orderedRowSource(source, "Plan");
     const order = planIndexOrder;
     const make = (series: PlanSeriesInput, values: ExprType<EastType>): ExprType<PlanBlocksType> => {
         const input = values as ExprType<typeof _entries>;
         return order(applySeries(series, rows(input)), keys(input));
     };
-    const editing = (input: ExprType<PlanEditingType>): ExprType<PlanEditingType> => {
+    // The canvas's editing session, its window's entry ids and its blocks put in the index's order. The session is held
+    // once: a field read of the expression itself would write the whole session out again for each field it keeps.
+    const editing = (input: ExprType<PlanEditingType>): ExprType<PlanEditingType> => Expr.block(($session) => {
+        const session = $session.const(input);
         const entryIds = East.function([IntegerType, IntegerType], OptionType(ArrayType(StringType)), ($, offset, limit) => {
             const read = $.const(window);
             const ids = $.const(keys);
@@ -48,13 +55,52 @@ export function orderedPlanSource(source: Ordered) {
         const derive = East.function([IntegerType, IntegerType, DictType(StringType, BlobType)], OptionType(PlanBlocksType), ($, offset, limit, drafts) => {
             const read = $.const(entryIds);
             const sort = $.const(order);
-            const build = $.const(input.derive);
+            const build = $.const(session.derive);
             return read(offset, limit).match({
                 some: (_$2, ids) => build(offset, limit, drafts).match({ some: (_$3, blocks) => East.value(some(sort(blocks, ids)), OptionType(PlanBlocksType)), none: () => East.value(none, OptionType(PlanBlocksType)) }),
                 none: () => East.value(none, OptionType(PlanBlocksType)),
             });
         });
-        return East.value(Object.fromEntries(Object.keys(PlanEditingType.fields).map(field => [field, field === "entryIds" ? entryIds : field === "derive" ? derive : (input as unknown as ExprType<StructType>)[field]])) as never, PlanEditingType);
+        return East.value(Object.fromEntries(Object.keys(PlanEditingType.fields).map(field => [field, field === "entryIds" ? entryIds : field === "derive" ? derive : (session as unknown as ExprType<StructType>)[field]])) as never, PlanEditingType);
+    }) as ExprType<PlanEditingType>;
+    /**
+     * A window's blocks over the rows' nested series index (#1438), the seam's `rows`: `(offset, limit, cells,
+     * drafted, shading)` → the window's lean rows, each drafted row whole in its place, filled with the items the
+     * cells hold of it by the binding's fill, the series run over them, in the index's order, the shading in place.
+     *
+     * @param series - The series
+     * @param fill - The binding's fill of a page, `(Dict<K, R>, Blob) → Dict<K, R>`
+     * @param booked - The keys of the series whose rows shade by the share booked
+     * @returns The function
+     */
+    const nestedRows = (series: PlanSeriesInput, fill: ExprType<EastType>, booked: ReadonlySet<string>) => {
+        const rowType: EastType = resolved.elementType;
+        const filling = fill as unknown as ExprType<FunctionType<[DictType<EastType, EastType>, BlobType], DictType<EastType, EastType>>>;
+        return East.function([IntegerType, IntegerType, BlobType, DictType(StringType, BlobType), PlanNestedShadingType], OptionType(PlanBlocksType),
+            ($, offset, limit, cells, drafted, shading) => {
+                const read = $.const(window);
+                const lean = $.const(rows);
+                const ids = $.const(keys);
+                const id = $.const(idOf);
+                const fillPage = $.const(filling);
+                const sort = $.const(order);
+                const shade = $.const(planNestedShaded);
+                const bars = $.let(new Set(booked), SetType(StringType));
+                return read(offset, limit).match({
+                    some: ($2, values) => {
+                        // Each drafted row whole in its lean row's place: the fill gives every collection the items read of it either way.
+                        const held = $2.let(lean(values).map((_$3, row, key) => drafted.tryGet(id(key)).match({
+                            some: (_$4, bytes) => bytes.decodeBeast(rowType, "v2"),
+                            none: () => row,
+                        })));
+                        const filled = $2.let(fillPage(held, cells));
+                        const blocks = $2.let(sort(applySeries(series, filled), ids(values)));
+                        const shaded = $2.let(some(shade(blocks, shading, bars)), OptionType(PlanBlocksType));
+                        return shaded;
+                    },
+                    none: ($2) => $2.let(none, OptionType(PlanBlocksType)),
+                });
+            });
     };
-    return { resolved, make, editing };
+    return { resolved, make, editing, nestedRows };
 }

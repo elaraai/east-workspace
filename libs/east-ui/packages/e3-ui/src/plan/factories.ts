@@ -20,6 +20,7 @@
  */
 
 import {
+    type EastType,
     type ExprType,
     type SubtypeExprOrValue,
     East,
@@ -88,8 +89,9 @@ import {
 } from "./types.js";
 import {
     createHeatCells, createHeatScale, resolveFold, resolveInstant,
-    type PlanFoldInput, type PlanHeatScaleInput,
+    type PlanChartBandLook, type PlanChartPointLook, type PlanFoldInput, type PlanFoldOf, type PlanHeatScaleInput,
 } from "./builders.js";
+import { planReadOf, planUse, refuseReadOutsideSeries, type PlanValuesInput, type PlanValuesUse } from "./reads.js";
 import {
     type PlanRowBaseInput,
     type PlanRowsInput,
@@ -182,7 +184,10 @@ function pointInstant(x: ExprType<ChartXType>, xScale: "band" | "linear" | "time
  * Consumes one chart-row layer input into `ArrayType(PlanChartLayerType)`
  * arms (one per series for multi-series layers).
  */
-function consumeLayer(input: PlanChartLayerInput): ExprType<ArrayType<PlanChartLayerType>> {
+function consumeLayer(input: PlanChartLayerInput | ExprType<ArrayType<PlanChartLayerType>>): ExprType<ArrayType<PlanChartLayerType>> {
+    // A chart series' layer over a values read, already built for its row (#1436).
+    if (input instanceof Expr) return input as ExprType<ArrayType<PlanChartLayerType>>;
+    refuseReadOutsideSeries(input);
     const wrapped = (input as PlanWrappedLayer).plan === true;
     const layer = wrapped ? (input as PlanWrappedLayer).layer : (input as ChartLayer);
     const channels: PlanLayerChannels = wrapped ? (input as PlanWrappedLayer).channels : {};
@@ -273,13 +278,168 @@ function consumeLayer(input: PlanChartLayerInput): ExprType<ArrayType<PlanChartL
     }), PlanChartLayerType)) as ExprType<ArrayType<PlanChartLayerType>>;
 }
 
-/** Concatenate the consumed layers of a chart row. */
-export function consumeLayers(inputs: PlanChartLayerInput | PlanChartLayerInput[]): ExprType<ArrayType<PlanChartLayerType>> {
+/**
+ * Concatenate the consumed layers of a chart row — each a Chart layer, a
+ * `Plan.layer` wrap, or (a chart series' own) a layer built for the row from a
+ * values read (#1436).
+ */
+export function consumeLayers(
+    inputs: PlanChartLayerInput | ExprType<ArrayType<PlanChartLayerType>> | (PlanChartLayerInput | ExprType<ArrayType<PlanChartLayerType>>)[],
+): ExprType<ArrayType<PlanChartLayerType>> {
     const list = Array.isArray(inputs) ? inputs : [inputs];
     return list.reduce<ExprType<ArrayType<PlanChartLayerType>>>(
         (acc, l) => acc.concat(consumeLayer(l)) as ExprType<ArrayType<PlanChartLayerType>>,
         East.value([], ArrayType(PlanChartLayerType)),
     );
+}
+
+// ============================================================================
+// Data layers over a row's values — Plan.line / area / column / scatter / band (#1436)
+// ============================================================================
+
+/** The marks a chart row's data layer over a values read draws. */
+type PlanValuesMark = "line" | "area" | "column" | "scatter" | "band";
+
+/**
+ * One data layer of a chart row over the points a values read gives (#1436),
+ * with its channels — the arm the canvas draws.
+ *
+ * @param mark - The mark
+ * @param points - The row's points (`PlanChartPointType`, or `PlanChartBandPointType` for a band)
+ * @param channels - The Plan channels ({@link PlanLayerChannels})
+ * @returns The layer, as the one-element list a chart row's layers concatenate
+ */
+function valuesLayer(mark: PlanValuesMark, points: ExprType<EastType>, channels: PlanLayerChannels): ExprType<ArrayType<PlanChartLayerType>> {
+    const axis = axisSide(channels.axis);
+    const arm = (() => {
+        switch (mark) {
+            case "line":    return variant("line", { points, axis, breach: breachOpt(channels.breach), fold: resolveFold(channels.fold, "mean") });
+            case "area":    return variant("area", { points, axis, fold: resolveFold(channels.fold, "mean") });
+            case "column":  return variant("column", {
+                points, axis,
+                series: channels.series !== undefined ? East.value(some(channels.series), OptionType(StringType)) : East.value(none, OptionType(StringType)),
+                breach: breachOpt(channels.breach),
+                fold:   resolveFold(channels.fold, "sum"),
+            });
+            case "scatter": return variant("scatter", { points, axis });
+            case "band":    return variant("band", { points, axis });
+        }
+    })();
+    return East.value([East.value(arm as SubtypeExprOrValue<PlanChartLayerType>, PlanChartLayerType)], ArrayType(PlanChartLayerType));
+}
+
+/**
+ * A data layer over a values read, as a description its chart series builds
+ * per row (#1436).
+ *
+ * @param mark - The mark
+ * @param values - The read
+ * @param channels - The Plan channels
+ * @returns The description
+ * @throws {Error} When `values` is not a `Plan.values` read
+ */
+function valuesLayerUse<T>(mark: PlanValuesMark, values: unknown, channels: PlanLayerChannels | undefined): T {
+    const read = planReadOf(values);
+    const where = `Plan.${mark}`;
+    if (read === undefined || read.kind !== "values") {
+        throw new Error(`${where} draws a row's values, a point at each instant: give it Plan.values(field, (v) => ({ ${mark === "band" ? "lo, hi" : "y"} }))`);
+    }
+    const fold = mark === "line" || mark === "area" ? "mean" : mark === "column" ? "sum" : undefined;
+    const declared = channels?.fold;
+    return planUse<T>({
+        makes: "layer", read, cell: mark === "band" ? "band" : "point",
+        fold: declared === undefined ? fold : typeof declared === "string" ? declared : undefined,
+        rollup: false,
+        wrap: (points) => valuesLayer(mark, points, channels ?? {}),
+    });
+}
+
+/**
+ * A chart row's line over a row's values — a vertex at each value's instant,
+ * its key (#1436). A bucket folds the points in it to their mean by default.
+ *
+ * @typeParam R - The entry type, inferred from where the layer is used
+ * @typeParam K - The axis kind the values' key rides
+ * @typeParam U - What it reads
+ * @typeParam C - The channels, as written
+ * @param values - `Plan.values(field, (v) => ({ y }))`
+ * @param channels - `breach`, `axis`, `fold` ({@link PlanLayerChannels})
+ * @returns The layer, for a chart series' `layers`
+ */
+export function createLine<R extends EastType, K extends PlanAxisKindLiteral, U, const C extends PlanLayerChannels = PlanLayerChannels>(
+    values: PlanValuesInput<R, PlanChartPointLook, K, U>, channels?: C,
+): PlanValuesUse<"layer", R, K, U, PlanFoldOf<C, "mean">> {
+    return valuesLayerUse("line", values, channels);
+}
+
+/**
+ * A chart row's filled area over a row's values (#1436). A bucket folds the
+ * points in it to their mean by default.
+ *
+ * @typeParam R - The entry type
+ * @typeParam K - The axis kind the values' key rides
+ * @typeParam U - What it reads
+ * @typeParam C - The channels, as written
+ * @param values - `Plan.values(field, (v) => ({ y }))`
+ * @param channels - `axis`, `fold` ({@link PlanLayerChannels})
+ * @returns The layer, for a chart series' `layers`
+ */
+export function createArea<R extends EastType, K extends PlanAxisKindLiteral, U, const C extends PlanLayerChannels = PlanLayerChannels>(
+    values: PlanValuesInput<R, PlanChartPointLook, K, U>, channels?: C,
+): PlanValuesUse<"layer", R, K, U, PlanFoldOf<C, "mean">> {
+    return valuesLayerUse("area", values, channels);
+}
+
+/**
+ * A chart row's columns over a row's values (#1436). A bucket folds the
+ * points in it to their sum by default.
+ *
+ * @typeParam R - The entry type
+ * @typeParam K - The axis kind the values' key rides
+ * @typeParam U - What it reads
+ * @typeParam C - The channels, as written
+ * @param values - `Plan.values(field, (v) => ({ y }))`
+ * @param channels - `breach`, `axis`, `series` (stacked columns pair by it), `fold` ({@link PlanLayerChannels})
+ * @returns The layer, for a chart series' `layers`
+ */
+export function createColumn<R extends EastType, K extends PlanAxisKindLiteral, U, const C extends PlanLayerChannels = PlanLayerChannels>(
+    values: PlanValuesInput<R, PlanChartPointLook, K, U>, channels?: C,
+): PlanValuesUse<"layer", R, K, U, PlanFoldOf<C, "sum">> {
+    return valuesLayerUse("column", values, channels);
+}
+
+/**
+ * A chart row's point markers over a row's values (#1436): every point drawn
+ * where it is.
+ *
+ * @typeParam R - The entry type
+ * @typeParam K - The axis kind the values' key rides
+ * @typeParam U - What it reads
+ * @param values - `Plan.values(field, (v) => ({ y }))`
+ * @param channels - `axis` ({@link PlanLayerChannels})
+ * @returns The layer, for a chart series' `layers`
+ */
+export function createScatter<R extends EastType, K extends PlanAxisKindLiteral, U>(
+    values: PlanValuesInput<R, PlanChartPointLook, K, U>, channels?: PlanLayerChannels,
+): PlanValuesUse<"layer", R, K, U> {
+    return valuesLayerUse("scatter", values, channels);
+}
+
+/**
+ * A chart row's filled range over a row's values — a low and a high edge at
+ * each value's instant (#1436): every point drawn where it is.
+ *
+ * @typeParam R - The entry type
+ * @typeParam K - The axis kind the values' key rides
+ * @typeParam U - What it reads
+ * @param values - `Plan.values(field, (v) => ({ lo, hi }))`
+ * @param channels - `axis` ({@link PlanLayerChannels})
+ * @returns The layer, for a chart series' `layers`
+ */
+export function createBand<R extends EastType, K extends PlanAxisKindLiteral, U>(
+    values: PlanValuesInput<R, PlanChartBandLook, K, U>, channels?: PlanLayerChannels,
+): PlanValuesUse<"layer", R, K, U> {
+    return valuesLayerUse("band", values, channels);
 }
 
 /**
@@ -369,6 +529,9 @@ export function spanKind(
     parts: PlanSpanParts<PlanAxisKindLiteral>,
     rollup: SubtypeExprOrValue<OptionType<PlanRollupType>>,
 ): ExprType<PlanRowKindType> {
+    refuseReadOutsideSeries(parts.runs);
+    refuseReadOutsideSeries(parts.decisions);
+    refuseReadOutsideSeries(parts.ports);
     return East.value(variant("span", {
         runs:      East.value((parts.runs ?? []) as SubtypeExprOrValue<ArrayType<PlanRunType>>, ArrayType(PlanRunType)),
         decisions: East.value((parts.decisions ?? []) as SubtypeExprOrValue<ArrayType<PlanDecisionMarkType>>, ArrayType(PlanDecisionMarkType)),
@@ -401,6 +564,8 @@ export interface PlanBucketsParts<K extends PlanAxisKindLiteral = never> {
  * @returns The kind
  */
 export function bucketsKind(parts: PlanBucketsParts<PlanAxisKindLiteral>): ExprType<PlanRowKindType> {
+    refuseReadOutsideSeries(parts.events);
+    refuseReadOutsideSeries(parts.markers);
     return East.value(variant("buckets", {
         lanes:   East.value(parts.lanes ?? [], ArrayType(PlanLaneType)),
         events:  East.value((parts.events ?? []) as SubtypeExprOrValue<ArrayType<PlanBucketEventType>>, ArrayType(PlanBucketEventType)),
@@ -485,6 +650,7 @@ export function heatKind(
     parts: PlanHeatParts<PlanAxisKindLiteral>,
     aggregate: SubtypeExprOrValue<OptionType<PlanAggregateType>>,
 ): ExprType<PlanRowKindType> {
+    refuseReadOutsideSeries(parts.cells);
     const cells = parts.cells as SubtypeExprOrValue<PlanHeatCellsType> | undefined;
     return East.value(variant("heat", {
         cells: cells !== undefined ? East.value(cells, PlanHeatCellsType) : createHeatCells([]),
@@ -541,6 +707,8 @@ export function tableKind(
     if (parts.fold !== undefined && parts.series !== undefined) {
         throw new Error("Plan.table: `fold` goes with `cells` — each `Plan.tableSeries` declares its own fold");
     }
+    refuseReadOutsideSeries(parts.cells);
+    if (Array.isArray(parts.series)) parts.series.forEach(refuseReadOutsideSeries);
     const series = parts.series !== undefined
         ? East.value(parts.series as SubtypeExprOrValue<ArrayType<PlanTableSeriesType>>, ArrayType(PlanTableSeriesType))
         : (parts.cells !== undefined
@@ -566,6 +734,7 @@ export function tableKind(
  * @returns The kind
  */
 export function cardsKind(chips: PlanElementsInput<PlanChipType, PlanAxisKindLiteral> | undefined): ExprType<PlanRowKindType> {
+    refuseReadOutsideSeries(chips);
     return East.value(variant("cards", {
         chips: East.value((chips ?? []) as SubtypeExprOrValue<ArrayType<PlanChipType>>, ArrayType(PlanChipType)),
     }), PlanRowKindType);
@@ -578,6 +747,7 @@ export function cardsKind(chips: PlanElementsInput<PlanChipType, PlanAxisKindLit
  * @returns The kind
  */
 export function eventsKind(marks: PlanElementsInput<PlanEventMarkType, PlanAxisKindLiteral> | undefined): ExprType<PlanRowKindType> {
+    refuseReadOutsideSeries(marks);
     return East.value(variant("events", {
         marks: East.value((marks ?? []) as SubtypeExprOrValue<ArrayType<PlanEventMarkType>>, ArrayType(PlanEventMarkType)),
     }), PlanRowKindType);
@@ -603,6 +773,7 @@ export function groupSummary(
             `${where}: give \`summary\` (explicit strip cells) OR \`summaryAggregate\` (cells derived from the ` +
             "members) — a collapsed strip shows one or the other");
     }
+    refuseReadOutsideSeries(cells);
     if (cells !== undefined) return East.value(variant("cells", East.value(cells, PlanHeatCellsType)), PlanGroupSummaryType);
     if (aggregate !== undefined) return East.value(variant("aggregate", resolveTag(aggregate, PlanAggregateType)), PlanGroupSummaryType);
     return East.value(variant("none", null), PlanGroupSummaryType);

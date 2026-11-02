@@ -12,16 +12,16 @@
  * starts (`e3.worker.ts`: e3-web, its repositories in memory) and its
  * repository is created. Each area — the e3 examples of one category, one
  * directory of e3-ui's `test/` ({@link e3AreaOf}) — has a workspace of its own
- * (#1397), which starts the first time one of the area's examples shows:
- * - its package is fetched, the zip served beside the page at the URL the
- *   bundle carries for the area (`virtual:e3-showcase-packages`) — the build
- *   names it by its content, so a page never imports a package another build
- *   made — holding what the area's examples read and no other area's work
- *   (e3-ui's examples' package step);
- * - through e3's client, over the worker's `fetch`, the package is imported,
- *   the area's workspace created and the package deployed to it, and its
- *   dataflow run once, so every task's output exists before an example reads
- *   it.
+ * (#1397), which starts the first time one of the area's examples shows: its
+ * workspace bundle is fetched, served beside the page at the URL the page's
+ * code carries for the area (`virtual:e3-showcase-bundles`) — the build names
+ * it by its content, so a page never takes a bundle another build made — and,
+ * through e3's client, over the worker's `fetch`, the area's workspace is made
+ * from it. The bundle is the workspace as the build made it, in an e3 as this
+ * one runs: the area's package, holding what its examples read and no other
+ * area's work (e3-ui's examples' package step), deployed, and its dataflow run
+ * once. So every task's output and record's index exists before an example
+ * reads it, and the page deploys and runs nothing to start.
  * Areas start one at a time, in the order their examples showed.
  *
  * The runtimes `Data.bind`, `Data.bindPaged`, `Func.bind` and `Record.bind`
@@ -33,10 +33,23 @@
  * shows one area. An area left keeps its workspace, and what its examples read
  * loads again when the page shows it again. A start that fails says which step
  * failed and why, and only the area's examples show it, each with a Retry
- * ({@link retryShowcaseE3}), which goes on from the step that failed.
+ * ({@link retryShowcaseE3}), which starts it again: a start that failed made
+ * no workspace.
+ *
+ * On the responsive suite's kept page (#1466), which serves one test after
+ * another, an area's examples read a copy of the workspace made from its
+ * bundle, one for each test ({@link resetShowcaseE3}), never that workspace
+ * itself: what one test writes no later one reads, and a test costs a copy of
+ * each area it shows, never its bundle again. A page a person opens reads the
+ * workspace itself.
  *
  * The e3 lives as long as the page, and so do the areas' workspaces and the
- * edits staged against them.
+ * edits staged against them. A page whose address shares its e3 with the
+ * other tabs of a set (`?shared`, {@link SHARED_SET}) starts the e3 that keeps
+ * its repository in the browser instead (`e3-shared.worker.ts`): the set's
+ * first tab makes the repository and each area's workspace, of the set and of
+ * its bundle, and every other finds them, each start alone among the set's
+ * tabs (a Web Lock) — so the tabs edit the same records, as two people would.
  *
  * A responsive spec that asks for it before the page loads gets a fault hook
  * over the e3's `fetch` (`showcase-e3-faults.ts`, #1398), which holds, fails
@@ -47,27 +60,62 @@
  * @packageDocumentation
  */
 
-import { IntegerType, printFor } from "@elaraai/east";
 import { createWebE3, type WebE3 } from "@elaraai/e3-web";
-import {
-    dataflowExecute, packageImport, repoCreate, taskLogs, workspaceCreate, workspaceDeploy,
-    type DataflowResult, type RequestOptions,
-} from "@elaraai/e3-api-client";
+import { repoCreate, repoList, workspaceBundleImport, workspaceCopy, workspaceList, type RequestOptions } from "@elaraai/e3-api-client";
+import { StringType, equalFor } from "@elaraai/east";
 import { pathToString, type TreePath } from "@elaraai/e3-types";
 import {
     MemoryStagedAdapter, StagedStore, formatApiError, initializeStagedStore, type ReactiveDatasetCacheInterface,
 } from "@elaraai/e3-ui-components";
-import packageUrl from "virtual:e3-showcase-packages";
+import bundleUrl, { bundlesKey } from "virtual:e3-showcase-bundles";
+import { SHOWCASE_REPO, sharedE3Repo, sharedE3Workspace, sharedSetFromAddress, showcaseE3Workspace } from "./showcase-config";
 import { withFaults } from "./showcase-e3-faults";
 
 // The e3 keeps its repositories in memory, so the edits staged against it are
 // kept there too. Kept in IndexedDB, as they are by default, they would
-// outlive a reload, which starts e3 afresh from its packages, and stand over
-// values the new e3 never held.
+// outlive a reload, which starts e3 afresh from its bundles, and stand over
+// values the new e3 never held. Shared with other tabs, they stay the page's:
+// each tab is one person.
 initializeStagedStore(new StagedStore(new MemoryStagedAdapter()));
 
-/** The repository every area's package is imported into. */
-export const SHOWCASE_REPO = "default";
+/** The set of tabs the page's address shares its e3 with (`?shared`); `undefined` for a page whose e3 is its own. */
+export const SHARED_SET: string | undefined = typeof location === "undefined" ? undefined : sharedSetFromAddress(location.search);
+
+/** The repository the page's e3 holds its areas' workspaces in: its own, or the one shared tabs keep for the build's bundles. */
+export const SHOWCASE_PAGE_REPO: string = SHARED_SET === undefined ? SHOWCASE_REPO : sharedE3Repo(bundlesKey);
+
+const sameText = equalFor(StringType);
+
+/**
+ * Whether the page is the responsive suite's kept page (#1466), which the suite
+ * marks before it loads (`tests/responsive/kept-page.ts`). No page a person
+ * opens is.
+ */
+const KEPT_PAGE = (globalThis as { __showcaseKeptPage?: boolean }).__showcaseKeptPage === true;
+
+/** The kept page's session: what each area's copy is made for ({@link resetShowcaseE3}). */
+let session = 0;
+
+/** The areas whose workspaces the kept page's e3 has made from their bundles, which each session's copies are made from. */
+const made = new Set<string>();
+
+/**
+ * The workspace an area's examples read on this page: the area's own — on the
+ * responsive suite's kept page, the session's copy of it — or the one the
+ * page's set of shared tabs reads ({@link SHARED_SET}).
+ *
+ * @param area - The area
+ * @returns The workspace's name
+ */
+export function showcaseE3PageWorkspace(area: string): string {
+    if (SHARED_SET !== undefined) return sharedE3Workspace(area, SHARED_SET, bundleUrl(area) ?? "");
+    return KEPT_PAGE ? `${showcaseE3Workspace(area)}-${session}` : showcaseE3Workspace(area);
+}
+
+/** A start's step, alone among the page's set of shared tabs — the first makes what the others find — or at once. */
+async function alone<T>(run: () => Promise<T>): Promise<T> {
+    return SHARED_SET === undefined ? run() : await navigator.locks.request(`showcase-shared:${SHARED_SET}`, run);
+}
 
 /** How often what an e3 example reads is polled while it shows, so a write,
  *  a mutation or a dataflow run reaches it: as often as a UI task's preview
@@ -86,25 +134,16 @@ export function e3AreaOf(pathKey: string): string {
     return pathKey.split("/", 2)[1] ?? pathKey;
 }
 
-/**
- * The workspace an area's package is deployed to, which its examples bind.
- *
- * @param area - The area
- * @returns The area's own name
- */
-export function showcaseE3Workspace(area: string): string {
-    return area;
-}
-
 /** Where an area's workspace is. */
 export type ShowcaseE3Status =
     /** Not started: none of the area's examples has rendered yet. */
     | { readonly state: "idle" }
-    /** Starting: the page's e3, or the area's package, its deploy or its
-     *  first run. */
+    /** Starting: the page's e3, or the area's workspace made from its
+     *  bundle. */
     | { readonly state: "starting" }
-    /** Deployed, its dataflow run once; `cache` is the dataset cache of
-     *  e3-ui-components' runtimes while they serve the area. */
+    /** Made, as the build deployed it and ran its dataflow; `cache` is the
+     *  dataset cache of e3-ui-components' runtimes while they serve the
+     *  area. */
     | { readonly state: "ready"; readonly e3: WebE3; readonly cache: ReactiveDatasetCacheInterface | null }
     /** It did not start: the error names the step and the cause. */
     | { readonly state: "failed"; readonly error: Error };
@@ -177,9 +216,9 @@ export function startShowcaseE3(area: string): void {
 }
 
 /**
- * Starts an area's workspace again after a start that failed, from the step
- * that failed: what its examples' Retry calls. It does nothing while the area
- * is starting or ready.
+ * Starts an area's workspace again after a start that failed, which made no
+ * workspace: what its examples' Retry calls. It does nothing while the area is
+ * starting or ready.
  *
  * @param area - The area
  */
@@ -192,10 +231,28 @@ let starts: Promise<void> = Promise.resolve();
 
 function boot(area: string): void {
     publish(area, STARTING);
-    starts = starts.then(() => startArea(area).then(
-        (e3) => publish(area, { state: "ready", e3, cache: null }),
-        (err: unknown) => publish(area, { state: "failed", error: err instanceof Error ? err : new Error(String(err)) }),
+    // A start makes the workspace of the session that asked for it, and one that ends in a later session says
+    // nothing: that session starts the area itself.
+    const at = session;
+    const workspace = showcaseE3PageWorkspace(area);
+    starts = starts.then(() => startArea(area, workspace).then(
+        (e3) => { if (session === at) publish(area, { state: "ready", e3, cache: null }); },
+        (err: unknown) => { if (session === at) publish(area, { state: "failed", error: err instanceof Error ? err : new Error(String(err)) }); },
     ));
+}
+
+/**
+ * Begins the kept page's next session, between the tests the responsive suite's
+ * kept page serves (#1466): every area idle again, its next start a
+ * fresh copy of the workspace made from its bundle, and the edits staged
+ * against the last session gone with it, as a fresh page would have them.
+ */
+export function resetShowcaseE3(): void {
+    session++;
+    statuses.clear();
+    shown = undefined;
+    initializeStagedStore(new StagedStore(new MemoryStagedAdapter()));
+    notify();
 }
 
 /**
@@ -264,43 +321,18 @@ export async function loadExampleReads(cache: ReactiveDatasetCacheInterface, wor
     for (const path of paths) loaded.add(pathToString(path));
 }
 
-/** An area's package: the zip served beside the page, at the URL the bundle
- *  carries for the area. */
-async function fetchPackage(area: string): Promise<Uint8Array> {
-    const url = packageUrl(area);
-    if (url === undefined) throw new Error(`the showcase was built with no package for the area '${area}'`);
+/** An area's workspace bundle: served beside the page, at the URL the page's
+ *  code carries for the area. */
+async function fetchBundle(area: string): Promise<Uint8Array> {
+    const url = bundleUrl(area);
+    if (url === undefined) throw new Error(`the showcase was built with no workspace bundle for the area '${area}'`);
     const response = await fetch(url);
     if (!response.ok) {
-        // The dev server answers a failed package step with what it said.
+        // The dev server answers a failed step with what it said.
         const said = (await response.text()).trim();
         throw new Error(`${url} answered ${response.status} ${response.statusText}${said === "" ? "" : `: ${said}`}`);
     }
     return new Uint8Array(await response.arrayBuffer());
-}
-
-const printInteger = printFor(IntegerType);
-
-/** What a dataflow run that did not succeed says of each task that failed —
- *  its error, or how it exited and its stderr's lines but the stack — or
- *  nothing, when none did. */
-async function runFailures(e3: WebE3, workspace: string, options: RequestOptions, run: DataflowResult): Promise<string> {
-    const said = await Promise.all(run.tasks.map(async (task): Promise<string[]> => {
-        switch (task.state.type) {
-            case "error":
-                return [`task '${task.name}': ${task.state.value.message}`];
-            case "failed": {
-                const exited = `task '${task.name}' exited ${printInteger(task.state.value.exitCode)}`;
-                const stderr = await taskLogs(e3.apiUrl, SHOWCASE_REPO, workspace, task.name, { stream: "stderr" }, options)
-                    .then((chunk) => chunk.data.split("\n").filter((line) => line.trim() !== "" && !line.startsWith("  at ")).join(" "))
-                    .catch(() => "");
-                return [stderr === "" ? exited : `${exited}: ${stderr}`];
-            }
-            case "success":
-            case "skipped":
-                return [];
-        }
-    }));
-    return said.flat().join("; ");
 }
 
 /** The page's e3, started as the first area starts — and again after a start
@@ -316,7 +348,9 @@ function pageE3(): Promise<WebE3> {
 }
 
 /**
- * Starts the e3 worker and creates its repository.
+ * Starts the e3 worker and creates its repository — or, shared with other
+ * tabs ({@link SHARED_SET}), the worker that keeps it in the browser, and
+ * finds the repository the set's first tab made.
  *
  * @returns The e3
  * @throws {Error} Naming the step that failed and its cause; the worker is
@@ -325,10 +359,16 @@ function pageE3(): Promise<WebE3> {
 async function startPage(): Promise<WebE3> {
     // Its fetch goes through the responsive suite's fault hook when a spec asked for it before the page loaded
     // (`showcase-e3-faults.ts`); a page a person opens has none.
-    const e3 = withFaults(await step("start its e3 worker", () =>
-        createWebE3(new Worker(new URL("./e3.worker.ts", import.meta.url), { type: "module" }))), SHOWCASE_REPO);
+    const e3 = withFaults(await step("start its e3 worker", () => createWebE3(SHARED_SET === undefined
+        ? new Worker(new URL("./e3.worker.ts", import.meta.url), { type: "module" })
+        : new Worker(new URL("./e3-shared.worker.ts", import.meta.url), { type: "module" }))), SHOWCASE_PAGE_REPO, showcaseE3PageWorkspace);
     try {
-        await step("create its repository", () => repoCreate(e3.apiUrl, SHOWCASE_REPO, { token: null, fetch: e3.fetch }));
+        const options: RequestOptions = { token: null, fetch: e3.fetch };
+        await alone(async () => {
+            // Shared, the set's first tab made it.
+            if (SHARED_SET !== undefined && (await step("find its repository", () => repoList(e3.apiUrl, options))).some((name) => sameText(name, SHOWCASE_PAGE_REPO))) return;
+            await step("create its repository", () => repoCreate(e3.apiUrl, SHOWCASE_PAGE_REPO, options));
+        });
         return e3;
     } catch (err) {
         e3.close();
@@ -336,53 +376,35 @@ async function startPage(): Promise<WebE3> {
     }
 }
 
-/** What an area's start has done in an e3, kept across a start that failed so
- *  its Retry goes on from the step that failed. */
-interface Progress {
-    readonly e3: WebE3;
-    /** The package it imported, `name@version`. */
-    imported?: string;
-    /** Whether it has made the area's workspace. */
-    created?: boolean;
-}
-
-const progress = new Map<string, Progress>();
-
 /**
- * Starts an area's workspace: the page's e3 first, then the area's package
- * imported, its workspace made, the package deployed to it and its dataflow
- * run.
+ * Starts an area's workspace: the page's e3 first, then the area's bundle
+ * fetched and its workspace made from it — shared with other tabs, the set's
+ * workspace, made only where no tab of the set made it. A start that fails
+ * makes no workspace, so its Retry starts it again whole.
  *
  * @param area - The area
- * @returns The e3, the area's workspace deployed and run once
+ * @param workspace - The workspace its examples read ({@link showcaseE3PageWorkspace}), as the start was asked for
+ * @returns The e3, the area's workspace made
  * @throws {Error} Naming the step that failed and its cause
  */
-async function startArea(area: string): Promise<WebE3> {
+async function startArea(area: string, workspace: string): Promise<WebE3> {
     const e3 = await pageE3();
     const options: RequestOptions = { token: null, fetch: e3.fetch };
-    const workspace = showcaseE3Workspace(area);
-    let done = progress.get(area);
-    if (done === undefined || !Object.is(done.e3, e3)) {
-        done = { e3 };
-        progress.set(area, done);
+    if (KEPT_PAGE && SHARED_SET === undefined) {
+        // The suite's kept page: the area's workspace made from its bundle once, and the session's copy of it.
+        if (!made.has(area)) {
+            const bundle = await step("fetch its workspace bundle", () => fetchBundle(area));
+            await step("make its workspace", () => workspaceBundleImport(e3.apiUrl, SHOWCASE_PAGE_REPO, showcaseE3Workspace(area), bundle, options));
+            made.add(area);
+        }
+        await step("copy its workspace for the session", () => workspaceCopy(e3.apiUrl, SHOWCASE_PAGE_REPO, showcaseE3Workspace(area), workspace, options));
+        return e3;
     }
-    if (done.imported === undefined) {
-        const zip = await step("fetch its package", () => fetchPackage(area));
-        const { name, version } = await step("import its package", () => packageImport(e3.apiUrl, SHOWCASE_REPO, zip, options));
-        done.imported = `${name}@${version}`;
-    }
-    if (done.created !== true) {
-        await step("create its workspace", () => workspaceCreate(e3.apiUrl, SHOWCASE_REPO, workspace, options));
-        done.created = true;
-    }
-    const imported = done.imported;
-    await step("deploy its package", () => workspaceDeploy(e3.apiUrl, SHOWCASE_REPO, workspace, imported, options));
-    // A run in the page answers its polls at once, so they come often.
-    const run = await step("run its dataflow", () =>
-        dataflowExecute(e3.apiUrl, SHOWCASE_REPO, workspace, {}, options, { pollInterval: 100 }));
-    if (!run.success) {
-        const failures = await runFailures(e3, workspace, options, run);
-        throw new Error(`its dataflow did not succeed${failures === "" ? "" : `: ${failures}`}`);
-    }
+    await alone(async () => {
+        // Shared, a tab of the set may have made it.
+        if (SHARED_SET !== undefined && (await step("find its workspace", () => workspaceList(e3.apiUrl, SHOWCASE_PAGE_REPO, options))).some((info) => sameText(info.name, workspace))) return;
+        const bundle = await step("fetch its workspace bundle", () => fetchBundle(area));
+        await step("make its workspace", () => workspaceBundleImport(e3.apiUrl, SHOWCASE_PAGE_REPO, workspace, bundle, options));
+    });
     return e3;
 }

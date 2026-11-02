@@ -22,7 +22,8 @@
  * Clear filters clears the status and keeps the window. At every width the
  * Templates tab, or the collapsed pane's badge, says what it shows.
  */
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { toolbarFaults } from "./builder-frame";
 import { expectSourceCounts, type SourceCount } from "./record-counts";
 import { recordField } from "./record-slice";

@@ -26,18 +26,19 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { StringType, equalFor, none, some, variant } from "@elaraai/east";
+import { StringType, equalFor, isVariant, none, some, variant } from "@elaraai/east";
 import { RosterComponent, RosterContextType } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useDataStable,
-    useFormatters, useLanding, useLandingStyles, usePersistedState, useTrackedEvaluation, type HistoryAction,
+    useFormatters, useLanding, useLandingStyles, usePersistedState, useTrackedEvaluation, type EditIssue, type HistoryAction,
 } from "@elaraai/east-ui-components";
-import { LoadingReveal } from "@elaraai/east-ui-components/internal";
+import { LoadingReveal, keptRead } from "@elaraai/east-ui-components/internal";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
 import { useSourceHidden } from "../shared/schedule/hidden.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
+import { useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { publishPeriod } from "../shared/schedule/records.js";
 import { useSourceWindow } from "../shared/schedule/source-window.js";
 import { publishChange, rosterCommands } from "./actions.js";
@@ -51,13 +52,14 @@ import { useRosterInspector } from "./inspector.js";
 import { useRosterLibrary } from "./library.js";
 import { rosterMessages, type RosterWords } from "./messages.js";
 import {
-    NARROW_WIDTH, NO_PAY, NO_PERIOD, RosterPayCache, availableProposals, compareDate, configError, editableStatus, placeDrafted, placeStored, placeTargets,
-    rosterContext, rosterDomain, spanWindow, spanWords, started, statusText, weekBefore, weekKey, weekNumber, weekOf, type DraftedDuty, type Issue, type PlacedDuties, type PlacedPeriod,
+    DAY, NARROW_WIDTH, NO_PAY, NO_PERIOD, RosterPayCache, availableProposals, compareDate, configError, editableStatus, placeDrafted, placeStored, placeTargets,
+    rosterContext, rosterDomain, spanWindow, spanWords, started, statusText, weekBefore, weekKey, weekNumber, weekOf, weekStart, type Assignment, type DraftedDuty, type Issue,
+    type PlacedDuties, type PlacedPeriod,
     type RosterPayload, type RosterStyles, type RosterValue, type Selection, type StoredDuty, type StoredTarget, type WeekState,
 } from "./model.js";
 import { landRosterOptimise, lockRosterCommands, rosterOptimiseRequest, rosterOptimiseTypes, type RosterOptimiseRequest, type RosterOptimiseResult, type RosterOptimised } from "./optimise.js";
 import { useRosterToolbar } from "./toolbar.js";
-import { RosterViews, assignmentName, personOf, type PeoplePick, type RosterAnchor } from "./views.js";
+import { RosterViews, assignmentName, personOf, readRosterAnchor, type PeoplePick, type RosterAnchor } from "./views.js";
 import { useRosterWindow, type RosterWindow } from "./window.js";
 import { rosterPart, useRosterVisibility } from "./visibility.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
@@ -77,6 +79,8 @@ const NO_ISSUES: readonly Issue[] = [];
 const sameContext = equalFor(RosterContextType);
 /** No People view has rested anywhere yet. */
 const NO_ANCHOR: RosterAnchor = {};
+/** The viewer's display settings, as storage keeps them. */
+const readRosterDisplay = keptRead.record({ density: keptRead.oneOf("compact", "comfortable"), chipSkills: keptRead.boolean, requirements: keptRead.boolean });
 const keyEqual = equalFor(StringType);
 /**
  * The frame's root takes the focus a click on a part of it holding nothing focusable gives — a pane's empty foot, the
@@ -283,6 +287,8 @@ function RosterFrame(props: FrameProps) {
         if (pendingSteps === 0 && editing?.history.redoOrigin !== "optimise") setOptimised(undefined);
     }, [pendingSteps, editing?.schedule.version, editing]);
     const drag = useRosterDrag({ value, commands, week, duties: draftedDuties, weeks: weekStates, context, storageKey: key, narrow, start, format, onError: setError });
+    // The groups' folds, the board's and the People layout's: what a conflict's Go to opens.
+    const groups = useGroupCollapse(drag.surface);
     const dutyPart = sourcePart(source.slice.type === "some" ? source.slice.value : undefined, source.duty.kind.key);
     // What the footer's loading line says (#1398, CL3): the week being read, the people's or the activities' new
     // narrowing, or why one could not be read, with Retry — the week's asking again each record the week reads.
@@ -302,10 +308,19 @@ function RosterFrame(props: FrameProps) {
     // unavailable" over the grid.
     const read = useMemo(() => periodRead({ current, error: data.error, name: weekWords, retry: retryWeek }), [current, data.error, weekWords, retryWeek]);
     // Where the People views rest (#1398): saved under the Roster's key, so each comes back to it as it mounts.
-    const { state: anchor, setState: setAnchor } = usePersistedState<RosterAnchor>(`${key}.anchor`, NO_ANCHOR);
+    const { state: anchor, setState: setAnchor } = usePersistedState<RosterAnchor>(`${key}.anchor`, NO_ANCHOR, readRosterAnchor);
     const onAnchor = useCallback((next: Partial<RosterAnchor>) => setAnchor(was => ({ ...was, ...next })), [setAnchor]);
+    // A duty holding a conflict not yet chosen wears the warn ring: asked again as the history moves, which every choice
+    // and every carry-over moves.
+    const schedule = editing?.schedule;
+    const scheduleVersion = schedule?.version;
+    const dutyKind = source.duty.kind.key;
+    const conflicted = useCallback((id: string) => schedule?.conflicted(dutyKind, id) === true,
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version says they moved
+        [schedule, scheduleVersion, dutyKind]);
     const viewProps = { value, week, held, start, day: window.day, view: window.view, setView: window.setView, span, weeks: weekStates, openWeek: window.openWeek,
-        styles, format, narrow, coverage, hours, pay: weekPay.pay, domain, issues, proposals, selection, select, commands, drag, onError: setError, read, optimised, lit: landing.lit };
+        styles, format, narrow, coverage, hours, pay: weekPay.pay, domain, issues, proposals, selection, select, commands, drag, onError: setError, read, optimised, lit: landing.lit,
+        conflicted };
     // Search Records (#1398): a person found by their key is selected — in the People layout their row brought into view
     // once the narrowing draws it, and a pick's person given the keyboard there, once the box has let it go: their name
     // takes the focus as ↑ / ↓ give it. One the rail's narrowing hides is shown by clearing just the choices of the
@@ -352,7 +367,66 @@ function RosterFrame(props: FrameProps) {
         const on = active.closest(`[${attribute}]`)?.getAttribute(attribute);
         if (on !== null && on !== undefined && keyEqual(on, key)) board.focus({ preventScroll: true });
     };
-    const toolbar = useRosterToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, onAction, onPickerDates: setPickerDates, narrow,
+    // A duty of a week not in view, as its draft holds it — its draft removing it, as their save left it — placed in its
+    // own week: what a conflict's card names it by, and where its Go to goes. Its start stands up to twelve hours from its
+    // shift's on a day of its week, so the week either side of it may hold it.
+    const sunday = value.settings.weekStart.type === "sunday";
+    const elsewhere = (key: string): { readonly start: Date; readonly a: Assignment } | undefined => {
+        let duty = dutyDrafts.get(key);
+        if (duty === undefined) {
+            const theirs = editing?.schedule.sessions.find((held) => held.kind === source.duty.kind.key)?.session.conflicts.get(key)?.source;
+            const row = theirs?.type === "some" && isVariant(theirs.value) && theirs.value.type === "value" ? theirs.value.value : undefined;
+            if (row === undefined) return undefined;
+            const bytes = domain.encodeRow(row);
+            duty = { bytes, roles: source.duty.read(bytes, key), row };
+        }
+        for (const at of [duty.roles.start.getTime() - DAY / 2, duty.roles.start.getTime() + DAY / 2]) {
+            const from = weekStart(new Date(at), sunday);
+            const placement = domain.placement(duty.roles, duty.row, key, from, context);
+            if (placement.type === "placed") return { start: from, a: placement.value };
+        }
+        return undefined;
+    };
+    /** A session's issue's place: a duty by whose it is, a week's or a target's row as it stands. */
+    const where = (kind: string) => (issue: { entry: string }) => {
+        if (kind !== source.duty.kind.key) return issue.entry;
+        const a = week.assignments.get(issue.entry) ?? held.assignments.get(issue.entry) ?? elsewhere(issue.entry)?.a;
+        return a === undefined ? issue.entry : assignmentName(value, a);
+    };
+    // A conflict's item in the history bar's popover, named as its session's banners name its issues.
+    const historyWhere = (issue: EditIssue) => {
+        const key = history?.sourceOf(issue);
+        const part = key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key));
+        return part === undefined ? issue.entry : where(part.kind)(issue);
+    };
+    // A Go to into another week: its duty, selected once that week's duties are read — another week clears a selection.
+    // The reader moving to a span without its week drops it.
+    const [going, setGoing] = useState<{ readonly key: string; readonly week: Date }>();
+    useEffect(() => {
+        if (going === undefined) return;
+        if (!span.weeks.some((at) => compareDate(at, going.week) === 0)) { setGoing(undefined); return; }
+        if (!current) return;
+        setGoing(undefined);
+        select({ type: "assignment", key: going.key });
+    }, [going, span, current, select]);
+    // A conflict's Go to: its duty shown on its day and selected, as its issue's click in the Issues tab does — in its
+    // own week, where it is a duty of another; a week's or a target's opens the Issues tab.
+    const onConflict = (issue: EditIssue) => {
+        const key = history?.sourceOf(issue);
+        const part = key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key));
+        const here = part?.kind !== source.duty.kind.key ? undefined : week.assignments.get(issue.entry) ?? held.assignments.get(issue.entry);
+        const there = part?.kind !== source.duty.kind.key || here !== undefined ? undefined : elsewhere(issue.entry);
+        const a = here ?? there?.a;
+        if (a === undefined) { onIssues(); return; }
+        // Its group opened where it is folded: its shift's on the board, its person's in the People layout.
+        groups.open(a.slot.group);
+        const person = a.who.type === "person" ? value.people.find((p) => keyEqual(p.key, a.who.value)) : undefined;
+        if (person !== undefined) groups.open(person.group);
+        window.setView({ ...window.view, date: (there?.start ?? start).getTime() + Number(a.slot.day) * DAY });
+        if (there === undefined) select({ type: "assignment", key: issue.entry });
+        else setGoing({ key: issue.entry, week: there.start });
+    };
+    const toolbar = useRosterToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, onConflict, where: historyWhere, onAction, onPickerDates: setPickerDates, narrow,
         optimise: optimiseParts.toolbarItem, optimiseEntry: optimiseParts.entry, locked, issuesFlash: landing.lit && optimised !== undefined,
         selectedWeek: pickedWeek === undefined ? undefined : new Date(pickedWeek.start),
         status: source.periods.type === "some" ? statusText(heldPeriod) : undefined, unread: !current, publishing, picker: data.picker,
@@ -362,12 +436,6 @@ function RosterFrame(props: FrameProps) {
     // A week not started, said of the week in view: a month shows its weeks as they are.
     const notStarted = current && span.period !== "month" && week.assignments.size === 0 && (source.periods.type === "none" || !started(period));
     const dutyName = source.duty.kind.name.toLocaleLowerCase(format.locale);
-    /** A session's issue's place: a duty by whose it is, a week's or a target's row as it stands. */
-    const where = (kind: string) => (issue: { entry: string }) => {
-        if (kind !== source.duty.kind.key) return issue.entry;
-        const a = week.assignments.get(issue.entry) ?? held.assignments.get(issue.entry);
-        return a === undefined ? issue.entry : assignmentName(value, a);
-    };
     const sessionName = (kind: string) => kind === PERIODS ? (source.periods.type === "some" && source.periods.value.every.type === "day" ? "Days" : "Weeks")
         : kind === TARGETS ? "Targets" : source.duty.kind.name;
     // Cold load (#1398, CL5): no week read yet, nor the people's or the activities' first narrowing — the frame's
@@ -431,7 +499,7 @@ function RosterFrame(props: FrameProps) {
 /** The Roster over the app's records: its narrowing, its week and its editing, around the frame. */
 function RosterRoot({ value: source, storageKey }: EastChakraRosterProps) {
     const key = `${storageKey}.${source.id.type === "some" ? source.id.value : "roster"}`;
-    const { state: display, setState: setDisplay } = usePersistedState(`${key}.display`, { density: source.settings.density.type, chipSkills: source.settings.chipSkills, requirements: source.settings.requirements });
+    const { state: display, setState: setDisplay } = usePersistedState(`${key}.display`, { density: source.settings.density.type, chipSkills: source.settings.chipSkills, requirements: source.settings.requirements }, readRosterDisplay);
     // The narrowing chooses which people, activities and patterns show, read from the slice itself (#1342); coverage, pay and checks read every one.
     const visibility = useRosterVisibility(source, "people");
     const activities = useRosterVisibility(source, "activities");

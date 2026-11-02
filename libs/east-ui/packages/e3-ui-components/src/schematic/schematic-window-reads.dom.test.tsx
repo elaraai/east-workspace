@@ -65,7 +65,7 @@ const floor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Eas
     const fibre = $.let(Data.bind(ex.schematicFibre));
     const slice = $.let(Slice.bindRecords(FLOOR, {
         racks: {
-            source: Data.bindPaged(ex.schematicRacks, { indexes: [ex.schematicRacksByArea, ex.schematicRacksByOwnerArea, ex.schematicRacksByName] }),
+            source: Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_area", "schematic_racks_by_owner_area", "schematic_racks_by_name"] }),
             search: ["name"],
             fields: { name: { label: "Rack" }, owner: { label: "Owner", hints: ["Harbour Labs", "Northwind Media", "Elmway College"] } },
         },
@@ -101,7 +101,7 @@ async function open() {
 }
 
 /** The racks' requests through an index, by kind: those of the area index the window reads through. */
-const throughArea = (kind: E3Request["kind"]) => h.requests(kind, RACKS).filter((request) => request.query.get("index") === ex.schematicRacksByArea.name);
+const throughArea = (kind: E3Request["kind"]) => h.requests(kind, RACKS).filter((request) => request.query.get("index") === "schematic_racks_by_area");
 
 /** The racks' canvas. */
 const canvasOf = (container: HTMLElement) => container.querySelector<HTMLElement>("[data-schematic-canvas]")!;

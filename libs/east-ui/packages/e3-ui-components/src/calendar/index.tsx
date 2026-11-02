@@ -93,7 +93,7 @@ import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { pagedLoadingLine, pagedLoadingMessages, periodLoading, periodLoadingLine, periodRead, retryPeriod, type PagedLoading } from "../shared/loading.js";
 import type { ScheduleCellNotice, ScheduleCellResources } from "../shared/schedule/cells.js";
-import { useScheduleEditing, type ScheduleEditing, type ScheduleEventDraftsValue, type ScheduleHeldRows, type ScheduleRowRead } from "../shared/schedule/editing.js";
+import { scheduleIssueName, useScheduleEditing, type ScheduleEditing, type ScheduleEventDraftsValue, type ScheduleHeldRows, type ScheduleRowRead } from "../shared/schedule/editing.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
 import { scheduleOverlaps } from "../shared/schedule/overlaps.js";
@@ -121,7 +121,7 @@ import { calendarNouns, calendarSaid, followedSources } from "./sources.js";
 import { useCalendarToolbar } from "./toolbar.js";
 import { useCalendarWindow, type CalendarWindow } from "./window.js";
 import { createTravel, createVisibleDays, useOverlapsShown } from "./visible.js";
-import { CalendarViews, calendarHour, type CalendarAnchor } from "./views.js";
+import { CalendarViews, calendarHour, readCalendarAnchor, type CalendarAnchor } from "./views.js";
 import {
     NOTHING_UNCOUNTED, calendarRange, chronological, dayStart, eventKey, inWindow, NARROW_WIDTH, navigate, periodWords,
     type CalendarItem, type CalendarRange, type CalendarRef, type CalendarRow, type CalendarStyles, type CalendarUncounted, type CalendarValue,
@@ -419,7 +419,7 @@ function CalendarFrame(props: HostProps) {
     const [nowAsked, setNowAsked] = useState(0);
     const onToday = useCallback(() => setNowAsked(n => n + 1), []);
     // Where each layout's view rests (#1398): saved under the Calendar's key, so a layout comes back to it as it mounts.
-    const { state: anchor, setState: setAnchor } = usePersistedState<CalendarAnchor>(`${storageKey}.anchor`, NO_ANCHOR);
+    const { state: anchor, setState: setAnchor } = usePersistedState<CalendarAnchor>(`${storageKey}.anchor`, NO_ANCHOR, readCalendarAnchor);
     const onAnchor = useCallback((next: Partial<CalendarAnchor>) => setAnchor(was => ({ ...was, ...next })), [setAnchor]);
     // Each resource kind's rows its source shows: the columns, the timeline's rows and the Choosers (#1343).
     const shown = useMemo(() => value.resources.map(kind => {
@@ -728,7 +728,7 @@ function CalendarFrame(props: HostProps) {
             }} rootProps={CLICK_FOCUS} banners={<>
                 {parts.banner}
                 {editing?.sessions.map(held => <SessionBanners key={held.key} session={held.session} words={words} name={value.events.find(kind => kind.key === held.kind)?.name}
-                    onAction={action => editing.history.actOn(held.key, action)} />)}
+                    where={issue => scheduleIssueName(editing, held.kind, issue.entry)} onAction={action => editing.history.actOn(held.key, action)} />)}
                 {[...followed].flatMap(([source, followedSource]) => followedSource.error === undefined ? [] : [
                     <BannerView key={source} status="error" title={`${followedSource.name.charAt(0).toLocaleUpperCase(format.locale)}${followedSource.name.slice(1)} unavailable`} description={followedSource.error}
                         actions={<Button size="xs" variant="outline" onClick={followedSource.retry}>Retry</Button>} />])}

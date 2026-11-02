@@ -85,17 +85,21 @@ for (let i = 0; i < ledgerRows; i++) {
     note: randomBytes(24).toString('base64'),
   });
 }
-const ledger = e3.record('ledger', LedgerType, ledgerInitial);
-const ledgerBySite = e3.recordIndex('by_site', ledger, {
-  key: East.function([StringType, LedgerRowType], StructType({ site: StringType, id: StringType }),
-    ($, id, row) => ({ site: row.site, id })),
-  value: East.function([StringType, LedgerRowType], FloatType, ($, _id, row) => row.amount),
+const ledger = e3.record('ledger', LedgerType, {
+  initial: ledgerInitial,
+  indexes: (index) => ({
+    by_site: index.key(East.function([StringType, LedgerRowType], StructType({ site: StringType, id: StringType }),
+      ($, id, row) => ({ site: row.site, id })), {
+      value: East.function([StringType, LedgerRowType], FloatType, ($, _id, row) => row.amount),
+    }),
+  }),
+  mutations: (mutation) => ({ patch: mutation.patch() }),
 });
 
 const zips = join(repo, '..', 'zips');
 mkdirSync(zips, { recursive: true });
 const zip = join(zips, 'tuicheck-1.0.0.zip');
-await e3.export(e3.package('tuicheck', '1.0.0', enrich, bySite, count, ledger, ledgerBySite, e3.mutation.patch(ledger)), zip);
+await e3.export(e3.package('tuicheck', '1.0.0', enrich, bySite, count, ledger), zip);
 await packageImport(storage, repo, zip);
 await workspaceCreate(storage, repo, 'big');
 // The record's index is built at deploy, on a runner.

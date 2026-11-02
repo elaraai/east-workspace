@@ -70,11 +70,12 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
+import { CONFLICT_RING, conflictRing } from "../conflict-ring.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { INSPECTOR_STATUS } from "./inspector.js";
 import { heldToolbarSlot, retainedColumn, retainedRow } from "./loading.js";
 import { linkRibbons } from "./links/ribbons.js";
-import { planElementFocus, planRowFocus } from "./plan/focus.js";
+import { planElementConflict, planElementFocus, planRowFocus } from "./plan/focus.js";
 import { moveGhostBase, moveGhostSlots } from "./time/move-ghost.js";
 import { nowBase, nowSlots } from "./time/now.js";
 import { scheduleAgenda, scheduleCard, scheduleCardActions, scheduleCardHead, scheduleCardTitle } from "./schedule-agenda.js";
@@ -264,6 +265,8 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "&[data-selected][data-draft]": { borderStyle: "dashed" },
             // Outside the focus: the rule border and ink-4 words, unless the pointer is on it (A13).
             "&[data-dim]:not(:hover)": { borderColor: "border.subtle", background: "bg.surface" },
+            // A conflict not yet chosen: the warn ring at the bin's edge, over the bins beside it.
+            ...planElementConflict,
             // Hovered or selected, it rises over the link layer with its connector (A21).
             "&:hover, &[data-selected], &:focus-within": { zIndex: 6 },
             // A lit link's halo round its bin (A67): 1px of the strong ink, 4 outside it.
@@ -421,6 +424,8 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "&[data-kind=load][data-draft]": { background: "brandTint", borderWidth: "1px", borderStyle: "dashed", borderColor: "brand.solid" },
             "&[data-kind=load][data-over]": { borderWidth: "1px", borderStyle: "solid", borderColor: "status.neg" },
             "&[data-kind=load][data-focus]": { outline: "2px solid", outlineColor: "fg", outlineOffset: "1px" },
+            // A conflict not yet chosen: the warn ring at the load's edge — its focus its own outline just outside it.
+            "&[data-kind=load][data-conflict]": { boxShadow: CONFLICT_RING, zIndex: 3 },
             // A lit link's halo round its resource's load (A67).
             "&[data-kind=load][data-link-lit]": { outline: "1px solid", outlineColor: "fg.strong", outlineOffset: "4px" },
             // A ranked fit's preview of the hold: brand-tint, dashed (A28).
@@ -580,6 +585,8 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             background: "bg.surface", cursor: "default",
             "&:hover": { background: "bg.canvas" },
             "&[data-selected]": { background: "bg.subtle" },
+            // A conflict not yet chosen: the warn ring, inside the row's edge — it runs the table's width.
+            "&[data-conflict]": { outline: "1px solid {colors.status.warn}", outlineOffset: "-1px" },
             // Retained while a narrowing is read (#1398, CL5): the shared retained row.
             "[data-allocation-stale] &": retainedRow,
         },
@@ -605,7 +612,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             flex: "none", width: "8px", height: "8px", borderRadius: "full", background: "fg.faint",
             "[data-status='Not linked'] > &": { background: "status.warn" },
             "[data-status=Check] > &": { background: "status.warn" },
-            "[data-status=Draft] > &": { background: "fg.subtle" },
+            "[data-status=Unsaved] > &": { background: "fg.subtle" },
             "[data-status=Reserved] > &": { background: "brandMark" },
             "[data-status=Committed] > &": { background: "status.pos" },
         },
@@ -708,8 +715,12 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "&[data-tone=danger]": { color: "fg.danger", fontWeight: "semibold" },
             "&[data-tone=warning]": { color: "fg.warning", fontWeight: "semibold" },
         },
-        // A bin on a resource's card: its line over its actions, under the rule; a draft's in the brand, the selected one in the ink.
-        agendaBin: { display: "flex", flexDirection: "column", gap: "8px", minWidth: 0, paddingTop: "8px", borderTopWidth: "1px", borderColor: "border.subtle" },
+        // A bin on a resource's card: its line over its actions, under the rule; a draft's in the brand, the selected one in the ink;
+        // one holding a conflict not yet chosen in the warn ring at its edge.
+        agendaBin: {
+            display: "flex", flexDirection: "column", gap: "8px", minWidth: 0, paddingTop: "8px", borderTopWidth: "1px", borderColor: "border.subtle",
+            ...conflictRing,
+        },
         agendaBinHead: {
             display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: "8px", minWidth: 0, textAlign: "left", textStyle: "mono.sm", color: "fg.strong",
             "[data-draft] > &": { color: "brandPressed" }, "[data-selected] > &": { color: "fg", fontWeight: "semibold" }, ...planElementFocus,

@@ -37,7 +37,8 @@
  * fit's, which east-ui-components' `loading-line.dom.test.tsx` holds.
  */
 
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { sizeBuilder, visitBuilder } from "./builder-page";
 import { RECORD_READS, failE3, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { recordField } from "./record-slice";
@@ -267,7 +268,7 @@ function missedTaps(retry: Locator): Promise<string[]> {
     });
 }
 
-// A test a builder: each is an area of its own, whose workspace the page deploys the first time it shows (#1397). The page
+// A test a builder: each is an area of its own, whose workspace the page makes from its bundle the first time it shows (#1397). The page
 // is wide enough that a 1440px frame keeps clear of its "On this page" column.
 for (const theme of ["light", "dark"] as const) {
     for (const reader of READERS) {

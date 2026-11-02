@@ -29,12 +29,12 @@ import { Box, Button, Menu as ChakraMenu, Portal, chakra } from "@chakra-ui/reac
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faGripVertical, faRotateLeft, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { none, variant } from "@elaraai/east";
-import { LoadingFailedLine, PlaceholderShape, VirtualRows, devicePixels, useRevealed, useRowsTop } from "@elaraai/east-ui-components/internal";
+import { LoadingFailedLine, PlaceholderShape, VirtualRows, devicePixels, useRevealed, useRowsTop, keptRead } from "@elaraai/east-ui-components/internal";
 import { takeKey, tickFormatOf, useDragEventChip, useDropCell, type CellCoord, type DragEventValue, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import type { PeriodRead } from "../shared/loading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
-import { useRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
+import { readRowAnchor, useRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { ApplyPatternAction, AssignmentActions, PlaceAction, PlacePopover, RequirementAction } from "./controls.js";
 import { readRosterSource } from "./identity.js";
@@ -49,6 +49,8 @@ import {
 
 export interface RosterViewsProps {
     value: RosterValue; week: Week; held: Week; start: Date; day: number; view: RosterView; setView: (view: RosterView) => void;
+    /** Whether a duty holds a conflict not yet chosen: its chip, tile and card wear the warn ring. None by default. */
+    conflicted?: ((id: string) => boolean) | undefined;
     /** The span in view (#1406, D2), and each of its weeks drafts in place: what the month draws, and what a pattern dropped on one applies to. */
     span: RosterSpan; weeks: readonly WeekState[];
     /** Opens a week in the Week period (P12, P24). */
@@ -95,6 +97,9 @@ export interface RosterAnchor {
     readonly cards?: RowAnchor | undefined;
 }
 
+/** Where the People views rest, as storage keeps it. */
+export const readRosterAnchor = keptRead.record<RosterAnchor>({ people: keptRead.optional(readRowAnchor), cards: keptRead.optional(readRowAnchor) });
+
 /** The person whose name the keyboard last stepped to, or a pick gave it to (#1398): their row's or card's name takes the focus as it mounts. */
 const PeopleFocusContext = createContext<{ readonly key: string | undefined; readonly done: () => void }>({ key: undefined, done: () => {} });
 
@@ -135,6 +140,8 @@ interface ViewContext {
     readonly weeks: readonly WeekState[]; readonly openWeek: (week: Date) => void;
     /** The People layout's display settings (D7): whether a tile shows the shift's hours always, and whether a month's marks carry letters. */
     readonly tileTimes: "always" | "different"; readonly letters: boolean;
+    /** Whether a duty holds a conflict not yet chosen. */
+    readonly conflicted: (id: string) => boolean;
     /** What the runs of the optimiser left on the duties (#1409), and whether the highlight is on. */
     readonly optimised: RosterOptimised | undefined; readonly lit: boolean;
 }
@@ -153,12 +160,16 @@ let peopleDrawProbe: ((part: "row" | "day", key: string) => void) | undefined;
  */
 export function setPeopleDrawProbe(fn: ((part: "row" | "day", key: string) => void) | undefined): void { peopleDrawProbe = fn; }
 
+/** No duty holds a conflict. */
+const NO_CONFLICT = (): boolean => false;
+
 /** The views' props a chip and a People row read, the same object while each of them holds. */
 function useViewContext(props: RosterViewsProps): ViewContext {
     const { value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek, optimised } = props;
     const tileTimes = value.settings.tileTimes.type, letters = value.settings.letters, lit = props.lit === true;
-    return useMemo(() => ({ value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek, tileTimes, letters, optimised, lit }),
-        [value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek, tileTimes, letters, optimised, lit]);
+    const conflicted = props.conflicted ?? NO_CONFLICT;
+    return useMemo(() => ({ value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek, tileTimes, letters, optimised, lit, conflicted }),
+        [value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek, tileTimes, letters, optimised, lit, conflicted]);
 }
 
 /**
@@ -380,7 +391,7 @@ const AssignmentChipBody = memo(function AssignmentChipBody({ ctx, id, assignmen
     const mark = dutyMark(ctx, id, removed, drafted);
     return <Box {...handle} ref={attach} css={styles.assignment} tabIndex={0} role="button" aria-label={label} title={mark === undefined ? label : `${mark.provenance} · ${label}`} aria-pressed={selected}
         data-roster-assignment={id} data-layout={short ? "people" : "shifts"} data-added={baseline === undefined ? "" : undefined} data-moved={baseline !== undefined && !sameSlot(baseline.slot, a.slot) ? "" : undefined} data-density={value.settings.density.type} data-selected={selected ? "" : undefined}
-        data-drafted={drafted ? "" : undefined} data-removed={removed ? "" : undefined} data-request={a.who.type === "request" ? "" : undefined} data-agency={person?.agency ? "" : undefined}
+        data-drafted={drafted ? "" : undefined} data-conflict={ctx.conflicted(id) ? "" : undefined} data-removed={removed ? "" : undefined} data-request={a.who.type === "request" ? "" : undefined} data-agency={person?.agency ? "" : undefined}
         data-op={mark?.op} data-fill={mark === undefined ? undefined : "own"}
         data-tone={issues.some(i => i.tone.type === "danger") ? "danger" : issues.some(i => i.kind.type === "breach") ? "warning" : undefined} data-draggable={enabled ? "" : undefined}
         onClick={event => { event.stopPropagation(); ctx.select({ type: "assignment", key: id }); }} onKeyDown={event => { if (event.key === "Enter") { takeKey(event); ctx.select({ type: "assignment", key: id }); } else handle?.onKeyDown?.(event); }}>
@@ -670,7 +681,7 @@ const TileBody = memo(function TileBody({ ctx, id, assignment: a, removed, perso
         title={mark === undefined ? words : `${mark.provenance} · ${words}`} data-op={mark?.op} data-fill={mark === undefined ? undefined : "own"}
         data-roster-assignment={id} data-roster-tile="" data-layout="people" data-added={baseline === undefined ? "" : undefined} data-moved={baseline !== undefined && !sameSlot(baseline.slot, a.slot) ? "" : undefined}
         data-density={value.settings.density.type} data-selected={selected ? "" : undefined} data-drafted={drafted ? "" : undefined} data-removed={removed ? "" : undefined}
-        data-request={a.who.type === "request" ? "" : undefined} data-agency={person?.agency ? "" : undefined}
+        data-conflict={ctx.conflicted(id) ? "" : undefined} data-request={a.who.type === "request" ? "" : undefined} data-agency={person?.agency ? "" : undefined}
         data-tone={danger ? "danger" : issues.some(i => i.kind.type === "breach") ? "warning" : undefined} data-draggable={enabled ? "" : undefined}
         onClick={event => { event.stopPropagation(); ctx.select({ type: "assignment", key: id }); }}
         onKeyDown={event => { if (event.key === "Enter") { takeKey(event); ctx.select({ type: "assignment", key: id }); } else handle?.onKeyDown?.(event); }}>
@@ -1194,6 +1205,7 @@ function AssignmentCard({ ctx, id, assignment, removed }: { ctx: ViewContext; id
     // What a run of the optimiser did to the duty (#1409, R27): its mark on the card, and its provenance on hover.
     const mark = dutyMark(ctx, id, removed, drafted);
     return <Box css={ctx.styles.card} data-roster-card={id} data-selected={selection?.type === "assignment" && selection.key === id ? "" : undefined} data-drafted={drafted ? "" : undefined}
+        data-conflict={ctx.conflicted(id) ? "" : undefined}
         data-op={mark?.op} data-fill={mark === undefined ? undefined : "own"} title={mark?.provenance}>
         <chakra.button type="button" css={ctx.styles.cardHead} onClick={() => ctx.select({ type: "assignment", key: id })}><Box css={ctx.styles.cardTitle}>{assignmentName(ctx.value, assignment)}{removed && " · removed"}</Box></chakra.button>
         <Box css={ctx.styles.detail}>{`${ctx.format.time(assignment.start)}–${ctx.format.time(assignment.end)}`}{assignment.activity.type === "some" && ` · ${activityOf(ctx.value, assignment.activity.value)?.label ?? assignment.activity.value}`}</Box>

@@ -11,10 +11,10 @@ import {
 } from "@elaraai/east";
 import type { PlatformFunction } from "@elaraai/east/internal";
 import {
-    RecordSliceController, RecordSliceBindType, RecordSliceConfigType, RecordSliceStateType,
+    RecordSliceController, RecordSliceBindType, RecordSliceConfigType, RecordSliceReadType, RecordSliceStateType,
     RecordSliceWhereType, RecordSlicePrimitives, recordSliceBindPlatform, LiveSourceType, tilingOf,
     recordSliceReadPlatform, type RecordSliceBinding, type RecordSliceReader, type RecordSliceEntry, type RecordSlicePlacement,
-    type RecordSliceCell, type RecordSliceCellRuns, type RecordSliceJoined,
+    type RecordSliceCell, type RecordSliceCellRuns, type RecordSliceJoined, type RecordOnPrinter,
 } from "@elaraai/east-ui/internal";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import { enableSlicePersistence, scheduleSlicePersist, type SlicePersistMode } from "./index.js";
@@ -27,12 +27,22 @@ import { readResource } from "../../reactive/read-scope.js";
 type Config = ValueTypeOf<RecordSliceConfigType>;
 type State = ValueTypeOf<RecordSliceStateType>;
 type Where = ValueTypeOf<RecordSliceWhereType>;
+type Read = ValueTypeOf<RecordSliceReadType>;
 type Query = ValueTypeOf<typeof SeekQueryType>;
-type Descriptor = [string, RecordSliceBinding, Config, State];
+/**
+ * What a binding declares, as its type holds it, which a record Slice's handle carries on: each index's metadata
+ * (#1432), and its nested part (#1435).
+ */
+interface BindingDeclarations {
+    readonly indexes: unknown;
+    readonly nested: unknown;
+}
+type Descriptor = [string, RecordSliceBinding & BindingDeclarations, Config, State];
 const encodeState = encodeBeast2For(RecordSliceStateType);
 const decodeState = decodeBeast2For(RecordSliceStateType);
 const printConfig = printFor(RecordSliceConfigType);
 const printWhere = printFor(RecordSliceWhereType);
+const printRead = printFor(RecordSliceReadType);
 const printState = printFor(RecordSliceStateType);
 const typeNames = new WeakMap<object, string>();
 const configNames = new WeakMap<Config, string>();
@@ -145,7 +155,7 @@ function bind(types: EastType[], descriptor: Descriptor): BindingEntry {
     const write = (state: State) => { getStore().write(key, encodeState(state)); scheduleSlicePersist(key); };
     const metadata = types[0]?.type === "Struct" ? types[0].fields.indexes : undefined;
     const controller = new RecordSliceController(batched(source), config, row, read, write, collection.value.fields.key!,
-        metadata?.type === "Struct" ? metadata : undefined);
+        metadata?.type === "Struct" ? metadata : undefined, indexKeysOf(types[0]!));
     if (!store.has(key)) {
         controller.write(initial);
         let seeded = seeds.get(store);
@@ -158,6 +168,28 @@ function bind(types: EastType[], descriptor: Descriptor): BindingEntry {
     return entry;
 }
 
+/**
+ * A binding's index key types, by index (#1432): the cases of its entries'
+ * `ik`, which name a generated index's `on` — what its planners print its
+ * leading values at.
+ *
+ * @param source - The binding's East type (`IndexedSourceType`'s)
+ * @returns Each index's key type, by its name; none for a source whose entries name no `ik`
+ */
+function indexKeysOf(source: EastType): Record<string, EastType> {
+    const page = source.type === "Struct" ? source.fields.page : undefined;
+    const output = page?.type === "Function" ? page.output : undefined;
+    const entries = output?.type === "Variant" ? output.cases.some : undefined;
+    const entry = entries?.type === "Array" ? entries.value : undefined;
+    const ik = entry?.type === "Struct" ? entry.fields.ik : undefined;
+    return ik?.type === "Variant" ? ik.cases as Record<string, EastType> : {};
+}
+
+/** A read by area's clause, as the controller takes it: none for any other read. */
+function areaOf(read: Read) {
+    return read.area.type === "some" ? read.area.value : undefined;
+}
+
 type Operation = (controller: RecordSliceController, ...args: unknown[]) => unknown;
 const operations: Record<keyof typeof RecordSlicePrimitives, Operation> = {
     read: c => c.readState(),
@@ -168,7 +200,7 @@ const operations: Record<keyof typeof RecordSlicePrimitives, Operation> = {
     clear: (c, field) => c.choose(field as string, undefined),
     clearAll: c => c.clearAll(),
     count: c => c.count(),
-    countWhere: (c, where) => c.count(where as Where),
+    countWhere: (c, read) => c.count((read as Read).where, areaOf(read as Read)),
     total: c => c.source.total("primary"),
     domain: (c, field) => c.domain(field as string),
     values: (c, field) => c.values(field as string),
@@ -176,7 +208,7 @@ const operations: Record<keyof typeof RecordSlicePrimitives, Operation> = {
     replaces: (c, field) => c.replaces(field as string),
     togglePreset: (c, id) => c.togglePreset(id as string),
     setResolution: (c, resolution) => c.write({ ...c.readState(), resolution: resolution as State["resolution"] }),
-    pageWhere: (c, where, offset, limit) => c.windows.page(c.plan(where as Where), offset as bigint, limit as bigint),
+    pageWhere: (c, read, offset, limit) => c.windows.page(c.plan((read as Read).where, areaOf(read as Read)), offset as bigint, limit as bigint),
     // The narrowed data's reads read the narrowing as it stands, tracked in the evaluation that reads them (#1354).
     dataPage: (c, offset, limit) => c.windows.page(c.plan(c.readState().where), offset as bigint, limit as bigint),
     dataSeek: (c, query) => c.windows.seek(c.plan(c.readState().where), query as Query),
@@ -227,7 +259,8 @@ export function createRecordSliceImplementation(platforms: () => PlatformFunctio
                         East.function(inputs, output, ($, ...params) => {
                             const descriptor = $.let((shared as unknown as { get(): ExprType<EastType> }).get()) as unknown as
                                 { key: unknown; source: unknown; config: unknown; initial: unknown };
-                            return primitive(types, descriptor.key, descriptor.source, descriptor.config, descriptor.initial, ...params);
+                            // The primitives take the source's type and the window's; the bind's declarations' are the handle's alone (#1435).
+                            return primitive(types.slice(0, 2), descriptor.key, descriptor.source, descriptor.config, descriptor.initial, ...params);
                         })), platforms()) as (...args: never[]) => unknown;
                     entry.factories.set(name, factory);
                 }
@@ -239,7 +272,10 @@ export function createRecordSliceImplementation(platforms: () => PlatformFunctio
             }
             const dataType = LiveSourceType(types[1]!);
             const handle = { ...methods,
-                pageWhere: compile("pageWhere", [RecordSliceWhereType, IntegerType, IntegerType], dataType.fields.page.output),
+                // The binding's declarations, as it gives them (#1435): what the narrowed rows' record declares; and the binding
+                // itself (#1438), what a reader of their nested series index reads through.
+                indexes: source.indexes, nested: source.nested, source,
+                pageWhere: compile("pageWhere", [RecordSliceReadType, IntegerType, IntegerType], dataType.fields.page.output),
                 data: {
                     // The source, never its narrowing: its reads read the narrowing as it stands, and `query` names it,
                     // so a reader keys its windows by it as by the revision. Revision remains the record's real state
@@ -261,11 +297,11 @@ export function createRecordSliceImplementation(platforms: () => PlatformFunctio
         if (collection.type !== "Array") throw new Error("A record scan requires an array of index entries");
         const typeKey = printType(fromEastTypeValue(collection));
         return (...args: unknown[]) => {
-            const [id, revision, total, page, where] = args as [string, () => option<string>,
-                (where: Where) => option<bigint>, (where: Where, offset: bigint, limit: bigint) => option<unknown[]>, Where];
-            const key = `record-scan:${id}:${typeKey}:${printWhere(where)}`;
+            const [id, revision, total, page, read] = args as [string, () => option<string>,
+                (read: Read) => option<bigint>, (read: Read, offset: bigint, limit: bigint) => option<unknown[]>, Read];
+            const key = `record-scan:${id}:${typeKey}:${printRead(read)}`;
             const scan = readResource(key, () => activeScan(key));
-            return scan.read(revision, () => total(where), (offset, limit) => page(where, offset, limit));
+            return scan.read(revision, () => total(read), (offset, limit) => page(read, offset, limit));
         };
     }),
     ];
@@ -304,6 +340,21 @@ function controllerOf(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">): Rec
     for (const entry of bindings.get(getStore())?.values() ?? []) if (entry.descriptor[0] === slice.key) found = entry.controller;
     if (found === undefined) throw new Error(`The record Slice '${slice.key}' is bound in no store this page holds`);
     return found;
+}
+
+/**
+ * A generated index's `on` printer (#1432): its leading values as one `.east`
+ * literal of its key's `on`, at the types the binding's index key types give
+ * them — what a reader's searches of its key's own fields name them with
+ * (a Plan's cells, a Schematic's window).
+ *
+ * @param slice - The record Slice
+ * @param index - The generated index's name
+ * @returns Its printer
+ * @throws {Error} When no binding of the slice lives in the page's store, or the index's key holds no `on`
+ */
+export function recordSliceOnPrinter(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string): RecordOnPrinter {
+    return controllerOf(slice).printOn(index);
 }
 
 /**
@@ -390,21 +441,24 @@ export function recordSliceSeek(slice: Pick<ValueTypeOf<RecordSliceBindType>, "k
 }
 
 /**
- * A window of a record Slice's narrowing of its record — with no narrowing, of
- * the record's own rows in their order (#1404): the entries `[offset, offset +
- * limit)`, each as its binding reads it, its key and its row joined. What a key
- * search over a whole record lists the matches {@link recordSliceSeek} placed
- * by: the Schematic's Find. A tracked read, as {@link recordSlicePlace} is.
+ * A window of what a read of a record Slice's record holds — with no
+ * narrowing, of the record's own rows in their order (#1404): the entries
+ * `[offset, offset + limit)`, each as its binding reads it, its key and its row
+ * joined. The read is `pageWhere`'s: a narrowing, and a read by area's clause
+ * beside it (#1432). What a key search over a whole record lists the matches
+ * {@link recordSliceSeek} placed by — the Schematic's Find — and a kind's rows
+ * with no position its Backlog lists. A tracked read, as
+ * {@link recordSlicePlace} is.
  *
  * @param slice - The record Slice
- * @param where - The narrowing; empty, the record's own rows
- * @param offset - The window's first row, in the narrowing's order
+ * @param read - The read: its narrowing — empty, the record's own rows — and its area clause, none for any other read
+ * @param offset - The window's first row, in the read's order
  * @param limit - How many rows it holds at most
  * @returns The window's entries, in order; none while pending
  */
-export function recordSlicePage(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where: Where, offset: bigint, limit: bigint): option<unknown[]> {
+export function recordSlicePage(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, read: Read, offset: bigint, limit: bigint): option<unknown[]> {
     const controller = controllerOf(slice);
-    return controller.windows.page(controller.plan(where), offset, limit);
+    return controller.windows.page(controller.plan(read.where, areaOf(read)), offset, limit);
 }
 
 /**
@@ -447,7 +501,7 @@ function cellsOf(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: st
  *
  * @param slice - The record Slice
  * @param index - The series, summary or area index
- * @param cells - The cells, each its searches (`tileCellQueries`, `areaQueries`) under the reader's name for it
+ * @param cells - The cells, each its searches (`levelCellQueries`, `summaryCellQueries`, `areaQueries`) under the reader's name for it
  * @returns Each cell's runs, by its name; none while any is pending
  * @throws {Error} When the binding lists no such index, or two cells share a name
  */

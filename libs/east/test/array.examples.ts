@@ -994,6 +994,25 @@ export const arrayToTreeDictChildren = example({
     ],
 });
 
+export const arrayFlattenTree = example({
+    keywords: ["array", "ArrayType", "flattenTree", "tree", "flatten", "walk", "depth first", "path", "nodes", "inverse", "toTree", "RecursiveType"],
+    description: "Flatten a tree whose children are an array: every node with its path of indices, depth first",
+    fn: East.function([], ArrayType(StructType({ path: ArrayType(IntegerType), name: StringType })), ($) => {
+        const tasks = $.const([
+            { name: "Build", children: [{ name: "Compile", children: [] }, { name: "Link", children: [] }] },
+            { name: "Test", children: [] },
+        ], ArrayType(TreeNodeType));
+        return tasks.flattenTree((_$, task) => task.unwrap().children).map((_$, entry) => ({ path: entry.path, name: entry.node.unwrap().name }));
+    }),
+    inputs: [],
+    returns: [
+        { path: [0n], name: "Build" },
+        { path: [0n, 0n], name: "Compile" },
+        { path: [0n, 1n], name: "Link" },
+        { path: [1n], name: "Test" },
+    ],
+});
+
 // ---------------------------------------------------------------------------
 // CSV
 // ---------------------------------------------------------------------------

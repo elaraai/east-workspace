@@ -14,14 +14,23 @@
  * them at the source's new revision (#1199), so no source reads itself whole to
  * say which moved.
  *
+ * A source moving under the drafts carries them over to it (merge.ts): each
+ * drafted entry is read at the new base and merged three ways — what both began
+ * from, the draft, and the source's new value. What combines is carried over at
+ * once; a part both changed to different values is a conflict, the draft's value
+ * standing there until someone settles it, and Save waits until none is left.
+ * Settling one — the draft's value, or the source's — is a step of the history,
+ * which Undo takes back.
+ *
  * @packageDocumentation
  */
-import { ArrayType, BlobType, ConflictError, DictType, East, EastTypeType, OptionType, StringType, StructType, applyFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, parseFor, some, toEastTypeValue, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
+import { ArrayType, BlobType, ConflictError, DictType, East, EastTypeType, OptionType, StringType, StructType, applyFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, parseFor, pathFromString, some, toEastTypeValue, variant, type EastType, type PatchPath, type ValueTypeOf, type option } from "@elaraai/east";
 import {
     applyEditing, EditingAppliedTypeFor, EditingApplyResultType, EditingBaseTypeFor, EditingChangeSetTypeFor,
     EditingChangeTypeFor, EditingPlacementType, EditingIssueType, EditingOriginType, EditingPatchEventTypeWith,
 } from "@elaraai/east-ui/internal";
-import { normalizeDraft, type BatchReadiness } from "./draft.js";
+import { liftDraft, normalizeDraft, type BatchReadiness } from "./draft.js";
+import { EntryMerger, type ConflictPoint } from "./merge.js";
 import { SESSION_TEXT } from "./messages.js";
 
 // The runtime schemas remain exact. The TS algorithm treats domain payloads
@@ -70,13 +79,219 @@ export interface EntryUpdate<W> {
     after: EntryVersion<W>;
 }
 
+/**
+ * An entry drafted away from its original (#1437): both versions as the
+ * session holds them — the same objects until a gesture, an Undo, a Redo, a
+ * Discard or a confirmed Save replaces one — and each as the source holds an
+ * entry.
+ *
+ * @typeParam W - The collection's projection of an entry
+ */
+export interface DraftedEntry<W> {
+    /** The entry's id. */
+    readonly id: string;
+    /** A keyed source's key, read from the id; `undefined` for an Array source's entry. */
+    readonly key: unknown;
+    /** The entry as the source held it when its first change was drafted. */
+    readonly original: EntryVersion<W>;
+    /** The entry as drafted. */
+    readonly draft: EntryVersion<W>;
+    /** The original as the source holds an entry: `none` where it was absent. */
+    readonly before: option<unknown>;
+    /** The draft as the Save would leave the entry: `none` where the draft removes it. */
+    readonly after: option<unknown>;
+}
+
+/**
+ * A session's drafts, as a preview of its Save reads them (#1437).
+ *
+ * @typeParam W - The collection's projection of an entry
+ */
+export interface SessionDrafts<W> {
+    /**
+     * The source's revision the drafts began from, where the source names its
+     * revisions; `undefined` for an inline source, and before a first gesture.
+     */
+    readonly revision: string | undefined;
+    /**
+     * Each entry drafted away from its original, by its id. A draft not yet
+     * complete is no change a Save sends, so it is none of them.
+     */
+    readonly entries: ReadonlyMap<string, DraftedEntry<W>>;
+}
+
+/**
+ * An entry whose draft conflicts with its source's newer value: the three
+ * values, each as a draft — what both began from, the draft, and the
+ * source's — and each conflict (merge.ts).
+ */
+export interface EntryConflicts {
+    /** The entry's id. */
+    readonly id: string;
+    /** A keyed source's key, read from the id; `undefined` for an Array source's entry. */
+    readonly key: unknown;
+    /** What both began from: the source's value, rewound at each conflict. */
+    readonly was: option<unknown>;
+    /** The draft. */
+    readonly draft: option<unknown>;
+    /** The source's value. */
+    readonly source: option<unknown>;
+    /** Each conflict. */
+    readonly points: readonly ConflictPoint[];
+    /**
+     * What the source said of the entry when it refused a Save for a
+     * conflict, the drafts then carried over — who changed it last, where the
+     * source says (#1199); `undefined` where no refused Save named it.
+     */
+    readonly said: string | undefined;
+}
+
+/** How a conflict is settled: the draft's value kept, or the source's taken. */
+export type ConflictChoice = "draft" | "source";
+/**
+ * Two fields of an entry that read as one value: its start and its end — an
+ * item's dates. The conflicts popover shows a conflict at either as one card,
+ * the range whole, and settles the two together — and the fields that go with
+ * them ({@link ConflictRange.with}).
+ */
+export interface ConflictRange {
+    /** The field of its start. */
+    readonly start: string;
+    /** The field of its end. */
+    readonly end: string;
+    /**
+     * The fields a move writes with its times, which place it with them — a
+     * duty's shift and group, a bin's bay at its own minute. While a conflict
+     * at the times waits, the draft's own values stand there too, and choosing
+     * settles them with the times: Theirs takes theirs back, Yours keeps the
+     * draft's. A change there with no conflict at the times combines as any
+     * other. None by default.
+     */
+    readonly with?: readonly string[] | undefined;
+}
+
+/**
+ * Fields of an entry that change together: a value, and the fields that
+ * follow it — a quantity, and its split across resources. The conflicts
+ * popover shows a conflict at any of them as one card, the value's, and
+ * settles them together.
+ */
+export interface ConflictTogether {
+    /** The field of the value the card shows. */
+    readonly lead: string;
+    /** The fields that change with it. */
+    readonly with: readonly string[];
+    /** What the card calls the value — `Quantity`; the lead's name in words by default. */
+    readonly label?: string | undefined;
+}
+
+/**
+ * The entry's field a conflict is in: its path's first field, past the cases
+ * of the draft's own — an entry drafted whole is a case of its draft.
+ *
+ * @param point - The conflict
+ * @returns The field's name; `undefined` for a conflict of the entry as a whole
+ */
+export function conflictFieldOf(point: ConflictPoint): string | undefined {
+    for (const step of point.at) {
+        if (step.kind === "field") return step.name;
+        if (step.kind !== "variant") return undefined;
+    }
+    return undefined;
+}
+
+/** The card a conflict shares with others of its entry ({@link conflictPartOf}): its key within the entry, and why. */
+export type ConflictPart =
+    | { readonly key: string; readonly range: ConflictRange }
+    | { readonly key: string; readonly together: ConflictTogether };
+
+/**
+ * The card a conflict shows on, where it shares one: its range's — an item's
+ * start or end ({@link ConflictRange}) — or the fields' that change together
+ * ({@link ConflictTogether}), by its first field; `undefined` for a conflict
+ * on a card of its own.
+ *
+ * @param point - The conflict
+ * @param ranges - The entry's ranges
+ * @param together - The entry's fields that change together
+ * @returns The shared card, or `undefined`
+ */
+export function conflictPartOf(point: ConflictPoint, ranges: readonly ConflictRange[], together: readonly ConflictTogether[]): ConflictPart | undefined {
+    const first = conflictFieldOf(point);
+    if (first === undefined) return undefined;
+    const range = ranges.find((r) => stringEqual(r.start, first) || stringEqual(r.end, first));
+    if (range !== undefined) return { key: `range\u0000${range.start}\u0000${range.end}`, range };
+    const joined = together.find((t) => stringEqual(t.lead, first) || t.with.some((field) => stringEqual(field, first)));
+    return joined === undefined ? undefined : { key: `together\u0000${joined.lead}`, together: joined };
+}
+
+/**
+ * A drafted entry as a reload keeps it (keep.ts): what both began from, the
+ * draft, the collection's projection of each, and where each stands — what
+ * the session needs to carry the draft over to the source as a reload finds
+ * it ({@link EditSession.restore}).
+ *
+ * @typeParam W - The collection's projection of an entry
+ */
+export interface KeptEntry<W> {
+    /** The entry's id. */
+    readonly id: string;
+    /**
+     * What both began from: the source's value as the edit began — or as a
+     * carried-over conflict rewound it — as a draft; `none` for an entry new
+     * to the source.
+     */
+    readonly was: option<unknown>;
+    /** The draft; `none` for an entry the draft removes. */
+    readonly draft: option<unknown>;
+    /** The collection's projection of the draft. */
+    readonly wire: W | undefined;
+    /** Its projection of what both began from. */
+    readonly beforeWire: W | undefined;
+    /** Where the draft stands. */
+    readonly place: Placement;
+    /** Where the entry stood as its edit began. */
+    readonly beforePlace: Placement;
+}
+
+/**
+ * A conflict settled since the drafts were last carried over, until Save:
+ * how, and what each side held, so it reads back as settled and can be
+ * settled the other way.
+ */
+export interface SettledConflict {
+    /** The entry's id. */
+    readonly id: string;
+    /** A keyed source's key, read from the id; `undefined` for an Array source's entry. */
+    readonly key: unknown;
+    /** The conflict, as it read before it was settled. */
+    readonly point: ConflictPoint;
+    /** How it is settled now. */
+    readonly choice: ConflictChoice;
+    /** The draft as it stood before it was first settled: what settling it for the draft's value restores. */
+    readonly draft: option<unknown>;
+    /** The source's value. */
+    readonly source: option<unknown>;
+    /** What both began from, before it was first settled. */
+    readonly was: option<unknown>;
+    /** What the source said of the entry when it refused a Save for a conflict ({@link EntryConflicts.said}). */
+    readonly said: string | undefined;
+}
+
 interface History<W> {
     label: string;
     /** The gesture that made the transaction (#1409): what a host that replays a step by its origin reads. */
     origin: Origin;
     before: Map<string, EntryVersion<W>>;
     after: Map<string, EntryVersion<W>>;
+    /** What both began from, for each entry a settling moved it for: before and after the step, `undefined` for none. */
+    ancestors?: { readonly before: ReadonlyMap<string, option<unknown> | undefined>; readonly after: ReadonlyMap<string, option<unknown> | undefined> } | undefined;
+    /** The conflicts a settling settled, by entry and path: before and after the step, `undefined` for none. */
+    settled?: { readonly before: ReadonlyMap<string, SettledConflict | undefined>; readonly after: ReadonlyMap<string, SettledConflict | undefined> } | undefined;
 }
+
+/** A settled conflict's key: its entry and its path. */
+const settledKey = (id: string, path: string): string => `${id}\u0000${path}`;
 
 /**
  * Rows of the entries a request changes as the source holds them at one
@@ -132,6 +347,25 @@ export interface EditSessionBinding<W> {
     ready?: ((entries: ReadonlyMap<string, EntryVersion<W>>) => BatchReadiness) | undefined;
     /** One unresolved request across every view bound to this source. */
     gate?: { available: () => boolean; acquire: () => void; release: () => void } | undefined;
+    /**
+     * Whether the drafts are carried over to a base the source moves to (the
+     * default), or go out of date instead (`false`): for a source whose
+     * entries' identities do not survive its being read again — a query's
+     * steps, parsed afresh — where a draft could not be paired with what it
+     * changed.
+     */
+    carryOver?: boolean | undefined;
+    /** The entry's fields that read as one, each an item's start and end ({@link ConflictRange}); none by default. */
+    ranges?: readonly ConflictRange[] | undefined;
+    /** The entry's fields that change together, each a value and those that follow it ({@link ConflictTogether}); none by default. */
+    together?: readonly ConflictTogether[] | undefined;
+    /**
+     * The collection's projection of a draft the session made itself — one
+     * carried over to a newer base, or settled — where it draws drafts from
+     * their projection (the Sheet's rows). `undefined` keeps the projection
+     * the entry had.
+     */
+    wireOf?: ((id: string, draft: unknown, prior: W | undefined) => W | undefined) | undefined;
 }
 
 /** An entry a request changes: as its edit began, and as the request leaves it — `none` while it is absent. */
@@ -172,15 +406,45 @@ interface Submission<W> {
     revision: string | undefined;
     /** A positional snapshot's whole collection as the request leaves it — its target, order included. */
     expected: Uint8Array | undefined;
+    /** Each entry the request places, and where: what a positional snapshot holds once the request lands. */
+    placed: readonly Pick<Change, "id" | "place">[];
     release: (() => void) | undefined;
 }
 
 const placementEqual = equalFor(OptionType(EditingPlacementType));
+/**
+ * How many times in a row a Save the source refused because another write got
+ * there first is sent again by the session itself, once its drafts carry over
+ * with nothing to choose: past it, the person's Save sends it.
+ */
+const RESENDS = 3;
 const stringEqual = equalFor(StringType);
 const blobEqual = equalFor(BlobType);
 const schemaEqual = equalFor(EastTypeType);
 /** An entry the session holds no version of: absent, nowhere — one value for every projection. */
 const ABSENT: EntryVersion<never> = { draft: undefined, wire: undefined, place: none };
+
+/** A version's draft, as the merge reads it: `none` for an entry absent. */
+function draftOf(version: EntryVersion<unknown> | undefined): option<unknown> {
+    return version === undefined || version.draft === undefined ? none : some(version.draft);
+}
+
+/**
+ * A conflict's place, as an issue's: its entry, the group's child row it is
+ * in, and the field it is in — the first of its steps there.
+ *
+ * @param id - The entry
+ * @param at - The conflict's steps from the entry
+ * @param children - A group entry's child field
+ * @returns The issue, saying the entry's part changed both ways
+ */
+function issueAt(id: string, at: PatchPath, children: string | undefined): EditIssue {
+    const [first, second] = at;
+    const inRow = children !== undefined && first?.kind === "field" && stringEqual(first.name, children) && second?.kind === "index";
+    const row: option<bigint> = inRow ? some(second.index) : none;
+    const step = at[inRow ? 2 : 0];
+    return { entry: id, row, field: step?.kind === "field" ? some(step.name) : none, message: SESSION_TEXT.conflict };
+}
 
 /**
  * How a keyed source's entry is named (#880): a String key is its own id, any
@@ -288,12 +552,39 @@ export class EditSession<W> {
     issues: EditIssue[] = [];
     /** The latest error — the session's own (canonical), a host's or a source's. */
     error: string | undefined;
-    /** The source moved under pending drafts. */
+    /**
+     * Out of date: the source moved under pending drafts a session that does
+     * not carry its drafts over holds (`carryOver: false`) — Save off, and the
+     * drafts discarded to begin again from the source.
+     */
     stale = false;
+    /** What both began from, for each entry whose draft conflicts with its source's newer value (merge.ts). */
+    private ancestors = new Map<string, option<unknown>>();
+    /** Drafts being carried over to a newer base: the base, and each drafted entry as read there. */
+    private moving: { readonly base: Base; readonly read: Map<string, option<unknown>> } | undefined;
+    /** Drafts a reload kept, waiting for the session's first base ({@link EditSession.restore}). */
+    private restoring: readonly KeptEntry<W>[] | undefined;
+    private readonly merger: EntryMerger;
+    /** Each conflict settled since the drafts were last carried over, by entry and path. */
+    private settledPoints = new Map<string, SettledConflict>();
+    /** Each conflict's issue, by entry and path ({@link EditSession.conflictIssue}). */
+    private readonly conflictIssues = new Map<string, EditIssue>();
+    /** What the source said of each entry a Save it refused for a conflict named, kept for the conflicts carried over from it. */
+    private said = new Map<string, string>();
+    /** A Save the source refused because another write got there first, to send again once its drafts carry over with nothing to choose. */
+    private again = false;
+    /** How many times in a row the session has sent a Save again itself, since the person's last ({@link RESENDS}). */
+    private resent = 0;
+    /** The conflicts as last read, at the session's version: the same object while it does not move. */
+    private conflictsCache: { readonly serial: number; readonly value: ReadonlyMap<string, EntryConflicts> } | undefined;
     /** A Save's conflict at a revision base whose entries the session has still to name (#1199). */
     private conflicted: Conflicted | undefined;
     /** Why the confirmation read last failed, while it is the error shown (#853). */
     private confirmReason: string | undefined;
+    /** Each drafted entry's view, by its original and its draft: the same object while both hold (#1437). */
+    private draftedViews = new WeakMap<EntryVersion<W>, WeakMap<EntryVersion<W>, DraftedEntry<W>>>();
+    /** The drafts as last read, at the session's version and base: the same object while neither moves (#1437). */
+    private draftsCache: { readonly serial: number; readonly base: Base | undefined; readonly value: SessionDrafts<W> } | undefined;
     /**
      * The readiness last derived, and by which author checks (#859). It is
      * read on every render and every gesture, and derived only when something
@@ -335,6 +626,7 @@ export class EditSession<W> {
         this.baseEqual = equalFor(baseType) as (a: Base, b: Base) => boolean;
         this.encodeCollection = encodeBeast2For(keyType !== undefined ? DictType(keyType, entry) : ArrayType(entry)) as (value: unknown) => Uint8Array;
         this.encodeEntry = encodeBeast2For(entry) as (value: unknown) => Uint8Array;
+        this.merger = new EntryMerger(binding.draftType);
     }
 
     /**
@@ -360,7 +652,9 @@ export class EditSession<W> {
     /** A request is unresolved. */
     get locked(): boolean { return this.submission !== undefined; }
     /** A gesture may be recorded now. */
-    get writable(): boolean { return this.binding.apply !== undefined && !this.locked && !this.stale && (this.binding.gate?.available() ?? true); }
+    get writable(): boolean { return this.binding.apply !== undefined && !this.locked && !this.stale && this.moving === undefined && (this.binding.gate?.available() ?? true); }
+    /** The drafts are being carried over to the base the source moved to: each drafted entry is still being read there. */
+    get carrying(): boolean { return this.moving !== undefined; }
     /** The drafts may be discarded now. */
     get canDiscard(): boolean { return !this.locked && (this.binding.gate?.available() ?? true); }
     /** Undo is available. */
@@ -435,11 +729,233 @@ export class EditSession<W> {
     /** The drafts changed: the next read derives the readiness afresh. */
     private draftsChanged(): void { this.readinessCache = undefined; }
     /** Apply is available. */
-    get canApply(): boolean { return this.writable && this.readiness.type === "ready" && this.status === "idle" && this.changes(this.baseline, this.current, false).length > 0; }
+    get canApply(): boolean { return this.writable && this.unsettled === 0 && this.readiness.type === "ready" && this.status === "idle" && this.changes(this.baseline, this.current, false).length > 0; }
+
+    /**
+     * Each entry whose draft conflicts with its source's newer value, and its
+     * conflicts — read from the three values, the same object while the
+     * session does not move.
+     */
+    get conflicts(): ReadonlyMap<string, EntryConflicts> {
+        const cached = this.conflictsCache;
+        if (cached !== undefined && cached.serial === this.serial) return cached.value;
+        const value = new Map<string, EntryConflicts>();
+        for (const [id, was] of this.ancestors) {
+            const draft = draftOf(this.current.get(id));
+            const source = draftOf(this.baseline.get(id));
+            const points = this.merger.conflicts(was, draft, source);
+            if (points.length > 0) value.set(id, { id, key: this.keyOf?.(id), was, draft, source, points, said: this.said.get(id) });
+        }
+        this.conflictsCache = { serial: this.serial, value };
+        return value;
+    }
+
+    /**
+     * Each conflict settled since the drafts were last carried over, until
+     * Save: how, and both sides' values — each can be settled the other way.
+     */
+    get settled(): readonly SettledConflict[] { return [...this.settledPoints.values()]; }
+
+    /**
+     * How many conflicts are still to settle — a range's start and end in one
+     * entry counting once, as the conflicts popover shows them on one card
+     * ({@link ConflictRange}): Save waits until none is.
+     */
+    get unsettled(): number {
+        let n = 0;
+        for (const entry of this.conflicts.values()) n += this.cardsOf(entry.points);
+        return n;
+    }
+
+    /**
+     * How many settled conflicts the conflicts popover shows: a range's in
+     * one entry counting once.
+     */
+    get chosen(): number {
+        const byEntry = new Map<string, ConflictPoint[]>();
+        for (const settled of this.settledPoints.values()) {
+            const points = byEntry.get(settled.id);
+            if (points === undefined) byEntry.set(settled.id, [settled.point]);
+            else points.push(settled.point);
+        }
+        let n = 0;
+        for (const points of byEntry.values()) n += this.cardsOf(points);
+        return n;
+    }
+
+    /**
+     * How many cards one entry's conflicts make: each on its own, but those at
+     * one range's start and end, or at fields that change together, one.
+     */
+    private cardsOf(points: readonly ConflictPoint[]): number {
+        const ranges = this.binding.ranges ?? [];
+        const together = this.binding.together ?? [];
+        if (ranges.length === 0 && together.length === 0) return points.length;
+        const hit = new Set<string>();
+        let n = 0;
+        for (const point of points) {
+            const part = conflictPartOf(point, ranges, together);
+            if (part === undefined) n++;
+            else if (!hit.has(part.key)) { hit.add(part.key); n++; }
+        }
+        return n;
+    }
     /** Every entry the session holds a version of, as it stands. */
     get entries(): ReadonlyMap<string, EntryVersion<W>> { return this.current; }
     /** The same entries as the source last acknowledged them. */
     get originals(): ReadonlyMap<string, EntryVersion<W>> { return this.baseline; }
+    /** The source's entry schema. */
+    get entryType(): EastType { return this.binding.entryType; }
+    /** A keyed source's key type; `undefined` for an Array source. */
+    get keyType(): EastType | undefined { return this.binding.keyType; }
+    /** The entry's draft schema: what a conflict's values are read with. */
+    get draftType(): EastType { return this.binding.draftType; }
+    /** The entry's fields that read as one ({@link ConflictRange}). */
+    get ranges(): readonly ConflictRange[] { return this.binding.ranges ?? []; }
+    /** The entry's fields that change together ({@link ConflictTogether}). */
+    get together(): readonly ConflictTogether[] { return this.binding.together ?? []; }
+
+    /**
+     * The places that go with a conflict's place: where it is at a range's
+     * start or end, the fields the range names to go with it ({@link
+     * ConflictRange.with}), under the same cases of the draft's own; none
+     * elsewhere.
+     *
+     * @param at - The conflict's place
+     * @returns The places
+     */
+    private readonly joined = (at: PatchPath): PatchPath[] => {
+        // Its first field, past the cases of the draft's own, as {@link conflictFieldOf} reads it.
+        const first = at.findIndex((step) => step.kind !== "variant");
+        const step = first < 0 ? undefined : at[first];
+        if (step === undefined || step.kind !== "field") return [];
+        const range = this.ranges.find((r) => r.with !== undefined && (stringEqual(r.start, step.name) || stringEqual(r.end, step.name)));
+        return (range?.with ?? []).map((name): PatchPath => [...at.slice(0, first), { kind: "field", name }]);
+    };
+
+    /**
+     * The drafts as a reload keeps them (keep.ts): each entry drafted away
+     * from what it began as, with what both began from — its original, or
+     * what a carried-over conflict rewound it to. An entry back as it began —
+     * undone, or discarded — is no draft to keep.
+     */
+    get keptEntries(): readonly KeptEntry<W>[] {
+        const out: KeptEntry<W>[] = [];
+        for (const [id, version] of this.current) {
+            const original = this.baseline.get(id) ?? ABSENT;
+            const was = this.ancestors.get(id) ?? draftOf(original);
+            const draft = draftOf(version);
+            if (Object.is(version, original) || (this.draftEqual(draft, was) && placementEqual(version.place, original.place))) continue;
+            out.push({ id, was, draft, wire: version.wire, beforeWire: original.wire, place: version.place, beforePlace: original.place });
+        }
+        return out;
+    }
+
+    /**
+     * Restore drafts a reload kept (keep.ts), before the session's first base:
+     * once the source's base is observed, they are carried over to the
+     * entries the source holds there, as drafts are when it moves
+     * ({@link EditSession.merge}) — each combined with what changed since,
+     * a part both changed a conflict to choose, and a draft the source holds
+     * already (a Save that landed before the reload) no draft any more. The
+     * history starts at them.
+     *
+     * @param entries - The kept drafts
+     * @returns Whether they will be restored: `false` once the session has a base
+     */
+    restore(entries: readonly KeptEntry<W>[]): boolean {
+        if (this.base !== undefined) return false;
+        this.restoring = entries;
+        return true;
+    }
+
+    /** Kept drafts, put back at the session's first base and carried over to it. */
+    private restoreAt(base: Base, entries: readonly KeptEntry<W>[]): void {
+        for (const entry of entries) {
+            this.baseline.set(entry.id, entry.was.type === "some" ? { draft: entry.was.value, wire: entry.beforeWire, place: entry.beforePlace } : ABSENT);
+            this.current.set(entry.id, entry.draft.type === "some" ? { draft: entry.draft.value, wire: entry.wire, place: entry.place } : ABSENT);
+        }
+        this.draftsChanged();
+        this.moving = { base: this.cloneBase(base), read: new Map() };
+        if (base.type === "snapshot") {
+            this.merge(base, (id) => this.inSnapshot(base.value, id));
+            return;
+        }
+        this.changed();
+    }
+
+    /**
+     * A conflict — open, or settled since the drafts were last carried over —
+     * as an issue of its entry, at the child row and the field it is in: what
+     * a collection goes to and names as it does its own issues. The same
+     * object for the same conflict until the drafts are carried over again,
+     * so a history finds the session it is of by it ({@link EditSession.holds}).
+     *
+     * @param id - The entry
+     * @param point - The conflict
+     * @returns Its issue
+     */
+    conflictIssue(id: string, point: ConflictPoint): EditIssue {
+        const key = settledKey(id, point.path);
+        const held = this.conflictIssues.get(key);
+        if (held !== undefined) return held;
+        const issue = issueAt(id, point.at, this.binding.children);
+        this.conflictIssues.set(key, issue);
+        return issue;
+    }
+
+    /**
+     * Whether an issue is this session's — one of its issues, of its drafts'
+     * readiness, or a conflict's — by the issue itself, the very object the
+     * session holds.
+     *
+     * @param issue - The issue
+     * @returns Whether the session holds it
+     */
+    holds(issue: EditIssue): boolean {
+        if (this.issues.some((held) => Object.is(held, issue))) return true;
+        const readiness = this.readiness;
+        if (readiness.type !== "ready" && readiness.value.some((held) => Object.is(held, issue))) return true;
+        for (const held of this.conflictIssues.values()) if (Object.is(held, issue)) return true;
+        return false;
+    }
+
+    /**
+     * The drafts, as a preview of the Save reads them (#1437): the revision of
+     * the source they began from, and each entry drafted away from its
+     * original — its original and its draft, the same objects while they
+     * hold, and each as the source holds an entry. What a page previews a
+     * drafted entry's Save from, applying the entry's change to the entry as
+     * the source holds it at the revision it reads.
+     *
+     * @returns The drafts: the same object while the session and its base do not move
+     */
+    get drafts(): SessionDrafts<W> {
+        const cached = this.draftsCache;
+        // The base the session holds, the same object until it observes or confirms another.
+        if (cached !== undefined && cached.serial === this.serial && Object.is(cached.base, this.base)) return cached.value;
+        const entries = new Map<string, DraftedEntry<W>>();
+        for (const [id, draft] of this.current) {
+            const original = this.baseline.get(id) ?? ABSENT;
+            const after = this.domain(id, draft);
+            // A draft not yet complete sends nothing, and neither does one its original equals.
+            if (draft.draft !== undefined && after === undefined) continue;
+            const before = this.domain(id, original);
+            const [was, is] = [before === undefined ? none : some(before), after === undefined ? none : some(after)];
+            if (this.domainEqual(was, is)) continue;
+            let byDraft = this.draftedViews.get(original);
+            if (byDraft === undefined) { byDraft = new WeakMap(); this.draftedViews.set(original, byDraft); }
+            let view = byDraft.get(draft);
+            if (view === undefined) {
+                view = { id, key: this.keyOf?.(id), original, draft, before: was, after: is };
+                byDraft.set(draft, view);
+            }
+            entries.set(id, view);
+        }
+        const value: SessionDrafts<W> = { revision: this.base?.type === "revision" ? this.base.value : undefined, entries };
+        this.draftsCache = { serial: this.serial, base: this.base, value };
+        return value;
+    }
 
     /**
      * The inline source with every draft applied — the collection Apply would
@@ -462,23 +978,281 @@ export class EditSession<W> {
     }
 
     /**
-     * Capture the exact base on the first gesture; never silently rebase drafts.
+     * Capture the exact base on the first gesture. A base the source moved to
+     * under pending drafts carries them over to it ({@link EditSession.merge}):
+     * at once for an inline snapshot, which holds every entry; once each is
+     * read there for a source at a revision, which reads them by
+     * {@link EditSession.readIdsAt}. A session that does not carry its drafts
+     * over (`carryOver: false`) goes out of date instead ({@link EditSession.stale}).
      *
      * @param base - The base the source is at now
      */
     observeBase(base: Base): void {
-        if (this.base === undefined) { this.base = this.cloneBase(base); return; }
+        if (this.base === undefined) {
+            this.base = this.cloneBase(base);
+            const kept = this.restoring;
+            this.restoring = undefined;
+            if (kept !== undefined && kept.length > 0) this.restoreAt(base, kept);
+            return;
+        }
         if (this.baseEqual(this.base, base)) return;
         if (this.locked) return; // Only reconcile() may acknowledge a submitted request.
         if (this.pending === 0) {
             this.base = this.cloneBase(base);
-            this.baseline.clear(); this.current.clear(); this.history = []; this.cursor = 0;
+            this.baseline.clear(); this.current.clear(); this.ancestors.clear(); this.forgetConflicts(); this.history = []; this.cursor = 0;
+            this.moving = undefined; this.stale = false;
             this.draftsChanged();
-        } else {
+            this.changed();
+            return;
+        }
+        if (this.binding.carryOver === false) {
             if (this.stale) return;
             this.stale = true;
+            this.changed();
+            return;
+        }
+        if (this.moving !== undefined && this.baseEqual(this.moving.base, base)) return;
+        this.moving = { base: this.cloneBase(base), read: new Map() };
+        if (base.type === "snapshot") {
+            this.merge(base, (id) => this.inSnapshot(base.value, id));
+            return;
         }
         this.changed();
+    }
+
+    /**
+     * Carries the drafts over to the base the source moved to (merge.ts): each
+     * drafted entry, read there, merged three ways — what both began from, the
+     * draft, and the source's value there. What combines is carried over: a
+     * change of the source's to another part stands beside the draft's, and a
+     * Save sends only what the drafts changed. A part both changed to
+     * different values is a conflict: the draft's value stands there until it
+     * is settled ({@link EditSession.settle}), and Save waits. An entry whose
+     * draft the source's value now holds whole is no draft any more. The
+     * history starts over at the drafts: an undo would take an entry back to
+     * its version at the old base. A Save the source refused because another
+     * write got there first is sent again, once its drafts carry over with
+     * nothing to choose — a few times in a row at most ({@link RESENDS}).
+     *
+     * @param base - The base the source moved to
+     * @param read - Each drafted entry, as the source holds it at that base: `none` for one it does not hold, `undefined`
+     *   while it is read. Entries are read across calls, as they come.
+     * @returns `"merged"` once every drafted entry is read and carried over; `"waiting"` while one is still read;
+     *   `"unmoved"` where the drafts are not being carried over to this base
+     */
+    merge(base: Base, read: (id: string) => option<unknown> | undefined): "merged" | "waiting" | "unmoved" {
+        const carrying = this.moving;
+        if (carrying === undefined || this.locked || !this.baseEqual(carrying.base, base)) return "unmoved";
+        const before = carrying.read.size;
+        let missing = 0;
+        for (const id of this.current.keys()) {
+            if (carrying.read.has(id)) continue;
+            const now = read(id);
+            if (now === undefined) { missing++; continue; }
+            carrying.read.set(id, now);
+        }
+        if (missing > 0) {
+            // Advancing schedules the next bounded read, as a confirmation's does.
+            if (carrying.read.size !== before) this.changed();
+            return "waiting";
+        }
+        const baseline = new Map<string, EntryVersion<W>>();
+        const current = new Map<string, EntryVersion<W>>();
+        const ancestors = new Map<string, option<unknown>>();
+        for (const [id, mine] of this.current) {
+            const original = this.baseline.get(id) ?? ABSENT;
+            const now = carrying.read.get(id)!;
+            const source: option<unknown> = now.type === "some" ? some(liftDraft(this.binding.draftType, now.value)) : none;
+            const merged = this.merger.merge(this.ancestors.get(id) ?? draftOf(original), draftOf(mine), source, this.joined);
+            // A draft the source's value holds whole is a draft no more.
+            if (this.merger.equal(merged.draft, source)) continue;
+            baseline.set(id, this.versionOf(id, source, original));
+            current.set(id, this.versionOf(id, merged.draft, mine));
+            if (merged.ancestor !== undefined) ancestors.set(id, merged.ancestor);
+        }
+        // What the source said of each entry, where it refused a Save for a conflict: kept for the conflicts carried over.
+        const said = this.refusalWords();
+        const refused = this.status === "conflict";
+        this.base = this.cloneBase(base);
+        this.baseline = baseline; this.current = current; this.ancestors = ancestors; this.forgetConflicts(); this.said = said;
+        this.moving = undefined;
+        this.history = []; this.cursor = 0;
+        this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
+        this.draftsChanged();
+        // A refused Save goes again with nothing to choose; with a conflict, the person's Save sends it once it is chosen.
+        this.again = (refused || this.again) && this.unsettled === 0 && this.resent < RESENDS;
+        this.changed(); this.maybeAutoApply();
+        return "merged";
+    }
+
+    /**
+     * What the source said of each entry while a Save it refused for a
+     * conflict stands: its words for each entry it named, and those the
+     * session named it by at the source's newer revision (#1199) — the
+     * session's own words left out.
+     *
+     * @returns Each entry's words, by its id
+     */
+    private refusalWords(): Map<string, string> {
+        const said = new Map<string, string>();
+        if (this.status !== "conflict") return said;
+        for (const issue of [...(this.conflicted?.issues ?? []), ...this.issues]) {
+            if (issue.entry === "" || stringEqual(issue.message, SESSION_TEXT.changed)) continue;
+            said.set(issue.entry, issue.message);
+        }
+        return said;
+    }
+
+    /**
+     * Settle one conflict of an entry — keep the draft's value there, or take
+     * the source's — or settle one settled before the other way. One step of
+     * the history, which Undo takes back.
+     *
+     * @param id - The entry
+     * @param path - The conflict's patch path ({@link ConflictPoint.path})
+     * @param choice - Which value stands
+     * @returns Whether anything moved
+     */
+    settle(id: string, path: string, choice: ConflictChoice): boolean {
+        return this.settleTogether(id, [path], choice);
+    }
+
+    /**
+     * Settle several conflicts of an entry one way — a range's start and end
+     * ({@link ConflictRange}) — as one step of the history, which Undo takes
+     * back.
+     *
+     * @param id - The entry
+     * @param paths - The conflicts' patch paths
+     * @param choice - Which value stands
+     * @returns Whether anything moved
+     */
+    settleTogether(id: string, paths: readonly string[], choice: ConflictChoice): boolean {
+        return this.settleEach(new Map([[id, paths]]), choice);
+    }
+
+    /**
+     * Settle every conflict one way — those still open, and those settled the
+     * other way — in one step of the history.
+     *
+     * @param choice - Which value stands
+     * @returns Whether anything moved
+     */
+    settleAll(choice: ConflictChoice): boolean {
+        const targets = new Map<string, string[]>();
+        const add = (id: string, path: string) => { const paths = targets.get(id); if (paths === undefined) targets.set(id, [path]); else paths.push(path); };
+        for (const [id, entry] of this.conflicts) for (const point of entry.points) add(id, point.path);
+        for (const settled of this.settledPoints.values()) if (settled.choice !== choice) add(settled.id, settled.point.path);
+        return this.settleEach(targets, choice);
+    }
+
+    private settleEach(targets: ReadonlyMap<string, readonly string[]>, choice: ConflictChoice): boolean {
+        if (!this.writable) return false;
+        const open = this.conflicts;
+        const before = new Map<string, EntryVersion<W>>();
+        const after = new Map<string, EntryVersion<W>>();
+        const ancestorsBefore = new Map<string, option<unknown> | undefined>();
+        const ancestorsAfter = new Map<string, option<unknown> | undefined>();
+        const settledBefore = new Map<string, SettledConflict | undefined>();
+        const settledAfter = new Map<string, SettledConflict | undefined>();
+        for (const [id, paths] of targets) {
+            const mine = this.current.get(id) ?? ABSENT;
+            const source = draftOf(this.baseline.get(id));
+            const was = this.ancestors.get(id);
+            let draft = draftOf(mine);
+            let next = was;
+            for (const path of paths) {
+                const key = settledKey(id, path);
+                const prior = this.settledPoints.get(key);
+                // The conflict's place, and those that go with it: a range's, settled with its times.
+                const at = pathFromString(path);
+                const places = [at, ...this.joined(at)];
+                if (prior !== undefined) {
+                    // Settled the other way before: settled this way now.
+                    if (prior.choice === choice) continue;
+                    if (choice === "source") draft = this.merger.takeSourceAt(draft, source, places);
+                    else {
+                        draft = this.merger.takeSourceAt(draft, prior.draft, places);
+                        if (next !== undefined) next = this.merger.keepDraftAt(next, source, places);
+                    }
+                    settledBefore.set(key, prior);
+                    settledAfter.set(key, { ...prior, choice });
+                    continue;
+                }
+                const point = open.get(id)?.points.find((candidate) => stringEqual(candidate.path, path));
+                if (point === undefined || was === undefined || next === undefined) continue;
+                settledBefore.set(key, undefined);
+                settledAfter.set(key, { id, key: this.keyOf?.(id), point, choice, draft: draftOf(mine), source, was, said: this.said.get(id) });
+                if (choice === "source") draft = this.merger.takeSourceAt(draft, source, places);
+                else next = this.merger.keepDraftAt(next, source, places);
+            }
+            if (!this.merger.equal(draft, draftOf(mine))) {
+                before.set(id, mine);
+                after.set(id, this.versionOf(id, draft, mine));
+            }
+            // What both began from goes with the entry's last open conflict.
+            if (was !== undefined) {
+                const kept = next !== undefined && this.merger.conflicts(next, draft, source).length > 0 ? next : undefined;
+                if (kept === undefined || !this.merger.equal(kept, was)) {
+                    ancestorsBefore.set(id, was);
+                    ancestorsAfter.set(id, kept);
+                }
+            }
+        }
+        if (settledAfter.size === 0) return false;
+        for (const [id, version] of after) this.current.set(id, version);
+        this.setAncestors(ancestorsAfter);
+        this.setSettled(settledAfter);
+        this.draftsChanged();
+        const label = choice === "source" ? "Use the newer change" : "Keep my change";
+        this.history.splice(this.cursor);
+        this.history.push({
+            label, origin: "settle", before, after,
+            ancestors: { before: ancestorsBefore, after: ancestorsAfter },
+            settled: { before: settledBefore, after: settledAfter },
+        });
+        this.cursor++;
+        this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
+        if (before.size > 0) this.emit(before, after, "settle", label);
+        this.changed(); this.maybeAutoApply();
+        return true;
+    }
+
+    /** The conflicts settled, what the source said of them, and their issues, forgotten: the drafts are carried over afresh, or gone. */
+    private forgetConflicts(): void { this.settledPoints.clear(); this.said = new Map(); this.conflictIssues.clear(); }
+
+    /** Settled conflicts, set or dropped for each key given. */
+    private setSettled(settled: ReadonlyMap<string, SettledConflict | undefined>): void {
+        for (const [key, conflict] of settled) {
+            if (conflict === undefined) this.settledPoints.delete(key);
+            else this.settledPoints.set(key, conflict);
+        }
+    }
+
+    /** What both began from, set or dropped for each entry given. */
+    private setAncestors(ancestors: ReadonlyMap<string, option<unknown> | undefined>): void {
+        for (const [id, was] of ancestors) {
+            if (was === undefined) this.ancestors.delete(id);
+            else this.ancestors.set(id, was);
+        }
+    }
+
+    /** An entry's version holding a draft the session made: the collection's projection of it, else the one it had. */
+    private versionOf(id: string, draft: option<unknown>, as: EntryVersion<W>): EntryVersion<W> {
+        if (draft.type === "none") return ABSENT;
+        const wire = this.binding.wireOf === undefined ? as.wire : this.binding.wireOf(id, draft.value, as.wire);
+        return { draft: draft.value, wire, place: as.place };
+    }
+
+    /** An entry of an inline snapshot, by its id: `none` while the collection does not hold it. */
+    private inSnapshot(collection: unknown, id: string): option<unknown> {
+        if (this.keyOf !== undefined) return this.heldIn(collection, id);
+        const field = this.binding.idField;
+        if (field === undefined) return none;
+        for (const entry of collection as readonly Record<string, unknown>[]) {
+            if (stringEqual(entry[field] as string, id)) return some(entry);
+        }
+        return none;
     }
 
     private clone(version: EntryVersion<W>): EntryVersion<W> {
@@ -554,6 +1328,8 @@ export class EditSession<W> {
         if (!this.canUndo) return;
         const step = this.history[--this.cursor]!;
         for (const [id, entry] of step.before) this.current.set(id, entry);
+        if (step.ancestors !== undefined) this.setAncestors(step.ancestors.before);
+        if (step.settled !== undefined) this.setSettled(step.settled.before);
         this.draftsChanged();
         this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
         this.emit(step.after, step.before, "undo", `Undo ${step.label}`);
@@ -564,6 +1340,8 @@ export class EditSession<W> {
         if (!this.canRedo) return;
         const step = this.history[this.cursor++]!;
         for (const [id, entry] of step.after) this.current.set(id, entry);
+        if (step.ancestors !== undefined) this.setAncestors(step.ancestors.after);
+        if (step.settled !== undefined) this.setSettled(step.settled.after);
         this.draftsChanged();
         this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
         this.emit(step.before, step.after, "redo", `Redo ${step.label}`);
@@ -576,6 +1354,7 @@ export class EditSession<W> {
         this.current = new Map(this.baseline);
         this.draftsChanged();
         this.emit(before, this.current, "discard", "Discard changes");
+        this.ancestors.clear(); this.forgetConflicts(); this.moving = undefined; this.again = false;
         this.history = []; this.cursor = 0; this.stale = false;
         this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
         this.changed(); this.maybeAutoApply(false);
@@ -584,13 +1363,24 @@ export class EditSession<W> {
         // A discard cancels queued automatic submissions as well as avoiding a
         // new one: removing an incomplete draft may make another edit ready.
         const sequence = ++this.autoSequence;
-        if (enabled && this.binding.auto) queueMicrotask(() => {
-            if (sequence === this.autoSequence && this.canApply) void this.apply();
+        if (enabled && (this.binding.auto || this.again)) queueMicrotask(() => {
+            if (sequence !== this.autoSequence) return;
+            const again = this.again;
+            // Carried over again meanwhile: that carry-over sends it.
+            if (this.moving === undefined) this.again = false;
+            if (!this.canApply) return;
+            if (again) { this.resent++; void this.send(); } else void this.apply();
         });
     }
 
-    /** Apply the batch; a retry keeps the original immutable bytes and captured callback. */
+    /** Apply the batch, as the person's Save does; a retry keeps the original immutable bytes and captured callback. */
     async apply(): Promise<void> {
+        this.again = false; this.resent = 0;
+        await this.send();
+    }
+
+    /** Send the batch: the person's Save, or the session's own again after a refusal ({@link RESENDS}). */
+    private async send(): Promise<void> {
         if (this.status === "applying" || this.status === "reconciling") return;
         if (!this.submission) {
             if (!this.canApply || !this.base || !this.binding.apply) return;
@@ -606,8 +1396,9 @@ export class EditSession<W> {
                 const result = this.transform(this.base.value, batch, none);
                 if (result.type === "conflict") { this.status = "conflict"; this.issues = result.value; this.changed(); return; }
                 // A positional source's target is its whole collection, its order
-                // included; a keyed source's order is its keys', so its target is
-                // the batch's own entries (#1185).
+                // included — beside another write's, the batch's own entries where
+                // it placed them; a keyed source's order is its keys', so its
+                // target is the batch's own entries (#1185).
                 if (this.keyOf === undefined) expected = this.encodeCollection(result.value);
             }
             const targets = new Map(batch.changes.map(change => [change.id, {
@@ -616,7 +1407,8 @@ export class EditSession<W> {
             }]));
             const payload = this.encodeBatch(batch);
             this.binding.gate?.acquire();
-            this.submission = { prepare: this.binding.prepare, release: this.binding.gate?.release, expected, payload, apply: this.binding.apply, refresh: this.binding.refresh, after: new Map(this.current), targets, checked: new Map(), base: this.cloneBase(this.base), revision: undefined };
+            const placed = batch.changes.filter((change) => change.place.type === "some").map(({ id, place }) => ({ id, place }));
+            this.submission = { prepare: this.binding.prepare, release: this.binding.gate?.release, expected, placed, payload, apply: this.binding.apply, refresh: this.binding.refresh, after: new Map(this.current), targets, checked: new Map(), base: this.cloneBase(this.base), revision: undefined };
         }
         const request = this.submission;
         this.status = "applying"; this.error = undefined; this.conflicted = undefined; this.changed();
@@ -712,9 +1504,14 @@ export class EditSession<W> {
 
     /** The identities still to confirm or name at a revision, at most `limit` of them. */
     private idsAt(revision: string, limit: number): readonly string[] {
+        const carrying = this.moving;
+        if (carrying !== undefined && carrying.base.type === "revision" && stringEqual(revision, carrying.base.value)) {
+            return [...this.current.keys()].filter((id) => !carrying.read.has(id)).slice(0, limit);
+        }
         const request = this.submission;
         if (request !== undefined && this.status === "reconciling") {
-            if (request.revision === undefined || !stringEqual(revision, request.revision)) return [];
+            // At the revision it committed, or a later one: never the one it was drafted at, which holds nothing of it.
+            if (request.revision === undefined || request.base.type !== "revision" || stringEqual(revision, request.base.value)) return [];
             return [...request.targets.keys()].filter(id => !request.checked.has(id)).slice(0, limit);
         }
         const conflict = this.conflicted;
@@ -726,9 +1523,13 @@ export class EditSession<W> {
     /**
      * Retire the drafts once the source reads back as the acknowledged request
      * left it: an inline positional source's whole collection, its order
-     * included; an inline keyed source's own entries, whatever another write
-     * did to the others (#1185); a source that names its revisions, the
-     * request's entries read at the revision it committed.
+     * included — or, where another write landed beside the request first, its
+     * own entries, each where it placed them; an inline keyed source's own
+     * entries, whatever another write did to the others (#1185); a source that
+     * names its revisions, the request's entries read at the revision it
+     * committed or a later one — an entry another write changed since,
+     * acknowledged with its newer value, and one still as its edit began, read
+     * before the commit landed, judged by a later read.
      *
      * An entry reads back as the request left it when the source holds it
      * otherwise than its edit began, with what the request set — the change,
@@ -744,12 +1545,19 @@ export class EditSession<W> {
     reconcile(base: Base, read: (id: string) => option<unknown> | undefined): boolean {
         const request = this.submission;
         if (!request || this.status !== "reconciling") return false;
-        if (request.base.type === "revision" && (base.type !== "revision" || (request.revision === undefined || !stringEqual(base.value, request.revision)))) return false;
+        // At a revision: the one the request committed, or a later one — another write may land before the session reads
+        // its own (two Saves at once) — never the one it was drafted at.
+        if (request.base.type === "revision" && (base.type !== "revision" || request.revision === undefined || stringEqual(base.value, request.base.value))) return false;
         if (request.base.type === "snapshot" && base.type !== "snapshot") return false;
         // Whether every entry reads back as the session's versions hold it.
         let exact = true;
         if (request.expected !== undefined) {
-            if (!blobEqual(this.encodeCollection(base.value), request.expected)) return false;
+            // Another write may land beside the request before the session reads it back (two Saves at once): then
+            // the collection is not the request's, but holds the request's entries as it left them.
+            if (!blobEqual(this.encodeCollection(base.value), request.expected)) {
+                if (!this.leftIn(base, request)) return false;
+                exact = false;
+            }
         } else if (base.type === "snapshot") {
             for (const [id, target] of request.targets) {
                 const now = this.heldIn(base.value, id);
@@ -761,7 +1569,11 @@ export class EditSession<W> {
             for (const [id, target] of request.targets) {
                 if (request.checked.has(id)) continue;
                 const now = read(id);
-                if (now !== undefined && this.leftAs(now, target)) request.checked.set(id, this.domainEqual(now, target.after));
+                if (now === undefined) continue;
+                if (this.leftAs(now, target)) request.checked.set(id, this.domainEqual(now, target.after));
+                // Another write changed it since the request landed: acknowledged, the newer value the source's. One the
+                // change still applies to was read before the request landed: a later read judges it.
+                else if (!this.applies(now, target)) request.checked.set(id, false);
             }
             if (request.checked.size !== request.targets.size) {
                 // Advancing schedules the next bounded batch, even when the
@@ -771,7 +1583,7 @@ export class EditSession<W> {
             }
             for (const match of request.checked.values()) exact &&= match;
         }
-        this.base = this.cloneBase(base); this.baseline = new Map(request.after);
+        this.base = this.cloneBase(base); this.baseline = new Map(request.after); this.ancestors.clear(); this.forgetConflicts(); this.moving = undefined;
         this.submission = undefined; request.release?.(); this.status = "idle"; this.error = undefined; this.confirmReason = undefined; this.issues = []; this.stale = false;
         this.conflicted = undefined;
         if (!exact) {
@@ -780,8 +1592,8 @@ export class EditSession<W> {
         }
         this.changed();
         if (request.confirmed !== undefined) {
-            const confirmed = request.base.type === "revision" && request.revision !== undefined
-                ? this.heldAt(request.revision, request.targets, "after", request.checked) : undefined;
+            const confirmed = request.base.type === "revision" && base.type === "revision"
+                ? this.heldAt(base.value, request.targets, "after", request.checked) : undefined;
             queueMicrotask(() => request.confirmed!(confirmed));
         }
         return true;
@@ -884,6 +1696,34 @@ export class EditSession<W> {
         const key = this.keyOf?.(id);
         const held = key === undefined ? undefined : (collection as ReadonlyMap<unknown, unknown>).get(key);
         return held === undefined ? none : some(held);
+    }
+
+    /**
+     * Whether an inline positional source holds a request's entries as it left
+     * them, whatever another write did beside them: each, found by its identity
+     * field, as the request left it ({@link EditSession.leftAs}), and each it
+     * placed where it placed it — placed again by the same `Editing.apply` that
+     * landed it, the collection stays as it is.
+     *
+     * @param base - The base the source is at now: its whole collection
+     * @param request - The request
+     * @returns Whether the collection holds the request's entries as it left them
+     */
+    private leftIn(base: Base, request: Submission<W>): boolean {
+        if (base.type !== "snapshot" || this.transform === undefined) return false;
+        const collection = base.value;
+        for (const [id, target] of request.targets) {
+            if (!this.leftAs(this.inSnapshot(collection, id), target)) return false;
+        }
+        if (request.placed.length === 0) return true;
+        const changes: Change[] = [];
+        for (const { id, place } of request.placed) {
+            const now = this.inSnapshot(collection, id);
+            if (now.type === "none") return false;
+            changes.push({ id, patch: this.domainDiff(now, now), place });
+        }
+        const again = this.transform(collection, { requestId: "", base, label: "", changes }, none);
+        return again.type === "applied" && blobEqual(this.encodeCollection(again.value), this.encodeCollection(collection));
     }
 
     /**

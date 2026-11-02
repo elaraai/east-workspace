@@ -18,22 +18,32 @@
  * leaving the others committed, a write with no answer retried under its own
  * request id, a kind out of date discarded from its banner alone; auto mode;
  * and the drafts outliving a remount. Every word read from the history item
- * and the banners is the shared messages', never written out.
+ * and the banners is the shared messages', never written out. And `data`'s
+ * rows over a record of their own (#1436, `planRowDrop`): a run moved along
+ * its row, resized, carried to another row, a card dropped under the id the
+ * canvas mints, and a move onto a row holding the id refused — each saved as
+ * one commit and read back by id.
  */
 
 import { describe, test, expect } from "vitest";
 import { fireEvent, renderHook, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { DateTimeType, East, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, East, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages, fieldFormMessages, getRegisteredPlatformImplementations, type EditHistoryJoined } from "@elaraai/east-ui-components";
 import { Data, Plan, PlanPayloadType, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
+import * as rowDrop from "@elaraai/e3-ui/examples/plan/plan";
+import { announced, pointAt } from "@elaraai/east-ui-components/testing";
 import { usePlanEventEditing, type PlanEventChange } from "../edit/events.js";
 import type { PlanEntryRef } from "../use-plan-editing.js";
+import { carrySaid, keyOn } from "../plan-move.test-utils.js";
+import { boundFrame } from "../../sheet/frame.test-utils.js";
+import { offering } from "../../shared/schedule/keys.test-utils.js";
 import { act, el, elementKey, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import { conflictCards, reloadPage } from "../../e3-web-mount.test-utils.js";
 
-const h = planHarness();
+const h = planHarness({ "plan/plan-events": ex, "plan/plan": rowDrop });
 // A select scrolls its open listbox to the chosen option; jsdom does not scroll.
 Element.prototype.scrollTo ??= function scrollTo() { /* jsdom lays nothing out */ };
 
@@ -165,12 +175,12 @@ const NO_JOINED: readonly EditHistoryJoined<PlanEntryRef>[] = [];
 const printKindsFn = East.function([], PlanPayloadType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
     const crews = $.let(Record.bind(ex.planPrintCrews, []));
-    const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
-    const stops = $.let(Record.bind(ex.planPrintStops, [ex.planPrintStopsPatch]));
-    const shifts = $.let(Record.bind(ex.planPrintShifts, [ex.planPrintShiftsPatch]));
+    const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
+    const stops = $.let(Record.bind(ex.planPrintStops, ["patch"]));
+    const shifts = $.let(Record.bind(ex.planPrintShifts, ["patch"]));
     const stopTemplates = $.let(Data.bind(ex.planPrintStopTemplates));
     const slice = $.let(Slice.bindRecords("plan.editing.kinds", {
-        stopTemplates: { source: Data.bindPaged(ex.planPrintStopTemplates, { indexes: [ex.planPrintStopTemplatesByGroup] }) },
+        stopTemplates: { source: Data.bindPaged(ex.planPrintStopTemplates, { indexes: ["plan_print_stop_templates_by_group"] }) },
     }));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     return Plan.Payload({
@@ -204,6 +214,17 @@ const at = (text: string) => new Date(text);
 const printInstant = printFor(DateTimeType);
 
 describe("every gesture is one transaction (PB43)", () => {
+    test("each kind's session reads its events' start and end as one range, its dates: a conflict at either is one card of the popover", async () => {
+        await h.install({ fn: printKindsFn });
+        const payload = printKinds();
+        const { result } = renderHook(() => usePlanEventEditing({ kinds: payload.events, applyMode: "batch", storageKey: "plan-ranges", joined: NO_JOINED }));
+        await settle();
+        const roles = new Map(payload.events.map((kind) => [kind.key, kind.schedule] as const));
+        const ranges = result.current.sessions.map((held) => [held.kind, held.session.ranges] as const);
+        expect(ranges.length).toBeGreaterThan(0);
+        for (const [kind, held] of ranges) expect(held).toEqual([{ start: roles.get(kind)!.start, end: roles.get(kind)!.end }]);
+    });
+
     test("a move, a resize, a drop, a schedule and an unschedule — each the kind's own write, one transaction — undone one at a time, in the order they were made, across kinds", async () => {
         // The kinds read their records through the runtimes a mounted Plan installs, their records loaded.
         await h.install({ fn: printKindsFn });
@@ -555,7 +576,7 @@ describe("Save per kind (PB45–PB48)", () => {
         expect(field(container, "customer").hasAttribute("data-dirty")).toBe(false);
     });
 
-    test("a kind whose record moved since is a conflict: its banner names the event and who changed the record last, its drafts stay, out of date — and the other kinds commit (PB46)", async () => {
+    test("a kind whose record moved since carries its drafts over: the customer both changed waits in the conflicts, named by the event and who changed the record last — and the other kinds commit (PB46)", async () => {
         const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         const deployed = await commits(ex.planPrintStops.name);
@@ -569,19 +590,50 @@ describe("Save per kind (PB45–PB48)", () => {
             fireEvent.mouseDown(historyButton(container, SAVE), { button: 0 });
             fireEvent.click(historyButton(container, SAVE));
         }, (jobs) => jobWith(jobs, "J-1001", { customer: "Alder & Finch Group" }));
-        const conflict = editingMessages.bannerConflict({ n: 1, count: "1" });
-        expect(banners(container).map((b) => b.kind)).toEqual(["conflict", "stale"]);
-        expect(banners(container)[0]!.text).toContain(titled("Print job", conflict));
-        expect(banners(container)[0]!.text).toContain(editingMessages.bannerIssue({ where: "Spring catalogue", message: "Changed since this edit began — last changed by another session" }));
-        expect(banners(container)[1]!.text).toContain(titled("Print job", editingMessages.bannerStale()));
-        // The stop committed; the job did not, and its draft stands over the other planner's.
+        // The job's draft is carried over to the jobs as the other planner left them: nothing is out of date, and the
+        // customer both changed waits to be chosen — named as the Plan names the event, with who changed the record last.
+        await waitFor(() => {
+            expect(banners(container).map((b) => b.kind)).toEqual(["conflicts"]);
+            expect(statusLine(container)).toBeUndefined();
+        });
+        expect(banners(container)[0]!.text).toContain(titled("Print job", editingMessages.bannerConflicts({ n: 1, count: "1" })));
+        const [card, ...more] = await conflictCards(container);
+        expect(more).toEqual([]);
+        expect([card!.item, card!.yours]).toEqual(["Spring catalogue", "Yours, Alder & Finch Ltd"]);
+        // Its bar wears the warn ring while the conflict waits.
+        expect(bar(container, "J-1001")!.hasAttribute("data-conflict")).toBe(true);
+        expect(card!.theirs).toBe("Theirs, Alder & Finch Group, Changed since this edit began — last changed by another session · was Alder & Finch");
+        // The stop committed; the job did not, and its draft stands over the other planner's, waiting to be chosen.
         expect(await commits(ex.planPrintStops.name)).toEqual(["patch", ...deployed]);
         expect((await readStops()).get("S-01")!.kind.type).toBe("service");
         expect((await readJobs()).get("J-1001")!.customer).toBe("Alder & Finch Group");
         await select(bar(container, "J-1001")!);
         expect(customer(container)).toBe("Alder & Finch Ltd");
         expect(pending(container)).toBe("1 pending");
-        expect(historyButton(container, SAVE).disabled).toBe(true);
+        // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+        expect(historyButton(container, SAVE).getAttribute("aria-disabled")).toBe("true");
+    });
+
+    test("a reload keeps every kind's drafts in this tab: still to save, drawn as they were, and Save sends each kind's", async () => {
+        const first = await h.mount(ex.planPrintWorks);
+        await settle();
+        await select(bar(first.container, "J-1001")!);
+        await typeInto(first.container, "customer", "Alder & Finch Ltd");
+        await select(stop(first.container, "S-01")!);
+        await act(async () => { fireEvent.click(pane(first.container).querySelector<HTMLInputElement>("[data-inspector-fields='custom'] input[value='service']")!); });
+        await settle();
+        expect(pending(first.container)).toBe("2 pending");
+        reloadPage();
+        const { container } = await h.mount(ex.planPrintWorks);
+        await settle();
+        await waitFor(() => expect(pending(container)).toBe("2 pending"));
+        expect(banners(container)).toEqual([]);
+        await select(bar(container, "J-1001")!);
+        expect(customer(container)).toBe("Alder & Finch Ltd");
+        await press(historyButton(container, SAVE));
+        expect((await readJobs()).get("J-1001")!.customer).toBe("Alder & Finch Ltd");
+        expect((await readStops()).get("S-01")!.kind.type).toBe("service");
+        expect(pending(container)).toBe("0 pending");
     });
 
     test("a refused write is a banner with its reason, its kind's drafts kept; the other kinds commit (PB46)", async () => {
@@ -637,7 +689,7 @@ describe("Save per kind (PB45–PB48)", () => {
         expect(pending(container)).toBe("0 pending");
     });
 
-    test("a kind's record moving under its pending drafts marks that kind out of date: its banner's Discard drops its drafts alone (PB48)", async () => {
+    test("a kind's record moving under its pending drafts carries them over: another job's change stands beside them, and Save sends every kind's (PB48)", async () => {
         const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         await select(bar(container, "J-1001")!);
@@ -647,16 +699,17 @@ describe("Save per kind (PB45–PB48)", () => {
         await settle();
         // Another planner's write to another job.
         await h.commit(ex.planPrintJobs, await jobChanged("J-1005", { customer: "Copperleaf Cafe & Bakery" }));
-        expect(banners(container).map((b) => b.kind)).toEqual(["stale"]);
-        expect(banners(container)[0]!.text).toContain(titled("Print job", editingMessages.bannerStale()));
-        expect(statusLine(container)).toBe(editingMessages.historyStatus({ status: "stale" }));
-        await press(slot(container, "banners")!.querySelector('[data-session-banner="stale"] [data-banner-action="discard"]')!);
+        // The job's draft is carried over to the jobs as the planner left them: nothing is out of date, and Save is on.
+        await waitFor(() => expect(historyButton(container, SAVE).disabled).toBe(false));
         expect(banners(container)).toEqual([]);
-        // The job's draft went; the stop's stands, and Save sends it.
-        expect(pending(container)).toBe("1 pending");
+        expect(statusLine(container)).toBeUndefined();
+        expect(pending(container)).toBe("2 pending");
         await select(bar(container, "J-1001")!);
-        expect(customer(container)).toBe("Alder & Finch");
+        expect(customer(container)).toBe("Alder & Finch Ltd");
+        // Save sends both kinds' drafts; the other planner's change stands beside them.
         await press(historyButton(container, SAVE));
+        expect((await readJobs()).get("J-1001")!.customer).toBe("Alder & Finch Ltd");
+        expect((await readJobs()).get("J-1005")!.customer).toBe("Copperleaf Cafe & Bakery");
         expect((await readStops()).get("S-01")!.kind.type).toBe("service");
         expect(pending(container)).toBe("0 pending");
     });
@@ -669,8 +722,8 @@ describe("Save per kind (PB45–PB48)", () => {
 const lockedRoster = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
     const crews = $.let(Record.bind(ex.planPrintCrews, []));
-    const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
-    const shifts = $.let(Record.bind(ex.planLockedShifts, [ex.planLockedShiftsPatch]));
+    const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
+    const shifts = $.let(Record.bind(ex.planLockedShifts, ["patch"]));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     return Plan({
         axis, inspector: true,
@@ -698,7 +751,7 @@ const lockedRoster = { fn: East.function([], UIComponentType, (_$) => Reactive.R
 /** The jobs on the presses, sent as each gesture lands, with the inspector and the jobs' customer in its form. */
 const autoJobs = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
-    const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+    const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     return Plan({
         axis, applyMode: "auto", inspector: true,
@@ -741,5 +794,184 @@ describe("auto mode, and a remount (PB50)", () => {
         await press(historyButton(again.container, UNDO));
         expect(shift(again.container, "SH-01")).not.toBeNull();
         expect(pending(again.container)).toBe("2 pending");
+    });
+});
+
+// ============================================================================
+// `data`'s rows, their items written by id (#1436)
+// ============================================================================
+
+type DropJob = ValueTypeOf<typeof rowDrop.DropJob>;
+const sameJob = equalFor(rowDrop.DropJob);
+
+/** The ops record as e3 holds it now. */
+const readOps = () => h.read(rowDrop.planDropOps);
+/** A press's jobs as e3 holds them now. */
+const jobsOf = async (press: string) => (await readOps()).get(press)!.jobs;
+/** Whether `jobs` hold `job` under `id`, field for field. */
+const holds = (jobs: ReadonlyMap<string, DropJob>, id: string, job: DropJob) => jobs.has(id) && sameJob(jobs.get(id)!, job);
+/** A press's run, by its job's id. */
+const runOf = (c: HTMLElement, press: string, id: string) => c.querySelector<HTMLElement>(`${rowAt(entry("press", press))} [data-run=${JSON.stringify(id)}]`);
+/** A press's row. */
+const pressRow = (c: HTMLElement, press: string) => c.querySelector<HTMLElement>(rowAt(entry("press", press)))!;
+/** The Save requests the ops record was sent. */
+const opsWrites = () => h.requests("mutate", rowDrop.planDropOps.name);
+/** A palette card in the Plan's own library panel, by its key. */
+const paletteCard = (c: HTMLElement, key: string) =>
+    slot(c, "start")!.querySelector<HTMLElement>(`[role="tabpanel"]:not([hidden]) [data-library-item=${JSON.stringify(key)}]`)!;
+/** Picks a run up by the keyboard, presses the keys given, and puts it down. */
+async function carryRun(run: HTMLElement, ...keys: { key: string; shiftKey?: boolean }[]) {
+    run.focus();
+    await keyOn({ key: " " });
+    for (const key of keys) await keyOn(key);
+    await keyOn({ key: " " });
+}
+
+describe("data's rows, their items written by id (#1436)", () => {
+    test("a run moved along its row, resized by its end and another carried to another row: Save sends one write, and each job reads back under its id", async () => {
+        // Its canvas is bounded: laid out, its rows mount.
+        const restore = boundFrame(2000);
+        try {
+            const { container: c } = await h.mount(rowDrop.planRowDrop, { drag: true });
+            await settle();
+            const deployed = await commits(rowDrop.planDropOps.name);
+            const j4642 = (await jobsOf("p03")).get("j4642")!;
+            const j4624 = (await jobsOf("p04")).get("j4624")!;
+            // J-4642 a week on along H1-P03, then its end a week further.
+            await carryRun(runOf(c, "p03", "j4642")!, { key: "ArrowRight" });
+            expect(carrySaid(c)).toMatch(/^Dropped RUN · J-4642 on H1-P03/);
+            await carryRun(runOf(c, "p03", "j4642")!, { key: "ArrowRight", shiftKey: true });
+            // J-4624 carried up from H1-P04 onto H1-P03, its weeks as they were.
+            await carryRun(runOf(c, "p04", "j4624")!, { key: "ArrowUp" });
+            expect(runOf(c, "p03", "j4624")).not.toBeNull();
+            expect(runOf(c, "p04", "j4624")).toBeNull();
+            expect(pressRow(c, "p03").hasAttribute("data-draft")).toBe(true);
+            expect(pressRow(c, "p04").hasAttribute("data-draft")).toBe(true);
+            // Nothing written yet: the gestures are drafts.
+            expect(opsWrites()).toEqual([]);
+
+            await press(historyButton(c, SAVE));
+            await settle();
+            // One request, one commit through the record's patch door, for the three gestures.
+            expect(opsWrites()).toHaveLength(1);
+            expect(await commits(rowDrop.planDropOps.name)).toEqual(["patch", ...deployed]);
+            expect(pending(c)).toBe("0 pending");
+            // Read back by id: J-4642 a week on, its end a week further still; J-4624 under its
+            // own id on H1-P03 and gone from H1-P04 — each job's other fields as they were.
+            const p03 = await jobsOf("p03");
+            const p04 = await jobsOf("p04");
+            expect([...p03.keys()]).toEqual(["j4624", "j4642"]);
+            expect(holds(p03, "j4642", { ...j4642, start: at("2026-07-13T00:00:00Z"), end: at("2026-08-10T00:00:00Z") })).toBe(true);
+            expect(holds(p03, "j4624", j4624)).toBe(true);
+            expect([...p04.keys()]).toEqual([]);
+        } finally {
+            restore();
+        }
+    });
+
+    test("a card dropped on a press joins its jobs under the id the canvas mints: Save sends one write, and the job reads back under it", async () => {
+        const restore = boundFrame(2000);
+        try {
+            const { container: c } = await h.mount(rowDrop.planRowDrop, { drag: true });
+            await settle();
+            const deployed = await commits(rowDrop.planDropOps.name);
+            fireEvent.pointerDown(paletteCard(c, "job-poster"), { clientX: 0, clientY: 0 });
+            pointAt(pressRow(c, "p04").querySelector("[data-drag-cell]"));
+            fireEvent.pointerMove(document, { clientX: 10, clientY: 10 });
+            // The new job's id is the Plan's to mint: offered one.
+            offering(["job-minted"]);
+            fireEvent.pointerUp(document, { clientX: 10, clientY: 10 });
+            await settle();
+            // jsdom's zero-width rect puts the pointer in the first week.
+            expect(announced()).toBe("Poster run was dropped on H1-P04, Week of Jun 29, 2026.");
+            expect(runOf(c, "p04", "job-minted")).not.toBeNull();
+
+            await press(historyButton(c, SAVE));
+            await settle();
+            expect(opsWrites()).toHaveLength(1);
+            expect(await commits(rowDrop.planDropOps.name)).toEqual(["patch", ...deployed]);
+            const p04 = await jobsOf("p04");
+            expect([...p04.keys()]).toEqual(["j4624", "job-minted"]);
+            // `create`'s item, a fortnight from the week it landed in, proposed.
+            expect(holds(p04, "job-minted", {
+                label: "Poster run", start: at("2026-06-29T00:00:00Z"), end: at("2026-07-13T00:00:00Z"), state: variant("proposed", variant("added", null)),
+            })).toBe(true);
+        } finally {
+            restore();
+        }
+    });
+
+    test("a run carried onto a row whose jobs hold its id is refused — said, nothing drafted, nothing written", async () => {
+        // Another planner puts a job under J-4642's id on H1-P04: another job, the same id.
+        const ops = await readOps();
+        const p04 = ops.get("p04")!;
+        const other: DropJob = { label: "RUN · J-4642 (H1-P04)", start: at("2026-08-03T00:00:00Z"), end: at("2026-08-17T00:00:00Z"), state: variant("confirmed", null) };
+        await h.commit(rowDrop.planDropOps, new Map([...ops, ["p04", { ...p04, jobs: new Map([...p04.jobs, ["j4642", other]]) }]]));
+        const restore = boundFrame(2000);
+        try {
+            const { container: c } = await h.mount(rowDrop.planRowDrop, { drag: true });
+            await settle();
+            const deployed = await commits(rowDrop.planDropOps.name);
+            runOf(c, "p03", "j4642")!.focus();
+            await keyOn({ key: " " });
+            await keyOn({ key: "ArrowDown" });
+            // H1-P04's jobs keep their ids unique: the row refuses it, and the carry goes on.
+            expect(carrySaid(c)).toBe("RUN · J-4642 cannot be dropped on H1-P04, Jul 6, 2026 – Jul 27, 2026");
+            await keyOn({ key: " " });
+            await keyOn({ key: "Escape" });
+            expect(pressRow(c, "p03").hasAttribute("data-draft")).toBe(false);
+            expect(pressRow(c, "p04").hasAttribute("data-draft")).toBe(false);
+            expect(historyButton(c, SAVE).disabled).toBe(true);
+            expect(opsWrites()).toEqual([]);
+            expect(await commits(rowDrop.planDropOps.name)).toEqual(deployed);
+            // Each press holds its own J-4642 still.
+            expect(holds(await jobsOf("p04"), "j4642", other)).toBe(true);
+            expect((await jobsOf("p03")).has("j4642")).toBe(true);
+        } finally {
+            restore();
+        }
+    });
+});
+
+describe("the conflicts example (planConflicts)", () => {
+    test("a bar carried two days later here, then Someone else saves, is one conflict named by its job, its dates one card, the bar wearing the ring", async () => {
+        const { container: c } = await h.mount(ex.planConflicts, { drag: true });
+        await settle();
+        // Its presses are rows of their own, in no hall.
+        const job = () => bar(c, "J-3001", entry("presses.span", "a1"));
+        job()!.focus();
+        await keyOn({ key: " " });
+        await keyOn({ key: "ArrowRight" });
+        await keyOn({ key: "ArrowRight" });
+        await keyOn({ key: " " });
+        expect(job()!.hasAttribute("data-draft")).toBe(true);
+        // Someone else's save moves every job a day later: theirs and the carry here differ.
+        await act(async () => { fireEvent.click(within(c).getByRole("button", { name: "Someone else saves" })); });
+        await settle();
+        await waitFor(() => expect(banners(c).map((b) => b.kind)).toEqual(["conflicts"]));
+        const [card, ...more] = await conflictCards(c);
+        expect(more).toEqual([]);
+        expect(card!.item).toBe("Spring catalogue");
+        expect(document.querySelector("[data-conflict-card]")!.textContent).toContain(editingMessages.conflictDates());
+        expect(job()!.hasAttribute("data-conflict")).toBe(true);
+    });
+
+    test("a job of eight hours carried by the keyboard where it began is not moved: its end out a day and back, its end in or its start on with no room in it — nothing waits to save", async () => {
+        const { container: c } = await h.mount(ex.planConflicts, { drag: true });
+        await settle();
+        const job = () => bar(c, "J-3001", entry("presses.span", "a1"));
+        const carries: { key: string; shiftKey?: boolean; altKey?: boolean }[][] = [
+            [{ key: "ArrowRight", shiftKey: true }, { key: "ArrowLeft", shiftKey: true }],
+            [{ key: "ArrowLeft", shiftKey: true }],
+            [{ key: "ArrowRight", altKey: true }],
+        ];
+        for (const keys of carries) {
+            job()!.focus();
+            await keyOn({ key: " " });
+            for (const key of keys) await keyOn(key);
+            await keyOn({ key: " " });
+            expect(carrySaid(c)).toBe("Spring catalogue was not moved");
+        }
+        expect([pending(c), job()!.hasAttribute("data-draft")]).toEqual(["0 pending", false]);
     });
 });

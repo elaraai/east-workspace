@@ -207,7 +207,7 @@ export function connectionCell(connection: ConnectionState, g: Glyphs): StatusCe
 export function executionDuration(state: DataflowExecutionState): number | null {
     if (state.summary.type === 'some' && state.summary.value.duration > 0) return state.summary.value.duration;
     if (state.completedAt.type === 'some') {
-        const ms = Date.parse(state.completedAt.value) - Date.parse(state.startedAt);
+        const ms = state.completedAt.value.getTime() - state.startedAt.getTime();
         if (Number.isFinite(ms) && ms >= 0) return ms;
     }
     return state.summary.type === 'some' ? state.summary.value.duration : null;
@@ -270,7 +270,7 @@ export function waitCell(wait: UnitWait, budget: DataflowBudget | null, g: Glyph
  * @param g - The glyph set
  * @returns The cell plus the task name
  */
-export function eventCell(event: DataflowEvent, g: Glyphs): StatusCell & { task: string; timestamp: string } {
+export function eventCell(event: DataflowEvent, g: Glyphs): StatusCell & { task: string; timestamp: Date } {
     switch (event.type) {
         case 'start':
             return { glyph: g.quarter, tone: 'info', word: 'start', detail: '', task: event.value.task, timestamp: event.value.timestamp };

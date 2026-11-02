@@ -2553,6 +2553,55 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
   }
 
   /**
+   * Every node of a tree of any depth whose roots are the array's elements, each with its path of indices from
+   * its root, depth first: the inverse of {@link toTree}.
+   *
+   * `childrenFn` names each node's children, an array of the same element type — empty for a leaf. A root's
+   * path is `[i]`, its child's `[i, j]`, and so on down. The nodes come each before its descendants, siblings
+   * in array order, so a node's parent is the nearest node before it whose path its own extends.
+   *
+   * @param childrenFn - Function taking (element, index) and returning the node's children
+   * @returns An ArrayExpr of every node, `{ path, node }`, depth first
+   *
+   * @remarks
+   * - `childrenFn` runs once per node, in the result's order. A node's children are read as it is walked.
+   * - The walk is iterative, so a deep tree costs no stack. Each node's path is an array of its own, so a
+   *   chain n deep holds n(n+1)/2 path elements.
+   * - {@link toTree} takes the result back, its key the path and a node's parent its path less its last index.
+   *
+   * @example
+   * ```ts
+   * const TaskType = RecursiveType(self => StructType({ name: StringType, subtasks: ArrayType(self) }));
+   *
+   * const names = East.function([ArrayType(TaskType)], ArrayType(StringType), ($, tasks) => {
+   *   $.return(tasks.flattenTree(($, task, i) => task.unwrap().subtasks)
+   *     .map(($, entry) => Expr.str`${entry.path.size()} ${entry.node.unwrap().name}`));
+   * });
+   * const compiled = East.compile(names, []);
+   * compiled([
+   *   { name: "Build", subtasks: [{ name: "Compile", subtasks: [] }, { name: "Link", subtasks: [] }] },
+   *   { name: "Test", subtasks: [] },
+   * ]);
+   * // ["1 Build", "2 Compile", "2 Link", "1 Test"]
+   * ```
+   *
+   * @see {@link DictExpr.flattenTree} for a tree whose children are a dictionary.
+   */
+  flattenTree(childrenFn: SubtypeExprOrValue<FunctionType<[T, IntegerType], ArrayType<T>>>): ArrayExpr<StructType<{ path: ArrayType<IntegerType>, node: T }>> {
+    const valueType = this.value_type as EastType;
+    const childrenFnAst = valueOrExprToAstTyped(childrenFn, FunctionType([valueType, IntegerType], ArrayType(valueType)));
+
+    return this[FactorySymbol]({
+      ast_type: "Builtin",
+      type: ArrayType(StructType({ path: ArrayType(IntegerType), node: this.value_type })),
+      loc_id: get_location_id(),
+      builtin: "ArrayFlattenTree",
+      type_parameters: [valueType],
+      arguments: [this[AstSymbol], childrenFnAst],
+    }) as ArrayExpr<StructType<{ path: ArrayType<IntegerType>, node: T }>>;
+  }
+
+  /**
    * Group array elements by a key function, initialize each group, and reduce within each group.
    *
    * This method partitions the array into groups based on a key function, initializes each group

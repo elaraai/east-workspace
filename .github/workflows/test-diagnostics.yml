@@ -12,8 +12,9 @@ on:
       - "libs/east-codex-plugin/**"
       - "libs/east-plugin/**"
       - ".github/workflows/test-diagnostics.yml"
+  # Every PR, whatever its base: a PR stacked on another PR's branch is
+  # checked as one into main is.
   pull_request:
-    branches: [main]
     paths:
       - "libs/east/**"
       - "libs/east-diagnostics/**"

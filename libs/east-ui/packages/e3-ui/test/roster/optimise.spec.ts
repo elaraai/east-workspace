@@ -44,7 +44,7 @@ const DAY = 86_400_000, HOUR = 3_600_000;
 /** Builds a payload's East function over the warehouse's records, the props the test gives beside the base's — refused, if it is, as it is built. */
 function payload(change: Partial<RosterProps> | Readonly<Record<string, unknown>> = {}): void {
     East.function([], RosterPayloadType, ($) => {
-        const rota = $.let(Record.bind(base.rosterDuties, [base.rosterDutiesPatch]));
+        const rota = $.let(Record.bind(base.rosterDuties));
         const staff = $.let(Data.bind(base.rosterStaff));
         const firms = $.let(Data.bind(base.rosterAgencies));
         const times = $.let(Data.bind(base.rosterShiftTimes));

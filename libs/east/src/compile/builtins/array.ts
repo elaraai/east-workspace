@@ -13,7 +13,7 @@ import type { Location, SourceMap } from "../../location.js";
 import type { PlatformFunction } from "../../platform.js";
 import { printFor } from "../../serialization/east.js";
 import type { EastTypeValue } from "../../type_of_type.js";
-import { buildTree, treeOrder } from "./tree.js";
+import { buildTree, treeOrder, walkTree } from "./tree.js";
 
 /** The builtins for Arrays. @internal */
 export const array_builtins = {
@@ -663,6 +663,19 @@ export const array_builtins = {
           throw new EastError(`toTree: cycle through key ${print(keys[cycle])}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
         }
         return buildTree(order, childCounts, (i, children) => call_function(loc_id, source_map, buildFn, array[i], BigInt(i), children));
+      } finally {
+        unlockForIteration(array);
+      }
+    }
+  },
+  ArrayFlattenTree: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => {
+    const indexed = (xs: any[]) => xs.map((x, i) => [BigInt(i), x] as const);
+    return (array: any[], childrenFn: (x: any, i: bigint) => any[]) => {
+      const result: { path: bigint[], node: any }[] = [];
+      lockForIteration(array);
+      try {
+        walkTree<bigint, any>(indexed(array), (x, i) => indexed(call_function(loc_id, source_map, childrenFn, x, i)), (path, node) => { result.push({ path, node }); });
+        return result;
       } finally {
         unlockForIteration(array);
       }

@@ -31,7 +31,7 @@ import { Plan } from "@elaraai/e3-ui/internal";
 import { usePlanScale, type PlanElementRefValue } from "../context.js";
 import { usePlanElementSelect } from "./element-select.js";
 import { usePlanElementOverlap } from "./element-overlap.js";
-import { usePlanElementDrafted } from "./element-draft.js";
+import { usePlanElementConflicted, usePlanElementDrafted } from "./element-draft.js";
 import { usePlanElementOp } from "./element-optimise.js";
 import { markName } from "../a11y.js";
 import type { PlanRowId } from "../model.js";
@@ -80,6 +80,8 @@ function MarkGlyph({ mark, x, rowKey, rowId, styles, ctx, move }: {
     const overlap = usePlanElementOverlap(mark.key);
     // An event its drafts changed wears the brand tint's ring (#1196).
     const drafted = usePlanElementDrafted(mark.key);
+    // An event holding a conflict not yet chosen wears the warn ring.
+    const conflict = usePlanElementConflicted(mark.key);
     // What a run of the optimiser did to its event (#1409, R17), while it is still the run's draft.
     const op = usePlanElementOp(mark.key);
     const optimised = drafted ? op : undefined;
@@ -87,7 +89,7 @@ function MarkGlyph({ mark, x, rowKey, rowId, styles, ctx, move }: {
     // moves, the same draggable (#825).
     const common = {
         role: "button", "aria-label": markName(mark, scale, words),
-        "data-mark": mark.key, "data-plan-frac": frac, left: `${x * 100}%`, tabIndex: -1, onClick: select.onClick,
+        "data-mark": mark.key, "data-plan-frac": frac, style: { left: `${x * 100}%` }, tabIndex: -1, onClick: select.onClick,
         // A mark that moves takes the recipe's grab cursor.
         cursor: handle !== undefined ? undefined : "pointer",
         ...handle,
@@ -95,6 +97,7 @@ function MarkGlyph({ mark, x, rowKey, rowId, styles, ctx, move }: {
         "data-selected": select.selected ? "" : undefined,
         "data-overlap": overlap ? "" : undefined,
         "data-draft": drafted ? "" : undefined,
+        "data-conflict": conflict ? "" : undefined,
         "data-op": optimised?.op,
         "data-fill": optimised !== undefined ? "own" : undefined,
         title: optimised?.provenance,
@@ -138,7 +141,7 @@ export function EventsRow({ rowKey, rowId, kind, styles, ctx, move }: EventsRowP
                         <MarkGlyph mark={mark} x={x} rowKey={rowKey} rowId={rowId} styles={styles} ctx={ctx} move={move} />
                         {label !== undefined && (
                             <Box css={styles.markLabel} data-ctx={ctxAttr} data-mark={mark.key} aria-hidden="true"
-                                left={`calc(${x * 100}% + 9px)`}>{label}</Box>
+                                style={{ left: `calc(${x * 100}% + 9px)` }}>{label}</Box>
                         )}
                     </Box>
                 );

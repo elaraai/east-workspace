@@ -23,7 +23,7 @@ const h = e3Spec({ "calendar/calendar": ex });
 
 const program = East.function([], CalendarPayloadType, $ => {
     const machines = $.let(Record.bind(ex.calendarMachines, []));
-    const jobs = $.let(Record.bind(ex.calendarJobs, [ex.calendarJobsPatch]));
+    const jobs = $.let(Record.bind(ex.calendarJobs, ["patch"]));
     return createCalendarPayload({ id: "contract", inspector: true,
         resources: { machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) },
         events: { job: Calendar.events(jobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" },
@@ -34,7 +34,7 @@ const program = East.function([], CalendarPayloadType, $ => {
 // The job kind alone, its templates read from their record, as a builder builds it (#1343): a Calendar takes templates
 // only beside a slice naming their source, so the kind's own build is what runs.
 const kindProgram = East.function([], ScheduleKindType, $ => {
-    const jobs = $.let(Record.bind(ex.calendarJobs, [ex.calendarJobsPatch]));
+    const jobs = $.let(Record.bind(ex.calendarJobs, ["patch"]));
     const templates = $.let(Record.bind(ex.calendarJobTemplates, []));
     return Calendar.events(jobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" },
         backlog: { duration: row => variant("hours", row.hours), due: row => row.due },

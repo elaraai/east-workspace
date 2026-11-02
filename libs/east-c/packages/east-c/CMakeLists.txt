@@ -276,6 +276,9 @@ set_tests_properties(hashmap_churn PROPERTIES TIMEOUT 60)
 add_executable(test_type_to_value_interning tests/test_type_to_value_interning.c)
 target_link_libraries(test_type_to_value_interning east-c)
 add_test(NAME type_to_value_interning COMMAND test_type_to_value_interning)
+add_executable(test_type_to_value_recursive_scope tests/test_type_to_value_recursive_scope.c)
+target_link_libraries(test_type_to_value_recursive_scope east-c)
+add_test(NAME type_to_value_recursive_scope COMMAND test_type_to_value_recursive_scope)
 
 # Value representation gate (issue #423): a node is sized by its kind, short
 # strings live inside it, `none` is shared per VariantType, and struct field
@@ -356,6 +359,13 @@ add_test(NAME beast2_boundary COMMAND test_beast2_boundary)
 add_executable(test_sha256 tests/test_sha256.c)
 target_link_libraries(test_sha256 east-c)
 add_test(NAME sha256 COMMAND test_sha256)
+
+# Recursive type ids: a recursive type is written under the first 62 bits of
+# the SHA-256 of its type table, so a type built here gets the id TypeScript's
+# type_of_type.recursive_id.spec.ts and east-py's tests pin for it.
+add_executable(test_recursive_type_id tests/test_recursive_type_id.c)
+target_link_libraries(test_recursive_type_id east-c)
+add_test(NAME recursive_type_id COMMAND test_recursive_type_id)
 
 # Aliasing scoped per root element, pinned against the TypeScript encoder:
 # sharing between elements encodes as copies, sharing inside one is kept, and

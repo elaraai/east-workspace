@@ -13,17 +13,21 @@
  */
 
 /**
- * The value an element's own emotion class sets a property to — its `css`
- * and the recipes merged into it — as the cascade would take it from the
+ * The value an element declares for a property, as the cascade would take
+ * it: its inline style, which every rule yields to — where a renderer writes
+ * a place it computes, since a class would be minted for each value — else
+ * its own emotion class's, its `css` and the recipes merged into it, from the
  * page's style elements: a rule outside a cascade layer over one inside, a
  * later rule over an earlier. Rules under a condition (`@media`, `@supports`,
  * `@container`) are left out.
  *
  * @param el - The element
  * @param property - The CSS property, as a rule spells it: `font-size`, `--fa-width`
- * @returns The value, or `undefined` when the element has no class of its own or no rule of it sets the property
+ * @returns The value, or `undefined` when neither its inline style nor a rule of its own class sets the property
  */
 export function declaredStyle(el: Element, property: string): string | undefined {
+    const inline = (el as HTMLElement).style?.getPropertyValue(property) ?? "";
+    if (inline !== "") return inline;
     const own = [...el.classList].find((name) => name.startsWith("css-"));
     if (own === undefined) return undefined;
     const opening = `.${own}{`;

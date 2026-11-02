@@ -372,7 +372,7 @@ export function useHiddenRows(input: HiddenRowsInput): HiddenRows {
         });
         if (asking.length === 0) return;
         // Their rows as the record holds them: the page the listing read them from, held already.
-        void awaitTracked(() => recordSlicePage(part, WHOLE_RECORD, BigInt(from), BigInt(ids.length))).then((page) => {
+        void awaitTracked(() => recordSlicePage(part, { where: WHOLE_RECORD, area: none }, BigInt(from), BigInt(ids.length))).then((page) => {
             if (!Object.is(now(), at)) return;
             const entries = page as readonly RecordSliceEntry[];
             const rows = asking.map((i) => {

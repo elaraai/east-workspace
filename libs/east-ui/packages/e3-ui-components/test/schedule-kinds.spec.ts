@@ -7,8 +7,8 @@
  * `Schedule.events` (#1218) over Calendar Spec §3.1's records on e3 itself
  * (#1379): shifts on people, maintenance jobs on machines with a backlog,
  * inspections on a site or a machine, tasks and visits, each a record of
- * Schedule's example module bound as an app binds it, `Record.bind(record,
- * [e3.mutation.patch(record)])`. Each kind is built against the platform a UI
+ * Schedule's example module bound as an app binds it, `Record.bind(record)`,
+ * the record declaring its patch mutation. Each kind is built against the platform a UI
  * task's preview gives it, so the record it reads is e3's, and its seams run:
  * its events over a window with the drafts in place, its backlog, a gesture
  * written into an entry, the author's check, and its editing session, whose
@@ -48,7 +48,7 @@ type Job = ValueTypeOf<typeof sx.ScheduleJob>;
 
 /** The shift kind, built under its slot. */
 const shiftProgram = East.function([], Schedule.Types.Kind, ($) => {
-    const shifts = $.let(Record.bind(sx.scheduleShifts, [sx.scheduleShiftsPatch]));
+    const shifts = $.let(Record.bind(sx.scheduleShifts, ["patch"]));
     const status = $.let(STATUS_CASES, Schedule.Types.StatusCases(sx.ScheduleStatus));
     return Schedule.events(shifts, {
         name: "Shift", icon: "user-clock",
@@ -65,7 +65,7 @@ const shiftProgram = East.function([], Schedule.Types.Kind, ($) => {
 
 /** The job kind: Option times, a backlog, a check on its work order. */
 const jobProgram = East.function([], Schedule.Types.Kind, ($) => {
-    const jobs = $.let(Record.bind(sx.scheduleJobs, [sx.scheduleJobsPatch]));
+    const jobs = $.let(Record.bind(sx.scheduleJobs, ["patch"]));
     return Schedule.events(jobs, {
         name: "Maintenance", icon: "screwdriver-wrench",
         title: "title", start: "start", end: "end",
@@ -84,7 +84,7 @@ const jobProgram = East.function([], Schedule.Types.Kind, ($) => {
 
 /** The inspection kind: a site or a machine, by its variant's case. */
 const inspectionProgram = East.function([], Schedule.Types.Kind, ($) => {
-    const inspections = $.let(Record.bind(sx.scheduleInspections, [sx.scheduleInspectionsPatch]));
+    const inspections = $.let(Record.bind(sx.scheduleInspections, ["patch"]));
     return Schedule.events(inspections, {
         name: "Inspection", icon: "clipboard-check",
         title: "title", start: "start", end: "end",
@@ -94,7 +94,7 @@ const inspectionProgram = East.function([], Schedule.Types.Kind, ($) => {
 
 /** The task kind: on no resource, each task's estimate in its own unit. */
 const taskProgram = East.function([], Schedule.Types.Kind, ($) => {
-    const tasks = $.let(Record.bind(sx.scheduleTasks, [sx.scheduleTasksPatch]));
+    const tasks = $.let(Record.bind(sx.scheduleTasks, ["patch"]));
     return Schedule.events(tasks, {
         name: "Task", icon: "list-check",
         title: "title", start: "start", end: "end",
@@ -104,7 +104,7 @@ const taskProgram = East.function([], Schedule.Types.Kind, ($) => {
 
 /** The visit kind: a field named with a dot, beside the struct it reads like. */
 const visitProgram = East.function([], Schedule.Types.Kind, ($) => {
-    const visits = $.let(Record.bind(sx.scheduleVisits, [sx.scheduleVisitsPatch]));
+    const visits = $.let(Record.bind(sx.scheduleVisits, ["patch"]));
     return Schedule.events(visits, { name: "Visit", icon: "door-open", title: "title", start: "start", end: "end" }).build("visit");
 });
 

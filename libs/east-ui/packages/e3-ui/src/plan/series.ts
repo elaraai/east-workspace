@@ -54,13 +54,16 @@ import {
     FloatType,
     FunctionType,
     IntegerType,
+    NullType,
     OptionType,
     RefType,
     StringType,
     StructType,
     VariantType,
     isTypeEqual,
+    isVariant,
     printFor,
+    printTypeSummary,
     toEastTypeValue,
     variant,
     some,
@@ -106,8 +109,43 @@ import {
     type PlanElementsInput,
     type PlanHeatCellsInput,
     type PlanTableCellsInput,
+    PlanFoldType,
+    type PlanFoldLiteral,
 } from "./types.js";
-import { resolveIcon, type PlanIconInput, type PlanFoldInput, type PlanHeatScaleInput } from "./builders.js";
+import {
+    PLAN_LOOKS,
+    resolveIcon,
+    resolveInstant,
+    type PlanLookKind,
+    type PlanIconInput,
+    type PlanHeatScaleInput,
+    type PlanRunLook,
+    type PlanDecisionLook,
+    type PlanPortLook,
+    type PlanBucketEventLook,
+    type PlanCellMarkerLook,
+    type PlanChipLook,
+    type PlanEventMarkLook,
+} from "./builders.js";
+import {
+    PlanReadsBrand,
+    PlanUseBrand,
+    planReadOf,
+    planUseOf,
+    type PlanReadSpec,
+    type PlanItemsReadSpec,
+    type PlanValuesEdit,
+    type PlanValuesReadSpec,
+    type PlanValuesUseSpec,
+    type PlanItemsInput,
+    type PlanValuesInput,
+    type PlanValuesUse,
+    type PlanSpanTimes,
+    type PlanPointTimes,
+    type PlanTreeField,
+    type PlanChildField,
+    type PlanCollectionItem,
+} from "./reads.js";
 import { planRow, planGutter, normalizeRows, REBASE_ROWS, type PlanRowsInput, type PlanGutterFields } from "./assemble.js";
 import {
     spanKind,
@@ -212,9 +250,15 @@ export const PlanSeriesType: (r: EastType, k?: EastType) => PlanSeriesShape = se
  * the root refuses a series whose kind is not its axis's at compile time.
  * `never` (the default) is the erased brand.
  *
+ * It carries what the series reads too (#1436, {@link PlanReadsBrand}): each
+ * collection its named reads name, and how each is read — what a paged
+ * source's index holds it to (#1435). `unknown` (the default) reads nothing
+ * by name.
+ *
  * @typeParam K - The axis kind(s) the series' instants ride
+ * @typeParam U - What the series reads
  */
-export type PlanSeriesValue<K extends PlanAxisKindLiteral = never> = PlanKinded<ExprType<PlanSeriesShape>, K>;
+export type PlanSeriesValue<K extends PlanAxisKindLiteral = never, U = unknown> = PlanKinded<ExprType<PlanSeriesShape>, K> & { readonly [PlanReadsBrand]?: U };
 
 /**
  * The `series` prop's input — a TS array of series values (the common case)
@@ -308,62 +352,244 @@ export interface PlanSeriesIdentity {
 const PLAN_CHILDREN: unique symbol = Symbol("PlanChildren");
 
 /**
- * A step down from an entry to a child collection of another entry type —
- * `Plan.children(of, [series…])` (#822). The child collection may be an
- * `Array` (kept in data order, keyed by index) or a `Dict` (key order), and the
- * series over it lay out exactly like a top-level list: blocks, `views`, or
- * sections, nesting to any depth.
+ * A step down from an entry to its child rows (#822, #1436) —
+ * `Plan.children(field, [series…])`: a `Dict` field of the entry holding rows
+ * of another type, keyed by an id, laid out by `series` exactly like a
+ * top-level list — blocks, `views`, or sections, nesting to any depth. A child
+ * row's path segment is its key.
  *
  * @typeParam R - The parent entry type
- * @typeParam KT - The parent entries' key type
+ * @typeParam F - The field holding the child rows
+ * @typeParam U - What the series over them read
+ * @typeParam FO - The folds of the values their cells read, by collection — what a parent subtotals them by
  */
-export interface PlanChildren<R extends EastType = EastType, KT extends EastType = EastType> {
+export interface PlanChildren<R extends EastType = EastType, F extends string = string, U = unknown, FO = unknown> {
     /** Discriminant. */
     readonly [PLAN_CHILDREN]: true;
-    /** The child collection, from the parent entry's value and key. */
-    readonly of: (row: PlanEntryExpr<R>, key: ExprType<KT>) => Expr;
-    /** The series over the child collection's entries, in order. */
+    /** The field holding the child rows. */
+    readonly field: F;
+    /** The series over the child rows, in order. */
+    readonly series: readonly PlanSeriesValue<PlanAxisKindLiteral>[];
+    /** The parent entry type, the field, what its series read and the folds of their cells (phantom). */
+    readonly [PlanUseBrand]?: { readonly makes: "children"; readonly row: R; readonly field: F; readonly rows: U; readonly folds: FO };
+    /** What it reads (phantom): `{ [F]: { rows: U } }`. */
+    readonly [PlanReadsBrand]?: { readonly [P in F]: { readonly rows: U } };
+}
+
+/**
+ * A series' `children` (#1436):
+ * - `field` — a `Dict` field of the entry holding more of THIS series'
+ *   entries, keyed by an id: a tree, to any depth (a `RecursiveType` entry's
+ *   own field);
+ * - `Plan.children(field, [series…])` — a step down to child rows of another
+ *   type;
+ * - an array of step-downs — several child collections, in order.
+ *
+ * @typeParam R - The entry type
+ */
+export type PlanChildrenInput<R extends EastType> =
+    | PlanTreeField<R>
+    | PlanChildren<R, string, unknown, unknown>
+    | readonly PlanChildren<R, string, unknown, unknown>[];
+
+/** A step-down as the build machinery reads it: a field of the entry, or (the event kinds', #1194) an accessor computing the collection. */
+interface AnyStepDown {
+    readonly [PLAN_CHILDREN]: true;
+    readonly field?: string;
+    readonly of?: (row: ExprType<EastType>, key: ExprType<EastType>) => Expr;
     readonly series: readonly PlanSeriesValue<PlanAxisKindLiteral>[];
 }
 
 /**
- * A series' `children`:
- * - a bare accessor — more of THIS series' entries (`(a) => a.children`), to
- *   any depth: a `RecursiveType` entry's own children;
- * - `Plan.children(of, [series…])` — a step down to a child collection of
- *   another entry type;
- * - an array of step-downs — several child collections, in order.
- *
- * @typeParam R - The entry type
- * @typeParam KT - The entries' key type
- */
-export type PlanChildrenInput<R extends EastType, KT extends EastType> =
-    | ((row: PlanEntryExpr<R>, key: ExprType<KT>) => Expr)
-    | PlanChildren<R, KT>
-    | PlanChildren<R, KT>[];
-
-/**
- * Step down from an entry to a child collection of another entry type (#822).
+ * Step down from an entry to its child rows (#822, #1436): a `Dict` field of
+ * the entry, keyed by an id, its rows laid out by `series` like a top-level
+ * list.
  *
  * @typeParam R - The parent entry type (inferred from where the step-down is used)
- * @typeParam KT - The parent entries' key type
- * @param of - The child collection — an `Array` (index order) or a `Dict` (key order) — from the parent entry
- * @param series - The series over the child entries, laid out like a top-level list
+ * @typeParam F - The field holding the child rows
+ * @typeParam S - The series over them, as written
+ * @param field - A Dict field of the entry holding the child rows, keyed by an id
+ * @param series - The series over the child rows
  * @returns The step-down, for a series' `children`
  */
-export function createChildren<R extends EastType, KT extends EastType>(
-    of: (row: PlanEntryExpr<R>, key: ExprType<KT>) => Expr,
-    series: PlanSeriesValue<PlanAxisKindLiteral>[],
-): PlanChildren<R, KT> {
-    return { [PLAN_CHILDREN]: true, of, series };
+export function createChildren<R extends EastType, F extends PlanChildField<R>, const S extends readonly PlanSeriesValue<PlanAxisKindLiteral, unknown>[]>(
+    field: F,
+    series: S,
+): PlanChildren<R, F, PlanSeriesListReads<S>, PlanSeriesListFolds<S>> {
+    if (typeof field !== "string") {
+        throw new Error("Plan.children: name the field holding the child rows — a Dict of the row, keyed by an id: Plan.children(\"members\", [series…])");
+    }
+    return { [PLAN_CHILDREN]: true, field, series } as unknown as PlanChildren<R, F, PlanSeriesListReads<S>, PlanSeriesListFolds<S>>;
 }
 
-function isStepDown(x: unknown): x is PlanChildren {
+/**
+ * Step down from an entry to a collection an accessor computes (#1194) — the
+ * event kinds' own: a resource's events come from another record, so its
+ * child rows are no field of it. An author's step-down names its field
+ * ({@link createChildren}).
+ *
+ * @internal
+ * @param of - The child collection, from the parent entry's value and key
+ * @param series - The series over the child entries
+ * @returns The step-down
+ */
+export function createChildrenOf(
+    of: (row: ExprType<EastType>, key: ExprType<EastType>) => Expr,
+    series: PlanSeriesValue<PlanAxisKindLiteral>[],
+): PlanChildren {
+    return { [PLAN_CHILDREN]: true, of, series } as unknown as PlanChildren;
+}
+
+function isStepDown(x: unknown): x is AnyStepDown {
     return typeof x === "object" && x !== null && (x as { [PLAN_CHILDREN]?: unknown })[PLAN_CHILDREN] === true;
 }
 
 // ============================================================================
-// Editing — the fields a gesture writes (#880)
+// The reads brand — what a series reads (#1436)
+// ============================================================================
+
+/** No reads. */
+type PlanNone = Record<never, never>;
+/** A union's members, intersected — none for no members. */
+type PlanIntersect<U> = [U] extends [never] ? PlanNone : (U extends unknown ? (x: U) => void : never) extends (x: infer I) => void ? I : never;
+/** A type flattened one level. */
+type PlanFlat<T> = { readonly [P in keyof T]: T[P] };
+
+/**
+ * A reads brand flattened one level, and `unknown` when it names nothing — the
+ * brand of a series that reads no collection by name.
+ *
+ * @typeParam U - The brand
+ */
+export type PlanReadsNormal<U> = [keyof U] extends [never] ? unknown : PlanFlat<U>;
+
+/** What a series value reads — none when it names nothing. */
+type PlanReadsOfSeries<S> = S extends { readonly [PlanReadsBrand]?: infer U } ? (unknown extends U ? PlanNone : Exclude<U, undefined>) : PlanNone;
+/** The folds of what a series value's cells read — none when it subtotals nothing. */
+type PlanFoldsOfSeries<S> = S extends { readonly [PlanUseBrand]?: { readonly folds: infer F } } ? (unknown extends F ? PlanNone : F) : PlanNone;
+
+/**
+ * What a list of series reads, their brands intersected.
+ *
+ * @typeParam S - The series, as written
+ */
+export type PlanSeriesListReads<S extends readonly unknown[]> = PlanReadsNormal<PlanIntersect<PlanReadsOfSeries<S[number]>>>;
+
+/**
+ * The folds of the values a list of series' cells read, by collection — what a
+ * parent of their rows subtotals each by.
+ *
+ * @typeParam S - The series, as written
+ */
+export type PlanSeriesListFolds<S extends readonly unknown[]> = PlanReadsNormal<PlanIntersect<PlanFoldsOfSeries<S[number]>>>;
+
+/**
+ * The folds a series' cells read their values by, carried beside its reads so
+ * a parent of its rows knows what it subtotals them by (phantom, #1436).
+ *
+ * @typeParam F - `{ [collection]: fold }`
+ */
+export type PlanFoldsBrand<F> = { readonly [PlanUseBrand]?: { readonly folds: F } };
+
+/** How a collection's values are subtotalled: by a fold and an aggregate. */
+type PlanRollupOf<FO, A> = { readonly values: { readonly rollup: { readonly fold: FO; readonly aggregate: A } } };
+
+/** Each values collection of `U`, subtotalled by `FO` and `A` — a tree's own collections (#1436). */
+type PlanSubtotalled<U, FO, A> = unknown extends U ? unknown
+    : { readonly [P in keyof U]: U[P] extends { readonly values: unknown } ? PlanRollupOf<FO, A> : U[P] };
+
+/** Each values collection of `U` with a fold in `FOLDS`, subtotalled by it and `A` — a step-down's rows (#1436). */
+type PlanSubtotalledBy<U, FOLDS, A> = unknown extends U ? unknown
+    : { readonly [P in keyof U]: P extends keyof FOLDS ? PlanRollupOf<FOLDS[P], A> : U[P] };
+
+/** Each items collection of `U`, rolled up into a span parent's bands (#1436). */
+type PlanRolledUp<U> = unknown extends U ? unknown : { readonly [P in keyof U]: PlanFlat<U[P] & { readonly rollup: true }> };
+
+/** The folds of a series' own values collections. */
+type PlanFoldsOf<U, FO> = unknown extends U ? unknown : [FO] extends [undefined] ? unknown : { readonly [P in keyof U]: FO };
+
+/**
+ * A series' `children` as its config takes them (#1436) — a tree's field, one
+ * step-down, or several — with what each reads captured for the series' brand:
+ * the tree's field, one step-down's reads and the folds of its cells, several
+ * step-downs' reads.
+ *
+ * @typeParam R - The entry type
+ * @typeParam TF - A tree's field
+ * @typeParam UC - One step-down's reads
+ * @typeParam FC - The folds of its cells, by collection
+ * @typeParam TC - Several step-downs' reads, in order
+ */
+export type PlanChildrenOf<R extends EastType, TF, UC, FC, TC extends readonly unknown[]> =
+    | TF
+    | (PlanChildren<R, string, unknown, unknown> & { readonly [PlanReadsBrand]?: UC } & PlanFoldsBrand<FC>)
+    | { readonly [I in keyof TC]: PlanChildren<R, string, unknown, unknown> & { readonly [PlanReadsBrand]?: TC[I] } };
+
+/** One step-down's rows, their values subtotalled by its folds and `A`. */
+type PlanStepSubtotalled<UC, FC, A> = {
+    readonly [P in keyof UC]: UC[P] extends { readonly rows: infer U } ? { readonly rows: PlanSubtotalledBy<U, FC, A> } : UC[P]
+};
+
+/**
+ * What a series' `children` read (#1436): a tree's field, recursive; a
+ * step-down's rows under its field — their values collections subtotalled by
+ * `A`, with their own folds, when the parent subtotals its children; several
+ * step-downs' rows, each under its field.
+ *
+ * @remarks
+ * Several step-downs carry their reads but not their cells' folds, so a parent
+ * subtotalling them brands their rows as read; its build records the subtotals
+ * at runtime (#1435 holds both).
+ *
+ * @typeParam TF - A tree's field
+ * @typeParam UC - One step-down's reads
+ * @typeParam FC - The folds of its cells
+ * @typeParam TC - Several step-downs' reads
+ * @typeParam A - The parent's aggregate, or `never` when it subtotals nothing
+ */
+export type PlanChildrenReads<TF, UC, FC, TC extends readonly unknown[], A = never> =
+    ([TF] extends [never] ? unknown : { readonly [P in TF & string]: { readonly recursive: true } })
+    & (unknown extends UC ? unknown : [A] extends [never] ? UC : PlanStepSubtotalled<UC, FC, A>)
+    & ([TC] extends [never] ? unknown : PlanIntersect<TC[number]>);
+
+/** Whether a series declares `children`. */
+type PlanHasChildren<TF, UC, TC> = [TF] extends [never] ? (unknown extends UC ? ([TC] extends [never] ? false : true) : true) : true;
+
+/** The facts of a values consumer: its reads, fold and subtotal flag. */
+type PlanUseFacts<E> = E extends { readonly [PlanUseBrand]?: infer F } ? Exclude<F, undefined> : never;
+/** What a values consumer reads — none when it names nothing. */
+type PlanUseReads<E> = E extends { readonly [PlanReadsBrand]?: infer U } ? (unknown extends U ? PlanNone : Exclude<U, undefined>) : PlanNone;
+/** A table position's subtotal flag. */
+type PlanFlagOf<E> = E extends unknown ? (PlanUseFacts<E> extends { readonly rollup: infer RO } ? RO : false) : never;
+/** A table position's fold. */
+type PlanFoldOfUse<E> = PlanUseFacts<E> extends { readonly fold: infer FO } ? FO : never;
+/** Whether any of a table's positions is flagged to feed its parent's subtotal. */
+type PlanAnyFlagged<S extends readonly unknown[]> = true extends PlanFlagOf<S[number]> ? true : false;
+/** Whether a table position feeds its parent's subtotal: flagged, or every position when none is. */
+type PlanAggregable<E, Flagged extends boolean> = Flagged extends true ? (PlanFlagOf<E> extends true ? true : false) : true;
+
+/** What a table's positions read: each it subtotals, by its fold and the table's aggregate, when it subtotals its own entries (a tree). */
+type PlanPositionsReads<S, Tree extends boolean, A> =
+    [S] extends [never] ? unknown
+    : S extends readonly unknown[]
+        ? PlanReadsNormal<PlanIntersect<S[number] extends infer E
+            ? E extends unknown
+                ? (Tree extends true ? (PlanAggregable<E, PlanAnyFlagged<S>> extends true ? PlanSubtotalled<PlanUseReads<E>, PlanFoldOfUse<E>, A> : PlanUseReads<E>) : PlanUseReads<E>)
+                : never
+            : never>>
+        : unknown;
+
+/** The folds of a table's aggregable positions, by collection. */
+type PlanPositionsFolds<S> =
+    [S] extends [never] ? unknown
+    : S extends readonly unknown[]
+        ? PlanReadsNormal<PlanIntersect<S[number] extends infer E
+            ? E extends unknown ? (PlanAggregable<E, PlanAnyFlagged<S>> extends true ? PlanFoldsOf<PlanUseReads<E>, PlanFoldOfUse<E>> : PlanNone) : never
+            : never>>
+        : unknown;
+
+// ============================================================================
+// Editing — what a gesture writes (#880, #825, #1436)
 // ============================================================================
 
 /**
@@ -378,25 +604,6 @@ export type PlanEntryFields<R extends EastType> =
         : R extends StructType<infer F> ? F : never;
 
 /**
- * An entry field that holds a list of items — an `Array` field, what a
- * series' `edit.items` names.
- *
- * @typeParam R - The entry type
- */
-export type PlanItemsField<R extends EastType> = {
-    [K in keyof PlanEntryFields<R> & string]: PlanEntryFields<R>[K] extends ArrayType<EastType> ? K : never;
-}[keyof PlanEntryFields<R> & string];
-
-/**
- * The item type an entry's `Array` field holds.
- *
- * @typeParam R - The entry type
- * @typeParam F - The field
- */
-export type PlanItemOf<R extends EastType, F extends string> =
-    PlanEntryFields<R>[F] extends ArrayType<infer T extends EastType> ? T : never;
-
-/**
  * The fields of an item — a struct item's own.
  *
  * @typeParam T - The item type
@@ -404,111 +611,49 @@ export type PlanItemOf<R extends EastType, F extends string> =
 export type PlanItemFields<T extends EastType> = T extends StructType<infer F> ? F : never;
 
 /**
- * An item field that holds its key — a `String` field, what `edit.key` names
- * (#825): an element's `key` must be its item's.
- *
- * @typeParam T - The item type
- */
-export type PlanItemKeyField<T extends EastType> = {
-    [K in keyof PlanItemFields<T> & string]: PlanItemFields<T>[K] extends StringType ? K : never;
-}[keyof PlanItemFields<T> & string];
-
-/**
  * The East types an item's instant field may be (#825) — a move writes the
  * axis's instant into it on its own arm: a `DateTime` on a time axis, a
  * `Float` or an `Integer` (rounded) on a number axis, a `String` on an ordinal
- * one, or the {@link PlanInstantType} itself on any.
+ * one, or the {@link PlanInstantType} itself on any. An `Option` of a
+ * `DateTime` is an instant field too (#1436): {@link PlanItemTimeField}.
  */
 export type PlanItemInstantType = DateTimeType | FloatType | IntegerType | StringType | PlanInstantType;
 
 /**
- * An item field that holds an instant a move writes — what `edit.start`,
- * `edit.end` and `edit.at` name (#825).
- *
- * @typeParam T - The item type
- */
-export type PlanItemInstantField<T extends EastType> = {
-    [K in keyof PlanItemFields<T> & string]: PlanItemFields<T>[K] extends PlanItemInstantType ? K : never;
-}[keyof PlanItemFields<T> & string];
-
-/**
- * What the gestures on a run or chip series' rows write (#880, #825) — one arm
- * per `Array` field of the entry, so every other field is typed by the field
- * `items` names.
+ * What the gestures on a series' rows write (#1436): the collection its
+ * elements' read names (`runs`, `events`, `chips` or `marks`), over the times
+ * named. `true`: moves and resizes write the item's named times, and a move to
+ * another row takes the item there under its id. `{ create }`: those, and a
+ * dropped card becomes the item `create` gives, under an id the Plan mints.
  *
  * @remarks
- * `create` takes a library card dropped on the row (#880). `key`, `start` and
- * `end` take a run or chip moved or resized (#825): the element names its item
- * by its `key` — an element's key must be its item's — and the move writes the
- * item's `start` and `end`; a move to another row takes the item out of this
- * list into that row's, which must hold the same item type. Declare `create`,
- * the move's fields, or both.
- *
- * With `key` declared, a row's list keeps its keys unique: a card whose item
- * repeats a key the list holds, and a move onto a row whose list already holds
- * the moved item's key, are refused. So `key` is the item's identity across
- * every row it can move to — a job's own id, not its place in one press's
- * list.
+ * An item is found by its id, its key in the collection — an element's key is
+ * its item's id — so a move keeps it. A move onto a row whose collection
+ * already holds the id is refused, and so is a dropped card whose minted id the
+ * collection holds.
  *
  * @typeParam R - The entry type
  * @typeParam KT - The entries' key type
- * @property items - The entry's `Array` field the row's elements come from — the list a gesture writes
- * @property key - The item's `String` key field — an element's `key` is its item's
- * @property start - The item's start field a move or a resize writes
- * @property end - The item's end field a move or a resize writes
- * @property create - The item a dropped card becomes, built from the drop (the card, the row and the bucket's instant), the entry and its key
+ * @typeParam I - The collection's item type
  */
-export type PlanEditInput<R extends EastType, KT extends EastType = StringType> = {
-    [F in PlanItemsField<R>]: {
-        /** The entry's `Array` field the row's elements come from — the list a gesture writes. */
-        items: F;
-        /** The item's `String` key field — an element's `key` is its item's (#825). Required with `start` / `end`.
-         *  Unique across every row an item can move to: a drop or a move that would repeat one in a row's list is refused. */
-        key?: PlanItemKeyField<PlanItemOf<R, F>>;
-        /** The item's start field — a move or a resize writes the new start into it (#825). */
-        start?: PlanItemInstantField<PlanItemOf<R, F>>;
-        /** The item's end field — a move or a resize writes the new end into it (#825). */
-        end?: PlanItemInstantField<PlanItemOf<R, F>>;
-        /** The item a dropped card becomes — from the drop (the card, the row, the bucket's instant), the entry and its key. */
-        create?: (drop: ExprType<PlanDropType>, entry: PlanEntryExpr<R>, key: ExprType<KT>) => SubtypeExprOrValue<PlanItemOf<R, F>>;
-    };
-}[PlanItemsField<R>];
+export type PlanItemsEdit<R extends EastType, KT extends EastType, I extends EastType> = true | {
+    /** The item a dropped card becomes, from the drop (the card, the row, the bucket's instant, the minted id), the row and its key. */
+    create: (drop: ExprType<PlanDropType>, row: PlanEntryExpr<R>, key: ExprType<KT>) => SubtypeExprOrValue<I>;
+};
 
 /**
- * What the gestures on a tile or mark series' rows write (#880, #825) — the
- * {@link PlanEditInput} of an element with ONE instant: a move writes the
- * item's `at`.
+ * A series' `edit`, typed by the collection its elements read (#1436) — none
+ * when they are given as a function, which names no collection to write.
  *
  * @typeParam R - The entry type
  * @typeParam KT - The entries' key type
- * @property items - The entry's `Array` field the row's elements come from — the list a gesture writes
- * @property key - The item's `String` key field — an element's `key` is its item's
- * @property at - The item's instant field a move writes
- * @property create - The item a dropped card becomes, built from the drop, the entry and its key
+ * @typeParam F - The collection its elements' read names
  */
-export type PlanPointEditInput<R extends EastType, KT extends EastType = StringType> = {
-    [F in PlanItemsField<R>]: {
-        /** The entry's `Array` field the row's elements come from — the list a gesture writes. */
-        items: F;
-        /** The item's `String` key field — an element's `key` is its item's (#825). Required with `at`.
-         *  Unique across every row an item can move to: a drop or a move that would repeat one in a row's list is refused. */
-        key?: PlanItemKeyField<PlanItemOf<R, F>>;
-        /** The item's instant field — a move writes the new instant into it (#825). */
-        at?: PlanItemInstantField<PlanItemOf<R, F>>;
-        /** The item a dropped card becomes — from the drop (the card, the row, the bucket's instant), the entry and its key. */
-        create?: (drop: ExprType<PlanDropType>, entry: PlanEntryExpr<R>, key: ExprType<KT>) => SubtypeExprOrValue<PlanItemOf<R, F>>;
-    };
-}[PlanItemsField<R>];
+export type PlanEditOf<R extends EastType, KT extends EastType, F extends string> =
+    string extends F ? never : PlanItemsEdit<R, KT, PlanCollectionItem<R, F>>;
 
 /** An edit declaration with its entry type erased — what the build machinery reads. */
-interface AnyEditInput {
-    items: string;
-    key?: string;
-    start?: string;
-    end?: string;
-    at?: string;
-    create?: (drop: ExprType<PlanDropType>, entry: ExprType<EastType>, key: ExprType<EastType>) => unknown;
-}
+type AnyEdit = true | { readonly create: (drop: ExprType<PlanDropType>, entry: ExprType<EastType>, key: ExprType<EastType>) => unknown };
 
 // ============================================================================
 // Series configs
@@ -521,14 +666,20 @@ interface AnyEditInput {
  *
  * @typeParam R - The entry type
  * @typeParam KT - The entries' key type
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
  */
-export interface PlanSeriesRowConfig<R extends EastType, KT extends EastType = StringType> extends PlanSeriesIdentity {
+export interface PlanSeriesRowConfig<
+    R extends EastType, KT extends EastType = StringType,
+    CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
+> extends PlanSeriesIdentity {
     /**
      * The East type of the entries' keys, as the accessors receive them —
      * `StringType` by default. Declare it when an accessor reads a key of
-     * another type (`keyType: IntegerType` for an `Array` child's index, or a
-     * source keyed by `Integer`); a series whose accessors ignore the key needs
-     * none, whatever the collection.
+     * another type (a source keyed by `Integer`); a series whose accessors
+     * ignore the key needs none, whatever the collection.
      */
     keyType?: KT;
     /** Membership — omitted ⇒ every entry belongs. Applies at every level the series walks. */
@@ -548,102 +699,232 @@ export interface PlanSeriesRowConfig<R extends EastType, KT extends EastType = S
     /** Per-row expand-in-place accessor — returns the field's `Option`. */
     expand?: PlanAccessor<R, OptionType<PlanExpandType>, KT>;
     /**
-     * The entry's children — more of this series, or `Plan.children(of, [series…])` step-downs ({@link PlanChildrenInput}).
-     *
-     * @remarks
-     * Not an inference site for the key type (`NoInfer`): a step-down that ignores
-     * the key would otherwise widen it to every type, and the series' other
-     * accessors would lose their typed key.
+     * The entry's children (#1436) — `field`, a `Dict` field holding more of
+     * this series' own entries (a tree, to any depth), or
+     * `Plan.children(field, [series…])` step-downs to child rows of another
+     * type ({@link PlanChildrenInput}).
      */
-    children?: PlanChildrenInput<R, NoInfer<KT>>;
+    children?: PlanChildrenOf<R, CT, CU, CF, CS>;
     /** Initial collapse of a row that has children — a constant, or per entry. */
     collapsed?: boolean | PlanAccessor<R, BooleanType, KT>;
 }
 
-/** Config for {@link Plan.series.span} — state-run rows; a parent shows its own runs plus bands over its subtree's
- *  (each band sums its runs' quantities unit by unit — a quantity carries its unit, #824). */
-export interface PlanSpanSeriesConfig<R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType> extends PlanSeriesRowConfig<R, KT> {
-    /** Per-row runs accessor — the runs' axis kind brands the series. */
-    runs: PlanElementsAccessor<R, PlanRunType, K, KT>;
-    /** Per-row decision-diamonds accessor. */
-    decisions?: PlanElementsAccessor<R, PlanDecisionMarkType, K, KT>;
-    /** Per-row ports accessor. */
-    ports?: PlanElementsAccessor<R, typeof PlanPortType, K, KT>;
+/**
+ * Config for {@link Plan.series.span} — state-run rows; a parent shows its
+ * own runs plus bands over its subtree's (each band sums its runs' quantities
+ * unit by unit — a quantity carries its unit, #824).
+ *
+ * @typeParam R - The entry type
+ * @typeParam K - The axis kind its runs ride
+ * @typeParam KT - The entries' key type
+ * @typeParam FR - The collection its runs read
+ * @typeParam UR - What its runs read
+ * @typeParam UD - What its decisions read
+ * @typeParam UP - What its ports read
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
+ * @typeParam RL - Its `rollup`, as written
+ */
+export interface PlanSpanSeriesConfig<
+    R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
+    FR extends string = string, UR = unknown, UD = unknown, UP = unknown,
+    CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never, RL extends PlanRollupLiteral = never,
+> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS> {
+    /** The row's runs — `Plan.items(field, { from, to }, draw)` over the things people drag, or a function of the row; the runs' axis kind brands the series. */
+    runs: PlanElementsAccessor<R, PlanRunType, K, KT> | PlanItemsInput<R, FR, PlanSpanTimes, PlanRunLook, K, UR>;
+    /** The row's decision diamonds — `Plan.items(field, { at }, draw)`, or a function of the row. */
+    decisions?: PlanElementsAccessor<R, PlanDecisionMarkType, K, KT> | PlanItemsInput<R, string, PlanPointTimes, PlanDecisionLook, K, UD>;
+    /** The row's ports — `Plan.values(field, draw)`, each at its key, or a function of the row. */
+    ports?: PlanElementsAccessor<R, typeof PlanPortType, K, KT> | PlanValuesInput<R, PlanPortLook, K, UP>;
     /** How a row with children rolls its subtree's runs into its bands (default `"union"`). A `views` member, which
      *  declares no `children`, declares it to roll up the children the views nest under its row (#1219). */
-    rollup?: SubtypeExprOrValue<PlanRollupType> | PlanRollupLiteral;
-    /** What a gesture on a row writes — the `Array` field its runs come from; a dropped card's item (`create`,
-     *  #880); a moved or resized run's key, start and end fields (#825). */
-    edit?: PlanEditInput<R, KT>;
+    rollup?: SubtypeExprOrValue<PlanRollupType> | RL;
+    /** What a gesture on a row writes (#1436): `true` — runs moved and resized, by the collection and times its
+     *  `runs` read names; `{ create }` — and a dropped card's item too. */
+    edit?: PlanEditOf<R, KT, NoInfer<FR>>;
 }
 
-/** Config for {@link Plan.series.heat} — per-bucket cell rows; a parent shows its own cells, or its children's per-bucket `aggregate`. */
-export interface PlanHeatSeriesConfig<R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType> extends PlanSeriesRowConfig<R, KT> {
-    /** Per-row cells accessor (`Plan.heatCells` / `Plan.weightCells` / `Plan.segmentCells`) — its kind brands the series. A parent may return no cells, and then shows its children's aggregate on `scale`. */
-    cells: PlanKindedAccessor<R, PlanHeatCellsInput<K>, KT>;
+/**
+ * Config for {@link Plan.series.heat} — per-bucket cell rows; a parent shows
+ * its own cells, or its children's per-bucket `aggregate`.
+ *
+ * @typeParam R - The entry type
+ * @typeParam K - The axis kind its cells ride
+ * @typeParam KT - The entries' key type
+ * @typeParam UC - What its cells read
+ * @typeParam FO - How a bucket folds them
+ * @typeParam A - Its `aggregate`, as written
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
+ */
+export interface PlanHeatSeriesConfig<
+    R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
+    UC = unknown, FO extends PlanFoldLiteral | undefined = undefined, A extends PlanAggregateLiteral = "mean",
+    CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
+> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS> {
+    /** The row's cells — `Plan.heatCells` / `weightCells` / `segmentCells` over `Plan.values(field, draw)`, or a function of
+     *  the row; its kind brands the series. A parent may hold no cells, and then shows its children's aggregate on `scale`. */
+    cells: PlanKindedAccessor<R, PlanHeatCellsInput<K>, KT> | PlanValuesUse<"heat", R, K, UC, FO>;
     /** How a parent with no cells of its own derives them from its children (default `"mean"`). */
-    aggregate?: SubtypeExprOrValue<PlanAggregateType> | PlanAggregateLiteral;
+    aggregate?: SubtypeExprOrValue<PlanAggregateType> | A;
     /** The scale a parent's derived cells paint on (min / max / warn threshold, #824); omit ⇒ the extent
      *  they span. A row's own cells paint on their arm's scale. */
     scale?: PlanHeatScaleInput;
 }
 
-/** Config for {@link Plan.series.table} — bucketed numerals; a parent shows its own values, or per-position subtotals. */
-export interface PlanTableSeriesOfConfig<R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType> extends PlanSeriesRowConfig<R, KT> {
-    /** Per-row cells accessor (`Plan.tableCells`) — sugar for one unstyled value series; its kind brands the series. A parent may return no cells, and then shows its children's subtotal. */
-    cells?: PlanKindedAccessor<R, PlanTableCellsInput<K>, KT>;
+/**
+ * Config for {@link Plan.series.table} — bucketed numerals; a parent shows its
+ * own values, or per-position subtotals.
+ *
+ * @typeParam R - The entry type
+ * @typeParam K - The axis kind its cells ride
+ * @typeParam KT - The entries' key type
+ * @typeParam UC - What its `cells` read
+ * @typeParam S - Its `series` positions, as written
+ * @typeParam FO - Its `cells`' fold, as written
+ * @typeParam A - Its `aggregate`, as written
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
+ */
+export interface PlanTableSeriesOfConfig<
+    R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
+    UC = unknown, S extends readonly unknown[] = never, FO extends PlanFoldLiteral = "sum", A extends TableAggregateLiteral = "sum",
+    CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
+> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS> {
+    /** The row's cells — `Plan.tableCells(Plan.values(field, draw))`, or a function of the row: sugar for one unstyled value
+     *  series; its kind brands the series. A parent may hold none, and then shows its children's subtotal. */
+    cells?: PlanKindedAccessor<R, PlanTableCellsInput<K>, KT> | PlanValuesUse<"tableCells", R, K, UC>;
     /** How a bucket folds the `cells` at a coarser resolution than theirs (default `"sum"`, #824) — a
-     *  `series` entry declares its own (`Plan.tableSeries({ fold })`). */
-    fold?: PlanFoldInput;
-    /** Per-row MULTI-SERIES accessor (`Plan.tableSeries` results); exclusive with `cells`. */
-    series?: PlanElementsAccessor<R, PlanTableSeriesType, K, KT>;
+     *  `series` position declares its own (`Plan.tableSeries({ fold })`). */
+    fold?: FO | SubtypeExprOrValue<PlanFoldType>;
+    /** The row's positions — `Plan.tableSeries({ cells: Plan.tableCells(Plan.values(…)) })` each, or a function of the
+     *  row returning `Plan.tableSeries` results; exclusive with `cells`. */
+    series?: PlanElementsAccessor<R, PlanTableSeriesType, K, KT> | (S & readonly PlanValuesUse<"tableSeries", R, K, unknown, PlanFoldLiteral | undefined, boolean>[]);
     /** Part layout when several value series render — `"horizontal"` (default) / `"vertical"`. */
     split?: SubtypeExprOrValue<PlanTableSplitType> | PlanTableSplitLiteral;
     /** Row emphasis — `"body"` (default) / `"header"` / `"footer"`. */
     emphasis?: SubtypeExprOrValue<PlanTableEmphasisType> | PlanTableEmphasisLiteral;
     /** How a parent with no values of its own subtotals its children (default `"sum"`). */
-    aggregate?: SubtypeExprOrValue<TableAggregateType> | TableAggregateLiteral;
+    aggregate?: SubtypeExprOrValue<TableAggregateType> | A;
     /** Numeral format for the rows' values and derived subtotals — a `Format.*` spec. */
     format?: SubtypeExprOrValue<TickFormatType>;
+    /** `true` ⇒ a number typed into one of its `cells` is written as the value at the bucket's start, added where none
+     *  is, deleted when cleared (#1436) — its cells a `Plan.values` read drawing each value as stored, `value: some(v)`.
+     *  A `series` position declares its own (`Plan.tableSeries({ cells, edit: true })`). */
+    edit?: PlanValuesEdit;
 }
 
-/** Config for {@link Plan.series.buckets} — one bucket row per entry. */
-export interface PlanBucketsSeriesConfig<R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType> extends PlanSeriesRowConfig<R, KT> {
+/**
+ * Config for {@link Plan.series.buckets} — one bucket row per entry.
+ *
+ * @typeParam R - The entry type
+ * @typeParam K - The axis kind its tiles ride
+ * @typeParam KT - The entries' key type
+ * @typeParam FE - The collection its tiles read
+ * @typeParam UE - What its tiles read
+ * @typeParam UM - What its markers read
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
+ */
+export interface PlanBucketsSeriesConfig<
+    R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
+    FE extends string = string, UE = unknown, UM = unknown,
+    CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
+> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS> {
     /** Per-row sub-slot lanes accessor; omitted ⇒ unbucketed rows. */
     lanes?: PlanAccessor<R, ArrayType<PlanLaneType>, KT>;
-    /** Per-row tiles accessor — the tiles' axis kind brands the series. */
-    events: PlanElementsAccessor<R, PlanBucketEventType, K, KT>;
-    /** Per-row cell-marker accessor. */
-    markers?: PlanElementsAccessor<R, PlanCellMarkerType, K, KT>;
-    /** What a gesture on a row writes — the `Array` field its tiles come from; a dropped card's item (`create`,
-     *  #880); a moved tile's key and instant fields (#825). */
-    edit?: PlanPointEditInput<R, KT>;
+    /** The row's tiles — `Plan.items(field, { at }, draw)`, or a function of the row; the tiles' axis kind brands the series. */
+    events: PlanElementsAccessor<R, PlanBucketEventType, K, KT> | PlanItemsInput<R, FE, PlanPointTimes, PlanBucketEventLook, K, UE>;
+    /** The row's cell markers — `Plan.values(field, draw)`, each at its key, or a function of the row. */
+    markers?: PlanElementsAccessor<R, PlanCellMarkerType, K, KT> | PlanValuesInput<R, PlanCellMarkerLook, K, UM>;
+    /** What a gesture on a row writes (#1436): `true` — tiles moved, by the collection and the instant its `events` read
+     *  names; `{ create }` — and a dropped card's item too. */
+    edit?: PlanEditOf<R, KT, NoInfer<FE>>;
 }
 
-/** Config for {@link Plan.series.cards} — one cards row per entry. */
-export interface PlanCardsSeriesConfig<R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType> extends PlanSeriesRowConfig<R, KT> {
-    /** Per-row shift-chips accessor — the chips' axis kind brands the series. */
-    chips: PlanElementsAccessor<R, PlanChipType, K, KT>;
-    /** What a gesture on a row writes — the `Array` field its chips come from; a dropped card's item (`create`,
-     *  #880); a moved or resized chip's key, start and end fields (#825). */
-    edit?: PlanEditInput<R, KT>;
+/**
+ * Config for {@link Plan.series.cards} — one cards row per entry.
+ *
+ * @typeParam R - The entry type
+ * @typeParam K - The axis kind its chips ride
+ * @typeParam KT - The entries' key type
+ * @typeParam FC - The collection its chips read
+ * @typeParam UC - What its chips read
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
+ */
+export interface PlanCardsSeriesConfig<
+    R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
+    FC extends string = string, UC = unknown,
+    CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
+> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS> {
+    /** The row's chips — `Plan.items(field, { from, to }, draw)`, or a function of the row; the chips' axis kind brands the series. */
+    chips: PlanElementsAccessor<R, PlanChipType, K, KT> | PlanItemsInput<R, FC, PlanSpanTimes, PlanChipLook, K, UC>;
+    /** What a gesture on a row writes (#1436): `true` — chips moved and resized, by the collection and times its `chips`
+     *  read names; `{ create }` — and a dropped card's item too. */
+    edit?: PlanEditOf<R, KT, NoInfer<FC>>;
 }
 
-/** Config for {@link Plan.series.events} — one event row per entry. */
-export interface PlanEventsSeriesConfig<R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType> extends PlanSeriesRowConfig<R, KT> {
-    /** Per-row instant-marks accessor — the marks' axis kind brands the series. */
-    marks: PlanElementsAccessor<R, PlanEventMarkType, K, KT>;
-    /** What a gesture on a row writes — the `Array` field its marks come from; a dropped card's item (`create`,
-     *  #880); a moved mark's key and instant fields (#825). */
-    edit?: PlanPointEditInput<R, KT>;
+/**
+ * Config for {@link Plan.series.events} — one event row per entry.
+ *
+ * @typeParam R - The entry type
+ * @typeParam K - The axis kind its marks ride
+ * @typeParam KT - The entries' key type
+ * @typeParam FM - The collection its marks read
+ * @typeParam UM - What its marks read
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
+ */
+export interface PlanEventsSeriesConfig<
+    R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
+    FM extends string = string, UM = unknown,
+    CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
+> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS> {
+    /** The row's marks — `Plan.items(field, { at }, draw)`, or a function of the row; the marks' axis kind brands the series. */
+    marks: PlanElementsAccessor<R, PlanEventMarkType, K, KT> | PlanItemsInput<R, FM, PlanPointTimes, PlanEventMarkLook, K, UM>;
+    /** What a gesture on a row writes (#1436): `true` — marks moved, by the collection and the instant its `marks` read
+     *  names; `{ create }` — and a dropped card's item too. */
+    edit?: PlanEditOf<R, KT, NoInfer<FM>>;
 }
 
-/** Config for {@link Plan.series.chart} — one chart row per entry, layers built from the entry's own data. */
-export interface PlanChartSeriesConfig<R extends EastType, KT extends EastType = StringType> extends PlanSeriesRowConfig<R, KT> {
+/**
+ * Config for {@link Plan.series.chart} — one chart row per entry, layers built
+ * from the entry's own data.
+ *
+ * @typeParam R - The entry type
+ * @typeParam KT - The entries' key type
+ * @typeParam K - The axis kind its layers' values ride (none for Chart layers, whose x type their face hides)
+ * @typeParam L - Its `layers`, as written
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
+ */
+export interface PlanChartSeriesConfig<
+    R extends EastType, KT extends EastType = StringType, K extends PlanAxisKindLiteral = never,
+    L extends readonly unknown[] = never,
+    CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
+> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS> {
     /** Per-row pinned accessor (`true` ⇒ above the virtualised body; `false` when omitted). */
     pinned?: PlanAccessor<R, BooleanType, KT>;
-    /** Per-row Chart layers accessor (`Chart.*` builders, bare or `Plan.layer`-wrapped). */
-    layers: (row: PlanEntryExpr<R>, key: ExprType<KT>) => PlanChartLayerInput | PlanChartLayerInput[];
+    /** The row's layers — `Plan.line` / `area` / `column` / `scatter` / `band` over `Plan.values(field, draw)` and
+     *  `Chart.ref*` annotations, or a function of the row returning Chart layers (bare or `Plan.layer`-wrapped). */
+    layers:
+        | ((row: PlanEntryExpr<R>, key: ExprType<KT>) => PlanChartLayerInput | PlanChartLayerInput[])
+        | (L & readonly (PlanChartLayerInput | PlanValuesUse<"layer", R, K, unknown, PlanFoldLiteral | undefined>)[]);
     /** The left y-axis declaration (shared by this series' rows). */
     left?: PlanChartAxisInput;
     /** The right y-axis declaration. */
@@ -663,16 +944,28 @@ export interface PlanChartSeriesConfig<R extends EastType, KT extends EastType =
  * members the entry's children.
  *
  * @typeParam R - The entry type
- * @typeParam K - The axis kind the summary cells imply
+ * @typeParam K - The axis kind the summary cells ride
  * @typeParam KT - The entries' key type
+ * @typeParam US - What its `summary` reads
+ * @typeParam FO - How a bucket folds its summary cells
+ * @typeParam A - Its `summaryAggregate`, as written
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
  */
-export interface PlanGroupSeriesConfig<R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType> extends PlanSeriesRowConfig<R, KT> {
-    /** The strip's members — the entry's children (required: a group without members is a plain band). Not an inference site for the key type. */
-    children: PlanChildrenInput<R, NoInfer<KT>>;
-    /** Explicit collapsed-strip cells per entry; exclusive with `summaryAggregate`. */
-    summary?: PlanKindedAccessor<R, PlanHeatCellsInput<K>, KT>;
+export interface PlanGroupSeriesConfig<
+    R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
+    US = unknown, FO extends PlanFoldLiteral | undefined = undefined, A extends PlanAggregateLiteral = never,
+    CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
+> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS> {
+    /** The strip's members — the entry's children (required: a group without members is a plain band). */
+    children: PlanChildrenOf<R, CT, CU, CF, CS>;
+    /** Explicit collapsed-strip cells per entry — `Plan.heatCells(Plan.values(field, draw))`, or a function of the row;
+     *  exclusive with `summaryAggregate`. */
+    summary?: PlanKindedAccessor<R, PlanHeatCellsInput<K>, KT> | PlanValuesUse<"heat", R, K, US, FO>;
     /** DECLARED strip aggregation over the members' heat cells — `"mean"` / `"max"` / `"sum"`; exclusive with `summary`. */
-    summaryAggregate?: SubtypeExprOrValue<PlanAggregateType> | PlanAggregateLiteral;
+    summaryAggregate?: SubtypeExprOrValue<PlanAggregateType> | A;
 }
 
 /**
@@ -708,14 +1001,21 @@ export interface PlanSectionSeriesConfig<K extends PlanAxisKindLiteral = never> 
  *
  * @typeParam R - The entry type
  * @typeParam KT - The entries' key type
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
  */
-export interface PlanViewsSeriesConfig<R extends EastType, KT extends EastType = StringType> extends PlanSeriesIdentity {
+export interface PlanViewsSeriesConfig<
+    R extends EastType, KT extends EastType = StringType,
+    CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
+> extends PlanSeriesIdentity {
     /** The East type of the entries' keys, as the accessors receive them (default `StringType`). */
     keyType?: KT;
     /** Membership — omitted ⇒ every entry. A member series' own `match` then decides whether its row shows. */
     match?: PlanAccessor<R, BooleanType, KT>;
-    /** The entry's children — under its first view row. Not an inference site for the key type. */
-    children?: PlanChildrenInput<R, NoInfer<KT>>;
+    /** The entry's children — under its first view row: a tree's field, or step-downs ({@link PlanChildrenInput}). */
+    children?: PlanChildrenOf<R, CT, CU, CF, CS>;
     /** Initial collapse of the first view row, when the entry has children. */
     collapsed?: boolean | PlanAccessor<R, BooleanType, KT>;
 }
@@ -785,6 +1085,10 @@ interface PlanSeriesSpec {
      * whose kinds the build does not see. What a block of its entries says (`PlanBlockType.charts`).
      */
     readonly charts: number | undefined;
+    /** The named reads its own fields make (#1436) — its nested series' are theirs. */
+    readonly reads: readonly PlanSeriesRead[];
+    /** What a Plan holds to its rows' nested series index as it is built (#1435); none for hand-built rows. */
+    readonly nest?: PlanSeriesNest;
     /** This series' rows for entries of `collection`, as ONE stream — what an
      *  entry's subtree holds when a step-down lays the series out below it. */
     emitter(collection: EastType, where: string): EmitFn;
@@ -804,8 +1108,105 @@ interface PlanSeriesSpec {
     ownFor?(key: EastType): OwnEditFn | undefined;
 }
 
+/**
+ * What a series reads and how, as its build records it beside its spec
+ * (#1435): what a Plan holds to its rows' nested series index as it is built,
+ * whatever TypeScript could see.
+ *
+ * @internal
+ */
+export interface PlanSeriesNest {
+    /** The entry type its accessors read; none for a section, which reads nothing of its own. */
+    readonly rowType: EastType | undefined;
+    /** Its entries' key type, as its accessors take it. */
+    readonly keyType: EastType;
+    /** Each of its config's functions of the row, by the field it is given as: what a Plan walks for a collection read in a function. */
+    readonly accessors: readonly { readonly via: string; readonly fn: (node: ExprType<EastType>, key: ExprType<EastType>) => unknown }[];
+    /** A tree's field: more of its own entries, beneath each. */
+    readonly tree: string | undefined;
+    /** Each step-down: the field it steps down to, or the function of the row computing its rows, and its series. */
+    readonly steps: readonly PlanSeriesNestStep<PlanSeriesSpec>[];
+    /** The series over its own entries: a section's or a views' members. */
+    readonly members: readonly PlanSeriesSpec[];
+    /** The aggregate its row derives its children's numbers by: a heat's or a table's, a group's `summaryAggregate`. */
+    readonly aggregate: string | undefined;
+    /** Whether the aggregate subtotals its own values over a tree (a heat's, a table's), and not only a step-down's (a group's). */
+    readonly subtotalsOwn: boolean;
+    /** What its runs roll up into its bands by: a span's, with children or a `rollup` declared. */
+    readonly rollup: string | undefined;
+}
+
+/**
+ * One step-down of a series (#1435): the field it steps down to, or the
+ * function of the row computing its rows, and its series.
+ *
+ * @typeParam S - What each series is given as
+ * @internal
+ */
+export interface PlanSeriesNestStep<S> {
+    /** The field of the row holding the child rows; none for computed ones. */
+    readonly field: string | undefined;
+    /** The function of the row computing them, where they are computed. */
+    readonly of: ((node: ExprType<EastType>, key: ExprType<EastType>) => unknown) | undefined;
+    /** Its series. */
+    readonly series: readonly S[];
+}
+
+/**
+ * The facts a Plan holds to its rows' nested series index (#1435), off the
+ * spec a `Plan.series.*` builder recorded.
+ *
+ * @internal
+ */
+export interface PlanSeriesNestFacts {
+    /** The series' key. */
+    readonly key: string;
+    /** Its kind. */
+    readonly arm: PlanSeriesArm;
+    /** The named reads its own fields make. */
+    readonly reads: readonly PlanSeriesRead[];
+    /** What it reads and how. */
+    readonly nest: PlanSeriesNest | undefined;
+}
+
 /** Every series value a builder made, with its build spec. */
 const SPECS = new WeakMap<object, PlanSeriesSpec>();
+
+/** A spec's facts for the nested checks (#1435). */
+function nestFactsOf(spec: PlanSeriesSpec): PlanSeriesNestFacts {
+    return { key: spec.key, arm: spec.arm, reads: spec.reads, nest: spec.nest };
+}
+
+/**
+ * The facts a Plan holds to its rows' nested series index (#1435), of a
+ * series value a `Plan.series.*` builder made, and of each series its spec
+ * nests: `facts(spec)` for any of them.
+ *
+ * @param series - The series value
+ * @returns Its facts; `undefined` for a value no builder made in place (a bound, picked or stored one)
+ * @internal
+ */
+export function planSeriesNestOf(series: unknown): PlanSeriesNestFacts | undefined {
+    const spec = specOf(series);
+    return spec === undefined ? undefined : nestFactsOf(spec);
+}
+
+/**
+ * The facts of the series a spec nests (#1435), as {@link planSeriesNestOf} gives them.
+ *
+ * @param nest - A series' nest
+ * @returns Its step-downs' series and its members, each with its facts
+ * @internal
+ */
+export function planNestedSeriesFacts(nest: PlanSeriesNest): {
+    readonly steps: readonly PlanSeriesNestStep<PlanSeriesNestFacts>[];
+    readonly members: readonly PlanSeriesNestFacts[];
+} {
+    return {
+        steps: nest.steps.map((step) => ({ field: step.field, of: step.of, series: step.series.map(nestFactsOf) })),
+        members: nest.members.map(nestFactsOf),
+    };
+}
 
 /** The spec of a series value a `Plan.series.*` builder made, if it was one. */
 function specOf(s: unknown): PlanSeriesSpec | undefined {
@@ -1022,37 +1423,60 @@ function collectionOps(collection: EastType): {
  */
 interface KindRecipe {
     arm: PlanSeriesArm;
-    /** The row's kind, from the entry and whether it has child rows. */
-    kind(value: ExprType<EastType>, key: ExprType<EastType>, hasChildren: ExprType<BooleanType>): ExprType<PlanRowKindType>;
+    /** The row's kind, from the entry (a recursive entry's node), its key, whether it has child rows, and the entry as stored. */
+    kind(node: ExprType<EastType>, key: ExprType<EastType>, hasChildren: ExprType<BooleanType>, value: ExprType<EastType>): ExprType<PlanRowKindType>;
     /** The row's `pinned`, when the kind reads one (chart). */
     pinned?(value: ExprType<EastType>, key: ExprType<EastType>): SubtypeExprOrValue<BooleanType>;
     /** Gutter legend chips (chart). */
     swatches?: PlanGutterFields["swatches"];
-    /** What a gesture writes (#880, #825) — the kinds holding discrete objects: where a dropped card lands and how
-     *  it becomes an item, and the item fields a move writes. */
-    edit?: AnyEditInput | undefined;
+    /** What a gesture writes (#880, #825, #1436) — the kinds holding things people drag: the declaration, and the
+     *  element field whose read names the collection and its times. */
+    edit?: EditRecipe | undefined;
+    /** The named reads its fields make (#1436). */
+    reads?: readonly PlanSeriesRead[];
+    /** The table positions whose values take typed numbers (#1436). */
+    values?: readonly ValuesEditRecipe[];
+    /** The aggregate its row derives its children's numbers by (#1435): a heat's or a table's, a group's `summaryAggregate`; unknown for one given in East. */
+    aggregate?: string | undefined;
+    /** Whether the aggregate subtotals its own values over a tree (#1435): a heat's or a table's, not a group's. */
+    subtotalsOwn?: boolean;
+    /** What its runs roll up into its bands by (#1435): a span's, with children or a `rollup` declared; unknown for one given in East. */
+    rollup?: string | undefined;
 }
 
-/** The instant fields a kind's elements have (#825): two ends (a run, a chip) or one instant (a tile, a mark). */
-function editShapeOf(arm: PlanSeriesArm): "span" | "point" {
-    return arm === "span" || arm === "cards" ? "span" : "point";
+/** A table position whose values take typed numbers (#1436): where it sits, and the read naming its collection. */
+interface ValuesEditRecipe {
+    /** Its index among the row's table series — `0` for a row's `cells`. */
+    readonly position: number;
+    /** The values read its cells make. */
+    readonly read: PlanValuesReadSpec;
 }
 
-/** The item field types a move can write an instant into (#825). */
-const INSTANT_FIELD_TYPES: readonly EastType[] = [DateTimeType, FloatType, IntegerType, StringType, PlanInstantType];
+/** A series' `edit`, beside the element field it writes through (#1436). */
+interface EditRecipe {
+    /** The declaration. */
+    readonly edit: AnyEdit;
+    /** The element field: `runs`, `events`, `chips` or `marks`. */
+    readonly elements: "runs" | "events" | "chips" | "marks";
+    /** The times its elements take, for the message. */
+    readonly times: "{ from, to }" | "{ at }";
+    /** The element field as given. */
+    readonly input: unknown;
+}
+
+/** The item field types a move can write an instant into (#825, #1436). */
+const INSTANT_FIELD_TYPES: readonly EastType[] = [DateTimeType, FloatType, IntegerType, StringType, PlanInstantType, OptionType(DateTimeType)];
 
 /** Print an item type as the text rows of one item type share (#825) — East's own printer over its type value. */
 const printType = printFor(EastTypeType);
 
 /**
- * What a move writes on a series' rows (#825), checked: the item's key field
- * and its instant fields, by name and type.
+ * What a move writes on a series' rows (#825, #1436): the item's instant
+ * fields, named by its elements' read.
  */
 interface MoveFields {
     /** The item type. */
     item: StructType;
-    /** The item's `String` key field. */
-    key: string;
     /** The start field (a point element's one instant) and its type. */
     start: { name: string; type: EastType };
     /** The end field and its type — two-ended elements only. */
@@ -1062,70 +1486,20 @@ interface MoveFields {
 }
 
 /**
- * Check what a series' `edit` declares for a move (#825), against its item
- * type — `undefined` when it declares no move (only `create`).
+ * What a move writes, from the read that names the collection (#1436) — its
+ * times, checked against the item type by the read's build.
  *
- * @param edit - The declaration
- * @param itemType - The type of the items in `edit.items`
- * @param arm - The series' kind
- * @param where - The series, for the message
+ * @param read - The elements' read
+ * @param item - The collection's item type
  * @returns The move's fields
- * @throws {Error} Naming the field and what is wrong with it
  */
-function moveFieldsOf(edit: AnyEditInput, itemType: EastType, arm: PlanSeriesArm, where: string): MoveFields | undefined {
-    const shape = editShapeOf(arm);
-    if (shape === "span" && edit.at !== undefined) {
-        throw new Error(`${where}: \`edit.at\` is a tile's or a mark's instant — a ${arm} element has two ends: name them with \`start\` and \`end\``);
-    }
-    if (shape === "point" && (edit.start !== undefined || edit.end !== undefined)) {
-        throw new Error(`${where}: a ${arm} element has one instant — name it with \`edit.at\`, not \`start\` / \`end\``);
-    }
-    const start = shape === "span" ? edit.start : edit.at;
-    const end = shape === "span" ? edit.end : undefined;
-    if (shape === "span" && (start === undefined) !== (end === undefined)) {
-        throw new Error(`${where}: a move writes both ends of a ${arm} element — give \`edit.start\` and \`edit.end\` together`);
-    }
-    if (start === undefined) {
-        if (edit.create === undefined) {
-            throw new Error(
-                `${where}: \`edit\` declares neither \`create\` (what a dropped card becomes) nor the item fields a move ` +
-                `writes (\`key\` and ${shape === "span" ? "`start` / `end`" : "`at`"}) — declare one or both`);
-        }
-        return undefined;
-    }
-    const item = itemType as StructType & { type: string };
-    if (item.type !== "Struct") {
-        throw new Error(`${where}: a move writes fields of the item — the items in "${edit.items}" must be structs`);
-    }
-    if (edit.key === undefined) {
-        throw new Error(`${where}: a move finds its element's item by key — name the item's String key field with \`edit.key\``);
-    }
-    const keyType = item.fields[edit.key];
-    if (keyType === undefined || !isTypeEqual(keyType, StringType)) {
-        throw new Error(`${where}: \`edit.key\` names "${edit.key}", which is not a String field of the item`);
-    }
-    const instant = (name: string, what: string) => {
-        const type = item.fields[name];
-        if (type === undefined || !INSTANT_FIELD_TYPES.some((t) => isTypeEqual(t, type))) {
-            throw new Error(
-                `${where}: \`edit.${what}\` names "${name}", which is not an instant field of the item — a DateTime, a Float or ` +
-                "an Integer, a String, or a Plan.Types.Instant");
-        }
-        if (name === edit.key) {
-            throw new Error(`${where}: \`edit.${what}\` names the key field "${name}" — a move would change the item's identity; name its instant field`);
-        }
-        return { name, type };
-    };
-    if (end !== undefined && end === start) {
-        throw new Error(`${where}: \`edit.start\` and \`edit.end\` both name "${start}" — a move writes two different fields`);
-    }
-    return {
-        item,
-        key: edit.key,
-        start: instant(start, shape === "span" ? "start" : "at"),
-        end: end !== undefined ? instant(end, "end") : undefined,
-        edits: { items: printType(toEastTypeValue(itemType)), resize: shape === "span" },
-    };
+function moveFieldsOf(read: PlanItemsReadSpec, item: StructType): MoveFields {
+    const field = (name: string) => ({ name, type: item.fields[name] as EastType });
+    const times = read.times;
+    const edits = { items: printType(toEastTypeValue(item)), resize: !("at" in times) };
+    return "at" in times
+        ? { item, start: field(times.at), end: undefined, edits }
+        : { item, start: field(times.from), end: field(times.to), edits };
 }
 
 /** Each instant field type's converter, built once (#825). */
@@ -1133,9 +1507,10 @@ const instantConverters = new ByType<ExprType<FunctionType<[PlanInstantType], Op
 
 /**
  * The converter from an axis instant into an item field's type (#825): the
- * instant on the arm the field holds — a time instant's DateTime, a number
- * instant's Float (an Integer field takes it rounded, half away from zero), an
- * ordinal instant's String, or the instant itself — else `none`.
+ * instant on the arm the field holds — a time instant's DateTime (an `Option`
+ * of one takes it as `some`, #1436), a number instant's Float (an Integer field
+ * takes it rounded, half away from zero), an ordinal instant's String, or the
+ * instant itself — else `none`.
  *
  * @param fieldType - The field's type (one of {@link INSTANT_FIELD_TYPES})
  * @returns `(instant) → Option<field>`
@@ -1145,6 +1520,7 @@ function instantInto(fieldType: EastType): ExprType<FunctionType<[PlanInstantTyp
         const out = OptionType(fieldType);
         const kind = (fieldType as { type: string }).type;
         const whole = isTypeEqual(fieldType, PlanInstantType);
+        const optional = isTypeEqual(fieldType, OptionType(DateTimeType));
         return East.function([PlanInstantType], out, ($, t) => {
             const result = $.let(none, out);
             if (whole) {
@@ -1154,6 +1530,8 @@ function instantInto(fieldType: EastType): ExprType<FunctionType<[PlanInstantTyp
             $.match(t, {
                 time: ($2, d) => {
                     if (kind === "DateTime") $2.assign(result, some(d));
+                    // An Option of a DateTime holds the instant as `some` (#1436).
+                    if (optional) $2.assign(result, some(some(d)));
                 },
                 number: ($2, n) => {
                     if (kind === "Float") {
@@ -1174,8 +1552,632 @@ function instantInto(fieldType: EastType): ExprType<FunctionType<[PlanInstantTyp
     });
 }
 
+// ── Named reads, built per row type (#1436) ─────────────────────────────────
+
+/**
+ * A named read a series makes, as its build spec records it (#1436): the
+ * collection, how it is read, its key type, and the config field that reads
+ * it — what the root, and a source's index (#1435), hold the series to.
+ *
+ * @internal
+ * @property field - The collection's field
+ * @property read - The read
+ * @property key - The collection's key type
+ * @property via - The config field that reads it (`runs`, `cells`, `series[1]`, `layers[0]`, `summary`, …)
+ */
+export interface PlanSeriesRead {
+    readonly field: string;
+    readonly read: PlanReadSpec;
+    readonly key: EastType;
+    readonly via: string;
+    /** The fold its consumer folds a bucket's values by, where a consumer takes the read (#1435): what a parent subtotals them by. */
+    readonly fold?: PlanFoldLiteral;
+    /** Whether a table position is flagged to feed its parent's subtotal (#1435). */
+    readonly flagged?: boolean;
+}
+
+/** An East type's name as a message reads it: `an Array`, `a Dict`. */
+function anOf(type: EastType): string {
+    const name = (type as { type: string }).type;
+    return /^[AEIOU]/.test(name) ? `an ${name}` : `a ${name}`;
+}
+
+/** A row type's shape as a message reads it: its fields, `{ name, load }`, or East's summary of another type. */
+function shapeName(type: EastType): string {
+    const t = type as { type: string; fields?: Record<string, EastType>; node?: EastType };
+    if (t.type === "Recursive" && t.node !== undefined) return shapeName(t.node);
+    if (t.type === "Struct" && t.fields !== undefined) return `{ ${Object.keys(t.fields).join(", ")} }`;
+    return printTypeSummary(type);
+}
+
+/** The fields of an entry type — a struct's own, or a recursive entry's node's. */
+function entryFieldsOf(rowType: EastType): Record<string, EastType> | undefined {
+    const t = rowType as { type: string; fields?: Record<string, EastType>; node?: { type: string; fields?: Record<string, EastType> } };
+    if (t.type === "Struct") return t.fields;
+    if (t.type === "Recursive" && t.node?.type === "Struct") return t.node.fields;
+    return undefined;
+}
+
+/** A collection a read names, as it is built over: its Dict type, its key and what it holds. */
+interface CollectionShape {
+    readonly dict: EastType;
+    readonly key: EastType;
+    readonly item: EastType;
+}
+
+/** The key types a values collection may be keyed by: its instants. */
+const VALUE_KEY_TYPES: readonly EastType[] = [DateTimeType, FloatType, IntegerType, StringType];
+
+/**
+ * The collection a read names, checked against the entry type (#1436).
+ *
+ * @param rowType - The entry type
+ * @param read - The read
+ * @param where - The series, for the messages
+ * @returns The collection's shape
+ * @throws {Error} In the refusals' words: no Dict field of the row, an items collection keyed by an instant or holding no
+ *   struct, a time that is no instant field of its items, a values collection keyed by no instant
+ */
+function collectionOfRead(rowType: EastType, read: PlanReadSpec, where: string): CollectionShape {
+    const what = read.kind === "items" ? "Plan.items" : "Plan.values";
+    const fields = entryFieldsOf(rowType);
+    const t = fields?.[read.field] as { type: string; key?: EastType; value?: EastType } | undefined;
+    if (t === undefined) {
+        throw new Error(`${where}: ${what} reads "${read.field}", which is no field of its rows — name a Dict field of the row`);
+    }
+    if (t.type !== "Dict") {
+        throw new Error(
+            `${what}: "${read.field}" is ${anOf(t as EastType)} — a collection a series reads by name is a Dict, keyed by an id, ` +
+            "or by its instant for values");
+    }
+    const key = t.key!;
+    const item = t.value!;
+    const keyName = (key as { type: string }).type;
+    if (read.kind === "values") {
+        if (!VALUE_KEY_TYPES.some((k) => isTypeEqual(k, key))) {
+            throw new Error(
+                `Plan.values: "${read.field}" is keyed by ${keyName} — values are keyed by their instant: a DateTime, a Float, ` +
+                "an Integer or a String");
+        }
+        return { dict: t as EastType, key, item };
+    }
+    if (!isTypeEqual(key, StringType)) {
+        throw new Error(
+            `Plan.items: "${read.field}" is keyed by ${keyName} — things people drag are keyed by an id, a String: read values ` +
+            `with Plan.values("${read.field}", draw)`);
+    }
+    const struct = item as { type: string; fields?: Record<string, EastType> };
+    if (struct.type !== "Struct" || struct.fields === undefined) {
+        throw new Error(
+            `Plan.items: "${read.field}" holds ${anOf(item)}, not an item — things people drag are structs, their times fields ` +
+            `of them: read values with Plan.values("${read.field}", draw)`);
+    }
+    const names = "at" in read.times ? [read.times.at] : [read.times.from, read.times.to];
+    if (names.length === 2 && names[0] === names[1]) {
+        throw new Error(`Plan.items: "${read.field}" names "${names[0]}" as both its from and its to — a run's start and end are two fields of its items`);
+    }
+    for (const name of names) {
+        const ft = struct.fields[name];
+        if (ft === undefined) {
+            throw new Error(`Plan.items: "${read.field}" names its times by "${name}", which is no field of its items — name a time field of the item`);
+        }
+        if (!INSTANT_FIELD_TYPES.some((k) => isTypeEqual(k, ft))) {
+            throw new Error(
+                `Plan.items: "${read.field}" names "${name}", ${anOf(ft)} field of its items, as a time — a time is a DateTime or an ` +
+                "Option of one, a Float, an Integer, a String, or a Plan.Types.Instant");
+        }
+    }
+    return { dict: t as EastType, key, item };
+}
+
+/** Each element's look type: its type without its key and its instants. */
+const lookTypes = new Map<PlanLookKind, StructType>();
+
+/** What `draw` gives for an element of `kind`, as an East struct: the element without its key and its instants. */
+function lookTypeOf(kind: PlanLookKind): StructType {
+    let type = lookTypes.get(kind);
+    if (type === undefined) {
+        const spec = PLAN_LOOKS[kind];
+        const omit: readonly string[] = [...(spec.key !== undefined ? [spec.key] : []), ...spec.instants];
+        type = StructType(Object.fromEntries(Object.entries((spec.type as StructType).fields).filter(([f]) => !omit.includes(f))));
+        lookTypes.set(kind, type);
+    }
+    return type;
+}
+
+/** What each element kind is called where a refusal names it. */
+const ELEMENT_NAMES: Record<PlanLookKind, string> = {
+    run: "runs", decision: "decisions", port: "ports", event: "events", marker: "markers", chip: "chips", mark: "marks",
+    heat: "heat cells", weight: "weight cells", segment: "segment cells", table: "table cells", point: "points", band: "band points",
+};
+
+/** Each read's builds, by what it completes and the entry type. */
+const readBuilds = new WeakMap<PlanReadSpec, Map<PlanLookKind, ByType<ExprType<FunctionType<[EastType, EastType], EastType>>>>>();
+
+/**
+ * A read built for one entry type (#1436): `(collection, entry) → elements` —
+ * each item an element at its times, keyed by its id, or each value one at its
+ * instant, its look `draw`'s. The collection is an argument, so the same build
+ * draws an inline row's own collection and one read a cell at a time.
+ *
+ * @param rowType - The entry type
+ * @param read - The read
+ * @param kind - What each item or value completes to
+ * @param where - The series, for messages
+ * @returns The built function
+ * @throws {Error} When the read does not build for the entry type, in the refusals' words
+ */
+function buildRead(rowType: EastType, read: PlanReadSpec, kind: PlanLookKind, where: string): ExprType<FunctionType<[EastType, EastType], EastType>> {
+    let byKind = readBuilds.get(read);
+    if (byKind === undefined) {
+        byKind = new Map();
+        readBuilds.set(read, byKind);
+    }
+    let byType = byKind.get(kind);
+    if (byType === undefined) {
+        byType = new ByType();
+        byKind.set(kind, byType);
+    }
+    return byType.get(rowType, () => {
+        const shape = collectionOfRead(rowType, read, where);
+        const spec = PLAN_LOOKS[kind];
+        const elemType = spec.type as StructType;
+        const lookType = lookTypeOf(kind);
+        const recursive = (rowType as { type: string }).type === "Recursive";
+        const what = read.kind === "items" ? `Plan.items("${read.field}", …)` : `Plan.values("${read.field}", …)`;
+        // The look, reified once: `(item or value, id or instant, entry) → look`.
+        const look = (() => {
+            try {
+                return East.function([shape.item, shape.key, rowType], lookType, ($, item, key, row) => {
+                    const node = recursive ? $.let((row as unknown as RecursiveExpr<EastType>).unwrap() as ExprType<EastType>) : row;
+                    const given = read.draw(item, key, node);
+                    if (given === null || typeof given !== "object" || given instanceof Expr) {
+                        throw new Error(`its draw gives the look of each of its ${ELEMENT_NAMES[kind]}, an object of their fields`);
+                    }
+                    return East.value(spec.look(given as never) as SubtypeExprOrValue<StructType>, lookType);
+                });
+            } catch (err) {
+                const reason = err instanceof Error ? err.message : String(err);
+                throw new Error(`${where}: ${what} does not build for its rows (${reason})`);
+            }
+        })();
+        const fieldsOf = (l: ExprType<EastType>) => Object.fromEntries(
+            Object.keys(lookType.fields).map((f) => [f, (l as unknown as Record<string, ExprType<EastType>>)[f]!]));
+        const out = ArrayType(elemType);
+        if (read.kind === "values") {
+            const at = spec.instants[0]!;
+            return East.function([shape.dict, rowType], out, ($, coll, row) => {
+                const draw = $.const(look);
+                return (coll as unknown as ExprType<DictType<EastType, EastType>>).toArray(($2, value, key) => {
+                    const l = $2.let(draw(value as ExprType<EastType>, key as ExprType<EastType>, row));
+                    return East.value({ [at]: resolveInstant(key as ExprType<EastType> as never, `${what} key`), ...fieldsOf(l) } as SubtypeExprOrValue<StructType>, elemType);
+                });
+            }) as unknown as ExprType<FunctionType<[EastType, EastType], EastType>>;
+        }
+        // Things people drag: each at its named times, keyed by its id. An item whose
+        // start is an Option holding none is drawn nowhere; one whose end holds none is
+        // an instant (#1434's filing).
+        const item = shape.item as StructType;
+        const times = read.times;
+        const names = "at" in times ? [times.at] : [times.from, times.to];
+        if (names.length !== spec.instants.length) {
+            throw new Error(spec.instants.length === 2
+                ? `${where}: its ${ELEMENT_NAMES[kind]} run from a start to an end — read them with Plan.items("${read.field}", { from, to }, draw)`
+                : `${where}: its ${ELEMENT_NAMES[kind]} sit at an instant — read them with Plan.items("${read.field}", { at }, draw)`);
+        }
+        const optional = (name: string) => isTypeEqual(item.fields[name] as EastType, OptionType(DateTimeType));
+        const instantOf = (v: ExprType<EastType>) => resolveInstant(v as never, `${what} times`);
+        const keyField = spec.key!;
+        return East.function([shape.dict, rowType], out, ($, coll, row) => {
+            const draw = $.const(look);
+            const result = $.let([], out);
+            $.for(coll as unknown as ExprType<ArrayType<EastType>>, ($2, value, key) => {
+                const fields = value as unknown as Record<string, ExprType<EastType>>;
+                const id = key as unknown as ExprType<StringType>;
+                const emit = ($3: typeof $2, instants: ExprType<PlanInstantType>[]) => {
+                    const l = $3.let(draw(value, id, row));
+                    $3(result.pushLast(East.value({
+                        [keyField]: id,
+                        ...Object.fromEntries(spec.instants.map((name, i) => [name, instants[i]!])),
+                        ...fieldsOf(l),
+                    } as SubtypeExprOrValue<StructType>, elemType)));
+                };
+                const withStart = ($3: typeof $2, start: ExprType<PlanInstantType>) => {
+                    if (names.length === 1) {
+                        emit($3, [start]);
+                        return;
+                    }
+                    const to = names[1]!;
+                    if (!optional(to)) {
+                        emit($3, [start, instantOf(fields[to]!)]);
+                        return;
+                    }
+                    const end = $3.let((fields[to] as unknown as ExprType<OptionType<DateTimeType>>).match({
+                        some: (_$4, d) => East.value(variant("time", d), PlanInstantType),
+                        none: () => start,
+                    }), PlanInstantType);
+                    emit($3, [start, end]);
+                };
+                const from = names[0]!;
+                if (!optional(from)) {
+                    withStart($2, $2.let(instantOf(fields[from]!), PlanInstantType));
+                    return;
+                }
+                $2.match(fields[from] as unknown as ExprType<OptionType<DateTimeType>>, {
+                    some: ($3, d) => withStart($3, $3.let(East.value(variant("time", d), PlanInstantType), PlanInstantType)),
+                });
+            });
+            return result;
+        }) as unknown as ExprType<FunctionType<[EastType, EastType], EastType>>;
+    });
+}
+
+/** A config field resolved for its entry type (#1436): its value for one row, and the reads it makes. */
+interface RowField {
+    /** The field's value for one row — from the entry (its node), its key and the entry as stored. */
+    readonly at: (node: ExprType<EastType>, key: ExprType<EastType>, value: ExprType<EastType>) => unknown;
+    /** The named reads it makes. */
+    readonly reads: readonly PlanSeriesRead[];
+}
+
+/** A collection field of the entry, for one row: the field read off its node. */
+function collectionOn(node: ExprType<EastType>, field: string): ExprType<EastType> {
+    return (node as unknown as Record<string, ExprType<EastType>>)[field]!;
+}
+
+/** The record of a read a series makes. */
+function readRecord(rowType: EastType, read: PlanReadSpec, via: string, where: string): PlanSeriesRead {
+    return { field: read.field, read, key: collectionOfRead(rowType, read, where).key, via };
+}
+
+/**
+ * An element field of a series config, resolved for its entry type (#1436): a
+ * function of the row as before, or a read — of items for the things people
+ * drag (runs, decisions, tiles, chips, marks), of values for ports and
+ * markers.
+ *
+ * @param rowType - The entry type
+ * @param input - The field as given
+ * @param kind - What each element is
+ * @param where - The series, for messages
+ * @param via - The field's name
+ * @returns The field, or `undefined` when it is not given
+ * @throws {Error} When a read of the other sort, or a consumer, is given
+ */
+function elementField(rowType: EastType, input: unknown, kind: PlanLookKind, where: string, via: string): RowField | undefined {
+    if (input === undefined) return undefined;
+    if (typeof input === "function") {
+        const accessor = input as (node: ExprType<EastType>, key: ExprType<EastType>) => unknown;
+        return { at: (node, key) => accessor(node, key), reads: [] };
+    }
+    const read = planReadOf(input);
+    if (read === undefined) {
+        throw new Error(`${where}: ${via} is a function of the row, or a read of its collection — ${
+            PLAN_LOOKS[kind].key !== undefined ? "Plan.items(field, times, draw)" : "Plan.values(field, draw)"}`);
+    }
+    const keyed = PLAN_LOOKS[kind].key !== undefined;
+    if (keyed && read.kind !== "items") {
+        throw new Error(
+            `${where}: its ${via} are things people drag, keyed by an id — read them with Plan.items(field, ${
+                PLAN_LOOKS[kind].instants.length === 2 ? "{ from, to }" : "{ at }"}, draw)`);
+    }
+    if (!keyed && read.kind !== "values") {
+        throw new Error(`${where}: its ${via} have no id of their own, so each is keyed by its instant — read them with Plan.values(field, draw)`);
+    }
+    const built = buildRead(rowType, read, kind, where);
+    return { at: (node, _key, value) => built(collectionOn(node, read.field), value), reads: [readRecord(rowType, read, via, where)] };
+}
+
+/** What each consumer is, where a refusal names what a field takes. */
+const CONSUMER_HINTS: Record<PlanValuesUseSpec["makes"], string> = {
+    heat: "Plan.heatCells, Plan.weightCells or Plan.segmentCells over Plan.values(field, draw)",
+    tableCells: "Plan.tableCells(Plan.values(field, draw))",
+    tableSeries: "Plan.tableSeries({ cells: Plan.tableCells(Plan.values(field, draw)) })",
+    layer: "Plan.line, Plan.area, Plan.column, Plan.scatter or Plan.band over Plan.values(field, draw)",
+};
+
+/**
+ * A consumer of a values read, resolved for the entry type (#1436): the row's
+ * values completed into its cells, and what the consumer makes of them.
+ *
+ * @param rowType - The entry type
+ * @param use - The consumer
+ * @param makes - What the field takes
+ * @param where - The series, for messages
+ * @param via - The field's name
+ * @returns The field
+ */
+function useField(rowType: EastType, use: PlanValuesUseSpec, makes: PlanValuesUseSpec["makes"], where: string, via: string): RowField {
+    if (use.makes !== makes) throw new Error(`${where}: ${via} takes ${CONSUMER_HINTS[makes]}`);
+    const built = buildRead(rowType, use.read, use.cell, where);
+    // The consumer's fold and flag beside the read (#1435): what a parent subtotals its values by.
+    const read: PlanSeriesRead = { ...readRecord(rowType, use.read, via, where), ...(use.fold !== undefined ? { fold: use.fold } : {}), flagged: use.rollup };
+    return {
+        at: (node, _key, value) => use.wrap(built(collectionOn(node, use.read.field), value) as ExprType<EastType>),
+        reads: [read],
+    };
+}
+
+/**
+ * A field whose value is one consumer's (cells, a group's summary) resolved
+ * for the entry type (#1436): a function of the row as before, or a consumer
+ * of a values read.
+ *
+ * @param rowType - The entry type
+ * @param input - The field as given
+ * @param makes - What it takes
+ * @param where - The series, for messages
+ * @param via - The field's name
+ * @returns The field, or `undefined` when it is not given
+ */
+function consumerField(rowType: EastType, input: unknown, makes: PlanValuesUseSpec["makes"], where: string, via: string): RowField | undefined {
+    if (input === undefined) return undefined;
+    if (typeof input === "function") {
+        const accessor = input as (node: ExprType<EastType>, key: ExprType<EastType>) => unknown;
+        return { at: (node, key) => accessor(node, key), reads: [] };
+    }
+    const use = planUseOf(input);
+    if (use !== undefined) return useField(rowType, use, makes, where, via);
+    const read = planReadOf(input);
+    throw new Error(read !== undefined
+        ? `${where}: ${via} takes ${CONSUMER_HINTS[makes]} — give "${read.field}" to it, as ${via}: ${CONSUMER_HINTS[makes].split(" over ")[0]!.split(",")[0]}(Plan.values("${read.field}", draw))`
+        : `${where}: ${via} is a function of the row, or ${CONSUMER_HINTS[makes]}`);
+}
+
+/**
+ * A field whose value is a list (a table's positions, a chart's layers)
+ * resolved for the entry type (#1436): a function of the row as before, or a
+ * TS array whose consumers are built per row and whose other members pass as
+ * they are.
+ *
+ * @param rowType - The entry type
+ * @param input - The field as given
+ * @param makes - What its consumers make
+ * @param where - The series, for messages
+ * @param via - The field's name
+ * @returns The field, its value a TS array per row (each consumer's value in its place), or `undefined` when not given
+ */
+function listField(rowType: EastType, input: unknown, makes: PlanValuesUseSpec["makes"], where: string, via: string): RowField | undefined {
+    if (input === undefined) return undefined;
+    if (typeof input === "function") {
+        const accessor = input as (node: ExprType<EastType>, key: ExprType<EastType>) => unknown;
+        return { at: (node, key) => accessor(node, key), reads: [] };
+    }
+    if (!Array.isArray(input)) throw new Error(`${where}: ${via} is a function of the row, or a list of ${CONSUMER_HINTS[makes]}`);
+    const members = input.map((member: unknown, i) => {
+        const use = planUseOf(member);
+        if (use !== undefined) return useField(rowType, use, makes, where, `${via}[${i}]`);
+        const read = planReadOf(member);
+        if (read !== undefined) throw new Error(`${where}: ${via}[${i}] takes ${CONSUMER_HINTS[makes]}, not the read "${read.field}" alone`);
+        return { at: () => member, reads: [] } satisfies RowField;
+    });
+    return {
+        at: (node, key, value) => members.map((m) => m.at(node, key, value)),
+        reads: members.flatMap((m) => m.reads),
+    };
+}
+
+/**
+ * A table's positions whose values take typed numbers (#1436): its `cells`
+ * when the series declares `edit: true`, and each `Plan.tableSeries` position
+ * declaring its own — each drawing every value as it is stored.
+ *
+ * @param rowType - The entry type
+ * @param cfg - The table's `cells`, `series` and `edit`, as given
+ * @param where - The series, for messages
+ * @returns The typed positions, in order
+ * @throws {Error} In the refusals' words: `edit` beside cells given as a function, or over a draw giving another number than each value
+ */
+function tableEditsOf(rowType: EastType, cfg: { readonly cells?: unknown; readonly series?: unknown; readonly edit?: unknown }, where: string): ValuesEditRecipe[] {
+    const out: ValuesEditRecipe[] = [];
+    if (cfg.edit !== undefined) {
+        if (cfg.edit !== true) throw new Error(`${where}: edit is true — its cells' values take typed numbers — or left out`);
+        if (cfg.series !== undefined) {
+            throw new Error(`${where}: edit is its cells' — with positions, each declares its own: Plan.tableSeries({ cells, edit: true })`);
+        }
+        const use = planUseOf(cfg.cells);
+        if (use === undefined) {
+            throw new Error(`${where}: edit writes the values its cells read — give cells as Plan.tableCells(Plan.values(field, draw))`);
+        }
+        out.push({ position: 0, read: use.read });
+    }
+    if (Array.isArray(cfg.series)) {
+        cfg.series.forEach((member: unknown, position) => {
+            const use = planUseOf(member);
+            if (use?.edit === true) out.push({ position, read: use.read });
+        });
+    }
+    for (const typed of out) refuseDrawnOtherwise(rowType, typed.read, where);
+    return out;
+}
+
+/** The value types a typed number is stored as (#1436), and what drawing each as stored looks like. */
+type TypedValueKind = "float" | "option" | "integer";
+
+/**
+ * Whether a values read's cells draw each value as it is stored (#1436,
+ * #1435): a `Float`'s `some(v)` (or `v`), an `Option` of a `Float`'s `v`, an
+ * `Integer`'s `some(v.toFloat())` (or `v.toFloat()`) — what a typed number is
+ * written as, and what e3 keeps a parent's subtotals of. Read off the draw's
+ * expression, as an accessor's field is (`childRefOf`).
+ *
+ * @param rowType - The entry type
+ * @param read - The values read
+ * @param where - The series, for messages
+ * @returns Whether each value draws as it is stored
+ * @internal
+ */
+export function drawsAsStored(rowType: EastType, read: PlanValuesReadSpec, where: string): boolean {
+    const shape = collectionOfRead(rowType, read, where);
+    const kind: TypedValueKind | undefined = isTypeEqual(shape.item, FloatType) ? "float"
+        : isTypeEqual(shape.item, OptionType(FloatType)) ? "option"
+        : isTypeEqual(shape.item, IntegerType) ? "integer" : undefined;
+    let asStored = false;
+    if (kind !== undefined) {
+        const recursive = (rowType as { type: string }).type === "Recursive";
+        East.function([shape.item, shape.key, rowType], NullType, ($, value, at, row) => {
+            const node = recursive ? $.let((row as unknown as RecursiveExpr<EastType>).unwrap() as ExprType<EastType>) : row;
+            const given = read.draw(value, at, node) as { value?: unknown } | null;
+            const param = Expr.ast(value as unknown as Expr);
+            const astOf = (x: unknown) => (x instanceof Expr ? Expr.ast(x) as unknown as { ast_type: string; builtin?: string; arguments?: unknown[] } : undefined);
+            const isValue = (x: unknown) => astOf(x) === param;
+            const isWidened = (x: unknown) => {
+                const ast = astOf(x);
+                return ast !== undefined && ast.ast_type === "Builtin" && ast.builtin === "IntegerToFloat" && ast.arguments?.[0] === param;
+            };
+            const drawn = given === null || typeof given !== "object" ? undefined : given.value;
+            const wrapped = typeof drawn === "object" && drawn !== null && !(drawn instanceof Expr) && (drawn as { type?: unknown }).type === "some"
+                ? (drawn as { value: unknown }).value : undefined;
+            asStored = kind === "option" ? isValue(drawn)
+                : kind === "float" ? isValue(drawn) || isValue(wrapped)
+                : isWidened(drawn) || isWidened(wrapped);
+            return null;
+        });
+    }
+    return asStored;
+}
+
+/**
+ * Refuse a typed position whose cells draw another number than each value
+ * (#1436): a typed number is stored as the value, so each value must draw as
+ * it is ({@link drawsAsStored}).
+ *
+ * @param rowType - The entry type
+ * @param read - The position's values read
+ * @param where - The series, for the message
+ * @throws {Error} In the refusal's words
+ */
+function refuseDrawnOtherwise(rowType: EastType, read: PlanValuesReadSpec, where: string): void {
+    if (!drawsAsStored(rowType, read, where)) {
+        throw new Error(
+            `${where}: edit writes a typed number as its readings, and its cells draw another number than each reading — ` +
+            "draw value: some(v), and show it another way through format");
+    }
+}
+
+/**
+ * A tag given as a literal — its name, or a variant value's case — as the
+ * build reads it (#1435); `undefined` for an East expression, known only as
+ * the Plan is evaluated.
+ *
+ * @param given - The tag, as given
+ * @param fallback - Its default, where it is not given
+ * @returns Its name, or `undefined`
+ */
+function tagOf(given: unknown, fallback: string): string | undefined {
+    if (given === undefined) return fallback;
+    if (typeof given === "string") return given;
+    return isVariant(given) ? given.type : undefined;
+}
+
 /** Erase a config's entry type for the untyped build machinery. */
-type AnyRowConfig = PlanSeriesRowConfig<EastType, EastType>;
+type AnyRowConfig = Omit<PlanSeriesRowConfig<EastType, EastType>, "children"> & { children?: unknown };
+
+/**
+ * A series config's functions of the row (#1435), each by the field it is
+ * given as — its accessors, its element fields and its consumers given as
+ * functions, and a list's members that are — what a Plan walks for a
+ * collection read in a function.
+ *
+ * @param cfg - The config, as given
+ * @returns Its functions of the row
+ */
+function accessorsOf(cfg: object): PlanSeriesNest["accessors"] {
+    type Accessor = PlanSeriesNest["accessors"][number]["fn"];
+    const out: { via: string; fn: Accessor }[] = [];
+    for (const [via, value] of Object.entries(cfg)) {
+        if (typeof value === "function") out.push({ via, fn: value as Accessor });
+        else if (Array.isArray(value)) {
+            value.forEach((member: unknown, i) => {
+                if (typeof member === "function") out.push({ via: `${via}[${i}]`, fn: member as Accessor });
+            });
+        }
+    }
+    return out;
+}
+
+/**
+ * Refuse a tree's `children` field that is not a Dict of the row's own type,
+ * keyed by an id (#1436).
+ *
+ * @param rowType - The entry type
+ * @param field - The field `children` names
+ * @param where - The series, for the message
+ */
+function checkTree(rowType: EastType, field: string, where: string): void {
+    const t = entryFieldsOf(rowType)?.[field] as { type: string; key?: EastType; value?: EastType } | undefined;
+    if (t === undefined) {
+        throw new Error(
+            `${where}: children names "${field}", which is no field of its rows — name the Dict field holding more of its ` +
+            "rows, or step down to rows of another type with Plan.children(field, [series…])");
+    }
+    if (t.type !== "Dict") {
+        throw new Error(`${where}: children names "${field}", ${anOf(t as EastType)} — a tree's children are a Dict of the row's own type, keyed by an id`);
+    }
+    if (!isTypeEqual(t.value!, rowType)) {
+        throw new Error(`${where}: children "${field}" holds ${shapeName(t.value!)}, not ${shapeName(rowType)} — step down to it with Plan.children("${field}", [series…])`);
+    }
+    if (!isTypeEqual(t.key!, StringType)) {
+        throw new Error(`${where}: children "${field}" is keyed by ${(t.key as { type: string }).type} — child rows are keyed by an id, a String`);
+    }
+}
+
+/**
+ * Refuse a step-down's field that is not a Dict of child rows keyed by an id
+ * (#1436).
+ *
+ * @param rowType - The parent entry type
+ * @param field - The field `Plan.children` names
+ * @param where - The series, for the message
+ */
+function checkStepField(rowType: EastType, field: string, where: string): void {
+    const t = entryFieldsOf(rowType)?.[field] as { type: string; key?: EastType; value?: EastType } | undefined;
+    if (t === undefined) {
+        throw new Error(`${where}: Plan.children("${field}", …) steps down to "${field}", which is no field of its rows — name the Dict field holding the child rows`);
+    }
+    if (t.type !== "Dict") {
+        throw new Error(`Plan.children: "${field}" is ${anOf(t as EastType)} — child rows are a Dict, keyed by an id`);
+    }
+    if (!isTypeEqual(t.key!, StringType)) {
+        throw new Error(`Plan.children: "${field}" is keyed by ${(t.key as { type: string }).type} — child rows are keyed by an id, a String`);
+    }
+    const child = (t.value as { type: string }).type;
+    if (child !== "Struct" && child !== "Recursive") {
+        throw new Error(`Plan.children: "${field}" holds ${anOf(t.value!)}, not rows — child rows are structs`);
+    }
+}
+
+/**
+ * A series' `edit`, checked against the element field it writes through
+ * (#1436): `true` or `{ create }`, beside a read of items.
+ *
+ * @param edit - The declaration as given
+ * @param elements - The element field: `runs`, `events`, `chips` or `marks`
+ * @param times - The times those elements take
+ * @param input - The element field as given
+ * @param where - The series, for the messages
+ * @returns The recipe, or `undefined` when no `edit` is declared
+ * @throws {Error} In the refusals' words
+ */
+function editRecipeOf(edit: unknown, elements: EditRecipe["elements"], times: EditRecipe["times"], input: unknown, where: string): EditRecipe | undefined {
+    if (edit === undefined) return undefined;
+    const create = typeof edit === "object" && edit !== null ? (edit as { create?: unknown }).create : undefined;
+    if (edit !== true && (typeof create !== "function" || Object.keys(edit as object).some((k) => k !== "create"))) {
+        throw new Error(
+            `${where}: edit names nothing — its ${elements}' read names the collection and its times: give edit: true, or ` +
+            "edit: { create } to take dropped cards too");
+    }
+    const read = planReadOf(input);
+    if (read === undefined) {
+        throw new Error(`${where}: edit moves the items its ${elements} name — give ${elements} as Plan.items(field, ${times}, draw)`);
+    }
+    if (read.kind !== "items") {
+        throw new Error(
+            `${where}: edit moves the items its ${elements} name, and they read values — what people move is keyed by an id: ` +
+            `give ${elements} as Plan.items(field, ${times}, draw)`);
+    }
+    return { edit: edit as AnyEdit, elements, times, input };
+}
 
 /**
  * The build spec of a data series (span / buckets / chart / heat / table /
@@ -1186,26 +2188,12 @@ type AnyRowConfig = PlanSeriesRowConfig<EastType, EastType>;
  * row facts through the one envelope) and the membership, collapse and
  * children functions, each reified once and CALLED in the block's loop. The
  * block walks the collection in order; each matched entry's row is followed by
- * its children's rows — a bare `children` accessor walks the entry's subtree
+ * its children's rows — a tree (`children: field`) walks the entry's subtree
  * with an explicit pre-order stack (its depth is data), a step-down calls its
  * child series' blocks on the child collection.
  */
 function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): PlanSeriesSpec {
     const where = `Plan.series.${recipe.arm} "${cfg.key}"`;
-    const children = cfg.children;
-    const steps: PlanChildren[] = children === undefined || typeof children === "function"
-        ? [] : (Array.isArray(children) ? children : [children as PlanChildren]);
-    for (const step of steps) {
-        if (!isStepDown(step)) {
-            throw new Error(`${where}: \`children\` is an accessor for more of this series, or \`Plan.children(of, [series…])\` step-downs`);
-        }
-    }
-    const nested = steps.flatMap((s) => s.series.map((x) => nestedSpec(x, `${where} › children`)));
-    // How many chart rows each entry makes (#1398): a chart series' own row, and below it a bare accessor's walk of
-    // more of this series' rows, or a step-down's series' over the child collection.
-    const ownCharts = recipe.arm === "chart" ? 1 : 0;
-    const charts = entryCharts(ownCharts,
-        children === undefined ? 0 : typeof children === "function" ? ownCharts : chartsOf(nested), cfg.match !== undefined);
     // A recursive entry reaches the accessors as its NODE (`PlanEntryExpr`),
     // so they read its fields directly at every depth.
     const recursive = (rowType as { type: string }).type === "Recursive";
@@ -1215,6 +2203,32 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
     /** An accessor over entries, applied to an entry value (its node, when recursive). */
     const onEntry = (accessor: (v: ExprType<EastType>, k: ExprType<EastType>) => Expr) =>
         (v: ExprType<EastType>, k: ExprType<EastType>): Expr => accessor(nodeOf(v), k);
+    const children = cfg.children;
+    // A tree (#1436): a field of the entry holding more of its entries — or, the
+    // event kinds' own (#1194), an accessor computing them.
+    const treeField = typeof children === "string" ? children : undefined;
+    const tree: ((v: ExprType<EastType>, k: ExprType<EastType>) => Expr) | undefined = treeField !== undefined
+        ? (v) => collectionOn(v, treeField) as unknown as Expr
+        : typeof children === "function" ? children as (v: ExprType<EastType>, k: ExprType<EastType>) => Expr : undefined;
+    if (treeField !== undefined) checkTree(rowType, treeField, where);
+    const steps: AnyStepDown[] = children === undefined || tree !== undefined
+        ? [] : (Array.isArray(children) ? children as AnyStepDown[] : [children as AnyStepDown]);
+    for (const step of steps) {
+        if (!isStepDown(step)) {
+            throw new Error(`${where}: \`children\` is a field of the row holding more of its rows, or Plan.children(field, [series…]) step-downs`);
+        }
+        if (step.field !== undefined) checkStepField(rowType, step.field, where);
+    }
+    /** A step-down's child collection, from the entry (its node). */
+    const stepOf = (step: AnyStepDown) => (step.field !== undefined
+        ? (v: ExprType<EastType>) => collectionOn(v, step.field!) as unknown as Expr
+        : step.of!);
+    const nested = steps.flatMap((s) => s.series.map((x) => nestedSpec(x, `${where} › children`)));
+    // How many chart rows each entry makes (#1398): a chart series' own row, and below it a tree's walk of more of
+    // this series' rows, or a step-down's series' over the child collection.
+    const ownCharts = recipe.arm === "chart" ? 1 : 0;
+    const charts = entryCharts(ownCharts,
+        children === undefined ? 0 : tree !== undefined ? ownCharts : chartsOf(nested), cfg.match !== undefined);
 
     // The removed verdict, named (#1260) — a plain JS caller would otherwise
     // lose it silently.
@@ -1223,30 +2237,25 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
             throw new Error(`${where}: \`${removed}\` is removed (#1260) — a Plan approves and rejects nothing: its changes are drafts of the root's \`editing\` session`);
         }
     }
-    // What a gesture writes (#880, #825) — a dropped card into `edit.items`, a
-    // moved element into its item's fields — each a FIELD of the entry (its
-    // node, when recursive) or of its items, checked here so a misnamed field
-    // fails the build.
+    // What a gesture writes (#880, #825, #1436) — through the collection its
+    // elements' read names: a dropped card's item under its minted id, a moved
+    // element's item re-timed under its id, or taken to another row.
     const edit = recipe.edit;
-    const nodeType = (recursive ? (rowType as RecursiveType<EastType>).node : rowType) as { type: string; fields?: Record<string, EastType> };
-    if (edit !== undefined && nodeType.type !== "Struct") {
-        throw new Error(`${where}: \`edit\` writes a field of the entry — its entries must be structs (a recursive entry's node included)`);
-    }
-    const entryFields = nodeType.fields ?? {};
-    let itemType: EastType | undefined;
-    let move: MoveFields | undefined;
-    if (edit !== undefined) {
-        const t = entryFields[edit.items] as { type: string; value?: EastType } | undefined;
-        if (t === undefined || t.type !== "Array") {
-            throw new Error(`${where}: \`edit.items\` names "${edit.items}", which is not an Array field of the entry — a gesture writes a list of items`);
-        }
-        itemType = t.value;
-        move = moveFieldsOf(edit, itemType!, recipe.arm, where);
-    }
-    const edits = edit !== undefined
+    const editRead = edit !== undefined ? planReadOf(edit.input) as PlanItemsReadSpec : undefined;
+    const editShape = editRead !== undefined ? collectionOfRead(rowType, editRead, where) : undefined;
+    const itemType = editShape?.item;
+    const move: MoveFields | undefined = editRead !== undefined ? moveFieldsOf(editRead, editShape!.item as StructType) : undefined;
+    const create = edit !== undefined && edit.edit !== true ? edit.edit.create : undefined;
+    // What a typed number writes (#1436): each typed position's collection, keyed by the bucket's start.
+    const typedWrites = (recipe.values ?? []).map((typed) => {
+        const shape = collectionOfRead(rowType, typed.read, where);
+        return { position: typed.position, field: typed.read.field, key: shape.key, value: shape.item, keyAs: instantInto(shape.key) };
+    });
+    const edits = move !== undefined || typedWrites.length > 0
         ? {
-            drop: edit.create !== undefined,
+            drop: create !== undefined,
             move: move !== undefined ? some(move.edits) : none,
+            values: typedWrites.map((typed) => ({ position: BigInt(typed.position), whole: isTypeEqual(typed.value, IntegerType) })),
         }
         : undefined;
 
@@ -1273,7 +2282,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
                     ...(cfg.value !== undefined ? { value: cfg.value(entry, key) } : {}),
                     ...(recipe.swatches !== undefined ? { swatches: recipe.swatches } : {}),
                 }),
-                kind:      recipe.kind(entry, key, hasChildren),
+                kind:      recipe.kind(entry, key, hasChildren, value),
                 collapsed,
                 ...(recipe.pinned !== undefined ? { pinned: recipe.pinned(entry, key) } : {}),
                 ...(cfg.status !== undefined ? { status: cfg.status(entry, key) } : {}),
@@ -1299,9 +2308,9 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
                 : East.value(collapsed(nodeOf(value), key), BooleanType)) as unknown as CollapsedFn);
     });
 
-    /** A bare `children` accessor, built for entries keyed by `kt` — the child collection's type is its output. */
+    /** The tree's children, built for entries keyed by `kt` — the child collection's type is its output. */
     const childOf = (kt: EastType) => building(where, kt, () =>
-        reifyAccessor([rowType, kt], onEntry(children as (v: ExprType<EastType>, k: ExprType<EastType>) => Expr))) as unknown as
+        reifyAccessor([rowType, kt], onEntry(tree!))) as unknown as
         ExprType<FunctionType<[EastType, EastType], EastType>>;
 
     /** The subtree walk below one entry — every level's entries in pre-order, over the child collection type. */
@@ -1309,7 +2318,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
         walks.get(cc, () => {
             const at = `${where} › children`;
             const { entry, key: kc } = shapeOf(cc, at);
-            assertEntry(entry, rowType, `${at} (a bare accessor returns more of this series' entries — step down to another type with Plan.children)`);
+            assertEntry(entry, rowType, `${at} (a tree's children are more of this series' rows — step down to another type with Plan.children)`);
             const next = childOf(kc);
             const nextType = (Expr.type(next) as unknown as { output: EastType }).output;
             if (!isTypeEqual(nextType, cc)) {
@@ -1363,7 +2372,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
 
     const childrenFor = (kt: EastType): ChildrenFn | undefined => kids.get(kt, () => {
         if (children === undefined) return undefined;
-        if (typeof children === "function") {
+        if (tree !== undefined) {
             const of = childOf(kt);
             const cc = (Expr.type(of) as unknown as { output: EastType }).output;
             const walk = walkFor(cc);
@@ -1372,7 +2381,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
         }
         const parts = steps.map((step, i) => {
             const at = `${where} › children[${i}]`;
-            const of = building(at, kt, () => reifyAccessor([rowType, kt], onEntry(step.of as (v: ExprType<EastType>, k: ExprType<EastType>) => Expr))) as unknown as
+            const of = building(at, kt, () => reifyAccessor([rowType, kt], onEntry(stepOf(step)))) as unknown as
                 ExprType<FunctionType<[EastType, EastType], EastType>>;
             const cc = (Expr.type(of) as unknown as { output: EastType }).output;
             const blocks = step.series.map((s) => nestedSpec(s, at).emitter(cc, at));
@@ -1389,25 +2398,25 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
         }) as unknown as ChildrenFn;
     });
 
-    // ── Writing a gesture back (#880) ─────────────────────────────────────
+    // ── Writing a gesture back (#880, #1436) ──────────────────────────────
     // The entry a writer is handed is DETACHED (the series value's `write`
     // copies it), so a nested entry is written in place in its collection and
-    // a dropped card's item joins its list in place.
+    // an item joins its collection in place, under its id.
     const owns = new ByType<OwnEditFn | undefined>();
     const writers = new ByType<WriteFn | undefined>();
     const entryAccess = (value: ExprType<EastType>) => nodeOf(value) as unknown as Record<string, ExprType<EastType>>;
 
     /** The item a dropped card becomes, for entries keyed by `kt`. */
-    const createFor = (kt: EastType, create: NonNullable<AnyEditInput["create"]>) => building(where, kt, () => East.function(
+    const createFor = (kt: EastType, make: NonNullable<typeof create>) => building(where, kt, () => East.function(
         [PlanDropType, rowType, kt], itemType!,
-        (_$, drop, value, key) => create(drop, nodeOf(value), key) as SubtypeExprOrValue<EastType>,
+        (_$, drop, value, key) => make(drop, nodeOf(value), key) as SubtypeExprOrValue<EastType>,
     ));
 
     /**
-     * An item at a move's instants (#825) — its declared instant fields set
-     * from the axis's instants, each on its own arm, every other field as it
-     * was; `none` when an instant rides an arm the field cannot hold (a time
-     * instant into a Float field).
+     * An item at a move's instants (#825, #1436) — the instant fields its read
+     * names set from the axis's instants, each on its own arm, every other
+     * field as it was; `none` when an instant rides an arm the field cannot
+     * hold (a time instant into a Float field).
      */
     const placed = move === undefined ? undefined : (() => {
         const m = move;
@@ -1443,93 +2452,73 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
     })();
 
     /**
-     * Whether a list holds an item keyed `k` (#825) — the key a move finds its
-     * item by, so a row's list keeps its keys unique: a card whose item repeats
-     * one, or a move onto a row already holding the moved item's key, is
-     * refused rather than leaving two items one key names.
-     */
-    const holds = move === undefined ? undefined : (list: ExprType<ArrayType<EastType>>, k: ExprType<StringType>) =>
-        list.some((_$, item) => East.equal((item as unknown as Record<string, ExprType<StringType>>)[move.key]!, k));
-
-    /**
-     * This series' own edit on one of its entries — the row at `path` is its
-     * own: a dropped card's item into its list, and a moved element's item
-     * re-timed where it is, taken out of the list, or put into it (#825).
+     * This series' own edit on one of its entries (#1436) — the row at `path`
+     * is its own: a dropped card's item into the collection its elements'
+     * read names, under the id the Plan minted; a moved element's item, found
+     * by its id (the element's key), re-timed where it is, taken out of the
+     * collection, or put into it under the same id. A collection already
+     * holding the id refuses the item. A number typed into one of its table
+     * positions sets that position's value at the bucket's start.
      */
     const ownFor = (kt: EastType): OwnEditFn | undefined => owns.get(kt, () => {
-        if (edit === undefined) return undefined;
-        const create = edit.create !== undefined ? createFor(kt, edit.create) : undefined;
+        const moves = editRead !== undefined && placed !== undefined && move !== undefined;
+        if (!moves && typedWrites.length === 0) return undefined;
+        const made = moves && create !== undefined ? createFor(kt, create) : undefined;
+        const field = editRead?.field ?? "";
+        const item = move?.item;
+        type Items = ExprType<DictType<StringType, EastType>>;
         return East.function([rowType, kt, PathType, PlanGestureType, PlanCarriedType], OptionType(rowType),
             ($, value, key, path, gesture, carried) => {
-                const make = create === undefined ? undefined : $.const(create);
-                const place = placed === undefined ? undefined : $.const(placed);
+                const make = made === undefined ? undefined : $.const(made);
+                const place = moves ? $.const(placed!) : undefined;
                 const result = $.let(none, OptionType(rowType));
                 $.match(gesture, {
                     drop: ($2, drop) => {
-                        if (make === undefined || edit === undefined) return;
-                        const list = $2.let(entryAccess(value)[edit.items]! as unknown as ExprType<ArrayType<EastType>>);
-                        const item = $2.let(make(drop, value, key), itemType!);
-                        const add = ($3: typeof $2) => {
-                            $3(list.pushLast(item));
+                        if (make === undefined) return;
+                        const coll = $2.let(entryAccess(value)[field]! as unknown as Items);
+                        // The minted id, unless the collection already holds it.
+                        $2.if(coll.has(drop.id).not(), ($3) => {
+                            $3(coll.insert(drop.id, make(drop, value, key)));
                             $3.assign(result, some(value));
-                        };
-                        // With the item's key declared, a card whose item
-                        // repeats a key in the list is refused (#825).
-                        if (holds === undefined || move === undefined) add($2);
-                        else $2.if(holds(list, (item as unknown as Record<string, ExprType<StringType>>)[move.key]!).not(), add);
+                        });
                     },
                     move: ($2, mv) => {
-                        if (place === undefined || move === undefined || edit === undefined) return;
-                        const keyField = move.key;
-                        const itemOf = move.item;
+                        if (place === undefined || item === undefined) return;
                         const here = $2.let(East.value(variant("entry", { series: cfg.key, path }), PlanRowIdType), PlanRowIdType);
-                        const list = $2.let(entryAccess(value)[edit.items]! as unknown as ExprType<ArrayType<EastType>>);
-                        // The element's item, by its key.
-                        const at = $2.let(list.firstMap(($3, item, i) =>
-                            East.equal((item as unknown as Record<string, ExprType<StringType>>)[keyField]!, mv.key).ifElse(
-                                () => East.value(some(i), OptionType(IntegerType)),
-                                () => East.value(none, OptionType(IntegerType)))), OptionType(IntegerType));
+                        const coll = $2.let(entryAccess(value)[field]! as unknown as Items);
                         $2.if(East.equal(here, mv.from).and(() => East.equal(here, mv.to)), ($3) => {
-                            // Along its row, or resized: its instants set where it is.
-                            $3.match(at, {
-                                some: ($4, i) => {
-                                    const moved = $4.let(place(list.get(i), mv.start, mv.end), OptionType(itemOf));
-                                    $4.match(moved, {
-                                        some: ($5, item) => {
-                                            $5(list.update(i, item));
-                                            $5.assign(result, some(value));
-                                        },
-                                    });
-                                },
-                            });
-                        }).else(($3) => {
-                            // Its source: taken out of the list, and carried.
-                            $3.if(East.equal(here, mv.from), ($4) => {
-                                $4.match(at, {
-                                    some: ($5, i) => {
-                                        $5(carried.update(East.value(some(East.Blob.encodeBeast(list.get(i), "v2")), OptionType(BlobType))));
-                                        const before = $5.let(list.slice(0n, i));
-                                        const after = $5.let(list.slice(i.add(1n), list.size()));
-                                        $5(list.clear());
-                                        $5(list.append(before));
-                                        $5(list.append(after));
+                            // Along its row, or resized: its times set where it is.
+                            $3.if(coll.has(mv.key), ($4) => {
+                                const moved = $4.let(place(coll.get(mv.key), mv.start, mv.end), OptionType(item));
+                                $4.match(moved, {
+                                    some: ($5, next) => {
+                                        $5(coll.update(mv.key, next));
                                         $5.assign(result, some(value));
                                     },
                                 });
                             });
-                            // Its target: the carried item put in, at its new
-                            // instants — unless the list already holds its key,
-                            // when it is put nowhere and the move lands nowhere.
+                        }).else(($3) => {
+                            // Its source: taken out of the collection, and carried.
+                            $3.if(East.equal(here, mv.from), ($4) => {
+                                $4.if(coll.has(mv.key), ($5) => {
+                                    $5(carried.update(East.value(some(East.Blob.encodeBeast(coll.get(mv.key), "v2")), OptionType(BlobType))));
+                                    $5(coll.delete(mv.key));
+                                    $5.assign(result, some(value));
+                                });
+                            });
+                            // Its target: the carried item put in under its id, at its new
+                            // times — unless the collection already holds the id, when it
+                            // is put nowhere and the move lands nowhere.
                             $3.if(East.equal(here, mv.to), ($4) => {
                                 const held = $4.let(carried.get(), OptionType(BlobType));
                                 $4.match(held, {
                                     some: ($5, bytes) => {
-                                        $5.if(holds!(list, mv.key).not(), ($6) => {
-                                            const item = $6.let(bytes.decodeBeast(itemOf, "v2"), itemOf);
-                                            const moved = $6.let(place(item, mv.start, mv.end), OptionType(itemOf));
+                                        $5.if(coll.has(mv.key).not(), ($6) => {
+                                            const taken = $6.let(bytes.decodeBeast(item, "v2"), item);
+                                            const moved = $6.let(place(taken, mv.start, mv.end), OptionType(item));
                                             $6.match(moved, {
-                                                some: ($7, placedItem) => {
-                                                    $7(list.pushLast(placedItem));
+                                                some: ($7, next) => {
+                                                    $7(coll.insert(mv.key, next));
                                                     $7(carried.update(East.value(none, OptionType(BlobType))));
                                                     $7.assign(result, some(value));
                                                 },
@@ -1540,12 +2529,54 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
                             });
                         });
                     },
+                    // A number typed into a cell (#1436): its position's value at the bucket's start set, or added
+                    // where the collection holds none; cleared, deleted. An Integer collection takes a whole number,
+                    // and an instant on an arm its keys cannot hold writes nothing.
+                    value: ($2, typed) => {
+                        if (typedWrites.length === 0) return;
+                        const here = $2.let(East.value(variant("entry", { series: cfg.key, path }), PlanRowIdType), PlanRowIdType);
+                        $2.if(East.equal(here, typed.row), ($3) => {
+                            for (const write of typedWrites) {
+                                $3.if(typed.position.equal(BigInt(write.position)), ($4) => {
+                                    const keyAs = $4.const(write.keyAs);
+                                    const at = $4.let(keyAs(typed.at), OptionType(write.key));
+                                    $4.match(at, {
+                                        some: ($5, k) => {
+                                            type Values = ExprType<DictType<EastType, EastType>>;
+                                            const coll = $5.let(entryAccess(value)[write.field]! as unknown as Values);
+                                            $5.match(typed.value, {
+                                                some: ($6, n) => {
+                                                    const put = ($7: typeof $6, stored: SubtypeExprOrValue<EastType>) => {
+                                                        $7(coll.insertOrUpdate(k as ExprType<EastType>, stored));
+                                                        $7.assign(result, some(value));
+                                                    };
+                                                    if (isTypeEqual(write.value, IntegerType)) {
+                                                        $6.if(n.remainder(1).equal(0), ($7) => { put($7, n.toInteger()); });
+                                                    } else if (isTypeEqual(write.value, OptionType(FloatType))) {
+                                                        put($6, some(n));
+                                                    } else {
+                                                        put($6, n);
+                                                    }
+                                                },
+                                                none: ($6) => {
+                                                    $6.if(coll.has(k as ExprType<EastType>), ($7) => {
+                                                        $7(coll.delete(k as ExprType<EastType>));
+                                                        $7.assign(result, some(value));
+                                                    });
+                                                },
+                                            });
+                                        },
+                                    });
+                                });
+                            }
+                        });
+                    },
                 });
                 return result;
             }) as unknown as OwnEditFn;
     });
 
-    /** The walk's writer — a bare `children` accessor: the rows below an entry are this series' own. */
+    /** The tree's writer: the rows below an entry are this series' own. */
     const walkWriterFor = (kt: EastType): WriteFn | undefined => {
         const at = `${where} › children`;
         const of = childOf(kt);
@@ -1553,11 +2584,11 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
         const { key: kc } = shapeOf(cc, at);
         const own = ownFor(kc);
         if (own === undefined) return undefined;
-        const ref = childRefOf(rowType, kt, children as (v: ExprType<EastType>, k: ExprType<EastType>) => Expr);
+        const ref: ChildRef | undefined = treeField !== undefined ? { kind: "field", field: treeField } : childRefOf(rowType, kt, tree!);
         if (ref === undefined) {
             throw new Error(
                 `${at}: this series takes gestures, and one on a child row is written back into its entry through ` +
-                "`children` — which must read a field of the entry (`r => r.children`), not compute a collection");
+                "`children` — which must read a field of the entry, not compute a collection");
         }
         const ops = collectionOps(cc);
         const collOf = (entry: ExprType<EastType>) => (ref.kind === "field" ? entryAccess(entry)[ref.field]! : nodeOf(entry));
@@ -1604,7 +2635,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
     const stepsWriterFor = (kt: EastType): WriteFn | undefined => {
         const parts = steps.flatMap((step, i) => {
             const at = `${where} › children[${i}]`;
-            const accessor = step.of as (v: ExprType<EastType>, k: ExprType<EastType>) => Expr;
+            const accessor = stepOf(step);
             const of = building(at, kt, () => reifyAccessor([rowType, kt], onEntry(accessor))) as unknown as
                 ExprType<FunctionType<[EastType, EastType], EastType>>;
             const cc = (Expr.type(of) as unknown as { output: EastType }).output;
@@ -1612,12 +2643,12 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
                 .map((s) => nestedSpec(s, at).writer(cc, at))
                 .filter((w): w is WriteFn => w !== undefined);
             if (writes.length === 0) return [];
-            const ref = childRefOf(rowType, kt, accessor);
+            const ref: ChildRef | undefined = step.field !== undefined ? { kind: "field", field: step.field } : childRefOf(rowType, kt, accessor);
             if (ref === undefined) {
                 throw new Error(
                     `${at}: a series under this step-down takes gestures, and one on its rows is written back into ` +
-                    "the entry through `Plan.children(of, …)` — `of` must read a field of the entry (`r => r.presses`) " +
-                    "or be the entry itself (`g => g`), not compute a collection");
+                    "the entry through the step-down — which must read a field of the entry, or be the entry itself, not " +
+                    "compute a collection");
             }
             const { entry: childType, key: kc } = shapeOf(cc, at);
             return [{ ref, cc, kc, childType, writes }];
@@ -1657,7 +2688,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
     const writerFor = (kt: EastType): WriteFn | undefined => writers.get(kt, () => {
         const own = ownFor(kt);
         const below = children === undefined ? undefined
-            : typeof children === "function" ? walkWriterFor(kt) : stepsWriterFor(kt);
+            : tree !== undefined ? walkWriterFor(kt) : stepsWriterFor(kt);
         if (own === undefined && below === undefined) return undefined;
         return East.function([rowType, kt, PathType, IntegerType, StringType, PlanGestureType, PlanCarriedType], OptionType(rowType),
             ($, value, key, path, depth, series, gesture, carried) => {
@@ -1682,6 +2713,21 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
         nested,
         nests: children !== undefined,
         charts,
+        reads: recipe.reads ?? [],
+        nest: {
+            rowType,
+            keyType: cfg.keyType ?? StringType,
+            accessors: accessorsOf(cfg),
+            tree: treeField,
+            steps: steps.map((step, i) => ({
+                field: step.field, of: step.of as PlanSeriesNestStep<PlanSeriesSpec>["of"],
+                series: step.series.map((x) => nestedSpec(x, `${where} › children[${i}]`)),
+            })),
+            members: [],
+            aggregate: recipe.aggregate,
+            subtotalsOwn: recipe.subtotalsOwn === true,
+            rollup: recipe.rollup,
+        },
         emitter(collection, at) {
             return emitters.get(collection, () => {
                 const { entry, key: kt } = shapeOf(collection, at);
@@ -1773,10 +2819,13 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
     const blockLists = new ByType<BlocksFn>();
     const writerLists = new ByType<WriteFn | undefined>();
 
-    // ── A bare `children` accessor: more of the views' own entries (#1219) ──
-    const bare = typeof cfg.children === "function"
-        ? cfg.children as (v: ExprType<EastType>, k: ExprType<EastType>) => Expr
-        : undefined;
+    // ── A tree: more of the views' own entries (#1219, #1436) — a field of the
+    // entry, or the event kinds' accessor computing them (#1194) ──
+    const children = cfg.children as unknown;
+    const treeField = typeof children === "string" ? children : undefined;
+    const bare: ((v: ExprType<EastType>, k: ExprType<EastType>) => Expr) | undefined = treeField !== undefined
+        ? (v) => collectionOn(v, treeField) as unknown as Expr
+        : typeof children === "function" ? children as (v: ExprType<EastType>, k: ExprType<EastType>) => Expr : undefined;
     const recursive = (rowType as { type: string }).type === "Recursive";
     const nodeOf = (value: ExprType<EastType>): ExprType<EastType> => recursive
         ? (value as unknown as RecursiveExpr<EastType>).unwrap() as ExprType<EastType>
@@ -1799,7 +2848,7 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
         walks.get(cc, () => {
             const at = `${where} › children`;
             const { entry, key: kc } = shapeOf(cc, at);
-            assertEntry(entry, rowType, `${at} (a bare accessor returns more of this series' entries — step down to another type with Plan.children)`);
+            assertEntry(entry, rowType, `${at} (a tree's children are more of this series' rows — step down to another type with Plan.children)`);
             const next = childOf(kc);
             const nextType = (Expr.type(next) as unknown as { output: EastType }).output;
             if (!isTypeEqual(nextType, cc)) {
@@ -1906,11 +2955,11 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
             return own === undefined ? [] : [{ key: m.key, own }];
         });
         if (owns.length === 0) return undefined;
-        const ref = childRefOf(rowType, kt, bare!);
+        const ref: ChildRef | undefined = treeField !== undefined ? { kind: "field", field: treeField } : childRefOf(rowType, kt, bare!);
         if (ref === undefined) {
             throw new Error(
                 `${at}: a member takes gestures, and one on a child row is written back into its entry through ` +
-                "`children` — which must read a field of the entry (`r => r.children`), not compute a collection");
+                "`children` — which must read a field of the entry, not compute a collection");
         }
         const ops = collectionOps(cc);
         const collOf = (value: ExprType<EastType>) => (ref.kind === "field" ? entryAccess(value)[ref.field]! : nodeOf(value));
@@ -1955,7 +3004,7 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
             }) as unknown as WriteFn;
     });
     // How many chart rows each entry makes (#1398): a row a member — a chart member's own `match` deciding by entry
-    // whether its row shows — and below them a bare accessor's walk of more of the views' entries, each its members'
+    // whether its row shows — and below them a tree's walk of more of the views' entries, each its members'
     // rows, or a step-down's series' over the child collection.
     const memberCharts = chartsOf(memberSpecs);
     const charts = entryCharts(memberCharts,
@@ -1967,6 +3016,9 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
         nested: [...memberSpecs, ...host.nested],
         nests: cfg.children !== undefined,
         charts,
+        reads: [],
+        // Its members read its own entries; its children are the host envelope's (#1435).
+        nest: { ...host.nest!, members: memberSpecs },
         emitter(collection, at) {
             return emitters.get(collection, () => {
                 const { entry, key: kt } = shapeOf(collection, at);
@@ -2107,6 +3159,12 @@ function sectionSpec(cfg: PlanSectionSeriesConfig<PlanAxisKindLiteral>, members:
         nests: false,
         // Each entry makes its members' rows; the header is no entry's (#1398).
         charts: chartsOf(memberSpecs),
+        reads: [],
+        // Its members read the section's entries; it reads nothing of its own (#1435).
+        nest: {
+            rowType: undefined, keyType: StringType, accessors: [], tree: undefined, steps: [], members: memberSpecs,
+            aggregate: undefined, subtotalsOwn: false, rollup: undefined,
+        },
         emitter(collection, at) {
             return emitters.get(collection, () => {
                 const blocks = memberSpecs.map((m) => m.emitter(collection, `${at} › ${where}`));
@@ -2178,6 +3236,7 @@ function rowsSpec(identity: PlanSeriesIdentity, rows: PlanRowsValue): PlanSeries
         // Its rows' kinds are an East value the build does not read (#1398): laid out below an entry, their chart rows are
         // not known.
         charts: undefined,
+        reads: [],
         emitter,
         // A FIXED block: no entry produces hand-built rows, so every window
         // serves them alike and the canvas draws them once (#823).
@@ -2324,16 +3383,32 @@ export function applySeriesValue(
 
 /**
  * Check a TS series list before it is applied — its keys unique across the
- * whole tree. An East expression list is checked at render (a repeated id is
- * a row diagnostic), since its series are not known until it runs.
+ * whole tree, and its values collections keyed by the axis's instants (#1436).
+ * An East expression list is checked at render (a repeated id is a row
+ * diagnostic), since its series are not known until it runs.
  *
  * @param series - The `series` input
  * @param where - Who is asking, for the message
+ * @param axisKind - The axis's kind, when its declaration says it
  */
-export function checkSeries(series: PlanSeriesInput, where: string): void {
+export function checkSeries(series: PlanSeriesInput, where: string, axisKind?: PlanAxisKindLiteral): void {
     if (!Array.isArray(series)) return;
     const specs = series.map((s) => specOf(s)).filter((s): s is PlanSeriesSpec => s !== undefined);
     assertUniqueKeys(specs, where);
+    // A values collection is keyed by its instant (#1436): one keyed by String
+    // rides only an ordinal axis.
+    if (axisKind === undefined || axisKind === "ordinal") return;
+    const walk = (spec: PlanSeriesSpec): void => {
+        for (const use of spec.reads) {
+            if (use.read.kind !== "values" || !isTypeEqual(use.key, StringType)) continue;
+            throw new Error(
+                `Plan.values: "${use.field}" is keyed by String, and the axis is ${axisKind} — values are keyed by their ` +
+                `instant, ${axisKind === "time" ? "a DateTime" : "a Float or an Integer"} here: read things people drag ` +
+                `with Plan.items("${use.field}", times, draw)`);
+        }
+        spec.nested.forEach(walk);
+    };
+    specs.forEach(walk);
 }
 
 /**
@@ -2506,6 +3581,61 @@ export function seriesWriteFn(series: PlanSeriesInput, collection: EastType): To
 // ============================================================================
 
 /**
+ * What a span series reads (#1436): its runs — rolled up into a parent's bands
+ * when it rolls its children up — its decisions and ports, and its children's.
+ *
+ * @typeParam UR - What its runs read
+ * @typeParam UD - What its decisions read
+ * @typeParam UP - What its ports read
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
+ * @typeParam RL - Its `rollup`, as written
+ */
+export type PlanSpanReads<UR, UD, UP, CT, CU, CF, CS extends readonly unknown[], RL> = PlanReadsNormal<
+    (PlanHasChildren<CT, CU, CS> extends true ? PlanRolledUp<UR> : [RL] extends [never] ? UR : PlanRolledUp<UR>)
+    & UD & UP & PlanChildrenReads<CT, CU, CF, CS>>;
+
+/**
+ * What a heat series reads (#1436): its cells' collection — subtotalled by its
+ * fold and the series' aggregate where a tree's parents derive theirs — and
+ * its children's, a step-down's subtotalled by the aggregate with its own
+ * folds.
+ *
+ * @typeParam UC - What its cells read
+ * @typeParam FO - Their fold
+ * @typeParam A - Its aggregate
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
+ */
+export type PlanHeatReads<UC, FO, A, CT, CU, CF, CS extends readonly unknown[]> = PlanReadsNormal<
+    ([CT] extends [never] ? UC : PlanSubtotalled<UC, FO, A>)
+    & PlanChildrenReads<CT, CU, CF, CS, [CT] extends [never] ? A : never>>;
+
+/**
+ * What a table series reads (#1436): its cells' or its positions'
+ * collections — each a tree's parents subtotal by its fold and the series'
+ * aggregate — and its children's, a step-down's subtotalled by the aggregate
+ * with its own folds.
+ *
+ * @typeParam UC - What its `cells` read
+ * @typeParam S - Its positions, as written
+ * @typeParam FO - Its `cells`' fold
+ * @typeParam A - Its aggregate
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
+ */
+export type PlanTableReads<UC, S, FO, A, CT, CU, CF, CS extends readonly unknown[]> = PlanReadsNormal<
+    ([CT] extends [never] ? UC : PlanSubtotalled<UC, FO, A>)
+    & PlanPositionsReads<S, [CT] extends [never] ? false : true, A>
+    & PlanChildrenReads<CT, CU, CF, CS, [CT] extends [never] ? A : never>>;
+
+/**
  * A span series — one state-run row per entry; a row with children shows its
  * own runs plus bands over its subtree's runs (`rollup`) — each band sums its
  * runs' quantities unit by unit (#824).
@@ -2513,23 +3643,40 @@ export function seriesWriteFn(series: PlanSeriesInput, collection: EastType): To
  * @typeParam R - The entry type
  * @typeParam K - The axis kind the runs imply (inferred from `runs`; `never` when erased)
  * @typeParam KT - The entries' key type (`keyType`; `String` by default)
+ * @typeParam FR - The collection its runs read
+ * @typeParam UR - What its runs read
+ * @typeParam UD - What its decisions read
+ * @typeParam UP - What its ports read
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
+ * @typeParam RL - Its `rollup`, as written
  * @param rowType - The entry type (every builder takes it first — the `Slice.config` shape)
- * @param config - The accessors and nesting ({@link PlanSpanSeriesConfig})
- * @returns A series value, branded with its kind
+ * @param config - The reads, accessors and nesting ({@link PlanSpanSeriesConfig})
+ * @returns A series value, branded with its kind and what it reads
  */
-export function createSeriesSpan<R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType>(
-    rowType: R, config: PlanSpanSeriesConfig<R, K, KT>,
-): PlanSeriesValue<K> {
+export function createSeriesSpan<
+    R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
+    FR extends string = string, UR = unknown, UD = unknown, UP = unknown,
+    CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never, RL extends PlanRollupLiteral = never,
+>(rowType: R, config: PlanSpanSeriesConfig<R, K, KT, FR, UR, UD, UP, CT, CU, CF, CS, RL>): PlanSeriesValue<K, PlanSpanReads<UR, UD, UP, CT, CU, CF, CS, RL>> {
     const cfg = config as unknown as PlanSpanSeriesConfig<EastType, PlanAxisKindLiteral, EastType>;
+    const where = `Plan.series.span "${cfg.key}"`;
+    const edit = editRecipeOf(cfg.edit, "runs", "{ from, to }", cfg.runs, where);
     // A row rolls up its children: its own (`children`), or — declared on a
     // views member — the ones the views nest under it (#1219).
     const rollup = cfg.children !== undefined || cfg.rollup !== undefined ? resolveTag(cfg.rollup ?? "union", PlanRollupType) : undefined;
-    const spec = dataSpec(rowType, cfg, {
+    const runs = elementField(rowType, cfg.runs, "run", where, "runs");
+    if (runs === undefined) throw new Error(`${where}: give its runs — Plan.items(field, { from, to }, draw), or a function of the row`);
+    const decisions = elementField(rowType, cfg.decisions, "decision", where, "decisions");
+    const ports = elementField(rowType, cfg.ports, "port", where, "ports");
+    const spec = dataSpec(rowType, cfg as AnyRowConfig, {
         arm: "span",
-        kind: (value, key, hasChildren) => spanKind({
-            runs: cfg.runs(value, key),
-            ...(cfg.decisions !== undefined ? { decisions: cfg.decisions(value, key) } : {}),
-            ...(cfg.ports !== undefined ? { ports: cfg.ports(value, key) } : {}),
+        kind: (node, key, hasChildren, value) => spanKind({
+            runs: runs.at(node, key, value) as PlanElementsInput<PlanRunType, PlanAxisKindLiteral>,
+            ...(decisions !== undefined ? { decisions: decisions.at(node, key, value) as PlanElementsInput<PlanDecisionMarkType, PlanAxisKindLiteral> } : {}),
+            ...(ports !== undefined ? { ports: ports.at(node, key, value) as PlanElementsInput<typeof PlanPortType, PlanAxisKindLiteral> } : {}),
         }, rollup === undefined
             ? East.value(none, OptionType(PlanRollupType))
             // A row rolls up only when it HAS child rows — a leaf's bands
@@ -2537,9 +3684,12 @@ export function createSeriesSpan<R extends EastType, K extends PlanAxisKindLiter
             : hasChildren.ifElse(
                 () => East.value(some(rollup), OptionType(PlanRollupType)),
                 () => East.value(none, OptionType(PlanRollupType)))),
-        edit: cfg.edit as unknown as AnyEditInput | undefined,
+        edit,
+        reads: [...runs.reads, ...(decisions?.reads ?? []), ...(ports?.reads ?? [])],
+        // Its runs roll up into its bands where it has children or declares a rollup (#1435).
+        ...(cfg.children !== undefined || cfg.rollup !== undefined ? { rollup: tagOf(cfg.rollup, "union") } : {}),
     });
-    return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K>;
+    return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K, PlanSpanReads<UR, UD, UP, CT, CU, CF, CS, RL>>;
 }
 
 /**
@@ -2549,25 +3699,39 @@ export function createSeriesSpan<R extends EastType, K extends PlanAxisKindLiter
  * @typeParam R - The entry type
  * @typeParam K - The axis kind the cells imply (inferred from `cells`; `never` when erased)
  * @typeParam KT - The entries' key type
+ * @typeParam UC - What its cells read
+ * @typeParam FO - How a bucket folds them
+ * @typeParam A - Its `aggregate`, as written
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
  * @param rowType - The entry type
- * @param config - The accessors and nesting ({@link PlanHeatSeriesConfig})
- * @returns A series value, branded with its kind
+ * @param config - The reads, accessors and nesting ({@link PlanHeatSeriesConfig})
+ * @returns A series value, branded with its kind, what it reads and the fold of its cells
  */
-export function createSeriesHeat<R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType>(
-    rowType: R, config: PlanHeatSeriesConfig<R, K, KT>,
-): PlanSeriesValue<K> {
+export function createSeriesHeat<
+    R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
+    UC = unknown, FO extends PlanFoldLiteral | undefined = undefined, A extends PlanAggregateLiteral = "mean",
+    CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
+>(rowType: R, config: PlanHeatSeriesConfig<R, K, KT, UC, FO, A, CT, CU, CF, CS>): PlanSeriesValue<K, PlanHeatReads<UC, FO, A, CT, CU, CF, CS>> & PlanFoldsBrand<PlanFoldsOf<UC, FO>> {
     const cfg = config as unknown as PlanHeatSeriesConfig<EastType, PlanAxisKindLiteral, EastType>;
+    const where = `Plan.series.heat "${cfg.key}"`;
     const aggregate = cfg.children !== undefined
         ? East.value(some(resolveTag(cfg.aggregate ?? "mean", PlanAggregateType)), OptionType(PlanAggregateType))
         : East.value(none, OptionType(PlanAggregateType));
-    const spec = dataSpec(rowType, cfg, {
+    const cells = consumerField(rowType, cfg.cells, "heat", where, "cells");
+    const spec = dataSpec(rowType, cfg as AnyRowConfig, {
         arm: "heat",
-        kind: (value, key) => heatKind({
-            cells: cfg.cells(value, key),
+        kind: (node, key, _hasChildren, value) => heatKind({
+            ...(cells !== undefined ? { cells: cells.at(node, key, value) as PlanHeatCellsInput<PlanAxisKindLiteral> } : {}),
             ...(cfg.scale !== undefined ? { scale: cfg.scale } : {}),
         }, aggregate),
+        reads: cells?.reads ?? [],
+        // Its row derives its children's numbers by its aggregate: a tree's own values, or a step-down's (#1435).
+        ...(cfg.children !== undefined ? { aggregate: tagOf(cfg.aggregate, "mean"), subtotalsOwn: true } : {}),
     });
-    return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K>;
+    return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K, PlanHeatReads<UC, FO, A, CT, CU, CF, CS>> & PlanFoldsBrand<PlanFoldsOf<UC, FO>>;
 }
 
 /**
@@ -2577,32 +3741,57 @@ export function createSeriesHeat<R extends EastType, K extends PlanAxisKindLiter
  * @typeParam R - The entry type
  * @typeParam K - The axis kind the cells imply (inferred from `cells` / `series`; `never` when erased)
  * @typeParam KT - The entries' key type
+ * @typeParam UC - What its `cells` read
+ * @typeParam S - Its `series` positions, as written
+ * @typeParam FO - Its `cells`' fold, as written
+ * @typeParam A - Its `aggregate`, as written
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
  * @param rowType - The entry type
- * @param config - The accessors and nesting ({@link PlanTableSeriesOfConfig})
- * @returns A series value, branded with its kind
+ * @param config - The reads, accessors and nesting ({@link PlanTableSeriesOfConfig})
+ * @returns A series value, branded with its kind, what it reads and the folds of its positions
  */
-export function createSeriesTable<R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType>(
-    rowType: R, config: PlanTableSeriesOfConfig<R, K, KT>,
-): PlanSeriesValue<K> {
+export function createSeriesTable<
+    R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
+    UC = unknown, S extends readonly unknown[] = never, FO extends PlanFoldLiteral = "sum", A extends TableAggregateLiteral = "sum",
+    CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
+>(
+    rowType: R, config: PlanTableSeriesOfConfig<R, K, KT, UC, S, FO, A, CT, CU, CF, CS>,
+): PlanSeriesValue<K, PlanTableReads<UC, S, FO, A, CT, CU, CF, CS>> & PlanFoldsBrand<PlanReadsNormal<PlanFoldsOf<UC, FO> & PlanPositionsFolds<S>>> {
     const cfg = config as unknown as PlanTableSeriesOfConfig<EastType, PlanAxisKindLiteral, EastType>;
+    const where = `Plan.series.table "${cfg.key}"`;
     if (cfg.cells !== undefined && cfg.series !== undefined) {
-        throw new Error(`Plan.series.table "${cfg.key}": pass \`cells\` (one plain value series) OR \`series\` — not both`);
+        throw new Error(`${where}: pass \`cells\` (one plain value series) OR \`series\` — not both`);
     }
     const aggregate = cfg.children !== undefined
         ? East.value(some(resolveTag(cfg.aggregate ?? "sum", TableAggregateType)), OptionType(TableAggregateType))
         : East.value(none, OptionType(TableAggregateType));
-    const spec = dataSpec(rowType, cfg, {
+    const cells = consumerField(rowType, cfg.cells, "tableCells", where, "cells");
+    // Its cells fold as the row declares, `sum` unless it says (#1436): what a parent subtotals them by (#1435, #1438).
+    const rowFold = tagOf(cfg.fold, "sum") as PlanFoldLiteral | undefined;
+    const cellReads = (cells?.reads ?? []).map((read) => (read.fold !== undefined || rowFold === undefined ? read : { ...read, fold: rowFold }));
+    const positions = listField(rowType, cfg.series, "tableSeries", where, "series");
+    // The positions a typed number writes (#1436), each read checked as it built above.
+    const values = tableEditsOf(rowType, cfg, where);
+    const spec = dataSpec(rowType, cfg as AnyRowConfig, {
         arm: "table",
-        kind: (value, key) => tableKind({
-            ...(cfg.cells !== undefined ? { cells: cfg.cells(value, key) } : {}),
+        kind: (node, key, _hasChildren, value) => tableKind({
+            ...(cells !== undefined ? { cells: cells.at(node, key, value) as PlanTableCellsInput<PlanAxisKindLiteral> } : {}),
             ...(cfg.fold !== undefined ? { fold: cfg.fold } : {}),
-            ...(cfg.series !== undefined ? { series: cfg.series(value, key) } : {}),
+            ...(positions !== undefined ? { series: positions.at(node, key, value) as PlanElementsInput<PlanTableSeriesType, PlanAxisKindLiteral> } : {}),
             ...(cfg.split !== undefined ? { split: cfg.split } : {}),
             ...(cfg.format !== undefined ? { format: cfg.format } : {}),
             ...(cfg.emphasis !== undefined ? { emphasis: cfg.emphasis } : {}),
         }, aggregate),
+        reads: [...cellReads, ...(positions?.reads ?? [])],
+        values,
+        // Its row derives its children's numbers by its aggregate: a tree's own values, or a step-down's (#1435).
+        ...(cfg.children !== undefined ? { aggregate: tagOf(cfg.aggregate, "sum"), subtotalsOwn: true } : {}),
     });
-    return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K>;
+    return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K, PlanTableReads<UC, S, FO, A, CT, CU, CF, CS>>
+        & PlanFoldsBrand<PlanReadsNormal<PlanFoldsOf<UC, FO> & PlanPositionsFolds<S>>>;
 }
 
 /**
@@ -2611,24 +3800,38 @@ export function createSeriesTable<R extends EastType, K extends PlanAxisKindLite
  * @typeParam R - The entry type
  * @typeParam K - The axis kind the tiles imply (inferred from `events` / `markers`; `never` when erased)
  * @typeParam KT - The entries' key type
+ * @typeParam FE - The collection its tiles read
+ * @typeParam UE - What its tiles read
+ * @typeParam UM - What its markers read
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
  * @param rowType - The entry type
- * @param config - The accessors ({@link PlanBucketsSeriesConfig})
- * @returns A series value, branded with its kind
+ * @param config - The reads and accessors ({@link PlanBucketsSeriesConfig})
+ * @returns A series value, branded with its kind and what it reads
  */
-export function createSeriesBuckets<R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType>(
-    rowType: R, config: PlanBucketsSeriesConfig<R, K, KT>,
-): PlanSeriesValue<K> {
+export function createSeriesBuckets<
+    R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
+    FE extends string = string, UE = unknown, UM = unknown, CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
+>(rowType: R, config: PlanBucketsSeriesConfig<R, K, KT, FE, UE, UM, CT, CU, CF, CS>): PlanSeriesValue<K, PlanReadsNormal<UE & UM & PlanChildrenReads<CT, CU, CF, CS>>> {
     const cfg = config as unknown as PlanBucketsSeriesConfig<EastType, PlanAxisKindLiteral, EastType>;
-    const spec = dataSpec(rowType, cfg, {
+    const where = `Plan.series.buckets "${cfg.key}"`;
+    const edit = editRecipeOf(cfg.edit, "events", "{ at }", cfg.events, where);
+    const events = elementField(rowType, cfg.events, "event", where, "events");
+    if (events === undefined) throw new Error(`${where}: give its events — Plan.items(field, { at }, draw), or a function of the row`);
+    const markers = elementField(rowType, cfg.markers, "marker", where, "markers");
+    const spec = dataSpec(rowType, cfg as AnyRowConfig, {
         arm: "buckets",
-        kind: (value, key) => bucketsKind({
-            ...(cfg.lanes !== undefined ? { lanes: cfg.lanes(value, key) } : {}),
-            events: cfg.events(value, key),
-            ...(cfg.markers !== undefined ? { markers: cfg.markers(value, key) } : {}),
+        kind: (node, key, _hasChildren, value) => bucketsKind({
+            ...(cfg.lanes !== undefined ? { lanes: cfg.lanes(node, key) } : {}),
+            events: events.at(node, key, value) as PlanElementsInput<PlanBucketEventType, PlanAxisKindLiteral>,
+            ...(markers !== undefined ? { markers: markers.at(node, key, value) as PlanElementsInput<typeof PlanCellMarkerType, PlanAxisKindLiteral> } : {}),
         }),
-        edit: cfg.edit as unknown as AnyEditInput | undefined,
+        edit,
+        reads: [...events.reads, ...(markers?.reads ?? [])],
     });
-    return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K>;
+    return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K, PlanReadsNormal<UE & UM & PlanChildrenReads<CT, CU, CF, CS>>>;
 }
 
 /**
@@ -2637,20 +3840,32 @@ export function createSeriesBuckets<R extends EastType, K extends PlanAxisKindLi
  * @typeParam R - The entry type
  * @typeParam K - The axis kind the chips imply (inferred from `chips`; `never` when erased)
  * @typeParam KT - The entries' key type
+ * @typeParam FC - The collection its chips read
+ * @typeParam UC - What its chips read
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
  * @param rowType - The entry type
- * @param config - The accessors ({@link PlanCardsSeriesConfig})
- * @returns A series value, branded with its kind
+ * @param config - The reads and accessors ({@link PlanCardsSeriesConfig})
+ * @returns A series value, branded with its kind and what it reads
  */
-export function createSeriesCards<R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType>(
-    rowType: R, config: PlanCardsSeriesConfig<R, K, KT>,
-): PlanSeriesValue<K> {
+export function createSeriesCards<
+    R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
+    FC extends string = string, UC = unknown, CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
+>(rowType: R, config: PlanCardsSeriesConfig<R, K, KT, FC, UC, CT, CU, CF, CS>): PlanSeriesValue<K, PlanReadsNormal<UC & PlanChildrenReads<CT, CU, CF, CS>>> {
     const cfg = config as unknown as PlanCardsSeriesConfig<EastType, PlanAxisKindLiteral, EastType>;
-    const spec = dataSpec(rowType, cfg, {
+    const where = `Plan.series.cards "${cfg.key}"`;
+    const edit = editRecipeOf(cfg.edit, "chips", "{ from, to }", cfg.chips, where);
+    const chips = elementField(rowType, cfg.chips, "chip", where, "chips");
+    if (chips === undefined) throw new Error(`${where}: give its chips — Plan.items(field, { from, to }, draw), or a function of the row`);
+    const spec = dataSpec(rowType, cfg as AnyRowConfig, {
         arm: "cards",
-        kind: (value, key) => cardsKind(cfg.chips(value, key)),
-        edit: cfg.edit as unknown as AnyEditInput | undefined,
+        kind: (node, key, _hasChildren, value) => cardsKind(chips.at(node, key, value) as PlanElementsInput<PlanChipType, PlanAxisKindLiteral>),
+        edit,
+        reads: chips.reads,
     });
-    return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K>;
+    return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K, PlanReadsNormal<UC & PlanChildrenReads<CT, CU, CF, CS>>>;
 }
 
 /**
@@ -2659,42 +3874,66 @@ export function createSeriesCards<R extends EastType, K extends PlanAxisKindLite
  * @typeParam R - The entry type
  * @typeParam K - The axis kind the marks imply (inferred from `marks`; `never` when erased)
  * @typeParam KT - The entries' key type
+ * @typeParam FM - The collection its marks read
+ * @typeParam UM - What its marks read
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
  * @param rowType - The entry type
- * @param config - The accessors ({@link PlanEventsSeriesConfig})
- * @returns A series value, branded with its kind
+ * @param config - The reads and accessors ({@link PlanEventsSeriesConfig})
+ * @returns A series value, branded with its kind and what it reads
  */
-export function createSeriesEvents<R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType>(
-    rowType: R, config: PlanEventsSeriesConfig<R, K, KT>,
-): PlanSeriesValue<K> {
+export function createSeriesEvents<
+    R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
+    FM extends string = string, UM = unknown, CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
+>(rowType: R, config: PlanEventsSeriesConfig<R, K, KT, FM, UM, CT, CU, CF, CS>): PlanSeriesValue<K, PlanReadsNormal<UM & PlanChildrenReads<CT, CU, CF, CS>>> {
     const cfg = config as unknown as PlanEventsSeriesConfig<EastType, PlanAxisKindLiteral, EastType>;
-    const spec = dataSpec(rowType, cfg, {
+    const where = `Plan.series.events "${cfg.key}"`;
+    const edit = editRecipeOf(cfg.edit, "marks", "{ at }", cfg.marks, where);
+    const marks = elementField(rowType, cfg.marks, "mark", where, "marks");
+    if (marks === undefined) throw new Error(`${where}: give its marks — Plan.items(field, { at }, draw), or a function of the row`);
+    const spec = dataSpec(rowType, cfg as AnyRowConfig, {
         arm: "events",
-        kind: (value, key) => eventsKind(cfg.marks(value, key)),
-        edit: cfg.edit as unknown as AnyEditInput | undefined,
+        kind: (node, key, _hasChildren, value) => eventsKind(marks.at(node, key, value) as PlanElementsInput<PlanEventMarkType, PlanAxisKindLiteral>),
+        edit,
+        reads: marks.reads,
     });
-    return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K>;
+    return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K, PlanReadsNormal<UM & PlanChildrenReads<CT, CU, CF, CS>>>;
 }
 
 /**
- * A chart series — one chart row per entry, layers built from the entry's own
- * data. Kind-ERASED: a Chart layer's TS face does not expose its x type, so a
- * chart series constrains no axis at compile time — the render-time
- * diagnostic holds it to the axis like any row.
+ * A chart series — one chart row per entry, its layers over the entry's own
+ * values (`Plan.line` … `Plan.band` over `Plan.values`), or built from the
+ * entry by a function. Its layers over values brand it with the axis kind
+ * their keys ride; a Chart layer's face hides its x type, so a series whose
+ * layers are all Chart layers constrains no axis at compile time — the
+ * render-time diagnostic holds it to the axis like any row.
  *
  * @typeParam R - The entry type
  * @typeParam KT - The entries' key type
+ * @typeParam K - The axis kind its layers' values ride
+ * @typeParam L - Its `layers`, as written
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
  * @param rowType - The entry type
- * @param config - The accessors and shared axes ({@link PlanChartSeriesConfig})
- * @returns A series value
+ * @param config - The layers, accessors and shared axes ({@link PlanChartSeriesConfig})
+ * @returns A series value, branded with its kind and what it reads
  */
-export function createSeriesChart<R extends EastType, KT extends EastType = StringType>(
-    rowType: R, config: PlanChartSeriesConfig<R, KT>,
-): PlanSeriesValue {
+export function createSeriesChart<
+    R extends EastType, KT extends EastType = StringType, K extends PlanAxisKindLiteral = never,
+    L extends readonly unknown[] = never, CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
+>(rowType: R, config: PlanChartSeriesConfig<R, KT, K, L, CT, CU, CF, CS>): PlanSeriesValue<K, PlanReadsNormal<([L] extends [never] ? unknown : PlanIntersect<PlanUseReads<L[number]>>) & PlanChildrenReads<CT, CU, CF, CS>>> {
     const cfg = config as unknown as PlanChartSeriesConfig<EastType, EastType>;
-    const spec = dataSpec(rowType, cfg, {
+    const where = `Plan.series.chart "${cfg.key}"`;
+    const layers = listField(rowType, cfg.layers, "layer", where, "layers");
+    if (layers === undefined) throw new Error(`${where}: give its layers — Plan.line(Plan.values(field, draw)) and the like, or a function of the row`);
+    const spec = dataSpec(rowType, cfg as AnyRowConfig, {
         arm: "chart",
-        kind: (value, key) => chartKind({
-            layers: cfg.layers(value, key),
+        kind: (node, key, _hasChildren, value) => chartKind({
+            layers: layers.at(node, key, value) as PlanChartLayerInput | PlanChartLayerInput[],
             ...(cfg.left !== undefined ? { left: cfg.left } : {}),
             ...(cfg.right !== undefined ? { right: cfg.right } : {}),
             ...(cfg.height !== undefined ? { height: cfg.height } : {}),
@@ -2705,8 +3944,9 @@ export function createSeriesChart<R extends EastType, KT extends EastType = Stri
             ? { pinned: (value: ExprType<EastType>, key: ExprType<EastType>) => East.value(cfg.pinned!(value, key), BooleanType) }
             : {}),
         ...(cfg.swatches !== undefined ? { swatches: cfg.swatches } : {}),
+        reads: layers.reads,
     });
-    return seriesValue(rowType, cfg.keyType, spec, cfg);
+    return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K, PlanReadsNormal<([L] extends [never] ? unknown : PlanIntersect<PlanUseReads<L[number]>>) & PlanChildrenReads<CT, CU, CF, CS>>>;
 }
 
 /**
@@ -2716,24 +3956,32 @@ export function createSeriesChart<R extends EastType, KT extends EastType = Stri
  * its member count is derived.
  *
  * @remarks
- * Hierarchy comes from the data's nesting: to group a flat source, reshape it
- * first — inline, one East `groupToDicts` in the canvas function (the entries
- * are then `Dict<String, Row>` and a group's label is its key); a paged source
- * is grouped in the dataflow. The `by` form and the static
- * `group(R, chrome, children)` form are gone — see `Plan.series.section` for a
- * fixed titled block.
+ * Hierarchy comes from the data's nesting: a group's members are a `Dict` of
+ * the entry (`Plan.children(field, [series…])`), so a flat source is grouped
+ * in the dataflow, or reshaped inline into entries that hold their members.
+ * The `by` form and the static `group(R, chrome, children)` form are gone —
+ * see `Plan.series.section` for a fixed titled block.
  *
  * @typeParam R - The entry type
  * @typeParam K - The axis kind the summary cells imply
  * @typeParam KT - The entries' key type
+ * @typeParam US - What its `summary` reads
+ * @typeParam FO - How a bucket folds its summary cells
+ * @typeParam A - Its `summaryAggregate`, as written
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
  * @param rowType - The entry type
  * @param config - The strip's accessors and its members ({@link PlanGroupSeriesConfig})
- * @returns A series value, branded with its kind
+ * @returns A series value, branded with its kind and what it reads
  * @throws {Error} When called with the removed `by` or static forms
  */
-export function createSeriesGroup<R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType>(
-    rowType: R, config: PlanGroupSeriesConfig<R, K, KT>,
-): PlanSeriesValue<K> {
+export function createSeriesGroup<
+    R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
+    US = unknown, FO extends PlanFoldLiteral | undefined = undefined, A extends PlanAggregateLiteral = never,
+    CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
+>(rowType: R, config: PlanGroupSeriesConfig<R, K, KT, US, FO, A, CT, CU, CF, CS>): PlanSeriesValue<K, PlanReadsNormal<US & PlanChildrenReads<CT, CU, CF, CS, A>>> {
     // The removed forms, named — a plain JS caller would otherwise meet an
     // unhelpful "label is not a function".
     if (arguments.length > 2 || "by" in (config as object)) {
@@ -2747,22 +3995,25 @@ export function createSeriesGroup<R extends EastType, K extends PlanAxisKindLite
     if (cfg.children === undefined) {
         throw new Error(`${where}: a group strip needs its members — declare \`children\``);
     }
-    const summary = cfg.summary;
-    // The strip's ONE summary (#824): the per-entry cells, the declared
-    // aggregate, or a plain band — both at once is refused here.
-    const declared = summary === undefined ? groupSummary(undefined, cfg.summaryAggregate, where) : undefined;
-    if (summary !== undefined && cfg.summaryAggregate !== undefined) {
+    if (cfg.summary !== undefined && cfg.summaryAggregate !== undefined) {
         throw new Error(
             `${where}: give \`summary\` (explicit strip cells) OR \`summaryAggregate\` (cells derived from the ` +
             "members) — a collapsed strip shows one or the other");
     }
-    const spec = dataSpec(rowType, cfg, {
+    const summary = consumerField(rowType, cfg.summary, "heat", where, "summary");
+    // The strip's ONE summary (#824): the per-entry cells, the declared
+    // aggregate, or a plain band.
+    const declared = summary === undefined ? groupSummary(undefined, cfg.summaryAggregate, where) : undefined;
+    const spec = dataSpec(rowType, cfg as AnyRowConfig, {
         arm: "group",
-        kind: (value, key) => groupKind(declared ?? East.value(
-            variant("cells", East.value(summary!(value, key) as SubtypeExprOrValue<PlanHeatCellsType>, PlanHeatCellsType)),
+        kind: (node, key, _hasChildren, value) => groupKind(declared ?? East.value(
+            variant("cells", East.value(summary!.at(node, key, value) as SubtypeExprOrValue<PlanHeatCellsType>, PlanHeatCellsType)),
             PlanGroupSummaryType)),
+        reads: summary?.reads ?? [],
+        // Its strip derives its members' numbers by its summaryAggregate (#1435).
+        ...(cfg.summaryAggregate !== undefined ? { aggregate: tagOf(cfg.summaryAggregate, "mean") } : {}),
     });
-    return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K>;
+    return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K, PlanReadsNormal<US & PlanChildrenReads<CT, CU, CF, CS, A>>>;
 }
 
 /**
@@ -2773,19 +4024,20 @@ export function createSeriesGroup<R extends EastType, K extends PlanAxisKindLite
  *
  * @typeParam R - The entry type (the members' — they share the section's entries)
  * @typeParam K - The union of the members' axis kinds (inferred; `never` when all are erased)
+ * @typeParam S - The members, as written
  * @param rowType - The entry type
  * @param config - The header ({@link PlanSectionSeriesConfig})
  * @param members - The member series, in order
- * @returns A series value, branded with its members' kinds
+ * @returns A series value, branded with its members' kinds and what they read
  */
-export function createSeriesSection<R extends EastType, K extends PlanAxisKindLiteral = never>(
+export function createSeriesSection<R extends EastType, K extends PlanAxisKindLiteral = never, S extends readonly unknown[] = PlanSeriesValue<K>[]>(
     rowType: R,
     config: PlanSectionSeriesConfig<K>,
-    members: PlanSeriesValue<K>[],
-): PlanSeriesValue<K> {
+    members: S & PlanSeriesValue<K>[],
+): PlanSeriesValue<K, PlanSeriesListReads<S>> {
     const cfg = config as PlanSectionSeriesConfig<PlanAxisKindLiteral>;
     const spec = sectionSpec(cfg, members);
-    return seriesValue(rowType, undefined, spec, cfg) as PlanSeriesValue<K>;
+    return seriesValue(rowType, undefined, spec, cfg) as PlanSeriesValue<K, PlanSeriesListReads<S>>;
 }
 
 /**
@@ -2800,7 +4052,7 @@ export function createSeriesSection<R extends EastType, K extends PlanAxisKindLi
  * view row's id is its member series' key and the entry's path, and a seek on
  * the entry lands on its first view row.
  *
- * The views' `children` are a step-down's series, or — a bare accessor — more
+ * The views' `children` are a step-down's series, or — a tree's field — more
  * of the views' own entries, each drawn as its members' rows, to any depth,
  * the views' `match` and `collapsed` at every level (#1219). A span member that
  * declares `rollup` rolls up the children nested under its row.
@@ -2808,19 +4060,27 @@ export function createSeriesSection<R extends EastType, K extends PlanAxisKindLi
  * @typeParam R - The entry type
  * @typeParam K - The union of the members' axis kinds (inferred; `never` when all are erased)
  * @typeParam KT - The entries' key type
+ * @typeParam S - The members, as written
+ * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam CU - One step-down's reads
+ * @typeParam CF - The folds of its cells
+ * @typeParam CS - Several step-downs' reads
  * @param rowType - The entry type
  * @param config - Membership, collapse and children ({@link PlanViewsSeriesConfig})
  * @param members - The member series — one row each per entry, in order
- * @returns A series value, branded with its members' kinds
+ * @returns A series value, branded with its members' kinds and what it reads
  */
-export function createSeriesViews<R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType>(
+export function createSeriesViews<
+    R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
+    S extends readonly unknown[] = PlanSeriesValue<K>[], CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
+>(
     rowType: R,
-    config: PlanViewsSeriesConfig<R, KT>,
-    members: PlanSeriesValue<K>[],
-): PlanSeriesValue<K> {
+    config: PlanViewsSeriesConfig<R, KT, CT, CU, CF, CS>,
+    members: S & PlanSeriesValue<K>[],
+): PlanSeriesValue<K, PlanReadsNormal<PlanIntersect<PlanReadsOfSeries<S[number]>> & PlanChildrenReads<CT, CU, CF, CS>>> {
     const cfg = config as unknown as PlanViewsSeriesConfig<EastType, EastType>;
     const spec = viewsSpec(rowType, cfg, members);
-    return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K>;
+    return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K, PlanReadsNormal<PlanIntersect<PlanReadsOfSeries<S[number]>> & PlanChildrenReads<CT, CU, CF, CS>>>;
 }
 
 /**

@@ -26,7 +26,8 @@
  *   words whole, its hint after them whole or dropped whole, never cut.
  */
 
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { open, size, token } from "./allocation-page";
 import { RECORD_READS, failE3, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { settled } from "./settle";

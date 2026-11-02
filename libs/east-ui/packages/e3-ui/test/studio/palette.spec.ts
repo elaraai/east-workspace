@@ -62,18 +62,18 @@ const PAGES = new SortedMap<Key, Entry>([
 ], compareFor(StudioKeyType));
 
 describeEast("The builder's palette — its cards and its pages (#994)", (test) => {
-    test("B3: a card's meta names the datasets its component reads; one that reads nothing says so", $ => {
+    test("B3: a card's meta names the data its component reads, in words — never their keys; one that reads nothing says so", $ => {
         const cards = $.let(paletteCards([revenueTrend, note], [], none));
-        $(Assert.equal(cards.get("revenue_trend").meta, "palette_sales_daily · palette_visits_daily"));
+        $(Assert.equal(cards.get("revenue_trend").meta, "Palette sales daily · Palette visits daily"));
         $(Assert.equal(cards.get("note").meta, "no data"));
         $(Assert.equal(cards.get("revenue_trend").placed, false));
     });
 
     test("B4: the selected placement's component is placed, and counts the page's placements of it", $ => {
         const cells = $.let([
-            { key: "c-trend-1", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "" },
-            { key: "c-note", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "note", fingerprint: "" },
-            { key: "c-trend-2", row: "r2", span: 12n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "" },
+            { key: "c-trend-1", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
+            { key: "c-note", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "note" },
+            { key: "c-trend-2", row: "r2", span: 12n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
         ], ArrayType(Studio.Types.Cell));
         const listed = $.let([revenueTrend, note]);
         const cards = $.let(paletteCards(listed, cells, some("c-trend-2")));

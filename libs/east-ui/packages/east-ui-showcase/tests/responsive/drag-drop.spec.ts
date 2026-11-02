@@ -182,7 +182,8 @@ async function dropBelowTheFold(page: Page, entry: Locator, placement: "overlay"
     await expect(cell).toHaveAttribute("data-drop-active", "");
     await page.mouse.up();
     await expect(target).toHaveAttribute("data-draft", "");
-    await expect(target.locator('[data-run="drop-job-poster-1"]')).toHaveCount(1);
+    // The new job, under the id the canvas minted (#1436): the one run H3-P12 did not hold.
+    await expect(target.locator('[data-run]:not([data-run="j4925"])')).toHaveCount(1);
     await expect(poster(entry)).not.toHaveAttribute("data-dragging", "");
     // The gesture, as the footer's journal heard it.
     await expect(entry.locator("[data-builder-frame] > [data-frame-slot='footer']")).toContainText("LAST GESTURE · drop · Drop job-poster on H3-P12");
@@ -277,7 +278,8 @@ test.describe("Plan drag and drop (#608, #1259)", () => {
                 await page.mouse.move(plot.x + (plot.width * 6.5) / 12, plot.y + plot.height / 2, { steps: 8 });
                 await expect(row.locator("[data-drag-cell]")).toHaveAttribute("data-drop-active", "");
                 await page.mouse.up();
-                const tile = row.locator('[data-event="drop-dlv-van-1"]');
+                // The new drop, under the id the canvas minted (#1436): the one tile Van 1 did not hold.
+                const tile = row.locator('[data-event]:not([data-event="a1"])');
                 await expect(tile).toHaveCount(1);
                 await expect(entry.locator("[data-builder-frame] > [data-frame-slot='footer']")).toContainText("LAST GESTURE · drop · Drop dlv-van on Van 1");
                 // The library back over main, where it was: closed, so nothing covers the tile.

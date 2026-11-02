@@ -54,7 +54,7 @@ const pressesOf = ($: BlockBuilder<NullType>) =>
 
 /** The jobs' kind read whole: the record bound alone, no source of the slice and no window. */
 function wholeJobs($: BlockBuilder<EastType>) {
-    const jobs = $.let(Record.bind(plan.planWindowJobs, [plan.planWindowJobsPatch]));
+    const jobs = $.let(Record.bind(plan.planWindowJobs));
     return Calendar.events(jobs, {
         name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
         resource: { field: "press", of: "presses" },
@@ -64,9 +64,9 @@ function wholeJobs($: BlockBuilder<EastType>) {
 
 /** The jobs' kind read through its day index, the form for a kind with no rail. */
 function windowedJobs($: BlockBuilder<EastType>) {
-    const jobs = $.let(Record.bind(plan.planWindowJobs, [plan.planWindowJobsPatch]));
-    const days = $.let(Data.bindPaged(plan.planWindowJobs, { index: plan.planWindowJobsByDay, join: true }));
-    const backlog = $.let(Data.bindPaged(plan.planWindowJobs, { index: plan.planWindowJobsUnscheduled, join: true }));
+    const jobs = $.let(Record.bind(plan.planWindowJobs));
+    const days = $.let(Data.bindPaged(plan.planWindowJobs, { index: "plan_window_jobs_by_day", join: true }));
+    const backlog = $.let(Data.bindPaged(plan.planWindowJobs, { index: "plan_window_jobs_unscheduled", join: true }));
     const entries = $.let(Data.bindPaged(plan.planWindowJobs));
     return Calendar.events(jobs, {
         name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -78,7 +78,7 @@ function windowedJobs($: BlockBuilder<EastType>) {
 
 /** The jobs' kind as the windows example declares it: narrowed through its source of the slice, one job read by its key. */
 function railJobs($: BlockBuilder<EastType>) {
-    const jobs = $.let(Record.bind(plan.planWindowJobs, [plan.planWindowJobsPatch]));
+    const jobs = $.let(Record.bind(plan.planWindowJobs));
     const entries = $.let(Data.bindPaged(plan.planWindowJobs));
     return Calendar.events(jobs, {
         name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -90,7 +90,7 @@ function railJobs($: BlockBuilder<EastType>) {
 
 /** The windows example's rail: its `job` source over the jobs' interval index, their series index and their summary. */
 const jobSlice = () => Slice.bindRecords("spec.calendar.windows", {
-    job: { source: Data.bindPaged(plan.planWindowJobs, { indexes: [plan.planWindowJobsByTime, plan.planWindowJobsByPressWeek, plan.planWindowJobsByPressMonth] }), range: "start" },
+    job: { source: Data.bindPaged(plan.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }), range: "start" },
 });
 
 describe("a Calendar's paged resource kind (#1424)", () => {
@@ -112,8 +112,8 @@ describe("a Calendar's paged resource kind (#1424)", () => {
     });
 
     test("an event kind on the paged kind is read a cell at a time through its source of the slice: read whole, through its day index, or beside another kind, it is refused at build, the refusal naming both indexes over the kind's own fields", () => {
-        const declared = String.raw`e3\.recordIndex\.series\(name, record, \{ key: "press", from: "start", to: "end", tile: "week" \}\) and ` +
-            String.raw`e3\.recordIndex\.summary\(name, record, \{ key: "press", from: "start", to: "end", tile: "month" \}\) beside its interval index$`;
+        const declared = String.raw`index\.series\(\{ key: "press", from: "start", to: "end", tile: "week" \}\) and ` +
+            String.raw`index\.summary\(\{ key: "press", from: "start", to: "end", tile: "month" \}\) beside its interval index$`;
         const source = String.raw`a paged kind's events are read a cell at a time, through the kind's source of the slice: `;
         const named = String.raw`name a source after "job", Data\.bindPaged\(record, \{ indexes \}\), listing `;
         // Its record read whole: no source of the slice.
@@ -126,10 +126,14 @@ describe("a Calendar's paged resource kind (#1424)", () => {
         // Placed on the paged kind and on another, read whole: no series index serves the two.
         const Crew = StructType({ name: StringType });
         const Visit = StructType({ title: StringType, start: DateTimeType, end: DateTimeType, on: VariantType({ press: StringType, crew: StringType }) });
-        const visits = e3.record("calendar_windows_visits", DictType(StringType, Visit), new Map());
-        const visitsPatch = e3.mutation.patch(visits);
+        const visits = e3.record("calendar_windows_visits", DictType(StringType, Visit), {
+            initial: new Map(),
+            mutations: (mutation) => ({
+                patch: mutation.patch(),
+            }),
+        });
         assert.match(refusal(($) => {
-            const bound = $.let(Record.bind(visits, [visitsPatch]));
+            const bound = $.let(Record.bind(visits));
             const crews = $.const(new Map([["c1", { name: "Crew 1" }]]), DictType(StringType, Crew));
             return createCalendarPayload({
                 resources: { presses: pressesOf($), crews: Calendar.resources(crews, { name: "Crews", icon: "users", label: (c) => c.name }) },

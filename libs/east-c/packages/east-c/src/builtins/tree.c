@@ -1,6 +1,7 @@
 /*
- * The walk the Array, Set and Dict `toTree` builtins share (#948) — the port
- * of libs/east/src/compile/builtins/tree.ts.
+ * The walks the Array, Set and Dict `toTree` builtins (#948), and the Array
+ * and Dict `flattenTree` builtins (#1434), share — the port of
+ * libs/east/src/compile/builtins/tree.ts.
  */
 #include "tree.h"
 #include "east/builtins.h"
@@ -172,4 +173,89 @@ void east_tree_key_error(const char *what, EastValue *key, EastType *key_type)
         east_builtin_error("out of memory");
     }
     free(printed);
+}
+
+/* One node still to list, with its path of steps: both owned. */
+typedef struct {
+    EastValue *path;
+    EastValue *node;
+} FlattenFrame;
+
+typedef struct {
+    FlattenFrame *items;
+    size_t len;
+    size_t cap;
+} FlattenStack;
+
+/* Pushes a collection's entries, the last first so the first is listed next,
+ * each under `prefix`'s steps (none for the roots). Returns false when out of
+ * memory. */
+static bool flatten_push(FlattenStack *stack, EastValue *prefix, EastValue *collection)
+{
+    bool dict = collection->kind == EAST_VAL_DICT;
+    size_t len = dict ? east_dict_len(collection) : east_array_len(collection);
+    size_t depth = prefix ? east_array_len(prefix) : 0;
+    if (stack->len + len > stack->cap) {
+        size_t cap = stack->cap ? stack->cap : 16;
+        while (cap < stack->len + len)
+            cap *= 2;
+        FlattenFrame *items = realloc(stack->items, cap * sizeof(FlattenFrame));
+        if (!items) return false;
+        stack->items = items;
+        stack->cap = cap;
+    }
+    for (size_t j = len; j-- > 0;) {
+        EastValue *path = east_array_new_with_capacity(&east_null_type, depth + 1);
+        if (!path) return false;
+        for (size_t k = 0; k < depth; k++)
+            east_array_push(path, east_array_get(prefix, k));
+        if (dict) {
+            east_array_push(path, east_dict_key_at(collection, j));
+        } else {
+            EastValue *index = east_integer((int64_t)j);
+            east_array_push(path, index);
+            east_value_release(index);
+        }
+        EastValue *node = dict ? east_dict_val_at(collection, j) : east_array_get(collection, j);
+        east_value_retain(node);
+        stack->items[stack->len++] = (FlattenFrame){.path = path, .node = node};
+    }
+    return true;
+}
+
+EastValue *east_tree_flatten(EastValue *roots, EastTreeChildrenFn children, void *ctx)
+{
+    static const char *names[] = {"path", "node"};
+    FlattenStack stack = {0};
+    EastValue *result = east_array_new(&east_null_type);
+    if (!result || !flatten_push(&stack, NULL, roots)) goto oom;
+    while (stack.len > 0) {
+        FlattenFrame frame = stack.items[--stack.len];
+        EastValue *fields[] = {frame.path, frame.node};
+        EastValue *entry = east_struct_new(names, fields, 2, NULL);
+        if (entry) {
+            east_array_push(result, entry);
+            east_value_release(entry);
+        }
+        EastValue *step = east_array_get(frame.path, east_array_len(frame.path) - 1);
+        EastValue *own = entry ? children(ctx, frame.node, step) : NULL;
+        bool pushed = own && flatten_push(&stack, frame.path, own);
+        if (own) east_value_release(own);
+        east_value_release(frame.path);
+        east_value_release(frame.node);
+        if (!entry || (own && !pushed)) goto oom;
+        if (!own) goto fail;
+    }
+    free(stack.items);
+    return result;
+oom:
+    east_builtin_error("out of memory");
+fail:
+    for (size_t i = 0; i < stack.len; i++) {
+        east_value_release(stack.items[i].path);
+        east_value_release(stack.items[i].node);
+    }
+    free(stack.items);
+    if (result) east_value_release(result);
+    return NULL;
 }

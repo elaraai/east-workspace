@@ -113,7 +113,7 @@ type Call = <T extends EastType>(fn: ExprType<FunctionType<[EastType, EastType],
  * import e3 from "@elaraai/e3";
  *
  * const Load = StructType({ code: StringType, m3: FloatType, dryingDays: FloatType });
- * const loads = e3.record("loads", DictType(StringType, Load), new Map());
+ * const loads = e3.record("loads", DictType(StringType, Load), { initial: new Map() });
  *
  * // Inside the board's Reactive body: every load the day may book.
  * const arrivals = Allocation.arrivals(Data.bind(loads).read(), { label: (l) => l.code, quantity: (l) => l.m3, hold: (l) => variant("days", l.dryingDays) });

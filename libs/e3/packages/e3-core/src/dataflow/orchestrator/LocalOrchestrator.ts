@@ -1866,7 +1866,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       expectedPeakBytes,
       onWaiting: (needs) => {
         if (needs === null) execution.waiting.delete(key);
-        else execution.waiting.set(key, { task: taskName, unit: some(place), needs: BigInt(needs), since: new Date().toISOString() });
+        else execution.waiting.set(key, { task: taskName, unit: some(place), needs: BigInt(needs), since: new Date() });
       },
       onRequeued: (requeue) => {
         options.onUnitRequeued?.(taskName, place, requeue);
@@ -1929,7 +1929,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       // A wait for room is kept, under the task's name, while it lasts.
       onWaiting: (needs) => {
         if (needs === null) execution.waiting.delete(taskName);
-        else execution.waiting.set(taskName, { task: taskName, unit: none, needs: BigInt(needs), since: new Date().toISOString() });
+        else execution.waiting.set(taskName, { task: taskName, unit: none, needs: BigInt(needs), since: new Date() });
       },
     };
 

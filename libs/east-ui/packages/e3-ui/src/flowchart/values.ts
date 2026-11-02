@@ -303,40 +303,44 @@ export function flowchartValue(flow: FlowchartFlowInput): FlowValue {
  * import { Flowchart, Record } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
- * export const depotFlows = e3.record("flowchart_depot_flows", Flowchart.Types.Flows, Flowchart.values({
- *     "Inbound parcels": {
- *         description: "From the trailer to the van",
- *         lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "load", label: "Load" }],
- *         states: [
- *             { key: "ARV", label: "Arrived", lane: "intake" },
- *             { key: "SCN", label: "Scanned", lane: "intake" },
- *             { key: "CH*", label: "Sort chutes", lane: "sort", members: 12n },
- *             { key: "LDD", label: "Loaded", lane: "load" },
- *         ],
- *         links: [
- *             { from: "ARV", to: "SCN" },
- *             { from: "SCN", to: "CH*", trigger: "route" },
- *             { from: "CH*", to: "LDD" },
- *             { from: "SCN", to: "SCN", kind: "observed" },
- *         ],
- *         triggers: [{ key: "route", label: "route", owner: "sort-planner" }],
- *     },
- *     "Returns": {
- *         description: "From the counter back to the sender",
- *         lanes: [{ key: "counter", label: "Counter" }, { key: "check", label: "Check" }, { key: "out", label: "Out" }],
- *         states: [
- *             { key: "RCV", label: "Received", lane: "counter" },
- *             { key: "INS", label: "Inspected", lane: "check" },
- *             { key: "RSD", label: "Resent", lane: "out" },
- *         ],
- *         links: [{ from: "RCV", to: "INS" }, { from: "INS", to: "RSD" }, { from: "INS", to: "BIN", kind: "observed" }],
- *     },
- * }));
- * export const depotFlowsPatch = e3.mutation.patch(depotFlows);
+ * export const depotFlows = e3.record("flowchart_depot_flows", Flowchart.Types.Flows, {
+ *     initial: Flowchart.values({
+ *         "Inbound parcels": {
+ *             description: "From the trailer to the van",
+ *             lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "load", label: "Load" }],
+ *             states: [
+ *                 { key: "ARV", label: "Arrived", lane: "intake" },
+ *                 { key: "SCN", label: "Scanned", lane: "intake" },
+ *                 { key: "CH*", label: "Sort chutes", lane: "sort", members: 12n },
+ *                 { key: "LDD", label: "Loaded", lane: "load" },
+ *             ],
+ *             links: [
+ *                 { from: "ARV", to: "SCN" },
+ *                 { from: "SCN", to: "CH*", trigger: "route" },
+ *                 { from: "CH*", to: "LDD" },
+ *                 { from: "SCN", to: "SCN", kind: "observed" },
+ *             ],
+ *             triggers: [{ key: "route", label: "route", owner: "sort-planner" }],
+ *         },
+ *         "Returns": {
+ *             description: "From the counter back to the sender",
+ *             lanes: [{ key: "counter", label: "Counter" }, { key: "check", label: "Check" }, { key: "out", label: "Out" }],
+ *             states: [
+ *                 { key: "RCV", label: "Received", lane: "counter" },
+ *                 { key: "INS", label: "Inspected", lane: "check" },
+ *                 { key: "RSD", label: "Resent", lane: "out" },
+ *             ],
+ *             links: [{ from: "RCV", to: "INS" }, { from: "INS", to: "RSD" }, { from: "INS", to: "BIN", kind: "observed" }],
+ *         },
+ *     }),
+ *     mutations: (mutation) => ({
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  *
  * const flowchart = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));
+ *         const flows = $.let(Record.bind(depotFlows));
  *         return (
  *             <Box height="500px">
  *                 <Flowchart record={flows} flow="Inbound parcels" library={[Flowchart.library.flows()]} />

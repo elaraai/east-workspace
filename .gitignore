@@ -96,9 +96,6 @@ tools/emsdk/
 .DS_Store
 Thumbs.db
 
-# VS Code extension
-*.vsix
-
 # Env
 .env
 *.log

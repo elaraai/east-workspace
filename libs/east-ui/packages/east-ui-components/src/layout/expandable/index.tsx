@@ -145,7 +145,7 @@ export const EastChakraExpandable = memo(function EastChakraExpandable({ value, 
         <ChakraBox
             ref={rootRef}
             css={styles.root}
-            {...(expanded && zIndexOverride !== undefined ? { zIndex: Number(zIndexOverride) } : {})}
+            style={expanded && zIndexOverride !== undefined ? { zIndex: Number(zIndexOverride) } : undefined}
             {...(expanded && background !== undefined ? { background } : {})}
         >
             <IconButton

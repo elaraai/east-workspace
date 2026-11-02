@@ -29,21 +29,24 @@
  *   recursive wrapper's body, as an `EastType` or as an `EastTypeValue`, as
  *   one object or as many — are one entry.
  * - Two Recursive wrappers are one entry when {@link isTypeValueEqual} says
- *   so. A wrapper's id is a runtime artefact (a type id in one process, a
- *   table index off the wire) and is not written, so wrappers compare up to
- *   their naming.
+ *   so. A wrapper's id is not written, so wrappers compare up to their naming.
  *
- * Nothing here constructs an `EastType`. Type ids are serialized into IR, so
- * an encode must not shift the ids of the types built after it.
+ * Because the table writes no id, it is what a recursive type's id is a hash
+ * of ({@link recursiveTypeId}): every runtime names a recursive type by the
+ * table it writes for it, and the decoder names each wrapper it reads so.
+ *
+ * Nothing here constructs an `EastType`: the table is a function of type
+ * values alone.
  *
  * See v4/SPEC.md for the entry grammar and v5/SPEC.md for the type section.
  */
 
-import { toEastTypeValue, isTypeValueEqual, type EastTypeValue } from "../../../type_of_type.js";
-import type { EastType } from "../../../types.js";
+import type { EastTypeValue } from "../../../type_of_type.js";
+import { isTypeValueEqual } from "../../../type_value_equal.js";
 import { getTypeId } from "../../../types.js";
-import { isVariant, variant } from "../../../containers/variant.js";
+import { variant } from "../../../containers/variant.js";
 import { BufferWriter, BufferReader } from "../../binary-utils.js";
+import { sha256Hex } from "../v5/sha256.js";
 
 // =============================================================================
 // Tag bytes (frequency-ordered, used as direct array indices)
@@ -101,13 +104,13 @@ interface CommittedWrapper {
 type RecursivePayload = variant<"ref", bigint> | variant<"wrapper", { id: bigint; inner: EastTypeValue }>;
 
 /**
- * Builds the canonical flat type table of one or more types (see the module
- * comment for the rules). Accepts `EastType` (converted with
- * {@link toEastTypeValue}, which allocates no type) and `EastTypeValue`.
+ * Builds the canonical flat type table of one or more type values (see the
+ * module comment for the rules). A caller holding an `EastType` converts it
+ * with `toEastTypeValue` first.
  *
  * Usage:
  *   const builder = new TypeTableBuilder();
- *   const rootIdx = builder.add(myType);           // EastType or EastTypeValue
+ *   const rootIdx = builder.add(toEastTypeValue(myType));
  *   builder.add(someIRTypeAnnotation);              // a later type shares entries
  *   writeTypeTableSection(rootIdx, builder.entries, writer);
  */
@@ -115,7 +118,7 @@ export class TypeTableBuilder {
   readonly entries: TableEntry[] = [];
   /** Entry bytes (tag + parameters) → index: the same bytes are the same wire node. */
   private readonly byContent = new Map<string, number>();
-  /** Type object (EastType or EastTypeValue) → index: a memo over the walk. */
+  /** Type value → index: a memo over the walk. */
   private readonly byObject = new Map<object, number>();
   /** type_id → index, for the values `toEastTypeValue` stamps. */
   private readonly byTid = new Map<number, number>();
@@ -141,14 +144,9 @@ export class TypeTableBuilder {
   }
 
   /** Add a type and return its index; a type already in the table returns its
-   *  existing index and writes nothing. Accepts both EastType and EastTypeValue. */
-  add(type: EastType | EastTypeValue): number {
-    const memo = this.byObject.get(type as object);
-    if (memo !== undefined) return memo;
-    const etv = isVariant(type) ? type as EastTypeValue : toEastTypeValue(type as EastType);
-    const idx = this.visit(etv);
-    this.byObject.set(type as object, idx);
-    return idx;
+   *  existing index and writes nothing. */
+  add(type: EastTypeValue): number {
+    return this.visit(type);
   }
 
   /** Add an EastTypeValue (for IR type annotations). */
@@ -360,6 +358,55 @@ export function writeTypeTableSection(
   const headerBytes = hw.toUint8Array();
   writer.writeVarint(headerBytes.length);
   writer.writeBytes(headerBytes);
+}
+
+// =============================================================================
+// Recursive type ids
+// =============================================================================
+
+/** The digest each id has named in this process, so that a second type whose
+ *  table hashes to the same id is refused rather than taken for the first. */
+const digestOfId = new Map<bigint, string>();
+
+/**
+ * The id every runtime names a recursive type by: the first 62 bits of the
+ * SHA-256 of its canonical type-table section, the bytes
+ * {@link writeTypeTableSection} writes for the type alone.
+ *
+ * @param type - a recursive type's `wrapper`, under any naming: the table
+ *   writes no id, so the result does not depend on the ids `type` carries
+ * @returns the id, below 2^62
+ * @throws {Error} When another type this process named has the same id.
+ *
+ * @remarks
+ * Sixty-two bits zigzag into 63, which a varint writes in nine bytes. east-c
+ * computes the same id (`east_type_structural_id`), and east-py takes it from
+ * east-c, so one recursive type has one id in every process and runtime, and
+ * the IR that holds it depends on the program alone.
+ */
+export function recursiveTypeId(type: EastTypeValue): bigint {
+  const builder = new TypeTableBuilder();
+  const root = builder.add(type);
+  const writer = new BufferWriter();
+  writeTypeTableSection(root, builder.entries, writer);
+  return recursiveIdFromDigest(sha256Hex(writer.toUint8Array()));
+}
+
+/**
+ * The id of the recursive type whose type table has the SHA-256 `digest`,
+ * registered against it.
+ *
+ * @param digest - a SHA-256 digest, in lowercase hex
+ * @returns the digest's first 62 bits
+ * @throws {Error} When another digest this process registered has the same id.
+ * @internal Exported for the guard's spec.
+ */
+export function recursiveIdFromDigest(digest: string): bigint {
+  const id = BigInt(`0x${digest.slice(0, 16)}`) >> 2n;
+  const named = digestOfId.get(id);
+  if (named === undefined) digestOfId.set(id, digest);
+  else if (named !== digest) throw new Error(`Two recursive types have the id ${id}: their type tables hash to ${named} and ${digest}`);
+  return id;
 }
 
 // =============================================================================
@@ -604,8 +651,10 @@ interface OpenBuild {
 /**
  * Reconstruct EastTypeValue objects from parsed flat table entries.
  *
- * A Recursive entry becomes `wrapper({id, inner})` whose id is its table
- * index; inside its body a reference back to it is `ref(id)`. The returned
+ * A Recursive entry becomes `wrapper({id, inner})`, and inside its body a
+ * reference back to it is `ref(id)`. The walk names it by its table index,
+ * then {@link nameWrappers} by its id, so a type read off the wire is the same
+ * type value as the one built in code. The returned
  * table holds every entry's **closed** form — built in no wrapper's scope, so
  * it is a complete type wherever it is used (v4 value-table entries name
  * element types by index).
@@ -745,5 +794,68 @@ function reconstructTypes(parsed: ParsedEntry[]): EastTypeValue[] {
     if (closed[i] === undefined) build(i);
   }
 
-  return closed as EastTypeValue[];
+  return nameWrappers(closed as EastTypeValue[]);
+}
+
+/**
+ * Renames a decoded table's wrappers from their table indices to their ids
+ * ({@link recursiveTypeId}). The renamed table keeps the decoded one's
+ * sharing, one object for one object, so it is still a canonical input to
+ * {@link TypeTableBuilder}; a subtree holding no recursive type is kept as it
+ * is.
+ */
+function nameWrappers(table: EastTypeValue[]): EastTypeValue[] {
+  const ids = new Map<bigint, bigint>();
+  for (let i = 0; i < table.length; i++) {
+    if (table[i]!.type === "Recursive") ids.set(BigInt(i), recursiveTypeId(table[i]!));
+  }
+  if (ids.size === 0) return table;
+  const renamed = new Map<EastTypeValue, EastTypeValue>();
+  const rename = (t: EastTypeValue): EastTypeValue => {
+    const done = renamed.get(t);
+    if (done !== undefined) return done;
+    let result: EastTypeValue;
+    switch (t.type) {
+      case "Never": case "Null": case "Boolean": case "Integer":
+      case "Float": case "String": case "DateTime": case "Blob":
+        return t;
+      case "Ref": case "Array": case "Set": case "Vector": case "Matrix": {
+        const value = rename(t.value);
+        result = value === t.value ? t : variant(t.type, value) as EastTypeValue;
+        break;
+      }
+      case "Dict": {
+        const key = rename(t.value.key);
+        const value = rename(t.value.value);
+        result = key === t.value.key && value === t.value.value ? t : variant("Dict", { key, value });
+        break;
+      }
+      case "Struct": case "Variant": {
+        const members = t.value as { name: string; type: EastTypeValue }[];
+        const types = members.map(m => rename(m.type));
+        result = types.every((type, i) => type === members[i]!.type)
+          ? t
+          : variant(t.type, members.map((m, i) => ({ name: m.name, type: types[i]! }))) as EastTypeValue;
+        break;
+      }
+      case "Function": case "AsyncFunction": {
+        const inputs = (t.value.inputs as EastTypeValue[]).map(rename);
+        const output = rename(t.value.output);
+        result = output === t.value.output && inputs.every((input, i) => input === t.value.inputs[i])
+          ? t
+          : variant(t.type, { inputs, output }) as EastTypeValue;
+        break;
+      }
+      case "Recursive": {
+        const payload = t.value as RecursivePayload;
+        result = (payload.type === "ref"
+          ? variant("Recursive", variant("ref", ids.get(payload.value)!))
+          : variant("Recursive", variant("wrapper", { id: ids.get(payload.value.id)!, inner: rename(payload.value.inner) }))) as unknown as EastTypeValue;
+        break;
+      }
+    }
+    renamed.set(t, result);
+    return result;
+  };
+  return table.map(rename);
 }

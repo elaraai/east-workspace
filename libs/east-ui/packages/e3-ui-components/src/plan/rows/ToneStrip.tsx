@@ -101,8 +101,7 @@ export function ToneStrip({ data, styles }: ToneStripProps) {
                         data-nodata={nodata ? "" : undefined}
                         // The heat row's own steps (#949) — the recipe paints them.
                         data-level={d.tone === undefined && !nodata ? heatLevel(depth) : undefined}
-                        left={`calc(${b.x0 * 100}% + 1px)`}
-                        width={`calc(${(b.x1 - b.x0) * 100}% - 2px)`}
+                        style={{ left: `calc(${b.x0 * 100}% + 1px)`, width: `calc(${(b.x1 - b.x0) * 100}% - 2px)` }}
                     >
                         <VisuallyHidden>{cellName(scale, b, toneWords(d, words), words)}</VisuallyHidden>
                     </Box>

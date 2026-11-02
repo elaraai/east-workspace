@@ -63,6 +63,7 @@ import type { ToolbarItem } from "../../toolbar/index.js";
 import { ChipMenu } from "../../toolbar/chip-menu.js";
 import { BuilderFrame, type BuilderFramePane } from "../builder-frame/index.js";
 import { historyToolbarItem } from "../../editing/history-item.js";
+import { SessionBanners } from "../../editing/banners.js";
 import type { HistoryAction } from "../../editing/HistoryBar.js";
 import { historyShortcut } from "../../editing/shortcuts.js";
 import type { EditIssue, EditSession } from "../../editing/session.js";
@@ -132,6 +133,8 @@ function refusalOf<W>(session: EditSession<W>, words: SnapGridWords): string {
     if (issues.length > 0) return issues[0]!.message;
     if (session.error !== undefined) return sessionErrorText(session.error, words);
     if (session.stale) return words.m.historyStatus({ status: "stale" });
+    if (session.carrying) return words.m.historyStatus({ status: "carrying" });
+    if (session.unsettled > 0) return words.m.applySettleFirst({ n: session.unsettled, count: words.number(session.unsettled) });
     return session.status === "idle" ? words.m.applyRefused() : words.m.historyStatus({ status: session.status });
 }
 
@@ -215,6 +218,8 @@ interface TileProps {
     /** The canvas's one tab stop. */
     tabStop: boolean;
     mark: SnapGridDraftMark | undefined;
+    /** It holds a conflict not yet chosen: it wears the warn ring. */
+    conflict: boolean;
     /** It moves: the session takes a gesture. */
     movable: boolean;
     /** Its height is edited. */
@@ -258,6 +263,7 @@ const SnapGridTileBox = memo(function SnapGridTileBox(p: TileProps) {
             data-align={cell.align.type}
             data-selected={p.selected ? "" : undefined}
             data-pending={p.mark === "pending" ? "" : undefined}
+            data-conflict={p.conflict ? "" : undefined}
             data-incomplete={p.mark === "incomplete" ? "" : undefined}
             data-invalid={p.mark === "invalid" ? "" : undefined}
             data-draggable={drag !== undefined ? "" : undefined}
@@ -843,7 +849,9 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         select(tile.key);
         focusTile(tile.key);
     }, [select, focusTile]);
-    const history = historyToolbarItem({ session, words, editing: false, onAction: action, onIssue });
+    // A tile as the page shows it, in the frame's banners and its conflicts' cards: its label — `Breakdown bars` — else its id.
+    const tileWhere = useCallback((issue: EditIssue) => tilesRef.current.find((t) => t.id === issue.entry)?.label ?? issue.entry, []);
+    const history = historyToolbarItem({ session, words, editing: false, onAction: action, onIssue, where: tileWhere });
 
     // ── The ruler: the selected tile's columns ───────────────────────────
     const guides = value.guides;
@@ -1004,7 +1012,8 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
             height={parseCssSize(getSomeorUndefined(value.height))}
             maxHeight={parseCssSize(getSomeorUndefined(value.maxHeight))}
         >
-            <BuilderFrame storageKey={`${storageKey}.frame`} toolbar={items} start={paneStart} end={paneEnd} onKeyDown={onFrameKeyDown}>
+            <BuilderFrame storageKey={`${storageKey}.frame`} toolbar={items} start={paneStart} end={paneEnd} onKeyDown={onFrameKeyDown}
+                banners={<SessionBanners session={session} words={words} onAction={action} where={tileWhere} />}>
                 <Box css={styles.column} data-snap-grid-main="">
                     <Box css={styles.selectionBar} data-snap-grid-selection="">
                         {selectedCell !== undefined ? (
@@ -1058,6 +1067,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                                                     selected={tile.key === selected}
                                                     tabStop={tile.key === tabStop}
                                                     mark={marks.get(tile.key)}
+                                                    conflict={session.conflicts.has(tile.id)}
                                                     movable={available}
                                                     heights={heights}
                                                     preview={preview?.key === tile.key ? preview : undefined}

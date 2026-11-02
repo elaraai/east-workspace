@@ -238,7 +238,7 @@ export interface AllocationColumn<R extends EastType> {
  */
 export interface AllocationProps<R extends EastType = EastType> {
     /**
-     * Exactly one event kind, the bins, an instant kind keyed by String: `{ bin: Schedule.events(Record.bind(bins, [binsPatch]),
+     * Exactly one event kind, the bins, an instant kind keyed by String: `{ bin: Schedule.events(Record.bind(bins),
      * { at, resource, arrival, quantity, parts, hold, kind? }) }`.
      */
     events: Readonly<Record<string, ScheduleEventKind<EastType, R>>>;
@@ -250,7 +250,7 @@ export interface AllocationProps<R extends EastType = EastType> {
     resources: Readonly<Record<string, ScheduleResourceKind<EastType, EastType>>>;
     /** Every arrival the day may book: `Allocation.arrivals(rows, { label, quantity, hold, … })` over the app's rows. */
     arrivals: AllocationArrivals;
-    /** What the board publishes, the app's days: `Schedule.periods(Record.bind(days, [daysPatch]), { every: "day", status })`. Omitted, no Publish. */
+    /** What the board publishes, the app's days: `Schedule.periods(Record.bind(days), { every: "day", status })`. Omitted, no Publish. */
     periods?: SchedulePeriods;
     /** The fit: `Func.bind` of the app's `e3.function` from `Allocation.Types.FitRequest(R)` to `Allocation.Types.FitResult`. The board has no fit of its own. */
     fit: BoundFunc<[T.AllocationFitRequestType<R>], T.AllocationFitResultType>;
@@ -305,7 +305,7 @@ export interface AllocationProps<R extends EastType = EastType> {
 }
 
 /** The bin kind, as the refusals write it. */
-const BINS = "events={{ bin: Schedule.events(Record.bind(bins, [binsPatch]), { at, resource, arrival, quantity, parts, hold }) }}";
+const BINS = "events={{ bin: Schedule.events(Record.bind(bins), { at, resource, arrival, quantity, parts, hold }) }}";
 
 /** The arrivals' declaration, as the refusals write it. */
 const ARRIVALS = "Allocation.arrivals(rows, { label, quantity, hold, … })";
@@ -313,13 +313,13 @@ const ARRIVALS = "Allocation.arrivals(rows, { label, quantity, hold, … })";
 /** The props §2 removed, each refused by name with the form that replaces it (B4). */
 const REMOVED: readonly (readonly [string, string])[] = [
     ["days", `\`days\` is gone — the Allocation writes the app's own bins, ${BINS}, and publishes the app's own days, ` +
-        "periods={Schedule.periods(Record.bind(days, [daysPatch]), { every: \"day\", status })}"],
+        "periods={Schedule.periods(Record.bind(days), { every: \"day\", status })}"],
     ["window", "`window` is gone — the Allocation reads a day's bins through the bin kind's source of its slice, an interval index from `at` to `at`: " +
-        "slice={{ slice: Slice.bindRecords(key, { bin: { source: Data.bindPaged(bins, { indexes: [byTime] }), range: \"at\" } }) }}, the kind given " +
+        "slice={{ slice: Slice.bindRecords(key, { bin: { source: Data.bindPaged(bins, { indexes: [\"by_time\"] }), range: \"at\" } }) }}, the kind given " +
         "`entries`; or the record whole"],
     ["lanes", "`lanes` moves to `resources`: resources={{ <lanes>: Schedule.resources(rows, { name, icon, label, offset }), … }}, under the slot " +
         "the bin kind's `resource.of` names — Allocation.lanes is gone"],
-    ["publish", "`publish` is gone — Publish is the app's own days, periods={Schedule.periods(Record.bind(days, [daysPatch]), { every: \"day\", status })}; " +
+    ["publish", "`publish` is gone — Publish is the app's own days, periods={Schedule.periods(Record.bind(days), { every: \"day\", status })}; " +
         "leave `periods` out for no Publish"],
     ["quantity", "`quantity` is gone — the unit is the bin kind's `quantity` role's: Schedule.events(record, { …, quantity: { field, unit: \"m³\" } })"],
 ];
@@ -551,7 +551,7 @@ export function createAllocationPayload<R extends EastType>(props: AllocationPro
     const arrivals = given["arrivals"];
     const periods = props.periods;
     if (periods !== undefined && (periods as { [SCHEDULE_DEF]?: unknown })[SCHEDULE_DEF] !== "periods") {
-        throw new Error("Allocation: `periods` is what the board publishes, the app's days — periods={Schedule.periods(Record.bind(days, [daysPatch]), { every: \"day\", status })}");
+        throw new Error("Allocation: `periods` is what the board publishes, the app's days — periods={Schedule.periods(Record.bind(days), { every: \"day\", status })}");
     }
 
     // The app's functions over the bin row type.

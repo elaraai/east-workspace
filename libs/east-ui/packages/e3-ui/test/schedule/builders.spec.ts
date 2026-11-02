@@ -39,10 +39,6 @@ const dutiesRecord = sx.scheduleDuties;
 const plainDutiesRecord = sx.schedulePlainDuties;
 const binsRecord = sx.scheduleBins;
 const weeksRecord = sx.scheduleWeeks;
-const dutiesPatch = sx.scheduleDutiesPatch;
-const plainDutiesPatch = sx.schedulePlainDutiesPatch;
-const binsPatch = sx.scheduleBinsPatch;
-const weeksPatch = sx.scheduleWeeksPatch;
 
 // ============================================================================
 // The roles refused at build (B2)
@@ -52,7 +48,7 @@ describe("Schedule.events — the builders' roles refused at build (B2)", () => 
     /** Declare a duty kind over `options` inside a bound block, built for the Roster unless `build` says otherwise. */
     function duties(options: object, build: "roster" | "allocation" | "none" = "roster"): void {
         East.function([], NullType, ($) => {
-            const bound = $.let(Record.bind(dutiesRecord, [dutiesPatch]));
+            const bound = $.let(Record.bind(dutiesRecord, ["patch"]));
             const kind = Schedule.events(bound as never, { name: "Duty", icon: "i", start: "start", end: "end", ...options } as never);
             if (build === "roster") kind.buildRoster("duty");
             if (build === "allocation") kind.buildAllocation("duty");
@@ -60,7 +56,7 @@ describe("Schedule.events — the builders' roles refused at build (B2)", () => 
     }
     function bins(options: object): void {
         East.function([], NullType, ($) => {
-            const bound = $.let(Record.bind(binsRecord, [binsPatch]));
+            const bound = $.let(Record.bind(binsRecord, ["patch"]));
             Schedule.events(bound as never, {
                 name: "Bin", icon: "i", at: "at", resource: { field: "bay", of: "bays" }, arrival: "load", quantity: { field: "m3" },
                 parts: { field: "kilns", of: "kilns" }, hold: "dryFor", ...options,
@@ -102,17 +98,27 @@ describe("Schedule.events — the builders' roles refused at build (B2)", () => 
     test("the Roster refuses a kind with no shift or group, an instant kind, Option times, and keys that are not Strings", () => {
         assert.throws(() => duties({ group: "team" }), /the Roster places a duty by its `shift` and its `group` — give both/);
         assert.throws(() => East.function([], NullType, ($) => {
-            const bound = $.let(Record.bind(dutiesRecord, [dutiesPatch]));
+            const bound = $.let(Record.bind(dutiesRecord, ["patch"]));
             Schedule.events(bound as never, { name: "Duty", icon: "i", at: "start", shift: "shift", group: "team" } as never).buildRoster("duty");
         }), /the Roster reads a duty's `start` and `end`; this kind is one instant \(`at`\)/);
-        const optional = e3.record("builders_spec_optional", DictType(StringType, StructType({ start: OptionType(DateTimeType), end: OptionType(DateTimeType), shift: StringType, team: StringType })), new Map());
+        const optional = e3.record("builders_spec_optional", DictType(StringType, StructType({ start: OptionType(DateTimeType), end: OptionType(DateTimeType), shift: StringType, team: StringType })), {
+            initial: new Map(),
+            mutations: (mutation) => ({
+                patch: mutation.patch(),
+            }),
+        });
         assert.throws(() => East.function([], NullType, ($) => {
-            const bound = $.let(Record.bind(optional, [e3.mutation.patch(optional)]));
+            const bound = $.let(Record.bind(optional));
             Schedule.events(bound as never, { name: "Duty", icon: "i", start: "start", end: "end", shift: "shift", group: "team" } as never).buildRoster("duty");
         }), /a duty has its times — `start` and `end` are DateTime fields, not Options/);
-        const byNumber = e3.record("builders_spec_numbered", DictType(IntegerType, PlainDutyType), new Map());
+        const byNumber = e3.record("builders_spec_numbered", DictType(IntegerType, PlainDutyType), {
+            initial: new Map(),
+            mutations: (mutation) => ({
+                patch: mutation.patch(),
+            }),
+        });
         assert.throws(() => East.function([], NullType, ($) => {
-            const bound = $.let(Record.bind(byNumber, [e3.mutation.patch(byNumber)]));
+            const bound = $.let(Record.bind(byNumber));
             Schedule.events(bound as never, { name: "Duty", icon: "i", start: "start", end: "end", shift: "shift", group: "team" } as never).buildRoster("duty");
         }), /the Roster's duties are keyed by String — a duty is named by its key, and this record is keyed by \.Integer/);
         assert.throws(() => duties({ shift: "shift", group: "team" }), /the Roster rosters each duty to a person or an agency, its `resource` — give it/);
@@ -125,14 +131,14 @@ describe("Schedule.events — the builders' roles refused at build (B2)", () => 
         assert.throws(() => bins({ hold: undefined }), /the Allocation holds a bin for its `hold` — give it/);
         assert.throws(() => bins({ quantity: undefined }), /the Allocation reads a bin's `quantity` — give it/);
         assert.throws(() => bins({ resource: undefined }), /the Allocation books a bin into a lane, its `resource` — give it/);
-        const byNumber = e3.record("builders_spec_bins_numbered", DictType(IntegerType, BinType), new Map());
+        const byNumber = e3.record("builders_spec_bins_numbered", DictType(IntegerType, BinType), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
         const VariantLaneType = StructType({ ...BinType.fields, bay: VariantType({ bay: StringType, dock: StringType }) });
-        const variantLane = e3.record("builders_spec_bins_variant_lane", DictType(StringType, VariantLaneType), new Map());
+        const variantLane = e3.record("builders_spec_bins_variant_lane", DictType(StringType, VariantLaneType), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
         const OptionLaneType = StructType({ ...BinType.fields, bay: OptionType(StringType) });
-        const optionLane = e3.record("builders_spec_bins_option_lane", DictType(StringType, OptionLaneType), new Map());
+        const optionLane = e3.record("builders_spec_bins_option_lane", DictType(StringType, OptionLaneType), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
         const binsOver = (record: unknown, of: unknown) => East.function([], NullType, ($) => {
             const def = record as typeof binsRecord;
-            const bound = $.let(Record.bind(def, [e3.mutation.patch(def)]));
+            const bound = $.let(Record.bind(def, ["patch"]));
             Schedule.events(bound as never, {
                 name: "Bin", icon: "i", at: "at", resource: { field: "bay", of }, arrival: "load", quantity: { field: "m3" },
                 parts: { field: "kilns", of: "kilns" }, hold: "dryFor",
@@ -153,11 +159,11 @@ describe("Schedule.events — the builders' roles refused at build (B2)", () => 
 describe("Schedule.events — the Calendar and Plan require a `title` (B3)", () => {
     test("the Calendar and Plan refuse a kind with no title, naming its slot", () => {
         assert.throws(() => East.function([], CalendarPayloadType, ($) => {
-            const duties = $.let(Record.bind(plainDutiesRecord, [plainDutiesPatch]));
+            const duties = $.let(Record.bind(plainDutiesRecord, ["patch"]));
             return createCalendarPayload({ events: { duty: Schedule.events(duties, { name: "Duty", icon: "i", start: "start", end: "end" }) } });
         }), /Calendar: events\.duty has no title — the Calendar draws each event's title: give the kind a `title`/);
         assert.throws(() => East.function([], PlanPayloadType, ($) => {
-            const duties = $.let(Record.bind(plainDutiesRecord, [plainDutiesPatch]));
+            const duties = $.let(Record.bind(plainDutiesRecord, ["patch"]));
             const axis = $.let(Plan.axis({ window: { min: at("2027-03-01T00:00:00Z"), max: at("2027-04-01T00:00:00Z") }, resolution: "day" }));
             return Plan.Payload({ axis, events: { duty: Schedule.events(duties, { name: "Duty", icon: "i", start: "start", end: "end" }) } });
         }), /Plan: events\.duty has no title — the Plan draws each event's title: give the kind a `title`/);
@@ -217,11 +223,11 @@ describe("Schedule.periods — refused at build", () => {
     test("refuses a record not keyed by DateTime, a status that is no variant or an Option, cases it lacks, a published case holding more, and dismissals of another type", () => {
         const refused = (record: unknown, config: object) => East.function([], NullType, ($) => {
             const def = record as typeof weeksRecord;
-            const bound = $.let(Record.bind(def, [e3.mutation.patch(def)]));
+            const bound = $.let(Record.bind(def, ["patch"]));
             Schedule.periods(bound as never, config as never);
         });
         const status = { field: "state", draft: "open", published: "issued" };
-        const byString_ = e3.record("builders_spec_weeks_by_string", DictType(StringType, RotaWeekType), new Map());
+        const byString_ = e3.record("builders_spec_weeks_by_string", DictType(StringType, RotaWeekType), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
         assert.throws(() => refused(byString_, { every: "week", status }), /a period's row is keyed by its start — a Dict keyed by DateTime/);
         assert.throws(() => refused(weeksRecord, { every: "month", status }), /`every` is "week" or "day"/);
         assert.throws(() => refused(weeksRecord, { every: "week", status: { ...status, field: "approver" } }),
@@ -229,7 +235,7 @@ describe("Schedule.periods — refused at build", () => {
         assert.throws(() => refused(weeksRecord, { every: "week", status: { ...status, field: "dismissed" } }), /`status\.field` names a variant field/);
         assert.throws(() => refused(weeksRecord, { every: "week", status: { ...status, published: "sent" } }),
             /`status\.published` names a case of "state" \(cancelled, issued, open\) — and it names "sent"/);
-        const Holding = e3.record("builders_spec_weeks_holding", DictType(DateTimeType, StructType({ state: VariantType({ open: NullType, issued: StructType({ at: DateTimeType, by: StringType }) }) })), new Map());
+        const Holding = e3.record("builders_spec_weeks_holding", DictType(DateTimeType, StructType({ state: VariantType({ open: NullType, issued: StructType({ at: DateTimeType, by: StringType }) }) })), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
         assert.throws(() => refused(Holding, { every: "week", status }), /the published case "issued" holds Null or \{ at: DateTime \}/);
         assert.throws(() => refused(weeksRecord, { every: "week", status, dismissed: "approver" }), /`dismissed` names a Set of String field — "approver" holds an Option of \.String/);
     });
@@ -241,8 +247,8 @@ describe("Schedule.periods — refused at build", () => {
 
 /** Never run: each line below must fail to compile, or the build fails on the unused directive. */
 export function builderTypeChecks(): void {
-    const duties = Record.bind(dutiesRecord, [dutiesPatch]);
-    const bins = Record.bind(binsRecord, [binsPatch]);
+    const duties = Record.bind(dutiesRecord, ["patch"]);
+    const bins = Record.bind(binsRecord, ["patch"]);
     // @ts-expect-error — `shift` is a String field, and "unpaidBreak" is a Float one
     Schedule.events(duties, { name: "Duty", icon: "i", start: "start", end: "end", shift: "unpaidBreak" });
     // @ts-expect-error — `activity` is an Option of a String field, and "note" is a String one
@@ -254,5 +260,5 @@ export function builderTypeChecks(): void {
     // @ts-expect-error — `arrival` is an Option of a String field, and "bay" is a String one
     Schedule.events(bins, { name: "Bin", icon: "i", at: "at", arrival: "bay" });
     // @ts-expect-error — `status.published` names a case of the status field, and "sent" is none of them
-    Schedule.periods(Record.bind(weeksRecord, [weeksPatch]), { every: "week", status: { field: "state", draft: "open", published: "sent" } });
+    Schedule.periods(Record.bind(weeksRecord, ["patch"]), { every: "week", status: { field: "state", draft: "open", published: "sent" } });
 }

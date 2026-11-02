@@ -183,12 +183,16 @@ describe("<Query.Builder> (#935)", () => {
     test("M1: its surface's manifest is the record, its patch and each bound source — orders under pages, customers under paths — and nothing new", () => {
         const orders = e3.input("orders", OrdersType, variant("value", []));
         const customers = e3.input("customers", CustomersType, variant("value", new Map()));
-        const queries = e3.record("queries", Query.Types.Saved, saved());
-        const queriesPatch = e3.mutation.patch(queries);
+        const queries = e3.record("queries", Query.Types.Saved, {
+            initial: saved(),
+            mutations: (mutation) => ({
+                patch: mutation.patch(),
+            }),
+        });
         const surface = ui("query_builder", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const pagedOrders = $.let(Data.bindPaged(orders));
             const boundCustomers = $.let(Data.bind(customers));
-            const record = $.let(Record.bind(queries, [queriesPatch]));
+            const record = $.let(Record.bind(queries));
             return Query.Builder({ queries: record, datasets: { orders: pagedOrders, customers: boundCustomers } });
         }))));
         const manifest = surface.role.value!;

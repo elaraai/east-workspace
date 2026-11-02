@@ -51,6 +51,7 @@ import type { PrintJob } from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
 import { act, el, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import { keptName } from "@elaraai/east-ui-components/internal";
 
 const h = planHarness({ "plan/plan-windows": ex });
 
@@ -71,9 +72,9 @@ const pathText = (path: TreePath) => path.map((step) => step.value).join(".");
 /** The jobs' record, as e3's requests name it. */
 const JOBS = pathText(ex.planWindowJobs.path as TreePath);
 /** The jobs' interval index and their summary, and their day index. */
-const BY_TIME = ex.planWindowJobsByTime;
-const SUMMARY = ex.planWindowJobsByPressMonth;
-const BY_DAY = ex.planWindowJobsByDay;
+const BY_TIME = ex.planWindowJobs.indexes.plan_window_jobs_by_time;
+const SUMMARY = ex.planWindowJobs.indexes.plan_window_jobs_by_press_month;
+const BY_DAY = ex.planWindowJobs.indexes.plan_window_jobs_by_day;
 
 /** Whether a request reads the jobs through one of their indexes. */
 const through = (index: { readonly name: string }) => (request: E3Request) =>
@@ -187,10 +188,10 @@ afterEach(() => {
  */
 const summaryPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.const(Data.bind(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
     const slice = $.const(Slice.bindRecords("plan.cap.summary.dom", {
-        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [BY_TIME, SUMMARY] }), fields: { start: { label: "Dates" } }, range: "start" },
+        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_month"] }), fields: { start: { label: "Dates" } }, range: "start" },
     }));
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
@@ -212,10 +213,10 @@ const summaryPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
 /** The same, the `job` source over the jobs' interval index alone: no summary to shade them. */
 const intervalPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.const(Data.bind(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
     const slice = $.const(Slice.bindRecords("plan.cap.interval.dom", {
-        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [BY_TIME] }), fields: { start: { label: "Dates" } }, range: "start" },
+        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time"] }), fields: { start: { label: "Dates" } }, range: "start" },
     }));
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
@@ -237,10 +238,10 @@ const intervalPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.R
 /** The interval Plan with its inspector: a press's row shows its events in the window. */
 const inspectedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.const(Data.bind(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
     const slice = $.const(Slice.bindRecords("plan.cap.inspected.dom", {
-        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [BY_TIME] }), fields: { start: { label: "Dates" } }, range: "start" },
+        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time"] }), fields: { start: { label: "Dates" } }, range: "start" },
     }));
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
@@ -268,11 +269,11 @@ const inspectedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.
  */
 const checkedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.const(Data.bind(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
-    const checks = $.const(Record.bind(ex.planWindowRuns, [ex.planWindowRunsPatch]));
+    const checks = $.const(Record.bind(ex.planWindowRuns, ["patch"]));
     const slice = $.const(Slice.bindRecords("plan.cap.checked.dom", {
-        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [BY_TIME] }), fields: { start: { label: "Dates" } }, range: "start" },
+        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time"] }), fields: { start: { label: "Dates" } }, range: "start" },
     }));
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
@@ -304,9 +305,9 @@ const checkedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
  */
 const dayPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.const(Data.bind(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
-    const days = $.const(Data.bindPaged(ex.planWindowJobs, { index: BY_DAY, join: true }));
-    const backlog = $.const(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsUnscheduled, join: true }));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
+    const days = $.const(Data.bindPaged(ex.planWindowJobs, { index: "plan_window_jobs_by_day", join: true }));
+    const backlog = $.const(Data.bindPaged(ex.planWindowJobs, { index: "plan_window_jobs_unscheduled", join: true }));
     const entries = $.const(Data.bindPaged(ex.planWindowJobs));
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
@@ -328,11 +329,11 @@ const dayPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(E
 /** The day index's Plan, the presses' checks beside the jobs, read whole. */
 const dayCheckedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.const(Data.bind(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
-    const days = $.const(Data.bindPaged(ex.planWindowJobs, { index: BY_DAY, join: true }));
-    const backlog = $.const(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsUnscheduled, join: true }));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
+    const days = $.const(Data.bindPaged(ex.planWindowJobs, { index: "plan_window_jobs_by_day", join: true }));
+    const backlog = $.const(Data.bindPaged(ex.planWindowJobs, { index: "plan_window_jobs_unscheduled", join: true }));
     const entries = $.const(Data.bindPaged(ex.planWindowJobs));
-    const checks = $.const(Record.bind(ex.planWindowRuns, [ex.planWindowRunsPatch]));
+    const checks = $.const(Record.bind(ex.planWindowRuns, ["patch"]));
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
         resources: {
@@ -357,7 +358,7 @@ const dayCheckedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive
 /** The jobs read whole: no rail, the record bound alone. */
 const wholePlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.const(Data.bind(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
         resources: {
@@ -545,7 +546,7 @@ describe("a kind counted past the cap, through its source of the rail (#1039)", 
     test("hidden in the Series tab, a kind is in no figure, within the cap or past it: the footer, the pane and a press's row count the checks alone, and nothing says the jobs are not counted", async () => {
         await bookChecks();
         // The viewer hides the jobs in the Series tab, kept as it keeps them.
-        localStorage.setItem("plan.series", JSON.stringify(["events.job"]));
+        localStorage.setItem(keptName("plan.series"), JSON.stringify(["events.job"]));
         const { container: c } = await h.mount(checkedPlan);
         await settle();
         // Within the cap: the jobs are no part of what the canvas shows — the check alone is counted, nothing said of them.

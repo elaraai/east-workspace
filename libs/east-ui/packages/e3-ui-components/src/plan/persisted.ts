@@ -47,6 +47,13 @@ export interface PlanOwnWindow {
     min: number;
     /** Its end, exclusive. */
     max: number;
+    /**
+     * A time axis's zoom it was shown at (#1438): the slice holds the zoom, but
+     * a page's store may not outlive the page, so the window keeps its own —
+     * a decade kept without the year it was shown in would open a week at a
+     * time.
+     */
+    resolution?: string;
 }
 
 /** What the canvas persists under its `storageKey` (#813). */
@@ -70,16 +77,18 @@ export const NOT_PERSISTED: PlanPersisted = { collapse: [], charts: [], anchor: 
 
 /**
  * The canvas's own window as storage holds it, taken only in the shape this
- * version writes: an arm it names, and finite bounds, the end past the start.
+ * version writes: an arm it names, and finite bounds, the end past the start,
+ * with the zoom it was shown at where it names one.
  *
  * @param stored - What storage holds under the persisted state's `window`
  * @returns The window; `undefined` for anything else
  */
 function ownWindowOf(stored: unknown): PlanOwnWindow | undefined {
     if (typeof stored !== "object" || stored === null) return undefined;
-    const { kind, min, max } = stored as Partial<Record<keyof PlanOwnWindow, unknown>>;
+    const { kind, min, max, resolution } = stored as Partial<Record<keyof PlanOwnWindow, unknown>>;
     if ((kind !== "time" && kind !== "number") || typeof min !== "number" || typeof max !== "number") return undefined;
-    return Number.isFinite(min) && Number.isFinite(max) && max > min ? { kind, min, max } : undefined;
+    if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return undefined;
+    return typeof resolution === "string" ? { kind, min, max, resolution } : { kind, min, max };
 }
 
 /**
@@ -132,4 +141,4 @@ export const sameAnchor = (x: PlanAnchor | null, y: PlanAnchor): boolean => x !=
 
 /** Two of the canvas's own windows are the same — `x` may be absent. */
 export const sameOwnWindow = (x: PlanOwnWindow | undefined, y: PlanOwnWindow): boolean => x !== undefined
-    && x.kind === y.kind && x.min === y.min && x.max === y.max;
+    && x.kind === y.kind && x.min === y.min && x.max === y.max && x.resolution === y.resolution;

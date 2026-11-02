@@ -5,9 +5,9 @@
 
 /**
  * The e3 packages of e3-ui's examples (#849, #1375): every e3 definition the
- * example modules export — inputs, records with their mutations and indexes,
- * the tasks that generate rows, functions and migrations — packaged with the
- * real e3 SDK as the zips an e3 imports. The renderer's tests import the
+ * example modules export — inputs, records (each declared whole, its indexes,
+ * mutations and migrations in its declaration), the tasks that generate rows
+ * and functions — packaged with the real e3 SDK as the zips an e3 imports. The renderer's tests import the
  * package of the modules a test file mounts into the e3-web each file starts.
  * The showcase's page imports an area's package — an area is the examples
  * under one directory of `test/`, which the showcase shows as one page — into
@@ -33,8 +33,7 @@
  *   every module, so the areas' packages agree on each.
  * - An area's package carries its modules' definitions, and what its examples
  *   bind that another area's module declares — a dataset or a paged source, a
- *   record with every mutation, index and migration declared on it, a
- *   function — found as a UI task's preview finds what it reads
+ *   record whole, a function — found as a UI task's preview finds what it reads
  *   (`deriveManifest`). So an area's workspace holds everything its examples
  *   read, and starting it runs no other area's work: a page of the Schematic
  *   deploys none of the Sheet's work orders.
@@ -48,8 +47,7 @@ import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ExampleDef } from "@elaraai/east";
 import e3, {
-    type DataTreeDef, type DatasetDef, type FunctionDef, type MigrationDef, type MutationDef,
-    type PackageDef, type RecordIndexDef, type TaskDef,
+    type DataTreeDef, type DatasetDef, type FunctionDef, type PackageDef, type TaskDef,
 } from "@elaraai/e3";
 import { pathToString, type TreePath } from "@elaraai/e3-types";
 import { deriveManifest } from "@elaraai/e3-ui";
@@ -64,10 +62,10 @@ const COMPILED_EXAMPLES = ".examples.js";
 export const EXAMPLES_PACKAGE_NAME = "e3-ui-examples";
 
 /** An e3 definition an example module exports for the package. */
-export type ExampleDefinition = DatasetDef | TaskDef | FunctionDef | MutationDef | RecordIndexDef | MigrationDef;
+export type ExampleDefinition = DatasetDef | TaskDef | FunctionDef;
 
 /** The kinds of {@link ExampleDefinition}. */
-const DEFINITION_KINDS: ReadonlySet<string> = new Set(["dataset", "task", "function", "mutation", "recordIndex", "migration"]);
+const DEFINITION_KINDS: ReadonlySet<string> = new Set(["dataset", "task", "function"]);
 
 /** One example module: the e3 definitions it exports, and its examples. */
 export interface ExampleModule {
@@ -83,8 +81,7 @@ export interface ExampleModule {
  * Whether a module's export is an e3 definition the package carries.
  *
  * @param value - The export
- * @returns Whether it is a dataset, a record, a task, a function, a mutation,
- *   an index or a migration
+ * @returns Whether it is a dataset, a record, a task or a function
  */
 export function isExampleDefinition(value: unknown): value is ExampleDefinition {
     return typeof value === "object" && value !== null && "kind" in value
@@ -164,19 +161,13 @@ export async function loadExampleModules(): Promise<ExampleModule[]> {
 /** A tree, dataset or task the package collects, or a definition a module exports. */
 type Collected = DataTreeDef | ExampleDefinition;
 
-/** What a definition reaches: a dataset's or task's dependencies, a
- *  mutation's, index's or migration's record, a migration's earlier step. */
+/** What a definition reaches: a dataset's or task's dependencies. */
 function reachedFrom(item: Collected): Collected[] {
     switch (item.kind) {
         case "datatree":
         case "dataset":
         case "task":
             return [...item.deps];
-        case "mutation":
-        case "recordIndex":
-            return [item.record];
-        case "migration":
-            return item.after === undefined ? [item.record] : [item.record, item.after];
         case "function":
             return [];
     }
@@ -250,8 +241,7 @@ function e3UiVersion(): string {
  * @param modules - The example modules
  * @returns The package
  * @throws {Error} When two modules declare different definitions at one
- *   dataset path, task name, function name, or mutation, index or migration
- *   name on one record, naming both
+ *   dataset path, task name or function name, naming both
  */
 export function examplesPackage(modules: readonly ExampleModule[]): PackageDef<Record<string, unknown>> {
     const owners = ownersOf(modules);
@@ -261,9 +251,6 @@ export function examplesPackage(modules: readonly ExampleModule[]): PackageDef<R
 
     // What `e3.package` keys by name and never reaches through a dependency.
     claimOnce("function", ofKind("function"), (fn) => fn.name, owners);
-    claimOnce("mutation", ofKind("mutation"), (mutation) => `${mutation.record.name}.${mutation.name}`, owners);
-    claimOnce("index", ofKind("recordIndex"), (index) => `${index.record.name}.${index.name}`, owners);
-    claimOnce("migration", ofKind("migration"), (migration) => `${migration.record.name}.${migration.name}`, owners);
 
     const pkg = e3.package(EXAMPLES_PACKAGE_NAME, e3UiVersion(), ...definitions);
 
@@ -299,9 +286,8 @@ export async function examplesPackageZip(modules: readonly ExampleModule[]): Pro
 /**
  * The package of each area's examples (#1397): every e3 definition the area's
  * modules export, and every dataset, paged source, record and function its
- * examples bind that another area's module declares — each record with every
- * mutation, index and migration any module declares on it, as the package of
- * every module carries it.
+ * examples bind that another area's module declares — each record whole, as it
+ * is declared.
  *
  * @param modules - The example modules
  * @returns Each area's package, named after the examples' package and the
@@ -357,15 +343,7 @@ export function examplesAreaPackages(modules: readonly ExampleModule[]): Map<str
                 }
             }
         }
-        const name = `${EXAMPLES_PACKAGE_NAME}-${area}`;
-        // Each record the area holds — however it came to — carries what any
-        // module declares on it: a record is one record in every area.
-        const held = e3.package(name, version, ...items);
-        const onRecords = Object.keys(held.records).flatMap((record) => {
-            const declared = whole.records[record]!;
-            return [...Object.values(declared.mutations), ...Object.values(declared.indexes), ...declared.migrations];
-        });
-        packages.set(area, e3.package(name, version, ...items, ...onRecords));
+        packages.set(area, e3.package(`${EXAMPLES_PACKAGE_NAME}-${area}`, version, ...items));
     }
     return packages;
 }

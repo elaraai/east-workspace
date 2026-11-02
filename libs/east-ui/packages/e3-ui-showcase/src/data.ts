@@ -14,19 +14,20 @@ import pkgInfo from '../package.json' with { type: 'json' };
 import { buildShowcasePackage } from './utils.js';
 
 const {
-    thresholdInput, countInput, nameInput, opsInput, workOrders, workQueue,
+    thresholdInput, countInput, nameInput, opsInput, workOrders,
     unitCountInput, unitsTask, bomInput, jobCountInput, jobsTask,
 } = examples;
 
 export default await buildShowcasePackage('data', pkgInfo.version, examples, {
     // `opsInput` backs the `Data.bindPaged` example — without it the deployed
     // workspace has no `ops` dataset and the paged canvas has nothing to window.
-    // `workOrders` and its `workQueue` index back the index read: deploy builds
-    // the index over the record's initial rows, so the queue has pages to serve.
+    // `workOrders`, declared with its `by_status` index, backs the index read:
+    // deploy builds the index over the record's initial rows, so the queue has
+    // pages to serve.
     // `unitsTask` and `jobsTask` generate the blocks canvas's units and the paged
     // sheet's jobs from their counts, and `bomInput` is the paged table's tree.
     extras: [
-        thresholdInput, countInput, nameInput, opsInput, workOrders, workQueue,
+        thresholdInput, countInput, nameInput, opsInput, workOrders,
         unitCountInput, unitsTask, bomInput, jobCountInput, jobsTask,
     ],
 });

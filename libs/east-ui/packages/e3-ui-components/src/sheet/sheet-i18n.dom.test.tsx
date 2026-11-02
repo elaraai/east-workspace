@@ -89,10 +89,10 @@ const EDITABLE = East.function([], SheetPayloadType, ($) => {
 
 /** The workshop's orders through the rail's `rows` source, opening on a saved view of the PLANNED ones (#1345). */
 const TABS = East.function([], SheetPayloadType, ($) => {
-    const orders = $.let(Record.bind(ex.sheetWorkshopOrders, [ex.sheetWorkshopOrdersPatch]));
+    const orders = $.let(Record.bind(ex.sheetWorkshopOrders, ["patch"]));
     const views = $.let(State.bind([ArrayType(Sheet.Types.RecordView)], "sheet-i18n-views", VIEWS));
     const slice = $.let(Slice.bindRecords("sheet_i18n_dom", {
-        rows: { source: Data.bindPaged(ex.sheetWorkshopOrders, { indexes: [ex.sheetWorkshopOrdersByStatus] }), fields: { status: { label: "Status" } } },
+        rows: { source: Data.bindPaged(ex.sheetWorkshopOrders, { indexes: ["sheet_workshop_orders_by_status"] }), fields: { status: { label: "Status" } } },
     }));
     return Sheet.Payload({
         slice: { slice }, group: Sheet.group(ex.WorkshopOrder, "ops", { title: "name" }),

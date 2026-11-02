@@ -9,7 +9,8 @@
  * leave the canvas here — a hand-built row and the rows under it by its key,
  * the one step of its id's path, and a `Plan.over` series' rows, its nested
  * series' with them, by the keys they carry. `data`'s series hide through
- * their pick, in the Reactive that lays them out. An event kind hidden there
+ * their pick, in the Reactive that lays them out, the frame keeping what the
+ * tab switches of them under the pick's key. An event kind hidden there
  * is no part of what the canvas shows, so it is in none of its figures — the
  * footer's counts, the inspector's — and nothing says so (#1039): hiding it is
  * the viewer's own choice.

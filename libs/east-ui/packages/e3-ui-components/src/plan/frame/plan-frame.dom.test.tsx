@@ -18,7 +18,7 @@ import type { ReactNode } from "react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { East, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
-import { UIStore, formatters, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
+import { UIStore, editingMessages, formatters, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
@@ -78,7 +78,7 @@ const COUNTED = new Map<string, Job>([
 /** A Plan of the presses and their jobs, with a backlog — given no `library` and no `inspector`, so no pane. */
 const bareJobs = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
-    const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+    const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     return Plan({
         axis,
@@ -107,7 +107,7 @@ function canvasOf(n: number, style?: { height?: string; maxHeight?: string }): P
         rows: variant("inline", oneBlock(rows as never)),
         links: [],
         axis: variant("time", { window: some({ min: FIRST, max: LAST }), resolution: variant("week", null), resolutions: [], now: none, format: none }),
-        grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, pick: none, slice: none, footer: [],
+        grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, pick: none, slice: none, nested: none, footer: [],
         id: none, sources: [], editing: none, canDrop: none, onSelect: none, onElementClick: none, onGroupToggle: none, onGrainChange: none, ui: none,
         style: style !== undefined
             ? some({
@@ -277,7 +277,7 @@ describe("the banners and the keys (PB20, PB24)", () => {
         // drop on Press 1 too would not: e3 checks what a patch touches, and two drops onto a press both land.)
         canvas.race(new Map([...SEED].filter(([press]) => press !== "p1")));
         await history(canvas, "Save");
-        expect(banner(c, "conflict")!.textContent).toContain("Save stopped — 1 conflict with the source");
+        expect(banner(c, "conflict")!.textContent).toContain(editingMessages.bannerConflict({ n: 1, count: "1" }));
         expect(slot(c, "toolbar")!.querySelector('[role="alert"]')).toBeNull();
         expect(statusLine(canvas)).not.toBeNull();
         await history(canvas, "Discard");

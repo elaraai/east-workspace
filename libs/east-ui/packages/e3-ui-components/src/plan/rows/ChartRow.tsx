@@ -303,10 +303,10 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                 const labelF = f0 < 0 && f1 > 0 ? 0 : f0;
                 return (
                     <Box key={`refband-${li}`}>
-                        <Box css={styles.chartRefBand} left={`${f0 * 100}%`} width={`${(f1 - f0) * 100}%`}
+                        <Box css={styles.chartRefBand} style={{ left: `${f0 * 100}%`, width: `${(f1 - f0) * 100}%` }}
                             data-plan-mark="refband"
                             data-plan-frac={f0.toFixed(4)} data-plan-frac-end={f1.toFixed(4)} />
-                        {label !== undefined && <Box css={styles.refLabel} left={`${labelF * 100}%`} top="1px">{label}</Box>}
+                        {label !== undefined && <Box css={styles.refLabel} top="1px" style={{ left: `${labelF * 100}%` }}>{label}</Box>}
                     </Box>
                 );
             })}
@@ -348,21 +348,20 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                 if (layer.type === "refLine" && layer.value.label.type === "some") {
                     const top = Math.max(1, Math.min(height - 12, ys(layer.value.axis.type)(layer.value.y) - 11));
                     return <Box key={`reflabel-${li}`} css={styles.refLabel} right="4px"
-                        top={`${top}px`}>{layer.value.label.value}</Box>;
+                        style={{ top: `${top}px` }}>{layer.value.label.value}</Box>;
                 }
                 if (layer.type === "refDot" && layer.value.label.type === "some") {
                     const f = scale.fracOf(layer.value.t);
                     if (!(f > scale.renderMin && f < scale.renderMax)) return null;
                     const top = Math.max(1, Math.min(height - 12, ys(layer.value.axis.type)(layer.value.y) - 6));
                     return <Box key={`refdotlabel-${li}`} css={styles.refLabel}
-                        left={`calc(${f * 100}% + 5px)`}
-                        top={`${top}px`}>{layer.value.label.value}</Box>;
+                        style={{ left: `calc(${f * 100}% + 5px)`, top: `${top}px` }}>{layer.value.label.value}</Box>;
                 }
                 return null;
             })}
             {/* right-axis ticks at the plot's right edge */}
             {right !== undefined && axisTicks(right).map((v, i) => (
-                <Box key={`rt-${i}`} css={styles.chartTickRight} top={`${(rightScale(v) / height) * 100}%`}>
+                <Box key={`rt-${i}`} css={styles.chartTickRight} style={{ top: `${(rightScale(v) / height) * 100}%` }}>
                     {rightFormat(v)}
                 </Box>
             ))}
@@ -406,7 +405,7 @@ export function ChartLeftTicks({ kind, styles, height }: { kind: ChartKindValue;
     return (
         <>
             {ticks.map((v, i) => (
-                <Box key={i} css={styles.chartTickLeft} top={compact ? undefined : `${s(v)}px`}
+                <Box key={i} css={styles.chartTickLeft} style={compact ? undefined : { top: `${s(v)}px` }}
                     data-plan-tickpx={s(v)} data-compact={compact ? "" : undefined} aria-hidden="true">
                     {compact && left?.format.type !== "some" ? words.number(v) : fmt(v)}
                 </Box>

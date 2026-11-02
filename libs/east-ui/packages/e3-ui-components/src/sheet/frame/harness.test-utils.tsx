@@ -59,6 +59,8 @@ export interface MountOptions {
     storageKey?: string | undefined;
     /** What the page holds the sheet in, inside its locale: a message table (`SheetMessagesProvider`), say. */
     wrap?: ((sheet: ReactNode) => ReactNode) | undefined;
+    /** The workspace it reads; the test's own unless given: another holding the same records, say. */
+    workspace?: string | undefined;
 }
 
 /** What a Sheet test reads and writes through: e3, and the sheets mounted over it. */
@@ -123,7 +125,9 @@ export function sheetHarness(options: SheetHarnessOptions = {}): SheetHarness {
         wrap: (surface: ReactNode) => <I18nProvider locale="en-US">{o.wrap === undefined ? surface : o.wrap(surface)}</I18nProvider>,
     });
     return Object.assign(h, {
-        mount: (example: Example, o: MountOptions = {}) => mountOver(example, { ...page(o), ...(o.program !== undefined && { program: o.program }) }),
+        mount: (example: Example, o: MountOptions = {}) => mountOver(example, {
+            ...page(o), ...(o.program !== undefined && { program: o.program }), ...(o.workspace !== undefined && { workspace: o.workspace }),
+        }),
         mountPayload: (payload: PayloadFunction, o: MountOptions = {}) =>
             mountOver({ fn: payload }, { ...page(o), view: <PayloadSheet payload={payload} storageKey={o.storageKey ?? "sheet"} /> }),
     });

@@ -7,17 +7,22 @@
  * The editing session's history bar (#879) — Undo, Redo, Discard and Apply
  * over the current checked batch, its status line and issues — shared by every
  * editable collection, in its collection's words, on the `editHistory` slot
- * recipe.
+ * recipe. While a part of a draft another write changed differently waits to
+ * be chosen, the conflicts button leads its buttons, and Apply waits for it
+ * (`conflicts.tsx`).
  *
  * @packageDocumentation
  */
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Box, chakra, Portal, Text, Tooltip, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRotateLeft, faArrowRotateRight, faCheck, faRotate, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
+import type { EastType, PatchPath } from "@elaraai/east";
 import type { EditHistory } from "./history.js";
 import type { EditIssue, EditSession } from "./session.js";
+import { ConflictsControl } from "./conflicts.js";
+import { useDraftsKeeping } from "./keep.js";
 import { sessionErrorText, type EditingWords } from "./messages.js";
 
 /** A history bar action. */
@@ -37,14 +42,52 @@ export interface HistoryBarProps<W> {
     words: EditingWords;
     /** An open editor is committed before the requested history action. */
     editing: boolean;
-    /** Go to an issue — the collection shows where it is. */
+    /** Go to an issue — the collection shows where it is: an issue's, or a conflict's (`EditSession.conflictIssue`) where it gives no `onConflict`. */
     onIssue: (issue: EditIssue) => void;
+    /**
+     * Go to a conflict's item — a conflict's Go to: what shows the item and
+     * selects it, where the collection's issue click opens a list of its
+     * issues instead. `onIssue` by default.
+     */
+    onConflict?: ((issue: EditIssue, at: PatchPath) => void) | undefined;
+    /**
+     * A conflict's item in the collection's words, its steps included — a
+     * step's own name (`Scanned`), where the steps in words would name it by
+     * its place (`Item 2`) or its key: what its card names it. Handed the
+     * conflict's path, and the steps in words the card would name it by after
+     * the entry's name, to keep those it does not name otherwise.
+     * {@link where}'s name, then the steps in words, by default.
+     */
+    conflictItem?: ((issue: EditIssue, at: PatchPath, steps: readonly string[]) => string | undefined) | undefined;
+    /**
+     * A conflict's value in the collection's words — a lane's label where a
+     * step holds the lane's key, a date as its column writes it: what its
+     * card shows for each side. Handed the conflict's issue and path, and the
+     * value with its East type; `undefined`, or none given, for the card's own
+     * reading of it.
+     */
+    conflictValue?: ((issue: EditIssue, at: PatchPath, value: unknown, type: EastType | undefined) => string | undefined) | undefined;
+    /**
+     * Where an issue is, in the collection's words — its row (`J-0002`,
+     * `row 4`), as its banners name it ({@link SessionBanners}): what the
+     * conflicts popover names a conflict's item by. Its entry's key in words
+     * by default.
+     */
+    where?: ((issue: EditIssue) => string) | undefined;
+    /**
+     * An issue's text as the collection shows it — its own issues read back
+     * in its words, as its banners read them ({@link SessionBanners}): what
+     * the conflicts popover shows the source's words for a conflict's entry
+     * in. As written by default.
+     */
+    issueText?: ((message: string) => string) | undefined;
     /** Run an action — the collection first commits what it has open. */
     onAction: (action: HistoryAction) => void;
     /**
      * Undo, Redo, Discard and Apply alone — the form a toolbar short of room
      * folds the bar to ({@link historyToolbarItem}). The status line and the
-     * issues button go; an error still shows.
+     * issues button go; an error still shows, and the conflicts button stays:
+     * it is what turns Apply back on.
      */
     buttonsOnly?: boolean | undefined;
     /**
@@ -57,24 +100,29 @@ export interface HistoryBarProps<W> {
      * Locked while a run of the app's optimiser is out (#1409, R2): Undo,
      * Redo, Discard and Save are `aria-disabled` and run nothing, their size,
      * their place and the focus kept — never `disabled`, which would drop the
-     * focus. `false` by default.
+     * focus; the conflicts popover opens, its choices off. `false` by default.
      */
     locked?: boolean | undefined;
 }
 
 /** Keep an accessible name and a hover/focus tooltip when the control has no text. */
 function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onClick }: {
-    label: string; tip?: string; icon: IconDefinition; disabled: boolean; locked: boolean;
+    label: string; tip?: string | undefined; icon: IconDefinition; disabled: boolean; locked: boolean;
     styles: Styles; onClick: () => void;
 }) {
     const iconRecipe = useRecipe({ key: "iconButton" });
     const iconStyles = iconRecipe({ size: "sm", variant: "outline" });
+    // Run out under the focus — Discard pressed from the keyboard, leaving nothing to discard — it keeps the focus,
+    // aria-disabled, until the focus moves on: `disabled` under it, the browser drops the focus to the page.
+    const [focused, setFocused] = useState(false);
+    const held = disabled && focused;
     return <Tooltip.Root openDelay={250}>
         <Tooltip.Trigger asChild>
             <span>
                 <chakra.button type="button" css={[iconStyles, styles.button]} aria-label={label}
-                    disabled={disabled} aria-disabled={locked ? true : undefined}
-                    onMouseDown={event => event.preventDefault()} onClick={locked ? undefined : onClick}>
+                    disabled={disabled && !focused} aria-disabled={locked || held ? true : undefined}
+                    onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+                    onMouseDown={event => event.preventDefault()} onClick={locked || disabled ? undefined : onClick}>
                     <FontAwesomeIcon icon={icon} />
                 </chakra.button>
             </span>
@@ -91,7 +139,7 @@ function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onC
  * @param props - The session, the collection's words, and its callbacks
  * @returns The bar
  */
-export function HistoryBar<W>({ session, words, editing, onAction, onIssue, buttonsOnly = false, showError = true, locked = false }: HistoryBarProps<W>) {
+export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onConflict, conflictItem, conflictValue, where, issueText, buttonsOnly = false, showError = true, locked = false }: HistoryBarProps<W>) {
     const recipe = useSlotRecipe({ key: "editHistory" });
     const styles = useMemo(() => recipe({}) as unknown as Styles, [recipe]);
     const { m } = words;
@@ -101,12 +149,22 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, butt
     const pending = session.pending;
     const commitEditor = editing && session.writable;
     const message = session.stale ? m.historyStatus({ status: "stale" })
+        : session.carrying ? m.historyStatus({ status: "carrying" })
         : status !== "idle" ? m.historyStatus({ status })
         : undefined;
     const n = issues.length;
+    const unsettled = session.unsettled;
+    // Save waits for the conflicts to be chosen aria-disabled, never disabled: it keeps the focus, and its Tooltip says why.
+    const waiting = status !== "unknown" && unsettled > 0;
+    // Drafts a reload would lose, or that a reload could not restore: said under the buttons where the bar says its error.
+    const keeping = useDraftsKeeping(session);
+    const keepingText = keeping.state === "unkept" ? m.bannerUnkept({ reason: keeping.reason })
+        : keeping.state === "lost" ? m.bannerLost({ reason: keeping.reason }) : undefined;
     return <Box data-slot="history" data-history-form={buttonsOnly ? "buttons" : "full"} data-history-locked={locked ? "" : undefined} css={styles.root}>
         <Box css={styles.actions}>
             {!buttonsOnly && message !== undefined && <Text role="status" aria-live="polite" css={styles.status}>{message}</Text>}
+            {/* The conflicts button first, before Issues: it is what turns Save back on. */}
+            <ConflictsControl session={session} words={words} onIssue={onConflict ?? onIssue} where={where} item={conflictItem} value={conflictValue} issueText={issueText} locked={locked} />
             {!buttonsOnly && <Box data-slot="historyIssues" data-empty={n === 0 ? "" : undefined} css={styles.issues}>
                 <HistoryButton styles={styles} label={m.issues({ n, count: words.number(n) })}
                     tip={m.issuesTip({ n, count: words.number(n) })} locked={false}
@@ -117,8 +175,11 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, butt
             <HistoryButton styles={styles} label={m.discard()} tip={m.discardTip()} icon={faXmark} disabled={!session.canDiscard || (pending === 0 && !commitEditor)} locked={locked} onClick={() => onAction("discard")} />
             {status === "reconciling" ? <HistoryButton styles={styles} label={m.retryRefresh()} icon={faRotate} disabled={false} locked={locked} onClick={() => onAction("refresh")} />
                 : <HistoryButton styles={styles} label={status === "unknown" ? m.retryRequest() : m.apply()}
-                    icon={status === "unknown" ? faRotate : faCheck} disabled={status !== "unknown" && !session.canApply && !commitEditor} locked={locked} onClick={() => onAction("apply")} />}
+                    tip={waiting ? m.applySettleFirst({ n: unsettled, count: words.number(unsettled) }) : undefined}
+                    icon={status === "unknown" ? faRotate : faCheck} disabled={!waiting && status !== "unknown" && !session.canApply && !commitEditor}
+                    locked={locked || waiting} onClick={() => onAction("apply")} />}
         </Box>
         {showError && session.error !== undefined && <Text css={styles.error} role="alert">{sessionErrorText(session.error, words)}</Text>}
+        {showError && session.error === undefined && keepingText !== undefined && <Text css={styles.notice} data-history-keeping="">{keepingText}</Text>}
     </Box>;
 }

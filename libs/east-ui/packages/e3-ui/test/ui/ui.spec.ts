@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 
 import { type CallableFunctionExpr, ArrayType, DictType, East, FloatType, IntegerType, StringType, StructType, VariantType, equalFor, isTypeEqual, variant } from "@elaraai/east";
 import { TreePathType } from "@elaraai/e3-types";
-import { input, record, recordIndex } from "@elaraai/e3";
+import { input, record } from "@elaraai/e3";
 import { Reactive, UIComponentType, Text } from "@elaraai/east-ui/internal";
 
 import { DataManifestType, Data } from "@elaraai/e3-ui";
@@ -109,13 +109,15 @@ describe("ui()", () => {
         // An index read is a read of the record: the manifest scopes it by the
         // record's path, whatever index it reads through.
         const Row = StructType({ status: StringType, due: IntegerType });
-        const plans = record("plans", DictType(StringType, Row), new Map());
-        const byStatus = recordIndex("by_status", plans, {
-            key: East.function([StringType, Row], StringType, ($, _k, v) => v.status),
+        const plans = record("plans", DictType(StringType, Row), {
+            initial: new Map(),
+            indexes: (index) => ({
+                by_status: index.key(East.function([StringType, Row], StringType, ($, _k, v) => v.status)),
+            }),
         });
         const dashboard = ui("indexed_dashboard", [], East.function([], UIComponentType, (_$) =>
             Reactive.Root(East.function([], UIComponentType, $ => {
-                const queue = $.let(Data.bindPaged(plans, { index: byStatus }));
+                const queue = $.let(Data.bindPaged(plans, { index: "by_status" }));
                 const w = $.let(queue.page(0n, 50n));
                 return Text.Root(East.print(w.hasTag("some")));
             }))

@@ -5,6 +5,7 @@
 
 import { memo, useMemo, useRef, useState, useEffect, useCallback, type CSSProperties } from "react";
 import { usePersistedState } from "../../hooks/usePersistedState";
+import { keptRead } from "../../platform/kept.js";
 import {
     Table as ChakraTable,
     Box,
@@ -397,6 +398,15 @@ interface TablePersistedState {
     folds?: Record<string, boolean>;
 }
 
+/** The table's state, as storage keeps it. */
+const readTablePersisted = keptRead.record<TablePersistedState>({
+    sorting: keptRead.array(keptRead.record({ id: keptRead.string, desc: keptRead.boolean })),
+    columnSizing: keptRead.dict(keptRead.number),
+    pinnedColumns: keptRead.array(keptRead.string),
+    scrollIndex: keptRead.optional(keptRead.number),
+    folds: keptRead.optional(keptRead.dict(keptRead.boolean)),
+});
+
 /**
  * Renders an East UI Table value using Chakra UI Table components.
  * Features:
@@ -666,6 +676,7 @@ const TableCore = function TableCore({
     const { state: persistedState, setState: setPersistedState } = usePersistedState<TablePersistedState>(
         storageKey,
         { sorting: [], columnSizing: {}, pinnedColumns: [...value.frozen], scrollIndex: 0 },
+        readTablePersisted,
     );
     const sorting = persistedState.sorting;
     const setSorting = useCallback((updater: SortingState | ((prev: SortingState) => SortingState)) => {

@@ -72,17 +72,24 @@ declare module "virtual:example-sources" {
     export const codeExamples: CodeExample[];
 }
 
-declare module "virtual:e3-showcase-packages" {
+declare module "virtual:e3-showcase-bundles" {
     /**
-     * Where an area's e3 package is served (#849, #1397): the zip the build
-     * emitted for it, named by its content, or the dev server's
-     * `/e3-showcase-<area>.zip` (`scripts/vite-plugin-e3-showcase.ts`). The e3
-     * the page runs deploys it into the area's workspace the first time one of
+     * Where an area's workspace bundle is served (#849, #1397): the one the
+     * build emitted for it, named by its content, or the dev server's
+     * `/e3-showcase-<area>.beast2` (`scripts/vite-plugin-e3-showcase.ts`). The
+     * e3 the page runs makes the area's workspace from it the first time one of
      * the area's examples shows.
      *
      * @param area - The area, e.g. `schematic`
-     * @returns Its zip's URL, or `undefined` when the build made none for it
+     * @returns Its bundle's URL, or `undefined` when the build made none for it
      */
-    const packageUrl: (area: string) => string | undefined;
-    export default packageUrl;
+    const bundleUrl: (area: string) => string | undefined;
+    export default bundleUrl;
+    /**
+     * What names the bundles the page's areas are made from: the build's,
+     * their content-named addresses together; the dev server's, when it
+     * started and how many times the examples changed since. A page shared
+     * with other tabs keeps its repository under it (`sharedE3Repo`).
+     */
+    export const bundlesKey: string;
 }

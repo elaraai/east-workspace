@@ -17,7 +17,7 @@
 import type { ExecutionListItem } from '@elaraai/e3-api-client';
 import { dottedPath } from '../../api.js';
 import { breakpoint, columnPlan } from '../../render/layout.js';
-import { formatDuration, formatSize, formatStamp, hashMid, hashTiny } from '../../render/text.js';
+import { compareInstants, formatDuration, formatSize, formatStamp, hashMid, hashTiny } from '../../render/text.js';
 import type { Glyphs } from '../../render/glyphs.js';
 import { historyStatusCell } from '../../model/status.js';
 import type { TuiState } from '../../state/actions.js';
@@ -36,7 +36,7 @@ export const RUNS_CHROME_ROWS = 4;
  * @returns The runs
  */
 export function runsOf(state: TuiState, ws: string, task: string): ExecutionListItem[] {
-    return [...(state.data.executions[ws]?.[task] ?? [])].sort((a, c) => (a.startedAt < c.startedAt ? 1 : a.startedAt > c.startedAt ? -1 : 0));
+    return [...(state.data.executions[ws]?.[task] ?? [])].sort((a, c) => compareInstants(c.startedAt, a.startedAt));
 }
 
 /**

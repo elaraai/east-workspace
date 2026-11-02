@@ -19,9 +19,7 @@ import e3 from "@elaraai/e3";
 import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
 import { Allocation, Data, Func, Record, Schedule } from "@elaraai/e3-ui";
 import { KilnBin, YardPlan, yardDay } from "./kiln-yard.js";
-import {
-    arrivals, arrivalsBySpec, kilnBins, kilnBinsByTime, kilnBinsPatch, kilns, kilnsByGroup, yardBays, yardBaysByArea, yardDays, yardDaysPatch, yardFit,
-} from "./allocation.examples.js";
+import { arrivals, kilnBins, kilns, yardBays, yardDays, yardFit } from "./allocation.examples.js";
 
 const Request = Allocation.Types.OptimiseRequest(KilnBin), Result = Allocation.Types.OptimiseResult(KilnBin);
 /** The day's bins by key, the yard's own rows. */
@@ -188,17 +186,17 @@ export const allocationOptimise = example({
     description: "The kiln yard's board with the Elara eye (#1409): `optimise` is Func.bind of the yard's optimiser on e3 — Allocation.Types.OptimiseRequest(KilnBin) in, the day in view, the run number, the day's bins as drafted, every arrival and the board's context; Allocation.Types.OptimiseResult(KilnBin) out, the bins complete. A joint optimiser: a kiln over its maximum gives the excess to the kilns the fit ranks best, a bin not linked or partly allocated is linked, and every load not yet booked is booked into the day's free bay slots and onto the kilns the fit ranks best — whole on the best fit, split when no one kiln takes it. A click on the eye runs it once over the day; the result lands in the session as one edit — bins added, bins relinked — which one Undo reverts and Save commits with everything else.",
     keywords: ["Allocation", "optimise", "Optimise", "Elara", "OptimiseRequest", "OptimiseResult", "Func.bind", "e3.function", "joint", "links", "one edit", "Undo", "Schedule.events", "Schedule.resources", "Schedule.periods", "Allocation.arrivals", "Allocation.slots", "Allocation.candidates", "Allocation.fit", "Allocation.check", "fit"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const bins = $.let(Record.bind(kilnBins, [kilnBinsPatch]));
+        const bins = $.let(Record.bind(kilnBins));
         const entries = $.let(Data.bindPaged(kilnBins));
-        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: [kilnBinsByTime] }));
-        const days = $.let(Record.bind(yardDays, [yardDaysPatch]));
+        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: ["kiln_bins_by_time"] }));
+        const days = $.let(Record.bind(yardDays));
         // Every bay, kiln and load is the calculation scope — and the optimiser's: the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
         const loads = $.let(Data.bind(arrivals));
         const bays = $.let(Data.bind(yardBays));
-        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
-        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
-        const loadIndex = $.let(Data.bindPaged(arrivals, { indexes: [arrivalsBySpec] }));
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: ["yard_bays_by_area"] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: ["kilns_by_group"] }));
+        const loadIndex = $.let(Data.bindPaged(arrivals, { indexes: ["arrivals_by_spec"] }));
         const slice = $.let(Slice.bindRecords("ex.allocationOptimise", {
             bin: { source: byTime, range: "at" },
             bays: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },

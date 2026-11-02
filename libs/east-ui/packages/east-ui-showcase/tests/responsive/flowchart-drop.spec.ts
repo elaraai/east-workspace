@@ -31,7 +31,8 @@
  * `pnpm exec playwright test flowchart-drop`.
  */
 
-import { test, expect, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { settled } from "./settle";
 import { boxOf, boxesOf, captionOf, cardOf, carryTo, midLine, openFlowchart, openTab, paneOpen, pickUp, sizeTo } from "./flowchart-page";
 

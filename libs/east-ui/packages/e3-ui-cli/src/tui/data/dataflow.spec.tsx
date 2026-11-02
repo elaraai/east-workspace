@@ -43,7 +43,7 @@ async function sixTasks(api: FakeApi): Promise<Action[]> {
 describe('/run and /stop', () => {
     test('r prefills /run with the flag hints and the consequence; ⏎ launches with the options and toasts', async () => {
         const api = fakeRepo();
-        api.run({ events: [variant('start', { task: 'ingest', timestamp: new Date(NOW).toISOString() })], final: 'completed', stepMs: 600_000 });
+        api.run({ events: [variant('start', { task: 'ingest', timestamp: new Date(NOW) })], final: 'completed', stepMs: 600_000 });
         mounted = await mountApp({ api, view: dashboardView(), actions: await sixTasks(api) });
         await mounted.press('r');
         let lines = mounted.lines();
@@ -126,7 +126,7 @@ describe('/run and /stop', () => {
     test('a locked workspace: the title shows the holder and /run toasts it', async () => {
         const api = fakeRepo();
         const actions = await sixTasks(api);
-        api.workspace('main').lock = { pid: 4242, acquiredAt: new Date(NOW - 12_000).toISOString(), command: 'e3 dataflow run' };
+        api.workspace('main').lock = { pid: 4242, acquiredAt: new Date(NOW - 12_000), command: 'e3 dataflow run' };
         actions[2] = { type: 'data/status', ws: 'main', result: await api.workspaceStatus('main'), at: NOW - 400 };
         mounted = await mountApp({ api, view: dashboardView(), actions });
         assert.match(mounted.lines()[2]!, /^ main\s+● DEPLOYED · demand@1\.4\.2 · deployed 3d ago · lock: pid 4242 · e3 dataflow run · 12s ago$/);
@@ -146,7 +146,7 @@ describe('/run and /stop', () => {
         assert.match(mounted.lines()[33]!, /^ ›  ◐ no run in progress$/);
         assert.ok(!api.calls.includes('dataflowCancel main'));
         // Our poll says running, but this server process has no execution to cancel.
-        const running = { status: variant('running', null), startedAt: new Date(NOW - 5_000).toISOString(), completedAt: none, summary: none, events: [], nextSeq: 0n, budget: none, waiting: [], splits: [] };
+        const running = { status: variant('running', null), startedAt: new Date(NOW - 5_000), completedAt: none, summary: none, events: [], nextSeq: 0n, budget: none, waiting: [], splits: [] };
         await mounted.dispatch({ type: 'data/execution', ws: 'main', state: running as never, events: [], startedAt: running.startedAt });
         await mounted.press('x');
         await mounted.press(KEY.enter);
@@ -165,7 +165,7 @@ describe('/run and /stop', () => {
 
 describe('dataflow text', () => {
     test('lockHolderText and launchFailureText', () => {
-        const holder = { pid: 4242n, acquiredAt: new Date(NOW - 12_000).toISOString(), command: some('e3 dataflow run') };
+        const holder = { pid: 4242n, acquiredAt: new Date(NOW - 12_000), command: some('e3 dataflow run') };
         assert.equal(lockHolderText(holder, NOW, UNICODE), 'pid 4242 · e3 dataflow run · 12s ago');
         assert.equal(lockHolderText({ ...holder, command: none }, NOW, UNICODE), 'pid 4242 · another process · 12s ago');
         assert.equal(launchFailureText(new ApiError('workspace_locked', { workspace: 'main', holder: variant('known', holder) }), 'main', NOW, UNICODE), 'workspace main is locked by pid 4242 · e3 dataflow run · 12s ago');

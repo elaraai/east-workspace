@@ -5,6 +5,7 @@
 
 import { memo, useMemo, useCallback } from "react";
 import { usePersistedState } from "../../hooks/usePersistedState";
+import { keptRead } from "../../platform/kept.js";
 import {
     Carousel as ChakraCarousel,
     type CarouselRootProps,
@@ -55,6 +56,9 @@ interface CarouselPersistedState {
     currentPage: number;
 }
 
+/** The page shown, as storage keeps it. */
+const readCarouselPersisted = keptRead.record<CarouselPersistedState>({ currentPage: keptRead.number });
+
 export interface EastChakraCarouselProps {
     value: CarouselValue;
     /** Storage key for persisting current slide in localStorage. Omit for ephemeral state. */
@@ -87,6 +91,7 @@ export const EastChakraCarousel = memo(function EastChakraCarousel({ value, stor
     const { state: persistedState, setState: setPersistedState } = usePersistedState<CarouselPersistedState>(
         storageKey,
         { currentPage: defaultPage },
+        readCarouselPersisted,
     );
 
     const handlePageChange = useCallback((details: { page: number }) => {

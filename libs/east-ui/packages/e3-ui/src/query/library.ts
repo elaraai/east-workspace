@@ -83,13 +83,13 @@ export const QueryLibraryComponent = EastUI.component("QueryLibrary", QueryLibra
 /**
  * `<Query.Library>` options.
  *
- * @property queries - The saved queries record, bound with its patch mutation — `Record.bind(queries, [queriesPatch])`
+ * @property queries - The saved queries record, bound with its patch mutation — `Record.bind(queries)`
  * @property datasets - The data sources a query may read: each name, as a query reads it, to its binding
  * @property id - Names the builder whose open query it writes, when a surface holds two
  * @property onOpen - Told a query's name when it opens one in the builder — the host shows the builder
  */
 export interface QueryLibraryOptions {
-    /** The saved queries record, bound with its patch mutation — `Record.bind(queries, [queriesPatch])`. */
+    /** The saved queries record, bound with its patch mutation — `Record.bind(queries)`. */
     queries: QueriesHandle;
     /**
      * The data sources a query may read: each name, as a query reads it
@@ -144,7 +144,7 @@ export interface QueryLibraryOptions {
  *     <Reactive>{$ => {
  *         const orders    = $.let(Data.bindPaged(d.orders));
  *         const customers = $.let(Data.bind(d.customers));
- *         const saved     = $.let(Record.bind(d.queries, [d.queriesPatch]));
+ *         const saved     = $.let(Record.bind(d.queries));
  *         return <Query.Library queries={saved} datasets={{ orders, customers }} />;
  *     }}</Reactive>
  * )));

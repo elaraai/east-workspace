@@ -25,7 +25,7 @@
  * - **Geometry is drawn about its entity's anchor** (D22, SC35): a footprint
  *   needs the item's box, `width` and `height`, or it is refused.
  * - **How a kind is bound follows how it is read** (§1, rule 4; SC33):
- *   editable bound `Record.bind(record, [e3.mutation.patch(record)])` — read
+ *   editable bound `Record.bind(record), its record declaring patch: mutation.patch()` — read
  *   whole, or through its source of the slice with `entries:
  *   Data.bindPaged(record)` beside it — and read only bound `Data.bind(record)`,
  *   read whole, or `Data.bindPaged(record)`, read through its source. Every
@@ -138,7 +138,7 @@ export type SchematicRecord<R extends StructType> =
     | { readonly page: (...args: never[]) => ExprType<OptionType<DictType<StringType, R>>>; readonly revision: unknown };
 
 /** The binding forms, as the refusals name them. */
-const FORMS = "Record.bind(record, [e3.mutation.patch(record)]) to edit it, or Data.bind(record) or Data.bindPaged(record) to read it only";
+const FORMS = "Record.bind(record), its record declaring patch: mutation.patch() to edit it, or Data.bind(record) or Data.bindPaged(record) to read it only";
 
 /** A kind's record, bound: how, its handle, and its row type. */
 interface Bound {
@@ -195,7 +195,7 @@ function boundOf(record: unknown, where: string): Bound {
         checkEntries(record, StringType, rowType, `${where}: \`record\``);
     }
     if (form === "record") {
-        // The patch door: e3.mutation.patch's, the mutation named `patch` taking the record's patch.
+        // The patch door: the record's mutation.patch(), the mutation named `patch` taking the record's patch.
         const commit = fields["commit"];
         const door = commit?.type === "Struct" ? (commit.fields as Record<string, EastType>)["patch"] : undefined;
         if (door === undefined || !isTypeEqual(door, AsyncFunctionType([StringType, PatchType(recordType)], RecordOutcomeType))) {
@@ -232,7 +232,7 @@ function readsOf(bound: Bound, entries: ExprType<EastType> | undefined, slot: st
     }
     if (bound.form === "data") {
         throw new Error(`${where}: Data.bind(record) reads the record whole, which a source of the slice exists to avoid — ` +
-            `bind it Data.bindPaged(record) to read it through its source "${slot}", or Record.bind(record, [e3.mutation.patch(record)]) with entries to edit it`);
+            `bind it Data.bindPaged(record) to read it through its source "${slot}", or Record.bind(record), its record declaring patch: mutation.patch() with entries to edit it`);
     }
     if (bound.form === "record" && entries === undefined) {
         throw new Error(`${where}: the slice's source "${slot}" reads only its narrowing — and a row is read by its key, the inspector's, a gesture's ` +
@@ -607,8 +607,8 @@ export interface SchematicDetails {
  * @typeParam R - The details record's row type
  * @typeParam SF - Its status field
  * @param record - The details record, bound as its kind is read: read whole beside a kind read whole —
- *   `Data.bind(record)`, or `Record.bind(record, [patch])`; by key beside a kind read through its source —
- *   `Data.bindPaged(record)`, or `Record.bind(record, [patch])` with `entries`
+ *   `Data.bind(record)`, or `Record.bind(record)`; by key beside a kind read through its source —
+ *   `Data.bindPaged(record)`, or `Record.bind(record)` with `entries`
  * @param config - Its card roles, its form, its own Details and its `entries`
  * @returns The details, for a kind's `details`
  * @throws {Error} Naming the role or the binding: a role naming a field the row lacks or of another type, an accessor
@@ -639,7 +639,7 @@ export function schematicDetails<R extends StructType, SF extends ScheduleStatus
             if (!throughSource) {
                 if (bound.form === "paged") {
                     throw new Error(`${at}: beside a kind read whole, its details are read whole — bind them Data.bind(record), ` +
-                        "or Record.bind(record, [e3.mutation.patch(record)]) to edit them");
+                        "or Record.bind(record), its record declaring patch: mutation.patch() to edit them");
                 }
                 if (entries !== undefined) {
                     throw new Error(`${at}: \`entries\` reads the details by key beside a kind read through its source — this kind is read whole, ` +
@@ -648,7 +648,7 @@ export function schematicDetails<R extends StructType, SF extends ScheduleStatus
             } else {
                 if (bound.form === "data") {
                     throw new Error(`${at}: beside a kind read through its source, its details are read by key — bind them Data.bindPaged(record), ` +
-                        "or Record.bind(record, [e3.mutation.patch(record)]) with entries: Data.bindPaged(record) to edit them");
+                        "or Record.bind(record), its record declaring patch: mutation.patch() with entries: Data.bindPaged(record) to edit them");
                 }
                 if (bound.form === "record" && entries === undefined) {
                     throw new Error(`${at}: beside a kind read through its source, its details are read by key — give \`entries: Data.bindPaged(record)\` ` +
@@ -797,7 +797,7 @@ export interface SchematicItems extends KindDeclaration<"items", typeof Schemati
  * @typeParam X - The `x` field
  * @typeParam Y - The `y` field
  * @typeParam SF - The status field, when it has one
- * @param record - The app's record of items: `Record.bind(record, [e3.mutation.patch(record)])` to edit it, or `Data.bind(record)`
+ * @param record - The app's record of items: `Record.bind(record), its record declaring patch: mutation.patch()` to edit it, or `Data.bind(record)`
  *   or `Data.bindPaged(record)` to read it only (§1, rule 4)
  * @param config - Its name and icon, the fields its roles are, its accessors, and its details, templates, form, Details and check
  * @returns The kind, for the Schematic's `items`, by slot

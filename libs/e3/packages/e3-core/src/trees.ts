@@ -235,9 +235,6 @@ export async function workspaceResolveDataset(
   let currentStructure = rootStructure;
   for (let i = 0; i < treePath.length; i++) {
     const segment = treePath[i]!;
-    if (segment.type !== 'field') {
-      throw new Error(`Unsupported path segment type: ${segment.type}`);
-    }
     if (currentStructure.type !== 'struct') {
       const pathSoFar = treePath.slice(0, i).map(s => s.value).join('.');
       throw new Error(`Cannot descend into non-struct at path '${pathSoFar}'`);
@@ -609,10 +606,6 @@ export async function workspaceListTree(
   let currentStructure = rootStructure;
   for (let i = 0; i < treePath.length; i++) {
     const segment = treePath[i]!;
-    if (segment.type !== 'field') {
-      throw new Error(`Unsupported path segment type: ${segment.type}`);
-    }
-
     if (currentStructure.type !== 'struct') {
       const pathStr = treePath.slice(0, i).map(s => s.value).join('.');
       throw new Error(`Path '${pathStr}' points to a dataset, not a tree`);
@@ -662,7 +655,6 @@ export async function workspaceGetDataset(
   let currentStructure = rootStructure;
   for (let i = 0; i < treePath.length; i++) {
     const segment = treePath[i]!;
-    if (segment.type !== 'field') throw new Error(`Unsupported path segment type: ${segment.type}`);
     if (currentStructure.type !== 'struct') throw new Error(`Cannot descend into non-struct`);
     const child = currentStructure.value.get(segment.value);
     if (!child) throw new Error(`Field '${segment.value}' not found in structure`);
@@ -1032,7 +1024,6 @@ export async function workspaceGetTree(
   let targetStructure = rootStructure;
   let pathPrefix = '';
   for (const segment of treePath) {
-    if (segment.type !== 'field') throw new Error(`Unsupported path segment type: ${segment.type}`);
     if (targetStructure.type !== 'struct') throw new Error('Cannot descend into non-struct');
     const child = targetStructure.value.get(segment.value);
     if (!child) throw new Error(`Field '${segment.value}' not found`);
@@ -1204,7 +1195,6 @@ export async function packageListTree(
   let currentStructure = rootStructure;
   for (let i = 0; i < path.length; i++) {
     const segment = path[i]!;
-    if (segment.type !== 'field') throw new Error(`Unsupported path segment type: ${segment.type}`);
     if (currentStructure.type !== 'struct') throw new Error('Path points to a dataset, not a tree');
     const child = currentStructure.value.get(segment.value);
     if (!child) throw new Error(`Field '${segment.value}' not found`);

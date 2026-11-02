@@ -6,8 +6,8 @@
 /**
  * `Studio.component` (#991): the component's struct, its `reads` from its
  * code, a surface's manifest as the union of its listed components' reads
- * (K2), a fingerprint that follows the code and nothing else (K4), and a
- * component's function as `ui()` takes it (K1). How a placement draws its
+ * (K2), a component's function as `ui()` takes it (K1), and what it reads
+ * named in words, never a keypath (B3, B9, B17). How a placement draws its
  * component — the component, a placeholder naming an unlisted key (K5), an
  * error naming a shared key (K7), two placements sharing its State (K3) — is
  * the renderers', tested in the DOM.
@@ -15,6 +15,7 @@
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 
 import {
     ArrayType, East, FloatType, StringType, StructType, equalFor, some, variant,
@@ -24,7 +25,8 @@ import { TreePathType } from "@elaraai/e3-types";
 import { input } from "@elaraai/e3";
 import { Reactive, Text, UIComponentType } from "@elaraai/east-ui/internal";
 
-import { Data, DataManifestType, Studio, deriveManifest, fingerprintOf, ui } from "@elaraai/e3-ui";
+import { Data, DataManifestType, Studio, deriveManifest, ui } from "@elaraai/e3-ui";
+import { dataName, readNames } from "@elaraai/e3-ui/internal";
 
 const manifestEqual = equalFor(DataManifestType);
 const pathKey = (p: ValueTypeOf<typeof TreePathType>) => p.map((s) => `${s.type}:${s.value}`).join("/");
@@ -85,25 +87,23 @@ describe("Studio.component (#991)", () => {
         const task = ui("studio_component_as_ui", [], salesFn);
         assert.ok(manifestEqual(task.role.value!, East.compile(East.function([], Studio.Types.Component, (_$) => revenue), [])().reads));
     });
-
-    test("K4: the same code fingerprints the same wherever it is written; changed code does not", () => {
-        // Built apart, with other functions built between them.
-        const again = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-            const rows = $.let(Data.bind(sales));
-            return Text.Root(East.print(rows.read().size()));
-        })));
-        assert.equal(fingerprintOf(again), fingerprintOf(salesFn));
-        assert.equal(
-            East.compile(East.function([], Studio.Types.Component, (_$) =>
-                Studio.component("revenue_again", { name: "Again", category: "Charts", icon: "chart-area" }, again)), [])().fingerprint,
-            East.compile(East.function([], Studio.Types.Component, (_$) => revenue), [])().fingerprint);
-        // One change to the code — a different binding — changes it.
-        assert.notEqual(fingerprintOf(visitsFn), fingerprintOf(salesFn));
-        const counted = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-            const rows = $.let(Data.bind(sales));
-            return Text.Root(East.print(rows.read().size().add(1n)));
-        })));
-        assert.notEqual(fingerprintOf(counted), fingerprintOf(salesFn));
-        assert.match(fingerprintOf(salesFn), /^[0-9a-f]{64}$/);
-    });
 });
+
+/** A path of fields, as e3 holds one. */
+const pathOf = (...fields: string[]) => fields.map((field) => variant("field", field));
+
+describeEast("What a component reads, in words — never a keypath (B3, B9, B17)", (test) => {
+    test("data by its own name, a task's output by its task's: each word apart, the first upper case", $ => {
+        $(Assert.equal(dataName(pathOf("inputs", "sales_daily")), "Sales daily"));
+        $(Assert.equal(dataName(pathOf("tasks", "weeklyForecast", "output")), "Weekly forecast"));
+        $(Assert.equal(dataName(pathOf("records", "work-orders")), "Work orders"));
+        $(Assert.equal(dataName(pathOf("inputs", "_scrap__rate_")), "Scrap rate"));
+    });
+
+    test("a component's reads, each named so; one that reads nothing names none", $ => {
+        $(Assert.equal(readNames(revenue.reads), ["Studio sales"]));
+        const note = $.let(Studio.component("note", { name: "Note", category: "Display", icon: "note-sticky" },
+            East.function([], UIComponentType, (_$) => Text.Root("A note"))));
+        $(Assert.equal(readNames(note.reads), []));
+    });
+}, { platformFns: TestImpl });

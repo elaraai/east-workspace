@@ -147,7 +147,7 @@ type an application changes. east-ui's `Schematic` arm goes from
 | D16 | Selection is built in: a tap, Shift to extend, and the Marquee tool. | the Flowchart's selection (my call) |
 | D17 | Links and nets are read complete. A drawn link's end outside the window is read by its key, all of a window's in one request (§10.4). | my call: a link's row has no box of its own |
 | D18 | **Bindings follow reads.** A kind or a details record read through its source binds `Record.bind` with `entries`, or `Data.bindPaged` read only; one read whole binds `Record.bind` or `Data.bind`. Every other form is refused (§1, rule 4). | `Schedule.resources`' paged form (#1199) and the preload finding (#1343) |
-| D19 | **The window is a case of the one choice type.** The record slice's choice type gains `window`, which a read gives under an area index's `__area` and the rail never holds or shows. A narrowing is a `Dict` of choices, which beast2 reads at exactly the type it was written with, so one an earlier build wrote (a browser's kept rail, a Sheet's saved views) does not read under the new type and resets. No second type keeps it readable (§11.4, §16). | ruled 22 Oct 2026: while the product is unreleased, no type is added to keep earlier saved filters readable. The first draft's claim that they would still decode was wrong |
+| D19 | **The window is a case of the one choice type.** The record slice's choice type gains `window`, which a read gives under an area index's `__area` and the rail never holds or shows. A narrowing is a `Dict` of choices, which beast2 reads at exactly the type it was written with, so one an earlier build wrote (a browser's kept rail, a Sheet's saved views) does not read under the new type and resets. No second type keeps it readable (§11.4, §16). **Superseded (#1432):** a read by area gives its window, or its unplaced rows, beside the narrowing (`RecordSliceReadType`), and the choice type holds no `window`. | ruled 22 Oct 2026: while the product is unreleased, no type is added to keep earlier saved filters readable. The first draft's claim that they would still decode was wrong |
 | D20 | **An area index with no `on`.** A kind read by area declares one, which reads the window whatever the rail chooses; an area index led by a field, beside it, reads a choice of that field and the window in one, while their searches stay within the record slice's bounds (§10.4). | my call: an index led by a field can't read a window for a rail that doesn't choose that field |
 | D21 | **A constructor per generated index.** Each index that answers more than an order has its own constructor, its options typed by the row: `e3.recordIndex.interval` (the events overlapping a time window: `from`, `to`), `e3.recordIndex.area` (the boxes meeting a window: `x`, `y`, `width`, `height`, `at`), and the per-key time series #1039 is re-designed as (`{ key, at }`). `e3.recordIndex` keeps the plain indexes (`on`, `key`, `keys`) and refuses `interval`, naming the constructor (§11.1). | my call, 22 Oct, on the user's questions: "Are we sure we shouldn't just have explicit dx for different index types?"; "one of these index types is temporal, another is key temporal, i.e. { key: string, at: date }" |
 | D22 | **Geometry is drawn about its entity's anchor**, an item's centre or a zone's box centre, inside its box. Move writes `x` and `y` and the outline follows, a template's outline lands where it is dropped, and the area index boxes every row by its fields, so no computed box or `Schematic.areaBox` is needed (§4.7). | my call, 22 Oct, on the user's question "why Schematic.areaBox?": today's move overlay writes `x` and `y` alone, and leaves a world-coordinate outline behind |
@@ -772,6 +772,12 @@ interface AreaIndexSpec<T extends EastType> {
 
 ### 11.2 Its keys
 
+**Superseded in part (#1432):** the key is `{ on, area }` — the leading fields
+under `on`, the cell's code beside it — so no row field's name is reserved, a
+definition's `on` lists the leading fields alone, and a read by area gives its
+window or its unplaced clause beside the narrowing, never under a field. The
+rest of this section, and §11.3–§11.4, read with that.
+
 The index is an ordinary multi-entry index, generated as the interval index's
 key function is (`e3/src/record-interval.ts`), so the build, mutation, storage,
 transport and reindex are shared.
@@ -919,7 +925,8 @@ export const jobsByMachineWeek = e3.recordIndex.series("jobs_by_machine_week", j
 });
 ```
 
-- **Its keys** are `{ …on, __tile, …key, start }`: each event filed under each
+- **Its keys** — superseded (#1039 built `{ …on, __tile, <key> }`, and #1432
+  `{ on, tile, key }`, the leading fields under `on`) — are `{ …on, __tile, …key, start }`: each event filed under each
   `tile` it touches, so inside a tile the events sit in the rows' key order.
   A rows × tile rectangle is one range when the rows are contiguous in that
   order, and a range per row inside the tile otherwise.

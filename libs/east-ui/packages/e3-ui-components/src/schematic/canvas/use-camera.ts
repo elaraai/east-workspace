@@ -321,8 +321,10 @@ export function useCameraMoves({
     }, [cancelFlyRaf]);
 
     // Animated fly-to: frame a world rect with padding, writing the live camera
-    // each frame (cancellable by any user input via the mode machine).
-    const flyTo = useCallback((rect: { x: number; y: number; w: number; h: number }) => {
+    // each frame (cancellable by any user input via the mode machine) — in the
+    // view's width less what covers it from its right, `clearRight` px: a
+    // popover hung over the canvas, while a third of the view stays clear.
+    const flyTo = useCallback((rect: { x: number; y: number; w: number; h: number }, clearRight = 0) => {
         if (renderSnapRef.current.size === null || renderSnapRef.current.fit === 0) return;
         // Re-derive the destination from the LIVE viewport every frame, so a
         // resize mid-fly (a pane opening, a window resize) re-aims the landing
@@ -330,10 +332,11 @@ export function useCameraMoves({
         const frame = (): Viewport | null => {
             const sz = renderSnapRef.current.size, ft = renderSnapRef.current.fit;
             if (sz === null || ft === 0) return null;
-            const zoom = Math.min(renderSnapRef.current.maxZoom, Math.min(sz.w / (rect.w * FLY_PAD * ft), sz.h / (rect.h * FLY_PAD * ft)));
+            const w = clearRight > 0 && sz.w - clearRight >= sz.w / 3 ? sz.w - clearRight : sz.w;
+            const zoom = Math.min(renderSnapRef.current.maxZoom, Math.min(w / (rect.w * FLY_PAD * ft), sz.h / (rect.h * FLY_PAD * ft)));
             return {
                 zoom,
-                tx: sz.w / 2 - (rect.x + rect.w / 2) * ft * zoom,
+                tx: w / 2 - (rect.x + rect.w / 2) * ft * zoom,
                 ty: sz.h / 2 - (rect.y + rect.h / 2) * ft * zoom,
             };
         };

@@ -5,7 +5,7 @@
  * The Plan's events read by cells, and every other kind counted first (#1039):
  * the Plan's adapter to the shared reader (`shared/schedule/cells.ts`), which
  * reads each event kind placed on a paged resource kind a cell at a time — the
- * events of the resources in view, tile by tile — and counts every other kind
+ * events of the resources in view, a level at a time (#1433) — and counts every other kind
  * before one of its events is read, past `SCHEDULE_EVENT_CAP` of them drawing
  * none: its rows shade from its source's summary, or are hatched, the frame's
  * banner saying how many there are. A kind on a paged resource kind is read so

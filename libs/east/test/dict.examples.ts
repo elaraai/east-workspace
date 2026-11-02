@@ -403,6 +403,15 @@ export const dictFilterMap = example({
     returns: new Map([[1n, "1:a"], [3n, "3:c"]]),
 });
 
+export const dictFilterMapRetype = example({
+    keywords: ["dict", "DictType", "filterMap", "transform", "option", "convert", "type"],
+    description: "Keep some of a dict's entries, each as a value of another type: the result is a Dict of what the function keeps",
+    fn: East.function([DictType(StringType, IntegerType)], DictType(StringType, FloatType), ($, counts) =>
+        counts.filterMap((_$, count) => East.equal(count.remainder(2n), 0n).ifElse(_$ => some(count.toFloat()), _$ => none))),
+    inputs: [new Map([["a", 1n], ["b", 2n], ["c", 3n], ["d", 4n]])],
+    returns: new Map([["b", 2.0], ["d", 4.0]]),
+});
+
 export const dictReduce = example({
     keywords: ["dict", "DictType", "reduce", "fold", "accumulate"],
     description: "Reduce dict entries to a single value",
@@ -641,4 +650,51 @@ export const dictToTree = example({
             ],
         },
     ],
+});
+
+const DictTreePartType = RecursiveType(self => StructType({ name: StringType, cost: FloatType, parts: DictType(StringType, self) }));
+
+/** A pump of a motor (of a rotor) and a seal, and a valve: four levels' worth of parts. */
+const dictTreeParts = new Map([
+    ["pump", {
+        name: "Pump", cost: 10.0, parts: new Map([
+            ["motor", { name: "Motor", cost: 20.0, parts: new Map([["rotor", { name: "Rotor", cost: 5.0, parts: new Map() }]]) }],
+            ["seal", { name: "Seal", cost: 1.0, parts: new Map() }],
+        ]),
+    }],
+    ["valve", { name: "Valve", cost: 3.0, parts: new Map() }],
+]);
+
+export const dictFlattenTree = example({
+    keywords: ["dict", "DictType", "flattenTree", "tree", "flatten", "walk", "depth first", "path", "nodes", "inverse", "toTree", "RecursiveType"],
+    description: "Flatten a tree whose children are a Dict: every node with its path of keys, depth first",
+    fn: East.function([], ArrayType(StructType({ path: ArrayType(StringType), name: StringType })), ($) => {
+        const parts = $.const(dictTreeParts, DictType(StringType, DictTreePartType));
+        return parts.flattenTree((_$, part) => part.unwrap().parts).map((_$, entry) => ({ path: entry.path, name: entry.node.unwrap().name }));
+    }),
+    inputs: [],
+    returns: [
+        { path: ["pump"], name: "Pump" },
+        { path: ["pump", "motor"], name: "Motor" },
+        { path: ["pump", "motor", "rotor"], name: "Rotor" },
+        { path: ["pump", "seal"], name: "Seal" },
+        { path: ["valve"], name: "Valve" },
+    ],
+});
+
+export const dictFlattenTreeRollup = example({
+    keywords: ["dict", "DictType", "flattenTree", "toTree", "tree", "rollup", "subtotal", "bottom-up", "subtree", "total", "path", "parent"],
+    description: "Total a tree bottom-up: flatten it, then toTree over the paths, each node's parent its path less its last key",
+    fn: East.function([], ArrayType(FloatType), ($) => {
+        const parts = $.const(dictTreeParts, DictType(StringType, DictTreePartType));
+        const nodes = $.let(parts.flattenTree((_$, part) => part.unwrap().parts));
+        return nodes.toTree(
+            FloatType,
+            (_$, entry) => entry.path,
+            (_$, entry) => East.greater(entry.path.size(), 1n).ifElse(() => some(entry.path.slice(0n, entry.path.size().subtract(1n))), () => none),
+            (_$, entry, _i, children) => children.sum().add(entry.node.unwrap().cost),
+        );
+    }),
+    inputs: [],
+    returns: [36.0, 3.0],
 });

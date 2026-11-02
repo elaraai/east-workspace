@@ -32,7 +32,7 @@ import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
 import type { PlanElementRefValue } from "./context.js";
-import { blocksSource, oneBlock, rowId, rowSel } from "./plan.test-utils.js";
+import { blocksSource, oneBlock, keySurface, rowId, rowSel } from "./plan.test-utils.js";
 import { RAIL_MODULES, bindRail, type Rail } from "./rail.test-utils.js";
 
 e3Harness(RAIL_MODULES, { measure: false });
@@ -104,7 +104,7 @@ function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date |
         hover: opts?.hover !== undefined ? some(opts.hover) : none,
         expandRender: opts?.expandRender !== undefined ? some(opts.expandRender) : none,
         pick: opts?.pick !== undefined ? some(opts.pick) : none,
-        slice: opts?.slice ?? none,
+        slice: opts?.slice ?? none, nested: none,
         footer: opts?.footer ?? [],
         id: none, sources: [], editing: none, canDrop: none,
         onSelect: none,
@@ -139,7 +139,7 @@ describe("Plan selection + esc ladder", () => {
         expect(row().hasAttribute("data-selected")).toBe(true);
         fireEvent.click(row());
         expect(row().hasAttribute("data-selected")).toBe(true);
-        const surface = container.querySelector('[tabindex="0"]')!;
+        const surface = keySurface(container);
         fireEvent.keyDown(surface, { key: "Escape" });
         expect(row().hasAttribute("data-selected")).toBe(false);
     });
@@ -273,7 +273,7 @@ describe("Plan element clicks (#569, #824)", () => {
 /** The rail over the dated rows' source — W27's and W39's — its window W27..W39: what the keys and the segment write. */
 const weekly = (key: string, affordances: readonly RecordSliceAffordance[] = []): Promise<Rail> => bindRail(() => Slice.bindRecords(key, {
     dated: {
-        source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
+        source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_at"] }),
         fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
     },
 }), affordances);
@@ -285,7 +285,7 @@ describe("Plan keyboard rungs (#569)", () => {
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             slice: some(rail.chrome),
         }), "plan-kbd-pan");
-        const surface = container.querySelector('[tabindex="0"]')!;
+        const surface = keySurface(container);
         const range = () => { const w = recordSliceWindow(part)!; return { from: new Date(w.min), to: new Date(w.max) }; };
 
         // A record's range is half-open, as the window is (#1344) — and read
@@ -306,7 +306,7 @@ describe("Plan keyboard rungs (#569)", () => {
 
     test("without a slice the pan rungs idle — the declared window is not writable", () => {
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))]), "plan-kbd-unbound");
-        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "[" });
+        fireEvent.keyDown(keySurface(container), { key: "[" });
         expect(screen.getByText("W27")).toBeTruthy();
         expect(screen.queryByText("W26")).toBeNull();
     });
@@ -314,9 +314,9 @@ describe("Plan keyboard rungs (#569)", () => {
     test("g cycles the grain — the reducer arm is finally reachable", () => {
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))]), "plan-kbd-grain");
         expect(screen.getAllByText("RESOURCE").length).toBeGreaterThan(0);
-        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "g" });
+        fireEvent.keyDown(keySurface(container), { key: "g" });
         expect(screen.getAllByText("GROUP").length).toBeGreaterThan(0);
-        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "g" });
+        fireEvent.keyDown(keySurface(container), { key: "g" });
         expect(screen.getAllByText("RESOURCE").length).toBeGreaterThan(0);
     });
 });
@@ -417,7 +417,31 @@ describe("Plan interaction fixes (#615)", () => {
         fireEvent.pointerUp(track, { clientX: 302, pointerId: 1 });
 
         // ONE Escape clears the selection — nothing ate it.
-        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "Escape" });
+        fireEvent.keyDown(keySurface(container), { key: "Escape" });
+        expect(container.querySelector(rowSel("m1"))!.hasAttribute("data-selected")).toBe(false);
+    });
+
+    test("a press on the strip's window let go off the strip, having changed nothing, leaves no phantom esc rung either (#1440)", async () => {
+        const rail = await weekly("plan.brush.offstrip", ["brush"]);
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
+            slice: some(rail.chrome),
+        }), "plan-brush-offstrip");
+        await settle();
+        fireEvent.click(container.querySelector(rowSel("m1"))!);
+        expect(container.querySelector(rowSel("m1"))!.hasAttribute("data-selected")).toBe(true);
+        const track = container.querySelector("[data-brush-track]") as HTMLElement;
+        Object.defineProperty(track, "getBoundingClientRect", {
+            value: () => ({ left: 0, top: 0, right: 1000, bottom: 32, width: 1000, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
+        });
+        // Pressed on the window's middle, then straight down off the strip and let go over the page: no travel along
+        // the track, so the release changes nothing, and the strip's row never hears it.
+        const window = track.querySelector("[data-brush-window]") as HTMLElement;
+        const x = (parseFloat(window.style.left) + parseFloat(window.style.width) / 2) * 10;
+        fireEvent.pointerDown(track, { clientX: x, clientY: 16, pointerId: 1, buttons: 1 });
+        fireEvent.pointerMove(document.body, { clientX: x, clientY: 300, pointerId: 1, buttons: 1 });
+        fireEvent.pointerUp(document.body, { clientX: x, clientY: 300, pointerId: 1 });
+        // ONE Escape clears the selection — nothing ate it.
+        fireEvent.keyDown(keySurface(container), { key: "Escape" });
         expect(container.querySelector(rowSel("m1"))!.hasAttribute("data-selected")).toBe(false);
     });
 

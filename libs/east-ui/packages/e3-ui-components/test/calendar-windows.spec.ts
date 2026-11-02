@@ -46,9 +46,9 @@ const jobReads = () => h.requests().filter((request) => request.dataset === JOBS
 const pressReads = () => h.requests().filter((request) => request.dataset === PRESSES).map((request) => request.kind);
 
 /** The windows example's Calendar (`calendarWindows`), its payload declared in East over e3, its `job` source over the indexes given. */
-function windowsPayload($: BlockBuilder<typeof CalendarPayloadType>, indexes: readonly unknown[]): ExprType<typeof CalendarPayloadType> {
+function windowsPayload($: BlockBuilder<typeof CalendarPayloadType>, indexes: readonly string[]): ExprType<typeof CalendarPayloadType> {
     const presses = $.let(Data.bindPaged(ex.planWindowPresses));
-    const jobs = $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.let(Record.bind(ex.planWindowJobs, ["patch"]));
     const entries = $.let(Data.bindPaged(ex.planWindowJobs));
     // The indexes are the test's to vary, so the source is built over whichever it lists.
     const job = { source: Data.bindPaged(ex.planWindowJobs, { indexes: indexes as never }), range: "start" };
@@ -68,7 +68,7 @@ function windowsPayload($: BlockBuilder<typeof CalendarPayloadType>, indexes: re
 }
 
 /** The payload, built over e3 as a UI task's preview builds it, its slice made on the record Slice's platform over e3's pages. */
-async function payloadOf(indexes: readonly unknown[] = [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth]): Promise<Payload> {
+async function payloadOf(indexes: readonly string[] = ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"]): Promise<Payload> {
     const program = East.function([], CalendarPayloadType, ($) => windowsPayload($, indexes));
     const { platform } = await h.platform(program);
     StateRuntime.initializeStore(new UIStore());
@@ -111,8 +111,8 @@ describe("the paged seam the Calendar reads its presses through (#1424)", () => 
 
 describe("a source's series and summary indexes, refused as the Calendar is evaluated (#1424)", () => {
     /** The two indexes a refusal names, declared over the jobs' own fields: their press, their start and their end. */
-    const series = String.raw`e3\.recordIndex\.series\(name, record, \{ key: "press", from: "start", to: "end", tile: "week" \}\)`;
-    const summary = String.raw`e3\.recordIndex\.summary\(name, record, \{ key: "press", from: "start", to: "end", tile: "month" \}\)`;
+    const series = String.raw`index\.series\(\{ key: "press", from: "start", to: "end", tile: "week" \}\)`;
+    const summary = String.raw`index\.summary\(\{ key: "press", from: "start", to: "end", tile: "month" \}\)`;
     const paged = String.raw`, and the kind is placed on resources\.presses, paged — a paged kind's events are read a cell at a time`;
 
     test("the example's three build", async () => {
@@ -120,19 +120,19 @@ describe("a source's series and summary indexes, refused as the Calendar is eval
     });
 
     test("its interval index alone: refused, naming the series and the summary index to declare", async () => {
-        await assert.rejects(payloadOf([ex.planWindowJobsByTime]),
+        await assert.rejects(payloadOf(["plan_window_jobs_by_time"]),
             new RegExp(String.raw`^.*Calendar: events\.job's source lists no series index and no summary index${paged}, and shaded past what the Calendar draws: ` +
                 `declare ${series} and ${summary} over the same record and list them beside its interval index`));
     });
 
     test("a summary and no series index: refused, naming the series index to declare", async () => {
-        await assert.rejects(payloadOf([ex.planWindowJobsByTime, ex.planWindowJobsByPressMonth]),
+        await assert.rejects(payloadOf(["plan_window_jobs_by_time", "plan_window_jobs_by_press_month"]),
             new RegExp(String.raw`^.*Calendar: events\.job's source lists the summary index "plan_window_jobs_by_press_month", and no series index${paged}, ` +
                 `through a series index: declare ${series} over the same record and list it beside the summary index`));
     });
 
     test("a series and no summary index: refused, naming the summary index to declare", async () => {
-        await assert.rejects(payloadOf([ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek]),
+        await assert.rejects(payloadOf(["plan_window_jobs_by_time", "plan_window_jobs_by_press_week"]),
             new RegExp(String.raw`^.*Calendar: events\.job's source lists the series index "plan_window_jobs_by_press_week", and no summary index — the Calendar ` +
                 String.raw`draws a series index's events while they fit, and its summary's shading past that: declare ${summary} over the same record and list it beside the series index`));
     });

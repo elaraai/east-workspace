@@ -15,6 +15,16 @@
  * @packageDocumentation
  */
 
+// Kept state (see platform/kept.ts): the one way a renderer keeps state in the
+// browser — a value read before the first draw and written before its task
+// ends, its codecs and the readers of plain view state's shape; another store
+// cleared with it at a sign-out.
+export {
+    kept, useKept, keptText, keptFlag, keptBytes, keptJson, keptRead, NOT_KEPT, onClearKept, keptName, resetKept,
+    type Kept, type KeptCodec, type KeptOptions, type KeptReader,
+} from "./platform/kept.js";
+// A developer's debug flag, set by hand in the browser's console.
+export { debugFlag } from "./platform/debug-flag.js";
 // Formatting: a tick's spec and printers, a date pattern's printer and reader,
 // the theme's colour lookup, and a density's row heights.
 export { formatDatePattern, parseDatePattern, tickFormatter, type TickFormat } from "./charts/spec/index.js";
@@ -52,16 +62,17 @@ export { dateTimeSlot, numberSlot, stringSlot } from "./dnd/slot-key.js";
 // The date field's parts and its conversions — the Sheet's date editor.
 export { CompoundDateField, CompoundDateInput, CompoundDateSegment } from "./forms/input/date/index.js";
 export { dateToCalendarDate, dateValueToDate } from "./forms/input/index.js";
-// The editing session's parts: its bar, a draft's presentation and checks, and its words.
+// The editing session's parts: its bar, a draft's presentation and checks, its words, and the data set it belongs to.
 export { HistoryBar } from "./editing/HistoryBar.js";
+export { EditingScope } from "./editing/scope.js";
 export {
-    CLEAN_DRAFT, kindOfIssue, normalizeDraft, presentDraft, raiseIssue, wholeEntryReadiness, type DraftPresentation,
+    CLEAN_DRAFT, conflictMarks, kindOfIssue, normalizeDraft, presentDraft, raiseIssue, wholeEntryReadiness, type ConflictMarks, type DraftPresentation,
 } from "./editing/draft.js";
 export { DRAFT_ISSUE_TEXT, SESSION_TEXT, type EditHistoryWord } from "./editing/messages.js";
 export { type EditSource } from "./editing/use-edit-session.js";
 // The Slice: its bound range, the brush, the rail's toolbar items, and density.
 export { boundRangeDomain, boundRangeHistogram } from "./platform/slice/index.js";
-export { BrushStrip } from "./slice/brush-strip.js";
+export { BrushStrip, type BrushBucket, type BrushStripProps, type BrushWords } from "./slice/brush-strip.js";
 export { SliceDensityContext } from "./slice/density.js";
 export { railAffordanceKinds } from "./slice/rail-kinds.js";
 export { HOST_RANK, useSliceToolbarItems } from "./slice/rail/index.js";
@@ -84,10 +95,11 @@ export { recordSliceWindow, recordSliceDomain, recordSliceWindowFits, setRecordS
 // read at (#1039) — the Plan's events; a window of its record's own rows, by position — the Schematic's Find (#1404); and an
 // area index's cells, counted and read, the bounds of a density raster's searches and the entries of some of their runs,
 // and another record's rows under the keys the cells' and the runs' entries name — the Schematic's window and its details
-// (#1393).
+// (#1393); and a generated index's `on` printer, which those searches name its leading values with (#1432).
 export {
     recordSliceSeeded, recordSlicePlace, recordSliceWithin, recordSliceWithinAt, recordSliceSeek, recordSliceCellRuns, recordSliceCellEntries,
     recordSliceCellJoins, recordSliceRows, recordSliceRevision, recordSlicePage, recordSliceBounds, recordSliceRunEntries, recordSliceRunJoins,
+    recordSliceOnPrinter,
 } from "./platform/slice/record.js";
 // The UI store, tracked reads, and the boundary a renderer's East calls run in.
 export { getStore, initializeStore, trackKey } from "./platform/state-runtime.js";
@@ -99,6 +111,8 @@ export { EastErrorBoundary } from "./reactive/error-display.js";
 export { radioGroupKey } from "./primitives/radio-group.js";
 export { parseCssSize } from "./style/parse-size.js";
 export { coarseHitArea } from "./style/hit-area.js";
+// Where a popover opened inside a builder's frame keeps to (#1393): the frame's sides while it fits between them.
+export { frameBounds } from "./overlays/popover/frame-bounds.js";
 // The Plan's slot recipe: in the theme with every recipe, and its geometry measured against it.
 export { planSlotRecipe } from "./theme/slot-recipes/plan.js";
 // A slot recipe's styles made once for the theme and its variants: what a part drawn often reads (#1398, CL9); and a

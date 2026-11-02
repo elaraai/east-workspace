@@ -43,10 +43,12 @@ import {
 } from "@elaraai/east";
 import { Editing, Reactive, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { EastChakraComponent, UIStore, editingMessages, formatters, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
-import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { initializeStore, resetKept } from "@elaraai/east-ui-components/internal";
 import { Flowchart } from "@elaraai/e3-ui/internal";
+import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
 import * as edits from "./edits.js";
 import { act, enabled, flowchartHarness, press, settle, toolbar } from "./flowchart.test-utils.js";
+import { conflictCards } from "../e3-web-mount.test-utils.js";
 import { EastChakraFlowchart, type FlowchartValue } from "./index.js";
 import { flowchartMessages } from "./messages.js";
 
@@ -618,7 +620,23 @@ describe("Save's outcomes (FB23)", () => {
         expect(container.querySelector("[data-session-banner='unknown']")).toBeNull();
     });
 
-    test("the source moving under pending drafts makes them out of date: Save is off, and the banner's Discard takes the source as it stands", async () => {
+    test("a reload keeps the drafts in this tab: the lane added is drawn as it was, still to save", async () => {
+        const { source } = captured(() => FLOWS);
+        const first = await mount(payload(source));
+        await addLane(first.container);
+        const drawn = [...laneHeads(first.container)];
+        expect(drawn).toEqual(["INDUCT", "SORT", "HOLD", laneLabel(4).toUpperCase()]);
+        // A reload: the page and its UI store go; the tab's storage stays.
+        cleanup();
+        initializeStore(new UIStore());
+        resetKept();
+        const { container } = await mount(payload(source));
+        await waitFor(() => expect(laneHeads(container)).toEqual(drawn));
+        expect(pending(container)).toBe(` · ${m.footerPending({ n: 1, count: "1" })}`);
+        expect(enabled(SAVE)).toBe(true);
+    });
+
+    test("the source moving under pending drafts carries them over: another write's rename stands beside the lane drafted here, and Save is on", async () => {
         const { source } = captured(() => FLOWS);
         const { container, rerender } = await mount(payload(source));
         await addLane(container);
@@ -630,12 +648,63 @@ describe("Save's outcomes (FB23)", () => {
             </ChakraProvider>,
         );
         await settle();
-        const banner = container.querySelector("[data-session-banner='stale']")!;
-        expect(banner.textContent).toContain(editingMessages.bannerStale());
-        expect(enabled(SAVE)).toBe(false);
-        await gesture(() => { fireEvent.click(banner.querySelector("[data-banner-action='discard']")!); });
-        expect(container.querySelector("[data-session-banner='stale']")).toBeNull();
-        expect(laneHeads(container)).toEqual(["INDUCT", "SORT", "HOLDING"]);
+        expect(container.querySelector("[data-session-banner]")).toBeNull();
+        expect(laneHeads(container)).toEqual(["INDUCT", "SORT", "HOLDING", laneLabel(4).toUpperCase()]);
+        expect(pending(container)).toBe(` · ${m.footerPending({ n: 1, count: "1" })}`);
+        expect(enabled(SAVE)).toBe(true);
+    });
+
+    test("with another flow open, a flow's conflict still shows: a banner names the flow, and its Choose opens the flow and its conflicts", async () => {
+        await h.commitFlows(FLOWS);
+        const { container } = await h.mountRecord({ flow: "Sort", library: [Flowchart.library.flows()] });
+        await renameLane(container, "sort", "Sortation");
+        // Another write renames the same lane otherwise: a conflict, while the flow is open. Then another flow opened.
+        await h.commitFlows(withFlow(FLOWS, "Sort", edits.renameLane(SORT, "sort", "Sorting")));
+        await waitFor(() => expect(container.querySelector("[data-conflicts]")).not.toBeNull());
+        await act(async () => { fireEvent.click(container.querySelector("[data-frame-slot='start'] [data-library-item='Returns']")!); });
+        await settle();
+        expect(container.querySelector("[data-flowchart-flow]")!.textContent).toBe("Returns");
+        const banner = () => container.querySelector<HTMLElement>("[data-session-banner='conflicts']");
+        await waitFor(() => expect(banner()?.textContent).toContain(`Sort: ${editingMessages.bannerConflicts({ n: 1, count: "1" })}`));
+        await act(async () => { fireEvent.click(banner()!.querySelector("[data-banner-action='choose']")!); });
+        await settle();
+        expect(container.querySelector("[data-flowchart-flow]")!.textContent).toBe("Sort");
+        await waitFor(() => expect(document.querySelectorAll("[data-conflict-card]")).toHaveLength(1));
+    });
+
+    test("a lane renamed here and otherwise by another write is a conflict named by the lane as the flow shows it, and its Go to selects the lane", async () => {
+        const { source } = captured(() => FLOWS);
+        const { container, rerender } = await mount(payload(source));
+        await renameLane(container, "sort", "Sortation");
+        const moved = withFlow(FLOWS, "Sort", edits.renameLane(SORT, "sort", "Sorting"));
+        rerender(
+            <ChakraProvider value={system}>
+                <EastChakraFlowchart value={payload(captured(() => moved).source)} storageKey="flowchart.editing" />
+            </ChakraProvider>,
+        );
+        await settle();
+        const [card, ...more] = await conflictCards(container);
+        expect(more).toEqual([]);
+        expect(card!.item).toBe("Sort / Sortation");
+        expect(container.querySelector("[data-flowchart-lane-selected]")).toBeNull();
+        await gesture(() => { fireEvent.click(card!.goTo()); });
+        expect(container.querySelector('[data-flowchart-lane-selected="sort"]')).not.toBeNull();
+    });
+
+    test("a step moved to one lane here and to another by another write is a conflict whose choices name each lane as the flow does, never by its key", async () => {
+        const { source } = captured(() => FLOWS);
+        const { container, rerender } = await mount(payload(source));
+        await drag(node(container, "SRD"), AT.SRD, AT.hold);
+        const moved = withFlow(FLOWS, "Sort", edits.moveState(SORT, "SRD", "induct"));
+        rerender(
+            <ChakraProvider value={system}>
+                <EastChakraFlowchart value={payload(captured(() => moved).source)} storageKey="flowchart.editing" />
+            </ChakraProvider>,
+        );
+        await settle();
+        const [card, ...more] = await conflictCards(container);
+        expect(more).toEqual([]);
+        expect([card!.item, card!.yours, card!.theirs]).toEqual(["Sort / Sorted", "Yours, Hold", "Theirs, Induct, Changed since you started editing · was Sort"]);
     });
 });
 
@@ -789,5 +858,24 @@ describe("Save's commit (FB22, FB23)", () => {
         expect(flowEqual(readHostFlow(), edits.editState(SORT, "IND", "INX", "Inducted"))).toBe(true);
         await waitFor(() => expect(pending(container)).toBe(` · ${m.footerPending({ n: 0, count: "0" })}`));
         expect([stateKeys(container), enabled(SAVE)]).toEqual([["INX", "CH*", "SRD"], false]);
+    });
+});
+
+describe("the conflicts example (flowchartConflicts)", () => {
+    test("a step renamed here, then Someone else saves, is one conflict named in its flow, the step wearing the ring until it is chosen", async () => {
+        const { container } = await h.mount(ex.flowchartConflicts);
+        await settle();
+        await waitFor(() => expect(container.querySelector('[data-flowchart-node="SCN"]')).not.toBeNull());
+        await editState(container, "SCN", "SCN", "Scanned here");
+        // Someone else's save renames every step: theirs and the name here differ.
+        await act(async () => { fireEvent.click(within(container).getByRole("button", { name: "Someone else saves" })); });
+        await settle();
+        const [card, ...more] = await conflictCards(container);
+        expect(more).toEqual([]);
+        expect(card!.item).toMatch(/^Inbound parcels \/ /);
+        expect(node(container, "SCN").hasAttribute("data-conflict")).toBe(true);
+        await act(async () => { fireEvent.click(card!.radio("source")); });
+        await settle();
+        expect(node(container, "SCN").hasAttribute("data-conflict")).toBe(false);
     });
 });

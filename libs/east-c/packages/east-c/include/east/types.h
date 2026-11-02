@@ -109,6 +109,9 @@ struct EastType {
         // Matches TypeScript RecursiveType({ type: "Recursive", node: ... })
         struct {
             EastType *node;
+            // east_type_structural_id's answer, once has_id is set.
+            int64_t id;
+            bool has_id;
         } recursive;
     } data;
 };
@@ -155,6 +158,15 @@ void east_recursive_type_set(EastType *rec, EastType *node);
 // Call after east_recursive_type_set at serialization boundaries.
 EastType *east_recursive_type_intern(EastType *rec);
 
+// The id every runtime writes a recursive type under: the first 62 bits of the
+// SHA-256 of its canonical beast2 type table, which names a wrapper by its
+// table index and writes no id, so the id is a function of the type alone —
+// TypeScript's `recursiveTypeId` gives the same, and east-py takes it from
+// here. Cached on the type. Returns -1 for a type that is not a recursive
+// wrapper with its node set. Aborts on a second type whose table hashes to an
+// id this process has named: the two would be taken for one type.
+int64_t east_type_structural_id(EastType *type);
+
 // Free the global type registry. Call at shutdown for clean leak reports.
 void east_type_registry_clear(void);
 
@@ -171,6 +183,11 @@ bool east_type_equal(EastType *a, EastType *b);
 // Conservative on the unknown: a NULL type, or a recursive wrapper whose node
 // is not yet set, answers true. Memoised on the type (see gc_can_cycle).
 bool east_type_can_cycle(EastType *t);
+
+// Whether a value of this type can hold a function: the type transitively
+// contains a Function or AsyncFunction (TypeScript's !isDataTypeValue). A
+// NULL type, or a recursive wrapper whose node is not yet set, holds none.
+bool east_type_holds_function(EastType *t);
 
 // Printing (writes to buffer, returns chars written)
 int east_type_print(EastType *t, char *buf, size_t buf_size);

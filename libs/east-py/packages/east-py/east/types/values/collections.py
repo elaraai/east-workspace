@@ -830,6 +830,30 @@ class EastArray(MutableSequence, Generic[T]):
         return _call_builtin("ArrayToTree", [self.element_type, k_t, node],
                              [self, key_cb, parent_cb, build_cb], ArrayType(node))
 
+    def flatten_tree(self, children: Any) -> EastArray:
+        """Every node of a tree of any depth whose roots are the array's
+        elements, each with its path of indices from its root, depth first —
+        the inverse of ``to_tree`` (east-c ArrayFlattenTree; TS
+        ``flattenTree``).
+
+        ``children`` runs once per node, each node before its descendants,
+        siblings in array order. The walk is iterative.
+
+        Args:
+            children: ``children(element[, index]) -> array`` — the node's
+                children, an array of this array's own element type; empty for
+                a leaf.
+
+        Returns:
+            An Array of ``{path, node}`` structs: a root's path is ``[i]``, its
+            child's ``[i, j]``, depth first.
+        """
+        from east.types.types import ArrayType, IntegerType, StructType
+
+        children_cb = EastFunction(_idx_cb(children), [self.element_type, IntegerType], ArrayType(self.element_type))
+        out = ArrayType(StructType([("path", ArrayType(IntegerType)), ("node", self.element_type)]))
+        return _call_builtin("ArrayFlattenTree", [self.element_type], [self, children_cb], out)
+
     def map(self, fn: Any, out: EastType | None = None) -> EastArray:
         """Apply ``fn`` to each element, producing a new array (east-c ArrayMap).
 
@@ -4083,6 +4107,29 @@ class EastDict(Generic[K, V]):
         build_cb = EastFunction(build, [self.value_type, self.key_type, ArrayType(node)], node)
         return _call_builtin("DictToTree", [self.key_type, self.value_type, node],
                              [self, parent_cb, build_cb], ArrayType(node))
+
+    def flatten_tree(self, children: Any) -> EastArray:
+        """Every node of a tree of any depth whose roots are the dict's
+        entries, each with its path of keys from its root, depth first — the
+        inverse of ``to_tree`` (east-c DictFlattenTree; TS ``flattenTree``).
+
+        ``children`` runs once per node, each node before its descendants,
+        siblings in key order. The walk is iterative.
+
+        Args:
+            children: ``children(value[, key]) -> dict`` — the node's
+                children, a dict of this dict's own key and value types; empty
+                for a leaf.
+
+        Returns:
+            An Array of ``{path, node}`` structs: a root's path is ``[key]``,
+            its child's ``[key, child_key]``, depth first.
+        """
+        from east.types.types import ArrayType, DictType, StructType
+
+        children_cb = EastFunction(_kv_cb(children), [self.value_type, self.key_type], DictType(self.key_type, self.value_type))
+        out = ArrayType(StructType([("path", ArrayType(self.key_type)), ("node", self.value_type)]))
+        return _call_builtin("DictFlattenTree", [self.key_type, self.value_type], [self, children_cb], out)
 
     def flatten_to_array(self, fn: Any, out: EastType | None = None) -> EastArray:
         """Concatenate per-entry arrays into one array (east-c

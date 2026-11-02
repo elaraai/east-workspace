@@ -126,6 +126,9 @@ cdef extern from "east/types.h":
     EastType *east_recursive_type_new()
     void east_recursive_type_set(EastType *rec, EastType *node)
     EastType *east_recursive_type_intern(EastType *rec)
+    # The id every runtime writes a recursive type under: a hash of its type
+    # table. -1 for a type that is not a recursive wrapper with its node set.
+    int64_t east_type_structural_id(EastType *type)
 
     # Ref counting
     void east_type_retain(EastType *t)
@@ -133,6 +136,8 @@ cdef extern from "east/types.h":
 
     # Comparison
     bint east_type_equal(EastType *a, EastType *b)
+    # Whether a value of the type can hold a function.
+    bint east_type_holds_function(EastType *t)
 
 
 # ─── ir.h ────────────────────────────────────────────────────────────────
@@ -784,6 +789,10 @@ cdef extern from "east/merge.h":
         size_t folds
 
     bint east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
+    # The source map a merge part's header holds — what a merge writes an
+    # output holding functions under. One reference, the caller's; NULL for
+    # none.
+    EastSourceMap *east_merge_part_source_map(const char *path)
 
 
 # ─── unit.h ──────────────────────────────────────────────────────────────
@@ -848,14 +857,17 @@ cdef extern from "east/unit.h":
         double output_ms
 
     bint east_unit_write_result(const char *path, const EastUnitResult *result)
-    bint east_unit_write_value(const char *path, EastValue *value, EastType *type)
+    # A collection holding functions is written under `source_map` (the
+    # program's; NULL for none), so its closures keep their lines.
+    bint east_unit_write_value(const char *path, EastValue *value, EastType *type,
+                               EastSourceMap *source_map)
 
     ctypedef struct EastUnitSink:
         pass
 
     EastUnitSink *east_unit_sink_new(const EastUnitOutput *output, EastType *type,
                                      EastCompiledFn *merge_fn, EastCompiledFn *combine_fn,
-                                     EastValue *zero)
+                                     EastValue *zero, EastSourceMap *source_map)
     EastValue *east_unit_sink_function(EastUnitSink *sink, EastType *fn_type)
     bint east_unit_sink_finish(EastUnitSink *sink, EastValue *result)
     void east_unit_sink_free(EastUnitSink *sink)

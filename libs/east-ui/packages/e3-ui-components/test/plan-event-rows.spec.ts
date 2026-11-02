@@ -138,9 +138,9 @@ async function job(key: string): Promise<Job> {
 function printWorks($: BlockBuilder<typeof PlanPayloadType>, options: { measures?: boolean } = {}): ExprType<typeof PlanPayloadType> {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
     const crews = $.let(Record.bind(ex.planPrintCrews, []));
-    const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
-    const stops = $.let(Record.bind(ex.planPrintStops, [ex.planPrintStopsPatch]));
-    const shifts = $.let(Record.bind(ex.planPrintShifts, [ex.planPrintShiftsPatch]));
+    const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
+    const stops = $.let(Record.bind(ex.planPrintStops, ["patch"]));
+    const shifts = $.let(Record.bind(ex.planPrintShifts, ["patch"]));
     const util = $.let(Data.bind(ex.planPrintUtilisation));
     const first = $.const(FIRST, DateTimeType);
     const daily = $.const(East.function([ArrayType(FloatType)], ArrayType(Plan.Types.HeatCell), (_$2, readings) =>
@@ -197,7 +197,7 @@ const pressRows = (...series: readonly string[]): RowId[] => PRESSES.flatMap(([h
 async function inFlightBlocks(): Promise<ValueTypeOf<typeof PlanEventBlocksType>> {
     const program = East.function([], PlanEventBlocksType, ($) => {
         const presses = $.let(Record.bind(ex.planPrintPresses, []));
-        const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+        const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
         const resources = { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) };
         const events = { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }) };
         const kindBuilt = $.let(events.job.buildPlan("job"));
@@ -283,9 +283,9 @@ describe("a resource is a row block (PB12, PB13, PB15)", () => {
     test("kinds that draw alike share the row, each element wearing its own kind's icon and keyed by its kind", async () => {
         const shared = await payloadOf(($) => {
             const presses = $.let(Record.bind(ex.planPrintPresses, []));
-            const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
-            const rush = $.let(Record.bind(ex.planLinkJobs, [ex.planLinkJobsPatch]));
-            const stops = $.let(Record.bind(ex.planPrintStops, [ex.planPrintStopsPatch]));
+            const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
+            const rush = $.let(Record.bind(ex.planLinkJobs, ["patch"]));
+            const stops = $.let(Record.bind(ex.planPrintStops, ["patch"]));
             return Plan.Payload({
                 axis: Plan.axis({ window: WINDOW, resolution: "day" }),
                 resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
@@ -315,7 +315,7 @@ describe("a resource is a row block (PB12, PB13, PB15)", () => {
     test("a kind's events draw as tiles in their lanes, the lanes each named once in order; a warning tone rings a tile, a bar and a mark", async () => {
         const laned = await payloadOf(($) => {
             const presses = $.let(Record.bind(ex.planPrintPresses, []));
-            const lane = $.let(Record.bind(ex.planRowsLaneJobs, [ex.planRowsLaneJobsPatch]));
+            const lane = $.let(Record.bind(ex.planRowsLaneJobs, ["patch"]));
             const config = { title: "title", resource: { field: "press", of: "presses" }, status: { field: "status", cases: LANE_STATUS } } as const;
             return Plan.Payload({
                 axis: Plan.axis({ window: WINDOW, resolution: "day" }),
@@ -351,7 +351,7 @@ describe("a resource is a row block (PB12, PB13, PB15)", () => {
         const Bay = StructType({ name: StringType });
         const placed = await payloadOf(($) => {
             const presses = $.let(Record.bind(ex.planPrintPresses, []));
-            const on = $.let(Record.bind(ex.planRowsOnJobs, [ex.planRowsOnJobsPatch]));
+            const on = $.let(Record.bind(ex.planRowsOnJobs, ["patch"]));
             const bays = $.const(new Map([["a1", { name: "Bay A1" }]]), DictType(StringType, Bay));
             return Plan.Payload({
                 axis: Plan.axis({ window: WINDOW, resolution: "day" }),
@@ -402,7 +402,7 @@ describe("groups and nesting (PB14)", () => {
         ["b3", { name: "Press B3", parent: some("zz") }],
     ]);
     const nested = (rollup?: "byStatus") => payloadOf(($) => {
-        const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+        const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
         const machines = $.const(MACHINES, DictType(StringType, Machine));
         return Plan.Payload({
             axis: Plan.axis({ window: WINDOW, resolution: "day" }),
@@ -438,7 +438,7 @@ describe("groups and nesting (PB14)", () => {
         const Line = StructType({ name: StringType, parent: OptionType(StringType) });
         const payload = await payloadOf(($) => {
             const presses = $.let(Record.bind(ex.planPrintPresses, []));
-            const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+            const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
             const lines = $.const(new Map([[1n, { name: "Line 1", parent: none }], [2n, { name: "Line 2", parent: some("1") }]]), DictType(IntegerType, Line));
             return Plan.Payload({
                 axis: Plan.axis({ window: WINDOW, resolution: "day" }),
@@ -491,8 +491,8 @@ describe("the Unassigned rows (PB16)", () => {
     test("a kind with no resource draws every event on its Unassigned row", async () => {
         const payload = await payloadOf(($) => {
             const presses = $.let(Record.bind(ex.planPrintPresses, []));
-            const stops = $.let(Record.bind(ex.planPrintStops, [ex.planPrintStopsPatch]));
-            const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+            const stops = $.let(Record.bind(ex.planPrintStops, ["patch"]));
+            const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
             return Plan.Payload({
                 axis: Plan.axis({ window: WINDOW, resolution: "day" }),
                 resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
@@ -590,8 +590,8 @@ describe("what the viewer hides (PB29, #1195)", () => {
     test("a row the kinds that draw alike share goes once every one of them is hidden", async () => {
         const shared = await payloadOf(($) => {
             const presses = $.let(Record.bind(ex.planPrintPresses, []));
-            const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
-            const stops = $.let(Record.bind(ex.planPrintStops, [ex.planPrintStopsPatch]));
+            const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
+            const stops = $.let(Record.bind(ex.planPrintStops, ["patch"]));
             return Plan.Payload({
                 axis: Plan.axis({ window: WINDOW, resolution: "day" }),
                 resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
