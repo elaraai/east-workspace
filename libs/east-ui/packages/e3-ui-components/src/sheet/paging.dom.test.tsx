@@ -168,6 +168,25 @@ describe("sheet paging — moving", () => {
         await waitFor(() => expect(latest!.rowsOffset).toBe(0));
     });
 
+    test("a jump owns the viewport from the moment it is asked: a report from the old place before the render that pins its window — the frame's range, in the commit of the key that jumped — does not undo it", async () => {
+        const { value } = source(50_000);
+        render(<Harness src={value} />);
+        await waitFor(() => expect(text("rows")).toBe("0+600"));
+        // ⌘Home's jump and the range the frame reports from where it still is, before React draws the jump.
+        act(() => {
+            latest!.jumpToElement(40_000);
+            latest!.reportViewport({ kind: "row", offset: 100 }, false);
+        });
+        await waitFor(() => expect(latest!.jump).toEqual({ window: 200, settled: true }));
+        expect(latest!.positions).toContain(40_000);
+        // Handed back, the reports move the demand again.
+        act(() => {
+            latest!.clearJump();
+            latest!.reportViewport({ kind: "row", offset: 100 }, false);
+        });
+        await waitFor(() => expect(latest!.rowsOffset).toBe(0));
+    });
+
     test("a report draws the driver again only for what it moves (#1398, CL9): the rows the view passes inside a window draw nothing, the next window draws it", async () => {
         const { value } = source(2_000);
         render(<Harness src={value} />);
