@@ -22,24 +22,28 @@ An agent following this standard will produce documentation that:
 
 ## File Structure
 
-Each skill is backed by a single self-contained `SKILL.md` at the package
-root. Detailed API surface and worked examples live **inline** in that
-file; runnable examples live in the test suite as `*.examples.ts` and are
-extracted into the plugin search index.
+Each skill is backed by a `SKILL.md` at the package root. Runnable examples
+live in the test suite as `*.examples.ts` and are extracted into the plugin
+search index, and each public API's contract lives in its doc comment; the
+skill routes to them and carries what neither holds.
 
 ```
 package-root/
-├── SKILL.md                      # The whole skill: overview, decision tree, API tables, patterns
+├── SKILL.md                      # Overview, decision tree, cross-API contracts, patterns
+├── reference/                    # Optional: material neither the index nor the doc comments hold
 ├── src/                          # Source code
 ├── test/ (or tests/)             # Unit tests + *.examples.ts (source of truth for examples)
 ├── tsconfig.json
 └── package.json
 ```
 
-There is **no** sibling `reference/` directory. The plugin installs only
-`SKILL.md`, so anything a consumer needs must be reachable from inside
-`SKILL.md` itself — relative links to sibling files (`./reference/...`,
-`./USAGE.md`) break once the skill is dereferenced into the install cache.
+A `reference/` directory beside `SKILL.md` is shipped with the skill when the
+plugin's catalog links it (`libs/east-plugin/skills/<name>/reference`), and is
+read only when a task needs it. Keep it for material the agent cannot get
+elsewhere — a CLI's commands, a storage layout — never a restatement of what
+the example index or the declarations already carry, which drifts. Link each
+file from `SKILL.md`, one level deep. A link to any other sibling file
+(`./USAGE.md`) breaks once the skill is dereferenced into the install cache.
 
 ---
 
@@ -48,11 +52,17 @@ There is **no** sibling `reference/` directory. The plugin installs only
 SKILL.md is the entry point that Claude Code loads when the skill is activated.
 
 **Requirements:**
-- Keep it focused (Claude has context limits — aim under ~500 lines of prose)
+- A `description` of at most 1,024 characters (the hard limit), in the third
+  person, saying what the skill does and when to use it. Every installed
+  skill's description is loaded into every session, so it names capabilities
+  and triggers, not every API
+- Keep the body under 500 lines: it loads whole whenever the skill fires
 - Carry the mandatory "Before writing code" section (below) right after the
   intro paragraph — the plugin's tests fail a skill without it
 - Provide a decision tree for common tasks
-- Inline the API surface (signature tables) and key patterns — do not link out to sibling files
+- Route with the decision tree, and inline only what neither the example index
+  nor the doc comments carry: contracts that span several APIs, rules a build
+  refuses, the workflow. A prop-by-prop listing repeats the declarations
 - Include a quick start example
 
 **Template:**
@@ -144,7 +154,7 @@ Nothing is injected for you; the search is the step.
 
 ## API Signature Tables
 
-Inline the API surface directly in `SKILL.md`. **Precise argument names and types are critical** for agents to generate correct code.
+Where a skill carries a signature table (an API whose contract no single doc comment states), **precise argument names and types are critical** for agents to generate correct code.
 
 ### Table Format
 
@@ -242,8 +252,8 @@ This means:
 - `SKILL.md` carries short, illustrative snippets inline (quick start, key
   patterns). It does **not** link out to a separate examples file.
 - When you add or change public API, update the `*.examples.ts` (for the
-  index) and the `SKILL.md` API tables / decision tree — not a `reference/`
-  folder.
+  index), its doc comment, and the `SKILL.md` decision tree when it routes
+  somewhere new.
 
 **Finding correct patterns:**
 1. Check the package's unit tests (`*.spec.ts`) and their `*.examples.ts`
@@ -292,12 +302,12 @@ Example files use the same import paths as end users (e.g., `from "@elaraai/east
 Before committing skill documentation:
 
 ### SKILL.md
-- [ ] Focused length (aim under ~500 lines of prose)
-- [ ] Has YAML frontmatter with `name` and `description`
+- [ ] Under 500 lines
+- [ ] Has YAML frontmatter with `name` and a `description` of at most 1,024 characters
 - [ ] Carries the "Before writing code" section verbatim, after the intro
 - [ ] Includes quick start example
 - [ ] Has decision tree for common tasks
-- [ ] API signature tables inlined (no links to sibling `reference/` files)
+- [ ] Nothing restated that the example index or the doc comments carry
 - [ ] No relative links to sibling assets that aren't bundled with the skill
 
 ### API Signature Tables (inline)
