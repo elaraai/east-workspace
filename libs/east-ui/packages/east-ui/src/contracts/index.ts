@@ -85,9 +85,9 @@ export {
 export {
     FieldOptionType, FieldEditorType, FieldSpecType, type FieldSpecValue, type FieldEditorValue,
     FIELD_HINT, type FieldHintOptions, type FieldHintOf, type FieldHint, type FieldHints,
-    type TextFieldHint, type NumberFieldHint, type SelectFieldHint, type TagsFieldHint,
+    type TextFieldHint, type DateFieldHint, type NumberFieldHint, type SelectFieldHint, type TagsFieldHint,
     type ChecklistFieldHint, type ReferenceFieldHint, type ReadonlyFieldHint, type HiddenFieldHint,
-    fieldText, fieldNumber, fieldSelect, fieldTags, fieldChecklist, fieldReference, fieldReadonly, fieldHidden,
+    fieldText, fieldDate, fieldNumber, fieldSelect, fieldTags, fieldChecklist, fieldReference, fieldReadonly, fieldHidden,
     fieldSpecs, spellOut,
     Fields, type FieldsNamespace,
 } from "./fields.js";

@@ -23,7 +23,7 @@
  * | `String` | Text | `Fields.text`, `Fields.reference` |
  * | `Integer`, `Float` | Number, with its steppers | `Fields.number` (bigints for an Integer field, numbers for a Float) |
  * | `Boolean` | Checkbox | — |
- * | `DateTime` | Date and time | — |
+ * | `DateTime` | Date and time | `Fields.date` — a date, a time, or both |
  * | A variant of empty cases | Select, each case's name spelled out | `Fields.select` |
  * | `Set<String>`, `Array<String>` | Tags, typed freely | `Fields.tags` |
  * | `Array` of a struct with one String and one Boolean field | Checklist | `Fields.checklist` |
@@ -41,7 +41,7 @@ import {
     isTypeEqual, none, some, toEastTypeValue, variant,
     type EastType, type ValueTypeOf,
 } from "@elaraai/east";
-import { DateTimePrecisionType } from "../forms/input/types.js";
+import { DateTimePrecisionType, type DateTimePrecisionLiteral } from "../forms/input/types.js";
 
 // ============================================================================
 // The closed spec a renderer reads
@@ -131,6 +131,12 @@ export interface FieldHintOf<K extends string> {
     readonly [FIELD_HINT]: K;
 }
 
+/** A DateTime field's date field ({@link fieldDate}). */
+export interface DateFieldHint extends FieldHintOf<"date">, FieldHintOptions {
+    /** What it picks: a date, a time of day, or both — both by default. */
+    readonly precision?: DateTimePrecisionLiteral;
+}
+
 /** A String field's text box ({@link fieldText}). */
 export interface TextFieldHint extends FieldHintOf<"text">, FieldHintOptions {
     /** What the box shows while empty. */
@@ -214,7 +220,8 @@ export type FieldHint<T> =
         : T extends ArrayType<StringType> ? TagsFieldHint | AnyFieldHint
         : T extends ArrayType<StructType> ? ChecklistFieldHint | AnyFieldHint
         : T extends StructType<infer F extends { [K in string]: unknown }> ? FieldHints<F> | AnyFieldHint
-        : T extends BooleanType | DateTimeType ? AnyFieldHint
+        : T extends DateTimeType ? DateFieldHint | AnyFieldHint
+        : T extends BooleanType ? AnyFieldHint
         : AnyFieldHint;
 
 /**
@@ -232,6 +239,30 @@ export type FieldHints<F extends { [K in string]: unknown }> = { readonly [K in 
  */
 export function fieldText(options: FieldHintOptions & { readonly placeholder?: string } = {}): TextFieldHint {
     return { ...options, [FIELD_HINT]: "text" };
+}
+
+/**
+ * A DateTime field's date field, picking a date, a time of day, or both.
+ *
+ * @param options - Its label, a line under it, and what it picks (`"date"`, `"time"` or `"datetime"`, the default)
+ * @returns The hint
+ * @example
+ * ```ts
+ * import { ArrayType, DateTimeType, East, StringType, StructType } from "@elaraai/east";
+ * import { Fields } from "@elaraai/east-ui";
+ *
+ * const until = East.function([], StringType, ($) => {
+ *     const Deferral = StructType({ reason: StringType, until: DateTimeType });
+ *     const specs = $.const(Fields.specs(Deferral, {
+ *         until: Fields.date({ label: "Until", precision: "date" }),
+ *     }), ArrayType(Fields.Types.Spec));
+ *     const field = $.const(specs.get(0n));
+ *     return East.str`${field.label}: ${field.editor.unwrap("datetime").precision.unwrap("some").getTag()}`;
+ * });
+ * ```
+ */
+export function fieldDate(options: FieldHintOptions & { readonly precision?: DateTimePrecisionLiteral } = {}): DateFieldHint {
+    return { ...options, [FIELD_HINT]: "date" };
 }
 
 /**
@@ -343,6 +374,7 @@ type AnyHint = { readonly [FIELD_HINT]: string } & FieldHintOptions & {
     readonly options?: readonly unknown[];
     readonly text?: string; readonly done?: string;
     readonly of?: string;
+    readonly precision?: string;
 };
 
 /**
@@ -460,6 +492,14 @@ function editorOf(type: EastType, hint: AnyHint | undefined, at: string): FieldE
         case "text":
             if (!isTypeEqual(type, StringType)) refuse("Fields.text edits a String field");
             return variant("text", { placeholder: hint!.placeholder === undefined ? none : some(hint!.placeholder) });
+        case "date": {
+            if (!isTypeEqual(type, DateTimeType)) refuse("Fields.date edits a DateTime field");
+            const precision = hint!.precision;
+            if (precision !== undefined && precision !== "date" && precision !== "time" && precision !== "datetime") {
+                refuse(`its date hint's precision is "${precision}" — it picks a "date", a "time" or a "datetime"`);
+            }
+            return variant("datetime", { precision: precision === undefined ? none : some(variant(precision, null)) });
+        }
         case "reference":
             if (!isTypeEqual(type, StringType)) refuse("Fields.reference names a keyed set's key, a String field");
             if (hint!.of === undefined || hint!.of === "") refuse("Fields.reference names the keyed set its key is of: Fields.reference({ of: \"…\" })");
@@ -623,6 +663,8 @@ export function fieldSpecs<R extends StructType>(
 export interface FieldsNamespace {
     /** A String field's text box. */
     text: typeof fieldText;
+    /** A DateTime field's date field — a date, a time, or both. */
+    date: typeof fieldDate;
     /** A number field's stepper — bigints for an Integer field, numbers for a Float. */
     number: typeof fieldNumber;
     /** A variant field's select, with words for its cases. */
@@ -659,6 +701,7 @@ export interface FieldsNamespace {
  */
 export const Fields: FieldsNamespace = {
     text: fieldText,
+    date: fieldDate,
     number: fieldNumber,
     select: fieldSelect,
     tags: fieldTags,

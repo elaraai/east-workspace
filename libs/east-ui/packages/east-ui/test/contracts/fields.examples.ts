@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { ArrayType, BooleanType, East, IntegerType, NullType, OptionType, StringType, StructType, VariantType, example } from "@elaraai/east";
+import { ArrayType, BooleanType, DateTimeType, East, IntegerType, NullType, OptionType, StringType, StructType, VariantType, example } from "@elaraai/east";
 import { Fields } from "@elaraai/east-ui";
 
 export const fieldsSpecs = example({
@@ -41,4 +41,19 @@ export const fieldsSelect = example({
     }),
     inputs: [],
     returns: ["Planned", "Underway", "Paused", "Done"],
+});
+
+export const fieldsDate = example({
+    keywords: ["Fields", "date", "DateTime", "precision", "date field", "time", "label", "hint"],
+    description: "A DateTime field's date field — the hint names it and picks a date alone, its precision carried on the datetime editor",
+    fn: East.function([], StringType, ($) => {
+        const Deferral = StructType({ reason: StringType, until: DateTimeType });
+        const specs = $.const(Fields.specs(Deferral, {
+            until: Fields.date({ label: "Until", precision: "date" }),
+        }), ArrayType(Fields.Types.Spec));
+        const field = $.const(specs.get(0n));
+        return East.str`${field.label}: ${field.editor.unwrap("datetime").precision.unwrap("some").getTag()}`;
+    }),
+    inputs: [],
+    returns: "Until: date",
 });

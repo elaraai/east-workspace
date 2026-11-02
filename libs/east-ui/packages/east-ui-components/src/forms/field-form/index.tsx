@@ -20,7 +20,7 @@
  * | `number` | `IntegerInput` or `FloatInput`, by the field's type: moved by its step, clamped to its bounds, its unit and bounds in the help line |
  * | `checkbox` | `Checkbox` |
  * | `datetime` | `DateTimeInput` |
- * | `select` | `Select` of the variant's cases |
+ * | `select` | `RadioGroup` of the variant's cases while it has up to four, Not set first for an Option (#1473); `Select` past four |
  * | `reference` | `Select` of the host's choices for its keyed set, Unassigned first for an Option |
  * | `tags` | `TagsInput`, its options suggested; a Set field's values held once, in East's order |
  * | `checklist` | a `StringInput` adding an item on Enter, the items done of all in the help line, and a `Checkbox` per item, labelled with its text, each with its remove |
@@ -68,8 +68,9 @@ import {
     type EastType, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import {
-    Checkbox, Field, FieldEditorType, Input, Select, TagsInput, spellOut, type FieldEditorValue, type FieldSpecValue,
+    Checkbox, Field, FieldEditorType, Input, RadioGroup, Select, TagsInput, spellOut, type FieldEditorValue, type FieldSpecValue,
 } from "@elaraai/east-ui/internal";
+import { EastChakraRadioGroup, type RadioGroupValue } from "../radio-group/index.js";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { useFormatters } from "../../format/index.js";
@@ -131,6 +132,11 @@ const DATETIME_INPUT = defaultValue<typeof Input.Types.DateTime>(Input.Types.Dat
 const CHECKBOX = defaultValue<typeof Checkbox.Types.Checkbox>(Checkbox.Types.Checkbox);
 const SELECT = defaultValue<typeof Select.Types.Root>(Select.Types.Root);
 const TAGS = defaultValue<typeof TagsInput.Types.Root>(TagsInput.Types.Root);
+const RADIO = defaultValue<typeof RadioGroup.Types.Root>(RadioGroup.Types.Root);
+/** A choice's radio group: its options in one line. */
+const RADIO_STYLE = some({ ...defaultValue<typeof RadioGroup.Types.Style>(RadioGroup.Types.Style), orientation: some(variant("horizontal", null)) });
+/** The most cases a choice shows as a radio group; past it, a select (#1473). */
+const RADIO_MAX = 4;
 
 /** The inputs' size in a form: the design system's Input, one 32px line whatever the field's kind (#1220). */
 const SIZE = some(variant("md", null));
@@ -508,6 +514,22 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
         }
     })();
 
+    // A choice of up to four cases is a radio group, each in view, chosen at once; past four, the select above.
+    const radio = ((): RadioGroupValue | undefined => {
+        if (printed || own !== undefined || editor.type !== "select" || editor.value.length > RADIO_MAX) return undefined;
+        return {
+            ...RADIO,
+            value: held !== undefined ? (held as variant).type as string : spec.optional ? NONE_CHOICE : "",
+            items: [
+                ...(spec.optional ? [{ value: NONE_CHOICE, label: some(m.notSet()), disabled: none }] : []),
+                ...editor.value.map((o) => ({ value: o.case, label: some(o.label), disabled: none })),
+            ],
+            name: some(`fieldForm.${key}`),
+            onChange: some((next: string) => { emit(stringEqual(next, NONE_CHOICE) ? undefined : variant(next, null)); return null; }),
+            style: RADIO_STYLE,
+        };
+    })();
+
     const help = [
         getSomeorUndefined(spec.help),
         editor.type === "number" && !printed ? numberLine(editor.value, words) : undefined,
@@ -533,8 +555,11 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
     // The control's line: the control filling it — the host's own, or the input — and the Set or Clear at its end.
     const line = (
         <Box css={styles.line} data-field-line="">
-            <Box ref={fieldRef} css={styles.control} title={whole === undefined || whole.length === 0 ? undefined : whole}>
-                {own ?? <EastChakraComponent value={control} storageKey={`fieldForm.${key}.control`} />}
+            <Box ref={fieldRef} css={styles.control} title={radio !== undefined || whole === undefined || whole.length === 0 ? undefined : whole}
+                data-field-choice={radio !== undefined ? "radio" : undefined}>
+                {own ?? (radio !== undefined
+                    ? <EastChakraRadioGroup value={radio} />
+                    : <EastChakraComponent value={control} storageKey={`fieldForm.${key}.control`} />)}
             </Box>
             {side !== undefined && (
                 <Box css={styles.side} data-field-side={side}>

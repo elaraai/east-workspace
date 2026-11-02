@@ -226,8 +226,14 @@ async function retype(c: HTMLElement, key: string, text: string): Promise<void> 
     await settle();
 }
 
-/** Picks a choice of a select in Details, by its field and its words — in the listbox its trigger controls. */
+/** Picks a choice in Details, by its field and its words: a radio of a radio group (up to four cases, #1473), else in the listbox its select's trigger controls. */
 async function choose(c: HTMLElement, key: string, name: string): Promise<void> {
+    const item = [...field(c, key).querySelectorAll<HTMLElement>("[data-field-choice=radio] [data-scope=radio-group][data-part=item]")].find((i) => i.textContent === name);
+    if (item !== undefined) {
+        await act(async () => { fireEvent.click(item.querySelector("input")!); });
+        await settle();
+        return;
+    }
     const trigger = field(c, key).querySelector<HTMLElement>("[data-scope=select][data-part=trigger]")!;
     await act(async () => { fireEvent.click(trigger); });
     const listbox = document.getElementById(trigger.getAttribute("aria-controls")!)!;

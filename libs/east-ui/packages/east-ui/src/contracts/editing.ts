@@ -108,6 +108,7 @@ export const EditingBatchReadinessType = VariantType({
  * @property drop - Something dropped onto the collection from elsewhere (#879)
  * @property verdict - A review verdict (#879). No collection makes one since the Plan's review went (#1260); the case stays so a journal of earlier events still reads
  * @property optimise - A run of the app's optimiser landed as one step (#1409): the result of one call, diffed by key into the changes it made
+ * @property action - An action taken on a row (#1473): a Sheet action column's case, with the row and group patches its `updates` wrote, as one step
  * @property undo - Undo
  * @property redo - Redo
  * @property discard - Drafts discarded
@@ -115,7 +116,7 @@ export const EditingBatchReadinessType = VariantType({
  */
 export const EditingOriginType = VariantType({
     typed: NullType, pasted: NullType, fill: NullType, row: NullType, pattern: NullType,
-    insert: NullType, move: NullType, remove: NullType, resize: NullType, drop: NullType, verdict: NullType, optimise: NullType,
+    insert: NullType, move: NullType, remove: NullType, resize: NullType, drop: NullType, verdict: NullType, optimise: NullType, action: NullType,
     undo: NullType, redo: NullType, discard: NullType, settle: NullType,
 });
 

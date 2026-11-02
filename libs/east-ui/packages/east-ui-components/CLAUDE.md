@@ -553,7 +553,8 @@ A builder's inspector shows the selection as a typed form: east-ui's
 `FieldForm` (`src/forms/field-form/`, #1147) draws each one as the shared
 `Field` around the shared input its East type takes (`isTypeEqual`) —
 `StringInput`, `IntegerInput` / `FloatInput`, `Checkbox`, `DateTimeInput`,
-`Select`, `TagsInput` — each mounted with a payload built from East's
+`Select`, `TagsInput` — a variant of up to four `NullType` cases a
+`RadioGroup` instead of a `Select`, in every form (#1473) — each mounted with a payload built from East's
 `defaultValue` of its type, never a control of its own. What is typed is one
 edit when the focus leaves the field or on Enter, and Esc puts it back; a
 choice is an edit at once. A field that differs from `baseline` is tinted

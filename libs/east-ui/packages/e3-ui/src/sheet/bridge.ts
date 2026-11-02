@@ -109,6 +109,7 @@ import { SheetDraftTypeFor } from "./transactions.js";
 import type { SheetAnyColumnConfig, SheetColumn } from "./columns.js";
 import type { SheetGroupCell } from "./group.js";
 import type { SheetDriverValue, SheetRegisterValue } from "./registers.js";
+import { actionRuleCells, buildActionCodec, describeAction, type SheetActionCodec } from "./actions.js";
 
 /** The wire cells dictionary type. */
 export const SheetCellsType = DictType(StringType, SheetCellType);
@@ -164,7 +165,7 @@ export interface SheetColumnMeta {
     /** The kind's payload type. */
     payloadType: EastType;
     /** The cell arm the payload lands in. */
-    cellTag: "String" | "DateTime" | "Float" | "Integer" | "Boolean" | "Link";
+    cellTag: "String" | "DateTime" | "Float" | "Integer" | "Boolean" | "Link" | "Action";
     /** Whether the sheet writes the column. */
     editable: boolean;
     /** A reified `value` projection — the column is a derived, read-only read. */
@@ -183,6 +184,8 @@ export interface SheetColumnMeta {
     driverType?: StructType;
     /** The unrendered cells the column's rules project (#844). */
     ruleCells?: SheetRuleCellMeta[];
+    /** An action column's cell codec (#1474). */
+    action?: SheetActionCodec;
 }
 
 /** Whether a type is `Option<T>` — a variant of exactly `none: Null` and `some`. */
@@ -235,9 +238,13 @@ function ruleCell(
  * The unrendered cells a column's rules project (#844) — `detail` on any
  * column, `level` and `actual` on a date column.
  */
-function ruleCellsOf(key: string, kind: SheetColumnKindLiteral, cfg: SheetAnyColumnConfig, rowType: StructType): SheetRuleCellMeta[] {
+function ruleCellsOf(key: string, col: SheetColumn<StructType, EastType>, rowType: StructType): SheetRuleCellMeta[] {
+    const kind = col.kind;
+    const cfg = col.config;
     const out: SheetRuleCellMeta[] = [];
     if (cfg.detail !== undefined) out.push(ruleCell(key, "detail", rowType, cfg.detail, "String"));
+    // An action column's summary, name and title (#1474).
+    if (kind === "action") out.push(...actionRuleCells(key, col, rowType));
     if (kind !== "date") {
         if (cfg.level !== undefined || cfg.actual !== undefined) {
             throw new Error(`Sheet: column "${key}" is a ${kind} column — \`level\` and \`actual\` are date-column rules`);
@@ -270,7 +277,7 @@ function ruleCellsOf(key: string, kind: SheetColumnKindLiteral, cfg: SheetAnyCol
  */
 export function describeColumn(key: string, col: SheetColumn<StructType, EastType>, rowType: StructType): SheetColumnMeta {
     const meta = describeKind(key, col, rowType);
-    const ruleCells = ruleCellsOf(key, col.kind, col.config, rowType);
+    const ruleCells = ruleCellsOf(key, col, rowType);
     if (col.config.options !== undefined && col.kind !== "enum" && col.kind !== "lookup" && col.kind !== "link") {
         throw new Error(`Sheet: column "${key}" is a ${col.kind} column — an \`options\` rule narrows an enum, lookup or link column's members`);
     }
@@ -289,6 +296,16 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
     const payloadOf = optionPayload(fieldType);
     const optional = payloadOf !== undefined;
     const unwrapped = payloadOf ?? fieldType;
+
+    // An action column (#1474): the field is its variant, or an Option of it.
+    if (kind === "action") {
+        const isOption = payloadOf !== undefined && col.variantType !== undefined && !isTypeEqual(fieldType, col.variantType);
+        describeAction(key, col, fieldType, isOption);
+        return {
+            key, field: key, kind, config: cfg, fieldType, optional: isOption, payloadType: col.variantType!,
+            cellTag: "Action", editable: cfg.editable !== false, action: buildActionCodec(col.variantType!),
+        };
+    }
 
     // A derived read — the projection decides the payload; the field is free.
     if (cfg.value !== undefined && kind !== "set" && kind !== "link" && kind !== "stamped" && kind !== "custom") {
@@ -387,7 +404,7 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
  * @throws Error naming the band cell when the kind cannot sit on the field, or is not a band kind
  */
 export function describeGroupCell(cellKey: string, cell: SheetGroupCell<StructType>, groupType: StructType): SheetColumnMeta {
-    if (cell.kind === "lookup" || cell.kind === "set" || cell.kind === "link" || cell.kind === "custom") {
+    if (cell.kind === "lookup" || cell.kind === "set" || cell.kind === "link" || cell.kind === "custom" || cell.kind === "action") {
         throw new Error(`Sheet: band cell "${cellKey}" is a ${cell.kind} cell — a band draws text, date, quantity, integer, reference, enum and stamped cells only`);
     }
     let meta: SheetColumnMeta;
@@ -435,6 +452,13 @@ function projectCell(
         return cellOfFieldValue(meta.cellTag, meta.derived(r), meta.derivedOptional === true);
     }
     const fv = row[meta.field] as ExprType<EastType>;
+    // An action column's case and its value (#1474).
+    if (meta.action !== undefined) {
+        const encode = meta.action.encode;
+        return meta.optional
+            ? (fv as unknown as ExprType<OptionType<VariantType>>).match({ some: (_$, v) => encode(v), none: (_$) => NULL_CELL }) as ExprType<SheetCellType>
+            : encode(fv as ExprType<VariantType>);
+    }
     if (meta.form === undefined) return cellOfFieldValue(meta.cellTag, fv, meta.optional);
     if (meta.form === "link") return cellOfFieldValue(meta.cellTag, fv, meta.optional);
     if (meta.form === "array") {

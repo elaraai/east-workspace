@@ -143,7 +143,7 @@ A case's `updates(value, ctx, at)` says what else changes when it is taken. `val
 { row?: Sheet.patch(Ticket, { … }) }                                        // a flat sheet
 ```
 
-The action writes its own field; `updates` never needs to. The field, the row patch and the group patch are one transaction (T1) and one step of ⌘Z. Each patch lands as the cells it sets, through their columns, so Good, Done and the order's band turn dirty as typed cells do (ST6); a field with no column is set on the draft. Before anything is taken, the strip runs `updates` dry to preview it (`Sets Good 24 · Done 14:02`, R5, R6), and a form's foot runs it over the values typed so far (F8).
+The action writes its own field; `updates` never needs to. The field, the row patch and the group patch are one transaction (T1) and one step of ⌘Z. Each patch lands as the cells it sets, through their columns — read-only ones too, since the action writes them — so Good, Done and the order's band turn dirty as typed cells do (ST6). A field with no column, or under no band cell, is left as it is: give it a column to have an action write it. Before anything is taken, the strip runs `updates` dry to preview it (`Sets Good 24 · Done 14:02`, R5, R6), and a form's foot runs it over the values typed so far (F8).
 
 ### How a case is asked: `take`
 
@@ -175,7 +175,7 @@ With `inspector` on, the selected row's action field is drawn as its state and s
 - `cases` missing a case of `V` or naming one it does not have; `start` or a `next` naming a case `V` does not have.
 - A `take` that does not fit the case's type — `menu({ of })` on anything but a `String`, `menu({ labels })` on anything but a variant whose every case is `NullType`, a `fields` hint that does not fit.
 - `updates` returning a group patch on a flat sheet — the return type is `SheetUpdatesInput<R>`.
-- At build time, naming the column and the case: a register `menu({ of })` names that the sheet does not declare; `start` on a field that is not an `Option`; a case listed twice in one `next`. A case nothing reaches is a warning, unless it is final — `verified`, written upstream.
+- At build time, naming the column and the case: a register `menu({ of })` names that the sheet does not declare; `start` on a field that is not an `Option`; a case listed twice in one `next`; a `fill` or a `value` on the column. A case nothing reaches is allowed — `verified`, written upstream.
 
 ## 3. Worked examples
 
@@ -331,7 +331,7 @@ const sheet = East.function([], UIComponentType, (_$) => (
                                              next: ["completed", "reported", "held", "alerted"],
                                              updates: () => ({ group: Sheet.patch(WorkOrder, { status: "in_progress" }) }) },
                                 completed: { label: "Complete", state: "Completed", tone: "success", icon: "check",
-                                             summary: (_, s) => s.good.map((_$, g) => East.str`${g} good`),
+                                             summary: (_, s) => s.good.match({ some: (_$, g) => East.str`${g} good` }, () => ""),
                                              updates: (_, ctx, at) => ({
                                                  row: Sheet.patch(Step, { good: some(ctx.row.good.match({ some: (_$, g) => g }, () => ctx.row.plan)), done: some(at) }),
                                                  // The last step to finish finishes the order.
@@ -439,7 +439,6 @@ const sheet = East.function([], UIComponentType, (_$) => (
                             },
                         }),
                     }}
-                    onApply={Record.onApply(tickets, { keyed: true })}
                     applyMode="auto"
                 />
             </Box>

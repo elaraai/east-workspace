@@ -18,6 +18,7 @@
  * | `lookup`, `reference`, `enum` | A select over the register's members (`reference` of the register) |
  * | `set`, `link` | Read only here: the renderer draws the members, and edits them in the grid |
  * | `stamped`, a `value` projection, `editable: false` | Read only |
+ * | `action` | Its state and summary, its actions taken in the pane (#1474) |
  * | No column | By its type, as `Fields.specs` resolves it |
  *
  * A field with a column is read and written through it: its spec names the
@@ -125,6 +126,7 @@ function readOnlyReason(meta: SheetColumnMeta): string | undefined {
     if (meta.kind === "stamped") return "is stamped — a code an upstream system owns";
     if (meta.kind === "set" || meta.kind === "link") return `is a ${meta.kind} column, whose members are edited in the sheet`;
     if (meta.kind === "custom") return "is a custom column, read through its own `parse`";
+    if (meta.kind === "action") return "is an action column, written by its actions";
     if (!meta.editable) return "is read only (`editable: false`)";
     return undefined;
 }

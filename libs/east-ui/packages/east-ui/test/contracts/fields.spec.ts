@@ -24,6 +24,7 @@ describeEast("Fields contract examples", test => {
     Assert.examples(test, {
         fieldsSpecs: ex.fieldsSpecs,
         fieldsSelect: ex.fieldsSelect,
+        fieldsDate: ex.fieldsDate,
     });
 }, { platformFns: TestImpl });
 
@@ -122,6 +123,20 @@ test("hints override the defaults, the hinted fields first in hint order, a nest
     ]);
 });
 
+test("a date hint names a DateTime field and sets what it picks; with no precision it picks both", () => {
+    const Visit = StructType({ start: DateTimeType, end: OptionType(DateTimeType), at: DateTimeType });
+    assertSpecs(Fields.specs(Visit, {
+        start: Fields.date({ label: "Arrives", precision: "time", help: "On site" }),
+        end: Fields.date({ precision: "date" }),
+        at: Fields.date(),
+    }), [
+        spec(["start"], "Arrives", DateTimeType, variant("datetime", { precision: some(variant("time", null)) }), { help: "On site" }),
+        // An Option's value is its editor's: a date, cleared to none.
+        spec(["end"], "End", OptionType(DateTimeType), variant("datetime", { precision: some(variant("date", null)) })),
+        spec(["at"], "At", DateTimeType, datetime),
+    ]);
+});
+
 test("omit leaves a host's own fields out; a reference names its keyed set; a hidden field of any type is gone", () => {
     const Visit = StructType({ title: StringType, start: DateTimeType, crew: OptionType(StringType), site: StringType, notes: StringType });
     assertSpecs(Fields.specs(Visit, { crew: Fields.reference({ of: "people", label: "Lead" }), notes: Fields.hidden() }, ["title", "start"]), [
@@ -162,6 +177,8 @@ test("a hint that does not fit its field's type is refused, naming the field", (
     const refusals: [() => unknown, RegExp][] = [
         [() => Fields.specs(Every, { name: Fields.number() as never }), /"name" is a String field — Fields\.number edits an Integer or a Float field/],
         [() => Fields.specs(Every, { crew: Fields.text() as never }), /"crew" is an Integer field — Fields\.text edits a String field/],
+        [() => Fields.specs(Every, { name: Fields.date() as never }), /"name" is a String field — Fields\.date edits a DateTime field/],
+        [() => Fields.specs(Every, { due: Fields.date({ precision: "week" as never }) }), /"due" is a DateTime field — its date hint's precision is "week"/],
         [() => Fields.specs(Every, { crew: Fields.reference({ of: "people" }) as never }), /"crew" is an Integer field — Fields\.reference names a keyed set's key/],
         [() => Fields.specs(Every, { name: Fields.reference({ of: "" }) }), /"name" is a String field — Fields\.reference names the keyed set its key is of/],
         [() => Fields.specs(Every, { crew: Fields.number({ min: 0.5 }) as never }), /"crew" is an Integer field — its number hint's min is a bigint/],
@@ -206,6 +223,10 @@ test("a hint is checked against its field's type at compile time", () => {
         // @ts-expect-error — a select labels the variant's cases
         status: Fields.select({ labels: { cancelled: "Cancelled" } }),
     }), /a case the variant does not have/);
+    assert.throws(() => Fields.specs(StructType({ name: StringType }), {
+        // @ts-expect-error — a date hint on a String field
+        name: Fields.date(),
+    }), /String field/);
     assert.throws(() => Fields.specs(Row, {
         // @ts-expect-error — a checklist edits an Array of item structs
         name: Fields.checklist(),

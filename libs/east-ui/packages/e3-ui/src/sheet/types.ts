@@ -50,7 +50,7 @@ import { SheetDraftTypeFor, type SheetDraftOf } from "./transactions.js";
 import { SheetDraftGroupTypeFor, type SheetDraftGroupOf } from "./drafts.js";
 import { SheetEditingType } from "./editing-types.js";
 import { DensityType, RowSourceType, StatusValueType } from "@elaraai/east-ui";
-import { RecordSlicesChromeType, RecordSliceStateType, TickFormatType } from "@elaraai/east-ui/internal";
+import { FieldOptionType, FieldSpecType, RecordSlicesChromeType, RecordSliceStateType, TickFormatType } from "@elaraai/east-ui/internal";
 
 // ============================================================================
 // Links — members, the typed link value, the cell
@@ -103,6 +103,17 @@ export const SheetLinkType = StructType({
 export type SheetLinkType = typeof SheetLinkType;
 
 /**
+ * An action column's cell (#1474) — the case a row is in, and its value
+ * encoded (beast2, at the case's type), which the column's case names.
+ *
+ * @property case - The case's name
+ * @property value - Its value, encoded
+ */
+export const SheetActionCellType = StructType({ case: StringType, value: BlobType });
+/** Type alias for {@link SheetActionCellType}. */
+export type SheetActionCellType = typeof SheetActionCellType;
+
+/**
  * One cell of the wire row — the Table's literal cell (#206) plus the
  * typed link.
  *
@@ -119,6 +130,7 @@ export type SheetLinkType = typeof SheetLinkType;
  * @property String - A string value (text · lookup · reference · enum · stamped)
  * @property DateTime - A UTC-midnight date (a `date` column's cell)
  * @property Link - A typed link (a `set` / `link` column's cell)
+ * @property Action - An action column's case (#1474): its name, and its value encoded (beast2, at the case's type)
  */
 export const SheetCellType = VariantType({
     Invalid:  StringType,
@@ -129,6 +141,7 @@ export const SheetCellType = VariantType({
     String:   StringType,
     DateTime: DateTimeType,
     Link:     SheetLinkType,
+    Action:   SheetActionCellType,
 });
 /** Type alias for {@link SheetCellType}. */
 export type SheetCellType = typeof SheetCellType;
@@ -215,11 +228,11 @@ export const SHEET_TITLE_CELL = "$title";
  * date column's `level` / `actual`, a column's `detail`. The `$` prefix keeps
  * it clear of every field name, as {@link SHEET_TITLE_CELL} is.
  *
- * @param rule - The rule (`"level"`, `"actual"`, `"detail"`)
+ * @param rule - The rule (`"level"`, `"actual"`, `"detail"`; an action column's `"summary"`, `"name"`, `"title"`)
  * @param column - The column key
  * @returns The cell key (`"$level:start"`)
  */
-export function sheetRuleCell(rule: "level" | "actual" | "detail", column: string): string {
+export function sheetRuleCell(rule: "level" | "actual" | "detail" | "summary" | "name" | "title", column: string): string {
     return `$${rule}:${column}`;
 }
 
@@ -703,6 +716,107 @@ export const SheetOptionsRuleType = FunctionType([SheetContextType], OptionType(
 /** Type alias for {@link SheetOptionsRuleType}. */
 export type SheetOptionsRuleType = typeof SheetOptionsRuleType;
 
+// ============================================================================
+// Action columns (#1474) — a variant's state machine as a column
+// ============================================================================
+
+/**
+ * How an action column's case is asked for (`Sheet Actions - DX Proposal.md`
+ * §2): by its type, or by the author's `take`.
+ *
+ * @property button - Nothing to ask (`NullType`): taken on click
+ * @property menu - A choice among a variant's cases, each `NullType`, with their words
+ * @property register - A choice of a register's members, by the register's name (a `String` value)
+ * @property form - A form of fields over the case's value — `Fields`' specs; `scalar` when the value is no struct, its one field at the case's name
+ */
+export const SheetActionTakeType = VariantType({
+    button:   NullType,
+    menu:     ArrayType(FieldOptionType),
+    register: StringType,
+    form:     StructType({ specs: ArrayType(FieldSpecType), scalar: BooleanType }),
+});
+/** Type alias for {@link SheetActionTakeType}. */
+export type SheetActionTakeType = typeof SheetActionTakeType;
+
+/**
+ * What else an action wrote, as the cells its patches set: the row's, by
+ * column, and its group's band, by the column each band cell sits under.
+ *
+ * @property row - The row's cells
+ * @property group - The band's cells (empty on a flat sheet)
+ */
+export const SheetActionUpdatesType = StructType({
+    row:   DictType(StringType, SheetCellType),
+    group: DictType(StringType, SheetCellType),
+});
+/** Type alias for {@link SheetActionUpdatesType}. */
+export type SheetActionUpdatesType = typeof SheetActionUpdatesType;
+
+/**
+ * Whether a row may act now.
+ *
+ * @property open - It may: its offer is its state's `next` (or `start`)
+ * @property blocked - It may not, and why — the column's `blocked` said so
+ * @property incomplete - It may not: these fields of its draft are still missing or unread (T6)
+ */
+export const SheetActionGateType = VariantType({
+    open:       NullType,
+    blocked:    StringType,
+    incomplete: ArrayType(StringType),
+});
+/** Type alias for {@link SheetActionGateType}. */
+export type SheetActionGateType = typeof SheetActionGateType;
+
+/**
+ * One case of an action column on the wire — a state and the action into it.
+ *
+ * @property case - The case's name
+ * @property label - The action's verb ("Complete")
+ * @property state - The state's word ("Completed")
+ * @property tone - The state's tone; `none` is neutral
+ * @property icon - A Font Awesome solid icon's name
+ * @property next - The cases a row in this state may go to, in order; empty for a final state
+ * @property take - How the case is asked for
+ * @property valueType - The case's value type
+ * @property initial - What a form opens with, over the wire context, encoded at the case's type
+ * @property updates - What else taking the case writes: its value encoded, the wire context and the moment → the cells
+ */
+export const SheetActionCaseType = StructType({
+    case:      StringType,
+    label:     StringType,
+    state:     StringType,
+    tone:      OptionType(StatusValueType),
+    icon:      OptionType(StringType),
+    next:      ArrayType(StringType),
+    take:      SheetActionTakeType,
+    valueType: EastTypeType,
+    initial:   OptionType(FunctionType([SheetContextType], BlobType)),
+    updates:   OptionType(FunctionType([BlobType, SheetContextType, DateTimeType], SheetActionUpdatesType)),
+});
+/** Type alias for {@link SheetActionCaseType}. */
+export type SheetActionCaseType = typeof SheetActionCaseType;
+
+/**
+ * An action column's kind on the wire (#1474).
+ *
+ * @property start - What a row with nothing taken may do (an `Option` field's)
+ * @property cases - Every case, in the author's order
+ * @property gate - Whether a row may act now, over the wire context: its draft complete, and not `blocked`
+ * @property summary - The rule cell holding a row's summary (S7)
+ * @property name - The rule cell holding how menus, forms and the strip name the row; `none` names it by its number
+ * @property title - The rule cell holding the row's words beside its name
+ */
+export const SheetActionKindType = StructType({
+    start:   ArrayType(StringType),
+    cases:   ArrayType(SheetActionCaseType),
+    gate:    FunctionType([SheetContextType], SheetActionGateType),
+    summary: StringType,
+    name:    OptionType(StringType),
+    title:   OptionType(StringType),
+});
+/** Type alias for {@link SheetActionKindType}. */
+export type SheetActionKindType = typeof SheetActionKindType;
+
 /**
  * The column kind — what a column parses, displays and proposes (§3.2).
  *
@@ -731,6 +845,7 @@ export type SheetOptionsRuleType = typeof SheetOptionsRuleType;
  * @property link - `from > to` — the split cell (§3.4); `options` narrows what a row is offered
  * @property stamped - A read-only code an upstream system owns
  * @property custom - An author parse / print pair over the field's own payload
+ * @property action - A variant's state machine: each case a state and the action into it (#1474)
  */
 export const SheetColumnKindType = VariantType({
     text:      NullType,
@@ -767,13 +882,14 @@ export const SheetColumnKindType = VariantType({
         parse:   FunctionType([StringType, SheetContextType], OptionType(SheetCellType)),
         print:   FunctionType([SheetCellType], StringType),
     }),
+    action:    SheetActionKindType,
 });
 /** Type alias for {@link SheetColumnKindType}. */
 export type SheetColumnKindType = typeof SheetColumnKindType;
 /** String-literal shorthand for the arms of {@link SheetColumnKindType}. */
 export type SheetColumnKindLiteral =
     | "text" | "date" | "quantity" | "integer" | "lookup" | "reference" | "enum"
-    | "set" | "link" | "stamped" | "custom";
+    | "set" | "link" | "stamped" | "custom" | "action";
 
 /**
  * One declared column.

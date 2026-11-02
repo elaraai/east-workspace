@@ -99,7 +99,9 @@ import {
     wrapOptions,
     wrapCustomParse,
     wrapCustomPrint,
+    buildPatchCells,
 } from "./bridge.js";
+import { buildActionKind } from "./actions.js";
 import type { SheetColumn, SheetColumnSpec, SheetFieldKey, SheetMemberKindInput, SheetMultipleInput } from "./columns.js";
 import type { SheetDriverValue, SheetRegisterValue } from "./registers.js";
 import type { SheetGroupValue } from "./group.js";
@@ -408,8 +410,18 @@ function ruleCellKey(meta: SheetColumnMeta, rule: "level" | "actual" | "detail")
     return optionOf((meta.ruleCells ?? []).some((c) => c.key === key) ? key : undefined, StringType);
 }
 
+/** What an action column's kind needs beside the column and the bridge (#1474). */
+interface SheetActionKindContext {
+    /** Every declared column. */
+    metas: readonly SheetColumnMeta[];
+    /** The registers, by name. */
+    registers: Record<string, SheetRegisterValue>;
+    /** A grouped sheet's band cells, described against the group. */
+    groupCells?: SheetColumnMeta[] | undefined;
+}
+
 /** Build one column's wire kind value. */
-function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriverValue | undefined): ExprType<SheetColumnKindType> {
+function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriverValue | undefined, actions?: SheetActionKindContext): ExprType<SheetColumnKindType> {
     const cfg = meta.config;
     const options = cfg.options !== undefined
         ? East.value(some(wrapOptions(bridge, meta, cfg.options)), OptionType(SheetOptionsRuleType))
@@ -479,6 +491,18 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
             });
         }
         case "stamped": return kindOf("stamped", { owner: optionOf(cfg.owner as SubtypeExprOrValue<StringType> | undefined, StringType) });
+        case "action": {
+            if (actions === undefined) throw new Error(`Sheet: "${meta.key}" is an action column — a band draws no action cell`);
+            // A group patch lands as the band's cells, read-only ones too: the action writes them.
+            const groupType = bridge.group?.groupType;
+            const encodeGroup = groupType !== undefined && actions.groupCells !== undefined
+                ? buildPatchCells(groupType, actions.groupCells, actions.registers, false)
+                : undefined;
+            return kindOf("action", buildActionKind({
+                meta, bridge, metas: actions.metas, registers: actions.registers,
+                groupCells: actions.groupCells, encodeGroup,
+            }));
+        }
         case "custom":  return kindOf("custom", {
             accepts: cfg.accepts,
             parse:   wrapCustomParse(bridge, meta, cfg.parse),
@@ -787,7 +811,12 @@ function buildSheet(
                 throw new Error(`Sheet: band cell "${key}" is not a declared column — \`group.cells\` is keyed by the line columns the cells sit under (${[...metaByKey.keys()].join(", ")})`);
             }
             const meta = describeGroupCell(key, cell, groupType);
-            if (meta.payloadType !== under.payloadType) {
+            // Under an action column (#1474) a band shows the group's own status — a word, never an action.
+            if (under.kind === "action") {
+                if (meta.kind !== "enum" && meta.kind !== "text" && meta.kind !== "stamped") {
+                    throw new Error(`Sheet: band cell "${key}" is a ${meta.kind} cell under an action column — a band shows its group's status there: an enum, text or stamped cell`);
+                }
+            } else if (meta.payloadType !== under.payloadType) {
                 throw new Error(`Sheet: band cell "${key}" is a ${meta.kind} cell (${(meta.payloadType as { type: string }).type}) under a ${under.kind} column (${(under.payloadType as { type: string }).type}) — a band cell's payload must match the column it sits under`);
             }
             if (meta.register !== undefined && registers[meta.register] === undefined) {
@@ -816,7 +845,7 @@ function buildSheet(
         header:      m.config.header ?? m.key,
         sub:         optionOf(m.config.sub, StringType),
         width:       optionOf(m.config.width, StringType),
-        kind:        buildKind(m, bridge, driver),
+        kind:        buildKind(m, bridge, driver, { metas, registers, groupCells: cellMetas }),
         dataType:    toEastTypeValue(m.fieldType),
         payloadType: toEastTypeValue(m.payloadType),
         editable:    m.editable,

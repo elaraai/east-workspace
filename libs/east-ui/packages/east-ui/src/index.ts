@@ -76,7 +76,7 @@ export {
     Fields, type FieldsNamespace,
     type FieldSpecValue, type FieldEditorValue,
     type FieldHint, type FieldHints, type FieldHintOptions,
-    type TextFieldHint, type NumberFieldHint, type SelectFieldHint, type TagsFieldHint,
+    type TextFieldHint, type DateFieldHint, type NumberFieldHint, type SelectFieldHint, type TagsFieldHint,
     type ChecklistFieldHint, type ReferenceFieldHint, type ReadonlyFieldHint, type HiddenFieldHint,
 } from "./contracts/fields.js";
 

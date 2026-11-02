@@ -13,8 +13,9 @@
  * checklist's items; the tint of a changed field; read-only, every value
  * printed. And (#1188) a field with no value yet, a date's precision, and a
  * control the host draws itself; and (#1250) a text's control titled with its
- * whole text, and a choice's with its chosen words. Every value handed back is
- * asserted with East's `equalFor`.
+ * whole text, and a choice's with its chosen words; and (#1473) a choice of up
+ * to four cases a radio group. Every value handed back is asserted with East's
+ * `equalFor`.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
@@ -46,7 +47,8 @@ Element.prototype.scrollTo ??= function scrollTo() { /* jsdom lays nothing out *
 
 afterEach(cleanup);
 
-const Status = VariantType({ planned: NullType, underway: NullType, done: NullType });
+// Five cases: past four, a choice is a select (#1473).
+const Status = VariantType({ planned: NullType, underway: NullType, paused: NullType, done: NullType, cancelled: NullType });
 const Step = StructType({ text: StringType, done: BooleanType });
 const Site = StructType({ room: StringType, floor: IntegerType });
 const Job = StructType({
@@ -261,7 +263,7 @@ describe("FieldForm — each field the shared Field around the shared input its 
         expectEdit(edits, "rush", equalFor(BooleanType), true);
 
         edits.length = 0;
-        expect(await open(field("status"))).toEqual(["Planned", "Underway", "Done"]);
+        expect(await open(field("status"))).toEqual(["Planned", "Underway", "Done", "Cancelled", "Paused"]);
         await choose("Underway");
         expectEdit(edits, "status", equalFor(Status), variant("underway", null));
 
@@ -431,7 +433,7 @@ describe("FieldForm — a draft's missing field, a date's precision, and a host'
         }
         // A required select chooses nothing — its placeholder shows — and offers no Not set.
         expect(chosenOf(field, "status")).toBe("Select...");
-        expect(await open(field("status"))).toEqual(["Planned", "Underway", "Done"]);
+        expect(await open(field("status"))).toEqual(["Planned", "Underway", "Done", "Cancelled", "Paused"]);
         await choose("Done");
         expectEdit(edits, "status", equalFor(Status), variant("done", null));
 
@@ -566,6 +568,64 @@ describe("FieldForm — a text or a choice longer than its box (#1250)", () => {
         const ownField = (key: string) => own.container.querySelector<HTMLElement>(`[data-field="${key}"]`)!;
         expect(titleOf(ownField, "steps")).toBeNull();
         expect(titleOf(ownField, "stock")).toBe(printFor(DictType(StringType, IntegerType))(JOB.stock));
+    });
+});
+
+describe("FieldForm — a choice of up to four cases is a radio group, past four a select (#1473)", () => {
+    const Severity = VariantType({ low: NullType, high: NullType });
+    const Alert = StructType({ changes: StringType, severity: Severity, priority: OptionType(Severity), status: Status });
+    const ALERT_SPECS = Fields.specs(Alert, { severity: Fields.select({ labels: { low: "Low", high: "High" } }), priority: Fields.select({ labels: { low: "Low", high: "High" } }) });
+
+    function mountAlert(value: Record<string, unknown>, readOnly = false) {
+        const edits: Edit[] = [];
+        function Host() {
+            const [current, setValue] = useState<Record<string, unknown>>(value);
+            return (
+                <FieldForm specs={ALERT_SPECS} value={current} readOnly={readOnly}
+                    onChange={(path, next) => { edits.push({ path: path.join("."), value: next }); setValue((v) => setAt(v, path, next)); }} />
+            );
+        }
+        const utils = render(<ChakraProvider value={system}><I18nProvider locale={LOCALE}><Host /></I18nProvider></ChakraProvider>);
+        const field = (key: string) => utils.container.querySelector<HTMLElement>(`[data-field="${key}"]`)!;
+        return { ...utils, edits, field };
+    }
+    const radios = (el: HTMLElement) => within(el).getAllByRole("radio") as HTMLInputElement[];
+    const labelsOf = (el: HTMLElement) => [...el.querySelectorAll("[data-scope=radio-group][data-part=item-text]")].map((t) => t.textContent);
+
+    test("two cases are radios in the variant's labelled order, the held case checked; five are still a select", () => {
+        const { field } = mountAlert({ changes: "Bore over", severity: variant("high", null), priority: none, status: variant("planned", null) });
+        expect(field("severity").querySelector("[data-field-choice=radio]")).not.toBeNull();
+        expect(field("severity").getAttribute("data-editor")).toBe("select");
+        expect(labelsOf(field("severity"))).toEqual(["Low", "High"]);
+        expect(radios(field("severity")).map((r) => r.checked)).toEqual([false, true]);
+        expect(field("severity").querySelector("[data-scope=select]")).toBeNull();
+        // Past four cases, the select.
+        expect(field("status").querySelector("[data-field-choice=radio]")).toBeNull();
+        expect(field("status").querySelector("[data-scope=select][data-part=trigger]")).not.toBeNull();
+    });
+
+    test("a radio picked is one edit at once, typed as the variant; an Option's Not set comes first and empties it", async () => {
+        const { field, edits } = mountAlert({ changes: "", severity: variant("low", null), priority: some(variant("low", null)), status: variant("planned", null) });
+        await act(async () => { fireEvent.click(radios(field("severity"))[1]!); });
+        await settle();
+        expectEdit(edits, "severity", equalFor(Severity), variant("high", null));
+
+        edits.length = 0;
+        expect(labelsOf(field("priority"))).toEqual(["Not set", "Low", "High"]);
+        await act(async () => { fireEvent.click(radios(field("priority"))[0]!); });
+        await settle();
+        expectEdit(edits, "priority", equalFor(OptionType(Severity)), none);
+        // A radio group clears itself: no Set or Clear beside it.
+        expect(within(field("priority")).queryByRole("button", { name: /^(Set|Clear)/ })).toBeNull();
+    });
+
+    test("a required choice with no value yet checks no radio; read only, the choice is printed", () => {
+        const { field } = mountAlert({ changes: "", status: variant("done", null) });
+        expect(radios(field("severity")).map((r) => r.checked)).toEqual([false, false]);
+        cleanup();
+        const { field: printed } = mountAlert({ changes: "", severity: variant("high", null), priority: none, status: variant("done", null) }, true);
+        expect((within(printed("severity")).getByRole("textbox") as HTMLInputElement).value).toBe("High");
+        expect(printed("severity").querySelector("[data-scope=radio-group]")).toBeNull();
     });
 });
 

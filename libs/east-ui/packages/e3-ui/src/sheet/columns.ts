@@ -31,6 +31,7 @@ import {
     type OptionType,
     type StringType,
     type StructType,
+    type VariantType,
 } from "@elaraai/east";
 
 import type { TickFormatType } from "@elaraai/east-ui/internal";
@@ -47,6 +48,7 @@ import type {
     SheetDateLevelLiteral,
 } from "./types.js";
 import type { SheetArityInput, SheetCheckInput, SheetLocksInput } from "./link.js";
+import type { SheetAnyActionConfig } from "./actions.js";
 
 // ============================================================================
 // The column value and the spec map
@@ -76,6 +78,8 @@ export interface SheetColumn<R extends StructType, A extends EastType> {
     readonly register?: string;
     /** The row type the column was built over — checked against the sheet's at build time. @internal */
     readonly rowType?: StructType;
+    /** An action column's variant (#1474). @internal */
+    readonly variantType?: VariantType;
     /** Phantom — the row type. @internal */
     readonly __row?: (r: R) => void;
     /** Phantom — the accepted field types. @internal */
@@ -407,7 +411,8 @@ export type SheetAnyColumnConfig =
     & Partial<SheetSetConfig<StructType>>
     & Partial<SheetLinkConfig<StructType, StructType>>
     & Partial<SheetStampedConfig>
-    & Partial<SheetCustomConfig<StructType, EastType>>;
+    & Partial<SheetCustomConfig<StructType, EastType>>
+    & Partial<Pick<SheetAnyActionConfig, "cases" | "start" | "blocked" | "name" | "title">>;
 
 // ============================================================================
 // Builders

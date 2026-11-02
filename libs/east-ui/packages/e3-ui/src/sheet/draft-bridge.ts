@@ -5,7 +5,7 @@
 
 /** Typed draft decoding without domain defaults. @packageDocumentation */
 import { ArrayType, East, FunctionType, OptionType, StringType, StructType, none, some, variant, type BlockBuilder, type EastType, type ExprType, type SubtypeExprOrValue, type VariantType } from "@elaraai/east";
-import { SheetCellType, SheetRowType } from "./types.js";
+import { SheetActionCellType, SheetCellType, SheetRowType } from "./types.js";
 import { SheetCellsType, type SheetColumnMeta } from "./bridge.js";
 import { SheetDraftFieldType, SheetDraftTypeFor } from "./transactions.js";
 import { SheetDraftEntryTypeFor, SheetDraftGroupTypeFor } from "./drafts.js";
@@ -48,6 +48,16 @@ export function buildDraftRowDecoder(
             return cell.match({
                 Invalid: ($: BlockBuilder<typeof draftField>, text: ExprType<StringType>) => $.const(variant("invalid", text), draftField),
                 [meta.cellTag]: ($: BlockBuilder<typeof draftField>, payload: ExprType<EastType>) => {
+                    // An action column's case (#1474): its value decoded at the case's type, or unread.
+                    if (meta.action !== undefined) {
+                        const decode = $.const(meta.action.decode);
+                        const cell = payload as unknown as ExprType<typeof SheetActionCellType>;
+                        const decoded = $.const(decode(cell));
+                        return decoded.match({
+                            none: () => East.value(variant("invalid", cell.case), draftField),
+                            some: (_$2, v) => East.value(variant("value", meta.optional ? some(v) : v), draftField),
+                        }) as ExprType<typeof draftField>;
+                    }
                     let value = payload;
                     if (meta.form === "array") {
                         const link = payload as unknown as ExprType<import("./types.js").SheetLinkType>;
