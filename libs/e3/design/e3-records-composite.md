@@ -1,8 +1,11 @@
 # Design: composite records — one record over several systems of record
 
 > **Status:** design for review, revised 2 November 2026 after a review of
-> the first draft (1 November), and again that day for runs while people keep
-> editing (rulings 11–14). Nothing here is built yet.
+> the first draft (1 November), again that day for runs while people keep
+> editing (rulings 11–14), and a third time to make it prescriptive: §4's
+> examples are the target behaviour, §5 numbers each requirement with the
+> example that shows it, the task that builds it and the spec that tests it,
+> and §9's tests replay the examples. Nothing here is built yet.
 > Issue: [elaraai/east-workspace#1465](https://github.com/elaraai/east-workspace/issues/1465).
 > It builds on records declared whole, the branch this one is stacked on.
 
@@ -131,7 +134,8 @@ are already in the issue's body and are taken here as written. Change 5 is
 ruling 2. The review of the first draft found the gaps F14–F30 of §3.2; the
 fixes are in the sections each names, and rulings 7–10 settle the four that
 were the product owner's to decide. A review of the revision for people
-editing all day found F31–F34, which rulings 11–14 settle.
+editing all day found F31–F34, which rulings 11–14 settle. Writing the
+target behaviour out as examples found F35, a fix of design (§7.8).
 
 ## 3. What exists, audited
 
@@ -237,7 +241,7 @@ first draft read the same tree.
 
 The issue's plan holds, with these corrections and gaps. F1–F13 are the first
 draft's; F14–F30 are the review's; F31–F34 are those of a review of the
-revision for people editing all day.
+revision for people editing all day; F35 was found writing the examples out.
 
 - **F1 — Co-partitioning across key types.** `planPieces` cuts co-partitioned
   inputs at the same keys, and refuses inputs whose cut types differ
@@ -387,10 +391,40 @@ revision for people editing all day.
   lands.** A run follows its inputs until none moves, holding the workspace
   all the while, and the revision stopped only a run that was loading.
   → §7.9, ruling 13
+- **F35 — A task a cache hit makes ready waits for the next completion.**
+  After a pass that answered a task from the cache, the loop waits on what is
+  in flight before it takes the ready tasks again
+  (`LocalOrchestrator.ts:1067–1076`). A fed load whose feed the cache answers
+  waits for whatever slow task is running, minutes later, as an edit did
+  (F33). → §7.8
 
-## 4. Authoring and use, by example
+## 4. Target behaviour, by example
 
-Command output below is illustrative.
+These examples are the target behaviour, not illustrations of it. A test
+replays each one (§9) and asserts it as written: the commands, the lines they
+print in their order, the words of each refusal, each value, and the order of
+a timeline's rows. Only these stand for what a run makes, and a test checks
+their form, not their value:
+
+- hashes and ids (`3f2a9c1e`, `5e7a3b0c…`, `<inputsHash>/<executionId>`);
+- times of day, in a timeline, a history line or a lock's `since`;
+- durations in brackets (`[930ms]`);
+- a process id (`process 51234`);
+- an event's sequence number (`since: 1842n`).
+
+`…` stands for lines left out: a run's header, a load's `[PART]` lines, or more
+lines like those around it. A line that begins with `# ` is a note, and so is
+the rest of any line after two or more spaces and `# `: a note is not part of
+the listing (a piece's `#1` is). A listing's lines come in the order shown,
+with one freedom: the lines a run prints in one pass of its loop, before it
+next waits on what is in flight — the tasks it starts, answers from the cache,
+defers or leaves waiting — may come in any order among themselves, and a test
+checks them as a set.
+
+A timeline's times are labels: a test drives its rows in order on a runner
+that holds each task until the test lets it finish (§9.1), so "while it runs"
+is exact and nothing waits on a clock. A timeline's commits (`c0`, `m1`, `L`)
+are the ones its test makes.
 
 ### 4.1 Declaring
 
@@ -479,6 +513,17 @@ $ e3 history . orders -w main
 9b01d2aa  plan_order  ops@example  2026-11-02T02:58:40Z  …
 ```
 
+A second load of the source, asked while the first runs, waits its turn, and
+the first's place is never taken:
+
+```
+$ e3 load . orders.erp ./erp-orders-2.beast2 -w main
+Waiting for an earlier load of orders.erp to finish…
+Taking the delivery in… done
+Pieces 37/37
+Loaded orders.erp at 6a90c3e5: 212 set, 4 deleted, 99,131 unchanged
+```
+
 From code, the same thing is a job its caller polls:
 
 ```ts
@@ -530,9 +575,9 @@ $ e3 dataflow run . main                                # erpOrders changed sinc
   [CACHED] reconcile                                    # erpOrders as of the delivery orders holds
   [DONE] combine_erp [1840ms]
   [START] orders.erp
-  [PART] orders.erp 1/37 #0 [140ms]
+  [PART] orders.erp 1/37 #1 [140ms]
   …
-  [PART] orders.erp 37/37 #36 [212ms]
+  [PART] orders.erp 37/37 #37 [212ms]
   [DONE] orders.erp [5120ms]
   [START] forecast                                      # the load's commit is a change of orders
   [START] reconcile
@@ -554,12 +599,13 @@ $ e3 dataflow run . main
   [CACHED] combine_erp
   [START] orders.erp
   [START] forecast                                      # orders as the rollback left it
-  [PART] orders.erp 1/37 #0 (cached) [2ms]
+  [DEFER] reconcile: orders.erp's delivery was forgotten, so nothing says which erpOrders orders holds: it runs once orders.erp loads again
+  [PART] orders.erp 1/37 #1 (cached) [2ms]
   …
   [DONE] forecast [930ms]
   [DONE] orders.erp [380ms]
   [START] forecast
-  [START] reconcile                                     # deferred until the load: nothing said which erpOrders orders held
+  [START] reconcile                                     # the load's commit carries erpOrders again
   [DONE] forecast [930ms]
   [DONE] reconcile [610ms]
 
@@ -600,6 +646,18 @@ const ordersView = East.function([], UIComponentType, (_$) => (
   }}</Reactive>
 ));
 ```
+
+In the Sheet:
+
+- Each of the ERP's rows is locked: its cells carry `data-locked`, and its
+  lock's words are `loaded from erp`.
+- An edit, a delete, a paste or a fill over a locked row is refused with those
+  words, and nothing is staged.
+- A row added is the solution's: Apply sends its key as `.own "<id>"`, the
+  `.east` text of `variant('own', <id>)`.
+- An Apply that names an external entry anyway — through the entry form, say —
+  is rejected before any commit: `entry .erp "SO-1001" is source erp's, which
+  only its load writes`.
 
 ### 4.6 While people edit
 
@@ -679,6 +737,43 @@ edit lands between the two inputs' starts, they share a commit and the cache
 answers, as at 10:03. Neither input waits for the other, and `plan` never
 computes on a mix.
 
+What `e3 dataflow run` prints for these rows, after its header. A catch-up
+run has lines of its own, and a task due again prints nothing until it
+starts:
+
+```
+  [START] forecast
+  [START] capacity
+  [DONE] capacity [50110ms]
+  [START] capacity
+  [DONE] capacity [50090ms]
+  [START] capacity
+  [DONE] capacity [50130ms]
+  [START] capacity
+  [DONE] forecast [180040ms]
+  [START] forecast
+  [START] plan
+  [DONE] capacity [50100ms]
+  [START] capacity
+  [DONE] plan [60020ms]
+  [DONE] capacity [50120ms]
+  [START] capacity
+  [DONE] capacity [50080ms]
+  [START] capacity
+  [DONE] capacity [50110ms]
+  [START] capacity
+  [DONE] forecast [180030ms]
+  [START] forecast
+  [CATCH-UP] capacity for plan
+  [DONE] capacity [50090ms]
+  [START] capacity
+  [DONE] capacity for plan [50120ms]
+  [START] plan
+  [DONE] capacity [50100ms]
+  [START] capacity
+  [DONE] plan [60010ms]
+```
+
 **A reader of the feed's upstream, while the load runs.** `combine_erp` makes
 the ERP's delivery from `erpOrders`, and `reconcile` reads `orders` and
 `erpOrders`. Each commit of `orders` carries the version of `erpOrders` its
@@ -700,54 +795,508 @@ time   erpOrders   the ERP's load                  orders (carries)  reconcile (
 `reconcile` follows people's edits all through the load, and never compares
 an order with a newer copy of itself.
 
-## 5. Behaviour
+### 4.7 A change, one step at a time
 
-| Situation | What happens |
+`clean` reads `orders` and takes a minute, `forecast` reads `clean`'s output
+and takes 3, and `report` reads `forecast`'s and takes 30 seconds. An edit
+lands while `forecast` runs:
+
+```
+time      head  clean (1 min)       forecast (3 min)                report (30 s)
+--------  ----  ------------------  ------------------------------  --------------------------
+10:00:00  c0    starts on c0
+10:01:00  c0    c0 lands            starts on clean's c0
+10:01:30  m1    starts on m1        |
+10:02:30  m1    m1 lands            |
+10:04:00  m1                        c0 lands; starts on clean's m1  starts on forecast's c0
+10:04:30  m1                        |                               c0 lands
+10:07:00  m1                        m1 lands                        starts on forecast's m1
+10:07:30  m1                                                        m1 lands; nothing is due
+```
+
+- **10:01:30.** The view that made `m1` starts a run, which hands the edit to
+  this one (§4.8). `clean` is idle, so it starts on `m1` at once.
+- **10:02:30.** `clean`'s result lands while `forecast` runs on the one before
+  it. `forecast` is not stopped: it is due again, and is asked as it lands.
+- **10:04:00.** `forecast`'s result from `c0` lands, and `report`, which has
+  no result in the run yet, runs on it. `forecast` starts again, on `clean`'s
+  `m1` result.
+- The workspace holds each result as it lands, and none is taken back while
+  the next is made: from 10:02:30 `clean`'s output is the one from `m1`, and
+  until 10:07:00 `forecast`'s is the one from `c0`.
+- **10:07:30.** No task is due, ready, in flight or catching up, so the run
+  ends.
+
+What the run prints, after its header and before its summary:
+
+```
+  [START] clean
+  [DONE] clean [60010ms]
+  [START] forecast
+  [START] clean
+  [DONE] clean [60020ms]
+  [DONE] forecast [180030ms]
+  [START] forecast
+  [START] report
+  [DONE] report [30010ms]
+  [DONE] forecast [180020ms]
+  [START] report
+  [DONE] report [30020ms]
+```
+
+An edit that no start follows — `e3 mutate`, or a write from another process
+— is taken in at the run's next completion instead: here `clean` would start
+on `m1` at 10:04:00, when `forecast` lands.
+
+### 4.8 An edit handed to the run
+
+A view writes, then starts a run. The start answers a `DataflowStartResult`:
+`started` when it began a run, and `handed` when a run was in flight and took
+the edit in (§7.8). Through the client:
+
+```ts
+import { dataflowExecuteLaunch, dataflowExecutePoll } from '@elaraai/e3-api-client';
+
+const answer = await dataflowExecuteLaunch(url, 'repo', 'main', {}, { token });
+// no run in flight:                  variant('started', null)
+// a run in flight took the edit in:  variant('handed', { since: 1842n })
+
+// `since` is the run's next event: follow the run from there.
+const state = await dataflowExecutePoll(url, 'repo', 'main', { since: 1842n }, { token });
+```
+
+Both answer HTTP 202. A start given `filter` or `force` asks for a run of its
+own, so it is refused `workspace_locked` while a run is in flight, as today;
+so is any start while the run in flight is stopping.
+
+From the terminal, against a server whose run is in flight:
+
+```
+$ e3 dataflow run https://e3.example.com/repos/acme main
+Starting tasks in workspace: main
+
+A run is in flight on main: it takes your changes in now.
+  [START] capacity
+  [DONE] capacity [50120ms]
+  …
+```
+
+It prints the run's lines from `since`, not from the run's first event, and
+the run's summary when it ends. Ctrl-C stops following and leaves the run
+running, since this start did not begin it, and the command exits 130, as an
+interrupted one does:
+
+```
+
+Received SIGINT, aborting...
+Stopped following the run on main, which goes on.
+```
+
+In the run, the wake is §7.8's timeline: the run looks for changed inputs at
+once, and a task that is idle starts on the edit then.
+
+### 4.9 What a task reads
+
+In a run each dataset's version is a version vector: the commits and values
+it came from, each entry written below as the dataset's name and its version.
+A record's version is its commit, with what its fed sources carry; a result's
+is the version its task was launched with. For §4.6's `reconcile`, `erpLines`
+is at `l1`, and `erpOrders` moves from `e1` to `e2` at 10:00:
+
+| Dataset | Its version |
 |---|---|
-| Deploy mints a composite | Genesis `$init`: the solution sources' `initial` entries, or none. `$pending` names every external source, fed or not, and `$external` names them all. |
-| A later deploy keeps or migrates a composite | `$pending` is reconciled (§7.7): a source new to the external set joins it — one changed from `mutations` to `load` too — and one no longer external leaves it, its slots dropped. A migration also drops each external source's delivery slots, so a fed source loads again on the next run. |
-| A task reads a record whose `$pending` is set | The task waits, as on an unset input, naming the sources yet to deliver. The run goes on without it. |
-| A source's first delivery commits | Its name leaves `$pending`. Once `$pending` is empty the slot is dropped, and the dependents run: in the same run for a fed source; for a delivered one, in a run in flight once it next looks for changes, or in the next run. |
-| A mutation edits, reduces or patches an entry of an external source | Refused as `invalid`, naming the key and the source. Nothing is written. |
-| A load's patch names a key outside its source, or outside its piece's keys | The load fails, naming the key. Nothing is committed. |
-| A load's function replaces (`replace`) | It replaces the piece's entries of its source, never the record. |
-| A new delivery that changes nothing | It commits once, `0 set, 0 deleted`, so the history and the slots record it. |
-| The same delivery again, under the same load declaration | Answered "already loaded" (`again`) by the commit that applied it, whatever committed since, unless a rollback or restore undid it. Nothing runs. In a run, the load is `[CACHED]`. |
-| A delivery whose as-of is older than the source's | Answered `superseded`, naming the source's as-of. Nothing runs or commits. |
-| A delivery whose as-of is the source's or later, or that has none | Loaded. The source's as-of becomes the later of the two; a delivery without one leaves it. |
-| The same delivery after the load's function changed (a redeploy) | It applies again under the new function. |
-| Two loads of one source | One at a time, in the order asked. The second waits for the first, however long it takes. A fed source has one load at a time, its workspace's one run. |
-| Loads of two sources | Side by side, each committing its own run. |
-| A mutation, or another source's load, commits while a load runs | It commits as it does today, and the record's readers run on it (ruling 11). The load's commit folds it in from its stored delta, and never applies its own delta again for it (§7.6). |
-| A rollback, restore, migration or reset lands while a load runs | At its commit, the load reads the source's entries again. As they were, it commits over the new head; changed, it starts again, reusing every piece still valid. |
-| A rollback or restore undoes a delivery | The source forgets it: its delivery slots are dropped, and it is pending again if its first delivery is undone. A fed source is loaded again by the next run; a delivered one, when it is sent again. |
-| A run reaches a fed load whose feed changed | The load runs after the feed's task and commits once. Its commit is a change of the record: the readers run again after it, in the same run. Meanwhile they run on the record as it stands. |
-| A fed load's feed has no value, or is an input holding its package's value | The load waits, saying why, and the record's readers wait with it, before the first delivery and after it. |
-| A fed load's feed changes while it runs or commits | Its commit stands, as any result does, and the load runs again on the new output (ruling 12). |
-| A fed load fails | The record keeps its last commit, and the run launches nothing more, as after any failed task. No task depends on the load, so none is skipped: its readers' results stand. |
-| People edit a record while a task that reads it runs | Each edit commits at once. The task's result lands as it finishes, and it runs once more, on the newest commit, for every edit that arrived meanwhile (ruling 12). Its dependents keep their results, and run again once its next result lands. |
-| A task reads results made from different commits of a record | It runs as of the oldest: the record from its history, and each other result from the execution cache, or its task run there once, never written to the workspace (§7.8). It never waits for its inputs to agree. |
-| A view starts a run while one is in flight | The start is handed to the run, which looks for changed inputs at once, and answered `handed` (ruling 14). A filtered or forced start, or one while the run is stopping, is refused as today. |
-| A task reads a fed record and its feed's upstream while the record's load runs | It reads the upstream as of the delivery the record holds, from its history, and runs again once the load commits (§4.6). |
-| A rollback, restore or migration forgets a fed delivery | Until the next load commits, a task that reads the record and its feed's upstream is deferred, since nothing says which upstream the record holds. A task that reads the record alone runs on it. |
-| Two inputs of a task read a plain input at different values | The task is deferred until they agree, as today: a plain input keeps no earlier value to read. |
-| A deploy over an input that feeds a load | A value someone set is kept, whatever `--inputs` says, while its type is unchanged; the plan says it is retained, naming the load. A changed type resets it, and the load waits until it is set. |
-| `e3 load` names a fed source | Refused, naming the feed and the run that loads it. |
-| A task feeds a load and reads its record | The package is refused at build, naming the cycle. |
-| A deploy starts while a load job runs | The load stops within about a second and lets the workspace go, then starts again once the deploy is done (§7.9). |
-| A deploy starts while a run is in flight, loading or not | The run is cancelled within about a second, saying a deploy started (ruling 13). Every result it landed stands, and finished pieces stay cached. The first run after the deploy runs as of the deployed package, its loads from the pieces still valid (§7.9). |
-| A workspace's removal or export while a run is in flight | Refused, naming the run, as today: stop the run first. |
-| A mutation, set, export, copy or run start while a deploy has announced itself | Refused at once, naming the deploy, as it is while a deploy holds the workspace today. |
-| `e3 workspace deploy --plan` | Plans under the workspace's lock taken shared: it announces nothing, and stops nothing. |
-| The deploy removes the record or the source, or changes its key or delivery type | The stopped load fails, naming what changed. |
-| A load is stopped (a deploy, Ctrl-C, a crash) | Asked again, it resumes: finished pieces are answered from the execution cache. |
-| `$reset` (deploy with `--schema reset`) | The record goes back to genesis. Every `$load.` slot is dropped, and `$pending` names every external source again. |
-| `$compact` cuts a load's commit from the chain | The slot's commit is emptied, as `$migrations` does. A retry of that delivery is answered "already loaded", with no commit. |
-| gc while a load job is queued or stopped | Its delivery is kept: the job holds running work from its creation, and re-references the delivery at each turn of its waits. |
-| A load job whose delivery gc swept before the job was made | It fails: "delivery <hash> is not in the repository: upload it again". |
-| `e3 seed` of a composite | Refused, naming `e3 load` and the record's mutations. |
-| A view's Apply names an external entry | Rejected before any commit, naming the entry and its source. |
-| A Sheet over a composite | External rows draw locked, saying whose they are. A new row is the solution source's. |
+| `erpOrders` | `erpOrders e2` |
+| `erpLines` | `erpLines l1` |
+| `combine_erp`'s output, launched on `e1` | `erpOrders e1, erpLines l1` |
+| `orders` at `m5`, its ERP entries loaded from that output | `orders m5, erpOrders e1, erpLines l1`, the last two from `$load.erp.feed` |
+| `orders` at `L`, which loaded the output launched on `e2` | `orders L, erpOrders e2, erpLines l1` |
+
+`stepTaskCommits` gives each task the commit it reads of each record:
+
+| Task, as it is prepared | Its inputs' versions | The commits it reads |
+|---|---|---|
+| `reconcile` at 10:01 | `orders m5, erpOrders e1, erpLines l1`; `erpOrders e2` | `orders m5`; `erpOrders e1`, the version `orders` carries |
+| `reconcile` at 10:17 | `orders L, erpOrders e2, erpLines l1`; `erpOrders e2` | `orders L`; `erpOrders e2` |
+| `plan` at 10:06:00 (§4.6) | `forecast`'s `orders c12`; `capacity`'s `orders c20` | `orders c12`, the older |
+
+So at 10:01 `reconcile` reads `erpOrders` at `e1` from its history, though its
+head is `e2`. At 10:06:00 `plan` reads `forecast`'s result as it stands, and
+`capacity`'s at `c12`. The cache has none there, since `capacity` ran on
+`c10` and `c13`, so a catch-up run makes it (§4.6).
+
+### 4.10 When a task waits for its inputs to agree
+
+A task never waits for results made from different commits of a record (§4.6,
+§4.9). It is deferred in four narrow cases, each because nothing says which
+version of an input to read. The run says why when it defers the task, once
+for each reason until the task next starts, and the task's `[START]` follows
+once its inputs agree:
+
+```
+  [DEFER] plan: input 'rates' is read at two values (through forecast and capacity): it runs once they agree
+  [DEFER] reconcile: orders.erp's delivery was forgotten, so nothing says which erpOrders orders holds: it runs once orders.erp loads again
+  [DEFER] audit: orders and invoices hold deliveries made from different versions of erpOrders: it runs once their loads catch up
+  [DEFER] check: orders holds a delivery made from an earlier value of input 'erp_extract': it runs once orders.erp loads the new one
+```
+
+1. **A plain input read at two values.** `forecast` and `capacity` both read
+   the input `rates`, and `plan` reads both. Someone sets `rates` while
+   `forecast` runs, and `capacity` runs on the new value first. An input keeps
+   no earlier value to read, so `plan` waits until `forecast` has run on the
+   new value too.
+2. **A forgotten delivery.** A rollback undid `orders.erp`'s delivery (§4.12).
+   `reconcile` reads `orders` and `erpOrders`, and nothing says which
+   `erpOrders` the ERP's entries came from, so it waits until the run loads
+   the feed again. `forecast`, which reads `orders` alone, runs at once.
+3. **Two fed records carrying different versions of one upstream.** `orders`
+   and `invoices` are each fed by a task that reads `erpOrders`, and `audit`
+   reads both. While `orders` holds a delivery made from `e1` and `invoices`
+   one made from `e2`, `audit` waits for `orders`'s load to catch up.
+4. **A fed record beside the plain input that feeds it.** `orders.erp` is fed
+   by the input `erp_extract`, and `check` reads `orders` and `erp_extract`.
+   Once someone sets `erp_extract`, `check` waits until `orders.erp` has
+   loaded the new value.
+
+A remote run's caller sees no `[DEFER]` line: the API serves no deferral
+(§10).
+
+### 4.11 A load's commit, worked
+
+The ERP's load prepared on `c0`: it stored the source's run `R0`, and its
+pieces computed the delta `D` from it. While they ran, people's edits `m1` and
+`m2` landed (§7.6):
+
+| Attempt | Reads the head | Walks back to `checked` | Applies | `checked` after | Its write |
+|---|---|---|---|---|---|
+| 1 | `m2` | `m2`, `m1`: mutations, each storing its delta | `D`, once, onto `m2` | `m2` | refused: `m3` landed first |
+| 2 | `m3` | `m3`: a mutation | `m3`'s delta, onto attempt 1's result | `m3` | the commit `L`, its parent `m3` |
+
+However many edits land, `D` is applied once: each later attempt applies only
+the few ops of what landed since the one before.
+
+```
+$ e3 history . orders -w main
+8e1f20c4  $load:erp   system:dataflow  2026-11-02T10:14:02Z  delivery 4a7c19e2: 1,204 set, 31 deleted, 98,112 unchanged
+6b2d9f13  plan_order  ops@example      2026-11-02T10:13:58Z  …
+```
+
+Where the walk meets a commit with no delta, or a load of the same source,
+the load checks the entries instead:
+
+| What landed during the load | The check | Then |
+|---|---|---|
+| `$reindex`, which leaves the entries as they are | the source's run of the head equals `R0` | `D` once onto the head, and the commit |
+| a rollback past the ERP's previous load, which changes `erp`'s entries | it differs | a restart: "the entries of source 'erp' changed under its load" |
+| a `$load:erp` of the same delivery, by a run another process took up | it differs, so the node restarts, and its prepare finds the slots naming the delivery | `[CACHED]`: nothing is applied twice |
+
+A restart prepares again on the new head, and the pieces whose entries did not
+change come from the cache. With `erp` delivered by `e3 load`, as in §4.3,
+the load job says so:
+
+```
+$ e3 load . orders.erp ./erp-orders.beast2 -w main
+Taking the delivery in… done
+Pieces 37/37
+Loading again: the entries of source 'erp' changed under its load
+Pieces 37/37 (35 from the cache)
+Loaded orders.erp at 0c7a5d31: 1,204 set, 31 deleted, 98,112 unchanged
+```
+
+With `erp` fed by `combine_erp`, as in §4.4, the run's load node goes back to
+pending and starts again:
+
+```
+  [START] orders.erp
+  [PART] orders.erp 1/37 #1 [140ms]
+  …
+  [PART] orders.erp 37/37 #37 [212ms]
+  [START] orders.erp
+  [PART] orders.erp 1/37 #1 (cached) [2ms]
+  …
+  [DONE] orders.erp [610ms]
+```
+
+### 4.12 The slots, step by step
+
+The record ref's reserved slots (§6) for `orders`, its `erp` source fed by
+`combine_erp`. A blank cell is a slot the ref does not hold. A `.feed` is
+written as East prints the version vector (`printFor(VersionVectorType)`);
+here, its entries.
+
+| Slot | Minted (`a1`) | First load (`5c81e0d7`) | An edit (`9b01d2aa`) | Second load (`8e1f20c4`) | Then rolled back to `9b01d2aa` | Or rolled back to `a1` |
+|---|---|---|---|---|---|---|
+| `$external` | `erp` | `erp` | `erp` | `erp` | `erp` | `erp` |
+| `$pending` | `erp` | | | | | `erp` |
+| `$load.erp` | | `9d4f2a61…` | `9d4f2a61…` | `4a7c19e2…` | | |
+| `$load.erp.load` | | `7c3e0a95…` | `7c3e0a95…` | `7c3e0a95…` | | |
+| `$load.erp.commit` | | `5c81e0d7…` | `5c81e0d7…` | `8e1f20c4…` | | |
+| `$load.erp.execution` | | `<inputsHash>/<executionId>` | the same | the second load's | | |
+| `$load.erp.feed` | | `erpOrders e1, erpLines l1` | the same | `erpOrders e2, erpLines l1` | | |
+| `$load.erp.asOf` | | | | | | |
+
+- **Minted.** The deploy's `$init` writes `$pending` and `$external`, and the
+  record's readers wait: `[WAIT] forecast: record 'orders' waits for the first
+  delivery of erp`.
+- **First load.** Its commit's args say `first: true`, and `$pending` goes.
+  The readers run, in the same run.
+- **An edit** carries every slot as it is.
+- **Second load.** Its args say `first: false`.
+- **Rolled back to `9b01d2aa`.** The rollback undoes the second load, so its
+  slots go, though the record holds the first delivery's entries again: a
+  rollback forgets each delivery it undoes (ruling 7). `$load.erp.execution`
+  no longer names the load node's execution, so the run in flight, or the
+  next, loads the feed again (`[START] orders.erp`), and its pieces come from
+  the cache.
+- **Rolled back to `a1`** instead, the rollback undoes the first delivery too:
+  `$pending` names `erp` again, and the readers wait, as after the mint.
+
+A source loaded by `e3 load` differs in two slots. It has no `.feed`. Its
+`.asOf` holds the latest as-of any of its deliveries carried, as East prints a
+DateTime: after `e3 load --as-of 2026-11-02T03:00:00`, it is
+`2026-11-02T03:00:00.000`, and a later delivery with no as-of leaves it.
+
+### 4.13 A deploy, while people work
+
+**It stops a run.** A run loads `orders.erp`, and `forecast` runs on `orders`
+as it stands. Someone deploys. Within about a second of the deploy announcing
+itself, the run stops and says why:
+
+```
+$ e3 dataflow run . main
+…
+  [START] combine_erp
+  [START] forecast
+  [DONE] combine_erp [1840ms]
+  [START] orders.erp
+  [PART] orders.erp 1/37 #1 [140ms]
+  …
+  [PART] orders.erp 21/37 #21 [151ms]
+  [CANCELLED] orders.erp
+  [CANCELLED] forecast
+
+Stopped: a deploy of main started.
+  Completed before it stopped: 1
+```
+
+It exits 130, as an aborted run does. The deploy's own output is today's: it
+waited about a second for the run to let the workspace go. What stands:
+
+- every result that landed, here `combine_erp`'s: its output stays in the
+  workspace;
+- every finished piece and execution, in the execution cache.
+
+Nothing starts the run again by itself. The next start — a view's after its
+next write, `e3 watch`'s, or a person's — runs under the deployed package, and
+the cache answers what the deploy left unchanged:
+
+```
+$ e3 dataflow run . main
+…
+  [CACHED] combine_erp
+  [START] orders.erp
+  [START] forecast
+  [PART] orders.erp 1/37 #1 (cached) [2ms]
+  …
+  [PART] orders.erp 21/37 #21 (cached) [2ms]
+  [PART] orders.erp 22/37 #22 [148ms]
+  …
+```
+
+A run on a server stops the same way, and its stored `execution_cancelled`
+event holds the reason. Its caller sees the run end `aborted` and prints its
+summary, as after a stop request made elsewhere today: the API serves no
+cancelled run's reason (§10).
+
+**It stops a load job, which goes on after it.** Here `erp` is delivered by
+`e3 load`, as in §4.3:
+
+```
+$ e3 load . orders.erp ./erp-orders.beast2 -w main
+Taking the delivery in… done
+Pieces 21/37
+Stopped: a deploy of main started. The load goes on once the deploy is done…
+Pieces 37/37 (21 from the cache)
+Loaded orders.erp at 7d2e41b0: 1,204 set, 31 deleted, 98,112 unchanged
+```
+
+The job keeps its place, so no later load of `orders.erp` passes it, and keeps
+its delivery while it waits. The intake is not run again: its memo answers. A
+deploy that removed the record or the source, or changed the source's key or
+delivery type, fails the job instead, with `the deploy removed source 'erp'
+of record 'orders'`, `the deploy removed record 'orders'`, `the deploy changed
+the key type of source 'erp' of record 'orders'`, or `the deploy changed the
+delivery type of source 'erp' of record 'orders'`.
+
+**Writes are refused while it waits.** From the moment a deploy announces
+itself until it is done — its wait, at most 30 seconds, then the deploy — every
+mutation, set, export, copy and run start on the workspace is refused at once,
+with:
+
+```
+Workspace 'main' is locked by a deploy in process 51234 (since 2026-11-02T10:05:00.000)
+```
+
+A view's write is refused `workspace_locked` with the same holder, and a load
+job waits it out, as above. `e3 workspace deploy --plan` announces nothing and
+stops nothing: it plans under the workspace's lock taken shared, beside
+running work.
+
+### 4.14 Two loads of one record
+
+`orders` has two fed sources: `erp`, fed by `combine_erp`, and `web`, fed by
+`combine_web`. People edited `orders` since the last run, and both feeds
+changed. Each load commits on its own, a change of `orders`, and a reader
+running when both land runs once more, for both:
+
+```
+  [START] combine_erp
+  [START] combine_web
+  [START] forecast                                      # on orders as it stands, with the edits
+  [DONE] combine_web [920ms]
+  [START] orders.web
+  …
+  [DONE] combine_erp [1840ms]
+  [START] orders.erp
+  …
+  [DONE] orders.web [2210ms]
+  [DONE] orders.erp [5120ms]
+  [DONE] forecast [180020ms]
+  [START] forecast                                      # once, for both loads
+  [DONE] forecast [180010ms]
+```
+
+## 5. Requirements
+
+Each row is one requirement of the target behaviour, numbered. **Shown in**
+names the example that shows it, where one does, and the example is part of
+the requirement. **Built by** names its tasks (§11). **Tested in** names the
+spec that checks it, under `libs/e3/packages/` or `libs/east-ui/packages/`.
+The test's title begins with the requirement's number (`R34 — …`), so a number
+with no test is a gap a reviewer sees. These specs are new:
+
+- `e3/src/record-composite.spec.ts`
+- `e3-core/src/record-load.spec.ts`, `record-load-commit.spec.ts`,
+  `record-composite.spec.ts`, `deploy-lock.spec.ts`, `dataflow-follow.spec.ts`,
+  `dataflow-loads.spec.ts` and `upgrades/dataflow-graph-loads.spec.ts`
+- `e3-cli/src/commands/load.spec.ts`
+- `e3-api-tests/src/suites/records-load.ts` and `object-upload.ts`
+
+**Declaring and writing**
+
+| # | Situation | What happens | Shown in | Built by | Tested in |
+|---|---|---|---|---|---|
+| R1 | A composite is declared | Its type is `Dict<Variant{ <source>: <key>… }, row>`. The parts after `sources` are handed `{ state, key }`, and `initial` names each solution source's entries by its own key. | §4.1 | B1, B2 | `e3/src/record-composite.spec.ts` |
+| R2 | A declaration breaks a rule: a name that is not an identifier, no source, a load that is async, calls a platform function or has the wrong signature, a source fed by its own record, mutations with no solution source, an external source in `initial` | Refused at build, naming the record and the source. | — | B1, B2 | `e3/src/record-composite.spec.ts` |
+| R3 | A package names a task `<record>.<source>`, or a task feeds a load and reads its record | The package is refused at build, naming the clash, or the cycle's steps. | — | B5 | `e3/src/package.spec.ts` |
+| R4 | A mutation edits, reduces or patches an entry of an external source | Refused as `invalid`, naming the key and the source. Nothing is written. | §4.2 | C2 | `e3-core/src/records.spec.ts` |
+| R5 | `e3 seed` of a composite | Refused, naming `e3 load` and the record's mutations. | — | C9 | `e3-cli/src/commands/seed.spec.ts` |
+
+**Loading a delivery**
+
+| # | Situation | What happens | Shown in | Built by | Tested in |
+|---|---|---|---|---|---|
+| R6 | `e3 load` of a delivery | It is taken in, run in pieces, and committed once as `$load:<source>`, with its counts and its as-of. | §4.3 | C4, F1 | `e3-core/src/record-load.spec.ts`, `e3-cli/src/commands/load.spec.ts` |
+| R7 | A load's patch names a key outside its source, or outside its piece's keys | The load fails, naming the key. Nothing is committed. | — | B3, C3 | `e3/src/record-programs.spec.ts`, `e3-core/src/record-load-commit.spec.ts` |
+| R8 | A load's function replaces (`replace`) | It replaces the piece's entries of its source, never the record. | — | B3 | `e3/src/record-programs.spec.ts` |
+| R9 | A new delivery that changes nothing | It commits once, `0 set, 0 deleted`, so the history and the slots record it. | — | C3, C4 | `e3-core/src/record-load.spec.ts` |
+| R10 | The same delivery again, under the same load declaration | Answered "already loaded" (`again`) by the commit that applied it, whatever committed since, unless a rollback or restore undid it. Nothing runs. In a run, the load is `[CACHED]`. | §4.3, §4.4 | C4, C16 | `e3-core/src/record-load.spec.ts`, `dataflow-loads.spec.ts` |
+| R11 | A delivery whose as-of is older than the source's | Answered `superseded`, naming the source's as-of. Nothing runs or commits. | §4.3 | C4, F1 | `e3-core/src/record-load.spec.ts`, `e3-cli/src/commands/load.spec.ts` |
+| R12 | A delivery whose as-of is the source's or later, or that has none | Loaded. The source's as-of becomes the later of the two; a delivery without one leaves it. | §4.12 | C3, C4 | `e3-core/src/record-load.spec.ts` |
+| R13 | The same delivery after the load's function changed (a redeploy) | It applies again under the new function. | — | C4 | `e3-core/src/record-load.spec.ts` |
+| R14 | Two loads of one source | One at a time, in the order asked. The second waits for the first, however long it takes, saying `Waiting for an earlier load of orders.erp to finish…`. A fed source has one load at a time, its workspace's one run. | §4.3 | C4, D1, F1 | `e3-core/src/record-load.spec.ts`, `e3-cli/src/commands/load.spec.ts` |
+| R15 | Loads of two sources | Side by side, each committing its own run. | — | C4 | `e3-core/src/record-load.spec.ts` |
+| R16 | A mutation, or another source's load, commits while a load runs | It commits as it does today, and the record's readers run on it (ruling 11). The load's commit folds it in from its stored delta, and applies its own delta once, whatever lands. | §4.6, §4.11 | C3 | `e3-core/src/record-load-commit.spec.ts` |
+| R17 | A rollback, restore, migration, reset or reindex lands while a load runs | At its commit, the load reads the source's entries again. As they were, it commits over the new head; changed, it starts again, reusing every piece still valid, and a job says `Loading again: the entries of source 'erp' changed under its load`. | §4.11 | C3, C4, C17, F1 | `e3-core/src/record-load-commit.spec.ts`, `record-load.spec.ts`, `dataflow-loads.spec.ts` |
+| R18 | A load's commit loses a race | Only a ref conflict is retried, with no cap or deadline, and each attempt applies only what landed since the one before. An apply error or a storage failure fails the load. | §4.11 | C3 | `e3-core/src/record-load-commit.spec.ts` |
+| R19 | A load is stopped (a deploy, Ctrl-C, a crash) | Asked again, it resumes: finished pieces are answered from the execution cache. | §4.13 | C4 | `e3-core/src/record-load.spec.ts` |
+| R20 | `e3 load` names a fed source | Refused, naming the feed and the run that loads it. | §4.4 | C4, D2, F1 | `e3-cli/src/commands/load.spec.ts`, `e3-api-tests/src/suites/records-load.ts` |
+| R21 | `e3 load` of a file against a server | The file is uploaded as an object, writing no ref, and the load job is then polled. | — | D1, D2, D3, F1 | `e3-api-tests/src/suites/object-upload.ts`, `e3-cli/src/commands/load.spec.ts` |
+| R22 | A load job whose delivery gc swept before the job was made | It fails: "delivery <hash> is not in the repository: upload it again". | — | C4 | `e3-core/src/record-load.spec.ts` |
+| R23 | A load queued behind a load longer than 30 s, or waiting out a deploy longer than 30 s | It goes on waiting: its waits have no bound. | — | C4 | `e3-core/src/record-load.spec.ts` |
+
+**Slots, pending and history**
+
+| # | Situation | What happens | Shown in | Built by | Tested in |
+|---|---|---|---|---|---|
+| R24 | Deploy mints a composite | Genesis `$init`: the solution sources' `initial` entries, or none. `$pending` names every external source, fed or not, and `$external` names them all. | §4.12 | C5 | `e3-core/src/record-deploy.spec.ts` |
+| R25 | A later deploy keeps or migrates a composite | `$pending` is reconciled (§7.7): a source new to the external set joins it — one changed from `mutations` to `load` too — and one no longer external leaves it, its slots dropped. A migration also drops each external source's delivery slots and keeps its as-of, so a fed source loads again on the next run. | — | C5 | `e3-core/src/record-deploy.spec.ts` |
+| R26 | `$reset` (deploy with `--schema reset`) | The record goes back to genesis. Every `$load.` slot is dropped, and `$pending` names every external source again. | — | C5 | `e3-core/src/record-deploy.spec.ts` |
+| R27 | A task reads a record whose `$pending` is set | The task waits, as on an unset input, naming the sources yet to deliver. The run goes on without it. | §4.12 | C16, F4 | `e3-core/src/dataflow-loads.spec.ts`, `e3-cli/src/commands/start.spec.ts` |
+| R28 | A source's first delivery commits | Its name leaves `$pending`. Once `$pending` is empty the slot is dropped, and the dependents run: in the same run for a fed source; for a delivered one, in a run in flight once it next looks for changes, or in the next run. | §4.12 | C3, C16 | `e3-core/src/record-load.spec.ts`, `dataflow-loads.spec.ts` |
+| R29 | A load commits | The slots name its delivery, its load object, its commit and its execution, the feed's version for a fed source, and the later as-of; its args say whether it took the source out of `$pending`. | §4.12 | C3, C14 | `e3-core/src/record-load-commit.spec.ts` |
+| R30 | A rollback or restore undoes a delivery | The source forgets it: its delivery slots are dropped, and it is pending again if its first delivery is undone. A fed source is loaded again by the next run; a delivered one, when it is sent again. | §4.12 | C6 | `e3-core/src/record-composite.spec.ts` |
+| R31 | A restore | Every external source's slots are dropped, and `$pending` names those with no entries in the restored state. | — | C6 | `e3-core/src/record-composite.spec.ts` |
+| R32 | `$compact` cuts a load's commit from the chain | The slot's commit is emptied, as `$migrations` does. A retry of that delivery is answered "already loaded", with no commit. | — | C5 | `e3-core/src/record-composite.spec.ts` |
+| R33 | A record's history and its description | `e3 history` says a `$load:` commit in words, with its as-of, and `--delta` shows its delta. Describe answers each source: external or not, its feed, its last delivery, commit and as-of, and whether it is pending. | §4.3 | C9, F2 | `e3-core/src/record-history.spec.ts`, `e3-cli/src/commands/history.spec.ts` |
+
+**Runs that follow people's edits**
+
+| # | Situation | What happens | Shown in | Built by | Tested in |
+|---|---|---|---|---|---|
+| R34 | People edit a record while a task that reads it runs | Each edit commits at once. The task's result lands as it finishes, its output written, and it runs once more, on the newest commit, for every edit that arrived meanwhile — never once per edit. | §4.6 | C12 | `e3-core/src/dataflow-follow.spec.ts` |
+| R35 | A task's result lands while its dependents hold results of its earlier run | They keep theirs, and are due once its next result lands, not when the root moves: a change travels a step at a time. | §4.7 | C12 | `e3-core/src/dataflow-follow.spec.ts` |
+| R36 | A task whose inputs each have a result in the run | It is ready, whatever those tasks' status, save `waiting`, and starts in the pass of the loop that made it ready — a cache hit's dependents too — never waiting for a task in flight to land first (F35). A task with no result yet in the run runs on what has landed. | §4.7, §4.13 | C12 | `e3-core/src/dataflow-follow.spec.ts` |
+| R37 | The run's end | It ends once no task is due, ready, in flight or catching up. A run people keep editing under does not end by itself. | §4.7 | C12 | `e3-core/src/dataflow-follow.spec.ts` |
+| R38 | A task reads results made from different commits of a record | It runs as of the oldest: the record from its history, and each other result as it stands or from the execution cache. It never waits for its inputs to agree. | §4.6, §4.9 | C13 | `e3-core/src/dataflow-follow.spec.ts` |
+| R39 | … and the cache has no result of a task at that commit | That task runs there once, a catch-up run: `[CATCH-UP] capacity for plan`, then `[DONE] capacity for plan [<ms>]`. It writes nothing to the workspace, and the summary does not count it. | §4.6 | C13, F4 | `e3-core/src/dataflow-follow.spec.ts`, `e3-cli/src/commands/start.spec.ts` |
+| R40 | … and that task is running on exactly those inputs | The task waits for that run, and nothing runs twice. | — | C13 | `e3-core/src/dataflow-follow.spec.ts` |
+| R41 | A catch-up run fails | The task fails, naming the catch-up run's task and the commit. | — | C13 | `e3-core/src/dataflow-follow.spec.ts` |
+| R42 | A task reads a fed record and its feed's upstream | It reads the upstream at the version the record's commit carries, from its history, and runs again once the load commits. | §4.6, §4.9 | C13, C14 | `e3-core/src/dataflow-follow.spec.ts` |
+| R43 | Two inputs of a task read a plain input at different values | The task is deferred until they agree, saying so (`[DEFER]`): a plain input keeps no earlier value to read. | §4.10 | C13, F4 | `e3-core/src/dataflow-follow.spec.ts`, `e3-cli/src/commands/start.spec.ts` |
+| R44 | A rollback, restore or migration forgets a fed delivery | Until the next load commits, a task that reads the record and its feed's upstream is deferred, saying so. A task that reads the record alone runs on it. | §4.10 | C13, C14 | `e3-core/src/dataflow-follow.spec.ts` |
+| R45 | Two fed records carry different versions of one upstream; or a fed record is read beside the plain input that feeds it, once the input changed | The task is deferred until the loads catch up, saying so. | §4.10 | C13, C14 | `e3-core/src/dataflow-follow.spec.ts` |
+| R46 | Which of two commits of a record is older | The run's order of its snapshots; for commits a result named before the run resumed, a walk back from its first snapshot; a commit a compaction cut is the older. | — | C13 | `e3-core/src/dataflow-follow.spec.ts` |
+| R47 | A view starts a run while one is in flight | The start is handed to the run, which looks for changed inputs at once, and is answered `handed { since }`. A start that began a run is answered `started`. | §4.8, §7.8 | C15, D2, D3 | `e3-core/src/dataflow-follow.spec.ts`, `e3-api-tests/src/suites/dataflow.ts` |
+| R48 | A start with a filter or a force, or any start while the run in flight is stopping | Refused `workspace_locked`, as today. | §4.8 | C15, D2 | `e3-api-tests/src/suites/dataflow.ts` |
+| R49 | An edit that no start follows (`e3 mutate`, a write from another process) | The run in flight takes it in at its next completion. | §4.7 | C15 | `e3-core/src/dataflow-follow.spec.ts` |
+| R50 | `e3 dataflow run` against a server, its start handed | It says `A run is in flight on main: it takes your changes in now.`, and prints the run's lines from `since`. Ctrl-C stops following and leaves the run running. | §4.8 | F4 | `e3-cli/src/commands/start.spec.ts` |
+
+**Fed loads in a run**
+
+| # | Situation | What happens | Shown in | Built by | Tested in |
+|---|---|---|---|---|---|
+| R51 | A run reaches a fed load whose feed changed | The load runs after the feed's task and commits once. Its commit is a change of the record: the readers run again after it, in the same run. Meanwhile they run on the record as it stands. | §4.4 | C16, C17 | `e3-core/src/dataflow-loads.spec.ts` |
+| R52 | A fed load's feed has no value, is a record yet to deliver, or is an input holding its package's value | The load waits, saying why, and the record's readers wait with it, before the first delivery and after it. | §4.4 | C16, F4 | `e3-core/src/dataflow-loads.spec.ts`, `e3-cli/src/commands/start.spec.ts` |
+| R53 | A fed load's feed changes while it runs or commits | Its commit stands, as any result does, and the load runs again on the new output (ruling 12). | — | C17 | `e3-core/src/dataflow-loads.spec.ts` |
+| R54 | A fed load fails | The record keeps its last commit, and the run launches nothing more, as after any failed task. No task depends on the load, so none is skipped: its readers' results stand. | — | C17 | `e3-core/src/dataflow-loads.spec.ts` |
+| R55 | Two load nodes of one record | Each commits on its own, a change of the record. A reader running when both land runs once more, for both. | §4.14 | C17 | `e3-core/src/dataflow-loads.spec.ts` |
+| R56 | A load node commits while the run goes on | Its commit runs outside the run's mutex: other tasks complete and cache hits apply meanwhile. A yield waits for the commit, and a cancel stops it before its write. | — | C17 | `e3-core/src/dataflow-loads.spec.ts` |
+| R57 | `--force` or `--filter` over load nodes | A forced load node runs past the cache and the slots, and commits only if its delta changes something. `--filter orders.erp` runs it and what it depends on; `--filter forecast` loads nothing. | — | C17 | `e3-core/src/dataflow-loads.spec.ts` |
+| R58 | The run's graph | A load node per fed source, depending on its feed's task. No node depends on a load node, and the record stays a root input. A name that clashes, and a cycle, are refused. | — | C11, D2 | `e3-core/src/dataflow.spec.ts`, `e3-api-tests/src/suites/dataflow.ts` |
+| R59 | History's prune, with a load node | It keeps the load node's current execution, named by the record's slot. | — | C19 | `e3-core/src/history.spec.ts` |
+| R60 | A repository whose stored runs predate load nodes | The upgrade step writes `load: none` on every node of every stored run. A run already in the new form, or in neither, is left as it is. | — | A4 | `e3-core/src/upgrades/dataflow-graph-loads.spec.ts` |
+
+**Deploys and locks**
+
+| # | Situation | What happens | Shown in | Built by | Tested in |
+|---|---|---|---|---|---|
+| R61 | A deploy starts while a run is in flight, loading or not | Within about a second the run stops: each task in flight prints `[CANCELLED]`, then `Stopped: a deploy of main started.` and `Completed before it stopped: N`, N the tasks with a result in the run, and the run exits 130. Every result it landed stands, and finished pieces and executions stay cached. Nothing restarts it; the next run runs under the deployed package, the cache answering what the deploy left. | §4.13 | C18, F4 | `e3-core/src/dataflow-follow.spec.ts`, `e3-cli/src/commands/start.spec.ts`, `e3-api-tests/src/suites/dataflow.ts` |
+| R62 | A deploy starts while a load job runs | Within about a second the load stops and lets the workspace go, saying `Stopped: a deploy of main started. The load goes on once the deploy is done…`. It keeps its place and its delivery, and goes on once the deploy is done. | §4.13 | C4, C7, F1 | `e3-core/src/record-load.spec.ts`, `e3-api-tests/src/suites/records-load.ts` |
+| R63 | The deploy removes the record or the source, or changes the source's key or delivery type | The stopped load fails, naming what changed. | §4.13 | C4 | `e3-core/src/record-load.spec.ts` |
+| R64 | A mutation, set, export, copy or run start while a deploy has announced itself | Refused at once with `Workspace 'main' is locked by a deploy in process <pid> (since <time>)`. | §4.13 | C7 | `e3-core/src/deploy-lock.spec.ts` |
+| R65 | A deploy that finds the workspace held by a write | It waits up to 30 s in all, then is refused `workspace_locked`, naming the holder. | — | C7 | `e3-core/src/deploy-lock.spec.ts` |
+| R66 | `e3 workspace deploy --plan` | It plans under the workspace's lock taken shared: it announces nothing, and stops nothing. | §4.13 | C7 | `e3-core/src/deploy-lock.spec.ts` |
+| R67 | A workspace's removal, or its export as a package, while a run is in flight | Refused, naming the run, as today: stop the run first. | — | C7 | `e3-core/src/deploy-lock.spec.ts` |
+| R68 | A deploy over an input that feeds a load | A value someone set is kept, whatever `--inputs` says, while its type is unchanged, and the plan says it is retained, naming the load. A changed type resets it, and the load waits until it is set. | §7.13 | C8, F5 | `e3-core/src/input-deploy.spec.ts`, `e3-cli/src/commands/workspace.spec.ts` |
+
+**Garbage collection, data and e3-web**
+
+| # | Situation | What happens | Shown in | Built by | Tested in |
+|---|---|---|---|---|---|
+| R69 | gc while a load job is queued or stopped | Its delivery is kept: the job holds running work from its creation, and re-references the delivery at each turn of its waits. | — | C4, C10 | `e3-core/src/gc.spec.ts` |
+| R70 | gc walks a composite | A record object reaches its load objects, and a load object its task object. | — | C10 | `e3-core/src/gc-graph.spec.ts` |
+| R71 | `e3 dataset get -f beast2` | It writes the stored segments, locally and remotely, decoding nothing, and the file loads into another workspace. | — | F3 | `e3-cli/src/commands/get.spec.ts` |
+| R72 | e3-web's transfer | It holds the two job stores, and its sweep covers them. | — | E1 | `e3-web/src/transfer/WebTransferBackend.spec.ts` |
+
+**Views**
+
+| # | Situation | What happens | Shown in | Built by | Tested in |
+|---|---|---|---|---|---|
+| R73 | A record is bound | The binding names its sources, in the IR, the handle and `UiAccess`. | — | G1 | `e3-ui/test/access/access.spec.ts`, `e3-ui-components/test/record-runtime.spec.ts` |
+| R74 | A view's Apply names an external entry | Rejected before any commit, naming the entry and its source. | §4.5 | G2 | `e3-ui-components/test/record-apply.spec.ts` |
+| R75 | A Sheet over a composite: an external row | It draws locked, saying whose it is, and an edit, a delete, a paste or a fill over it is refused with those words. | §4.5 | G3 | `e3-ui/test/sheet/sheet-record.spec.ts`, `e3-ui-components/test/sheet-record-rows.spec.ts`, `east-ui-showcase/tests/responsive/sheet-bound.spec.ts` |
+| R76 | A Sheet over a composite: a new row | It is the solution source's, keyed `variant('own', <id>)`. | §4.5 | G4 | `e3-ui/test/sheet/sheet-record.spec.ts`, `e3-ui-components/test/sheet-record-rows.spec.ts` |
+| R77 | The terminal UI | The records view shows each source, and the dashboard shows a load node as a step of the run after its feed. | — | G5 | `e3-ui-cli/src/tui/data/records.spec.ts` |
 
 ## 6. Wires
 
@@ -769,7 +1318,7 @@ after `reset`.
 | `InputPlanType.action` (e3-types `api.ts:465`) | `+ retained: { load: String }`: an input someone set, kept whatever the policy because it feeds the load named | API; a case named to sort last |
 | `RecordLoadRequestType` (new) | `{ delivery: String, actor: Option<String>, asOf: Option<DateTime> }`: a stored object's hash. A delivery never travels by value | API |
 | `RecordLoadStatusType` (new) | `Variant{ completed: RecordLoadResult, failed: { message }, processing: Option<RecordLoadProgress> }` | API |
-| `RecordLoadProgressType` (new) | `Variant{ commit, intake: IntakeFile, pieces: { done, total }, queued, stopped }`: `queued` behind an earlier load of the source, `stopped` while a deploy holds the workspace | API |
+| `RecordLoadProgressType` (new) | `Variant{ commit, intake: IntakeFile, pieces: { done, total, cached }, queued, restarted: String, stopped }`: `queued` behind an earlier load of the source; `pieces.cached` the pieces the execution cache answered; `restarted` the reason a commit sent the load back to its pieces (§7.6); `stopped` while a deploy holds the workspace | API |
 | `RecordLoadResultType` (new) | `{ commit: Option<String>, state: Option<String>, delivery: String, set, deleted, unchanged: Integer, outcome: Variant{ again: Null, loaded: Null, superseded: DateTime } }`: `superseded` carries the source's as-of; `again` and `superseded` carry no counts (0) | API |
 | `RecordLoadArgsType` (new) | `{ delivery: String, load: String, asOf: Option<DateTime>, first: Boolean, execution: { inputsHash: String, executionId: String }, set, deleted, unchanged: Integer }`: a load commit's `args`. `first` is true when the commit took the source out of `$pending`, which a rollback reads | stored in commits; new |
 | `RecordLoadJobType` (new, e3-core `transfer/types.ts`) | the load's job: repo, workspace, record, source, delivery, actor, asOf, status, createdAt | job store; new kind |
@@ -790,7 +1339,10 @@ Unchanged wires:
   a task's, and a task due again goes back to `pending`, as an invalidated one
   does today. No event carries a load's counts (§10), no event says why a task
   waits — the reasons go to the run's caller (§7.8) — and no event records a
-  catch-up run (§10).
+  catch-up run (§10). A deferral's `task_deferred` carries, as its
+  `conflictPath`, the path its reason names (§7.8), and a run a deploy stopped
+  records `execution_cancelled` with the reason `a deploy of main started`
+  (§7.9).
 - `DataflowExecutionStateType`: a task's output vector is the one it was
   launched with, and a record's is its commit and what its fed sources carry,
   entries of the run's `versionVectors` as today (§7.8). The order of a
@@ -1046,6 +1598,22 @@ delivery is kept while it waits.
 Ctrl-C, or the job's own signal, stops the load. Everything before the commit
 is kept in the execution cache.
 
+**Progress** (`RecordLoadProgress`, §6), each when it happens:
+
+- `queued`, once, when step 2 first asks for the queue lock without waiting
+  and an earlier load of the source holds it. A load that finds it free
+  reports nothing there.
+- `stopped`, each time the load waits on a deploy: at step 4, and once the
+  deploy watch fires.
+- `intake`, while step 5 takes the delivery in. When the adoption memo answers
+  it — a load resumed after a deploy, say — the load reports none.
+- `pieces`, as step 7's pieces settle: `done` of `total`, and `cached`, those
+  the execution cache answered.
+- `restarted`, with the commit's reason, when step 8 returns to step 6.
+- `commit`, while step 8 commits.
+
+The CLI's words for each are §7.13's.
+
 ### 7.6 e3-core: the commit (F3, F14, F20, F27)
 
 `recordLoadCommit(storage, repo, ws, record, source, { delta, run, base?,
@@ -1216,7 +1784,7 @@ once more.
   last delivery, commit and as-of from the slots, and whether it is pending.
 - **Seed.** `e3 seed` refuses a composite (`commands/seed.ts`).
 
-### 7.8 e3-core: runs that follow their records, and a fed load (rulings 5, 10–12 and 14, F12, F17, F20, F28, F29, F31–F33)
+### 7.8 e3-core: runs that follow their records, and a fed load (rulings 5, 10–12 and 14, F12, F17, F20, F28, F29, F31–F33, F35)
 
 People edit a record several times a minute, so a run that reads it sees it
 move under every task. Four rules make such a run worth having. They hold for
@@ -1282,6 +1850,12 @@ while its load runs                                          after the load's co
   apart from those completed). So a change travels a step at a time: a task's
   dependents are due once its next result lands, not when the root moves, and
   none of them is reset to wait for it.
+- **A task starts in the pass that made it ready** (F35). A pass of the loop
+  that answered a task from the cache, or left one waiting, takes the ready
+  tasks again before it waits on what is in flight (`hadSyncCompletion`,
+  `LocalOrchestrator.ts:1067–1076`, checked before the wait rather than after
+  it). So a fed load whose feed the cache answers starts at once, beside a
+  slow task in flight (§4.13), where today it waits for that task to land.
 - **The run's end.** A run ends once no task is due, ready, in flight or
   catching up (`stepIsComplete`, `steps.ts:393`). A run people keep editing
   under does not end by itself, as today's runs do not: it follows the edits,
@@ -1321,7 +1895,8 @@ place of `stepCheckVersionConsistency` before a launch
 A carried version that is `$unknown` where another input names the root, or
 two fed records carrying different versions of one root, defer the task the
 same way, until a load commits. A task that reads a fed record alone is never
-deferred.
+deferred. `stepTaskCommits` answers each deferral with its reason, one of the
+four cases of §4.10 (a `DeferReason`, below).
 
 **Reading the inputs at the task's commits.** `dataflowResolveInputs(storage,
 state, task, commits)` (`dataflow.ts`, new) takes the place of
@@ -1358,8 +1933,9 @@ is set, as today, with the reason (below).
 - A run that fails fails the task, naming the run's task and the commit.
 - The task's stored state is `pending` until it launches itself. A resumed run
   decides it again, and the cache answers the runs that finished.
-- `onCatchUp(task, forTask, phase)` tells the run's caller. No event records it
-  (§10).
+- `onCatchUp(task, forTask, phase)` tells the run's caller, its `phase`
+  `{ state: 'started' }`, or `{ state: 'completed', duration }` once the run
+  lands. No event records it (§10).
 
 **Which of two commits is older.** `recordCommitOrder(storage, state, record,
 a, b)` (`dataflow.ts`, new) answers. The run numbers, in memory, each snapshot
@@ -1618,6 +2194,31 @@ type InputWait =
 The CLI says each (§7.13). No event carries the reasons: a run's events are a
 stored form (`steps.ts:782–784`).
 
+**Deferring, and its words.** A deferral's reason reaches the run's caller as a
+`DeferReason`, one of the four cases of §4.10:
+
+```ts
+type DeferReason =
+  | { kind: 'plain'; input: string; through: string[] }                     // a plain input its inputs read at two values
+  | { kind: 'forgotten'; record: string; source: string; roots: string[] }  // a fed delivery a rollback, restore or migration forgot
+  | { kind: 'carried'; records: [string, string]; root: string }            // two fed records carrying different versions of one root
+  | { kind: 'feed'; record: string; source: string; input: string };        // a fed record beside the input that feeds it, once it changed
+```
+
+- `through` names the task's inputs that read the plain input at different
+  values: each a task's name, or the input's own where the task reads it
+  directly. `roots` names the roots the forgotten source's feed reads that
+  another input of the task names.
+- `onTaskDeferred(taskName, reason)` replaces `(taskName, conflictPath)`
+  (`dataflow.ts:202`, `orchestrator/interfaces.ts:144`,
+  `LocalOrchestrator.ts:960`, `execution/local-orchestrator.ts:124`), a hard
+  cutover. No caller passes it today; `e3-cli`'s `start.ts` and `watch.ts`
+  will (§7.13).
+- The run tells a deferral once. A task deferred again for the same reason,
+  with no launch between, is not told again and records no second
+  `task_deferred`. The event keeps its form: its `conflictPath` is the input,
+  or the first root, that the reason names.
+
 **History's prune (F29).** `keepOf` (`history.ts:441`) names a load node's
 current execution by the record's `$load.<source>.execution` slot,
 `${node.hash}/${inputsHash}`, read with the record's ref. This replaces the
@@ -1681,6 +2282,11 @@ store. The functions below live in `e3-core/src/deploy-lock.ts` (new), over
   resume). A load job waits on the intent instead (§7.5 step 4). A shared taker
   that took the lock just before the deploy announced finishes, and the deploy
   waits for it.
+- **A refusal names the deploy.** `WorkspaceLockError` (`errors.ts:239`) says
+  a holder whose operation is `deployment` is a deploy: `Workspace 'main' is
+  locked by a deploy in process 51234 (since 2026-11-02T10:05:00.000)`, or
+  `Workspace 'main' is locked by a deploy (since …)` for a holder with no
+  process id, such as a lease. Every other holder reads as today.
 - **The waits run in loops** (F22). A load's wait for its queue lock and for
   the intent are loops of 30-s acquires, each turn checking the signal and
   re-referencing the delivery (§7.5). A deploy's wait is bounded (§8).
@@ -1703,7 +2309,18 @@ store. The functions below live in `e3-core/src/deploy-lock.ts` (new), over
   deploy of <ws> started":
   - running units and catch-up runs stop through the runner's signal;
   - a load's commit in flight stops before its next write;
-  - the run lets the workspace go.
+  - the run lets the workspace go;
+  - its `execution_cancelled` event records the reason (`stepCancel`), and
+    its wait rejects with `DataflowAbortedError`, whose new `reason`
+    (`errors.ts:516`) holds it: the run keeps the reason it stopped for, and
+    the loop's throw (`LocalOrchestrator.ts:1130`) passes it on. A stop
+    request leaves `reason` unset.
+
+  The CLI says how many tasks completed before the stop (§4.13).
+  `buildPartialResults` (`LocalOrchestrator.ts:1969`) counts a task with a
+  result in the run as completed, whatever its status: a task due again keeps
+  its result while it runs again, and goes back to `pending` when the run
+  stops (§7.8).
 
   Every result it landed stands, and finished pieces and executions stay in
   the execution cache. Nothing restarts the run by itself. The first start
@@ -1829,15 +2446,56 @@ onProgress, signal })`, `request` a `RecordLoadRequest` with its `asOf`. Also
   It answers as §4.3 does: `Loaded …` with the counts and the as-of,
   `already holds this delivery`, or `… nothing loaded (superseded)`. A
   superseded delivery exits 0: nothing went wrong.
+
+  Its progress (§7.5) prints as §4.3, §4.11 and §4.13 show it:
+  - `queued`: `Waiting for an earlier load of orders.erp to finish…`;
+  - `intake`: the intake reporter's `Taking the delivery in… done`;
+  - `pieces`: `Pieces 37/37`, with ` (21 from the cache)` after it when the
+    cache answered any. The line is printed once the pieces settle, stop or
+    restart, and counts up in place on a terminal;
+  - `restarted`: `Loading again: ` and the reason, `the entries of source
+    'erp' changed under its load`;
+  - `stopped`: `Stopped: a deploy of main started. The load goes on once the
+    deploy is done…`;
+  - `commit`: nothing, since the answer's line follows it.
+
+  A job that fails prints its message and exits 1; a deploy's are §4.13's.
 - **`e3 dataflow run`** prints a load node's lines as a task's (§4.4):
   `[START]`, `[PART]` for its pieces, `[DONE]`, `[CACHED]` when the slots or
   the cache answer it, and `[FAIL]` or `[ERR]` with the load's message.
   - A local run prints a catch-up run (`onCatchUp`) as `[CATCH-UP] capacity
-    for plan`, and its end as `[DONE] capacity for plan [61200ms]`. The
-    summary's counts are per task, as today, and count no catch-up run.
+    for plan` as it starts, and `[DONE] capacity for plan [50120ms]` as it
+    lands. The summary's counts are per task, as today, and count no catch-up
+    run.
+  - A deferral (`onTaskDeferred`) prints `[DEFER] <task>: ` and
+    `describeDeferral(reason)` (`commands/start.ts`), once each time the run
+    tells it (§7.8):
+    - `plain`: `input 'rates' is read at two values (through forecast and
+      capacity): it runs once they agree`. A direct read is said `directly`,
+      before the tasks: `(directly and through forecast)`. Three or more
+      tasks are joined `forecast, capacity and supply`;
+    - `forgotten`: `orders.erp's delivery was forgotten, so nothing says which
+      erpOrders orders holds: it runs once orders.erp loads again`, two or
+      more roots joined as tasks are;
+    - `carried`: `orders and invoices hold deliveries made from different
+      versions of erpOrders: it runs once their loads catch up`;
+    - `feed`: `orders holds a delivery made from an earlier value of input
+      'erp_extract': it runs once orders.erp loads the new one`.
+  - A run a deploy stopped prints, after its tasks' `[CANCELLED]` lines, a
+    blank line, `Stopped: ` and the error's `reason` with a full stop, and
+    `  Completed before it stopped: N`, and exits 130 (§4.13). A run stopped
+    by a signal prints `Aborted.` and `  Completed before abort: N` as today,
+    N counted as §7.9 counts it.
   - A remote start answered `handed` prints "A run is in flight on <ws>: it
-    takes your changes in now.", and follows the run from `since`
-    (`followRemoteRun`, `start.ts:374`), not from its first event.
+    takes your changes in now.", and follows the run from `since`:
+    `followRemoteRun` (`start.ts:374`) takes its first cursor as an argument,
+    0 for a start answered `started`. Ctrl-C after a handed start sends no
+    cancel: it prints `Stopped following the run on <ws>, which goes on.`
+    after the signal's line, and exits 130. After a start answered
+    `started`, Ctrl-C cancels the run, as today.
+- **`e3 watch`** prints the same `[DEFER]` and catch-up lines, and, for a run a
+  deploy from another process stopped, `Dataflow stopped: a deploy of <ws>
+  started` in place of `Dataflow aborted` (`watch.ts:263`).
 - **Waiting words.** `describeUnset` (`commands/start.ts:464`) becomes
   `describeWaits(waits)`, which `start.ts:209` and `watch.ts:248` print after
   `[WAIT] <task>:`:
@@ -1866,6 +2524,10 @@ onProgress, signal })`, `request` a `RecordLoadRequest` with its `asOf`. Also
 
   Other formats are unchanged.
 - **`e3 seed`** refuses a composite.
+- **The lines come from callbacks a spec can drive.** The callbacks
+  `startCommand` and `loadCommand` print through are factored out of them, so
+  `start.spec.ts` and `load.spec.ts` hand them a run over the gated runner and
+  check the lines printed (§9.1).
 
 ### 7.14 e3-web
 
@@ -1993,8 +2655,77 @@ Everything else is shared e3-core logic.
 
 ## 9. Tests
 
-Every backend runs the shared suites. Locally each task runs the specs its
-change reaches; CI runs the rest.
+Every requirement of §5 has a test in the spec it names, its title beginning
+with the requirement's number. Every example of §4 is replayed by a test, as
+9.1 says and 9.2 lists. Every backend runs the shared suites. Locally each
+task runs the specs its change reaches; CI runs the rest.
+
+### 9.1 How a test replays an example
+
+**`GatedTaskRunner`** (`e3-core/src/execution/GatedTaskRunner.ts`, new,
+exported beside `MockTaskRunner`) is a `TaskRunner` that wraps another and
+holds each execution of a task the test names until the test lets it go: a
+task's `execute`, and each unit's `executeUnit`, a load's pieces among them.
+It knows a task by the name the run hands its runner
+(`TaskExecuteOptions.taskName`), so a catch-up run is held as its task's.
+
+- `await launched(task)` answers once an execution of the task is held, with
+  the inputs it was launched on.
+- `release(task)` lets the oldest held execution of the task run on, through
+  the wrapped runner. `fail(task, message)` fails it.
+- A task the test names nothing for runs straight through.
+
+The wrapped runner is a `MockTaskRunner` for a task whose work the test stands
+in for: a released task's output is then a String naming the task and the
+inputs it ran on, so the workspace's value says which run made it. A load's
+pieces run their real program on the local runner, released one at a time, so
+their `[PART]` lines come as an example shows them.
+
+**A test of an example is a list of steps.** Each step does one thing, then
+waits until the run has settled — every execution it launched is held, or
+nothing is due:
+
+- commits an edit (`recordMutate`), and wakes the run or leaves it;
+- releases, or fails, a held execution;
+- starts a deploy, or a load job.
+
+It then asserts:
+
+- what launched, and on which commits (`launched`);
+- what the workspace holds;
+- the lines the step printed: in order, but for the lines of one pass of the
+  run's loop, which it compares as a set (§4).
+
+e3-core's specs assert the run's callbacks, which are the CLI's lines one for
+one. e3-cli's `start.spec.ts` and `load.spec.ts` replay the same steps through
+the command's own callbacks (§7.13), and assert the lines printed. Nothing
+waits on a clock: a printed duration is the runner's, and is checked for its
+form (§4).
+
+### 9.2 The examples, and the tests that replay them
+
+| Example | Replayed in | Requirements |
+|---|---|---|
+| §4.1 Declaring | `e3/src/record-composite.spec.ts` | R1 |
+| §4.2 Reading and writing | `e3-core/src/records.spec.ts` | R4 |
+| §4.3 Loading a delivery | `e3-core/src/record-load.spec.ts`, `e3-cli/src/commands/load.spec.ts`, `e3-cli/src/commands/history.spec.ts` | R6, R10, R11, R14, R33 |
+| §4.4 Loading a task's output | `e3-core/src/dataflow-loads.spec.ts`, `e3-cli/src/commands/start.spec.ts`, `e3-cli/src/commands/load.spec.ts` | R10, R20, R44, R51, R52 |
+| §4.5 A view over it | `e3-ui/test/sheet/sheet-record.spec.ts`, `e3-ui-components/test/sheet-record-rows.spec.ts`, `e3-ui-components/test/record-apply.spec.ts` | R74–R76 |
+| §4.6 While people edit | `e3-core/src/dataflow-follow.spec.ts`, `e3-cli/src/commands/start.spec.ts` | R16, R34, R38, R39, R42 |
+| §4.7 A change, one step at a time | `e3-core/src/dataflow-follow.spec.ts`, `e3-cli/src/commands/start.spec.ts` | R35–R37, R47, R49 |
+| §4.8 An edit handed to the run | `e3-core/src/dataflow-follow.spec.ts`, `e3-api-tests/src/suites/dataflow.ts`, `e3-cli/src/commands/start.spec.ts` | R47, R48, R50 |
+| §4.9 What a task reads | `e3-core/src/dataflow-follow.spec.ts` | R38, R42 |
+| §4.10 When a task waits for its inputs to agree | `e3-core/src/dataflow-follow.spec.ts`, `e3-cli/src/commands/start.spec.ts` | R43–R45 |
+| §4.11 A load's commit, worked | `e3-core/src/record-load-commit.spec.ts`, `e3-core/src/record-load.spec.ts`, `e3-core/src/dataflow-loads.spec.ts`, `e3-cli/src/commands/load.spec.ts` | R16–R18 |
+| §4.12 The slots, step by step | `e3-core/src/record-composite.spec.ts`, `e3-core/src/record-deploy.spec.ts` | R12, R24, R27–R30 |
+| §4.13 A deploy, while people work | `e3-core/src/dataflow-follow.spec.ts`, `e3-core/src/record-load.spec.ts`, `e3-core/src/deploy-lock.spec.ts`, `e3-cli/src/commands/start.spec.ts`, `e3-cli/src/commands/load.spec.ts` | R19, R36, R61–R64, R66 |
+| §4.14 Two loads of one record | `e3-core/src/dataflow-loads.spec.ts` | R55 |
+| §7.8's wake timeline | `e3-core/src/dataflow-follow.spec.ts` | R47 |
+
+### 9.3 The other tests
+
+Beside the replays, each package's specs cover the cases below, each titled
+with the requirement it checks where it checks one.
 
 - **e3**:
   - the declaration's refusals, a fed source's among them: a function whose
@@ -2156,9 +2887,16 @@ Follow-ups, to file once this lands:
 - **A run's load counts in its lines and events.** They are in the record's
   history. Carrying them in the run adds an event, a new stored form of every
   run's events.
-- **Waiting reasons over the API.** A remote run says how many tasks wait, not
-  why: the reasons reach a local run's caller alone (§7.8). Carrying them adds
-  a stored form of the run's state or events.
+- **Waiting, deferral and stop reasons over the API.** A remote run says how
+  many tasks wait, not why; it shows no `[DEFER]` line; and a run a deploy
+  stopped ends `aborted` with no reason, though its stored
+  `execution_cancelled` event holds one. The reasons reach a local run's
+  caller alone (§7.8, §7.9). Serving them adds API events, and, for the
+  waiting and deferral reasons, a stored form of the run's state or events.
+- **`e3 watch` deploying a save while its run is in flight.** A save during a
+  run waits for the run to end (`watch.ts:276–284`), which a run people keep
+  editing under never does. A deploy now stops a run (ruling 13), so the
+  watch could deploy each save at once.
 - **Catch-up runs in the run's events.** A local run's caller hears them
   (`onCatchUp`); a remote one sees the task that waits on them start later.
   Carrying them adds an event, a new stored form of every run's events.
@@ -2169,125 +2907,201 @@ Follow-ups, to file once this lands:
 
 ## 11. Development tasks
 
-One PR. Each task is ticked with its commit once it lands. Locally each task
-gates on build, lint and the specs its change reaches; CI runs the union.
+One PR. Each task is ticked with its commit once it lands. A task is done when
+its **Done when** holds: the requirements it names pass (§5), and the examples
+it names are replayed (§9.2). Locally each task gates on build, lint and the
+specs its change reaches; CI runs the union.
 
 **A. Wires and types (e3-types)**
 - [ ] A1. `RecordObjectType.sources`; `RecordLoadObjectType`, tagged
   `$recordLoad`, with `feed`; decoders saying "re-export";
   `RecordLoadArgsType` (as-of, `first`, execution); `$load:` name helpers.
+  **Done when** each type round-trips through beast2, a record object written
+  before `sources` is refused with "re-export", and the helpers name a load
+  commit and read its source back.
 - [ ] A2. `RecordSignatureType.sources`, with `feed` and the last delivery's
   as-of; `RecordLoadRequest/Status/Progress/Result` types, the request's
-  `asOf` and the result's `outcome`; `PackageJobResponseType` reused;
-  `DataflowStartResultType`.
+  `asOf`, the progress's `pieces.cached` and `restarted`, and the result's
+  `outcome`; `PackageJobResponseType` reused; `DataflowStartResultType`.
+  **Done when** each type round-trips through beast2.
 - [ ] A3. `RecordLoadJobType`, `ObjectUploadJobType` (e3-core `transfer/types.ts`).
+  **Done when** both round-trip through beast2.
 - [ ] A4. `DataflowGraphTaskType.load`, and the repository upgrade step
   `dataflow-graph-loads`: frozen forms, spec, registered in
   `REPOSITORY_UPGRADES`.
+  **Done when** R60 passes.
 - [ ] A5. `InputPlanType.action.retained`, sorted last, with its TypeDoc.
+  **Done when** `retained` round-trips and sorts after `reset`.
 
 **B. SDK (e3)**
 - [ ] B1. The `source` builder and `e3.recordComposite`; the built type;
   `RecordDef.sources`; `CompositeRecordDef`; refusals.
+  **Done when** R1 and R2 pass, replaying §4.1.
 - [ ] B2. The types argument handed to `indexes` / `mutations` / `migrations`
   (`e3.record` too); per-source `initial`.
+  **Done when** R1 and R2 pass for the types argument and `initial`, and
+  `e3.record`'s specs pass with the argument.
 - [ ] B3. `buildLoadProgram` and `buildLoadMergeProgram` (`record-programs.ts`):
   a key outside the piece or the source as a `$conflict` entry, summary totals
   summed, any other shared key failing the merge.
+  **Done when** R7 and R8 pass, with summary totals summed across pieces and
+  a shared key of another arm failing the merge.
 - [ ] B4. Export: each load's task object and load object, and `sources` in
   the record object (`export.ts`, `package.ts`).
+  **Done when** `e3/src/export.spec.ts` finds, for a package with a
+  composite, its record object's `sources`, each load object and its task
+  object, a fed source's `feed`, and the record's `deps`.
 - [ ] B5. Fed sources: a task, an input or a record as a load's delivery; the
   record's `deps`; `e3.package` refusing a task named as a load node, and a
   cycle through a load; the delivery contract in `source.load`'s TypeDoc.
+  **Done when** R3 passes.
 
 **C. e3-core**
 - [ ] C1. The planner's case step (`execution/pieces.ts` `cutOf`).
+  **Done when** `e3-core/src/execution/pieces.spec.ts` cuts a delivery keyed
+  `K` and a source's run keyed `Variant{…}` at the same keys, as the primary
+  and as the other input, and refuses an entry of another case.
 - [ ] C2. `applyDelta` / `applyDeltaEntries` `cases`, `ExternalEntryError`;
   `writeDelta` / `patchDelta` refusing as `invalid`; `resolveRecord` sources.
+  **Done when** R4 passes on the program path and the fast path, replaying
+  §4.2.
 - [ ] C3. `recordLoadCommit` (`record-load.ts`): the `$conflict` refusal, the
   replay, the run check, ref conflicts alone retried, the signal, the slots
   and args.
+  **Done when** R7, R9, R12, R16–R18, R28 and R29 pass, replaying §4.11's
+  attempts and checks.
 - [ ] C4. `recordLoad` and `recordSourceRun`: running work and the delivery
   re-referenced, the queue and intent waits in loops, the repeat and
-  superseded answers, intake, the stored run, pieces, the restart.
+  superseded answers, intake, the stored run, pieces, the restart, its
+  progress.
+  **Done when** R6, R9–R15, R17, R19, R20, R22, R23, R62, R63 and R69 pass,
+  replaying §4.3 and §4.13's load job.
 - [ ] C5. Slots at a deploy (`commitDeployRecords`, `RecordDeployment`):
   `$pending` and `$external` at mint, reset, keep and migrate; a migration's
   delivery slots; a reset's slots named; compaction emptying `.commit`.
+  **Done when** R24–R26 and R32 pass.
 - [ ] C6. Rollback and restore forgetting the deliveries they undo
   (`systemCommitState`, `recordSystemCommit`); a restore's and a genesis's
   `$pending`.
+  **Done when** R30 and R31 pass, replaying §4.12.
 - [ ] C7. The deploy intent (`deploy-lock.ts`): `deployAnnounced`,
   `acquireForDeploy` in `workspaceDeployWith`, the lock's TypeDocs, `--plan`
-  shared; `acquireWorkspaceShared` at every shared taker.
+  shared; `acquireWorkspaceShared` at every shared taker; `WorkspaceLockError`
+  naming a deploy.
+  **Done when** R62 and R64–R67 pass, with §4.13's refusal words.
 - [ ] C8. Feed inputs at a deploy: `planInputDeployments`'s `feeds` and
   `retained`, `refsKeepingInputs`, the reset reason.
+  **Done when** R68 passes.
 - [ ] C9. History args, `recordDescribe` sources (feed, as-of), seed refusal.
+  **Done when** R5 and R33 pass.
 - [ ] C10. gc: the record object's load objects; the load object's kind.
+  **Done when** R69 and R70 pass.
 - [ ] C11. The graph: load nodes, `loadsOf` for waiting, a load node's
   `dependsOn` on its feed's task, no node depending on one, `taskOutputPaths`
   without them, a clash and a cycle refused.
+  **Done when** R58 passes.
 - [ ] C12. Every result lands: `stepTaskResultStale` removed, results recorded
   with their launch vectors, `stepTasksDue` by direct inputs, results kept
-  while a task runs again, readiness on results, the run's end.
+  while a task runs again, readiness on results, a task starting in the pass
+  that made it ready (F35), the run's end; `GatedTaskRunner`.
+  **Done when** R34–R37 pass, replaying §4.6's one-reader timeline and §4.7
+  on the gated runner.
 - [ ] C13. A task's commits: `stepTaskCommits`, `dataflowResolveInputs`
   reading a record at a commit from its history, `recordCommitOrder`,
   catch-up runs (`behind`, their tracking, the prepare again, failure,
-  `onCatchUp`), a plain input deferred.
+  `onCatchUp`), a plain input deferred; `DeferReason`, the `onTaskDeferred`
+  cutover, a deferral told once.
+  **Done when** R38–R46 pass, replaying §4.6's two-reader timeline, §4.9 and
+  §4.10.
 - [ ] C14. What a record's version carries: `$load.<source>.feed` written by a
   fed load's commit and dropped with its delivery slots, the feed's vector
   when its hash is the delivery, `$unknown` after a forgotten delivery.
+  **Done when** R29, R42, R44 and R45 pass, the `.feed` slot printed and read
+  through East.
 - [ ] C15. `wake`: `DataflowOrchestrator.wake`, and `LocalOrchestrator`'s runs
   by workspace with the wake in their race.
+  **Done when** R47–R49 pass, replaying §4.7's wake at 10:01:30 and §7.8's
+  wake timeline.
 - [ ] C16. `stepPrepareLoad` (wait, answer, prepare) and the waiting reasons:
   `InputWait`, `stepTasksWaiting` and `waitsOnDependency` through `loadsOf`,
   `$pending` read, the `onTaskWaiting` cutover.
+  **Done when** R10, R27, R28, R51 and R52 pass, replaying §4.4's waiting
+  listing.
 - [ ] C17. The commit outside the mutex in `LocalOrchestrator`:
   `completeLoad`, `launchLoadCommit`, `loadCommits`, a yield waiting for
   commits in flight, failure and force.
+  **Done when** R17, R51 and R53–R57 pass, replaying §4.4's runs, §4.11's
+  restart lines and §4.14.
 - [ ] C18. A deploy stops any run: every run's intent probe, its landed
-  results kept.
+  results kept; the reason in `execution_cancelled` and
+  `DataflowAbortedError.reason`; `buildPartialResults` counting results.
+  **Done when** R61 passes, replaying §4.13's stopped run and the one after
+  it.
 - [ ] C19. `keepOf` naming a load node's execution by its slot.
+  **Done when** R59 passes.
 
 **D. Transfer, server, client**
 - [ ] D1. `RecordLoadStore` and `ObjectUploadStore` in the interfaces and
   `InMemoryTransferBackend`; `handleProcessRecordLoad`; the object upload's
   processing.
+  **Done when** R14 and R21 pass on the in-memory backend.
 - [ ] D2. e3-api-server routes and handlers; grants and actor; a fed source
   refused; the graph's `load` in the dataflow answers; the run start handing
   over through `wake`, and its `DataflowStartResult`; the deploy route's lock
   through `acquireForDeploy`.
+  **Done when** R20, R21, R47, R48 and R58 pass over the routes.
 - [ ] D3. e3-api-client functions (the request's `asOf`, the result's
   `outcome`), the graph's `load`, the plan's `retained`, the run start's
   answer.
+  **Done when** R21 and R47 pass through the client, replaying §4.3's and
+  §4.8's code.
 - [ ] D4. e3-api-tests suites (`records-load.ts`, `object-upload.ts`, a fed
   source's dataflow, the start's handover, a deploy stopping a load job and a
   run).
+  **Done when** the suites' cases of R20, R21, R47, R48, R58, R61 and R62 run
+  on every backend that runs the suites.
 
 **E. e3-web**
 - [ ] E1. `WebTransferBackend` stores, record types, transfer kinds, sweep.
+  **Done when** R72 passes.
 
 **F. CLI**
-- [ ] F1. `e3 load`, local and remote, `--as-of`, its answers' words, and its
-  refusal of a fed source.
+- [ ] F1. `e3 load`, local and remote, `--as-of`, its answers' words and its
+  progress lines, and its refusal of a fed source; its callbacks factored out
+  for its spec.
+  **Done when** R6, R11, R14, R17, R20, R21 and R62 pass, `load.spec.ts`
+  replaying §4.3, §4.11's job and §4.13's job line for line.
 - [ ] F2. `e3 history` words (with the as-of) and `--delta` for a load commit.
+  **Done when** R33 passes, replaying §4.3's and §4.11's history lines.
 - [ ] F3. `e3 dataset get -f beast2` streaming the stored segments, locally and
   remotely.
+  **Done when** R71 passes.
 - [ ] F4. A run's lines for a load node and a catch-up run; `describeWaits`
-  and the summary lines (`start.ts`, `watch.ts`); a remote start answered
-  `handed` followed from its cursor.
+  and the summary lines (`start.ts`, `watch.ts`); `describeDeferral`; the stop
+  words; a remote start answered `handed` followed from its cursor, and its
+  Ctrl-C; the callbacks factored out of `startCommand` for its spec.
+  **Done when** R27, R39, R43, R50, R52 and R61 pass, `start.spec.ts`
+  replaying §4.4, §4.6, §4.7, §4.8, §4.10 and §4.13's listings line for line.
 - [ ] F5. `retained` input plan lines (`inputPlanLine`, deploy and watch).
+  **Done when** R68's plan lines pass, from `e3 workspace deploy` and
+  `e3 watch`.
 
 **G. UI**
 - [ ] G1. `record_bind` sources, `RecordBindingType.sources`, `UiAccess` sources.
+  **Done when** R73 passes.
 - [ ] G2. `Record.onApply` rejecting external changes, keyed and for one entry;
   the entry form read-only over an external entry.
+  **Done when** R74 passes, with §4.5's words.
 - [ ] G3. The Sheet's locked rows: `SheetRowType.lock`, `keyLock`, the
   renderer's attribute and refusals, the recipe, the record form's wiring, the
   DOM invariant.
+  **Done when** R75 passes, its DOM invariant among the responsive specs.
 - [ ] G4. New rows' keys: `SheetRootType.newRowKey`, the renderer's minting,
   `<Sheet record>`'s `source` prop, the refusal at `root.ts:704`.
+  **Done when** R76 passes.
 - [ ] G5. The terminal UI: the records view's sources, and the dashboard's
   load nodes.
+  **Done when** R77 passes.
 
 **H. Docs and skills**
 - [ ] H1. `libs/e3/SKILL.md` (composite records, fed sources in the dataflow,
@@ -2296,8 +3110,14 @@ gates on build, lint and the specs its change reaches; CI runs the union.
   result lands, a task's commits, catch-up runs, the wake, a deploy stopping a
   run); `libs/east-ui/packages/e3-ui/SKILL.md` (locked rows, new rows);
   `libs/e3/USAGE.md` / CLI docs.
+  **Done when** the skills and docs say each behaviour §4 shows, with its
+  commands and words.
 - [ ] H2. Examples beside the specs; the plugin index regenerated
   (`make -C libs/east-plugin index`).
+  **Done when** the examples build and the regenerated index holds them.
 - [ ] H3. File the follow-ups of §10; note the e3-cloud companion's scope.
+  **Done when** each follow-up of §10 is an issue, and the companion issue
+  names §7.16's scope.
 - [ ] H4. `docs/conventions/WIRE_MIGRATION.md`: a "Changes" entry for each
   wire §6 changes, with its kind.
+  **Done when** every row of §6's table has its entry.
