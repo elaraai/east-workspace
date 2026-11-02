@@ -45,7 +45,8 @@ segment at a time. Nothing reads a collection whole to store it.
    - `clean` is ready, since its input is set, and not cached, so e3 plans it. It
      walks the manifest and cuts it into pieces of mostly 64 to 100 MiB, at
      points the segments' hashes choose. A 200 GB input becomes a few thousand
-     pieces.
+     pieces; a smaller one, smaller pieces — some 50 of 16 MiB at 1 GB — so it
+     too runs on every core.
    - A piece is a manifest naming segments that already exist, so planning
      copies and decodes nothing. The one exception is a `by` group that ends
      inside a segment: that segment is split.

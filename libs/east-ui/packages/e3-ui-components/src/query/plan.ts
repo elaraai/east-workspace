@@ -13,9 +13,11 @@
  *   by row, the program each piece runs, how the pieces' outputs combine and
  *   what runs once after them — or why the query runs as one unit.
  * - **The path**: a query that splits runs as a split call only when the
- *   datasets it would cut weigh more than one piece — e3's smallest,
- *   `PIECE_SIZES.min` (16 MiB), unless the options name another — so a small
- *   dataset keeps a one-shot call's latency. A query that runs as one unit is
+ *   datasets it would cut weigh more than one piece — `PIECE_SIZES.min`
+ *   (16 MiB), unless the options name another — so a small dataset keeps a
+ *   one-shot call's latency. e3 sizes the pieces by what the dataset weighs
+ *   (`pieceSizesFor`, #1108): one of at most 16 MiB is one piece, and a larger
+ *   one is cut into several, however much larger it is. A query that runs as one unit is
  *   one call, and so is one whose datasets' weight is not known. A join both of
  *   whose sides weigh more than one piece is re-keyed (#942): two split calls,
  *   the first re-keying the rows by the join key, the second joining its
@@ -63,8 +65,9 @@ import {
 export interface PlanOptions extends QueryOptions {
     /**
      * The most a dataset may weigh, in stored bytes, and still be read by one
-     * call: e3's smallest piece, `PIECE_SIZES.min` (16 MiB), by default. A
-     * test against a server whose pieces are small sets it small too.
+     * call: by default `PIECE_SIZES.min` (16 MiB), the most e3 cuts into one
+     * piece (`pieceSizesFor`). A test against a server whose pieces are small
+     * sets it small too.
      */
     readonly pieceBytes?: number;
 }

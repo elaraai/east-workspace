@@ -277,10 +277,11 @@ Every task execution is a **unit graph**, built by one engine (`execution/engine
    - **The piece rule.** Boundaries fall at segment fences chosen by a content-defined rule over the primary input's manifest.
      - The primary is the partitioned input that weighs the most in the store, the first listed of those that weigh the same. So the pieces do not depend on the order the inputs are listed in, and the task's log names the input they were cut over.
      - Its segments are walked in order, with `b` the stored bytes of the open piece.
-     - A segment closes the piece after it when `b` reaches 256 MiB, or when `b` is at least 16 MiB and the first 32 bits of the segment's SHA-256, the hash the store names it by, fall under `2^32 × s / D`.
-     - Here `s` is the segment's stored bytes, and `D` is 256 MiB until the piece holds 64 MiB and 16 MiB after, so most pieces hold 64 to 100 MiB.
-     - Where a piece ends depends only on the segments near that point, so an insertion moves only the pieces around it.
-     - The sizes are platform constants (§3.10).
+     - A segment closes the piece after it when `b` reaches `max`, or when `b` is at least `min` and the first 32 bits of the segment's SHA-256, the hash the store names it by, fall under `2^32 × s / D`.
+     - Here `s` is the segment's stored bytes, and `D` is `max` until the piece holds `target` and `min` after.
+     - The sizes follow the primary's stored bytes (`pieceSizesFor`). An input of at most 16 MiB gets 16, 64 and 256 MiB, and is one piece. Above that, `target` is the input's bytes over 32, rounded down to a power of two, at least 4 MiB and at most 64 MiB, with `min` a quarter of it and `max` four times it. So mid-size data is cut into tens of pieces, and from 2 GiB most pieces hold 64 to 100 MiB.
+     - Where a piece ends depends only on the segments near that point, so an insertion moves only the pieces around it. An input that passes 256 MiB, 512 MiB, 1 GiB or 2 GiB is cut once more, at the next target.
+     - The sizes are platform constants of the input's bytes (§3.10), so every machine cuts the same pieces.
    - **Tests.** Tests alone set `E3_TEST_PIECE_BYTES=n`. It makes the three sizes `n/4`, `n` and `4n` bytes and the merge range size (below) `n`, so a small input has many pieces and its merges many ranges. It is never a machine setting.
    - **`by`.** A boundary moves forward to the end of the `by` group it falls in. A group usually ends inside a segment, and the boundary lands there: that segment is split and re-encoded, as a co-partitioned input's are, so a piece keeps its size however large the groups are.
    - **Co-partitioned inputs** are split at the same keys: each at its first row whose key, or `by` fields, reach those of the piece's first row.
@@ -292,7 +293,7 @@ Every task execution is a **unit graph**, built by one engine (`execution/engine
    - `array`: e3 concatenates the pieces' manifests and re-cuts the seams; no unit is needed.
    - `set`/`dict`:
      - e3 groups the pieces' outputs whose key ranges overlap, reading fences plus one segment decode for an output's last key.
-     - Each overlapping group becomes ranged `merge` units. `planMergeRanges` chooses the range boundaries from fences, each range covering about 64 MiB of the group's parts, the pieces' middle size.
+     - Each overlapping group becomes ranged `merge` units. `planMergeRanges` chooses the range boundaries from fences, each range covering about the pieces' middle size of the group's parts: the `target` they were cut at.
      - The disjoint results are concatenated and re-cut at the seams.
 
    The result goes through the door as one manifest.
@@ -420,9 +421,9 @@ The recognizer lives in the e3 SDK (`libs/e3/packages/e3/src/parallel.ts`) as on
 | Platform constants (in rule ids and code; not configurable) | Machine settings (never in a package) |
 |---|---|
 | the segment cut rules' parameters, for Set/Dict and for Array (§3.4) | `-j` cores |
-| the piece rule's sizes: 16, 64 and 256 MiB of stored bytes (§3.7); a delivery's intake pieces close at 64 MiB of its bytes (§3.6) | `--memory` |
+| the piece rule's sizes, from the input's stored bytes: 16, 64 and 256 MiB within 16 MiB and from 2 GiB, a target of its 32nd part in powers of two between (§3.7); a delivery's intake pieces close at 64 MiB of its bytes (§3.6) | `--memory` |
 | the RunSorter's caps, 131,072 elements or 64 MiB, the second also the cap on a foreign segment and a delivery's | the scratch directory (`E3_SCRATCH_DIR`) |
-| merge and fold fan-in, 32; the merge range size, 64 MiB | cgroup use (`E3_CGROUPS`); verbosity |
+| merge and fold fan-in, 32; the merge range size, the pieces' target | cgroup use (`E3_CGROUPS`); verbosity |
 
 The left column decides how work, and so floating-point folds, are grouped, which decides output bytes. The right column decides only when work runs.
 

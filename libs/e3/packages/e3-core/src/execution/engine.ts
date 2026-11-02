@@ -194,8 +194,9 @@ export interface SplitStage {
  * identity, and records nothing more.
  */
 export class SplitTask {
-  /** The piece sizes: the pieces' middle size is what a merge range aims for. */
-  private sizes!: PieceSizes;
+  /** The sizes the pieces were cut at, whose middle size a merge range aims
+   *  for; `null` for a stage taken up from a plan, until a merge needs them. */
+  private sizes: PieceSizes | null = null;
   /** The stage in progress, as its units see it. */
   private current!: SplitStage;
   /** The stage in progress, as its plan holds it; `null` for one piece. */
@@ -328,9 +329,9 @@ export class SplitTask {
     // The input the pieces are cut over, when they are planned here.
     let cut: PiecePlan | null = null;
     try {
-      split.sizes = pieceSizes();
       if (stage === null) {
-        cut = await planPieces(storage, repo, task.inputs, inputHashes, split.sizes);
+        cut = await planPieces(storage, repo, task.inputs, inputHashes, pieceSizes);
+        split.sizes = cut.sizes;
         if (cut.pieces.length === 1) {
           split.current = { plan: null, units: [{ inputs: [...inputHashes], merge: null, own: true }], merge: null };
           return split;
@@ -497,7 +498,7 @@ export class SplitTask {
             continue;
           }
           if (this.options.signal?.aborted) return await this.cancel();
-          for (const range of await planMergeRanges(this.storage, this.repo, parts, this.sizes.target)) {
+          for (const range of await planMergeRanges(this.storage, this.repo, parts, (await this.cutSizes()).target)) {
             groups.push({ range: some(range), entries: parts });
           }
         }
@@ -595,6 +596,19 @@ export class SplitTask {
     } catch (err) {
       console.warn(`Failed to flush the task's log: ${messageOf(err)}`);
     }
+  }
+
+  /** The sizes the pieces were cut at: those the planning found, or, for a
+   *  stage taken up from a plan, those the heaviest partitioned input gives,
+   *  as the planning weighed it. */
+  private async cutSizes(): Promise<PieceSizes> {
+    if (this.sizes === null) {
+      const weights = await Promise.all(this.task.inputs.flatMap((input, index) => input.partition.type === 'some'
+        ? [DatasetSegments.open(this.storage, this.repo, this.inputHashes[index]!).then((opened) => opened.bytes)]
+        : []));
+      this.sizes = pieceSizes(Math.max(0, ...weights));
+    }
+    return this.sizes;
   }
 
   /** Starts a stage: writes its plan, naming the plan of the stage before it

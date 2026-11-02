@@ -28,7 +28,7 @@ import {
     toEastTypeValue, variant, walkIR,
     type EastType, type EastTypeValue,
 } from "@elaraai/east";
-import { PIECE_SIZES, TreePathType, type SplitCallRequest, type TreePath } from "@elaraai/e3-types";
+import { PIECE_SIZES, TreePathType, pieceSizesFor, type SplitCallRequest, type TreePath } from "@elaraai/e3-types";
 import { formatters } from "@elaraai/east-ui-components";
 import { createInMemoryQueryCall, createInMemorySplitCall } from "./in-memory-call.js";
 import { planWords, queryWords } from "./model/words.js";
@@ -252,6 +252,19 @@ describe("the path, by what the dataset weighs", () => {
         expect(plan(program, weighing(PIECE_SIZES.min)).kind).toBe("one_shot");
         expect(plan(program, weighing(PIECE_SIZES.min + 1)).kind).toBe("split");
         expect(plan(program, weighing(undefined)).kind).toBe("one_shot");
+    });
+
+    test("e3's piece sizes for the dataset (#1108): one call where they make it one piece, a split call where they cut it", () => {
+        // A dataset of at most 16 MiB gets the platform's sizes, whose least
+        // piece holds all of it; past that, its pieces are smaller than it.
+        for (const bytes of [1, 4 * 2 ** 20, PIECE_SIZES.min]) {
+            expect(pieceSizesFor(bytes).min).toBeGreaterThanOrEqual(bytes);
+            expect(plan(program, weighing(bytes)).kind).toBe("one_shot");
+        }
+        for (const bytes of [PIECE_SIZES.min + 1, 100e6, 1e9, 16 * 2 ** 30]) {
+            expect(pieceSizesFor(bytes).max).toBeLessThan(bytes);
+            expect(plan(program, weighing(bytes)).kind).toBe("split");
+        }
     });
 
     test("the options' own piece: a small dataset splits over a small one", () => {

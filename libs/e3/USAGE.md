@@ -323,9 +323,12 @@ Wrap a stream task's input in `e3.partition` and the body runs once per
 **piece** of it, each piece a unit of its own — cached on its own, and run in
 parallel under the budget — typed as the whole dataset: a key range of a Set or
 Dict, a position range of an Array. The pieces' outputs combine as the output
-kind says. Pieces are cut where the content says, most of them 64 to 100 MiB of
-stored bytes, so an append or an insertion re-runs only the pieces it reaches;
-the rest are served from the cache.
+kind says. Pieces are cut where the content says, at sizes that follow what
+the input weighs: an input of at most 16 MiB is one piece, mid-size data is cut
+into tens of pieces (some 20 at 100 MB, 50 at 1 GB), and from 2 GiB most pieces
+hold 64 to 100 MiB of stored bytes. An append or an insertion re-runs only the
+pieces it reaches, and the rest are served from the cache; an input that grows
+past 256 MiB, 512 MiB, 1 GiB or 2 GiB is cut once more.
 
 ```typescript
 const sales = e3.input('sales', DictType(SaleKeyType, SaleType));
