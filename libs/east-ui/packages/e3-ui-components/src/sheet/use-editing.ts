@@ -73,9 +73,10 @@ export interface SheetEditingResult {
     /**
      * Aggregate a gesture's wire edits, the draft edits beside them (by
      * entry), and the seeds its new entries take, into one transaction.
-     * Answers whether the session recorded it.
+     * Answers whether the session recorded it. A gesture that names itself — an action taken (#1477), `Mark Done` —
+     * gives its `label`; else the label is the origin's.
      */
-    record: (events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds) => boolean;
+    record: (events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds, label?: string) => boolean;
     /**
      * Record entry versions a gesture computed whole — the optimiser's answer
      * (#1409), each entry's draft and wire row given — as one transaction of
@@ -86,6 +87,11 @@ export interface SheetEditingResult {
     original: (id: string) => EntryVersion;
     /** Each drafted entry's draft, encoded. */
     drafts: Map<string, Uint8Array>;
+    /**
+     * An entry's wire row as the record would show its draft — the Sheet's own `project` (#1475): what a gesture whose
+     * cells a rule reads (an action's summary) draws at once; `prior` while the draft is not complete.
+     */
+    project: (id: string, draft: unknown, prior: SheetRowValue | undefined) => SheetRowValue | undefined;
     /** Editing is available now. */
     available: boolean;
     /** The session's version. */
@@ -135,7 +141,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         useEditSession<SheetRowValue>(editing, pinned, currentRows, currentPositions, storageKey, { idOf: sheetRowId, ready, prepare, wireOf, wireType: Sheet.Types.Row });
 
     /** Aggregate the renderer's writes — the draft edits beside them, its new entries seeded as it says — into one transaction at the effect boundary. */
-    const record = useCallback((events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds): boolean => {
+    const record = useCallback((events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds, named?: string): boolean => {
         if (replacing || retained || (!events.length && !draftEdits?.size) || !observed || !session.writable) return false;
         session.observeBase(observed.base);
         // A dropped template's new entry starts as its seed says, in place of the constructors' (#1187).
@@ -174,7 +180,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             updates.set(id, { id, before, after: edit(current) });
         }
         const gestureOrigin = originOverride ?? origin;
-        const label = gestureOrigin === "insert" ? "Insert row" : gestureOrigin === "drop" ? "Drop" : gestureOrigin === "move" ? "Move"
+        const label = named !== undefined ? named : gestureOrigin === "insert" ? "Insert row" : gestureOrigin === "drop" ? "Drop" : gestureOrigin === "move" ? "Move"
             : origin === "pasted" ? "Paste cells" : origin === "remove" ? "Remove rows" : origin === "pattern" ? "Accept proposed rows" : events.length === 0 ? "Edit fields" : "Edit cells";
         return session.record([...updates.values()], gestureOrigin, label);
     }, [session, observed, original, codecs, editing, draftType, mint, replacing, retained]);
@@ -211,5 +217,5 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         // The version tracks mutations to the session's maps.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session, codecs, version, rows, rowIndex]);
-    return { session, layer, record, recordVersions, original, drafts, available: available && !replacing && !retained, version };
+    return { session, layer, record, recordVersions, original, drafts, project: wireOf, available: available && !replacing && !retained, version };
 }

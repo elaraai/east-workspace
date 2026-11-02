@@ -593,6 +593,40 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     dropGrip: (p: { what: string }) => string;
     /** Its title. */
     dropGripTitle: () => string;
+
+    // ── The action column (#1475–#1479) ────────────────────────────────────
+    /** An action cell with nothing taken and something offered (S8). */
+    actionNotStarted: () => string;
+    /** The ▾ part's accessible name (A2). */
+    actionMore: () => string;
+    /** A row whose draft lacks fields its actions need (T6) — `Fill Plan before taking an action`; `fields` are their labels. */
+    actionIncomplete: (p: { fields: readonly string[] }) => string;
+    /** The Menu's head over the direct actions (M5): how the author names the row, and its words beside it — `Step 30 · Fit`; neither, `Actions`. */
+    actionMenuHead: (p: { name: string | undefined; title: string | undefined }) => string;
+    /** The Menu's head over a choice's reasons (M5) — `Hold · reason`. */
+    actionMenuChoice: (p: { verb: string }) => string;
+    /** The popover's eyebrow (F4) — `Report · Step 30`. */
+    actionFormEyebrow: (p: { verb: string; name: string | undefined }) => string;
+    /** The popover's close button (F4). */
+    actionFormClose: () => string;
+    /** The popover's Cancel (F8). */
+    actionFormCancel: () => string;
+    /** What taking it writes (R5, F8) — `Sets Good 12 · Done 14:02`; nothing beside its field, `Sets nothing beside the action`. */
+    actionSets: (p: { facts: readonly string[] }) => string;
+    /** What a choice's preview says (R2) — `Pick a reason · sets …`. */
+    actionPickReason: (p: { facts: readonly string[] }) => string;
+    /** What a form's preview says (R2) — `Opens its form`. */
+    actionOpensForm: () => string;
+    /** The strip's label over an action (R2, R3) — `Report · Step 30`, or `Action · Step 30` for the ring's cell. */
+    actionStripLabel: (p: { verb: string | undefined; name: string | undefined }) => string;
+    /** The strip's line for the ring on an action cell (R3): its state and summary, then what it offers or why not. */
+    actionStripState: (p: { state: string | undefined; summary: string; offers: readonly string[]; blocked: string | undefined; incomplete: readonly string[] | undefined; readOnly: boolean }) => string;
+    /** The strip's keys hint on an action cell (R3). */
+    actionStripKeys: () => string;
+    /** The message a taken action leaves (T3) — `Completed Step 30 · set Good 12`. */
+    noticeActionTaken: (p: { state: string; name: string | undefined; n: number; count: string; facts: readonly string[] }) => string;
+    /** Why the field took no value (an action's `updates` threw, or its value could not be read): the gesture is refused. */
+    actionFailed: (p: { verb: string; reason: string }) => string;
 }
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
@@ -915,6 +949,32 @@ export const sheetMessages: SheetMessages = {
     },
     dropGrip: ({ what }) => `Move ${what}`,
     dropGripTitle: () => "Drag to move it to another seam",
+
+    actionNotStarted: () => "not started",
+    actionMore: () => "More actions",
+    actionIncomplete: ({ fields }) => `Fill ${fields.join(", ")} before taking an action`,
+    actionMenuHead: ({ name, title }) => (name === undefined && title === undefined ? "Actions" : [name, title].filter((t) => t !== undefined && t !== "").join(" · ")),
+    actionMenuChoice: ({ verb }) => `${verb} · reason`,
+    actionFormEyebrow: ({ verb, name }) => (name === undefined || name === "" ? verb : `${verb} · ${name}`),
+    actionFormClose: () => "Close",
+    actionFormCancel: () => "Cancel",
+    actionSets: ({ facts }) => (facts.length === 0 ? "Sets nothing beside the action" : `Sets ${facts.join(" · ")}`),
+    actionPickReason: ({ facts }) => (facts.length === 0 ? "Pick a reason" : `Pick a reason · sets ${facts.join(" · ")}`),
+    actionOpensForm: () => "Opens its form",
+    actionStripLabel: ({ verb, name }) => [verb ?? "Action", name].filter((t) => t !== undefined && t !== "").join(" · "),
+    actionStripState: ({ state, summary, offers, blocked, incomplete, readOnly }) => {
+        const what = readOnly ? "read only"
+            : incomplete !== undefined ? `fill ${incomplete.join(", ")} first`
+                : blocked !== undefined ? blocked
+                    : offers.length > 0 ? `offers ${offers.join(", ")}` : "nothing further to take";
+        return [state ?? "not started", summary, what].filter((t) => t !== "").join(" · ");
+    },
+    actionStripKeys: () => "⏎ takes the next",
+    noticeActionTaken: ({ state, name, n, facts }) => {
+        const what = name === undefined || name === "" ? state : `${state} ${name}`;
+        return n === 0 || facts.length === 0 ? what : `${what} · set ${facts.join(" · ")}`;
+    },
+    actionFailed: ({ verb, reason }) => `${verb} could not be taken — ${reason}`,
 };
 
 const SheetMessagesContext = createContext<SheetMessages>(sheetMessages);

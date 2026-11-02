@@ -773,10 +773,12 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
     // The drafts: a line's cells over its draft (no id — a line's identity is
     // its place), and on a source with loose rows (#846) a loose row's, whose
     // id field is its own.
-    const draftRow = hold(buildDraftRowDecoder(lineType, metas, registers, lineIdField));
-    const looseRow = loose ? hold(buildDraftRowDecoder(lineType, metas, registers, idField)) : undefined;
+    // On a sheet with an action column, a read-only cell is read back too: an action's `updates` writes any field (#1477).
+    const written = metas.some((m) => m.action !== undefined);
+    const draftRow = hold(buildDraftRowDecoder(lineType, metas, registers, lineIdField, written));
+    const looseRow = loose ? hold(buildDraftRowDecoder(lineType, metas, registers, idField, written)) : undefined;
     const decodeGroup = groupInput !== undefined
-        ? hold(buildDraftGroupDecoder(groupType, groupInput.linesField, groupInput.cellMetas, draftRow, registers, idField))
+        ? hold(buildDraftGroupDecoder(groupType, groupInput.linesField, groupInput.cellMetas, draftRow, registers, idField, written))
         : undefined;
     const flatDraft = SheetDraftTypeFor(groupType) as StructType;
     const draftDecode = (decodeGroup === undefined

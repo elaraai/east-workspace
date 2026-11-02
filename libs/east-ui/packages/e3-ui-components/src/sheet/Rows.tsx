@@ -42,6 +42,9 @@ import type { SheetCellOp, SheetRowMarks } from "./optimise.js";
 import { SheetInsertPoint } from "./Insertion.js";
 import type { SheetRowDrop } from "./drop.js";
 import { useSheetWords } from "./words.js";
+import { ActionCellSlot } from "./actions/ActionCell.js";
+import { actionColumnOf } from "./actions/model.js";
+import type { SheetActionHost } from "./actions/host.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -361,6 +364,8 @@ export interface SheetRowProps {
     inserts?: ((r: number) => readonly SheetRowAction[]) | undefined;
     /** What a run of the optimiser left on the row (#1409, R25), while it is the run's draft: each changed cell's mark, and its provenance on hover. */
     marks?: SheetRowMarks | undefined;
+    /** What the row's action cells ask of the sheet (#1475): absent on a sheet with no action column. Stable. */
+    actions?: SheetActionHost | undefined;
 }
 
 /** Renders one row. */
@@ -502,6 +507,9 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                 const op = marks?.cells.get(meta.key);
                 const provenance = op === undefined || marks === undefined ? undefined : cellProvenance(op, marks.previous.get(meta.key), meta, marks.run, words);
                 const title = issue ?? (provenance === undefined ? detail?.title : detail?.title === undefined ? provenance : `${provenance} · ${detail.title}`);
+                // An action cell (#1475): its state, its summary and the controls of what it offers, over its sheet's host.
+                const action = meta.kind === "action" && props.actions !== undefined && row !== undefined ? actionColumnOf(meta) : undefined;
+                const summaryCell = action !== undefined ? row?.cells.get(action.summary) : undefined;
                 return (
                     <Box
                         key={meta.key}
@@ -533,7 +541,10 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                         {issue !== undefined && <Box as="span" css={styles.cellIssue} id={issueId}>{issue}</Box>}
                         {inRange && <Box css={styles.rangeWash} data-slot="rangeWash" />}
                         {fill !== undefined && <Box css={styles.hatch} data-slot="hatch" aria-hidden="true" />}
-                        <SheetCellContent
+                        {action !== undefined && props.actions !== undefined ? (
+                            <ActionCellSlot host={props.actions} r={r} columnKey={meta.key} column={action} cell={cell}
+                                summary={summaryCell?.type === "String" ? summaryCell.value : ""} selected={selC === c} />
+                        ) : <SheetCellContent
                             styles={styles}
                             meta={meta}
                             cell={cell}
@@ -544,7 +555,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                             link={meta.kind === "link" ? linkCtx(row, meta) : undefined}
                             when={when}
                             marked={op !== undefined}
-                        />
+                        />}
                         {isTarget && <Box css={styles.nextTarget} data-slot="nextTarget" aria-hidden="true" />}
                         {fill !== undefined && hoverC === c && (
                             <Box
@@ -782,7 +793,7 @@ const RUN_KINDS: Readonly<Record<SheetKind, PlaceholderKind>> = {
     text: "text", lookup: "text", reference: "text", custom: "text",
     date: "date", stamped: "date",
     quantity: "number", integer: "number",
-    enum: "enum", set: "chip", link: "link",
+    enum: "enum", set: "chip", link: "link", action: "enum",
 };
 
 export interface SheetRunRowProps {

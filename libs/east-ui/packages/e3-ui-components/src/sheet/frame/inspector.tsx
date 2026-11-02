@@ -64,6 +64,7 @@ import { useSheetInspect, type SheetInspect, type SheetInspectPlace, type SheetI
 import { NULL_CELL, cellText, indexRegisters, type SheetColumnMeta } from "../model.js";
 import type { SheetCellValue } from "../values.js";
 import { issueText, type SheetWords } from "../words.js";
+import { actionColumnOf } from "../actions/model.js";
 import type { SheetValue } from "./index.js";
 
 /** The inspector pane, decoded: its forms, and the author's own Details. */
@@ -189,6 +190,13 @@ function cellValue(cell: SheetCellValue | undefined, optional: boolean): unknown
     return optional ? (held === undefined ? none : some(held)) : held;
 }
 
+/** An action cell as its field's value (#1478): its case and its value, decoded at the case's type — an Option's `some` or `none`. */
+function actionValue(meta: SheetColumnMeta, cell: SheetCellValue | undefined, optional: boolean): unknown {
+    const c = cell?.type === "Action" ? actionColumnOf(meta)?.cases.get(cell.value.case) : undefined;
+    const held = c === undefined || cell?.type !== "Action" ? undefined : variant(c.name, c.decode(cell.value.value));
+    return optional ? (held === undefined ? none : some(held)) : held;
+}
+
 /** A payload as the cell its column holds it in. */
 function cellOfPayload(type: EastType, payload: unknown): SheetCellValue {
     const tag = isTypeEqual(type, Sheet.Types.Link) ? "Link" : type.type;
@@ -296,6 +304,10 @@ function useTargetForm({ value, words, hidden, styles, inspect, target, form }: 
                 const payload = f.spec.optional ? getSomeorUndefined(was as option<unknown>) : was;
                 const payloadType = fromEastTypeValue(meta.raw.payloadType) as EastType;
                 began[name] = textValue(payload === undefined ? "" : cellText(cellOfPayload(payloadType, payload), meta, words), f.spec.optional);
+            } else if (meta.kind === "action") {
+                // An action field: its case as its cell holds it, never tinted — the actions write it (#1478).
+                current[name] = actionValue(meta, inspect.cellAt(r, meta.key), f.spec.optional);
+                began[name] = current[name];
             } else if (f.spec.editor.type === "readonly") {
                 // What the grid shows, never tinted.
                 current[name] = cellValue(inspect.cellAt(r, meta.key), f.spec.optional);
@@ -343,6 +355,8 @@ function useTargetForm({ value, words, hidden, styles, inspect, target, form }: 
         const f = byPath.get(pathKey(spec.path));
         const key = f === undefined ? undefined : getSomeorUndefined(f.column);
         const meta = key === undefined ? undefined : inspect.columnAt(r, key);
+        // An action field: its state, the cases its row is offered, and a choice's or a form's inline (#1478).
+        if (key !== undefined && meta?.kind === "action") return inspect.drawAction(r, key);
         if (key === undefined || meta === undefined || (meta.kind !== "link" && meta.kind !== "set")) return undefined;
         const shown = !hidden.has(key);
         return (

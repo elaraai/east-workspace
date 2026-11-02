@@ -160,6 +160,10 @@ import { SheetHeader } from "./Header.js";
 import { SheetRow, SheetRunRow, SheetProposalRow, SheetGroupRow, SheetRowBoundary, SheetSubRow, SheetRetry, type SheetRowAction } from "./Rows.js";
 import { NUMBER_PX, gutterFolds, gutterWidths } from "./gutter.js";
 import { SheetCellContent } from "./cells/Cell.js";
+import { actionCell, actionColumnOf, canTake, caseOf, offerOf, type ActionCase } from "./actions/model.js";
+import { createActionStore, type SheetActionHost } from "./actions/host.js";
+import { ActionForm, ActionMenu, type ActionOverlayState } from "./actions/ActionOverlay.js";
+import { ActionPanel, type ActionPanelApi } from "./actions/ActionPanel.js";
 import { SheetTabs, type SheetTabsFold, type SheetTabView } from "./Tabs.js";
 import { SheetEditor, type EditorFocusRequest, type EditorOption, type LinkEditorView } from "./Editor.js";
 import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripSuggestInput } from "./Strip.js";
@@ -462,6 +466,8 @@ interface CellWrite {
     key?: string | undefined;
     cell: SheetCellValue;
     extra?: number | undefined;
+    /** Written though its column is not the viewer's to edit: a band cell an action's `updates` sets (#1477). */
+    force?: boolean | undefined;
 }
 
 /** One copilot request — a run after a delay, or a result to deliver once the rows have rendered. */
@@ -609,6 +615,22 @@ interface SheetDropApi {
     drop: (event: DragEventValue) => boolean;
 }
 
+/** The action cells' calls as the sheet stands (#1475): made afresh each render, read through a ref by the one host. */
+interface SheetActionApi extends Omit<SheetActionHost, "subscribe" | "version"> {
+    /** ⏎ on an action cell (K2). */
+    enter: (r: number, key: string) => void;
+    /** Take a case with its value, as one transaction (T1); `false` where the row may not take it. */
+    take: (r: number, key: string, c: ActionCase, value: unknown) => boolean;
+    /** What taking a case with a value would write, worded (F8). */
+    consequence: (c: ActionCase, value: unknown) => string;
+    /** Close the overlay (K6). */
+    close: () => void;
+    /** What taking a case with a value at a row would write, worded. */
+    consequenceAt: (r: number, key: string, c: ActionCase, value: unknown) => string;
+    /** What a case's form opens with at a row (F10). */
+    initial: (r: number, key: string, c: ActionCase) => unknown;
+}
+
 /** A row-space item's drop row, printed — what its drop cell's `CellRef` carries. */
 function dropText(item: SheetBodyItem): string | undefined {
     const row = dropRowOf(item);
@@ -749,7 +771,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // The copilot's declaration: the columns' fill providers and the proposers, as wire functions (§4.8).
     const suggestDecl = useMemo(() => getSomeorUndefined(value.suggest), [value.suggest]);
     const fillColumns = useMemo<FillColumn[]>(() => columns.list.map((m) => ({
-        key: m.key, kind: m.kind, editable: m.editable && m.kind !== "stamped", providers: m.raw.fill,
+        key: m.key, kind: m.kind, editable: m.editable && m.kind !== "stamped" && m.kind !== "action", providers: m.raw.fill,
     })), [columns]);
     const proposers = useMemo<SheetProposerValue[]>(() => suggestDecl?.propose ?? [], [suggestDecl]);
     const ahead = Number(suggestDecl?.ahead ?? 2n);
@@ -1172,7 +1194,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             const meta = metaAt(r, c);
             if (meta === undefined) return false;
             if (it.kind === "blank" && !canInsertRows) return false;
-            if (!meta.editable || meta.kind === "stamped") return false;
+            // An action column is written by its actions alone (T7): typed into, pasted over and cleared never.
+            if (!meta.editable || meta.kind === "stamped" || meta.kind === "action") return false;
             return true;
         },
         kindAt: (r, c) => metaAt(r, c)?.kind ?? "text",
@@ -1453,7 +1476,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     let g = g0;
                     for (const w of list) {
                         const meta = w.key !== undefined ? group.cells.get(w.key) : metaAt(r, w.c);
-                        if (meta === undefined || !meta.editable) continue;
+                        if (meta === undefined || (!meta.editable && w.force !== true)) continue;
                         if (cellEqual(g.cells.get(meta.key) ?? NULL_CELL, w.cell)) continue;
                         const cells = new Map(g.cells);
                         cells.set(meta.key, w.cell);
@@ -1591,7 +1614,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const proposalWrites = useCallback((cells: ReadonlyMap<string, SheetCellValue>): { key: string; cell: SheetCellValue }[] => {
         const writes: { key: string; cell: SheetCellValue }[] = [];
         for (const meta of allColumns.list) {
-            if (!meta.editable || meta.kind === "stamped") continue;
+            if (!meta.editable || meta.kind === "stamped" || meta.kind === "action") continue;
             const cell = cells.get(meta.key);
             if (cell !== undefined && !cellIsBlank(cell)) writes.push({ key: meta.key, cell });
         }
@@ -1787,7 +1810,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     for (let r = eff.r0; r <= eff.r1; r++) {
                         for (let c = eff.c0; c <= eff.c1; c++) {
                             const meta = metaAt(r, c);
-                            if (meta === undefined || meta.kind === "stamped" || !meta.editable || !canEdit) continue;
+                            if (meta === undefined || meta.kind === "stamped" || meta.kind === "action" || !meta.editable || !canEdit) continue;
                             if (cellIsBlank(cellAt(r, c))) continue;
                             writes.push({ r, c, cell: NULL_CELL });
                         }
@@ -1840,7 +1863,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     const blankR = gid !== undefined ? blankLineRowOf(gid) : looseEnd;
                     for (const p of laid.cells) {
                         const meta = columns.list[p.c];
-                        if (meta === undefined) continue;
+                        if (meta === undefined || meta.kind === "action") continue;
                         const r = eff.r + p.dr;
                         const outcome = parseCell(meta, p.text, parseCtxFor(Math.min(r, blankR ?? r), meta));
                         const cell = outcome.kind === "unrecognised" ? variant("Invalid", p.text) : outcome.kind === "cell" ? outcome.cell : NULL_CELL;
@@ -2206,6 +2229,16 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         }
         // The browser's own clipboard keys become copy / paste events.
         if (meta && (e.key === "c" || e.key === "v" || e.key === "x" || e.key === "a")) return;
+        // ⏎ on an action cell takes the offer's first case (K2): a button at once, a choice's Menu, a form's Popover.
+        const single = store.ui.selEnd === null || (store.ui.selEnd.r === store.ui.sel.r && store.ui.selEnd.c === store.ui.sel.c);
+        if (e.key === "Enter" && !e.shiftKey && !meta && !e.altKey && single) {
+            const at = ctxRef.current.kindAt(store.ui.sel.r, store.ui.sel.c) === "action" ? columns.list[store.ui.sel.c] : undefined;
+            if (at !== undefined) {
+                takeKey(e);
+                actionApi.current?.enter(store.ui.sel.r, at.key);
+                return;
+            }
+        }
         const handled = ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", "Tab", "Enter", "F2", "Escape", "Backspace", "Delete"];
         const printable = e.key.length === 1 && !meta && !e.altKey;
         const toSearch = meta && (e.key === "/" || e.key === "f");
@@ -2225,7 +2258,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             && sheetReducer(uiRef.current, event, ctxRef.current).effects.some((fx) => fx.t === "seek.step" || fx.t === "seek.edge");
         ringGesture(seeks);
         dispatch(event);
-    }, [dispatch, store.ui.edit, store.ui.sel.r, onHistoryAction, onInsert, ringGesture]);
+    }, [dispatch, store.ui.edit, store.ui.sel.r, store.ui.sel.c, store.ui.selEnd, columns, onHistoryAction, onInsert, ringGesture]);
     // A band never copies (G9): a whole-group selection copies its lines.
     const isBandRow = useCallback((r: number) => { const k = rowAt(r)?.kind; return k === "group"; }, [rowAt]);
     const onCopy = useCallback((e: ClipboardEvent<HTMLDivElement>) => {
@@ -3452,6 +3485,243 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const runLoading = useCallback((band: { at: string; from: number; to: number }): boolean => (band.at === "reading"
         ? lensReading.includes(band.from)
         : pendingWindows.some((w) => w * SHEET_PAGE_SIZE <= band.to && (w + 1) * SHEET_PAGE_SIZE - 1 >= band.from)), [pendingWindows, lensReading]);
+    // ── The action column (#1475–#1477) ────────────────────────────────
+    // Every row's action cells ask one host, held still for the sheet's life (#858); what they read is the sheet as it
+    // stands (`actionApi`, made afresh each render), and its store tells them to look again as the rows, the drafts or
+    // the overlay move — only they draw again. A taken action is one transaction (T1): its field's new case, the cells
+    // its `updates` writes on the row and on its group's band, and the entry drawn again as the record would show it.
+    const hasActions = useMemo(() => allColumns.list.some((col) => col.kind === "action"), [allColumns]);
+    const actionStore = useMemo(createActionStore, []);
+    const [actionOverlay, setActionOverlay] = useState<ActionOverlayState | undefined>(undefined);
+    const actionApi = useRef<SheetActionApi | undefined>(undefined);
+    const actionHost = useMemo<SheetActionHost>(() => ({
+        subscribe: actionStore.subscribe,
+        version: actionStore.version,
+        offer: (r, key) => actionApi.current?.offer(r, key),
+        controls: (r, key) => actionApi.current?.controls(r, key) ?? false,
+        held: (r, key) => actionApi.current?.held(r, key),
+        dirty: (r, key) => actionApi.current?.dirty(r, key) ?? false,
+        live: (r, key) => actionApi.current?.live(r, key) ?? false,
+        next: (r, key, c, anchor) => actionApi.current?.next(r, key, c, anchor),
+        more: (r, key, anchor) => actionApi.current?.more(r, key, anchor),
+        preview: (r, key, c) => actionApi.current?.preview(r, key, c),
+    }), [actionStore]);
+    /** The action cell at a row: its row, its column and its machine — a line's or a flat row's, never a band's or a blank's. */
+    const actionAt = (r: number, key: string) => {
+        const it = rowAt(r);
+        const meta = allColumns.byKey.get(key);
+        const column = actionColumnOf(meta);
+        if (it === undefined || it.kind !== "real" || meta === undefined || column === undefined) return undefined;
+        return { it, meta, column, cell: it.row.cells.get(key), lg: it.group };
+    };
+    /** A rule cell's text on a row (an action column's summary, name or title), if it holds one. */
+    const ruleText = (row: SheetRowValue, key: string | undefined): string | undefined => {
+        const cell = key === undefined ? undefined : row.cells.get(key);
+        return cell?.type === "String" && cell.value !== "" ? cell.value : undefined;
+    };
+    /** What a case's `updates` would write, as facts (R5): each cell it changes, `{header} {value}`, the row's then the band's. */
+    const actionFacts = (r: number, key: string, c: ActionCase, bytes: Uint8Array): { updates: ReturnType<NonNullable<ActionCase["updates"]>> | undefined; facts: string[] } => {
+        const updates = c.updates?.(bytes, wireContextFor(r), new Date());
+        const facts: string[] = [];
+        const a = actionAt(r, key);
+        for (const [k, cell] of updates?.row ?? []) {
+            const meta = allColumns.byKey.get(k);
+            if (meta === undefined || (a !== undefined && cellEqual(a.it.row.cells.get(k) ?? NULL_CELL, cell))) continue;
+            facts.push(`${meta.header} ${cellText(cell, meta, words)}`);
+        }
+        for (const [k, cell] of updates?.group ?? []) {
+            const meta = group?.cells.get(k);
+            if (meta === undefined || (a?.lg !== undefined && cellEqual(a.lg.row.cells.get(k) ?? NULL_CELL, cell))) continue;
+            facts.push(`${meta.header === "" ? k : meta.header} ${cellText(cell, meta, words)}`);
+        }
+        return { updates, facts };
+    };
+    const projectEntry = editingState.project;
+    const takeAction = (r: number, key: string, c: ActionCase, value: unknown): boolean => {
+        if (!canEdit || !editingState.available) return false;
+        const a = actionAt(r, key);
+        if (a === undefined) return false;
+        const offer = offerOf(a.column, a.cell, wireContextFor(r));
+        if (!canTake(offer) || !offer.offered.some((o) => o.name === c.name)) return false;
+        let bytes: Uint8Array;
+        let taken: ReturnType<typeof actionFacts>;
+        try {
+            bytes = c.encode(value);
+            taken = actionFacts(r, key, c, bytes);
+        } catch (error) {
+            console.error(`[Sheet] the action "${c.name}" failed on column "${key}":`, error);
+            dispatchStore({ t: "patch", patch: { msg: { id: "text", text: words.m.actionFailed({ verb: c.label, reason: error instanceof Error ? error.message : String(error) }) } } });
+            return false;
+        }
+        const writes: CellWrite[] = [{ r, c: -1, key, cell: actionCell(c, bytes) }];
+        for (const [k, cell] of taken.updates?.row ?? []) writes.push({ r, c: -1, key: k, cell });
+        const bandR = a.lg !== undefined ? rowOf(a.lg.row.id) : undefined;
+        if (bandR !== undefined) for (const [k, cell] of taken.updates?.group ?? []) writes.push({ r: bandR, c: -1, key: k, cell, force: true });
+        const entry = a.lg !== undefined ? a.lg.row.id : a.it.row.id;
+        // The entry drawn again as the record would show its draft: its summary and every rule cell read the new case.
+        const reproject = (version: EntryVersion): EntryVersion => {
+            const projected = projectEntry(entry, version.draft, version.wire);
+            if (projected === undefined || version.wire === undefined) return version;
+            const keys = version.wire.lines;
+            return { ...version, wire: { ...projected, id: version.wire.id, lines: projected.lines.map((line, i) => ({ ...line, key: keys[i]?.key ?? line.key })) } };
+        };
+        gestureEvents.current = [];
+        let recorded = false;
+        try {
+            writeCells(writes, "typed");
+            recorded = recordGesture(gestureEvents.current, undefined, "action", new Map([[entry, reproject]]), undefined, c.label);
+        } catch (error) {
+            console.error("Sheet transaction failure", error);
+            dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } });
+        } finally {
+            gestureEvents.current = [];
+        }
+        if (!recorded) return false;
+        const name = ruleText(a.it.row, a.column.name);
+        dispatchStore({ t: "patch", patch: { msg: { id: "text", text: words.m.noticeActionTaken({ state: c.state, name, n: taken.facts.length, count: words.number(taken.facts.length), facts: taken.facts }) } } });
+        return true;
+    };
+    /** The menu's head and the form's eyebrow name the row (M5, F4): its name and title rule cells, else its number. */
+    const actionHead = (r: number, key: string): { name: string | undefined; title: string | undefined } => {
+        const a = actionAt(r, key);
+        if (a === undefined) return { name: undefined, title: undefined };
+        const name = ruleText(a.it.row, a.column.name) ?? (a.lg !== undefined ? words.m.lineName({ number: String(a.lg.number), group: ruleText(a.lg.row, TITLE_KEY) ?? a.lg.row.id }) : words.m.rowName({ number: String(a.it.position + 1) }));
+        return { name, title: ruleText(a.it.row, a.column.title) };
+    };
+    /** What a form opens with (F10): the case's `initial`, else the row's value while it holds this case, else nothing. */
+    const initialOf = (r: number, key: string, c: ActionCase): unknown => {
+        const a = actionAt(r, key);
+        if (a === undefined) return undefined;
+        try {
+            return c.initial !== undefined ? c.decode(c.initial(wireContextFor(r)))
+                : a.cell?.type === "Action" && caseOf(a.cell) === c.name ? c.decode(a.cell.value.value) : undefined;
+        } catch (error) {
+            console.error(`[Sheet] the form of "${c.name}" could not open with its value:`, error);
+            return undefined;
+        }
+    };
+    const openForm = (r: number, key: string, c: ActionCase, anchor: HTMLElement, part: "next" | "more") => {
+        if (actionAt(r, key) === undefined) return;
+        const head = actionHead(r, key);
+        setActionOverlay({ kind: "form", r, key, part, anchor, case: c, initial: initialOf(r, key, c), name: head.name, meta: head.title });
+    };
+    /** What taking a case with a value would write, worded (F8, R2). */
+    const consequenceAt = (r: number, key: string, c: ActionCase, value: unknown): string => {
+        try { return words.m.actionSets({ facts: actionFacts(r, key, c, c.encode(value)).facts }); }
+        catch { return ""; }
+    };
+    const ringOn = (r: number, key: string) => {
+        const c = columns.list.findIndex((col) => col.key === key);
+        if (c >= 0) { ringGesture(); dispatch({ t: "select.move", r, c }); }
+    };
+    const closeOverlay = () => {
+        setActionOverlay(undefined);
+        // Focus goes back to the grid, whose ring is on the cell (K6).
+        queueMicrotask(() => cardRef.current?.focus({ preventScroll: true }));
+    };
+    actionApi.current = !hasActions ? undefined : {
+        offer: (r, key) => {
+            const a = actionAt(r, key);
+            if (a === undefined) return undefined;
+            return offerOf(a.column, a.cell, canEdit && editingState.available ? wireContextFor(r) : undefined);
+        },
+        controls: (r, key) => {
+            const a = actionAt(r, key);
+            // Owned rows, a read-only sheet, a column that takes no edit, and a phone's frame show the state alone (T9, X4) —
+            // a frame not laid out yet (0 wide) is none.
+            return a !== undefined && canEdit && a.meta.editable && !(a.lg?.row ?? a.it.row).owned && !(framePx !== undefined && framePx > 0 && framePx <= 560);
+        },
+        held: (r, key) => (actionOverlay !== undefined && actionOverlay.r === r && actionOverlay.key === key ? actionOverlay.part : undefined),
+        dirty: (r, key) => {
+            const a = actionAt(r, key);
+            if (a === undefined) return false;
+            let was: SheetCellValue | undefined;
+            try {
+                const wire = editingState.original(a.lg !== undefined ? a.lg.row.id : a.it.row.id).wire;
+                was = a.lg !== undefined ? wire?.lines.find((line) => line.key === a.lg!.key)?.cells.get(key) : wire?.cells.get(key);
+            } catch { return false; }
+            return !cellEqual(was ?? NULL_CELL, a.cell ?? NULL_CELL);
+        },
+        live: () => false,
+        next: (r, key, c, anchor) => {
+            ringOn(r, key);
+            if (c.kind === "button") takeAction(r, key, c, null);
+            else if (c.kind === "form") openForm(r, key, c, anchor, "next");
+            else setActionOverlay({ kind: "menu", r, key, part: "next", anchor, cases: [c], head: words.m.actionMenuHead(actionHead(r, key)) });
+        },
+        more: (r, key, anchor) => {
+            ringOn(r, key);
+            const a = actionAt(r, key);
+            if (a === undefined) return;
+            const offer = offerOf(a.column, a.cell, wireContextFor(r));
+            if (!canTake(offer)) return;
+            setActionOverlay({ kind: "menu", r, key, part: "more", anchor, cases: offer.offered.slice(1), head: words.m.actionMenuHead(actionHead(r, key)) });
+        },
+        preview: () => undefined,
+        enter: (r, key) => {
+            // ⏎ on an action cell (K2): the offer's first case, its control the anchor — the cell where none is drawn.
+            const a = actionAt(r, key);
+            if (a === undefined) return;
+            const offer = offerOf(a.column, a.cell, canEdit && editingState.available ? wireContextFor(r) : undefined);
+            const first = offer.offered[0];
+            if (first === undefined || !canTake(offer)) return;
+            const c = columns.list.findIndex((col) => col.key === key);
+            const cellEl = document.getElementById(`${gridId}-${r}-${c}`);
+            const anchor = cellEl?.querySelector<HTMLElement>("[data-slot=actionNext]") ?? cellEl;
+            if (anchor === null || anchor === undefined) return;
+            actionApi.current?.next(r, key, first, anchor);
+        },
+        take: takeAction,
+        consequence: (c, value) => (actionOverlay === undefined ? "" : consequenceAt(actionOverlay.r, actionOverlay.key, c, value)),
+        consequenceAt,
+        initial: initialOf,
+        close: closeOverlay,
+    };
+    // The cells look again as what they read moves: the rows and their drafts, the overlay, the frame's width.
+    useLayoutEffect(() => {
+        if (hasActions) actionStore.bump();
+    }, [hasActions, actionStore, rows, draftVersion, actionOverlay, canEdit, editingState.available, framePx]);
+    // An overlay whose row went — a narrowing, a new revision — closes.
+    useEffect(() => {
+        if (actionOverlay !== undefined && actionApi.current?.offer(actionOverlay.r, actionOverlay.key) === undefined) setActionOverlay(undefined);
+    }, [actionOverlay, rows]);
+    const onActionTake = useCallback((c: ActionCase, value: unknown) => {
+        const at = actionOverlayRef.current;
+        if (at !== undefined) actionApi.current?.take(at.r, at.key, c, value);
+    }, []);
+    const actionOverlayRef = useRef(actionOverlay);
+    actionOverlayRef.current = actionOverlay;
+    const onActionForm = useCallback((c: ActionCase) => {
+        const at = actionOverlayRef.current;
+        if (at === undefined) return;
+        // A form run from the Menu opens hung from the control that opened the Menu (M8).
+        queueMicrotask(() => actionApiOpenForm.current(at.r, at.key, c, at.anchor, at.part));
+    }, []);
+    const actionApiOpenForm = useRef(openForm);
+    actionApiOpenForm.current = openForm;
+    const onActionClose = useCallback(() => actionApi.current?.close(), []);
+    const actionConsequence = useCallback((c: ActionCase, value: unknown) => actionApi.current?.consequence(c, value) ?? "", []);
+    const actionOverlayNode = actionOverlay === undefined ? null
+        : actionOverlay.kind === "menu"
+            ? <ActionMenu state={actionOverlay} registers={registers} onTake={onActionTake} onForm={onActionForm} onClose={onActionClose} />
+            : <ActionForm key={`${actionOverlay.r}:${actionOverlay.key}:${actionOverlay.case.name}`} state={actionOverlay} registers={registers}
+                consequence={actionConsequence} onTake={onActionTake} onClose={onActionClose} />;
+    const rowActions = hasActions ? actionHost : undefined;
+    // The inspector's action field (#1478): the same host and the same command as the grid's.
+    const panelApi = useMemo<ActionPanelApi>(() => ({
+        take: (r, key, c, value) => actionApi.current?.take(r, key, c, value) ?? false,
+        consequence: (r, key, c, value) => actionApi.current?.consequenceAt(r, key, c, value) ?? "",
+        initial: (r, key, c) => actionApi.current?.initial(r, key, c),
+    }), []);
+    const drawAction = useCallback((r: number, key: string): ReactNode => {
+        const it = rowAt(r);
+        const meta = allColumns.byKey.get(key);
+        const column = actionColumnOf(meta);
+        if (it === undefined || it.kind !== "real" || column === undefined) return null;
+        const summary = it.row.cells.get(column.summary);
+        return <ActionPanel host={actionHost} api={panelApi} r={r} columnKey={key} column={column} cell={it.row.cells.get(key)}
+            summary={summary?.type === "String" ? summary.value : ""} registers={registers} />;
+    }, [rowAt, allColumns, actionHost, panelApi, registers]);
     // What the runs of the optimiser left on each row (#1409, R25), by the row's id — a line's by its line id — while the
     // drafts hold it: each row is handed its own marks, held still until a run touches it again.
     const marks: ReadonlyMap<string, SheetRowMarks> | undefined = optimised?.rows;
@@ -3614,10 +3884,11 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 foldedGutter={folded}
                 inserts={foldedInserts}
                 marks={item.kind === "real" ? marks?.get(lg !== undefined ? lineId(lg.row.id, lg.key) : item.row.id) : undefined}
+                actions={rowActions}
             />
             </SheetRowBoundary>
         );
-    }, [folded, foldedInserts, draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, runLoading, retryRead, rowsNoun, size, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows, marks]);
+    }, [folded, foldedInserts, draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, runLoading, retryRead, rowsNoun, size, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows, marks, rowActions]);
 
     // ── The inspector's reads and gestures (#1188) ────────────────────────
     // Nothing here reads the source until the inspector pane asks for a
@@ -3992,9 +4263,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         issues: issueList,
         kindOf,
         write: inspectWrite, editInSheet, remove: removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden,
-        columnAt, cellAt: inspectCellAt, unitAt, levelAt: inspectLevelAt, allowedAt, drawCell,
+        columnAt, cellAt: inspectCellAt, unitAt, levelAt: inspectLevelAt, allowedAt, drawCell, drawAction,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks the session's pending count.
-    }), [selected, targetAt, canEdit, editingState.available, canInsertRows, canInsertGroups, capabilities, wholeCount, session, issueList, kindOf, inspectWrite, editInSheet, removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, columnAt, inspectCellAt, unitAt, inspectLevelAt, allowedAt, drawCell, draftVersion]);
+    }), [selected, targetAt, canEdit, editingState.available, canInsertRows, canInsertGroups, capabilities, wholeCount, session, issueList, kindOf, inspectWrite, editInSheet, removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, columnAt, inspectCellAt, unitAt, inspectLevelAt, allowedAt, drawCell, drawAction, draftVersion]);
 
     // ── Drag and drop: the plans (#1187) ──────────────────────────────────
     // Every drop is planned (`drop.ts`) from the rows as they stand — the
@@ -4462,6 +4733,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 group={canInsertGroups ? () => onInsert("group", wr?.r1 ?? ui.sel.r, "after") : undefined}
                 noun={noun.singular} />}
             <SheetStrip styles={styles} model={strip} onAction={onStripAction} />
+            {actionOverlayNode}
         </>
     );
     return { styles, root, toolbar, grid, footer, loading: loadingFacts, history, failure: undefined, inspect, enter, optimise };
@@ -4571,6 +4843,8 @@ export interface SheetInspect {
     allowedAt: (r: number, key: string) => ReadonlySet<string> | undefined;
     /** A cell drawn as the grid draws it — a link's halves and their chips. */
     drawCell: (r: number, key: string) => ReactNode;
+    /** An action field as Details draws it (#1478): its state, the cases its row is offered, and a choice's or a form's inline. */
+    drawAction: (r: number, key: string) => ReactNode;
     /** Go to an issue's cell — seeking its row on a paged sheet, and, where the rail's filters hide it, clearing them (the hidden pick). */
     goToIssue: (issue: EditIssue) => void;
     /** What an issue's line says of its row while the rail's filters hide it — which, once e3 has said — or `undefined` while they do not, or it is not yet known. */
