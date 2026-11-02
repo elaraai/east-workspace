@@ -66,7 +66,7 @@ describe("Linux's sampler", () => {
     put(path.join(unit, 'memory.current'), '5000000\n');
     put(path.join(unit, 'memory.stat'), 'anon 3000000\nfile 2000000\nactive_file 800000\ninactive_file 1200000\n');
     const usage = await linuxMemorySampler(proc, cgroups).sample([{ pid: 100, cgroup: unit }]);
-    assert.deepEqual([...usage], [[100, 3_800_000]], 'what the cgroup holds, less the file cache the kernel reclaims first');
+    assert.deepEqual([...usage], [[100, 3_000_000]], 'what the cgroup holds, less its clean file cache, active and inactive');
   });
 
   it("reads the machine's memory, and a container's where its limit leaves less", async () => {
@@ -81,6 +81,37 @@ describe("Linux's sampler", () => {
     put(path.join(cgroups, 'box', 'e3', 'memory.max'), 'max\n');
     assert.deepEqual(await sampler.machine(), { available: 1.5 * 1024 ** 3, total: 4 * 1024 ** 3 },
       "the container's limit, less what it holds and cannot reclaim first");
+  });
+
+  it("leaves a limit's clean file cache available, and reads the machine nearly out under memory pressure (#1101)", async () => {
+    const MiB = 1024 ** 2;
+    put(path.join(proc, 'meminfo'), 'MemTotal:       16000000 kB\nMemFree:         1000000 kB\nMemAvailable:    8000000 kB\n');
+    put(path.join(proc, 'self', 'cgroup'), '0::/scope\n');
+    const scope = path.join(cgroups, 'scope');
+    // A 5 GiB scope nearly full of the file cache its units streamed through:
+    // 100 MiB of their own, 16 MiB of it dirty.
+    put(path.join(scope, 'memory.max'), `${5120 * MiB}\n`);
+    put(path.join(scope, 'memory.current'), `${5020 * MiB}\n`);
+    put(path.join(scope, 'memory.stat'), `anon ${100 * MiB}\nactive_file ${4800 * MiB}\ninactive_file ${100 * MiB}\nfile_dirty ${16 * MiB}\nfile_writeback 0\n`);
+    let clock = 0;
+    const sampler = linuxMemorySampler(proc, cgroups, () => clock);
+    const room = { available: 4984 * MiB, total: 5120 * MiB };
+    assert.deepEqual(await sampler.machine(), room,
+      'the clean cache is the kernel\'s to take back, and with no pressure file the working set says');
+
+    /** The scope's pressure: its tasks' stall in all, in microseconds, and
+     *  the kernel's 10 s average of it. */
+    const pressure = (micros: number, avg10: string): void => put(path.join(scope, 'memory.pressure'),
+      `some avg10=60.00 avg60=20.00 avg300=5.00 total=${micros * 2}\nfull avg10=${avg10} avg60=9.00 avg300=2.00 total=${micros}\n`);
+    pressure(1_000_000, '25.00');
+    assert.deepEqual(await sampler.machine(), room, 'a first stall read has no time before it to tell by, whatever the average says');
+    clock += 1_000;
+    pressure(1_250_000, '0.00');
+    assert.deepEqual(await sampler.machine(), { ...room, pressured: true },
+      'every task stalled on memory a quarter of the second since: nearly out, whatever the working set, or the average, says');
+    clock += 1_000;
+    pressure(1_449_900, '25.00');
+    assert.deepEqual(await sampler.machine(), room, 'under a fifth of the second since, not, however late the average is');
   });
 
   it("reads nothing of a machine whose meminfo it cannot read", async () => {

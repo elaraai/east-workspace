@@ -32,8 +32,10 @@
  * execution runs it again once the most it reached fits: a unit is pure and
  * content-addressed, so it reruns to the same bytes. A user task — a task run
  * as one unit, a mutation, a function call — may touch outside systems, so it
- * is stopped only when the machine would otherwise run out. On Windows the
- * guard does not run, and the budget admits by reservations alone.
+ * is stopped only when the machine would otherwise run out: when it has less
+ * than a twentieth of its memory left, or a cgroup limit e3 runs under is
+ * under memory pressure (`memory.ts`). On Windows the guard does not run, and
+ * the budget admits by reservations alone.
  *
  * The default capacity is what this process may use: the CPUs of its
  * affinity mask capped by the cgroup v2 CPU quota, the way east-c sizes its
@@ -43,7 +45,7 @@
 
 import { availableParallelism, totalmem } from 'node:os';
 import { cgroupCpuQuota, cgroupMemoryMax } from './cgroups.js';
-import { defaultMemorySampler, type MeasuredRunner, type MemorySampler } from './memory.js';
+import { defaultMemorySampler, type MachineMemory, type MeasuredRunner, type MemorySampler } from './memory.js';
 
 /**
  * What a grant runs, as the guard treats it: an engine unit (`unit`) — a
@@ -365,15 +367,18 @@ export class Budget {
   }
 
   /**
-   * Measures the runners the grants watch, and acts on what it finds: admits
-   * what now fits, and past the budget, or with the machine nearly out of
-   * memory, stops one runner. The guard's timer calls it every
+   * Measures the runners the grants watch, and the machine, and acts on what
+   * it finds: admits what now fits, and past the budget, or with the machine
+   * nearly out of memory, stops one runner. The guard's timer calls it every
    * {@link BudgetOptions.sampleMs}; a measurement still in progress makes a
    * call return at once.
    *
    * @remarks
    * One runner is stopped at a time: the next only once the stopped one's
-   * grant is released, its memory freed.
+   * grant is released, its memory freed. The machine is measured at every
+   * check, a stop pending or not, so the memory pressure a check reads is over
+   * the time since the check before it: once a stopped runner's memory is
+   * freed, how the machine fares without it.
    */
   async check(): Promise<void> {
     if (this.sampler === null || this.checking) return;
@@ -394,7 +399,13 @@ export class Budget {
         holder.usage = bytes;
         holder.measured = Math.max(holder.measured, bytes);
       }
-      if (![...this.holders].some((holder) => holder.stop !== null)) await this.guard();
+      let machine: MachineMemory | null = null;
+      try {
+        machine = await this.sampler.machine();
+      } catch {
+        // Unread: the machine is left alone this time.
+      }
+      if (![...this.holders].some((holder) => holder.stop !== null)) this.guard(machine);
       this.grantNext();
     } finally {
       this.checking = false;
@@ -402,26 +413,18 @@ export class Budget {
   }
 
   /** Stops the runner the measurements call for, if any. */
-  private async guard(): Promise<void> {
+  private guard(machine: MachineMemory | null): void {
     const live = [...this.holders].filter((holder) => holder.runner !== null);
     const newest = (eligible: (holder: Holder) => boolean): Holder | undefined =>
       live.filter(eligible).reduce<Holder | undefined>((last, holder) => (last === undefined || holder.watchedAt > last.watchedAt ? holder : last), undefined);
     const inUse = live.reduce((bytes, holder) => bytes + holder.usage, 0);
     let target = inUse > this.memory ? newest((holder) => holder.kind === 'unit' && !holder.alone) : undefined;
     let reason: GuardStop['reason'] = 'budget';
-    if (target === undefined && this.sampler !== null) {
-      let machine = null;
-      try {
-        machine = await this.sampler.machine();
-      } catch {
-        // Unread: the machine is left alone this time.
-      }
-      if (machine !== null && machine.available < machine.total * MACHINE_FLOOR) {
-        target = newest((holder) => holder.kind === 'unit') ?? newest(() => true);
-        reason = 'machine';
-      }
+    // Under its floor, or under memory pressure, the machine is nearly out.
+    if (target === undefined && machine !== null && (machine.available < machine.total * MACHINE_FLOOR || machine.pressured === true)) {
+      target = newest((holder) => holder.kind === 'unit') ?? newest(() => true);
+      reason = 'machine';
     }
-    // The target may have exited while the machine was read.
     if (target === undefined || target.runner === null) return;
     target.stop = { reason, peak: target.measured };
     target.runner.stop();

@@ -361,7 +361,7 @@ One budget of cores and memory is the one setting a person makes (`execution/bud
     - The first time it runs, for its pieces, what the largest piece holds of its inputs, as its program reads them: two segments of an input it only loops over, the pager's keyed reads at most of one it reads by key, nothing of one it only sizes, and every row of one it uses any other way — each row at what a row of that input weighs decoded, east's decoded weight, east-c's layout, of a sample of its segments — and a margin for the runner and a Set's or Dict's sorter. For its merges, the largest peak its pieces reached. The stage's measured peaks take its place as they come.
 - **Guard,** on Linux and macOS; Windows keeps reservations alone.
   - Every runner the local runner starts is watched while it runs. e3 measures its resident memory every quarter second:
-    - its cgroup's working set (`memory.current` less its inactive file cache), where it has one;
+    - its cgroup's working set (`memory.current` less its clean file cache: the inactive and active file pages, less those dirty or being written back), where it has one;
     - else, on Linux, the resident memory of its process tree, walked through `/proc` from the runner down;
     - and on macOS, its process group's, from one `ps` of every process.
   - Admission counts a running unit at the larger of its reservation and what it uses, so nothing more starts near the budget.
@@ -371,6 +371,7 @@ One budget of cores and memory is the one setting a person makes (`execution/bud
   - A user task — a task that runs as one unit, a mutation, a function call — may touch outside systems. So the guard stops one only when the machine would otherwise run out: when no engine unit is left to stop and the machine's available memory is under 5% of it. It fails, naming the memory, and so does a unit running alone.
   - Walking one runner's tree costs about 0.3 ms, where reading every process in `/proc` cost tens of milliseconds of CPU on a busy host.
   - In a container, `MemAvailable` is the host's, so the machine the guard protects is the tightest cgroup limit up e3's hierarchy, less that cgroup's working set, where that leaves less than the host has.
+  - A limit's cgroup under memory pressure — `memory.pressure`'s `full avg10` at 20% or more — counts as the machine nearly out of memory, whatever the working set says: the backstop for cache the kernel cannot reclaim fast enough. A kernel without pressure information leaves it to the working set.
 - **cgroups,** on Linux, where e3's own cgroup is delegated to it and `E3_CGROUPS` is not `0`. `systemd-run --user --scope -p Delegate=yes` delegates one.
   - e3 first moves itself into a child cgroup of its own, since the kernel requires that before its cgroup's children can take the memory controller.
   - Each unit then runs in a cgroup of its own beside it, which its runner enters before it starts.
