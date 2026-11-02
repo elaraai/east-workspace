@@ -221,9 +221,10 @@ Each group merges through a tree of units of fan-in 32 (`MERGE_TREE_FANIN`): a l
 
 The units run a stage at a time: the pieces, then each level of the merges. Each stage is a `$plan` object (`UnitPlanType`, `e3-types/src/unit-plan.ts`) holding the task's hash, the task's inputs hash, the stage — each piece's inputs, or a merge level: its number, the number of levels, and its groups, each an optional range and its entries in fold order — and the plan of the stage before it (`previous`, `none` for the pieces). It is written as the stage starts and named by the execution's `plan` record, which roots it for GC until the execution ends. A task taken up mid-way still names every stage it ran, through the plans before the one it took up.
 
-While the stages run, the task's own execution, `(taskHash, inputsHash(inputHashes))`, is recorded `running` under the orchestrator, with the orchestrator as its runner and its owner. Its `stdout.txt` names the input the pieces were cut over, once they are planned — its dataset path and what it weighs — and gets one line per unit once the unit's result is known (`combine` names a fold's merges):
+While the stages run, the task's own execution, `(taskHash, inputsHash(inputHashes))`, is recorded `running` under the orchestrator, with the orchestrator as its runner and its owner. Its `stdout.txt` names the input the pieces were cut over, once they are planned — its dataset path, or `input-<n>`, its position counted from 1, for an input with no path (a split call's, an index build's), and what it weighs — and each estimate a stage starts with (The budget), and gets one line per unit once the unit's result is known (`combine` names a fold's merges):
 ```
-plan pieces=<n> over=<path> bytes=<bytes>
+plan pieces=<n> over=<path|input-n> bytes=<bytes>
+wave <pieces|merge level <l>/<levels>|combine level <l>/<levels>> units=<n> estimate=<bytes> from=<previous|rows|run>
 piece <i>/<n> <completed|cached|failed|cancelled> task=<hash> inputs=<hash> execution=<id> duration=<ms> peak=<bytes>
 merge level <l>/<levels> unit <i>/<n> <state> task=<hash> inputs=<hash> execution=<id> duration=<ms> peak=<bytes>
 combine level <l>/<levels> unit <i>/<n> <state> task=<hash> inputs=<hash> execution=<id> duration=<ms> peak=<bytes>

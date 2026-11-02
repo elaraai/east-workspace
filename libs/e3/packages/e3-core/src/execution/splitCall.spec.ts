@@ -22,7 +22,7 @@ import e3 from '@elaraai/e3';
 import type { ExecuteResult, PartitionProgress, SplitCallRequest } from '@elaraai/e3-types';
 import { readManifest } from '../dataset-open.js';
 import { PermissionDeniedError } from '../errors.js';
-import { inputsHash } from '../executions.js';
+import { executionReadLog, inputsHash } from '../executions.js';
 import { packageImport } from '../package-files.js';
 import { datasetWrite, workspaceSetDataset } from '../trees.js';
 import { workspaceDeploy } from '../workspace-files.js';
@@ -230,6 +230,17 @@ describe('split calls', () => {
     });
     await assertValue(counted, IntegerType, 97n * 100_000n + 8000n);
     assert.equal(counted.outcome.output.type, 'some', 'the result names the assembled output');
+  });
+
+  it('names the argument its pieces are cut over in its log by its position, as it has no path (#1102)', async () => {
+    const launched = await splitCallPrepare(storage, repo, WS, countByRemainder, { grant: 'any' });
+    if ('outcome' in launched) assert.fail('the call was refused');
+    await splitCallRun(storage, runner, repo, launched);
+    const inHash = inputsHash([...launched.inputs]);
+    const status = await storage.refs.executionGetLatest(repo, launched.task, inHash);
+    assert.equal(status?.type, 'success');
+    const log = await executionReadLog(storage, repo, launched.task, inHash, status!.value.executionId, 'stdout');
+    assert.match(log.data, /^plan pieces=\d+ over=input-1 bytes=\d+$/m, log.data.split('\n')[0]);
   });
 
   it('hands an argument it does not partition to every piece whole', async () => {
