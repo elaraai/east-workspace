@@ -436,7 +436,7 @@ async function splitCallStatusOf(storage: StorageBackend, repoPath: string, job:
       return variant('cancelled', null);
     case 'completed': {
       const result = await splitCallResult(storage, repoPath, status.value, job.read, Number(job.limits.maxResultBytes));
-      return variant('completed', { result, output: status.value.output });
+      return variant('completed', { result, output: status.value.output, report: status.value.report });
     }
   }
 }

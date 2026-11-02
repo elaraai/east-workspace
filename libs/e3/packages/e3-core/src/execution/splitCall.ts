@@ -30,10 +30,11 @@ import {
   type ValueTypeOf,
 } from '@elaraai/east';
 import {
-  DiagnosticType, TASK_OBJECT_KIND, TaskObjectType, decodeTaskObject, manifestByteSize,
+  DiagnosticType, SplitCallReportType, TASK_OBJECT_KIND, TaskObjectType, decodeTaskObject, decodeUnitPlan, manifestByteSize,
   type ExecuteResult, type PartitionProgress, type SplitCallPlan, type SplitCallProgress, type SplitCallRequest, type TaskOutputKind,
 } from '@elaraai/e3-types';
 import { PermissionDeniedError } from '../errors.js';
+import { executionGet, inputsHash } from '../executions.js';
 import { openDatasetObject, readDatasetWhole, readManifest } from '../dataset-open.js';
 import { touchReachable } from '../gc-graph.js';
 import { withRunningWork } from '../running-work.js';
@@ -41,7 +42,7 @@ import { storeDatasetBytes } from '../store-collection.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { workspaceGetDatasetHash } from '../trees.js';
 import { workspaceGetPackage } from '../workspaces.js';
-import type { TaskRunner } from './interfaces.js';
+import type { TaskResult, TaskRunner } from './interfaces.js';
 import {
   invalidExecuteResult, programPlatformUse, resolveJobLimits, runnerPlatformUse,
   type ExecuteCeilings, type OneShotGrant, type ResolvedLimits,
@@ -62,7 +63,9 @@ const encodeTaskObject = encodeBeast2For(TaskObjectType);
  * - `timed_out`: the job ran past its timeout, and was stopped
  *
  * `output` is the assembled output once the pieces ran; the log tails are
- * `then`'s, or a failed task's error.
+ * `then`'s, or a failed task's error. `report` is how the task ran, once it
+ * has ({@link SplitCallReportType}): `none` for a call found wrong, and for one
+ * whose pieces cannot be told.
  */
 export const SplitCallOutcomeType = StructType({
   outcome: VariantType({
@@ -77,6 +80,7 @@ export const SplitCallOutcomeType = StructType({
   stderr: StringType,
   stdoutTruncated: BooleanType,
   stderrTruncated: BooleanType,
+  report: OptionType(SplitCallReportType),
 });
 export type SplitCallOutcome = ValueTypeOf<typeof SplitCallOutcomeType>;
 
@@ -440,14 +444,19 @@ export async function splitCallRun(
   /** What is left of the job's timeout. */
   const left = (): number => call.limits.timeoutMs - (now() - launched);
   const quiet = { stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false };
-  const timedOut = (output: string | null): SplitCallOutcome => ({
+  const timedOut = (output: string | null, report: SplitCallOutcome['report'] = none): SplitCallOutcome => ({
     outcome: variant('timed_out', { ms: BigInt(call.limits.timeoutMs) }),
     output: output === null ? none : some(output),
     ...quiet,
+    report,
   });
   if (left() <= 0) return timedOut(null);
   const unheld = await splitCallReference(storage, repo, call);
   if (unheld !== null) return unheld;
+  // The task's units as they settle, and the pieces it was cut into.
+  let pieces: number | null = null;
+  let ran = 0;
+  let cached = 0;
   const deadline = new AbortController();
   const timer = setTimeout(() => deadline.abort(), left());
   const signal = options.signal === undefined ? deadline.signal : AbortSignal.any([options.signal, deadline.signal]);
@@ -455,11 +464,30 @@ export async function splitCallRun(
     const result = await runner.execute(storage, call.task, [...call.inputs], {
       signal,
       ...(options.verbose !== undefined && { verbose: options.verbose }),
-      ...(options.onProgress !== undefined && { onPartitionProgress: (progress: PartitionProgress) => options.onProgress!(progressOf(progress)) }),
+      onPartitionProgress: (progress: PartitionProgress) => {
+        if (progress.phase === 'partition') pieces = progress.total;
+        if (progress.state === 'completed') {
+          if (progress.cached === true) cached++;
+          else ran++;
+        }
+        options.onProgress?.(progressOf(progress));
+      },
     });
     options.signal?.throwIfAborted();
+    // How the task ran. Served whole from the cache it consulted no unit, and
+    // its pieces are read from the execution that served it, as they are for
+    // a run that took the task up past its pieces.
+    const peakBytes = result.peakBytes === undefined ? none : some(BigInt(result.peakBytes));
+    const counted = result.cached ? null : pieces;
+    const cut = counted ?? await recordedPieces(storage, repo, call, result);
+    const report: SplitCallOutcome['report'] = cut === null ? none : some({
+      pieces: BigInt(cut),
+      ran: BigInt(result.cached ? 0 : ran),
+      cached: BigInt(result.cached ? 0 : cached),
+      peakBytes,
+    });
     if (result.state !== 'success' || result.outputHash === undefined) {
-      if (deadline.signal.aborted) return timedOut(null);
+      if (deadline.signal.aborted) return timedOut(null, report);
       const stderr = tail(result.error ?? '', call.limits.maxLogBytes);
       return {
         outcome: variant('failed', { exitCode: BigInt(result.exitCode ?? -1) }),
@@ -468,13 +496,14 @@ export async function splitCallRun(
         stderr: stderr.text,
         stdoutTruncated: false,
         stderrTruncated: stderr.truncated,
+        report,
       };
     }
     const output = result.outputHash;
-    if (call.then === null) return { outcome: variant('success', { value: output }), output: some(output), ...quiet };
+    if (call.then === null) return { outcome: variant('success', { value: output }), output: some(output), ...quiet, report };
 
     const remaining = left();
-    if (remaining <= 0) return timedOut(output);
+    if (remaining <= 0) return timedOut(output, report);
     const task = decodeTaskObject(await storage.objects.read(repo, call.task));
     const detached = await runner.runDetached({
       bodyIr: await storage.objects.read(repo, call.then),
@@ -496,18 +525,48 @@ export async function splitCallRun(
     };
     switch (detached.kind) {
       case 'success':
-        return { outcome: variant('success', { value: await storeDatasetBytes(storage, repo, detached.value) }), output: some(output), ...streams };
+        return { outcome: variant('success', { value: await storeDatasetBytes(storage, repo, detached.value) }), output: some(output), ...streams, report };
       case 'failed':
         // Stopped at the deadline, a detached run answers failed.
-        if (deadline.signal.aborted) return { ...timedOut(output), ...streams };
-        return { outcome: variant('failed', { exitCode: BigInt(detached.exitCode) }), output: some(output), ...streams };
+        if (deadline.signal.aborted) return { ...timedOut(output, report), ...streams };
+        return { outcome: variant('failed', { exitCode: BigInt(detached.exitCode) }), output: some(output), ...streams, report };
       case 'too_large':
-        return { outcome: variant('too_large', { bytes: BigInt(detached.bytes), limit: BigInt(detached.limit) }), output: some(output), ...streams };
+        return { outcome: variant('too_large', { bytes: BigInt(detached.bytes), limit: BigInt(detached.limit) }), output: some(output), ...streams, report };
       case 'timed_out':
-        return { ...timedOut(output), ...streams };
+        return { ...timedOut(output, report), ...streams };
     }
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * How many pieces a split call's task was cut into, as the execution that
+ * holds its output records it: the record's `plan` names the task's last
+ * stage, whose `previous` chain leads back to the pieces; a task with no plan
+ * was one piece.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param call - The call, whose task and inputs the execution is of
+ * @param result - The task's result, naming its execution
+ * @returns The pieces, or `null` when the execution did not succeed, or its
+ *   record or plans cannot be read
+ */
+async function recordedPieces(storage: StorageBackend, repo: string, call: SplitCallTask, result: TaskResult): Promise<number | null> {
+  if (result.state !== 'success') return null;
+  try {
+    const record = await executionGet(storage, repo, call.task, inputsHash([...call.inputs]), result.executionId);
+    if (record === null || record.type !== 'success') return null;
+    if (record.value.plan.type === 'none') return 1;
+    for (let next: string | null = record.value.plan.value; next !== null;) {
+      const plan = decodeUnitPlan(await storage.objects.read(repo, next));
+      if (plan.stage.type === 'pieces') return plan.stage.value.length;
+      next = plan.previous.type === 'some' ? plan.previous.value : null;
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 
@@ -574,5 +633,6 @@ export function splitCallInvalid(result: ExecuteResult): SplitCallOutcome {
     stderr: result.stderr,
     stdoutTruncated: result.stdoutTruncated,
     stderrTruncated: result.stderrTruncated,
+    report: none,
   };
 }

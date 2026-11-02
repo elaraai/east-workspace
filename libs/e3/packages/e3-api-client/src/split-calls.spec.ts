@@ -65,6 +65,7 @@ function server(ends = Infinity): { polls: () => number; cancels: string[]; fetc
           stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false, inputs: [],
         },
         output: some('output'),
+        report: some({ pieces: 1n, ran: 1n, cached: 0n, peakBytes: none }),
       }));
     }
     return new Response(`unexpected ${method} ${url.href}`, { status: 500 });

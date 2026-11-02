@@ -901,6 +901,24 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       assertValue(ended.value.result, ArrayType(IntegerType), [1n, 2n, 3n]);
     });
 
+    it('a split call reports how it ran, and the same call again the same pieces, served whole from the cache with no unit run', async (t) => {
+      const ctx = await withFunctions(t);
+      const opts = await ctx.opts();
+
+      await ctx.createWorkspace('split-report-ws');
+      await ctx.deployPackage('split-report-ws', `${PKG}@${VERSION}`);
+      const request = splitOf(emitEachPrice, [PRICES_PIECES], variant('array', null));
+      const first = await splitCall(ctx.config.baseUrl, ctx.repoName, 'split-report-ws', request, opts);
+      if (first.report === null) assert.fail('the first call reported nothing');
+      assert.ok(first.report.pieces >= 1n, `cut into ${first.report.pieces} pieces`);
+      assert.ok(first.report.ran >= 1n, `ran ${first.report.ran} units`);
+
+      const again = await splitCall(ctx.config.baseUrl, ctx.repoName, 'split-report-ws', request, opts);
+      if (again.report === null) assert.fail('the call again reported nothing');
+      assert.deepEqual([again.report.pieces, again.report.ran, again.report.cached], [first.report.pieces, 0n, 0n]);
+      assertValue(again.result, ArrayType(IntegerType), [1n, 2n, 3n]);
+    });
+
     it('an admin cancels a running split call: the cancel answers cancelled, and so does every poll after it', async (t) => {
       const ctx = await withFunctions(t);
       const opts = await ctx.opts();

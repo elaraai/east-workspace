@@ -404,6 +404,44 @@ describe('split calls', () => {
     assert.ok(ran.length >= 1 && ran.length <= 3, `only the pieces around the append ran: ${ran.length} of ${settled.length}`);
   });
 
+  it('reports how it ran: the pieces, the units it ran and was served, and its peak; served whole, the pieces its record names (#1105)', async () => {
+    /** What the run's units told of themselves: the pieces, and the units
+     *  that ran and that the cache served, pieces and merges. */
+    const told = () => {
+      const settled = heard.filter((progress) => progress.state === 'completed');
+      return {
+        pieces: BigInt(pieces()),
+        ran: BigInt(settled.filter((progress) => progress.cached !== true).length),
+        cached: BigInt(settled.filter((progress) => progress.cached === true).length),
+      };
+    };
+    const reportOf = (outcome: SplitCallOutcome) => {
+      if (outcome.report.type === 'none') assert.fail('the call reported nothing');
+      return outcome.report.value;
+    };
+
+    // Every piece emits every remainder, so its counts are merged.
+    heard.length = 0;
+    const first = reportOf((await run(countByRemainder)).outcome);
+    assert.ok(first.pieces > 4n, `the sales are many pieces: ${first.pieces}`);
+    assert.deepEqual({ pieces: first.pieces, ran: first.ran, cached: first.cached }, told(), 'as the units told it');
+    assert.ok(first.ran > first.pieces, `every piece ran, and the merges after them: ${first.ran} units`);
+    assert.equal(first.cached, 0n);
+    assert.equal(first.peakBytes.type, 'some', 'the units reported their peak');
+
+    heard.length = 0;
+    const again = reportOf((await run(countByRemainder)).outcome);
+    assert.equal(heard.length, 0, 'served whole from the cache: no unit was consulted');
+    assert.deepEqual(again, { ...first, ran: 0n, cached: 0n }, 'the pieces its record names, and the peak it records');
+
+    await set('sales', salesOf(8040), SalesType);
+    heard.length = 0;
+    const appended = reportOf((await run(countByRemainder)).outcome);
+    assert.deepEqual({ pieces: appended.pieces, ran: appended.ran, cached: appended.cached }, told(), 'as the units told it');
+    assert.ok(appended.ran >= 2n, `the pieces the append touched ran, and the merges they reach: ${appended.ran} units`);
+    assert.ok(appended.cached > appended.ran, `the cache served the rest: ${appended.cached} units`);
+  });
+
   it('explains the pieces the run cuts in the job, leaving the launch — an explain\'s request — to store none, and runs no unit', async () => {
     // Every object written, and how many of them are manifests: a piece is one.
     const objects = storage.objects;

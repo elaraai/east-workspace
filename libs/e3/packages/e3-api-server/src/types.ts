@@ -126,6 +126,7 @@ export {
   FunctionCallPageType,
   FUNCTION_CALLS_PAGE_DEFAULT,
   FUNCTION_CALLS_PAGE_MAX,
+  SplitCallReportType,
   MutationCallRequestType,
   MutationResultType,
   RecordMigrationAppliedType,
@@ -210,6 +211,7 @@ export type {
   FunctionCallStatus,
   FunctionCallAnswer,
   FunctionCallPage,
+  SplitCallReport,
   MutationCallRequest,
   MutationResult,
   RecordMigrationApplied,
@@ -324,6 +326,7 @@ import {
   FunctionCallStatusType as _FunctionCallStatusType,
   FunctionCallAnswerType as _FunctionCallAnswerType,
   FunctionCallPageType as _FunctionCallPageType,
+  SplitCallReportType as _SplitCallReportType,
 } from '@elaraai/e3-types';
 
 export const ApiTypes = {
@@ -456,4 +459,5 @@ export const ApiTypes = {
   FunctionCallStatusType: _FunctionCallStatusType,
   FunctionCallAnswerType: _FunctionCallAnswerType,
   FunctionCallPageType: _FunctionCallPageType,
+  SplitCallReportType: _SplitCallReportType,
 } as const;

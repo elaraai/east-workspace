@@ -321,7 +321,8 @@ function progress(phase: "partition" | "merge" | "combine", done: number, units:
  * together, and `too_large` over the request's `maxResultBytes`. It reports
  * each piece done, then the merge or the fold, to `onProgress`, yielding
  * between pieces, and rejects with the signal's reason once abandoned. The
- * time limit is not kept.
+ * time limit is not kept, and its answer has no `report`: e3's says how its
+ * units ran, and this stand-in runs none.
  *
  * Its `explain` answers what e3's explain of the same call does, and runs no
  * piece (#1132): how many pieces the call cuts — `pieces`, whatever the data —
@@ -374,7 +375,7 @@ export function createInMemorySplitCall(datasets: readonly InMemoryDataset[], op
     };
 
     const call: QuerySplitCall = async (request: SplitCallRequest, { signal, onProgress }): Promise<SplitCallAnswer> => {
-        const refused = (message: string): SplitCallAnswer => ({ result: invalid(message), output: null });
+        const refused = (message: string): SplitCallAnswer => ({ result: invalid(message), output: null, report: null });
         const resolved = argumentsOf(request);
         if (typeof resolved === "string") return refused(resolved);
         const { values, inputs, partitioned } = resolved;
@@ -459,11 +460,11 @@ export function createInMemorySplitCall(datasets: readonly InMemoryDataset[], op
             const bytes = encodeBeast2For(type)(assembled as never);
             hash = sha256Hex(bytes);
             stored.set(hash, { value: assembled, bytes: bytes.length });
-            if (then === undefined) return { result: answer(type, assembled, request.limits, inputs), output: hash };
-            return { result: answer(then.output, then.fn(assembled, ...values), request.limits, inputs), output: hash };
+            if (then === undefined) return { result: answer(type, assembled, request.limits, inputs), output: hash, report: null };
+            return { result: answer(then.output, then.fn(assembled, ...values), request.limits, inputs), output: hash, report: null };
         } catch (err) {
             if (!(err instanceof EastError)) throw err;
-            return { result: raised(err, inputs), output: hash };
+            return { result: raised(err, inputs), output: hash, report: null };
         }
     };
 
