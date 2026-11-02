@@ -196,6 +196,10 @@ export interface PiecePlan {
   /** The sizes the pieces were cut at: those the primary's weight gives, or
    *  the ones the caller fixed. A merge range aims for their target. */
   readonly sizes: PieceSizes;
+  /** Each partitioned input as the planning opened it, by its position in the
+   *  task's inputs: a caller that reads one again — a first run's estimate —
+   *  takes it from here rather than decode its manifest again. */
+  readonly opened: ReadonlyMap<number, DatasetSegments>;
 }
 
 /**
@@ -210,7 +214,12 @@ export interface PiecePlan {
  * carries a large one whole into its few pieces. The primary's pieces are runs
  * of the segments its manifest names, at the sizes its weight gives
  * ({@link pieceSizes}) unless the caller fixes them. Nothing is decoded but a
- * segment where a `by` group or another input's split has to be found.
+ * segment where a `by` group or another input's split has to be found, and
+ * each partitioned input's manifest, once, whatever the number of pieces: each
+ * piece is stored from the manifest already decoded.
+ *
+ * Planning checks its signal between pieces: once it has aborted, no further
+ * piece is stored, and the plan throws.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -218,11 +227,13 @@ export interface PiecePlan {
  * @param inputHashes - The input hashes, in the same order
  * @param sizes - The piece sizes, or the rule that gives them from the
  *   primary's stored bytes ({@link pieceSizes} by default)
+ * @param options - `signal`, which stops the planning between pieces
  * @returns The pieces, the input they were cut over, and the sizes they were
  *   cut at
  * @throws {Error} When no input is partitioned, a partitioned input is not a
  *   stored collection, co-partitioned inputs are not all Sets or Dicts cut by
  *   fields of the same types, or a read fails.
+ * @throws The signal's reason, once it has aborted.
  */
 export async function planPieces(
   storage: StorageBackend,
@@ -230,6 +241,7 @@ export async function planPieces(
   inputs: readonly TaskInput[],
   inputHashes: readonly string[],
   sizes: PieceSizes | ((bytes: number) => PieceSizes) = pieceSizes,
+  options: { readonly signal?: AbortSignal } = {},
 ): Promise<PiecePlan> {
   if (inputs.length !== inputHashes.length) {
     throw new Error(`the task reads ${inputs.length} inputs, and ${inputHashes.length} were given`);
@@ -252,7 +264,10 @@ export async function planPieces(
   const first = partitioned.reduce((heaviest, next) => (next.input.bytes > heaviest.input.bytes ? next : heaviest));
   const segments = first.input;
   const cutAt = typeof sizes === 'function' ? sizes(segments.bytes) : sizes;
-  const plan = (pieces: string[][]): PiecePlan => ({ pieces, primary: first.index, primaryBytes: segments.bytes, sizes: cutAt });
+  const plan = (pieces: string[][]): PiecePlan => ({
+    pieces, primary: first.index, primaryBytes: segments.bytes, sizes: cutAt,
+    opened: new Map(partitioned.map(({ index, input }) => [index, input])),
+  });
   const typeValue = segments.typeValue;
   const primary = segments.hash;
   const count = segments.segmentCount;
@@ -296,6 +311,7 @@ export async function planPieces(
   if (marked.length > 1) {
     const bounds: unknown[][] = [];
     for (const start of starts.slice(1)) {
+      options.signal?.throwIfAborted();
       let key: unknown = await segments.fence(start.seg);
       if (start.offset > 0) {
         let row = 0;
@@ -366,7 +382,8 @@ export async function planPieces(
     }
   }
   /** The rows of an input from `from` up to `to`: its whole segments by
-   *  reference, and the rows of a segment either end splits. */
+   *  reference, from its manifest as decoded here, and the rows of a segment
+   *  either end splits. */
   const sources = (input: DatasetSegments, hash: string, from: SplitPoint, to: SplitPoint): CollectionSource[] => {
     const list: CollectionSource[] = [];
     if (from.seg === to.seg) {
@@ -378,13 +395,14 @@ export async function planPieces(
       list.push({ elements: rows(input, from.seg, from.offset, Infinity) });
       whole++;
     }
-    if (to.seg > whole) list.push({ stored: hash, from: whole, to: to.seg });
+    if (to.seg > whole) list.push({ stored: hash, from: whole, to: to.seg, manifest: input.manifest });
     if (to.offset > 0) list.push({ elements: rows(input, to.seg, 0, to.offset) });
     return list;
   };
 
   const pieces: string[][] = [];
   for (let p = 0; p < starts.length; p++) {
+    options.signal?.throwIfAborted();
     const piece = [...inputHashes];
     piece[first.index] = await storeCollection(storage, repo, typeValue, sources(segments, primary, starts[p]!, starts[p + 1] ?? end));
     for (const other of others) {

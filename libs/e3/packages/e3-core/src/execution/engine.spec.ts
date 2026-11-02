@@ -409,6 +409,20 @@ describe('a task split into pieces', () => {
     assert.equal((await storage.refs.executionGetLatest(repo, taskHash, result.inputsHash))?.type, 'cancelled');
   });
 
+  it('records the task cancelled when the run is aborted while it plans its pieces, with no stage rooted (#1100)', async () => {
+    const taskHash = await deploy(remainders('planned'));
+    const input = await datasetWrite(storage, repo, salesOf(8000), SalesType);
+    const task = decodeTaskObject(await storage.objects.read(repo, taskHash));
+    const ids = { inHash: inputsHash([input]), executionId: uuidv7(), startTime: Date.now() };
+    const opened = await SplitTask.open(storage, repo, taskHash, task, [input], ids, { signal: AbortSignal.abort() }, null, null);
+    assert.ok(!(opened instanceof SplitTask), 'the task ended as it planned');
+    assert.equal(opened.cancelled, true, opened.error ?? '');
+    assert.equal(opened.state, 'error');
+    const record = await storage.refs.executionGetLatest(repo, taskHash, ids.inHash);
+    assert.equal(record?.type, 'cancelled');
+    assert.equal(await storage.refs.executionPlanRead(repo, taskHash, ids.inHash), null, 'no stage was rooted');
+  });
+
   it('takes a core of the budget for each unit, and reports each unit\'s progress', async () => {
     const taskHash = await deploy(e3.streamTask('budgeted', {
       inputs: [e3.partition(sales)],
@@ -593,10 +607,13 @@ describe('a task split into pieces', () => {
     assert.ok(suspended instanceof SplitTask);
     await suspended.suspend();
 
-    // An aborted run stops the task, its cause the last line of its stderr.
+    // A run aborted mid-stage stops the task, its cause the last line of its
+    // stderr. (One aborted while it plans stops there: see #1100's test.)
     const aborted = uuidv7();
-    const stopped = await SplitTask.open(held, repo, taskHash, task, [input], { inHash: inputsHash([input]), executionId: aborted, startTime: Date.now() }, { signal: AbortSignal.abort() }, null, null);
+    const controller = new AbortController();
+    const stopped = await SplitTask.open(held, repo, taskHash, task, [input], { inHash: inputsHash([input]), executionId: aborted, startTime: Date.now() }, { signal: controller.signal }, null, null);
     assert.ok(stopped instanceof SplitTask);
+    controller.abort();
     assert.equal((await stopped.advance([], []))?.cancelled, true);
 
     const yieldCause = 'interrupted: the run yielded mid-stage, and a resumed run takes the stage up again';

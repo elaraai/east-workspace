@@ -1415,7 +1415,8 @@ export const SplitCallPlanType = StructType({
  *   is `too_large`, or passes on as the next call's `object` argument; an
  *   explain found wrong ends here too, `invalid`
  * - `planned`: an explain's answer, the pieces the call's run would cut, which
- *   its job stored for the run to take up, and ran no unit for
+ *   its job planned and ran no unit for; a run plans them again, and finds the
+ *   pieces it stored
  * - `failed`: why e3 could not run it
  */
 export const SplitCallStatusType = VariantType({

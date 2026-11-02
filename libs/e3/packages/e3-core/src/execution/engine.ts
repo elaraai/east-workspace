@@ -360,6 +360,10 @@ export class SplitTask {
   /** The sizes the pieces were cut at, whose middle size a merge range aims
    *  for; `null` for a stage taken up from a plan, until a merge needs them. */
   private sizes: PieceSizes | null = null;
+  /** The partitioned inputs the planning opened, by position, which the first
+   *  run's estimate reads rather than decode their manifests again; none for
+   *  a stage taken up from a plan. */
+  private opened: ReadonlyMap<number, DatasetSegments> = new Map();
   /** The stage in progress, as its units see it. */
   private current!: SplitStage;
   /** The stage in progress, as its plan holds it; `null` for one piece. */
@@ -519,8 +523,9 @@ export class SplitTask {
     let cut: PiecePlan | null = null;
     try {
       if (stage === null) {
-        cut = await planPieces(storage, repo, task.inputs, inputHashes, pieceSizes);
+        cut = await planPieces(storage, repo, task.inputs, inputHashes, pieceSizes, options.signal === undefined ? {} : { signal: options.signal });
         split.sizes = cut.sizes;
+        split.opened = cut.opened;
         if (cut.pieces.length === 1) {
           split.current = { plan: null, units: [{ inputs: [...inputHashes], merge: null, own: true }], merge: null };
           return split;
@@ -528,6 +533,9 @@ export class SplitTask {
         stage = variant('pieces', cut.pieces);
       }
     } catch (err) {
+      // A run aborted while it planned stops between pieces, as it stops
+      // between units.
+      if (options.signal?.aborted) return split.cancel();
       return split.errorResult(`Failed to plan the task's pieces: ${messageOf(err)}`);
     }
     await split.begin(stage, previous);
@@ -834,6 +842,9 @@ export class SplitTask {
       this.current = { plan, units: stageUnits(stage), merge: { level: Number(level), levels: Number(levels) } };
     }
     this.estimate = this.options.firstWave === 'estimate' ? await this.estimateOf(this.current.units) : null;
+    // The inputs as planned are read by that estimate alone: their manifests,
+    // decoded, are let go rather than held for the run.
+    this.opened = new Map();
     // The first stage's line follows the plan's, once the task is running.
     if (this.running) this.logWave();
   }
@@ -895,7 +906,7 @@ export class SplitTask {
       const hash = this.inputHashes[index]!;
       let opened: DatasetSegments;
       try {
-        opened = await DatasetSegments.open(this.storage, this.repo, hash);
+        opened = this.opened.get(index) ?? await DatasetSegments.open(this.storage, this.repo, hash);
       } catch {
         shared += (await this.storage.objects.stat(this.repo, hash)).size;
         continue;

@@ -345,27 +345,33 @@ export async function splitCallReference(storage: StorageBackend, repo: string, 
  *
  * @remarks
  * The pieces are planned as the call's run plans them (`planPieces`), so the
- * count is the run's, and the pieces it stores are the ones the run takes up.
- * Planning stores every piece's manifest, and re-cuts the segment at each
- * boundary a `by` or an argument partitioned with another moves, so it is a
- * job's work, never a request's: the request launches the call
- * ({@link splitCallPrepare}), and its job plans it, once it has re-referenced
- * what the call's `object` arguments name ({@link splitCallReference}).
+ * count is the run's. Nothing of the plan is kept for a run: a launch that
+ * follows plans the pieces again, which costs a read of each partitioned
+ * argument's manifest, and finds the objects the explain stored. Planning
+ * stores every piece's manifest, and re-cuts the segment at each boundary a
+ * `by` or an argument partitioned with another moves, so it is a job's work,
+ * never a request's: the request launches the call ({@link splitCallPrepare}),
+ * and its job plans it, once it has re-referenced what the call's `object`
+ * arguments name ({@link splitCallReference}).
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param call - What the launch wrote
+ * @param options - `signal`, the job's, which stops the planning between
+ *   pieces
  * @returns The piece count, the argument they are cut over and what it weighs
  * @throws {Error} When the pieces cannot be planned: arguments partitioned
  *   together that are not cut by keys of the same types, say.
+ * @throws The signal's reason, once it has aborted.
  */
 export async function splitCallExplain(
   storage: StorageBackend,
   repo: string,
   call: SplitCallTask,
+  options: { readonly signal?: AbortSignal } = {},
 ): Promise<SplitCallPlan> {
   const task = decodeTaskObject(await storage.objects.read(repo, call.task));
-  const plan = await withRunningWork(storage, repo, () => planPieces(storage, repo, task.inputs, [...call.inputs], pieceSizes));
+  const plan = await withRunningWork(storage, repo, () => planPieces(storage, repo, task.inputs, [...call.inputs], pieceSizes, options));
   return { pieces: BigInt(plan.pieces.length), over: BigInt(plan.primary), bytes: BigInt(plan.primaryBytes) };
 }
 
