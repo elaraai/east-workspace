@@ -294,7 +294,10 @@ Dict, a position range of an Array), and the pieces' outputs combine as the
 output kind says. Pieces are cut by content, at sizes that follow what the
 input weighs — one piece within 16 MiB, tens of pieces for mid-size data, and
 most holding 64 to 100 MiB from 2 GiB — so an append or an insertion re-runs
-only the pieces it reaches.
+only the pieces it reaches. Under the local budget's guard (Linux, macOS) a
+stage starts all its units at once, each reserving the task's last peak, or the
+first time what the largest piece holds of its rows decoded, as its program
+reads them.
 An input not wrapped reaches every piece whole, opened lazily as every input is
 (a keyed get reads only its segments); a change to it re-runs every piece.
 

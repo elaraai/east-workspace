@@ -53,8 +53,30 @@ export interface ExecuteOptions {
   onStderr?: (data: string) => void;
   /** The memory, in bytes, the execution reserves from the budget while its
    *  runner runs: for a unit of a split task, the largest peak its stage has
-   *  reached in the run. Absent, it reserves none. */
+   *  reached in the run, or its stage's estimate ({@link firstWave}). Absent,
+   *  it reserves none. */
   expectedPeakBytes?: number;
+  /** Whether {@link expectedPeakBytes} is a guess from what the unit holds
+   *  of its rows decoded, which no run of its program measured: the unit
+   *  reserves it, and is not capped by it, as a unit with nothing measured is
+   *  not. Runtime-only. */
+  expectedPeakGuessed?: boolean;
+  /**
+   * How each stage of a split task starts (default `measure`):
+   * - `measure`: one unit alone, and the rest once it has settled, each
+   *   reserving the largest peak the stage has reached in the run;
+   * - `estimate`: every unit at once, each reserving an estimate — the task's
+   *   previous peak, the largest among its latest successful executions, which
+   *   the stage's measured peaks raise; or, the first time it runs, what the
+   *   largest piece holds of its rows decoded, as its program reads them —
+   *   two segments of an input it only loops over, all of one it reads whole —
+   *   and for its merges the peak its pieces reached, which the stage's
+   *   measured peaks take over from.
+   *
+   * A backend opts in where something stops a unit that outgrows its share:
+   * the local runner, under a budget whose guard runs. Runtime-only.
+   */
+  firstWave?: 'measure' | 'estimate';
   /** Called as each unit of a split task (a piece, or a merge of their
    *  outputs) starts, and as it succeeds. Runtime-only progress reporting. */
   onPartitionProgress?: (progress: PartitionProgress) => void;

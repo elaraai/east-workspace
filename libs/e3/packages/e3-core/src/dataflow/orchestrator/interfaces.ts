@@ -120,6 +120,15 @@ export interface OrchestratorStartOptions {
    * {@link signal}: never persisted.
    */
   owner?: ExecutionOwner | null;
+  /**
+   * How each stage of a split task starts (default `measure`): one unit alone,
+   * and the rest once it has settled; or, with `estimate`, every unit at once,
+   * each reserving an estimate (`ExecuteOptions.firstWave`). A host opts in
+   * where its runner stops a unit that outgrows its share: the root entry's
+   * `LocalOrchestrator` does for a local runner under a guarded budget. A
+   * runtime setting like {@link signal}: never persisted.
+   */
+  firstWave?: 'measure' | 'estimate';
   /** Callback when a task starts */
   onTaskStart?: (name: string) => void;
   /** Callback when a task completes */

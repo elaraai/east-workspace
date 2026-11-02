@@ -137,7 +137,15 @@ function noDelegation(): string | false {
 }
 
 describe('a unit on a cgroup systemd delegates to e3', { skip: noDelegation() }, () => {
-  it('outgrows its cap, dies alone, and runs again under a cap half as large again until it completes', async () => {
+  /** What the e3 process reported of a unit it ran on its delegated cgroup. */
+  interface Report { state: string; error: string | null; stderr: string; cgroup: string; left: string[] }
+
+  /**
+   * Runs a custom task that holds 200 MiB as a unit, in an e3 process alone in
+   * a scope systemd delegates to it, under the unit options `options` (their
+   * source text), and reports what it did.
+   */
+  async function runDelegated(options: string): Promise<Report> {
     const repo = createTestRepo();
     const work = mkdtempSync(path.join(tmpdir(), 'e3-delegated-'));
     try {
@@ -163,7 +171,7 @@ describe('a unit on a cgroup systemd delegates to e3', { skip: noDelegation() },
       const input = await storage.objects.write(repo, new Uint8Array([1, 2, 3]));
 
       // The e3 process, alone in a scope systemd delegates to it, runs the
-      // task as a unit its stage measured at 32 MiB: capped at 96 MiB.
+      // task as a unit under the options given.
       const here = path.dirname(fileURLToPath(import.meta.url));
       const module = (file: string): string => pathToFileURL(path.join(here, file)).href;
       const script = path.join(work, 'run-unit.mjs');
@@ -176,7 +184,7 @@ describe('a unit on a cgroup systemd delegates to e3', { skip: noDelegation() },
         'const [repo, taskHash, input] = process.argv.slice(2);',
         'const storage = new LocalStorage();',
         'const runner = new LocalTaskRunner(repo, new Budget({ cores: 2, memory: 4 * 1024 ** 3 }));',
-        'const result = await runner.executeUnit(storage, taskHash, { inputs: [input], merge: null }, { expectedPeakBytes: 32 * 1024 ** 2 });',
+        `const result = await runner.executeUnit(storage, taskHash, { inputs: [input], merge: null }, ${options});`,
         "const stderr = (await storage.logs.read(repo, taskHash, inputsHash([input]), result.executionId, 'stderr')).data;",
         "const cgroup = readFileSync('/proc/self/cgroup', 'utf8').trim().slice(3);",
         "const left = readdirSync('/sys/fs/cgroup' + cgroup.replace(/\\/e3$/, '')).filter((name) => name.startsWith('unit-'));",
@@ -185,17 +193,32 @@ describe('a unit on a cgroup systemd delegates to e3', { skip: noDelegation() },
       const ran = spawnSync('systemd-run', ['--user', '--scope', '-p', 'Delegate=yes', '-q', '--', process.execPath, script, repo, taskHash, input],
         { encoding: 'utf8', timeout: 120_000 });
       assert.equal(ran.status, 0, ran.stderr);
-      const report = JSON.parse(ran.stdout.trim().split('\n').at(-1)!) as { state: string; error: string | null; stderr: string; cgroup: string; left: string[] };
-
-      assert.equal(report.state, 'success', report.error ?? report.stderr);
-      assert.match(report.cgroup, /\/e3$/, 'e3 moved itself into a child of its scope');
-      assert.deepEqual(report.left, [], "no unit's cgroup is left behind");
-      const caps = report.stderr.split('\n').filter((line) => line.startsWith('e3: the runner outgrew its cap'));
-      assert.equal(caps[0], 'e3: the runner outgrew its cap of 96 MiB: it runs again under a cap of 160 MiB');
-      assert.ok(caps.length >= 2, `each requeue raised the cap by half:\n${caps.join('\n')}`);
+      return JSON.parse(ran.stdout.trim().split('\n').at(-1)!) as Report;
     } finally {
       removeTestRepo(repo);
       rmSync(work, { recursive: true, force: true });
     }
+  }
+
+  /** The lines of a unit's stderr saying it outgrew its cap. */
+  const capsOf = (report: Report): string[] => report.stderr.split('\n').filter((line) => line.startsWith('e3: the runner outgrew its cap'));
+
+  it('outgrows its cap, dies alone, and runs again under a cap half as large again until it completes', async () => {
+    // A unit its stage measured at 32 MiB: capped at 96 MiB.
+    const report = await runDelegated('{ expectedPeakBytes: 32 * 1024 ** 2 }');
+    assert.equal(report.state, 'success', report.error ?? report.stderr);
+    assert.match(report.cgroup, /\/e3$/, 'e3 moved itself into a child of its scope');
+    assert.deepEqual(report.left, [], "no unit's cgroup is left behind");
+    const caps = capsOf(report);
+    assert.equal(caps[0], 'e3: the runner outgrew its cap of 96 MiB: it runs again under a cap of 160 MiB');
+    assert.ok(caps.length >= 2, `each requeue raised the cap by half:\n${caps.join('\n')}`);
+  });
+
+  it('does not cap a unit whose reservation is a guess from what its rows weigh (#1109)', async () => {
+    // The same 32 MiB, guessed rather than measured: the unit runs uncapped.
+    const report = await runDelegated('{ expectedPeakBytes: 32 * 1024 ** 2, expectedPeakGuessed: true }');
+    assert.equal(report.state, 'success', report.error ?? report.stderr);
+    assert.deepEqual(report.left, [], "no unit's cgroup is left behind");
+    assert.deepEqual(capsOf(report), [], 'it ran once, with no cap to outgrow');
   });
 });

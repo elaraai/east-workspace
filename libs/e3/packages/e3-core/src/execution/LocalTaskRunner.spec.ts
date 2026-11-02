@@ -491,6 +491,17 @@ describe('the budget', () => {
     };
   }
 
+  it('starts a split task\'s stages with an estimate only under a budget whose guard runs, with the local body (#1109)', () => {
+    const budget = new Budget({ cores: 2, memory: 1024 ** 3 });
+    // The guard runs on Linux and macOS; on Windows none does, and every
+    // budget measures.
+    assert.equal(budget.guarded, process.platform !== 'win32');
+    assert.equal(new LocalTaskRunner(repo, budget).firstWave, budget.guarded ? 'estimate' : 'measure');
+    assert.equal(new LocalTaskRunner(repo, new Budget({ cores: 2, memory: 1024 ** 3 }, { sampler: null })).firstWave, 'measure', 'a budget no guard watches');
+    assert.equal(new LocalTaskRunner(repo).firstWave, 'measure', 'no budget');
+    assert.equal(new LocalTaskRunner(repo, budget, { body: (_request, local) => local() }).firstWave, 'measure', 'a body that replaces the local one');
+  });
+
   it('keeps at most the budget\'s cores of runners in flight across the executions of a runner holding it', async () => {
     // Six executions started at once under a budget of two cores: each runner
     // marks itself running until the test lets it go, so the most marks
