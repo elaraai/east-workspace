@@ -1018,8 +1018,9 @@ the assembled output's hash (`SplitCallOutcomeType`), so a store with small
 records keeps it. The poll (`splitCallResult`) reads the value and answers it
 inline, a collection spliced as `runDetached` splices one, up to the call's
 `maxResultBytes`; over it the result is `too_large`, and the caller reads the
-output by its hash through the object route, or passes it on as the next
-call's `object` argument. `inputs` names each pinned dataset, as a one-shot's
+output by its hash through the object route — e3-api-client's `collectionOpen`
+reads a window at a time, fetching only the segments each overlaps (#1106) —
+or passes it on as the next call's `object` argument. `inputs` names each pinned dataset, as a one-shot's
 does. A job's record is forgotten a while after it finishes.
 
 **What a split call writes** is what an index build writes: the task object,
