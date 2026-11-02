@@ -32,6 +32,8 @@ export type ActionOverlayState =
     | {
         kind: "menu";
         r: number;
+        /** The rows it takes on: a range down the column (T8), else the cell's own. */
+        rs: readonly number[];
         key: string;
         /** The control that opened it, held while it is open. */
         part: "next" | "more";
@@ -44,6 +46,8 @@ export type ActionOverlayState =
     | {
         kind: "form";
         r: number;
+        /** The rows it takes on: a range down the column asks once (T8), else the cell's own. */
+        rs: readonly number[];
         key: string;
         part: "next" | "more";
         anchor: HTMLElement;

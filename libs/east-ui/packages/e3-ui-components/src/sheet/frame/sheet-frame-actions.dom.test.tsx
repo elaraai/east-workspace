@@ -163,3 +163,69 @@ test("Report… opens a Popover of its form; ⏎ takes it, the step reported and
     expect(stateOf(lineCell(container, "WO-1042", "1", "action"))).toBe("reported");
     expect(lineCell(container, "WO-1042", "1", "good").textContent).toContain("12");
 });
+
+/** The docked strip's label and its line. */
+const strip = (container: HTMLElement) => ({
+    label: slot(container, "main")!.querySelector('[data-slot="stripLabel"]')?.textContent,
+    text: slot(container, "main")!.querySelector('[data-slot="stripChip"]')?.textContent,
+});
+/** Waits out the strip's dwell (P8). */
+const dwell = () => act(async () => { await new Promise<void>((resolve) => { setTimeout(resolve, 200); }); });
+
+test("the ring on an action cell says its state and what it offers in the strip; a control the pointer rests on previews what it would write (R2, R3, P8)", async () => {
+    const { container } = await h.mount(ex.sheetActionsTickets);
+    fireEvent.mouseDown(cellOf(container, "T-301", "action"), { button: 0 });
+    await settle();
+    expect(strip(container).label).toBe("Action · Spindle noise");
+    expect(strip(container).text).toContain("offers Acknowledge, Defer…, Hand over, Close");
+    fireEvent.mouseEnter(nextOf(cellOf(container, "T-302", "action"))!);
+    await dwell();
+    expect(strip(container).label).toBe("Acknowledge · Coolant leak");
+    expect(strip(container).text).toBe("Sets nothing beside the action");
+    fireEvent.mouseLeave(nextOf(cellOf(container, "T-302", "action"))!);
+    await dwell();
+    expect(strip(container).label).toBe("Action · Spindle noise");
+});
+
+test("a range down the action column takes a case on every row of it, as one transaction one Undo takes back (T8)", async () => {
+    const { container } = await h.mount(ex.sheetActionsTickets);
+    fireEvent.mouseDown(cellOf(container, "T-301", "action"), { button: 0 });
+    fireEvent.mouseDown(cellOf(container, "T-302", "action"), { button: 0, shiftKey: true });
+    await settle();
+    await press(cellOf(container, "T-301", "action").querySelector('[data-slot="actionMore"]')!);
+    await pick(within(document.querySelector<HTMLElement>("[data-sheet-action-menu]")!).getByRole("menuitem", { name: /Close/ }));
+    expect(stateOf(cellOf(container, "T-301", "action"))).toBe("closed");
+    expect(stateOf(cellOf(container, "T-302", "action"))).toBe("closed");
+    await press(within(slot(container, "toolbar")!).getByRole("button", { name: "Undo" }));
+    expect(stateOf(cellOf(container, "T-301", "action"))).toBeUndefined();
+    expect(stateOf(cellOf(container, "T-302", "action"))).toBe("acknowledged");
+});
+
+test("in auto mode an action is saved as it is taken: its dot's echo runs until e3 has the commit, then the tint clears (T5, N2)", async () => {
+    const { container } = await h.mount(ex.sheetActionsTickets);
+    const saving = h.e3.hold((request) => request.kind === "mutate");
+    await press(nextOf(cellOf(container, "T-301", "action"))!);
+    await act(async () => { await saving.holding; });
+    await settle();
+    const dot = () => cellOf(container, "T-301", "action").querySelector('[data-slot="actionDot"]');
+    expect(dot()?.getAttribute("data-live")).toBe("");
+    saving.release();
+    await settle();
+    await act(async () => { await h.e3.idle(); });
+    await settle();
+    expect(dot()?.getAttribute("data-live")).toBeNull();
+    const tickets = await h.read(ex.sheetTickets);
+    expect(tickets.get("T-301")!.action).toEqual(some(variant("acknowledged", null)));
+});
+
+test("a taken action's words tint as a draft until Save (ST3, ST6)", async () => {
+    const { container } = await h.mount(ex.sheetActionsBasic);
+    const state = () => cellOf(container, "J-0003", "state").querySelector('[data-slot="actionState"]');
+    expect(cellOf(container, "J-0002", "state").querySelector('[data-slot="actionState"]')?.getAttribute("data-dirty")).toBeNull();
+    await press(nextOf(cellOf(container, "J-0003", "state"))!);
+    expect(state()?.getAttribute("data-dirty")).toBe("");
+    await press(within(slot(container, "toolbar")!).getByRole("button", { name: "Save" }));
+    await act(async () => { await h.e3.idle(); });
+    await settle();
+    expect(state()?.getAttribute("data-dirty")).toBeNull();
+});
