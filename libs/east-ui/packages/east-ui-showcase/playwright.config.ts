@@ -26,11 +26,12 @@ export default defineConfig({
     testDir: "./tests/responsive",
     timeout: 60_000,
     fullyParallel: true,
-    // Two browsers a job on CI's four cores (#1466): a spec file's tests share
-    // a page (`tests/responsive/kept-page.ts`), so the showcase loads and its
-    // e3 starts once a file and a worker, not once a test, as they did when two
-    // browsers' cold starts ran out of the readiness deadlines.
-    ...(process.env.CI ? { workers: 2 } : {}),
+    // One browser a job on CI. Each e3 page runs its own in-browser e3, and two
+    // browsers sharing a hosted runner left the Plan's timing-sensitive specs
+    // flaky (a run's click and focus, a crowded works' redraw), even with a
+    // spec file's tests sharing a page (`tests/responsive/kept-page.ts`, #1466).
+    // Parallelize across the jobs instead.
+    ...(process.env.CI ? { workers: 1 } : {}),
     // A spec that is not deterministic under load is fixed, never retried.
     retries: 0,
     // A committed `test.only` would quietly shrink the CI run to one test.
