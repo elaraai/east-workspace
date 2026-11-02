@@ -66,7 +66,6 @@ const PYPROJECTS = [
   'libs/east-py/packages/east-py-datascience/pyproject.toml',
 ];
 
-const VSIX_PKG = 'libs/east-ui/packages/east-ui-extension/package.json';
 const PLUGIN_JSON = 'libs/east-claude-plugin/.claude-plugin/plugin.json';
 const MARKETPLACE_JSON = '.claude-plugin/marketplace.json';
 
@@ -82,7 +81,6 @@ function readPyprojectVersion(rel) {
 }
 
 const canonical = readJsonVersion('package.json');
-const isPrerelease = canonical.includes('-');
 const expectedPep440 = semverToPep440(canonical);
 
 const errors = [];
@@ -130,11 +128,6 @@ if (lockMembersChecked === 0) {
   errors.push(`${UV_LOCK}: found no editable east-py members to verify (parse failure?)`);
 }
 
-const vsixVersion = readJsonVersion(VSIX_PKG);
-if (!isPrerelease && vsixVersion !== canonical) {
-  errors.push(`${VSIX_PKG}: ${vsixVersion} ≠ ${canonical} (must match on stable canonical)`);
-}
-
 const pluginVersion = readJsonVersion(PLUGIN_JSON);
 if (pluginVersion !== canonical) {
   errors.push(`${PLUGIN_JSON}: ${pluginVersion} ≠ ${canonical}`);
@@ -177,4 +170,4 @@ if (errors.length > 0) {
 }
 
 console.log(`OK — all manifests aligned to ${canonical}`);
-console.log(`     (PEP 440: ${expectedPep440}; VSIX: ${vsixVersion}${isPrerelease ? ' [drift allowed: pre-release]' : ''}; plugin: ${pluginVersion})`);
+console.log(`     (PEP 440: ${expectedPep440}; plugin: ${pluginVersion})`);

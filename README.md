@@ -56,7 +56,7 @@ The pieces above, with links to the code — one row per lib, packages inside:
 | [`east-c`](libs/east-c) | Native C runtime — `std`, `cli` |
 | [`east-py`](libs/east-py) | Python runtime — [`std`](libs/east-py/packages/east-py-std), [`io`](libs/east-py/packages/east-py-io), [`cli`](libs/east-py/packages/east-py-cli), [`data-science`](libs/east-py/packages/east-py-datascience) |
 | [`e3`](libs/e3) | Durable execution engine — [`cli`](libs/e3/packages/e3-cli), [`api-server`](libs/e3/packages/e3-api-server), [`api-client`](libs/e3/packages/e3-api-client) |
-| [`east-ui`](libs/east-ui) | Typed UI — [`east-ui`](libs/east-ui/packages/east-ui), [`e3-ui`](libs/east-ui/packages/e3-ui), [`extension`](libs/east-ui/packages/east-ui-extension) |
+| [`east-ui`](libs/east-ui) | Typed UI — [`east-ui`](libs/east-ui/packages/east-ui), [`e3-ui`](libs/east-ui/packages/e3-ui) |
 | [`create`](libs/create) | Project scaffolding — `npm create @elaraai/east`, `npm create @elaraai/e3` |
 | [`east-plugin`](libs/east-plugin) | Agent plugins — [Claude Code](libs/east-claude-plugin), [Codex](libs/east-codex-plugin): skills, example search, diagnostics |
 | [`east-diagnostics`](libs/east-diagnostics) | East-aware linting — editor, agent, CI (+ [`eslint-plugin-east`](libs/eslint-plugin-east)) |
@@ -137,7 +137,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [CLA.md](CLA.md). Contributors sign t
   - [@elaraai/e3-ui](https://www.npmjs.com/package/@elaraai/e3-ui): e3 + UI bridge — Data bindings, `e3.ui()` task, manifest
   - [@elaraai/e3-ui-components](https://www.npmjs.com/package/@elaraai/e3-ui-components): React Query hooks and preview components for the e3 API
   - [@elaraai/e3-ui-cli](https://www.npmjs.com/package/@elaraai/e3-ui-cli): Browse an e3 repository in the terminal (`e3-ui [repo]`), and render east-ui / e3-ui components to PNG (`e3-ui shot`)
-  - [east-ui-preview](https://marketplace.visualstudio.com/items?itemName=ElaraAI.east-ui-preview): VS Code extension for live East UI component preview
 
 - **[e3 — East Execution Engine](https://github.com/elaraai/east-workspace/tree/main/libs/e3)**: Durable execution engine for running East pipelines at scale. Git-like content-addressable storage, automatic memoization, reactive dataflow, real-time monitoring.
   - [@elaraai/e3](https://www.npmjs.com/package/@elaraai/e3): SDK for authoring e3 packages with typed tasks and pipelines

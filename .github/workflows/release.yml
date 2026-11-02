@@ -1,12 +1,8 @@
 name: Release
 
 # Unified release for the entire monorepo.
-# All @elaraai/* npm packages, all 5 east-py PyPI packages, the VSCode extension,
-# and the native east-c binaries ship under one root-package.json version.
-#
-# VS Marketplace doesn't accept semver pre-release labels (e.g. 1.0.0-beta.0),
-# so for `pre*` release_types the VSIX gets a plain patch bump on its own track
-# and is published with --pre-release. See scripts/set-vsix-version.mjs.
+# All @elaraai/* npm packages, all 5 east-py PyPI packages and the native
+# east-c binaries ship under one root-package.json version.
 
 on:
   workflow_dispatch:
@@ -61,7 +57,6 @@ jobs:
     outputs:
       version: ${{ steps.bump.outputs.version }}
       pep440: ${{ steps.bump.outputs.pep440 }}
-      vsix_version: ${{ steps.bump.outputs.vsix_version }}
       npm_tag: ${{ steps.bump.outputs.npm_tag }}
       is_prerelease: ${{ steps.bump.outputs.is_prerelease }}
     steps:
@@ -88,17 +83,6 @@ jobs:
       # re-locks libs/east-py/uv.lock via `uv lock` (scripts/set-python-version.mjs),
       # so the `uv` binary must be on PATH in this job too — not just the build jobs.
       - uses: astral-sh/setup-uv@v3
-
-      - name: Preflight — VSCE PAT valid
-        if: ${{ !inputs.dry_run }}
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: |
-          if [[ -z "$VSCE_PAT" ]]; then
-            echo "::error::VSCE_PAT secret is empty. Set it in repo secrets."
-            exit 1
-          fi
-          npx --yes @vscode/vsce@latest verify-pat ElaraAI
 
       - name: Preflight — npm auth (OIDC reachable)
         if: ${{ !inputs.dry_run }}
@@ -135,7 +119,6 @@ jobs:
           make set-version VERSION="${NEW_VERSION}"
           PEP440=$(node -e "import('./scripts/set-python-version.mjs').then(m => process.stdout.write(m.semverToPep440('${NEW_VERSION}')))")
           echo "pep440=${PEP440}" >> $GITHUB_OUTPUT
-          echo "vsix_version=$(node -p "require('./libs/east-ui/packages/east-ui-extension/package.json').version")" >> $GITHUB_OUTPUT
 
       # Every file the bump rewrote travels to the jobs below, which build from
       # a fresh checkout plus this artifact alone. The list is read from git,
@@ -398,76 +381,6 @@ jobs:
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: node scripts/wait-served.mjs --version "$VERSION" --npm @elaraai/e3-job-win32-x64
-
-  # ────────────────────────────────────────────────────────────────────────
-  # 3. publish-vsix: build + (optionally) publish the VSCode extension.
-  # ────────────────────────────────────────────────────────────────────────
-  publish-vsix:
-    needs: [prepare, verify-version]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with: { name: version-bump }
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: "pnpm"
-      - name: Install
-        run: pnpm install
-      - name: Build east
-        working-directory: libs/east
-        run: make build
-      - name: Build east-node
-        working-directory: libs/east-node
-        run: make build
-      - name: Build east-web
-        # e3-web, which e3 builds, runs East programs on east-web-std.
-        working-directory: libs/east-web
-        run: make build
-      - name: Build e3
-        working-directory: libs/e3
-        run: make build
-      - name: Build east-py-datascience TypeScript
-        # e3-ui's Experiment tests import @elaraai/east-py-datascience; its .d.ts
-        # must exist before east-ui builds (publish-npm already does this).
-        working-directory: libs/east-py/packages/east-py-datascience
-        run: pnpm run build
-      - name: Build east-ui
-        working-directory: libs/east-ui
-        run: make build
-        env:
-          NODE_OPTIONS: --max-old-space-size=4096
-      - name: Build east-diagnostics + tsserver-plugin-east
-        run: pnpm --filter @elaraai/east-diagnostics --filter @elaraai/tsserver-plugin-east run build
-      - name: Build extension + webview
-        run: pnpm --filter=east-ui-preview --filter=east-ui-preview-webview run build
-      - name: Package VSIX
-        working-directory: libs/east-ui/packages/east-ui-extension
-        # The package script wraps vsce and injects @elaraai/tsserver-plugin-east
-        # into the vsix (vsce --no-dependencies excludes node_modules).
-        run: pnpm run package
-      - name: Publish to VS Marketplace
-        if: ${{ !inputs.dry_run }}
-        working-directory: libs/east-ui/packages/east-ui-extension
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: |
-          OUT=$(pnpm exec vsce publish --no-dependencies --packagePath *.vsix \
-            ${{ needs.prepare.outputs.is_prerelease == 'true' && '--pre-release' || '' }} 2>&1) || {
-            if echo "$OUT" | grep -q "already exists"; then
-              echo "Version already published, skipping."
-            else
-              echo "$OUT" && exit 1
-            fi
-          }
-          echo "$OUT"
-      - name: Upload VSIX artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: vsix
-          path: libs/east-ui/packages/east-ui-extension/*.vsix
 
   # ────────────────────────────────────────────────────────────────────────
   # 4a. publish-pypi-pure: pure-Python wheels (east-py-std, east-py-io,
@@ -856,19 +769,18 @@ jobs:
 
   # ────────────────────────────────────────────────────────────────────────
   # 6. finalize: on success, commit + tag + push, create GitHub Release with
-  #    VSIX + C binaries attached. Skipped entirely on dry run. Each publish
+  #    the C binaries attached. Skipped entirely on dry run. Each publish
   #    job it needs ends once its registry serves what it published (#1399),
   #    so the tag, the release, the image build the tag starts
   #    (docker-publish.yml) and the catalog render find the release
   #    installable.
   # ────────────────────────────────────────────────────────────────────────
   finalize:
-    needs: [prepare, publish-npm, publish-vsix, publish-pypi-upload, publish-c-native, publish-c-npm]
+    needs: [prepare, publish-npm, publish-pypi-upload, publish-c-native, publish-c-npm]
     if: >-
       ${{ !inputs.dry_run &&
           needs.prepare.result == 'success' &&
           needs.publish-npm.result == 'success' &&
-          needs.publish-vsix.result == 'success' &&
           needs.publish-pypi-upload.result == 'success' &&
           needs.publish-c-native.result == 'success' &&
           needs.publish-c-npm.result == 'success' }}
@@ -916,7 +828,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: release-assets
-          pattern: "{vsix,c-native-*}"
+          pattern: "c-native-*"
           merge-multiple: true
 
       - name: Create GitHub Release

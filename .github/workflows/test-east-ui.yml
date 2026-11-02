@@ -146,9 +146,8 @@ jobs:
 
   # Every package a test or lint reads type-checked and its declarations
   # written, beside the tests (#1466): what `node`, `rest`, `queries` (the CLI
-  # compiles against the renderers' declarations) and lint read. `apps` checks
-  # the showcase and the VS Code extension over it, and `showcase` bundles the
-  # showcase.
+  # compiles against the renderers' declarations) and lint read. `apps`
+  # type-checks the showcase over it, and `showcase` bundles the showcase.
   checked:
     name: type-check
     runs-on: ubuntu-latest
@@ -243,11 +242,10 @@ jobs:
           retention-days: 1
 
   # What no test reads, over the checked build (#1466): the showcase
-  # type-checked and the VS Code extension built, apart from the type-check the
-  # test jobs wait on.
+  # type-checked, apart from the type-check the test jobs wait on.
   apps:
     needs: checked
-    name: type-check (showcase, extension)
+    name: type-check (showcase)
     runs-on: ubuntu-latest
     env:
       NODE_OPTIONS: --max-old-space-size=4096
@@ -273,7 +271,7 @@ jobs:
       - name: Restore compiled workspaces
         run: tar -xf "$RUNNER_TEMP/east-ui-checked.tar"
 
-      - name: Type-check the showcase and build the extension
+      - name: Type-check the showcase
         working-directory: libs/east-ui
         run: make check-apps
 

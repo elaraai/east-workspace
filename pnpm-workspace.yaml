@@ -25,7 +25,6 @@ packages:
   # east-ui — UI components
   - "libs/east-ui"
   - "libs/east-ui/packages/*"
-  - "libs/east-ui/packages/east-ui-extension/webview"
 
   # create — project scaffolding (create-east, create-e3, scaffold-core).
   # Templates under libs/create/templates are intentionally NOT workspace
