@@ -7,6 +7,7 @@
 import { Command } from 'commander';
 import { resolveBudget, type Budget } from '@elaraai/e3-core';
 import { createServer, type DataflowRunnerFactory } from './server.js';
+import { resolveCallLimits, type CallLimits } from './call-limits.js';
 
 const program = new Command();
 
@@ -28,6 +29,10 @@ program
   .option('--auth-audience <aud>', 'Expected JWT audience (external auth)')
   .option('-j, --jobs <n>', 'Cores: runner processes to keep in flight across every run and call the server serves and every upload it takes in (default: $E3_JOBS, else the CPUs available)')
   .option('--memory <size>', 'Memory those runner processes may reserve between them, as 8G or 512M (default: $E3_MEMORY, else the memory available, less a reserve for e3 and the OS)')
+  .option('--call-deadline <duration>', 'How long a one-shot or function call may run before it answers, as 90s or 15m (default: 120s); a call that names no timeout of its own gets 60s within it')
+  .option('--job-timeout <duration>', 'How long a split call\'s job may run, as 30m or 2h, which is also the longest timeout a one-shot call may ask for (default: 10m)')
+  .option('--max-result <size>', 'The largest result a one-shot or split call answers, as 8M (default: 1M). The server holds a result in memory while it answers it, so a larger limit takes more of it; a split call\'s larger result is read from its stored output, by its hash')
+  .option('--max-log <size>', 'The most of each of a call\'s stdout and stderr its answer may carry, as 1M (default: 256K; a call that names no limit gets 64K)')
   .action(async (options: {
     repos?: string;
     repo?: string;
@@ -43,6 +48,10 @@ program
     authAudience?: string;
     jobs?: string;
     memory?: string;
+    callDeadline?: string;
+    jobTimeout?: string;
+    maxResult?: string;
+    maxLog?: string;
   }) => {
     // Validate mutually exclusive options
     if (options.repos && options.repo) {
@@ -58,8 +67,12 @@ program
     const host = options.host;
 
     let budget: Budget;
+    let calls: CallLimits;
     try {
       budget = resolveBudget({ jobs: options.jobs, memory: options.memory });
+      calls = resolveCallLimits({
+        callDeadline: options.callDeadline, jobTimeout: options.jobTimeout, maxResult: options.maxResult, maxLog: options.maxLog,
+      });
     } catch (err) {
       console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
@@ -107,6 +120,7 @@ program
       auth,
       oidc,
       budget,
+      calls,
       dataflowRunner,
     });
 
