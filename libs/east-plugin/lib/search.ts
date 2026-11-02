@@ -153,6 +153,13 @@ export interface SearchResult {
 }
 
 /**
+ * Packages searched only when named: east-py's eager examples (`east-values`),
+ * East code over python values rather than an East function — another job,
+ * which a search for one must not answer with the other.
+ */
+export const OPT_IN_PACKAGES: ReadonlySet<string> = new Set(["east-values"]);
+
+/**
  * The search the tool runs: scored hits above `MIN_SCORE`, the package
  * filter applied INSIDE the search so `limit` counts filtered hits (a filter
  * applied after a capped result list starves), and an unknown package
@@ -167,7 +174,9 @@ export function searchExamples(index: LoadedIndex, request: SearchRequest): Sear
   }
   const options = {
     limit: request.limit,
-    ...(pkg === undefined ? {} : { filter: (r: { package: string; skill: string }) => r.package === pkg || r.skill === pkg }),
+    filter: (r: { package: string; skill: string }) => (OPT_IN_PACKAGES.has(r.package)
+      ? r.package === pkg
+      : pkg === undefined || r.package === pkg || r.skill === pkg),
   } as unknown as Parameters<ExampleIndex["search"]>[1];
   const hits = index.search.search(request.query, options) as unknown as Array<IndexEntry & { score: number }>;
   return { entries: hits.filter((r) => r.score >= MIN_SCORE).slice(0, request.limit), known };

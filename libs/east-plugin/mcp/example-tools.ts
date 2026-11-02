@@ -78,7 +78,7 @@ export function registerExampleTools(server: McpServer, options: ExampleToolsOpt
       package: z
         .string()
         .optional()
-        .describe(`Filter results to one package by its bare name — ${packages.join(", ")} — ${scopesNamed}; an unknown name is reported with the indexed names`),
+        .describe(`Filter results to one package by its bare name — ${packages.join(", ")} — ${scopesNamed}; an unknown name is reported with the indexed names${packages.includes("east-values") ? '. "east-values" is east-py code working with East values directly (eager methods on python values, not an East function), and is searched only when named here' : ""}`),
     },
     async ({ query, language, format, limit, package: packageFilter }) => {
       const index = await indexPromise;
