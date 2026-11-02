@@ -1407,13 +1407,29 @@ export const SplitCallPlanType = StructType({
 });
 
 /**
+ * How a finished split call ran: how many pieces its input was cut into; the
+ * units this job ran, pieces and merges, and those the execution cache served
+ * it; and the highest peak resident memory a unit reached, in bytes, as the
+ * task's execution records it — for a call the cache served too. A call the
+ * cache served whole consulted no unit: it ran 0, and was served 0. `then`'s
+ * run is no unit.
+ */
+export const SplitCallReportType = StructType({
+  pieces:    IntegerType,
+  ran:       IntegerType,
+  cached:    IntegerType,
+  peakBytes: OptionType(IntegerType),
+});
+
+/**
  * A split call's status, as its poll answers it.
  *
  * - `processing`: the job runs, and how far it has got once it has said
  * - `completed`: the call's result, and the assembled output's hash once the
  *   pieces ran — what a caller reads through the object route when the result
- *   is `too_large`, or passes on as the next call's `object` argument; an
- *   explain found wrong ends here too, `invalid`
+ *   is `too_large`, or passes on as the next call's `object` argument; and how
+ *   it ran ({@link SplitCallReportType}), `none` for a call found wrong, which
+ *   ran nothing. An explain found wrong ends here too, `invalid`
  * - `planned`: an explain's answer, the pieces the call's run would cut, which
  *   its job planned and ran no unit for; a run plans them again, and finds the
  *   pieces it stored
@@ -1423,7 +1439,7 @@ export const SplitCallPlanType = StructType({
  */
 export const SplitCallStatusType = VariantType({
   processing: OptionType(SplitCallProgressType),
-  completed:  StructType({ result: ExecuteResultType, output: OptionType(StringType) }),
+  completed:  StructType({ result: ExecuteResultType, output: OptionType(StringType), report: OptionType(SplitCallReportType) }),
   planned:    SplitCallPlanType,
   failed:     StructType({ message: StringType }),
   cancelled:  NullType,
@@ -1847,6 +1863,7 @@ export type FunctionCall = ValueTypeOf<typeof FunctionCallType>;
 export type FunctionCallStatus = ValueTypeOf<typeof FunctionCallStatusType>;
 export type FunctionCallAnswer = ValueTypeOf<typeof FunctionCallAnswerType>;
 export type FunctionCallPage = ValueTypeOf<typeof FunctionCallPageType>;
+export type SplitCallReport = ValueTypeOf<typeof SplitCallReportType>;
 export type MutationCallRequest = ValueTypeOf<typeof MutationCallRequestType>;
 export type MutationResult = ValueTypeOf<typeof MutationResultType>;
 export type RecordMigrationApplied = ValueTypeOf<typeof RecordMigrationAppliedType>;

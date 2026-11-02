@@ -89,6 +89,7 @@ export type {
   FunctionCallStatus,
   FunctionCallAnswer,
   FunctionCallPage,
+  SplitCallReport,
   MutationCallRequest,
   MutationResult,
   RecordMigrationApplied,

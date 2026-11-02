@@ -229,15 +229,19 @@ import { splitCall, splitCallCancel, splitCallLaunch, splitCallStatus } from '@e
 // the signal stops polling and cancels the job, so the server stops its units;
 // the call rejects with the signal's reason.
 const controller = new AbortController();
-const { result, output } = await splitCall(url, 'my-repo', 'production', request, { token }, {
+const { result, output, report } = await splitCall(url, 'my-repo', 'production', request, { token }, {
   onProgress: (progress) => console.log(progress.phase.type, progress.done, progress.units),
   signal: controller.signal,
 });
+// report: { pieces, ran, cached, peakBytes } — the pieces its input was cut
+// into, the units this call ran and the cache served it, and the highest peak
+// a unit reached. A call the cache served whole ran 0 and was served 0, and
+// still names its pieces and peak.
 
 // Or launch, poll and cancel it yourself
 const { id } = await splitCallLaunch(url, 'my-repo', 'production', request, { token });
 const status = await splitCallStatus(url, 'my-repo', 'production', id, { token });
-// processing | completed | planned | failed | cancelled
+// processing | completed { result, output, report } | planned | failed | cancelled
 const after = await splitCallCancel(url, 'my-repo', 'production', id, { token });
 // cancelled, or the status the job had already ended with
 ```
