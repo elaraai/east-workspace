@@ -37,6 +37,18 @@ test("one index file loads as it always has", async (t) => {
   assert.equal(searchExamples(index, { query: "merge dicts", limit: 3 }).entries[0]?.id, "east:dict.examples.ts:dictMerge");
 });
 
+test("east-py's eager examples (east-values) answer only a search that names them: another job than an East function", async (t) => {
+  const values = { ...entry("east-values", "array.examples.ts", "arrayMap:eager", "map array elements over East values", ["array", "map", "eager"]), skill: "east-py" };
+  const [east] = writeIndexes(t, [...EAST_ENTRIES, values]);
+  const index = await loadIndex(east!);
+  assert.ok(index.packages.includes("east-values"));
+  const plain = searchExamples(index, { query: "map array elements", limit: 5 });
+  assert.ok(plain.entries.length > 0 && plain.entries.every((e) => e.package !== "east-values"), JSON.stringify(plain.entries.map((e) => e.id)));
+  // Not by its skill's name either: east-py's East-function search keeps its own answers.
+  assert.deepEqual(searchExamples(index, { query: "map array elements", limit: 5, package: "east-py" }).entries.map((e) => e.id), []);
+  assert.deepEqual(searchExamples(index, { query: "map array elements", limit: 5, package: "east-values" }).entries.map((e) => e.id), [values.id]);
+});
+
 test("an example id in two index files is refused, naming both", async (t) => {
   const [east, again] = writeIndexes(t, EAST_ENTRIES, [entry("east", "array.examples.ts", "arrayMap", "a copy", ["array"])]);
   await assert.rejects(loadIndexes([east!, again!]), (error: Error) => {

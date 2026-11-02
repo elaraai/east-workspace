@@ -182,7 +182,6 @@ test.describe("The Schematic's frame (#1387)", () => {
                     toolbar: at("[data-frame-slot='toolbar']"), start: at("[data-frame-slot='start']"), main: at("[data-frame-slot='main']"),
                     end: at("[data-frame-slot='end']"), canvas: at("[data-schematic-canvas]"), footer: at("[data-frame-slot='footer']"),
                     said: [...el.querySelectorAll("[data-schematic-notices] > *")].map((line) => line.textContent),
-                    idle: el.querySelector("[data-schematic-footer] [data-footer-line]")?.hasAttribute("data-idle") ?? false,
                 };
             });
             expect(read.toolbar).toEqual([0, 0, read.w, 44]);
@@ -194,9 +193,10 @@ test.describe("The Schematic's frame (#1387)", () => {
             expect([read.main[0], read.main[1], read.main[0]! + read.main[2]!, read.main[1]! + read.main[3]!])
                 .toEqual([read.start[0]! + read.start[2]!, 44, read.end[0], read.footer[1]]);
             expect([read.footer[0], read.footer[2], read.footer[1]! + read.footer[3]!]).toEqual([0, read.w, read.h]);
-            // Only what is live: at rest, nothing — the counts are the inspector's (ruled 23 Oct 2026) — its loading line idle.
+            // Only what is live: at rest, nothing — the counts are the inspector's (ruled 23 Oct 2026) — its loading line idle
+            // once the last read's words have had their hold (at least 300 ms once shown, CL4), which outlasts main's busy.
             expect(read.said).toEqual([]);
-            expect(read.idle).toBe(true);
+            await expect(root.locator("[data-schematic-footer] [data-footer-line]")).toHaveAttribute("data-idle", "");
         });
 
         test(`the toolbar folds by one ladder — the rail first, then its summary, then the tools' words, Find's box and the tools' strip, the View last — one row at 1440, 1024 and 768px and in every box from 1600px to a 294px parent, nothing past its edge (SC24, ${theme})`, async ({ page }) => {

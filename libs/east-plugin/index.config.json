@@ -48,6 +48,12 @@
       "skill": "e3-ui",
       "testDir": "east-ui/packages/e3-ui",
       "pattern": ["**/*.examples.ts", "**/*.examples.tsx"]
+    },
+    {
+      "package": "e3",
+      "skill": "e3",
+      "testDir": "e3/test/integration",
+      "pattern": "src/examples/*.examples.ts"
     }
   ]
 }
