@@ -157,7 +157,7 @@ import { SheetInsertLayer, SheetInsertStrip, type InsertionActions, type InsertS
 import { anchorAt, insertionGesture, insertsLoose, groupInsertionSide, type InsertRequest, type InsertionAnchor } from "./insertion-gesture.js";
 import { membershipAt } from "./membership.js";
 import { SheetHeader } from "./Header.js";
-import { SheetRow, SheetRunRow, SheetProposalRow, SheetGroupRow, SheetRowBoundary, SheetSubRow, SheetRetry, type SheetRowAction } from "./Rows.js";
+import { SheetRow, SheetRunRow, SheetProposalRow, SheetGroupRow, SheetRowBoundary, SheetSubRow, SheetRetry, namesMember, type SheetRowAction } from "./Rows.js";
 import { NUMBER_PX, gutterFolds, gutterWidths } from "./gutter.js";
 import { SheetCellContent } from "./cells/Cell.js";
 import { actionCell, actionColumnOf, canTake, caseOf, offerOf, verbOf, type ActionCase } from "./actions/model.js";
@@ -4282,7 +4282,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const meta = columnAt(r, key);
         if (it === undefined || meta === undefined || (it.kind !== "real" && it.kind !== "group")) return null;
         const cell = it.row.cells.get(meta.key);
-        const member = meta.kind === "enum" && cell !== undefined && cell.type === "String" ? resolveRegisterMember(registers, meta.register, cell.value) : undefined;
+        const member = namesMember(meta) && cell !== undefined && cell.type === "String" ? resolveRegisterMember(registers, meta.register, cell.value) : undefined;
         return (
             <SheetCellContent styles={styles} meta={meta} cell={cell} rowBlank={false} unit={unitAt(r, key)} member={member} ghost={undefined}
                 link={meta.kind === "link" && it.kind === "real" ? linkCellCtx(it.row, meta) : undefined} />

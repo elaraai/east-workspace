@@ -45,7 +45,7 @@ export interface SheetCellContentProps {
     rowBlank: boolean;
     /** The unit for a quantity cell (from the driver). */
     unit: string | undefined;
-    /** The enum member the cell names, for its tone. */
+    /** The register member the cell names (an enum's, a reference's, a lookup's): its label is what the cell shows, an enum's tone its dot. */
     member: SheetRegisterMemberValue | undefined;
     /** A pending fill — drawn as a ghost when the cell is blank (P4). */
     ghost: SheetCellValue | undefined;
@@ -65,6 +65,8 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
     const blank = cellIsBlank(cell);
     const shown = blank && ghost !== undefined ? ghost : cell;
     const isGhost = blank && ghost !== undefined;
+    // A cell naming a register member shows the member's label; its key is what it holds, copies and pastes.
+    const named = !isGhost && member !== undefined && member.label !== "" && shown?.type === "String" && member.key === shown.value ? member.label : undefined;
     if (shown?.type === "Invalid") return <Box as="span" css={styles.cellText} data-op-value={mark} data-slot="cellText">{shown.value}</Box>;
     switch (meta.kind) {
         case "date":
@@ -113,7 +115,7 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
             return (
                 <>
                     <Box as="span" css={styles.cellDot} data-op-value={mark} data-tone={tone} />
-                    <Box as="span" css={styles.cellWord} data-op-value={mark}>{cellText(shown, meta, words)}</Box>
+                    <Box as="span" css={styles.cellWord} data-op-value={mark}>{named ?? cellText(shown, meta, words)}</Box>
                 </>
             );
         }
@@ -153,7 +155,7 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
         }
         default: {
             if (cellIsBlank(shown)) return null;
-            return <Box as="span" css={isGhost ? styles.cellGhost : styles.cellText} data-op-value={mark}>{cellText(shown, meta, words)}</Box>;
+            return <Box as="span" css={isGhost ? styles.cellGhost : styles.cellText} data-op-value={mark}>{named ?? cellText(shown, meta, words)}</Box>;
         }
     }
 });

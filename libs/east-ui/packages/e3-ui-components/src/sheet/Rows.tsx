@@ -48,6 +48,11 @@ import type { SheetActionHost } from "./actions/host.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
+/** Whether a column's cell names a register member, which it shows by the member's label: an enum, a reference, a lookup. */
+export function namesMember(meta: SheetColumnMeta): boolean {
+    return meta.kind === "enum" || meta.kind === "reference" || meta.kind === "lookup";
+}
+
 /**
  * Test-only render probe (#858) — lets "a gesture re-renders only the rows it
  * touches" be asserted as WHICH rows rendered, deterministically: a line or a
@@ -495,7 +500,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                 const selected = selC === c && !editing;
                 const inRange = range !== undefined && c >= range.c0 && c <= range.c1;
                 const unit = meta.kind === "quantity" && driverKey !== undefined ? meta.uom?.get(driverKey) : undefined;
-                const member = meta.kind === "enum" && cell?.type === "String" ? resolveMember(registers, meta.register, cell.value) : undefined;
+                const member = namesMember(meta) && cell?.type === "String" ? resolveMember(registers, meta.register, cell.value) : undefined;
                 const fill = !editing && cellIsBlank(cell) ? fills?.get(meta.key) : undefined;
                 const isTarget = !editing && nextTargetC === c && fill !== undefined;
                 // A date cell's level comes from the row (#844); once its actual is known, that instant prints and the wanted date becomes the cell's detail.
@@ -751,7 +756,7 @@ export const SheetProposalRow = memo(function SheetProposalRow(props: SheetPropo
             {columns.list.map((colMeta, c) => {
                 const cell = cells.get(colMeta.key);
                 const unit = colMeta.kind === "quantity" && driverKey !== undefined ? colMeta.uom?.get(driverKey) : undefined;
-                const member = colMeta.kind === "enum" && cell?.type === "String" ? resolveMember(registers, colMeta.register, cell.value) : undefined;
+                const member = namesMember(colMeta) && cell?.type === "String" ? resolveMember(registers, colMeta.register, cell.value) : undefined;
                 const when = colMeta.kind === "date" && colMeta.level !== undefined ? { level: colMeta.level(cells) } : undefined;
                 return (
                     <Box
@@ -1132,7 +1137,7 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                     const editing = editor?.c === c;
                     const selected = selC === c && !editing;
                     const inRange = range !== undefined && c >= range.c0 && c <= range.c1;
-                    const member = meta?.kind === "enum" && cell?.type === "String" ? resolveMember(registers, meta.register, cell.value) : undefined;
+                    const member = meta !== undefined && namesMember(meta) && cell?.type === "String" ? resolveMember(registers, meta.register, cell.value) : undefined;
                     const op = marks?.cells.get(colMeta.key);
                     const provenance = op === undefined || marks === undefined ? undefined : cellProvenance(op, marks.previous.get(colMeta.key), meta, marks.run, words);
                     const bandTitle = m.bandCellTitle({ header: colMeta.header, value: cellText(cell, meta, words) });

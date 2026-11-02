@@ -137,10 +137,10 @@ test("Hold ▾ opens a Menu of the reasons; a pick holds the step and writes the
     await pick(reason);
     expect(document.querySelector("[data-sheet-action-menu]")).toBeNull();
     expect(stateOf(lineCell(container, "WO-1042", "1", "action"))).toBe("held");
-    expect(bandCell(container, "WO-1042", "action")?.textContent).toContain("on_hold");
+    expect(bandCell(container, "WO-1042", "action")?.textContent).toContain("On hold");
     await press(within(slot(container, "toolbar")!).getByRole("button", { name: "Undo" }));
     expect(stateOf(lineCell(container, "WO-1042", "1", "action"))).toBe("started");
-    expect(bandCell(container, "WO-1042", "action")?.textContent).toContain("in_progress");
+    expect(bandCell(container, "WO-1042", "action")?.textContent).toContain("In progress");
 });
 
 test("Report… opens a Popover of its form; ⏎ takes it, the step reported and its Good set (P4, F9, T1)", async () => {
