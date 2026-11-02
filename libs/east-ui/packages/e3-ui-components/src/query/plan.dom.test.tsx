@@ -57,7 +57,7 @@ import { byteWords, queryWords } from "./model/words.js";
 import { prepareQuery, type QueryRoot } from "./one-shot.js";
 import { savedQuery } from "./fixture.test-utils.js";
 import {
-    HISTORY_ROOT, act, isExplain, isPoll, isSplitLaunch, openQuery, queryHarness, settle,
+    HISTORY_ROOT, act, isCancel, isExplain, isPoll, isSplitLaunch, openQuery, queryHarness, settle,
 } from "./query.test-utils.js";
 import { runFailure } from "./results.js";
 import { planRun, useQueryRun } from "./run.js";
@@ -413,7 +413,7 @@ describe("<Query.Builder> — a split run that answered before e3 said how many 
         expect([footer().count, footer().plan, banners()]).toEqual(["3 rows", "Split call", []]);
     });
 
-    test("a new run abandons the explain of the run before with it: that count never lands, and the new run's does", async () => {
+    test("a new run abandons the explain of the run before with it: that count never lands, its job is cancelled, and the new run's does", async () => {
         const explains = h.e3.hold(isExplain);
         const explained = h.explainJobs();
         const quiet = answeredBeforeItSaid();
@@ -430,9 +430,10 @@ describe("<Query.Builder> — a split run that answered before e3 said how many 
         await act(async () => { explains.release(); });
         const pieces = await piecesOf(h.splitCalls()[1]!);
         await waitFor(() => expect([footer().run, footer().plan]).toEqual([expect.stringMatching(/^run #2 · /), `Split call · ${pieces} pieces`]));
-        // The first run's explain was abandoned with its run: it stopped before it polled its job.
+        // The first run's explain was abandoned with its run: it stopped before it polled its job, and cancelled it (#1104).
         const [first, second] = explained();
         expect([h.requests("split").filter(isPoll(first)).length, h.requests("split").filter(isPoll(second)).length > 0]).toEqual([0, true]);
+        await waitFor(() => expect([h.requests("split").filter(isCancel(first)).length, h.requests("split").filter(isCancel(second)).length]).toEqual([1, 0]));
     });
 
     test("a host's split calls are explained by the host, or not at all: with no explain of its own, the server's is never asked", async () => {

@@ -350,7 +350,7 @@ export function computeBackoffMs(
 }
 
 /** Resolve after `ms`, or reject early with the abort reason if `signal` fires. */
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) return Promise.reject(signal.reason);
   if (ms <= 0) return Promise.resolve();
   return new Promise<void>((resolve, reject) => {

@@ -51,7 +51,7 @@ import {
 } from './types.js';
 import { ArrayType, NullType } from '@elaraai/east';
 import { PackageJobResponseType } from '@elaraai/e3-types';
-import { ApiError, get, post, verboseQuery, type RequestOptions } from './http.js';
+import { ApiError, get, post, sleep, verboseQuery, type RequestOptions } from './http.js';
 import { JOB_POLL_MAX_MS, JOB_POLL_MIN_MS } from './packages.js';
 import { uuidv7 } from './uuid.js';
 
@@ -705,8 +705,8 @@ export async function splitCallLaunch(
 }
 
 /**
- * A split call's status: how far its job has got, its result, or why the
- * server could not run it.
+ * A split call's status: how far its job has got, its result, why the server
+ * could not run it, or that it was cancelled.
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
@@ -731,6 +731,32 @@ export async function splitCallStatus(
 }
 
 /**
+ * Cancel a split call: a job still running ends `cancelled`, and the server
+ * stops its units; one that has ended is left as it is. The units that
+ * finished stay cached, so a relaunch is served them.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param ws - The workspace the call was launched in
+ * @param id - The job's id
+ * @param options - Request options including auth token
+ * @returns The job's status after the cancel, as a poll answers it:
+ *   `cancelled`, or the status it had already ended with
+ * @throws {ApiError} As {@link splitCallStatus} does: whoever may poll a job
+ *   may cancel it
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function splitCallCancel(
+  url: string,
+  repo: string,
+  ws: string,
+  id: string,
+  options: RequestOptions
+): Promise<SplitCallStatus> {
+  return post(url, `${oneShotBase(repo, ws)}/split/${enc(id)}/cancel`, null, NullType, SplitCallStatusType, options);
+}
+
+/**
  * What a split call's pieces would be: launched as an explain, a job the
  * server plans them in, as the call's run would, running no unit, and polled
  * until it has.
@@ -740,12 +766,14 @@ export async function splitCallStatus(
  * @param ws - The workspace whose datasets the call reads
  * @param req - The call
  * @param options - Request options including auth token
- * @param callOptions - The signal that stops polling
+ * @param callOptions - The signal that gives the explain up, and cancels its
+ *   job
  * @returns The piece count, the argument they are cut over, and what it weighs
  * @throws {ApiError} `permission_denied` as for {@link splitCallLaunch}
  * @throws {AuthError} On 401 Unauthorized
  * @throws {Error} When the call is found wrong, naming what is wrong, or the
  *   server could not plan it
+ * @throws The signal's reason once it aborts
  */
 export async function splitCallExplain(
   url: string,
@@ -763,6 +791,7 @@ export async function splitCallExplain(
     const why = outcome.type === 'invalid' ? outcome.value.diagnostics.map((diagnostic) => diagnostic.message).join('; ') : outcome.type;
     throw new Error(`Split call explain refused: ${why}`);
   }
+  if (status.type === 'cancelled') throw new Error('Split call explain cancelled');
   throw new Error(`Split call explain failed: ${status.type === 'failed' ? status.value.message : status.type}`);
 }
 
@@ -770,8 +799,10 @@ export async function splitCallExplain(
 export interface SplitCallOptions {
   /** Called with the job's progress each time a poll finds it running. */
   onProgress?: (progress: SplitCallProgress) => void;
-  /** Stops polling. The job runs on; its next launch is served the units
-   *  that finished from the server's execution cache. */
+  /** Gives the call up: polling stops, and the job is cancelled
+   *  ({@link splitCallCancel}), so the server stops its units. Its next
+   *  launch is served the units that finished from the server's execution
+   *  cache. */
   signal?: AbortSignal;
 }
 
@@ -792,11 +823,13 @@ export interface SplitCallAnswer {
  * @param ws - The workspace whose datasets the call reads
  * @param req - The call
  * @param options - Request options including auth token
- * @param callOptions - Its progress, and the signal that stops polling
+ * @param callOptions - Its progress, and the signal that gives it up and
+ *   cancels its job
  * @returns The call's result, and the assembled output's hash
  * @throws {ApiError} As {@link splitCallLaunch} does
  * @throws {AuthError} On 401 Unauthorized
- * @throws {Error} When the server could not run the call
+ * @throws {Error} When the server could not run the call, or it was cancelled
+ * @throws The signal's reason once it aborts
  */
 export async function splitCall(
   url: string,
@@ -811,12 +844,15 @@ export async function splitCall(
   if (status.type === 'completed') {
     return { result: status.value.result, output: status.value.output.type === 'some' ? status.value.output.value : null };
   }
+  if (status.type === 'cancelled') throw new Error('Split call cancelled');
   throw new Error(`Split call failed: ${status.type === 'failed' ? status.value.message : status.type}`);
 }
 
 /**
  * Polls a split call's job until it is no longer `processing`, 100 ms apart
  * at first, backing off to a second, telling `onProgress` how far it has got.
+ * Once `signal` aborts, it cancels the job and rejects with the signal's
+ * reason.
  *
  * @returns The status it ended with
  */
@@ -828,11 +864,19 @@ async function splitCallEnd(
   options: RequestOptions,
   callOptions: SplitCallOptions,
 ): Promise<SplitCallStatus> {
-  for (let wait = JOB_POLL_MIN_MS; ; wait = Math.min(wait * 2, JOB_POLL_MAX_MS)) {
-    callOptions.signal?.throwIfAborted();
-    const status = await splitCallStatus(url, repo, ws, id, options);
-    if (status.type !== 'processing') return status;
-    if (status.value.type === 'some') callOptions.onProgress?.(status.value.value);
-    await new Promise((resolve) => setTimeout(resolve, wait));
+  const { signal } = callOptions;
+  try {
+    for (let wait = JOB_POLL_MIN_MS; ; wait = Math.min(wait * 2, JOB_POLL_MAX_MS)) {
+      signal?.throwIfAborted();
+      const status = await splitCallStatus(url, repo, ws, id, options);
+      if (status.type !== 'processing') return status;
+      if (status.value.type === 'some') callOptions.onProgress?.(status.value.value);
+      await sleep(wait, signal);
+    }
+  } catch (err) {
+    // Given up: the job is cancelled, so its units stop. A cancel that fails
+    // leaves the job to its timeout, and the abort is still what is thrown.
+    if (signal?.aborted === true) await splitCallCancel(url, repo, ws, id, options).catch(() => undefined);
+    throw err;
   }
 }

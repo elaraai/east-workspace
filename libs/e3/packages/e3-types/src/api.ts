@@ -1418,12 +1418,15 @@ export const SplitCallPlanType = StructType({
  *   its job planned and ran no unit for; a run plans them again, and finds the
  *   pieces it stored
  * - `failed`: why e3 could not run it
+ * - `cancelled`: the call was cancelled before it ended, and its units
+ *   stopped; the units that finished are cached, so a relaunch is served them
  */
 export const SplitCallStatusType = VariantType({
   processing: OptionType(SplitCallProgressType),
   completed:  StructType({ result: ExecuteResultType, output: OptionType(StringType) }),
   planned:    SplitCallPlanType,
   failed:     StructType({ message: StringType }),
+  cancelled:  NullType,
 });
 
 // =============================================================================

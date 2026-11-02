@@ -565,7 +565,8 @@ and its commit takes it in.
 | POST | `/api/repos/:repo/workspaces/:ws/calls/:id/cancel` | Ask a running call to stop: its runner is stopped, and it ends `cancelled`, naming who asked. Answers its status once it has stopped, or `running` while it stops; a call that has ended is left as it is |
 | POST | `/api/repos/:repo/workspaces/:ws/one-shot` | Run a caller's program over the workspace's datasets: its result, naming the datasets it read (`inputs`) |
 | POST | `/api/repos/:repo/workspaces/:ws/one-shot/split` | Launch a split call — a caller's program over a dataset's pieces — as a job: answers the job's id; with `?explain=1` the job plans the pieces the call would run, and runs nothing |
-| GET | `/api/repos/:repo/workspaces/:ws/one-shot/split/:id` | Poll a split call: how far it has got, its result, the pieces an explain planned, or why it failed |
+| GET | `/api/repos/:repo/workspaces/:ws/one-shot/split/:id` | Poll a split call: how far it has got, its result, the pieces an explain planned, why it failed, or that it was cancelled |
+| POST | `/api/repos/:repo/workspaces/:ws/one-shot/split/:id/cancel` | Cancel a split call: one still running ends `cancelled`, and its units are stopped; one that has ended is left as it is. Answers its status after, as a poll does |
 
 What a caller may run through one-shot is the grant the host gives it
 (`OneShotAccess`). This server's, with auth, gives an elevated role (`admin`,
@@ -599,9 +600,10 @@ piece and merge is cached: a relaunch is served from the cache, and one after
 an append reruns only the pieces the append reached. Its timeout is one budget
 for the whole job, counted from its launch: the server's job limit
 (`--job-timeout`, 10 minutes by default) unless the call asks for less. A call
-is polled only through the repository and workspace that launched it, and a
-caller with a platform-free grant polls only a platform-free call, or one such
-a caller launched.
+is polled, and cancelled, only through the repository and workspace that
+launched it, and a caller with a platform-free grant polls or cancels only a
+platform-free call, or one such a caller launched. A cancel stops the units
+running, and those that finished stay cached, so a relaunch is served them.
 
 ### Records
 

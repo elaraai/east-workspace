@@ -220,6 +220,28 @@ each call for its lifetime, an hour for a success or a cancel and a week for
 any other end: who made it, its arguments, the versions of the inputs it read,
 its value and its logs, by hash, which `objectGet` reads.
 
+### Split calls
+
+```typescript
+import { splitCall, splitCallCancel, splitCallLaunch, splitCallStatus } from '@elaraai/e3-api-client';
+
+// Run a program over a dataset's pieces as a job, polled to its end. Aborting
+// the signal stops polling and cancels the job, so the server stops its units;
+// the call rejects with the signal's reason.
+const controller = new AbortController();
+const { result, output } = await splitCall(url, 'my-repo', 'production', request, { token }, {
+  onProgress: (progress) => console.log(progress.phase.type, progress.done, progress.units),
+  signal: controller.signal,
+});
+
+// Or launch, poll and cancel it yourself
+const { id } = await splitCallLaunch(url, 'my-repo', 'production', request, { token });
+const status = await splitCallStatus(url, 'my-repo', 'production', id, { token });
+// processing | completed | planned | failed | cancelled
+const after = await splitCallCancel(url, 'my-repo', 'production', id, { token });
+// cancelled, or the status the job had already ended with
+```
+
 ## Claude Code plugin
 
 The East ecosystem also ships a [Claude Code](https://claude.com/claude-code) plugin — East language skills, example search, and preemptive diagnostics for East code — installed separately from the `elaraai` marketplace:

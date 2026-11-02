@@ -37,7 +37,7 @@ import {
   splitCallPrepare,
   splitCallResult,
 } from '@elaraai/e3-core/portable';
-import type { DetachedArg, ExecuteCeilings, OneShotGrant, SplitCallStore, StorageBackend, TaskRunner } from '@elaraai/e3-core/portable';
+import type { DetachedArg, ExecuteCeilings, OneShotGrant, SplitCallJob, SplitCallStore, StorageBackend, TaskRunner } from '@elaraai/e3-core/portable';
 import { type FunctionObject, type RunnerValue, decodeFunctionObject, pathToString } from '@elaraai/e3-types';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
@@ -49,6 +49,7 @@ import {
   type ExecuteResult,
   type FunctionCallRequest,
   type SplitCallRequest,
+  type SplitCallStatus,
 } from '../types.js';
 
 /**
@@ -387,8 +388,62 @@ export async function startSplitCall(
 }
 
 /**
+ * The split call a caller may poll, or cancel: `null` when the workspace
+ * launched no such job.
+ *
+ * @remarks
+ * A caller whose grant is `none` polls no job, and one whose grant is
+ * `platform_free` only a job its record lets it (`platformFree`): a result
+ * persists and is found by its id, so a reader never reads that of a call only
+ * an elevated grant could run.
+ *
+ * @throws {PermissionDeniedError} (`path` `one-shot`) For a caller whose grant
+ *   does not poll the job
+ */
+async function pollableSplitCall(
+  splitCallStore: SplitCallStore,
+  repo: string,
+  workspace: string,
+  id: string,
+  grant: OneShotGrant,
+): Promise<SplitCallJob | null> {
+  if (grant === 'none') throw new PermissionDeniedError('one-shot');
+  const job = await splitCallStore.get(id);
+  if (job === null || job.repo !== repo || job.workspace !== workspace) return null;
+  if (grant === 'platform_free' && !job.platformFree) throw new PermissionDeniedError('one-shot');
+  return job;
+}
+
+/** The answer to a workspace that launched no split call `id`. */
+function noSplitCall(workspace: string, id: string): Response {
+  return sendError(SplitCallStatusType, variant('internal', {
+    message: `workspace '${workspace}' has no split call '${id}'`,
+  }));
+}
+
+/** A split call's status, as a poll answers it: a finished call's value read
+ *  from the store. */
+async function splitCallStatusOf(storage: StorageBackend, repoPath: string, job: SplitCallJob): Promise<SplitCallStatus> {
+  const status = job.status;
+  switch (status.type) {
+    case 'processing':
+      return variant('processing', status.value);
+    case 'failed':
+      return variant('failed', status.value);
+    case 'planned':
+      return variant('planned', status.value);
+    case 'cancelled':
+      return variant('cancelled', null);
+    case 'completed': {
+      const result = await splitCallResult(storage, repoPath, status.value, job.read, Number(job.limits.maxResultBytes));
+      return variant('completed', { result, output: status.value.output });
+    }
+  }
+}
+
+/**
  * A split call's status: how far its job has got, its result, the pieces an
- * explain planned, or why e3 could not run it.
+ * explain planned, why e3 could not run it, or that it was cancelled.
  *
  * @remarks
  * A job's record holds hashes: a finished call's value is read from the store
@@ -422,27 +477,58 @@ export async function getSplitCallStatus(
   grant: OneShotGrant,
 ): Promise<Response> {
   try {
-    if (grant === 'none') throw new PermissionDeniedError('one-shot');
-    const job = await splitCallStore.get(id);
-    if (job === null || job.repo !== repo || job.workspace !== workspace) {
-      return sendError(SplitCallStatusType, variant('internal', {
-        message: `workspace '${workspace}' has no split call '${id}'`,
-      }));
-    }
-    if (grant === 'platform_free' && !job.platformFree) throw new PermissionDeniedError('one-shot');
-    const status = job.status;
-    switch (status.type) {
-      case 'processing':
-        return sendSuccess(SplitCallStatusType, variant('processing', status.value));
-      case 'failed':
-        return sendSuccess(SplitCallStatusType, variant('failed', status.value));
-      case 'planned':
-        return sendSuccess(SplitCallStatusType, variant('planned', status.value));
-      case 'completed': {
-        const result = await splitCallResult(storage, repoPath, status.value, job.read, Number(job.limits.maxResultBytes));
-        return sendSuccess(SplitCallStatusType, variant('completed', { result, output: status.value.output }));
+    const job = await pollableSplitCall(splitCallStore, repo, workspace, id, grant);
+    if (job === null) return noSplitCall(workspace, id);
+    return sendSuccess(SplitCallStatusType, await splitCallStatusOf(storage, repoPath, job));
+  } catch (err) {
+    return sendError(SplitCallStatusType, errorToVariant(err));
+  }
+}
+
+/**
+ * Cancel a split call: a job still `processing` ends `cancelled`, and the
+ * job's processor stops its units once it finds it so; one that has ended is
+ * left as it is.
+ *
+ * @remarks
+ * Whoever may poll the job may cancel it, by the rule
+ * {@link getSplitCallStatus} polls by. The store writes the cancel only while
+ * the job runs, in one step with its check, so a cancel never overwrites a
+ * result, nor a result a cancel. The units that finished stay cached, so a
+ * relaunch is served them.
+ *
+ * @param storage - Storage backend
+ * @param repoPath - Repository identifier
+ * @param splitCallStore - Where the job is filed
+ * @param repo - The repository's name
+ * @param workspace - Workspace name
+ * @param id - The job's id
+ * @param grant - What the caller may run: the grant the host's auth gave it
+ * @returns The response: the job's status after the cancel, as a poll answers
+ *   it — `cancelled`, or the status it had ended with; or the error, as
+ *   {@link getSplitCallStatus} answers it
+ */
+export async function cancelSplitCall(
+  storage: StorageBackend,
+  repoPath: string,
+  splitCallStore: SplitCallStore,
+  repo: string,
+  workspace: string,
+  id: string,
+  grant: OneShotGrant,
+): Promise<Response> {
+  try {
+    let job = await pollableSplitCall(splitCallStore, repo, workspace, id, grant);
+    if (job === null) return noSplitCall(workspace, id);
+    if (job.status.type === 'processing') {
+      if (await splitCallStore.updateStatus(id, variant('cancelled', null))) {
+        job = { ...job, status: variant('cancelled', null) };
+      } else {
+        // It ended as the cancel came: answered as it ended.
+        job = await splitCallStore.get(id) ?? job;
       }
     }
+    return sendSuccess(SplitCallStatusType, await splitCallStatusOf(storage, repoPath, job));
   } catch (err) {
     return sendError(SplitCallStatusType, errorToVariant(err));
   }

@@ -524,6 +524,10 @@ export interface ProcessSplitCallInput {
 /** The least time between two writes of a split call's progress to its store. */
 const SPLIT_PROGRESS_INTERVAL_MS = 500;
 
+/** How often a running split call's job reads its record, to find it ended:
+ *  cancelled by a caller who may poll it. */
+export const SPLIT_CANCEL_POLL_MS = 1_000;
+
 /**
  * Processes a split call job.
  *
@@ -541,13 +545,20 @@ const SPLIT_PROGRESS_INTERVAL_MS = 500;
  * (`splitCallReference`), and ends `completed`, `invalid`, when the store no
  * longer holds one whole.
  *
+ * A job is cancelled by writing it `cancelled` to its store. While it runs, the
+ * job reads its record every {@link SPLIT_CANCEL_POLL_MS}, and a progress write
+ * the store refuses says the same. Once it finds the job has ended, it stops
+ * its run or its planning: the runner stops the units running, and the units
+ * that finished stay cached, so a relaunch is served them. A job found ended
+ * before it starts runs nothing.
+ *
  * @param deps - Storage backend, split call store, the runner the call's units
  *   run on, and the caller's signal
  * @param input - Job ID and repository identifier
  *
  * @throws Re-throws the error that stopped the call once the job is recorded
  *   `failed`, or, when `deps.signal` has aborted, with the job left
- *   `processing`
+ *   `processing`; a job stopped because it was cancelled returns
  */
 export async function handleProcessSplitCall(
   deps: ProcessSplitCallDeps,
@@ -558,6 +569,7 @@ export async function handleProcessSplitCall(
 
   const record = await splitCallStore.get(id);
   if (!record) throw new Error(`Split call ${id} not found`);
+  if (record.status.type !== 'processing') return;
   const call: SplitCallTask = {
     task: record.task,
     inputs: record.inputs,
@@ -571,6 +583,21 @@ export async function handleProcessSplitCall(
     read: record.read,
   };
 
+  // The job's own signal: the caller's, which hands the job over, and the
+  // job's end, once it is found cancelled.
+  const ended = new AbortController();
+  const end = (): void => {
+    if (!ended.signal.aborted) ended.abort(new Error(`split call ${id} was cancelled`));
+  };
+  const jobSignal = signal === undefined ? ended.signal : AbortSignal.any([signal, ended.signal]);
+  const watch = setInterval(() => {
+    splitCallStore.get(id).then((current) => {
+      if (current === null || current.status.type !== 'processing') end();
+    }, () => {
+      // A read that fails leaves the job running: the next one looks again.
+    });
+  }, SPLIT_CANCEL_POLL_MS);
+
   // Progress is written one write at a time, and the last before the outcome.
   let reported = 0;
   let writes: Promise<void> = Promise.resolve();
@@ -579,20 +606,23 @@ export async function handleProcessSplitCall(
       const status = await withRunningWork(storage, repo, async () => {
         const unheld = await splitCallReference(storage, repo, call);
         return unheld === null
-          ? variant('planned', await splitCallExplain(storage, repo, call, signal === undefined ? {} : { signal }))
+          ? variant('planned', await splitCallExplain(storage, repo, call, { signal: jobSignal }))
           : variant('completed', unheld);
       });
       await splitCallStore.updateStatus(id, status);
       return;
     }
     const outcome = await withRunningWork(storage, repo, () => splitCallRun(storage, runner, repo, call, {
-      ...(signal !== undefined && { signal }),
+      signal: jobSignal,
       launchedAt: record.createdAt,
       onProgress: (progress) => {
         const now = Date.now();
         if (now - reported < SPLIT_PROGRESS_INTERVAL_MS) return;
         reported = now;
-        writes = writes.then(() => splitCallStore.updateStatus(id, variant('processing', some(progress)))).catch(() => {
+        writes = writes.then(async () => {
+          // Refused: the job has ended.
+          if (!await splitCallStore.updateStatus(id, variant('processing', some(progress)))) end();
+        }).catch(() => {
           // A progress write that fails leaves the last one standing.
         });
       },
@@ -601,10 +631,14 @@ export async function handleProcessSplitCall(
     await splitCallStore.updateStatus(id, variant('completed', outcome));
   } catch (err) {
     await writes;
+    // A call cancelled has ended already: its record says so.
+    if (ended.signal.aborted) return;
     // A call its caller stopped is handed over, not failed.
     if (signal?.aborted === true) throw err;
     const message = err instanceof Error ? err.message : String(err);
     await splitCallStore.updateStatus(id, variant('failed', { message }));
     throw err;
+  } finally {
+    clearInterval(watch);
   }
 }
