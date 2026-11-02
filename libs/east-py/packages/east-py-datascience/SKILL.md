@@ -68,7 +68,7 @@ Task → What do you need?
     │   ├─ .iterative(objective, paramSpaces, config) — the whole objective per move
     │   ├─ .iterativeIncremental(elementObjective, paramSpaces, config) — a per-element contribution, recomputed only
     │   │   where a move changed it (coordinate or swap mode)
-    │   └─ .iterativeGrouped(groupObjective, paramSpaces, config) — contributions grouped by VALUE (employees, bins,
+    │   └─ .iterativeGrouped(groupObjective, paramSpaces, config) — contributions grouped by value (employees, bins,
     │       vehicles): a move from A to B recomputes groups A and B
     ├─ GoogleOr (OR-Tools)
     │   ├─ CP-SAT → .cpsatSolve(), .cpsatSolveAll()
@@ -126,7 +126,7 @@ Task → What do you need?
     │   │   not_estimable; `adjusted` is none when the engine refuses. DoWhy / EconML / PyALE are internal.)
     │   └─ What real trial would confirm it? → .designValidation([Row], data, config, result, designConfig)
     │       (a randomised-trial recipe: sample size, split options, match-on categories, power curve, rationale)
-    │   Honesty caveats: `causal` means robust to the OBSERVED backdoor set and the refuters that ran — NOT correctly
+    │   Honesty caveats: `causal` means robust to the observed backdoor set and the refuters that ran — not correctly
     │   signed, free of reverse causation or of unobserved confounding. overlap.support_strength (refused / thin /
     │   strong vs config.strong_overlap, default 0.55) tempers thin support to modest; opt-in config.evalue_floor folds
     │   a weak E-value (risk-ratio scale) into modest; opt-in config.expected_sign flags an implausibly signed effect
@@ -171,31 +171,14 @@ A model blob round-trips: what a train function returns is exactly what the
 predict and explain functions take — store it in a dataset, pass it between
 tasks, or hand it to `Shap`.
 
-## Common Patterns
+## Common patterns
 
-### Train and predict
-
-```typescript
-const fit = East.function([], VectorType(FloatType), $ => {
-    const X = $.let(East.Matrix.fromArray([[1.0, 2.0], [2.0, 1.0], [3.0, 4.0], [4.0, 3.0]]));
-    const y = $.let(East.Vector.fromArray([3.0, 3.0, 7.0, 7.0]));
-    const config = $.let({                       // every field an Option: some(value) / none
-        n_estimators: some(100n), max_depth: some(3n), learning_rate: none, min_child_weight: none,
-        subsample: none, colsample_bytree: none, reg_alpha: none, reg_lambda: none, gamma: none,
-        random_state: some(42n), n_jobs: none, sample_weight: none, categorical_features: none,
-        categorical_n: none, max_cat_to_onehot: none, max_cat_threshold: none, scale_pos_weight: none,
-    }, XGBoost.Types.XGBoostConfigType);
-    const model = $.let(XGBoost.trainRegressor(X, y, config));
-    $.return(XGBoost.predict(model, X));
-});
-```
-
-### Optimisation
-
-The objective is an East function of the decision vector —
-`East.function([VectorType(FloatType)], FloatType, …)` — bound with `$.const`
-and passed with the start point, the bounds and the config; the result
-carries `x_best` and `f_best` (see the Quick Start).
+Search the index for a module's worked examples (`XGBoost train predict`,
+`MADS optimize`, …); each config is a struct whose every field is an Option,
+spelled `some(value)` or `none`. An optimiser's objective is an East function
+of the decision vector, `East.function([VectorType(FloatType)], FloatType, …)`,
+bound with `$.const` and passed with the start point, the bounds and the
+config; the result carries `x_best` and `f_best` (see the Quick Start).
 
 ## Calling from Python (the functions directly)
 
@@ -245,7 +228,7 @@ Rules:
   xgboost_predict(xgboost_train_regressor(X, y, cfg), X))` — the calls are
   `Platform` nodes; `East.compile(fn, platform=east_py_datascience.platform)`
   runs it (the list the e3 python runner registers).
-- **The generic ones take the type argument FIRST in a body**, as TypeScript
+- **The generic ones take the type argument first in a body**, as TypeScript
   reads: `causal_experiment(RowType, rows, config)`,
   `alns_optimize(SolutionType, initial, objective, destroy, repair, config)`.
   From python they take the values alone (`causal_experiment(rows, config)`):
@@ -262,7 +245,7 @@ For the East-value API (eager methods, `coerce_to`, `to_numpy` / `to_torch`,
 
 ## Related skills
 
-- **e3** — **required to run these**: they need the python runtime, so wrap each
+- **e3** — required to run these: they need the python runtime, so wrap each
   call in an `e3.task` with a python runner (`{ runner: { runtime: 'east-py',
   platforms: ['east-py-datascience'] } }` — the typed runner resolves east-py
   from the project's `.venv`, no `uv run` wrapper needed). They do not run on
