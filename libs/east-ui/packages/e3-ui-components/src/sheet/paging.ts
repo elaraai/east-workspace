@@ -548,7 +548,10 @@ export function useSheetPaging(
         return { head, tail };
     }, [residency, ledger, total, run.from, run.to]);
 
-    // Read by the viewport report, so a jump's pin changes nothing it closes over.
+    // Read by the viewport report, so a jump's pin changes nothing it closes over. A jump asked for owns the viewport
+    // from that moment, not from the render that pins its window: a report taken before then — the range the frame
+    // reports in the same commit as the key, from where the sheet still is — would move the demand back and leave the
+    // jump pinned to a window it never reads. A clear hands the viewport back at once, as it is asked.
     const jumpingRef = useRef(false);
     jumpingRef.current = residency.pins.size > 0;
     // What the anchor is decided by, as this render has it: the windows in, and the residency — and what a key's jump
@@ -609,6 +612,7 @@ export function useSheetPaging(
         else if (hold && shown !== undefined && !shown.replacing && shown.rows.length > 0 && leaves()) {
             heldRef.current = { window: w, shown, residency: resident, centredOn: centredOn.current, travel: travel.current, keep: new Set(residentWindows(resident)) };
         } else heldRef.current = undefined;
+        jumpingRef.current = true;
         centredOn.current = at;
         asked.current.viewportAt = at;
         asked.current.isScrolling = false;
@@ -618,6 +622,7 @@ export function useSheetPaging(
     }, []);
 
     const clearJump = useCallback(() => {
+        jumpingRef.current = false;
         const held = heldRef.current;
         if (held === undefined) {
             setResidency((r) => unpinAll(r));
