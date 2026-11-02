@@ -25,6 +25,7 @@ import type {
   OneShotRequest,
   SplitCallPlan,
   SplitCallProgress,
+  SplitCallReport,
   SplitCallRequest,
   SplitCallStatus,
 } from './types.js';
@@ -386,12 +387,15 @@ export interface SplitCallOptions {
   signal?: AbortSignal;
 }
 
-/** A split call's answer: its result, and the assembled output's hash once
- *  the pieces ran — what the caller reads by the object route when the result
- *  is `too_large`, or passes on as the next call's `object` argument. */
+/** A split call's answer: its result; the assembled output's hash once the
+ *  pieces ran — what the caller reads by the object route when the result is
+ *  `too_large`, or passes on as the next call's `object` argument; and how it
+ *  ran — its pieces, the units it ran and was served from the cache, and its
+ *  peak — when the server reports it. */
 export interface SplitCallAnswer {
   result: ExecuteResult;
   output: string | null;
+  report: SplitCallReport | null;
 }
 
 /**
@@ -405,7 +409,7 @@ export interface SplitCallAnswer {
  * @param options - Request options including auth token
  * @param callOptions - Its progress, and the signal that gives it up and
  *   cancels its job
- * @returns The call's result, and the assembled output's hash
+ * @returns The call's result, the assembled output's hash, and how it ran
  * @throws {ApiError} As {@link splitCallLaunch} does
  * @throws {AuthError} On 401 Unauthorized
  * @throws {Error} When the server could not run the call, or it was cancelled
@@ -422,7 +426,11 @@ export async function splitCall(
   const { id } = await splitCallLaunch(url, repo, ws, req, options);
   const status = await splitCallEnd(url, repo, ws, id, options, callOptions);
   if (status.type === 'completed') {
-    return { result: status.value.result, output: status.value.output.type === 'some' ? status.value.output.value : null };
+    return {
+      result: status.value.result,
+      output: status.value.output.type === 'some' ? status.value.output.value : null,
+      report: status.value.report.type === 'some' ? status.value.report.value : null,
+    };
   }
   if (status.type === 'cancelled') throw new Error('Split call cancelled');
   throw new Error(`Split call failed: ${status.type === 'failed' ? status.value.message : status.type}`);

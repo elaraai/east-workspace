@@ -116,6 +116,7 @@ export {
   SplitCallProgressType,
   SplitCallStatusType,
   SplitCallPlanType,
+  SplitCallReportType,
   MutationCallRequestType,
   MutationResultType,
   RecordMigrationAppliedType,
@@ -193,6 +194,7 @@ export type {
   SplitCallProgress,
   SplitCallStatus,
   SplitCallPlan,
+  SplitCallReport,
   MutationCallRequest,
   MutationResult,
   RecordMigrationApplied,
@@ -300,6 +302,7 @@ import {
   SplitCallProgressType as _SplitCallProgressType,
   SplitCallStatusType as _SplitCallStatusType,
   SplitCallPlanType as _SplitCallPlanType,
+  SplitCallReportType as _SplitCallReportType,
 } from '@elaraai/e3-types';
 
 export const ApiTypes = {
@@ -423,4 +426,5 @@ export const ApiTypes = {
   SplitCallProgressType: _SplitCallProgressType,
   SplitCallStatusType: _SplitCallStatusType,
   SplitCallPlanType: _SplitCallPlanType,
+  SplitCallReportType: _SplitCallReportType,
 } as const;

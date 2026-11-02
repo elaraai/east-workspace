@@ -858,8 +858,8 @@ export const SplitCallRequestType = StructType({
   limits: OptionType(ExecuteLimitsType),
 });
 // the poll: SplitCallStatusType — processing (SplitCallProgressType), completed { result: ExecuteResult,
-// output: Option(hash) }, planned (an explain's: SplitCallPlanType { pieces, over, bytes }), failed { message },
-// cancelled (#1104)
+// output: Option(hash), report: Option(SplitCallReportType { pieces, ran, cached, peakBytes }) (#1105) },
+// planned (an explain's: SplitCallPlanType { pieces, over, bytes }), failed { message }, cancelled (#1104)
 ```
 
 At least one argument is partitioned, and the pieces follow the task's rules
@@ -926,6 +926,19 @@ units stay cached, so a relaunch is served them. An abort of the caller's own
 signal is still a hand-over, and leaves the job `processing`. The client's
 `splitCallCancel` sends the cancel, and `splitCall` and `splitCallExplain`
 send it when their signal aborts, then reject with the signal's reason.
+
+**The report** (#1105). A completed call says how it ran
+(`SplitCallReportType`): the pieces its input was cut into, the units this job
+ran and the units the cache served it, pieces and merges, and the highest peak
+a unit reached, as the task's execution records it. `splitCallRun` counts the
+units as they settle (`PartitionProgress` says which the cache served), and
+takes the pieces from the pieces stage. A task the cache serves whole consults
+no unit, so it reports `ran` and `cached` 0; its pieces are read from the
+execution that served it, whose `plan` names the last stage's `$plan`, whose
+`previous` chain leads back to the pieces — a task with no plan was one piece —
+and so are those of a run that took the task up past its pieces. `then`'s run
+is no unit. The report rides in `SplitCallOutcomeType`, and is `none` for a
+call found wrong, which ran nothing.
 
 **Hashes, not values.** A completed job's record holds the result's object and
 the assembled output's hash (`SplitCallOutcomeType`), so a store with small

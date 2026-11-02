@@ -81,6 +81,7 @@ export type {
   SplitCallProgress,
   SplitCallStatus,
   SplitCallPlan,
+  SplitCallReport,
   MutationCallRequest,
   MutationResult,
   RecordMigrationApplied,
