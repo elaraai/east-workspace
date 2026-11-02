@@ -164,6 +164,7 @@ import { actionCell, actionColumnOf, canTake, caseOf, offerOf, verbOf, type Acti
 import { createActionStore, type SheetActionHost } from "./actions/host.js";
 import { ActionForm, ActionMenu, type ActionOverlayState } from "./actions/ActionOverlay.js";
 import { ActionPanel, type ActionPanelApi } from "./actions/ActionPanel.js";
+import { ActionBar } from "./actions/ActionBar.js";
 import { SheetTabs, type SheetTabsFold, type SheetTabView } from "./Tabs.js";
 import { SheetEditor, type EditorFocusRequest, type EditorOption, type LinkEditorView } from "./Editor.js";
 import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripModel, type StripSuggestInput } from "./Strip.js";
@@ -3505,6 +3506,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const [actionPreview, setActionPreview] = useState<{ r: number; key: string; c: ActionCase } | undefined>(undefined);
     const previewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     useEffect(() => () => { if (previewTimer.current !== undefined) clearTimeout(previewTimer.current); }, []);
+    // A phone's frame (X4, X5): 560 wide or less — a frame not laid out yet (0 wide) is none. Its cells show their state
+    // alone, and the docked strip is the selected row's action bar.
+    const phoneFrame = framePx !== undefined && framePx > 0 && framePx <= 560;
     // Auto mode: each action saved as it is taken, its dot's echo running until the save is acknowledged (T5).
     const autoSave = value.editing.mode.type === "auto";
     const actionHost = useMemo<SheetActionHost>(() => ({
@@ -3656,6 +3660,11 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         try { return words.m.actionSets({ facts: actionFacts(r, key, c, c.encode(value)).facts }); }
         catch { return ""; }
     };
+    /** Whether a row takes actions at a column (T9): a sheet that takes edits, a column it writes, a row no system owns. */
+    const actionWritable = (r: number, key: string): boolean => {
+        const a = actionAt(r, key);
+        return a !== undefined && canEdit && a.meta.editable && !(a.lg?.row ?? a.it.row).owned;
+    };
     const ringOn = (r: number, key: string) => {
         const c = columns.list.findIndex((col) => col.key === key);
         if (c >= 0) { ringGesture(); dispatch({ t: "select.move", r, c }); }
@@ -3671,12 +3680,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             if (a === undefined) return undefined;
             return offerOf(a.column, a.cell, canEdit && editingState.available ? wireContextFor(r) : undefined);
         },
-        controls: (r, key) => {
-            const a = actionAt(r, key);
-            // Owned rows, a read-only sheet, a column that takes no edit, and a phone's frame show the state alone (T9, X4) —
-            // a frame not laid out yet (0 wide) is none.
-            return a !== undefined && canEdit && a.meta.editable && !(a.lg?.row ?? a.it.row).owned && !(framePx !== undefined && framePx > 0 && framePx <= 560);
-        },
+        // Owned rows, a read-only sheet, a column that takes no edit, and a phone's frame show the state alone (T9, X4).
+        controls: (r, key) => actionWritable(r, key) && !phoneFrame,
         held: (r, key) => (actionOverlay !== undefined && actionOverlay.r === r && actionOverlay.key === key ? actionOverlay.part : undefined),
         dirty: (r, key) => {
             const a = actionAt(r, key);
@@ -3795,6 +3800,11 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             : <ActionForm key={`${actionOverlay.r}:${actionOverlay.key}:${actionOverlay.case.name}`} state={actionOverlay} registers={registers}
                 consequence={actionConsequence} onTake={onActionTake} onClose={onActionClose} />;
     const rowActions = hasActions ? actionHost : undefined;
+    // A phone's action bar (#1479): the selected row's actions in the docked strip's place, at the sheet's first action
+    // column; with no row selected, the strip.
+    const barKey = phoneFrame && ui.selEnd === null ? allColumns.list.find((col) => col.kind === "action")?.key : undefined;
+    const barRow = barKey !== undefined ? actionAt(ui.sel.r, barKey) : undefined;
+    const barHead = barKey !== undefined && barRow !== undefined ? actionHead(ui.sel.r, barKey) : undefined;
     // The inspector's action field (#1478): the same host and the same command as the grid's.
     const panelApi = useMemo<ActionPanelApi>(() => ({
         take: (r, key, c, value) => actionApi.current?.take(r, key, c, value) ?? false,
@@ -3810,6 +3820,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         return <ActionPanel host={actionHost} api={panelApi} r={r} columnKey={key} column={column} cell={it.row.cells.get(key)}
             summary={summary?.type === "String" ? summary.value : ""} registers={registers} />;
     }, [rowAt, allColumns, actionHost, panelApi, registers]);
+    const actionBar = barKey === undefined || barRow === undefined || barHead === undefined ? undefined
+        : <ActionBar key={barRow.lg !== undefined ? lineId(barRow.lg.row.id, barRow.lg.key) : barRow.it.row.id} host={actionHost} api={panelApi} r={ui.sel.r} columnKey={barKey}
+            name={barHead.name} title={barHead.title} registers={registers} writable={actionWritable(ui.sel.r, barKey)} />;
     // What the runs of the optimiser left on each row (#1409, R25), by the row's id — a line's by its line id — while the
     // drafts hold it: each row is handed its own marks, held still until a run touches it again.
     const marks: ReadonlyMap<string, SheetRowMarks> | undefined = optimised?.rows;
@@ -4820,7 +4833,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 below={canInsertRows && (group === undefined || loose || rows.length > 0) ? () => onInsert("row", wr?.r1 ?? ui.sel.r, "after") : undefined}
                 group={canInsertGroups ? () => onInsert("group", wr?.r1 ?? ui.sel.r, "after") : undefined}
                 noun={noun.singular} />}
-            <SheetStrip styles={styles} model={actionApi.current?.strip() ?? strip} onAction={onStripAction} />
+            {actionBar ?? <SheetStrip styles={styles} model={actionApi.current?.strip() ?? strip} onAction={onStripAction} />}
             {actionOverlayNode}
         </>
     );

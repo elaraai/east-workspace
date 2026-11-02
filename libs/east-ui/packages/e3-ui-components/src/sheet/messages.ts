@@ -625,6 +625,10 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     actionStripKeys: () => string;
     /** The message a taken action leaves (T3) — `Completed Step 30 · set Good 12`. */
     noticeActionTaken: (p: { state: string; name: string | undefined; n: number; count: string; facts: readonly string[] }) => string;
+    /** A phone's action bar: ← back to the row's actions (X7). */
+    actionBarBack: () => string;
+    /** A phone's action bar: the button listing the rest of the offer, past four (X6). */
+    actionBarMore: () => string;
     /** Why the field took no value (an action's `updates` threw, or its value could not be read): the gesture is refused. */
     actionFailed: (p: { verb: string; reason: string }) => string;
 }
@@ -974,6 +978,8 @@ export const sheetMessages: SheetMessages = {
         const what = name === undefined || name === "" ? state : `${state} ${name}`;
         return n === 0 || facts.length === 0 ? what : `${what} · set ${facts.join(" · ")}`;
     },
+    actionBarBack: () => "Back to the actions",
+    actionBarMore: () => "More…",
     actionFailed: ({ verb, reason }) => `${verb} could not be taken — ${reason}`,
 };
 

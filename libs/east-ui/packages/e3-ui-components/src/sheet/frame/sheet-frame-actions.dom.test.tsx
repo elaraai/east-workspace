@@ -22,6 +22,7 @@ import userEvent from "@testing-library/user-event";
 import { some, variant } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet-actions";
 import { act, sheetHarness, settle, slot } from "./harness.test-utils.js";
+import { touchFrame } from "../frame.test-utils.js";
 
 const h = sheetHarness({ modules: { "sheet/sheet-actions": ex } });
 
@@ -228,4 +229,44 @@ test("a taken action's words tint as a draft until Save (ST3, ST6)", async () =>
     await act(async () => { await h.e3.idle(); });
     await settle();
     expect(state()?.getAttribute("data-dirty")).toBeNull();
+});
+
+/** The phone's action bar, as the docked strip's place holds it. */
+const bar = (container: HTMLElement) => slot(container, "main")!.querySelector<HTMLElement>("[data-sheet-action-bar]");
+
+test("on a phone each cell shows its state alone, and the selected row's actions are the docked bar's: the first full width, its consequence under them; taking one returns the bar to the new offer (X4–X6, X8)", async () => {
+    const restore = touchFrame(390);
+    try {
+        const { container } = await h.mount(ex.sheetActionsBasic);
+        expect(nextOf(cellOf(container, "J-0003", "state"))).toBeNull();
+        expect(bar(container)).toBeNull();
+        fireEvent.mouseDown(cellOf(container, "J-0003", "task"), { button: 0 });
+        await settle();
+        const buttons = bar(container)!;
+        expect(buttons.getAttribute("data-sheet-action-bar")).toBe("buttons");
+        expect(buttons.querySelector("[data-bar-state]")?.textContent).toBe("not started");
+        const first = buttons.querySelector<HTMLElement>('[data-bar-take][data-first]')!;
+        expect(first.textContent).toBe("Start");
+        expect(buttons.querySelector("[data-bar-consequence]")?.textContent).toBe("Sets nothing beside the action");
+        await press(first);
+        expect(stateOf(cellOf(container, "J-0003", "state"))).toBe("started");
+        expect(bar(container)!.querySelector('[data-bar-take][data-first]')?.textContent).toBe("Finish");
+    } finally { restore(); }
+});
+
+test("on a phone a choice opens inside the bar, never floating: ← back, its reasons as rows; a pick takes it (X7, X13)", async () => {
+    const restore = touchFrame(390);
+    try {
+        const { container } = await h.mount(ex.sheetActionsWorkOrders);
+        fireEvent.mouseDown(lineCell(container, "WO-1042", "1", "action"), { button: 0 });
+        await settle();
+        await press(bar(container)!.querySelector('[data-bar-take="held"]')!);
+        const choice = bar(container)!;
+        expect(choice.getAttribute("data-sheet-action-bar")).toBe("choice");
+        expect(document.querySelector("[data-sheet-action-menu]")).toBeNull();
+        expect(choice.querySelector("[data-bar-back]")).not.toBeNull();
+        await press(choice.querySelector('[data-bar-choice="machine_down"]')!);
+        expect(stateOf(lineCell(container, "WO-1042", "1", "action"))).toBe("held");
+        expect(bar(container)!.getAttribute("data-sheet-action-bar")).toBe("buttons");
+    } finally { restore(); }
 });
