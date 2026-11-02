@@ -21,7 +21,7 @@ import { PIECE_SIZES, pieceBoundaries, pieceSizes, pieceSizesFor, planPieces, ty
 // The local runner is the host that reads a test's piece size from this
 // process's environment: loaded, it says where pieceSizes reads it.
 import './LocalTaskRunner.js';
-import { readDatasetWhole } from '../dataset-open.js';
+import { DatasetSegments, readDatasetWhole } from '../dataset-open.js';
 import { storeCollection } from '../store-collection.js';
 import { datasetWrite } from '../trees.js';
 import { createTestRepo, removeTestRepo, encodeInSegmentsOf } from '../test-helpers.js';
@@ -339,6 +339,105 @@ describe('planning the pieces of an input', () => {
       await storeCollection(storage, repo, TableType, pieces.map((piece) => ({ stored: piece[1]! }))),
       await datasetWrite(storage, repo, secondaryValue, TableType),
     );
+  });
+
+  describe('reading each manifest once, and stopping between pieces (#1100)', () => {
+    const sales = { path: [variant('field', 'sales')], partition: some({ by: [] }) };
+    const returns = { path: [variant('field', 'returns')], partition: some({ by: [] }) };
+
+    /** `storage` with each object's reads counted by its hash, whole or
+     *  ranged, each write noted in order, and `onWrite` called after each. */
+    function counting(onWrite: (hash: string) => void = () => {}): { counted: StorageBackend; reads: Map<string, number>; written: string[] } {
+      const reads = new Map<string, number>();
+      const written: string[] = [];
+      const read = (hash: string) => reads.set(hash, (reads.get(hash) ?? 0) + 1);
+      const objects = Object.create(storage.objects, {
+        read: { value: (at: string, hash: string) => { read(hash); return storage.objects.read(at, hash); } },
+        readRange: { value: (at: string, hash: string, offset: number, length: number) => { read(hash); return storage.objects.readRange(at, hash, offset, length); } },
+        write: {
+          value: async (at: string, data: Uint8Array) => {
+            const hash = await storage.objects.write(at, data);
+            written.push(hash);
+            onWrite(hash);
+            return hash;
+          },
+        },
+      }) as StorageBackend['objects'];
+      return { counted: Object.assign(Object.create(storage) as StorageBackend, { objects }), reads, written };
+    }
+
+    /** The reads one open of a stored collection makes of its manifest. */
+    const opening = async (hash: string): Promise<number> => {
+      const { counted, reads } = counting();
+      await DatasetSegments.open(counted, repo, hash);
+      return reads.get(hash)!;
+    };
+
+    /** A plan's piece objects, as one digest. */
+    const digest = (pieces: readonly (readonly string[])[]): string => createHash('sha256').update(pieces.map((piece) => piece.join(',')).join(';')).digest('hex');
+
+    it('reads a partitioned input\'s manifest as one open reads it, whatever the number of pieces', async () => {
+      const hash = await datasetWrite(storage, repo, table(0, 8000), TableType);
+      const { counted, reads } = counting();
+      const { pieces } = await planPieces(counted, repo, [sales], [hash], EVERY_SEGMENT);
+      assert.ok(pieces.length >= 6, `the input is cut into many pieces, got ${pieces.length}`);
+      assert.equal(reads.get(hash), await opening(hash), `the manifest is read once for ${pieces.length} pieces`);
+    });
+
+    it('reads each manifest of inputs partitioned together once', async () => {
+      const small = await datasetWrite(storage, repo, table(0, 2000), TableType);
+      const big = await datasetWrite(storage, repo, table(0, 8000), TableType);
+      const { counted, reads } = counting();
+      const { pieces } = await planPieces(counted, repo, [sales, returns], [small, big], EVERY_SEGMENT);
+      assert.ok(pieces.length >= 6, `the inputs are cut into many pieces, got ${pieces.length}`);
+      assert.deepEqual([reads.get(small), reads.get(big)], [await opening(small), await opening(big)]);
+    });
+
+    it('stores the pieces it always stored', async () => {
+      // The digests of the pieces e3 stored for these inputs before a plan
+      // read each manifest once.
+      const big = await datasetWrite(storage, repo, table(0, 8000), TableType);
+      const small = await datasetWrite(storage, repo, table(0, 2000), TableType);
+      assert.equal(digest((await planPieces(storage, repo, [sales], [big], EVERY_SEGMENT)).pieces),
+        'a25e9c007d8a715e0a5c92c3413aa471b64f6335a7614caffdd4dfde924841e0');
+      // The lighter input is cut at the keys the heavier one's pieces start at,
+      // in the middle of its segments.
+      assert.equal(digest((await planPieces(storage, repo, [sales, returns], [small, big], EVERY_SEGMENT)).pieces),
+        '53f81e0fc21d848c023187e56957d5471fe8bf271a867e529d3868e44e04ac01');
+      // Both inputs are cut at `by` groups, in the middle of their segments.
+      const WideKeyType = StructType({ sku: StringType, period: IntegerType, line: IntegerType });
+      const SharedKeyType = StructType({ sku: StringType, period: IntegerType });
+      type Shared = { sku: string; period: bigint };
+      const skus = Array.from({ length: 30 }, (_, i) => `sku-${String(i).padStart(2, '0')}`);
+      const groups: Shared[] = skus.flatMap((sku) => Array.from({ length: 10 }, (_, period) => ({ sku, period: BigInt(period) })));
+      const lines = await datasetWrite(storage, repo, new SortedMap<Shared & { line: bigint }, bigint>(
+        groups.flatMap((g) => Array.from({ length: 40 }, (_, line) => [{ ...g, line: BigInt(line) }, BigInt(line)] as [Shared & { line: bigint }, bigint])),
+        compareFor(WideKeyType)), DictType(WideKeyType, IntegerType));
+      const plans = await datasetWrite(storage, repo,
+        new SortedMap<Shared, bigint>(groups.map((g) => [g, g.period] as [Shared, bigint]), compareFor(SharedKeyType)), DictType(SharedKeyType, IntegerType));
+      assert.equal(digest((await planPieces(storage, repo, [
+        { path: [variant('field', 'lines')], partition: some({ by: ['sku', 'period'] }) },
+        { path: [variant('field', 'plans')], partition: some({ by: ['sku', 'period'] }) },
+      ], [lines, plans], EVERY_SEGMENT)).pieces), 'd7308e274e37e4694c7b0118fff66a8734d7a15ecf184bd44f2c9927e3b24730');
+    });
+
+    it('stops between pieces once its signal aborts, and stores nothing after', async () => {
+      const hash = await datasetWrite(storage, repo, table(0, 8000), TableType);
+      const { pieces } = await planPieces(storage, repo, [sales], [hash], EVERY_SEGMENT);
+
+      // Aborted before it starts: no piece is stored.
+      const before = counting();
+      await assert.rejects(planPieces(before.counted, repo, [sales], [hash], EVERY_SEGMENT, { signal: AbortSignal.abort() }), { name: 'AbortError' });
+      assert.deepEqual(before.written, []);
+
+      // Aborted as the first piece is stored: that piece is the last write.
+      const controller = new AbortController();
+      const during = counting((written) => {
+        if (written === pieces[0]![0]) controller.abort();
+      });
+      await assert.rejects(planPieces(during.counted, repo, [sales], [hash], EVERY_SEGMENT, { signal: controller.signal }), { name: 'AbortError' });
+      assert.equal(during.written.at(-1), pieces[0]![0], 'nothing is written after the piece in hand');
+    });
   });
 
   it('cuts co-partitioned inputs over the one that weighs the most, in whichever order they are listed', async () => {

@@ -224,8 +224,9 @@ export const SplitCallJobType = StructType({
   then: OptionType(StringType),
   limits: StructType({ timeoutMs: IntegerType, maxResultBytes: IntegerType, maxLogBytes: IntegerType }),
   read: ArrayType(StructType({ path: TreePathType, hash: StringType })),
-  /** Whether the job is an explain's: it plans the call's pieces, stores them
-   *  for the run to take up, and runs no unit. */
+  /** Whether the job is an explain's: it plans the call's pieces as the run
+   *  would, and runs no unit. A run plans them again, and finds the pieces it
+   *  stored. */
   explain: BooleanType,
   /** Whether a `platform_free` caller may poll it: the call is platform-free,
    *  or a `platform_free` caller launched it. */
