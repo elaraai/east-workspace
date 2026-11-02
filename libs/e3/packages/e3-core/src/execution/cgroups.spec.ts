@@ -19,7 +19,7 @@ import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ArrayType, East, IRType, StringType, encodeBeast2For, none, variant } from '@elaraai/east';
 import { TASK_OBJECT_KIND, TaskObjectType, type TaskObject } from '@elaraai/e3-types';
-import { cgroupWorkingSet, delegatedCgroups, unitCap, type CgroupSource } from './cgroups.js';
+import { cgroupMemoryPressure, cgroupWorkingSet, delegatedCgroups, unitCap, type CgroupSource } from './cgroups.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
 import { LocalStorage } from '../storage/local/index.js';
 import { createTestRepo, removeTestRepo } from '../test-helpers.js';
@@ -39,10 +39,35 @@ describe("a unit's cap", () => {
 describe("a cgroup's working set", () => {
   const files = (entries: Record<string, string>) => (file: string): string | null => entries[file] ?? null;
 
-  it('is what the cgroup holds, less its inactive file cache', () => {
+  it('is what the cgroup holds, less its clean file cache', () => {
     assert.equal(cgroupWorkingSet('/cg', files({ '/cg/memory.current': '1000\n', '/cg/memory.stat': 'anon 700\ninactive_file 250\n' })), 750);
     assert.equal(cgroupWorkingSet('/cg', files({ '/cg/memory.current': '1000\n' })), 1000);
     assert.equal(cgroupWorkingSet('/cg', files({})), null);
+  });
+
+  it('leaves out the active file cache a unit streams through, so a cgroup holding mostly that is small (#1101)', () => {
+    // 64 MiB of its own, and 4 GiB of file pages its reads brought in, most
+    // of them on the active list.
+    const stat = `anon ${64 * MiB}\nfile ${4096 * MiB}\nactive_file ${3072 * MiB}\ninactive_file ${1024 * MiB}\nfile_dirty 0\nfile_writeback 0\n`;
+    assert.equal(cgroupWorkingSet('/cg', files({ '/cg/memory.current': `${4160 * MiB}\n`, '/cg/memory.stat': stat })), 64 * MiB);
+  });
+
+  it('counts the file pages that are dirty or being written back, which wait for the disk (#1101)', () => {
+    const stat = 'anon 100\nactive_file 600\ninactive_file 300\nfile_dirty 150\nfile_writeback 50\n';
+    assert.equal(cgroupWorkingSet('/cg', files({ '/cg/memory.current': '1000\n', '/cg/memory.stat': stat })), 300);
+  });
+});
+
+describe("a cgroup's memory pressure (#1101)", () => {
+  const files = (entries: Record<string, string>) => (file: string): string | null => entries[file] ?? null;
+
+  it('is the share of the last 10 s in which every task stalled on memory, `full avg10`', () => {
+    const pressure = 'some avg10=41.20 avg60=12.00 avg300=3.10 total=123456\nfull avg10=23.45 avg60=8.00 avg300=1.00 total=65432\n';
+    assert.equal(cgroupMemoryPressure('/cg', files({ '/cg/memory.pressure': pressure })), 23.45);
+  });
+
+  it('is unknown where the kernel keeps no pressure', () => {
+    assert.equal(cgroupMemoryPressure('/cg', files({})), null);
   });
 });
 

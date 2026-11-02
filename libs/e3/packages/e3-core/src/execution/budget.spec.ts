@@ -11,7 +11,9 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { availableParallelism, totalmem } from 'node:os';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { availableParallelism, tmpdir, totalmem } from 'node:os';
+import * as path from 'node:path';
 import {
   Budget,
   UNIT_MAX_THREADS,
@@ -24,7 +26,7 @@ import {
   type WatchedRunner,
 } from './budget.js';
 import { cgroupCpuQuota, cgroupMemoryMax } from './cgroups.js';
-import type { MachineMemory, MemorySampler } from './memory.js';
+import { linuxMemorySampler, type MachineMemory, type MemorySampler } from './memory.js';
 
 const GiB = 1024 ** 3;
 
@@ -352,6 +354,55 @@ describe('the guard', () => {
     await budget.check();
     assert.deepEqual([u.stops, t.stops], [1, 1], 'and with no unit left, the task');
     assert.deepEqual(task.stopped, { reason: 'machine', peak: 10 });
+  });
+
+  it('with the machine under memory pressure, stops the newest unit, however much it has left (#1101)', async () => {
+    const fake = sampler();
+    const budget = new Budget({ cores: 4, memory: 1000 }, { sampler: fake.sampler, sampleMs: 0 });
+    const older = await budget.acquire({ kind: 'unit' });
+    const newer = await budget.acquire({ kind: 'unit' });
+    const [o, n] = [runner(1), runner(2)];
+    older.watch(o);
+    newer.watch(n);
+    fake.usage.set(1, 10).set(2, 10);
+    fake.machine.memory = { available: 60, total: 100, pressured: true };
+    await budget.check();
+    assert.deepEqual([o.stops, n.stops], [0, 1]);
+    assert.deepEqual(newer.stopped, { reason: 'machine', peak: 10 });
+  });
+
+  it('stops the newest unit whose cgroup holds memory of its own past the budget, and none for the file cache units stream through (#1101)', async () => {
+    const MiB = 1024 ** 2;
+    const root = mkdtempSync(path.join(tmpdir(), 'e3-guard-'));
+    try {
+      /** A unit's cgroup holding `own` MiB of its own and `cache` MiB of
+       *  clean file cache, mostly on the active list. */
+      const unitCgroup = (name: string, own: number, cache: number): string => {
+        const dir = path.join(root, 'cgroup', 'scope', name);
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(path.join(dir, 'memory.current'), `${(own + cache) * MiB}\n`);
+        writeFileSync(path.join(dir, 'memory.stat'),
+          `anon ${own * MiB}\nactive_file ${(cache * 3 / 4) * MiB}\ninactive_file ${(cache / 4) * MiB}\nfile_dirty 0\nfile_writeback 0\n`);
+        return dir;
+      };
+      const budget = new Budget({ cores: 4, memory: 1024 * MiB },
+        { sampler: linuxMemorySampler(path.join(root, 'proc'), path.join(root, 'cgroup')), sampleMs: 0 });
+      const older = await budget.acquire({ kind: 'unit' });
+      const newer = await budget.acquire({ kind: 'unit' });
+      const [o, n] = [Object.assign(runner(1), { cgroup: unitCgroup('a', 100, 2048) }), Object.assign(runner(2), { cgroup: unitCgroup('b', 100, 2048) })];
+      older.watch(o);
+      newer.watch(n);
+      await budget.check();
+      assert.deepEqual([o.stops, n.stops], [0, 0], 'the 4 GiB of file cache they stream through is not memory they hold');
+      assert.equal(budget.used, 200 * MiB);
+
+      unitCgroup('b', 1024, 2048);
+      await budget.check();
+      assert.deepEqual([o.stops, n.stops], [0, 1], 'once the newer holds 1 GiB of its own, the two are past the budget');
+      assert.deepEqual(newer.stopped, { reason: 'budget', peak: 1024 * MiB });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('measures the runners it watches on its own timer, and stops measuring when it watches none', async () => {

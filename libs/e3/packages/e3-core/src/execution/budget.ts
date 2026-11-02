@@ -32,8 +32,10 @@
  * execution runs it again once the most it reached fits: a unit is pure and
  * content-addressed, so it reruns to the same bytes. A user task — a task run
  * as one unit, a mutation, a function call — may touch outside systems, so it
- * is stopped only when the machine would otherwise run out. On Windows the
- * guard does not run, and the budget admits by reservations alone.
+ * is stopped only when the machine would otherwise run out: when it has less
+ * than a twentieth of its memory left, or a cgroup limit e3 runs under is
+ * under memory pressure (`memory.ts`). On Windows the guard does not run, and
+ * the budget admits by reservations alone.
  *
  * The default capacity is what this process may use: the CPUs of its
  * affinity mask capped by the cgroup v2 CPU quota, the way east-c sizes its
@@ -416,7 +418,8 @@ export class Budget {
       } catch {
         // Unread: the machine is left alone this time.
       }
-      if (machine !== null && machine.available < machine.total * MACHINE_FLOOR) {
+      // Under its floor, or under memory pressure, the machine is nearly out.
+      if (machine !== null && (machine.available < machine.total * MACHINE_FLOOR || machine.pressured === true)) {
         target = newest((holder) => holder.kind === 'unit') ?? newest(() => true);
         reason = 'machine';
       }
