@@ -745,15 +745,16 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const phoneFrame = framePx !== undefined && framePx > 0 && framePx <= 560;
     const widthOf = useCallback((c: SheetColumnMeta): number => (phoneFrame && c.kind === "action" ? ACTION_PHONE_PX : c.width), [phoneFrame]);
     // The frame's slack goes to the TEXT columns, each capped at 2.5× its
-    // width, and a trailing filler track takes the rest: a link or date
-    // column keeps its declared width on a wide screen instead of stretching
-    // to the frame.
+    // width, and the last column takes the rest, out to the frame's edge: the
+    // grid ends at its own last column, never at an empty track after it.
     const gridTemplate = useMemo(() => {
         // On a phone's frame the action columns are the last tracks, their cells placed there by the recipe (`order`): their
-        // own place is then the frame's right edge at the scroll's end, and pinned there before it (the hand retest's 1).
+        // own place is then the frame's right edge at the scroll's end, and pinned there before it (the hand retest's 1). A
+        // pinned column keeps its width, so there a filler track takes what is left.
         const placed = phoneFrame ? [...columns.list.filter((c) => c.kind !== "action"), ...columns.list.filter((c) => c.kind === "action")] : columns.list;
-        const tracks = placed.map((c) => (c.kind === "text" ? `minmax(${c.width}px, ${Math.round(c.width * 2.5)}px)` : `${widthOf(c)}px`));
-        return `${gutterPx}px ${tracks.join(" ")} minmax(0, 1fr)`;
+        const tracks = placed.map((c, i) => (!phoneFrame && i === placed.length - 1 ? `minmax(${widthOf(c)}px, 1fr)`
+            : c.kind === "text" ? `minmax(${c.width}px, ${Math.round(c.width * 2.5)}px)` : `${widthOf(c)}px`));
+        return `${gutterPx}px ${tracks.join(" ")}${phoneFrame ? " minmax(0, 1fr)" : ""}`;
     }, [gutterPx, columns, widthOf, phoneFrame]);
     const minWidth = gutterPx + columns.list.reduce((n, c) => n + widthOf(c), 0);
     const today = useMemo(() => todayUtc(), []);
