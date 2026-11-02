@@ -37,7 +37,12 @@
  * the rest once it has settled, each expecting to need the largest peak a unit
  * of the stage has reached in the run, which a local runner reserves from its
  * budget. A peak comes from the unit's runner, or from the execution record of
- * a unit the cache serves; nothing is read from earlier runs.
+ * a unit the cache serves. A backend whose units are stopped when they outgrow
+ * their share opts out of measuring (`ExecuteOptions.firstWave`): every unit of
+ * a stage starts at once, each expecting to need an estimate — the task's
+ * previous peak; or, the first time a task runs, what the largest piece holds
+ * of its rows decoded, as its program reads them, and for its merges the peak
+ * its pieces reached — which the stage's measured peaks take over from.
  *
  * A merge is a unit cached like a piece, on the task and its parts. Nothing
  * here decodes a part whole: grouping reads each part's manifest and its last
@@ -61,7 +66,11 @@
  * @packageDocumentation
  */
 
-import { none, some, variant } from '@elaraai/east';
+import {
+  SortedMap, SortedSet, compareFor, decodeAsyncEastIR, decodeBeast2ElementsFor, decodeEastIR, none, segmentKeyTypeOf, some, variant, walkIR,
+  type AsyncFunctionIR, type FunctionIR,
+} from '@elaraai/east';
+import { decodedWeightFor } from '@elaraai/east/internal';
 import {
   UNIT_PLAN_KIND,
   decodeUnitPlan,
@@ -101,6 +110,154 @@ function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** How many manifests a stage's estimate reads at once. */
+const ESTIMATE_READS = 16;
+
+/** How many segments of an input are decoded to weigh its rows: its first,
+ *  its middle and its last. */
+const SAMPLE_SEGMENTS = 3;
+
+/** What a runner holds beside the rows it decodes, in a first run's estimate
+ *  of a piece: its runtime and the threads it frames on. */
+const RUNNER_BYTES = 64 * 2 ** 20;
+
+/** What a piece whose output is a Set or a Dict buffers of what it emits, in a
+ *  first run's estimate: the most a runner's run sorter holds before it
+ *  writes a run (`v5/runs.ts`). */
+const SORTER_BYTES = 64 * 2 ** 20;
+
+/**
+ * The largest peak resident memory a task's latest successful executions
+ * recorded — its own, and those of its pieces and merges — or `undefined` when
+ * none recorded one, or they cannot be read.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param taskHash - Hash of the task object
+ * @returns The peak, in bytes
+ */
+async function previousPeak(storage: StorageBackend, repo: string, taskHash: string): Promise<number | undefined> {
+  let latest: Awaited<ReturnType<StorageBackend['refs']['executionListLatest']>>;
+  try {
+    latest = await storage.refs.executionListLatest(repo, taskHash);
+  } catch {
+    return undefined;
+  }
+  let peak: number | undefined;
+  for (const { status } of latest) {
+    if (status.type === 'success' && status.value.peakBytes.type === 'some') {
+      peak = Math.max(peak ?? 0, Number(status.value.peakBytes.value));
+    }
+  }
+  return peak;
+}
+
+/** What a runner's pager keeps of an input it reads by key, at most: its
+ *  cache of decoded segments (`v5/SPEC.md`, "The pager's cache"). */
+const PAGER_CACHE_BYTES = 256 * 2 ** 20;
+
+/**
+ * How a program reads one of its inputs, which is what a runner that opens it
+ * lazily holds of it:
+ * - `none`: nothing — the program never reads it, or only its size, which its
+ *   index gives;
+ * - `scan`: a segment at a time — the program only loops over it (`$.for`);
+ * - `keyed`: the segments its reads by key or position reach (`get`, `has`
+ *   and the like), as many as the runner's pager keeps — the program reads it
+ *   so, and may loop over it too;
+ * - `whole`: all of it — the program uses it any other way, for which the
+ *   runner decodes it whole.
+ */
+export type InputRead = 'none' | 'scan' | 'keyed' | 'whole';
+
+/** The reads, from the least a runner holds to the most. */
+const READS: readonly InputRead[] = ['none', 'scan', 'keyed', 'whole'];
+
+/** The builtins a lazily opened input answers from its index. */
+const SIZE_BUILTINS: ReadonlySet<string> = new Set(['DictSize', 'SetSize', 'ArraySize']);
+
+/** The builtins a lazily opened input serves by key or position, decoding
+ *  only the segments they reach. */
+const KEYED_BUILTINS: ReadonlySet<string> = new Set([
+  'DictHas', 'DictGet', 'DictTryGet', 'DictGetOrDefault',
+  'SetHas',
+  'ArrayHas', 'ArrayGet', 'ArrayTryGet', 'ArrayGetOrDefault',
+]);
+
+/**
+ * How a program reads each of its first `count` parameters — a task's inputs
+ * — found from where each use of it stands in its IR.
+ *
+ * @remarks
+ * A loop over a parameter is a scan; a builtin that takes the parameter as its
+ * collection reads none of it when the index answers it (its size) and is a
+ * keyed read when the input serves it by key or position. Any other use —
+ * passing it on, binding it to another name, any other builtin, which may
+ * build as much again — reads it whole, as a runner then decodes it. A
+ * closure's capture of it is not a use; what the closure does with it is. A
+ * parameter used in several ways is read the most of them.
+ *
+ * @param program - The program's root function
+ * @param count - How many of its parameters are inputs
+ * @returns How each input is read, in parameter order
+ */
+export function inputReads(program: FunctionIR | AsyncFunctionIR, count: number): InputRead[] {
+  const names = program.value.parameters.slice(0, count).map((parameter) => parameter.value.name);
+  const reads: InputRead[] = names.map(() => 'none');
+  walkIR(program.value.body, (node, { parent }) => {
+    if (node.type !== 'Variable') return;
+    const index = names.indexOf(node.value.name);
+    if (index < 0) return;
+    let read: InputRead = 'whole';
+    if (parent !== null) {
+      // The node itself at the place: what is looped over, or the builtin's
+      // collection.
+      if ((parent.type === 'ForArray' && Object.is(parent.value.array, node))
+        || (parent.type === 'ForSet' && Object.is(parent.value.set, node))
+        || (parent.type === 'ForDict' && Object.is(parent.value.dict, node))) {
+        read = 'scan';
+      } else if (parent.type === 'Builtin' && Object.is(parent.value.arguments[0], node)) {
+        if (SIZE_BUILTINS.has(parent.value.builtin)) read = 'none';
+        else if (KEYED_BUILTINS.has(parent.value.builtin)) read = 'keyed';
+      }
+    }
+    if (READS.indexOf(read) > READS.indexOf(reads[index]!)) reads[index] = read;
+  });
+  return reads;
+}
+
+/**
+ * What a row of a stored collection weighs decoded, in bytes: the decoded
+ * weight of a few of its segments (east's `decodedWeightFor`, by its type —
+ * east-c's layout, so in east-c the memory they hold), over their rows.
+ *
+ * @param opened - The collection
+ * @returns The bytes a row weighs decoded; 0 for an empty collection
+ */
+async function rowWeight(opened: DatasetSegments): Promise<number> {
+  const count = opened.segmentCount;
+  if (count === 0) return 0;
+  const type = opened.typeValue;
+  const weigh = decodedWeightFor(type);
+  const decode = decodeBeast2ElementsFor(type);
+  const keyType = segmentKeyTypeOf(type);
+  const compare = keyType === null ? null : compareFor(keyType) as (a: unknown, b: unknown) => number;
+  let weight = 0;
+  let rows = 0;
+  const picks = [...new Set(Array.from({ length: SAMPLE_SEGMENTS }, (_, i) => Math.floor(i * (count - 1) / Math.max(1, SAMPLE_SEGMENTS - 1))))];
+  for (const seg of picks) {
+    const elements: unknown[] = [];
+    for await (const element of decode([await opened.segment(seg)])) elements.push(element);
+    // The segment as the pager keeps it: a container of its rows.
+    const container = type.type === 'Set' ? new SortedSet(elements, compare!)
+      : type.type === 'Dict' ? new SortedMap(elements as [unknown, unknown][], compare!)
+        : elements;
+    weight += weigh(container);
+    rows += elements.length;
+  }
+  return rows === 0 ? 0 : weight / rows;
+}
+
 /**
  * Whether a task's work is split over its inputs, and so runs on the engine: an
  * East body on a stock runner, emitting its output, with an input
@@ -123,10 +280,13 @@ export function isSplitTask(task: TaskObject): boolean {
  * @param ids - The execution's identity
  * @param merge - What a merge unit merges, or `null` for a piece
  * @param expectedPeakBytes - The memory the unit is expected to need: the
- *   largest peak a unit of its stage has reached in the run, or `undefined`
- *   while none has
+ *   largest peak a unit of its stage has reached in the run, or its stage's
+ *   estimate; `undefined` while there is neither
  * @param own - Whether the unit is the task's own execution (see
  *   {@link SplitUnit.own}), which its record then does not call a unit
+ * @param guessed - Whether `expectedPeakBytes` is a guess from what the
+ *   unit holds of its rows decoded, which no run of its program measured
+ *   ({@link SplitTask.stagePeakGuessed})
  * @returns The execution's result
  */
 export type UnitExecutor = (
@@ -135,6 +295,7 @@ export type UnitExecutor = (
   merge: MergeParts | null,
   expectedPeakBytes: number | undefined,
   own: boolean,
+  guessed?: boolean,
 ) => Promise<ExecutionResult>;
 
 /**
@@ -186,16 +347,19 @@ export interface SplitStage {
  * A driver opens the task and runs the stage's units, each probed in the
  * execution cache first unless the run is forced: one alone while the stage is
  * {@link measuring}, and then the rest, each expecting to need
- * {@link stagePeak}. It reports each unit as it starts and as it settles, and
- * advances the task once every unit it started has settled: to the next stage,
+ * {@link stagePeak}. A stage that starts with an estimate
+ * (`ExecuteOptions.firstWave`) does not measure: all its units may start. It
+ * reports each unit as it starts and as it settles, and advances the task
+ * once every unit it started has settled: to the next stage,
  * or to the task's end. The task's own execution is recorded here: `running`
  * when its first stage starts, and its outcome when it ends, with the largest
  * peak of its units. A task that is one piece runs that unit under its own
  * identity, and records nothing more.
  */
 export class SplitTask {
-  /** The piece sizes: the pieces' middle size is what a merge range aims for. */
-  private sizes!: PieceSizes;
+  /** The sizes the pieces were cut at, whose middle size a merge range aims
+   *  for; `null` for a stage taken up from a plan, until a merge needs them. */
+  private sizes: PieceSizes | null = null;
   /** The stage in progress, as its units see it. */
   private current!: SplitStage;
   /** The stage in progress, as its plan holds it; `null` for one piece. */
@@ -222,6 +386,15 @@ export class SplitTask {
   private settled = 0;
   /** The largest peak a unit of the stage has reached, in bytes. */
   private stagePeakBytes: number | undefined;
+  /** The task's previous peak, in bytes — the largest among its latest
+   *  successful executions — read once when the task opens to start its
+   *  stages with an estimate; `undefined` when none recorded one. */
+  private previousPeak: number | undefined;
+  /** What the stage expects each unit to need before any has settled, and
+   *  where that came from: the task's previous peak; what the largest piece
+   *  holds of its rows decoded; or, for a merge level, the peak the task's
+   *  units have reached in this run. `null` for a stage that measures. */
+  private estimate: { readonly bytes: number; readonly from: 'previous' | 'rows' | 'run' } | null = null;
   /** The largest peak any unit of the task has reached, in bytes: the one its
    *  own execution records. */
   private peakBytes: number | undefined;
@@ -251,22 +424,38 @@ export class SplitTask {
   }
 
   /**
-   * Whether the stage is measuring: none of its units has settled yet. A
-   * driver runs one unit of the stage while it measures, and the rest once
-   * that one has settled.
+   * Whether the stage is measuring: none of its units has settled yet, and it
+   * started with no estimate. A driver runs one unit of the stage while it
+   * measures, and the rest once that one has settled.
    */
   get measuring(): boolean {
-    return this.settled === 0;
+    return this.settled === 0 && this.estimate === null;
   }
 
   /**
-   * The largest peak resident memory, in bytes, a unit of the stage has
-   * reached in this run — as its runner reported it, or as the execution
-   * record of one the cache served holds it — or `undefined` until one has.
-   * Each stage measures afresh: the pieces, and each level of their merges.
+   * The memory, in bytes, a unit of the stage is expected to need: the largest
+   * peak resident memory a unit of the stage has reached in this run — as its
+   * runner reported it, or as the execution record of one the cache served
+   * holds it — or the stage's estimate, whichever is larger; `undefined` until
+   * there is either. Each stage measures afresh: the pieces, and each level of
+   * their merges.
    */
   get stagePeak(): number | undefined {
-    return this.stagePeakBytes;
+    if (this.estimate === null) return this.stagePeakBytes;
+    // The task's previous peak is the same program's, and only raised; an
+    // estimate made in this run gives way to the stage's own peaks.
+    if (this.estimate.from === 'previous') return Math.max(this.estimate.bytes, this.stagePeakBytes ?? 0);
+    return this.stagePeakBytes ?? this.estimate.bytes;
+  }
+
+  /**
+   * Whether {@link stagePeak} is a guess from what a piece holds of its rows
+   * decoded: the stage started with no peak of the task to go by, and none of
+   * its units has reported one yet. A unit is then not capped by what it
+   * reserves, since no run of the program measured it.
+   */
+  get stagePeakGuessed(): boolean {
+    return this.estimate?.from === 'rows' && this.stagePeakBytes === undefined;
   }
 
   /**
@@ -304,6 +493,7 @@ export class SplitTask {
     owner: ExecutionOwner | null,
   ): Promise<SplitTask | ExecutionResult> {
     const split = new SplitTask(storage, repo, taskHash, task, inputHashes, ids, options, owner);
+    if (options.firstWave === 'estimate') split.previousPeak = await previousPeak(storage, repo, taskHash);
     let stage: UnitPlanStage | null = null;
     // The plan of the stage before the one taken up, which its plan names.
     let previous: string | null = null;
@@ -328,9 +518,9 @@ export class SplitTask {
     // The input the pieces are cut over, when they are planned here.
     let cut: PiecePlan | null = null;
     try {
-      split.sizes = pieceSizes();
       if (stage === null) {
-        cut = await planPieces(storage, repo, task.inputs, inputHashes, split.sizes);
+        cut = await planPieces(storage, repo, task.inputs, inputHashes, pieceSizes);
+        split.sizes = cut.sizes;
         if (cut.pieces.length === 1) {
           split.current = { plan: null, units: [{ inputs: [...inputHashes], merge: null, own: true }], merge: null };
           return split;
@@ -365,6 +555,7 @@ export class SplitTask {
     if (cut !== null) {
       split.log(`plan pieces=${cut.pieces.length} over=${pathToString(task.inputs[cut.primary]!.path)} bytes=${cut.primaryBytes}\n`);
     }
+    split.logWave();
     return split;
   }
 
@@ -497,7 +688,7 @@ export class SplitTask {
             continue;
           }
           if (this.options.signal?.aborted) return await this.cancel();
-          for (const range of await planMergeRanges(this.storage, this.repo, parts, this.sizes.target)) {
+          for (const range of await planMergeRanges(this.storage, this.repo, parts, (await this.cutSizes()).target)) {
             groups.push({ range: some(range), entries: parts });
           }
         }
@@ -597,6 +788,19 @@ export class SplitTask {
     }
   }
 
+  /** The sizes the pieces were cut at: those the planning found, or, for a
+   *  stage taken up from a plan, those the heaviest partitioned input gives,
+   *  as the planning weighed it. */
+  private async cutSizes(): Promise<PieceSizes> {
+    if (this.sizes === null) {
+      const weights = await Promise.all(this.task.inputs.flatMap((input, index) => input.partition.type === 'some'
+        ? [DatasetSegments.open(this.storage, this.repo, this.inputHashes[index]!).then((opened) => opened.bytes)]
+        : []));
+      this.sizes = pieceSizes(Math.max(0, ...weights));
+    }
+    return this.sizes;
+  }
+
   /** Starts a stage: writes its plan, naming the plan of the stage before it
    *  and the largest peak the stages before it reached, roots it, and lists its
    *  units. A plan is made of the stage's outputs and the execution records of
@@ -620,15 +824,121 @@ export class SplitTask {
     if (stage.type === 'pieces') {
       this.phase = 'partition';
       this.current = { plan, units: stageUnits(stage), merge: null };
-      return;
+    } else {
+      const { level, levels, groups } = stage.value;
+      this.phase = this.task.output.kind.type === 'fold' ? 'combine' : 'merge';
+      this.levelRuns = groups.map((group) => mergeTreeGroups(group.entries));
+      // Each unit's group and run, in the order stageUnits lists the units.
+      this.runs = this.levelRuns.flatMap((groupRuns, group) =>
+        groupRuns.flatMap((entries, run) => (entries.length < 2 ? [] : [{ group, run }])));
+      this.current = { plan, units: stageUnits(stage), merge: { level: Number(level), levels: Number(levels) } };
     }
-    const { level, levels, groups } = stage.value;
-    this.phase = this.task.output.kind.type === 'fold' ? 'combine' : 'merge';
-    this.levelRuns = groups.map((group) => mergeTreeGroups(group.entries));
-    // Each unit's group and run, in the order stageUnits lists the units.
-    this.runs = this.levelRuns.flatMap((groupRuns, group) =>
-      groupRuns.flatMap((entries, run) => (entries.length < 2 ? [] : [{ group, run }])));
-    this.current = { plan, units: stageUnits(stage), merge: { level: Number(level), levels: Number(levels) } };
+    this.estimate = this.options.firstWave === 'estimate' ? await this.estimateOf(this.current.units) : null;
+    // The first stage's line follows the plan's, once the task is running.
+    if (this.running) this.logWave();
+  }
+
+  /** Says in the task's log what a stage that starts with an estimate expects
+   *  each unit to need, and where that came from. */
+  private logWave(): void {
+    if (this.estimate === null) return;
+    const merge = this.current.merge;
+    const stage = merge === null ? 'pieces' : `${this.phase} level ${merge.level}/${merge.levels}`;
+    this.log(`wave ${stage} units=${this.current.units.length} estimate=${this.estimate.bytes} from=${this.estimate.from}\n`);
+  }
+
+  /**
+   * What each unit of a stage that starts with an estimate is expected to
+   * need: the task's previous peak; or, the first time the task runs, for its
+   * pieces what the largest piece holds if it decodes its inputs whole, and
+   * for a merge level the largest peak the task's units have reached in this
+   * run. `null`, so the stage measures, when there is none, or what a piece
+   * weighs cannot be read.
+   */
+  private async estimateOf(units: readonly SplitUnit[]): Promise<{ bytes: number; from: 'previous' | 'rows' | 'run' } | null> {
+    if (this.previousPeak !== undefined) return { bytes: this.previousPeak, from: 'previous' };
+    if (this.current.merge !== null) return this.peakBytes === undefined ? null : { bytes: this.peakBytes, from: 'run' };
+    try {
+      return { bytes: await this.piecesWeight(units), from: 'rows' };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * What the largest piece holds of its inputs, as its program reads them
+   * ({@link inputReads}): an input it only loops over, two segments of it; one
+   * it reads by key, the segments its pager keeps, at most; any other, all of
+   * its rows — each at what a row of that input weighs decoded
+   * ({@link rowWeight}). A value that is not a collection counts at its stored
+   * bytes, and the runner's own memory and, for a Set or Dict output, its
+   * sorter's buffer are added. A runner that decodes its inputs whole, and a
+   * program that cannot be read, read every input whole.
+   */
+  private async piecesWeight(units: readonly SplitUnit[]): Promise<number> {
+    const { task } = this;
+    const reads = await this.inputReads();
+    /** What an input of `rows` rows of `row` bytes each, in segments of
+     *  `segmentRows` rows, holds as it is read. */
+    const held = (read: InputRead, rows: number, row: number, segmentRows: number): number => {
+      const segments = Math.min(rows, 2 * segmentRows) * row;
+      if (read === 'none') return 0;
+      if (read === 'scan') return segments;
+      if (read === 'keyed') return Math.min(rows * row, PAGER_CACHE_BYTES + segments);
+      return rows * row;
+    };
+    const partitioned: { index: number; read: InputRead; row: number; segmentRows: number }[] = [];
+    let shared = RUNNER_BYTES + (task.output.kind.type === 'set' || task.output.kind.type === 'dict' ? SORTER_BYTES : 0);
+    for (const [index, input] of task.inputs.entries()) {
+      const read = reads[index]!;
+      if (read === 'none') continue;
+      const hash = this.inputHashes[index]!;
+      let opened: DatasetSegments;
+      try {
+        opened = await DatasetSegments.open(this.storage, this.repo, hash);
+      } catch {
+        shared += (await this.storage.objects.stat(this.repo, hash)).size;
+        continue;
+      }
+      const row = await rowWeight(opened);
+      const segmentRows = opened.elementCount / Math.max(1, opened.segmentCount);
+      if (input.partition.type === 'some') partitioned.push({ index, read, row, segmentRows });
+      else shared += held(read, opened.elementCount, row, segmentRows);
+    }
+    let largest = 0;
+    // A few manifests at a time: a stage may have hundreds of pieces.
+    for (let at = 0; at < units.length; at += ESTIMATE_READS) {
+      const weights = await Promise.all(units.slice(at, at + ESTIMATE_READS).map(async (unit) => {
+        let bytes = 0;
+        for (const { index, read, row, segmentRows } of partitioned) {
+          const rows = (await DatasetSegments.open(this.storage, this.repo, unit.inputs[index]!)).elementCount;
+          bytes += held(read, rows, row, segmentRows);
+        }
+        return bytes;
+      }));
+      largest = Math.max(largest, ...weights);
+    }
+    return Math.ceil(shared + largest);
+  }
+
+  /** How the task's program reads each of its inputs: whole, every one, on a
+   *  runner that decodes them so, or when the program cannot be read. */
+  private async inputReads(): Promise<InputRead[]> {
+    const { task } = this;
+    const whole = task.inputs.map((): InputRead => 'whole');
+    if (task.body.type !== 'east' || task.runner.type === 'custom' || task.runner.value.decode.type === 'whole') return whole;
+    try {
+      const bytes = await this.storage.objects.read(this.repo, task.body.value.program);
+      let program: FunctionIR | AsyncFunctionIR;
+      try {
+        program = decodeEastIR(bytes).ir;
+      } catch {
+        program = decodeAsyncEastIR(bytes).ir;
+      }
+      return inputReads(program, task.inputs.length);
+    } catch {
+      return whole;
+    }
   }
 
   /** The task's output once every group has one entry: a fold's one partial,
@@ -867,7 +1177,8 @@ export async function executeSplitTask(
       split.unitStarted(index);
       const unitHash = inputsHash(unit.inputs);
       const result = (options.force ? null : await probeExecutionCache(storage, repo, taskHash, unitHash, executionAlive))
-        ?? await execute(unit.inputs, { inHash: unitHash, executionId: uuidv7(), startTime: Date.now() }, unit.merge, split.stagePeak, unit.own);
+        ?? await execute(unit.inputs, { inHash: unitHash, executionId: uuidv7(), startTime: Date.now() }, unit.merge, split.stagePeak, unit.own,
+          split.stagePeakGuessed);
       split.unitSettled(index, result);
       return result;
     });

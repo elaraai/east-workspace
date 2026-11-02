@@ -45,7 +45,8 @@ segment at a time. Nothing reads a collection whole to store it.
    - `clean` is ready, since its input is set, and not cached, so e3 plans it. It
      walks the manifest and cuts it into pieces of mostly 64 to 100 MiB, at
      points the segments' hashes choose. A 200 GB input becomes a few thousand
-     pieces.
+     pieces; a smaller one, smaller pieces — some 50 of 16 MiB at 1 GB — so it
+     too runs on every core.
    - A piece is a manifest naming segments that already exist, so planning
      copies and decodes nothing. The one exception is a `by` group that ends
      inside a segment: that segment is split.
@@ -243,15 +244,26 @@ so on a busy server a call waits its turn.
   - a runner whose `decode` is `whole`, which decodes every input before the
     program runs. A runner's `-v`, in the task's log, says how each input was
     read, and what decoding one whole added to its resident memory.
-- **What a unit reserves is measured in the run.** `--memory` (or
-  `E3_MEMORY`) sets the memory side of the budget: by default what the machine
-  or its container allows, less a reserve for e3 and the OS.
+- **What a unit reserves.** `--memory` (or `E3_MEMORY`) sets the memory side
+  of the budget: by default what the machine or its container allows, less a
+  reserve for e3 and the OS.
   - A unit of a split task reserves the largest peak a unit of its stage has
-    reached in this run. So a stage runs its first unit alone, then fans out,
-    as many units at once as fit, and a unit that needs more than the whole
-    budget runs alone.
-  - Nothing is carried over from earlier runs, so a program or input that has
-    changed is measured afresh.
+    reached in this run, and a unit that needs more than the whole budget runs
+    alone.
+  - Where the guard runs (Linux and macOS), a stage starts every unit at once,
+    as many as fit, each reserving an estimate: the task's peak the last time
+    it ran; or, the first time, what the largest piece holds of its rows
+    decoded, as its program reads them — two segments of an input it only
+    loops over, at most the segments its keyed reads keep of one it reads by
+    key, every row of one it uses any other way, each row at what a sample of
+    the input's rows weighs by its type — and for the merges, the peak the
+    pieces reached. The
+    peaks the stage reaches take over for the units still to start, and the
+    guard stops a unit that outgrows its share and runs it again. The task's
+    log says what each stage estimated, on its `wave` line.
+  - Where it does not (Windows), a stage runs its first unit alone to measure
+    it, then fans out. Nothing is carried over from earlier runs, so a program
+    or input that has changed is measured afresh.
   - A task that runs as one unit, a mutation and a function call reserve
     nothing, since nothing before them measured what they need.
 - **The guard watches what runners use,** on Linux and macOS, four times a
@@ -267,6 +279,7 @@ so on a busy server a call waits its turn.
     reserve.
 - **cgroups.** Where e3 runs in a cgroup delegated to it, as
   `systemd-run --user --scope -p Delegate=yes e3 …` gives it one, each unit runs
-  in a cgroup of its own. A unit whose stage has been measured is capped at
-  half as much again as it reserves, so one that runs away is killed alone, and
+  in a cgroup of its own. A unit whose stage has been measured, or that
+  reserves the task's last peak, is capped at half as much again as it
+  reserves, so one that runs away is killed alone, and
   runs again under a cap half as large again. `E3_CGROUPS=0` turns this off.

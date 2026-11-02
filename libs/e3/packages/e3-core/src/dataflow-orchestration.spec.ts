@@ -39,6 +39,8 @@ import { workspaceSetDataset } from './trees.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, writableStrings } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { MockTaskRunner } from './execution/MockTaskRunner.js';
+import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
+import { Budget } from './execution/budget.js';
 import { inputsHash } from './executions.js';
 import type { StorageBackend, LockHandle, LockOperation } from './storage/interfaces.js';
 import type { TaskExecuteOptions, TaskRunner, UnitRequeue } from './execution/interfaces.js';
@@ -2270,6 +2272,100 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       assert.ok(rowsRef?.type === 'value');
       const recorded = await storage.refs.executionGetLatest(testRepo, totalHash, inputsHash([rowsRef.value.hash]));
       assert.deepStrictEqual(recorded?.type === 'success' && recorded.value.peakBytes, some(5_000n));
+    });
+
+    describe('a stage that starts with an estimate (#1109)', () => {
+      /** Deploys a fold over 8,000 rows, a piece a segment, and returns its hash. */
+      async function deploySplit(): Promise<string> {
+        const rows = e3.input('rows', DictType(IntegerType, IntegerType), variant('value', new SortedMap(
+          Array.from({ length: 8000 }, (_, i) => [BigInt(i), BigInt(i)] as [bigint, bigint]), compareFor(IntegerType))));
+        const total = e3.streamTask('total', {
+          inputs: [e3.partition(rows)],
+          output: e3.output.fold(IntegerType, { zero: 0n, combine: (_$, a, b) => a.add(b) }),
+        }, ($, rows, emit) => {
+          $.for(rows, ($, value) => {
+            $(emit(value));
+          });
+        });
+        const zip = join(tempDir, 'split.zip');
+        await e3.export(e3.package('split', '1.0.0', rows, total), zip);
+        await packageImport(storage, testRepo, zip);
+        await workspaceCreate(storage, testRepo, 'test-ws');
+        await workspaceDeploy(storage, testRepo, 'test-ws', 'split', '1.0.0');
+        const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(testRepo, (await workspaceGetPackage(storage, testRepo, 'test-ws')).hash));
+        return deployed.tasks.get('total')!;
+      }
+
+      /** A unit as it launched: what it expected, whether that was a guess, and what had settled. */
+      interface Launch { merge: boolean; expected: number | undefined; guessed: boolean | undefined; settled: number }
+
+      /** Has the mock note each unit as it launches, and answer with a peak of 1,000 bytes a piece. */
+      function noteLaunches(totalHash: string): Launch[] {
+        const launches: Launch[] = [];
+        let settled = 0;
+        let pieces = 0;
+        mockRunner.setUnitResult(totalHash, async (unit) => {
+          const calls = mockRunner.getUnitCalls();
+          const options = calls[calls.length - 1]!.options;
+          launches.push({ merge: unit.merge !== null, expected: options?.expectedPeakBytes, guessed: options?.expectedPeakGuessed, settled });
+          await new Promise((resolve) => setTimeout(resolve, 2));
+          settled++;
+          if (unit.merge !== null) return { state: 'success', cached: false, outputHash: 'sum', peakBytes: 5_000 };
+          return { state: 'success', cached: false, outputHash: `piece-${pieces++}`, peakBytes: 1_000 };
+        });
+        return launches;
+      }
+
+      it('launches as many of a stage\'s units as the width before any settles, each expecting the guess its peaks replace, and its merges the pieces\' peak', async () => {
+        const totalHash = await deploySplit();
+        const launches = noteLaunches(totalHash);
+        const orchestrator = new LocalOrchestrator();
+        const result = await orchestrator.wait(await orchestrator.start(storage, testRepo, 'test-ws', { runner: mockRunner, width: 4, firstWave: 'estimate' }));
+        assert.strictEqual(result.success, true);
+
+        const pieces = launches.filter((launch) => !launch.merge);
+        assert.ok(pieces.length > 4, 'the input was cut into many pieces');
+        const wave = pieces.slice(0, 4);
+        assert.ok(wave.every((launch) => launch.settled === 0), 'the width\'s worth launched before any settled');
+        const guess = wave[0]!.expected!;
+        assert.ok(guess > 64 * 2 ** 20, 'each expecting what the largest piece holds decoded, with the runner');
+        assert.ok(wave.every((launch) => launch.expected === guess && launch.guessed === true), JSON.stringify(wave));
+        for (const launch of pieces.filter((launch) => launch.settled > 0)) {
+          assert.deepStrictEqual([launch.expected, launch.guessed], [1_000, false], 'a settled peak is measured, and takes the guess\'s place');
+        }
+        // The merge level starts expecting the largest peak the pieces reached.
+        const merges = launches.filter((launch) => launch.merge);
+        assert.ok(merges.length > 0);
+        assert.deepStrictEqual([merges[0]!.expected, merges[0]!.guessed], [1_000, false]);
+      });
+
+      it('is how the root entry\'s LocalOrchestrator runs a local runner\'s units under a guarded budget, unless the run says to measure', async () => {
+        const totalHash = await deploySplit();
+        const launches = noteLaunches(totalHash);
+        // A local runner whose units the mock runs: the budget's guard runs on
+        // Linux and macOS, and on Windows none does.
+        class LocalUnits extends LocalTaskRunner {
+          override executeUnit(store: StorageBackend, taskHash: string, unit: Parameters<TaskRunner['executeUnit']>[2], options?: TaskExecuteOptions) {
+            return mockRunner.executeUnit(store, taskHash, unit, options);
+          }
+        }
+        const runner = new LocalUnits(testRepo, new Budget({ cores: 4, memory: 1024 ** 3 }));
+        assert.strictEqual(runner.firstWave, process.platform === 'win32' ? 'measure' : 'estimate');
+
+        const result = await dataflowExecute(storage, testRepo, 'test-ws', { runner, width: 4 });
+        assert.strictEqual(result.success, true);
+        const pieces = launches.filter((launch) => !launch.merge);
+        assert.strictEqual(pieces[1]!.settled === 0, runner.firstWave === 'estimate', 'the second piece launched before the first settled only with an estimate');
+
+        // A run that says to measure does, on the same runner.
+        launches.length = 0;
+        const orchestrator = new LocalOrchestrator();
+        const forced = await orchestrator.wait(await orchestrator.start(storage, testRepo, 'test-ws', { runner, width: 4, force: true, firstWave: 'measure' }));
+        assert.strictEqual(forced.success, true);
+        const measured = launches.filter((launch) => !launch.merge);
+        assert.ok(measured.length > 4, 'every piece ran again');
+        assert.deepStrictEqual([measured[0]!.expected, measured[1]!.settled > 0], [undefined, true], 'the first piece launched alone, expecting nothing');
+      });
     });
 
     it('yields mid-task and resumes at the stage it stopped in, running none of the finished units again', async () => {

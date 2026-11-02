@@ -164,10 +164,12 @@ affinity mask, capped by a cgroup quota, and the cgroup's `memory.max` or else
 physical memory, less a reserve for e3 and the OS.
 
 A unit of a split task reserves the largest peak memory a unit of its stage
-(its pieces, or one level of its merges) has reached in the run, so each stage
-runs its first unit alone and then fans out. Anything else reserves nothing. On
-Linux and macOS a guard stops the newest such unit when the runners together
-pass the budget, and runs it again once there is room.
+(its pieces, or one level of its merges) has reached in the run. On Linux and
+macOS a guard stops the newest such unit when the runners together pass the
+budget, and runs it again once there is room; so there a stage starts all its
+units at once, each reserving the task's last peak or, the first time, what
+the largest piece holds of its rows decoded, as its program reads them. On
+Windows each stage runs its first unit alone and then fans out. Anything else reserves nothing.
 
 `e3 watch`, `e3 run`, `e3 call`, `e3 mutate`, `e3 reindex` and
 `e3 workspace deploy` take the same two flags for a local repository, a deploy

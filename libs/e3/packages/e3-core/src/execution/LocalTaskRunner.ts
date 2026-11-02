@@ -139,6 +139,20 @@ readTestPieceBytesFrom(() => process.env.E3_TEST_PIECE_BYTES);
 const DEFAULT_POOL_WIDTH = 4;
 
 /**
+ * How the local runner starts a split task's stages: every unit at once, each
+ * reserving an estimate, under a budget whose guard runs — which stops a unit
+ * that takes the runners past the budget, and runs it again reserving what it
+ * reached — and otherwise one unit alone, to measure. A body that replaces the
+ * local one runs units the guard may not watch, so it measures too.
+ *
+ * @param options - The execution's options: its budget and body
+ * @returns The first wave
+ */
+function localFirstWave(options: Pick<ExecuteOptions, 'budget' | 'body'>): 'measure' | 'estimate' {
+  return options.budget?.guarded === true && options.body === undefined ? 'estimate' : 'measure';
+}
+
+/**
  * TaskRunner implementation for local process execution.
  *
  * Spawns runner processes locally to execute tasks.
@@ -170,6 +184,16 @@ export class LocalTaskRunner implements TaskRunner {
   /** A local runner takes in whole any delivery its machine holds. */
   readonly wholeIntakeLimit = null;
 
+  /**
+   * How a dataflow whose units this runner runs starts a split task's stages:
+   * `estimate` under a budget whose guard runs, with no body replacing the
+   * local one, and `measure` otherwise — as a task this runner runs on its own
+   * starts them (`ExecuteOptions.firstWave`).
+   */
+  get firstWave(): 'measure' | 'estimate' {
+    return localFirstWave({ budget: this.budget, body: this.settings.body });
+  }
+
   async execute(
     storage: StorageBackend,
     taskHash: string,
@@ -185,6 +209,7 @@ export class LocalTaskRunner implements TaskRunner {
       onStderr: options?.onStderr,
       budget: this.budget,
       expectedPeakBytes: options?.expectedPeakBytes,
+      expectedPeakGuessed: options?.expectedPeakGuessed,
       onPartitionProgress: options?.onPartitionProgress,
       onWaiting: options?.onWaiting,
       onRequeued: options?.onRequeued,
@@ -208,6 +233,7 @@ export class LocalTaskRunner implements TaskRunner {
       onStderr: options?.onStderr,
       budget: this.budget,
       expectedPeakBytes: options?.expectedPeakBytes,
+      expectedPeakGuessed: options?.expectedPeakGuessed,
       onWaiting: options?.onWaiting,
       onRequeued: options?.onRequeued,
       extraEnv: options?.extraEnv,
@@ -318,10 +344,12 @@ export async function taskExecute(
     // pool, bounds the runner processes. This process drives the stages, so it
     // owns the task's execution unless its caller names another owner, and
     // each unit is probed with the caller's judgement of what still runs.
-    return executeSplitTask(storage, repo, taskHash, task, inputHashes, ids, options,
-      (unitInputs, unitIds, merge, expectedPeakBytes, own) =>
+    // Its stages start every unit at once, each reserving an estimate, where
+    // the budget's guard stops a unit that outgrows its share.
+    return executeSplitTask(storage, repo, taskHash, task, inputHashes, ids, { ...options, firstWave: options.firstWave ?? localFirstWave(options) },
+      (unitInputs, unitIds, merge, expectedPeakBytes, own, guessed) =>
         runBody({ storage, repo, taskHash, task, inputHashes: unitInputs, ids: unitIds,
-          options: { ...options, expectedPeakBytes }, role: 'unit', logicalTaskHash: taskHash,
+          options: { ...options, expectedPeakBytes, expectedPeakGuessed: guessed === true }, role: 'unit', logicalTaskHash: taskHash,
           unit: { inputs: unitInputs, merge, own } }),
       {
         width: Math.max(1, options.budget?.cores ?? DEFAULT_POOL_WIDTH),
@@ -748,6 +776,9 @@ export async function taskExecuteBody(
     // An attempt the guard or its cap stopped is run again from a clean
     // directory, under the same execution, holding what it reached.
     let reservation = options.expectedPeakBytes ?? 0;
+    // A guess from what the unit holds of its rows until an attempt is
+    // requeued reserving what it reached.
+    let guessed = options.expectedPeakGuessed === true;
     for (let attempts = 1; ; attempts++) {
       let grant: Grant | null = null;
       if (options.budget !== undefined) {
@@ -774,9 +805,11 @@ export async function taskExecuteBody(
       let cgroup: string | null = null;
       let ended: ExecutionResult | Requeue | null;
       try {
-        // A unit its stage has measured is capped a margin above what it
-        // reserves; a unit measured by nothing yet, and a user task, are not.
-        const cap = kind === 'unit' && reservation > 0 ? unitCap(reservation) : null;
+        // A unit its stage has measured, or estimated from a peak the task
+        // reached, is capped a margin above what it reserves; a unit measured
+        // by nothing yet — none, or a guess from what it holds of its rows —
+        // and a user task, are not.
+        const cap = kind === 'unit' && reservation > 0 && !guessed ? unitCap(reservation) : null;
         if (cgroups !== null) {
           cgroup = await cgroups.create(`unit-${executionId.replaceAll('-', '')}-${attempts}`, cap).catch(() => null);
         }
@@ -804,6 +837,7 @@ export async function taskExecuteBody(
         await fs.rm(outputPath, { recursive: true, force: true });
       }
       reservation = ended.requeue;
+      guessed = false;
       peakBytes = undefined;
     }
 

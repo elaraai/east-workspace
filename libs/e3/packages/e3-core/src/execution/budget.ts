@@ -292,6 +292,13 @@ export class Budget {
     this.sampleMs = options.sampleMs ?? SAMPLE_MS;
   }
 
+  /** Whether the guard runs: something measures the runners, so a runner
+   *  that takes them past the budget is stopped. None does on Windows, or
+   *  with no sampler. */
+  get guarded(): boolean {
+    return this.sampler !== null;
+  }
+
   /** Runner processes holding the budget right now. */
   get inFlight(): number {
     return this.holders.size;

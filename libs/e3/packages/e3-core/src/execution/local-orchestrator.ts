@@ -12,7 +12,9 @@
  * LocalOrchestrator.ts`'s, which runs a run's tasks on the runner its start
  * names, or its host's. Here its host is this process: a task a run names no
  * runner for runs on this machine (`taskExecute`, `taskExecuteUnit`), and this
- * process owns a split task's own execution (`processOwner`).
+ * process owns a split task's own execution (`processOwner`). A run whose
+ * units a local runner runs under a guarded budget starts each stage of a
+ * split task with every unit at once (`LocalTaskRunner.firstWave`).
  *
  * @packageDocumentation
  */
@@ -22,9 +24,10 @@ import {
   type LocalOrchestratorHost,
 } from '../dataflow/orchestrator/LocalOrchestrator.js';
 import type { ExecutionStateStore } from '../dataflow/state-store/interfaces.js';
+import type { ExecutionHandle, OrchestratorStartOptions, ResumeOptions } from '../dataflow/orchestrator/interfaces.js';
 import type { DataflowOptions, DataflowResult, TaskExecutionResult } from '../dataflow.js';
 import type { LockHandle, StorageBackend } from '../storage/interfaces.js';
-import { taskExecute, taskExecuteUnit } from './LocalTaskRunner.js';
+import { LocalTaskRunner, taskExecute, taskExecuteUnit } from './LocalTaskRunner.js';
 import { processOwner } from './processHelpers.js';
 
 /** This process, as a LocalOrchestrator's host: tasks run on this machine,
@@ -41,7 +44,9 @@ const THIS_PROCESS: LocalOrchestratorHost = {
  * The shared `LocalOrchestrator` with this process as its host: a run whose
  * start names no runner runs its tasks here, spawning their runners
  * (`taskExecute`), and a split task's own execution is recorded under this
- * process unless the run names another owner.
+ * process unless the run names another owner. A run whose runner is a
+ * {@link LocalTaskRunner} starts a split task's stages as that runner says
+ * (`firstWave`), unless the run says otherwise.
  *
  * - Uses step functions for each operation
  * - Per-dataset ref writes are atomic and independent (no mutex needed)
@@ -60,6 +65,22 @@ export class LocalOrchestrator extends SharedLocalOrchestrator {
   constructor(stateStore?: ExecutionStateStore) {
     super(stateStore, THIS_PROCESS);
   }
+
+  override start(storage: StorageBackend, repo: string, workspace: string, options: OrchestratorStartOptions = {}): Promise<ExecutionHandle> {
+    return super.start(storage, repo, workspace, withFirstWave(options));
+  }
+
+  override resume(storage: StorageBackend, repo: string, workspace: string, executionId: string, options: ResumeOptions = {}): Promise<ExecutionHandle> {
+    return super.resume(storage, repo, workspace, executionId, withFirstWave(options));
+  }
+}
+
+/** A run's options, with the first wave its local runner gives when the run
+ *  names none: a run on another runner, or on this process with no budget,
+ *  measures. */
+function withFirstWave<T extends OrchestratorStartOptions>(options: T): T {
+  if (options.firstWave !== undefined || !(options.runner instanceof LocalTaskRunner)) return options;
+  return { ...options, firstWave: options.runner.firstWave };
 }
 
 /**

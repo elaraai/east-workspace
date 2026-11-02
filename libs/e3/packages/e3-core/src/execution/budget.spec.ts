@@ -383,6 +383,15 @@ describe('the guard', () => {
   });
 });
 
+describe('whether the guard runs', () => {
+  it('is said by the budget: with a sampler, the platform\'s by default, and not without', () => {
+    const sampler: MemorySampler = { sample: async () => new Map(), machine: async () => null };
+    assert.equal(new Budget({ cores: 1, memory: GiB }, { sampler }).guarded, true);
+    assert.equal(new Budget({ cores: 1, memory: GiB }, { sampler: null }).guarded, false);
+    assert.equal(new Budget({ cores: 1, memory: GiB }).guarded, process.platform === 'linux' || process.platform === 'darwin');
+  });
+});
+
 describe("a unit's threads", () => {
   it('are at most four, and no more than the budget has cores', () => {
     assert.equal(unitThreads(new Budget({ cores: 16, memory: GiB })), UNIT_MAX_THREADS);

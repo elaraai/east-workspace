@@ -891,7 +891,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         // The units of split tasks in progress launch first, in the order the
         // tasks started, each counting against the width as a task does. A
         // stage's first unit launches alone, to measure the stage's peak, and
-        // the rest once it has settled. A split task in progress finishes, as
+        // the rest once it has settled — unless the stage started with an
+        // estimate (`firstWave`), when all may launch. A split task in progress finishes, as
         // a running task does, even once another task has failed; nothing
         // starts once the run is aborted.
         for (const [taskName, run] of execution.splits) {
@@ -1664,6 +1665,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           onPartitionProgress: options.onPartitionProgress
             ? (progress) => options.onPartitionProgress!(taskName, progress)
             : undefined,
+          firstWave: options.firstWave,
         },
         taskState?.plan.type === 'some' ? taskState.plan.value : null,
         options.owner === undefined ? await this.hostOwner() : options.owner
@@ -1723,12 +1725,13 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       units: BigInt(units.length),
     };
     const expectedPeakBytes = run.split.stagePeak;
+    const guessed = run.split.stagePeakGuessed;
     const key = `${taskName}\u0000${execution.unitSeq++}`;
     run.inFlight++;
     run.split.unitStarted(index);
     const launched = (async () => {
       try {
-        const result = await this.executeUnit(storage, repo, execution, taskName, run.prepared.taskHash, unit, expectedPeakBytes, key, place);
+        const result = await this.executeUnit(storage, repo, execution, taskName, run.prepared.taskHash, unit, expectedPeakBytes, guessed, key, place);
         run.results[index] = result;
         run.split.unitSettled(index, result);
         // A unit e3 stopped because the run was aborted is not a failure.
@@ -1850,6 +1853,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     taskHash: string,
     unit: SplitUnit,
     expectedPeakBytes: number | undefined,
+    guessed: boolean,
     key: string,
     place: StageUnit
   ): Promise<ExecutionResult> {
@@ -1864,6 +1868,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       onStdout: options.onStdout ? (data) => options.onStdout!(taskName, data) : undefined,
       onStderr: options.onStderr ? (data) => options.onStderr!(taskName, data) : undefined,
       expectedPeakBytes,
+      expectedPeakGuessed: guessed,
       onWaiting: (needs) => {
         if (needs === null) execution.waiting.delete(key);
         else execution.waiting.set(key, { task: taskName, unit: some(place), needs: BigInt(needs), since: new Date() });

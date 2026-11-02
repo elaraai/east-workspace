@@ -36,15 +36,16 @@ import {
   segmentKeyTypeOf,
   type EastTypeValue,
 } from '@elaraai/east';
-import { PIECE_SIZES, type PieceSizes, type TaskInput } from '@elaraai/e3-types';
+import { PIECE_SIZES, pieceSizesFor, type PieceSizes, type TaskInput } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { DatasetSegments } from '../dataset-open.js';
 import { storeCollection, type CollectionSource } from '../store-collection.js';
 
-// The sizes the piece rule closes pieces at, and the platform's: e3-types'
-// own, which a caller planning a split call in a browser weighs a dataset
-// against, and which the engine and this rule take from here.
-export { PIECE_SIZES, type PieceSizes };
+// The sizes the piece rule closes pieces at, the platform's, and the rule that
+// sizes them by the input they cut: e3-types' own, which a caller planning a
+// split call in a browser weighs a dataset by, and which the engine and this
+// rule take from here.
+export { PIECE_SIZES, pieceSizesFor, type PieceSizes };
 
 /** Where this process reads the piece size a test sets: nowhere, until its
  *  host says ({@link readTestPieceBytesFrom}). */
@@ -70,17 +71,20 @@ export function readTestPieceBytesFrom(read: () => string | undefined): void {
 }
 
 /**
- * The piece sizes this process plans with: the platform's, or, when a test
- * sets `E3_TEST_PIECE_BYTES=n`, `n/4`, `n` and `4n` bytes, so a small input has
- * many pieces.
+ * The piece sizes this process plans an input of `bytes` stored bytes with:
+ * the platform's for that input ({@link pieceSizesFor}), or, when a test sets
+ * `E3_TEST_PIECE_BYTES=n`, `n/4`, `n` and `4n` bytes whatever the input, so a
+ * small input has many pieces.
  *
+ * @param bytes - The stored bytes of the input the pieces are cut over;
+ *   absent, the platform's largest sizes ({@link PIECE_SIZES}) are given
  * @returns The sizes
  * @throws {Error} When `E3_TEST_PIECE_BYTES` is set to anything but a whole
  *   number of bytes, at least 4.
  */
-export function pieceSizes(): PieceSizes {
+export function pieceSizes(bytes?: number): PieceSizes {
   const test = testPieceBytes();
-  if (test === undefined || test === '') return PIECE_SIZES;
+  if (test === undefined || test === '') return bytes === undefined ? PIECE_SIZES : pieceSizesFor(bytes);
   const n = Number(test);
   if (!Number.isSafeInteger(n) || n < 4) {
     throw new Error(`E3_TEST_PIECE_BYTES is '${test}': it is a whole number of bytes, at least 4`);
@@ -189,6 +193,9 @@ export interface PiecePlan {
   /** What the primary weighs in the store, in bytes: its segments and its
    *  manifest. */
   readonly primaryBytes: number;
+  /** The sizes the pieces were cut at: those the primary's weight gives, or
+   *  the ones the caller fixed. A merge range aims for their target. */
+  readonly sizes: PieceSizes;
 }
 
 /**
@@ -201,15 +208,18 @@ export interface PiecePlan {
  * is cut at the keys its pieces start at. So the pieces do not depend on the
  * order the inputs are listed in, and a small input listed first no longer
  * carries a large one whole into its few pieces. The primary's pieces are runs
- * of the segments its manifest names. Nothing is decoded but a segment where a
- * `by` group or another input's split has to be found.
+ * of the segments its manifest names, at the sizes its weight gives
+ * ({@link pieceSizes}) unless the caller fixes them. Nothing is decoded but a
+ * segment where a `by` group or another input's split has to be found.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param inputs - The task's inputs, as its task object lists them
  * @param inputHashes - The input hashes, in the same order
- * @param sizes - The piece sizes
- * @returns The pieces, and the input they were cut over
+ * @param sizes - The piece sizes, or the rule that gives them from the
+ *   primary's stored bytes ({@link pieceSizes} by default)
+ * @returns The pieces, the input they were cut over, and the sizes they were
+ *   cut at
  * @throws {Error} When no input is partitioned, a partitioned input is not a
  *   stored collection, co-partitioned inputs are not all Sets or Dicts cut by
  *   fields of the same types, or a read fails.
@@ -219,7 +229,7 @@ export async function planPieces(
   repo: string,
   inputs: readonly TaskInput[],
   inputHashes: readonly string[],
-  sizes: PieceSizes,
+  sizes: PieceSizes | ((bytes: number) => PieceSizes) = pieceSizes,
 ): Promise<PiecePlan> {
   if (inputs.length !== inputHashes.length) {
     throw new Error(`the task reads ${inputs.length} inputs, and ${inputHashes.length} were given`);
@@ -241,7 +251,8 @@ export async function planPieces(
   });
   const first = partitioned.reduce((heaviest, next) => (next.input.bytes > heaviest.input.bytes ? next : heaviest));
   const segments = first.input;
-  const plan = (pieces: string[][]): PiecePlan => ({ pieces, primary: first.index, primaryBytes: segments.bytes });
+  const cutAt = typeof sizes === 'function' ? sizes(segments.bytes) : sizes;
+  const plan = (pieces: string[][]): PiecePlan => ({ pieces, primary: first.index, primaryBytes: segments.bytes, sizes: cutAt });
   const typeValue = segments.typeValue;
   const primary = segments.hash;
   const count = segments.segmentCount;
@@ -275,7 +286,7 @@ export async function planPieces(
     }
     return s + 1 < count ? { seg: s + 1, offset: 0 } : null;
   };
-  const starts = await pieceBoundaries(segments.manifest.entries, sizes, groupEnd);
+  const starts = await pieceBoundaries(segments.manifest.entries, cutAt, groupEnd);
   if (starts.length === 1) return plan([[...inputHashes]]);
   const end: SplitPoint = { seg: count, offset: 0 };
 

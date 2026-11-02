@@ -17,16 +17,18 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import {
-  ArrayType, DictType, IntegerType, SetType, StringType, StructType,
+  ArrayType, BooleanType, DictType, IntegerType, SetType, StringType, StructType,
   East, SortedMap, SortedSet, compareFor, equalFor, parseFor, some, variant,
   type EastType,
 } from '@elaraai/east';
 import e3, { type TaskDef } from '@elaraai/e3';
-import { StopReasonType, decodeTaskObject, decodeUnitPlan, type PartitionProgress } from '@elaraai/e3-types';
+import { StopReasonType, decodeTaskObject, decodeUnitPlan, type PartitionProgress, type TaskObject } from '@elaraai/e3-types';
 import { executeSplitTask, probeExecutionCache, taskExecute, taskExecuteBody, type ExecuteOptions, type ExecutionResult } from './LocalTaskRunner.js';
-import { SplitTask } from './engine.js';
+import { SplitTask, inputReads } from './engine.js';
 import { processOwner } from './processHelpers.js';
 import { Budget } from './budget.js';
+import type { MemorySampler } from './memory.js';
+import type { UnitRequeue } from './interfaces.js';
 import { executionReadLog, inputsHash } from '../executions.js';
 import { DatasetSegments } from '../dataset-open.js';
 import { uuidv7 } from '../uuid.js';
@@ -89,9 +91,41 @@ describe('a task split into pieces', () => {
     return log.data.split('\n').filter((line) => line !== '');
   }
 
-  /** The lines of a run's log naming its units: all but the plan's. */
+  /** The lines of a run's log naming its units: all but the plan's, and each
+   *  first wave's. */
   async function unitLines(taskHash: string, result: ExecutionResult): Promise<string[]> {
-    return (await logLines(taskHash, result)).filter((line) => !line.startsWith('plan '));
+    return (await logLines(taskHash, result)).filter((line) => !line.startsWith('plan ') && !line.startsWith('wave '));
+  }
+
+  /** A budget that notes what each unit asks of it, in order, and each
+   *  release. */
+  function noting(budget: Budget): { budget: Budget; asked: (number | 'released')[] } {
+    const asked: (number | 'released')[] = [];
+    const acquire = budget.acquire.bind(budget);
+    budget.acquire = async (request = {}) => {
+      asked.push(request.memory ?? 0);
+      const grant = await acquire(request);
+      const release = grant.release.bind(grant);
+      grant.release = () => {
+        asked.push('released');
+        release();
+      };
+      return grant;
+    };
+    return { budget, asked };
+  }
+
+  /** A task that counts its rows by their key's remainder of 97: every piece
+   *  holds every remainder, so its pieces are merged. */
+  function remainders(name: string): TaskDef {
+    return e3.streamTask(name, {
+      inputs: [e3.partition(sales)],
+      output: e3.output.dict(IntegerType, IntegerType, { merge: (_$, _key, a, b) => a.add(b) }),
+    }, ($, sales, emit) => {
+      $.for(sales, ($, _amount, key) => {
+        $(emit(key.remainder(97n), 1n));
+      });
+    });
   }
 
   /** Asserts a run succeeded with the output the value path writes for `value`. */
@@ -424,8 +458,9 @@ describe('a task split into pieces', () => {
       };
       return grant;
     };
-    const result = await run(taskHash, [[SalesType, salesOf(8000)]], { budget });
+    const result = await run(taskHash, [[SalesType, salesOf(8000)]], { budget, firstWave: 'measure' });
     assert.equal(result.state, 'success', result.error ?? '');
+    assert.ok(!(await logLines(taskHash, result)).some((line) => line.startsWith('wave ')), 'a stage that measures names no estimate');
 
     const lines = await unitLines(taskHash, result);
     const peakOf = (line: string) => Number(/ peak=(\d+)$/.exec(line)![1]);
@@ -630,6 +665,206 @@ describe('a task split into pieces', () => {
     assert.equal(resumed.outputHash, first.outputHash);
     assert.deepEqual(ran, [], 'every unit of the stage ran before');
     assert.deepEqual([...new Set(events.map((event) => event.phase))], ['merge'], 'the pieces were neither planned nor run again');
+  });
+
+  describe('how a program reads its inputs (#1109)', () => {
+    const Rows = DictType(IntegerType, IntegerType);
+
+    it('reads an input it loops over a segment at a time, one it reads by key as far as the pager keeps, its size not at all, and one it uses any other way whole', () => {
+      const program = East.function([Rows, Rows, Rows, Rows, Rows], IntegerType, ($, looped, keyed, sized, mapped, _unused) => {
+        const total = $.let(0n);
+        $.for(looped, ($, value) => {
+          $.assign(total, total.add(value));
+        });
+        $.if(keyed.has(1n), ($) => {
+          $.assign(total, total.add(keyed.get(1n, ($) => 0n)));
+        });
+        $.assign(total, total.add(sized.size()));
+        $.for(mapped.map(($, value) => value), ($, value) => {
+          $.assign(total, total.add(value));
+        });
+        return total;
+      });
+      assert.deepEqual(inputReads(program.toIR().ir, 5), ['scan', 'keyed', 'none', 'whole', 'none']);
+    });
+
+    it('reads an input used several ways the most of them, and a parameter past the inputs not at all', () => {
+      const program = East.function([Rows, Rows, Rows], IntegerType, ($, keyed, mapped, past) => {
+        const total = $.let(0n);
+        $.for(keyed, ($, value) => {
+          $.assign(total, total.add(keyed.get(value, ($) => 0n)));
+        });
+        $.for(mapped, ($, value) => {
+          $.assign(total, total.add(value));
+        });
+        $.assign(total, total.add(mapped.map(($, value) => value).size()));
+        $.assign(total, total.add(past.map(($, value) => value).size()));
+        return total;
+      });
+      assert.deepEqual(inputReads(program.toIR().ir, 2), ['keyed', 'whole']);
+    });
+
+    it('reads an input a closure captures as the closure uses it, and one bound to another name whole', () => {
+      const program = East.function([Rows, Rows], IntegerType, ($, captured, bound) => {
+        const has = $.const(East.function([IntegerType], BooleanType, ($, key) => captured.has(key)));
+        const again = $.let(bound);
+        const total = $.let(0n);
+        $.for(again, ($, value) => {
+          $.if(has(value), ($) => {
+            $.assign(total, total.add(value));
+          });
+        });
+        return total;
+      });
+      assert.deepEqual(inputReads(program.toIR().ir, 2), ['keyed', 'whole']);
+    });
+  });
+
+  describe('a stage that starts with an estimate (#1109)', () => {
+    /** The pieces' widths: the most units of a stage that asked before one
+     *  released, from the start of what was asked. */
+    const firstWave = (asked: readonly (number | 'released')[]): number[] => {
+      const at = asked.indexOf('released');
+      return asked.slice(0, at < 0 ? asked.length : at) as number[];
+    };
+
+    it('starts every unit at once, each reserving the task\'s previous peak, which the stage\'s peaks raise', async () => {
+      const taskHash = await deploy(remainders('estimated'));
+      // A first run records the task's peaks: its pieces', its merge's and its own.
+      const before = await run(taskHash, [[SalesType, salesOf(8000)]]);
+      assert.equal(before.state, 'success', before.error ?? '');
+      const previous = before.peakBytes!;
+      assert.ok(previous > 0);
+
+      // Other rows: every piece runs again.
+      const doubled = new SortedMap([...salesOf(8000)].map(([key, value]) => [key, value * 2n] as [bigint, bigint]), compareFor(IntegerType));
+      const { budget, asked } = noting(new Budget({ cores: 4, memory: 1024 ** 3 }));
+      const result = await run(taskHash, [[SalesType, doubled]], { budget, firstWave: 'estimate' });
+      assert.equal(result.state, 'success', result.error ?? '');
+
+      const lines = await logLines(taskHash, result);
+      const pieces = lines.filter((line) => line.startsWith('piece '));
+      assert.ok(pieces.length > 4, 'the input ran as many pieces');
+      assert.deepEqual(lines.filter((line) => line.startsWith('wave ')), [
+        `wave pieces units=${pieces.length} estimate=${previous} from=previous`,
+        `wave merge level 1/1 units=1 estimate=${previous} from=previous`,
+      ], 'each stage started with the task\'s previous peak');
+      assert.ok(lines.indexOf(lines.find((line) => line.startsWith('plan '))!) < lines.indexOf(lines.find((line) => line.startsWith('wave '))!),
+        'the plan\'s line comes first');
+      const wave = firstWave(asked);
+      assert.equal(wave.length, budget.cores, `as many pieces as the budget's cores asked before one released: ${asked.join(' ')}`);
+      // The pieces' counts are the first run's, so the cache serves the merge.
+      const requests = asked.filter((entry): entry is number => entry !== 'released');
+      const ran = lines.filter((line) => / completed task=/.test(line));
+      assert.equal(requests.length, ran.length, 'every unit that ran asked once');
+      assert.ok(requests.every((memory) => memory >= previous), `every unit reserved the previous peak or more: ${requests.join(' ')}`);
+      await assertOutput(result, CountsType, (() => {
+        const expected = new SortedMap<bigint, bigint>([], compareFor(IntegerType));
+        for (let i = 0n; i < 8000n; i++) expected.set(i % 97n, (expected.get(i % 97n) ?? 0n) + 1n);
+        return expected;
+      })());
+    });
+
+    /** Opens a split task for a first run of `def` over 8000 rows, its
+     *  first stage started with an estimate, and returns it with the task,
+     *  its pieces' inputs and the input's. */
+    async function firstRun(def: TaskDef): Promise<{ split: SplitTask; taskHash: string; task: TaskObject; pieces: DatasetSegments[]; input: DatasetSegments }> {
+      const taskHash = await deploy(def);
+      const input = await datasetWrite(storage, repo, salesOf(8000), SalesType);
+      const task = decodeTaskObject(await storage.objects.read(repo, taskHash));
+      const ids = { inHash: inputsHash([input]), executionId: uuidv7(), startTime: Date.now() };
+      const split = await SplitTask.open(storage, repo, taskHash, task, [input], ids, { firstWave: 'estimate' }, null, null);
+      assert.ok(split instanceof SplitTask);
+      const pieces = await Promise.all(split.stage.units.map((unit) => DatasetSegments.open(storage, repo, unit.inputs[0]!)));
+      assert.ok(pieces.length > 4, 'the input was cut into many pieces');
+      return { split, taskHash, task, pieces, input: await DatasetSegments.open(storage, repo, input) };
+    }
+
+    /** Whether `guess` holds the runner, the sorter of a Dict output and
+     *  `rows` integer rows decoded: each at least its key and value, 16 bytes
+     *  each, and its place in the container beside them. */
+    const holds = (guess: number, rows: number): boolean => guess >= 128 * 2 ** 20 + rows * 48 && guess <= 128 * 2 ** 20 + rows * 200;
+
+    it('the first time the task runs, starts every unit at once, reserving what the largest piece holds of its rows decoded, as a guess its peaks replace', async () => {
+      const { split, taskHash, task, pieces, input } = await firstRun(remainders('guessed'));
+      assert.equal(split.measuring, false, 'the stage does not measure');
+      assert.equal(split.stagePeakGuessed, true, 'a guess, which no run measured');
+      // The program only loops over its input, which a runner reads a segment
+      // at a time: the guess holds two of the input's segments' rows, at most.
+      const guess = split.stagePeak!;
+      const rows = Math.max(...pieces.map((piece) => piece.elementCount));
+      const segment = input.elementCount / input.segmentCount;
+      assert.ok(holds(guess, Math.min(rows, 2 * segment)), `${guess} bytes for ${rows} rows, in segments of ${segment}`);
+
+      // A unit's peak, once one settles, is a measurement: it takes the guess's place.
+      const unit = split.stage.units[0]!;
+      const unitHash = inputsHash(unit.inputs);
+      const settled = await taskExecuteBody(storage, repo, taskHash, task, unit.inputs, { inHash: unitHash, executionId: uuidv7(), startTime: Date.now() }, {}, null, 'unit', true);
+      split.unitSettled(0, settled);
+      assert.equal(split.stagePeakGuessed, false);
+      assert.equal(split.stagePeak, settled.peakBytes!);
+      assert.equal(split.measuring, false);
+      // Ended once its log's lines are written.
+      await split.cancel();
+    });
+
+    it('counts every row of the largest piece when the program reads its input whole', async () => {
+      const { split, pieces } = await firstRun(e3.streamTask('mapped', {
+        inputs: [e3.partition(sales)],
+        output: e3.output.dict(IntegerType, IntegerType, { merge: (_$, _key, a, b) => a.add(b) }),
+      }, ($, sales, emit) => {
+        // A Dict of its own, built from every row.
+        $.for(sales.map(($, amount) => amount), ($, _amount, key) => {
+          $(emit(key.remainder(97n), 1n));
+        });
+      }));
+      const guess = split.stagePeak!;
+      const rows = Math.max(...pieces.map((piece) => piece.elementCount));
+      assert.ok(holds(guess, rows), `${guess} bytes for ${rows} rows`);
+      assert.equal(split.stagePeakGuessed, true);
+      await split.cancel();
+    });
+
+    it('is how a task run on its own starts its stages under a budget whose guard runs, and not under one without', async () => {
+      const taskHash = await deploy(remainders('defaulted'));
+      const guarded = await run(taskHash, [[SalesType, salesOf(8000)]], { budget: new Budget({ cores: 4, memory: 1024 ** 3 }) });
+      assert.equal(guarded.state, 'success', guarded.error ?? '');
+      // No guard runs on Windows: there, every budget measures.
+      const waved = (await logLines(taskHash, guarded)).some((line) => /^wave pieces units=\d+ estimate=\d+ from=rows$/.test(line));
+      assert.equal(waved, process.platform !== 'win32', 'a guarded budget starts its stages with an estimate');
+
+      const unguarded = await run(taskHash, [[SalesType, salesOf(8001)]], { budget: new Budget({ cores: 4, memory: 1024 ** 3 }, { sampler: null }) });
+      assert.equal(unguarded.state, 'success', unguarded.error ?? '');
+      assert.ok(!(await logLines(taskHash, unguarded)).some((line) => line.startsWith('wave ')), 'a budget with no guard measures');
+    });
+
+    it('runs again a unit the guard stopped far past its estimate, and the task\'s output is unchanged', async () => {
+      const MiB = 1024 ** 2;
+      const taskHash = await deploy(remainders('outgrown'));
+      // Every runner seems to use 600 MiB until the guard has stopped one;
+      // two together are past the budget.
+      let calm = false;
+      const sampler: MemorySampler = {
+        sample: async (runners) => new Map(runners.map((runner) => [runner.pid, calm ? MiB : 600 * MiB])),
+        machine: async () => null,
+      };
+      const requeues: UnitRequeue[] = [];
+      const budget = new Budget({ cores: 4, memory: 1024 * MiB }, { sampler, sampleMs: 5 });
+      const result = await run(taskHash, [[SalesType, salesOf(8000)]], {
+        budget, firstWave: 'estimate',
+        onRequeued: (requeue) => {
+          requeues.push(requeue);
+          calm = true;
+        },
+      });
+
+      const expected = new SortedMap<bigint, bigint>([], compareFor(IntegerType));
+      for (let i = 0n; i < 8000n; i++) expected.set(i % 97n, (expected.get(i % 97n) ?? 0n) + 1n);
+      await assertOutput(result, CountsType, expected);
+      assert.ok(requeues.length >= 1, 'a unit past the budget was stopped and run again');
+      assert.ok(requeues.every((requeue) => requeue.reason === 'budget' && requeue.reserves >= 600 * MiB), JSON.stringify(requeues));
+      assert.equal(budget.inFlight, 0);
+    });
   });
 
   it('is driven a step at a time: taken up from its plan with the units that settled, each advance writing the one next stage', async () => {

@@ -240,7 +240,8 @@ describe('stopped executions', () => {
    *  every scratch directory the killed run left behind, and every stopped
    *  piece is recorded `interrupted`, naming its runner. With more than one
    *  running, the stage's first piece runs through, so the rest run side by
-   *  side. */
+   *  side — after it, where the stage measures it first, or beside it, where
+   *  the stage starts every piece at once (#1109). */
   async function assertKillMinusNine(runner: Runner, jobs: number, running: number): Promise<void> {
     await deploy(runner, running > 1);
     const scratch = join(dir, 'scratch');
@@ -252,13 +253,17 @@ describe('stopped executions', () => {
 
     // Every running piece's record names its runner; the task's own names e3.
     const taskHash = await workspaceGetTaskHash(storage, repo, 'ws', 'held');
-    const units = new Map<string, { inputsHash: string; executionId: string; pid: number }>();
+    // The pieces running now, each time it is asked: a first piece that ran
+    // through beside them is no longer among them.
+    let units = new Map<string, { inputsHash: string; executionId: string; pid: number }>();
     await waitFor(async () => {
+      const now = new Map<string, { inputsHash: string; executionId: string; pid: number }>();
       for (const { inputsHash, status } of await storage.refs.executionListLatest(repo, taskHash)) {
         if (status.type === 'running' && Number(status.value.pid) !== run.pid) {
-          units.set(inputsHash, { inputsHash, executionId: status.value.executionId, pid: Number(status.value.pid) });
+          now.set(inputsHash, { inputsHash, executionId: status.value.executionId, pid: Number(status.value.pid) });
         }
       }
+      units = now;
       return units.size === running;
     }, 30_000);
     await waitFor(() => readdirSync(scratch).filter((name) => name.startsWith('e3-exec-')).length === running, 30_000);

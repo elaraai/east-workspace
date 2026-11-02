@@ -21,14 +21,16 @@
  * memory, sampled — against the budget, so the budget is sized from that
  * same measure. A run with room is held with its first pieces at their
  * peaks, and the most any one runner is resident then, `R`, is what a held
- * piece costs the guard. The run under test then has a budget of one and a
- * half `R` at four jobs: the two tasks' first pieces start together, neither
- * measured, so each reserves nothing, and held they are resident two `R`
- * together, past the budget until the guard acts. The guard stops the one
- * started last, which runs again once the most it reached fits; the rest of
- * each stage reserves the stage's measured peak, so they run one at a time.
- * The runners' memory is sampled from outside throughout, on the platforms
- * the guard runs on.
+ * piece costs the guard. The run under test is the tasks' first in a
+ * repository of their own, so no peak of theirs sizes a piece: each reserves
+ * what its rows weigh decoded and its runner's own (#1109), far less than the
+ * integers it holds. It has a budget of one and a half `R` at two jobs: two
+ * pieces start together, and held they are resident two `R` together, past
+ * the budget until the guard acts. The guard stops the one started last,
+ * which runs again once the most it reached fits; the rest of each stage
+ * reserves the stage's measured peak, so they run one at a time. The
+ * runners' memory is sampled from outside throughout, on the platforms the
+ * guard runs on.
  *
  * A piece's reported peak is its high-water mark over its whole life, which
  * the transient garbage of building its array sets above what it is resident
@@ -130,23 +132,27 @@ describe('the guard', { skip: process.platform === 'win32' ? 'the guard runs on 
       });
     });
     const tasks = [heavy('heavy_a'), heavy('heavy_b')];
-    const repo = join(dir, 'repo');
     const zip = join(dir, 'heavy.zip');
     await e3.export(e3.package('heavy', '1.0.0', ...tasks), zip);
     // Enough rows that each task runs as several pieces.
     const file = join(dir, 'rows.beast2');
     writeFileSync(file, encodeBeast2For(RowsType)(new SortedMap(
       Array.from({ length: 3000 }, (_, i) => [BigInt(i), BigInt(i)] as [bigint, bigint]), compareFor(IntegerType))));
-    for (const args of [
-      ['repo', 'create', repo],
-      ['package', 'import', repo, zip],
-      ['workspace', 'create', repo, 'ws'],
-      ['workspace', 'deploy', repo, 'ws', 'heavy@1.0.0'],
-      ['dataset', 'set', repo, 'ws.rows', '--from-file', file],
-    ]) {
-      const result = await runE3Command(args, dir);
-      assert.equal(result.exitCode, 0, `e3 ${args.join(' ')}:\n${result.stderr}\n${result.stdout}`);
-    }
+    /** A repository with the package deployed and its rows set. */
+    const repoWithRows = async (repo: string): Promise<void> => {
+      for (const args of [
+        ['repo', 'create', repo],
+        ['package', 'import', repo, zip],
+        ['workspace', 'create', repo, 'ws'],
+        ['workspace', 'deploy', repo, 'ws', 'heavy@1.0.0'],
+        ['dataset', 'set', repo, 'ws.rows', '--from-file', file],
+      ]) {
+        const result = await runE3Command(args, dir);
+        assert.equal(result.exitCode, 0, `e3 ${args.join(' ')}:\n${result.stderr}\n${result.stdout}`);
+      }
+    };
+    const repo = join(dir, 'repo');
+    await repoWithRows(repo);
 
     /** How many pieces have reached their peaks: the marker's bytes. */
     const atPeak = (): number => (existsSync(atPeakMark) ? statSync(atPeakMark).size : 0);
@@ -161,12 +167,13 @@ describe('the guard', { skip: process.platform === 'win32' ? 'the guard runs on 
      * first.
      */
     const runHeld = async (
+      at: string,
       args: readonly string[],
       until: (run: RunningCliProcess) => boolean,
     ): Promise<{ result: CliResult; one: number; all: number; released: boolean }> => {
       rmSync(atPeakMark, { force: true });
       writeFileSync(hold, '');
-      const run = spawnE3Command(['dataflow', 'run', repo, 'ws', ...args], dir, { env: PIECES });
+      const run = spawnE3Command(['dataflow', 'run', at, 'ws', ...args], dir, { env: PIECES });
       let one = 0;
       let all = 0;
       let atPeaks = false;
@@ -187,7 +194,7 @@ describe('the guard', { skip: process.platform === 'win32' ? 'the guard runs on 
     // With room, its first pieces held at their peaks together: what a held
     // piece is resident, R; and then, released, every unit's reported peak
     // and the outputs.
-    const roomy = await runHeld(['--jobs', '4'], () => atPeak() >= 2);
+    const roomy = await runHeld(repo, ['--jobs', '4'], () => atPeak() >= 2);
     assert.equal(roomy.result.exitCode, 0, `${roomy.result.stderr}\n${roomy.result.stdout}`);
     assert.ok(roomy.released, `the two first pieces reached their peaks together:\n${roomy.result.stdout}`);
     const resident = roomy.one;
@@ -204,21 +211,24 @@ describe('the guard', { skip: process.platform === 'win32' ? 'the guard runs on 
     const storage = new LocalStorage();
     const outputs = await Promise.all(tasks.map(async (task) => (await workspaceGetDatasetHash(storage, repo, 'ws', task.output.path)).hash));
 
-    // Under a budget of one and a half held pieces at four jobs, sampled
-    // throughout. The first pieces wait at their peaks until the guard has
-    // stopped one; a guard that never does fails the run's assertions after
-    // a minute, rather than holding the pieces for ever.
+    // The tasks' first run in a repository of its own, under a budget of one
+    // and a half held pieces at two jobs, sampled throughout. The first pieces
+    // wait at their peaks until the guard has stopped one; a guard that never
+    // does fails the run's assertions after a minute, rather than holding the
+    // pieces for ever.
     const budget = Math.floor(1.5 * resident);
-    const pressed = await runHeld(['--force', '--jobs', '4', '--memory', String(budget)], (run) => run.getStdout().includes('[REQUEUE]'));
+    const pressedRepo = join(dir, 'pressed');
+    await repoWithRows(pressedRepo);
+    const pressed = await runHeld(pressedRepo, ['--jobs', '2', '--memory', String(budget)], (run) => run.getStdout().includes('[REQUEUE]'));
     assert.equal(pressed.result.exitCode, 0, `${pressed.result.stderr}\n${pressed.result.stdout}`);
     assert.ok(pressed.released, `the guard stopped a first piece while the two held past the budget together:\n${pressed.result.stdout}`);
     t.diagnostic(`a held piece is resident ${Math.round(resident / MiB)} MiB and reports a peak of ${Math.round(peak / MiB)} MiB; ` +
       `budget ${Math.round(budget / MiB)} MiB; the runners peaked at ${Math.round(pressed.all / MiB)} MiB together`);
 
     assert.deepEqual(
-      await Promise.all(tasks.map(async (task) => (await workspaceGetDatasetHash(storage, repo, 'ws', task.output.path)).hash)),
+      await Promise.all(tasks.map(async (task) => (await workspaceGetDatasetHash(storage, pressedRepo, 'ws', task.output.path)).hash)),
       outputs, 'the outputs a run with room writes');
-    const logs = executionLogs(repo);
+    const logs = executionLogs(pressedRepo);
     assert.ok(logs.some((log) => /^e3: the guard stopped the runner at \d+ MiB, past the budget of \d+ MiB: it runs again once \d+ MiB fit$/m.test(log)),
       'the guard stopped a unit, which ran again');
     assert.ok(!logs.some((log) => /runner killed by/.test(log)), 'no runner was killed by anything but the guard');

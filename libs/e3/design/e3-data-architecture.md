@@ -277,10 +277,11 @@ Every task execution is a **unit graph**, built by one engine (`execution/engine
    - **The piece rule.** Boundaries fall at segment fences chosen by a content-defined rule over the primary input's manifest.
      - The primary is the partitioned input that weighs the most in the store, the first listed of those that weigh the same. So the pieces do not depend on the order the inputs are listed in, and the task's log names the input they were cut over.
      - Its segments are walked in order, with `b` the stored bytes of the open piece.
-     - A segment closes the piece after it when `b` reaches 256 MiB, or when `b` is at least 16 MiB and the first 32 bits of the segment's SHA-256, the hash the store names it by, fall under `2^32 × s / D`.
-     - Here `s` is the segment's stored bytes, and `D` is 256 MiB until the piece holds 64 MiB and 16 MiB after, so most pieces hold 64 to 100 MiB.
-     - Where a piece ends depends only on the segments near that point, so an insertion moves only the pieces around it.
-     - The sizes are platform constants (§3.10).
+     - A segment closes the piece after it when `b` reaches `max`, or when `b` is at least `min` and the first 32 bits of the segment's SHA-256, the hash the store names it by, fall under `2^32 × s / D`.
+     - Here `s` is the segment's stored bytes, and `D` is `max` until the piece holds `target` and `min` after.
+     - The sizes follow the primary's stored bytes (`pieceSizesFor`). An input of at most 16 MiB gets 16, 64 and 256 MiB, and is one piece. Above that, `target` is the input's bytes over 32, rounded down to a power of two, at least 4 MiB and at most 64 MiB, with `min` a quarter of it and `max` four times it. So mid-size data is cut into tens of pieces, and from 2 GiB most pieces hold 64 to 100 MiB.
+     - Where a piece ends depends only on the segments near that point, so an insertion moves only the pieces around it. An input that passes 256 MiB, 512 MiB, 1 GiB or 2 GiB is cut once more, at the next target.
+     - The sizes are platform constants of the input's bytes (§3.10), so every machine cuts the same pieces.
    - **Tests.** Tests alone set `E3_TEST_PIECE_BYTES=n`. It makes the three sizes `n/4`, `n` and `4n` bytes and the merge range size (below) `n`, so a small input has many pieces and its merges many ranges. It is never a machine setting.
    - **`by`.** A boundary moves forward to the end of the `by` group it falls in. A group usually ends inside a segment, and the boundary lands there: that segment is split and re-encoded, as a co-partitioned input's are, so a piece keeps its size however large the groups are.
    - **Co-partitioned inputs** are split at the same keys: each at its first row whose key, or `by` fields, reach those of the piece's first row.
@@ -292,7 +293,7 @@ Every task execution is a **unit graph**, built by one engine (`execution/engine
    - `array`: e3 concatenates the pieces' manifests and re-cuts the seams; no unit is needed.
    - `set`/`dict`:
      - e3 groups the pieces' outputs whose key ranges overlap, reading fences plus one segment decode for an output's last key.
-     - Each overlapping group becomes ranged `merge` units. `planMergeRanges` chooses the range boundaries from fences, each range covering about 64 MiB of the group's parts, the pieces' middle size.
+     - Each overlapping group becomes ranged `merge` units. `planMergeRanges` chooses the range boundaries from fences, each range covering about the pieces' middle size of the group's parts: the `target` they were cut at.
      - The disjoint results are concatenated and re-cut at the seams.
 
    The result goes through the door as one manifest.
@@ -351,10 +352,13 @@ One budget of cores and memory is the one setting a person makes (`execution/bud
   - Its `threads` grant is up to four, on that one core: a runner frames a large output on that many workers, in bursts, and every runner's writers frame a manifest output on their pool. Measured on a lone unit, one thread wrote a large output up to 2.6× slower than four, and past four nothing gained; each thread costs about 25 MiB, which the unit's measured peak includes.
   - A unit larger than the whole budget runs alone.
   - A unit that does not fit lets smaller ones pass for a bounded time, then waits for the room it needs.
-- **Reservations are measured in the run, not guessed.**
+- **Reservations are measured in the run, or estimated where the guard runs.**
   - Each execution record stores its runner's `peakBytes` with its `success` or `failed` outcome, and a split task's own record the largest of its units'.
-  - A unit of a split task reserves the largest peak a unit of its stage — the task's pieces, or one level of their merges — has reached in the run. A unit the execution cache serves counts, since its record holds its peak. Nothing is looked up from earlier runs, so a peak that a changed program or input no longer reaches never sizes a unit.
-  - A stage runs its first unit alone, then fans out, while other work runs. A unit with no peak measured before it reserves nothing: a stage's first, a unit of a stage whose runners report no peak, a task run as one unit, a mutation, a function call.
+  - A unit of a split task reserves the largest peak a unit of its stage — the task's pieces, or one level of their merges — has reached in the run. A unit the execution cache serves counts, since its record holds its peak.
+  - Measuring, the default and e3-web's and e3-cloud's: a stage runs its first unit alone, then fans out, while other work runs. Nothing is looked up from earlier runs, so a peak that a changed program or input no longer reaches never sizes a unit. A unit with no peak measured before it reserves nothing: a stage's first, a unit of a stage whose runners report no peak, a task run as one unit, a mutation, a function call.
+  - Estimating, where the local runner's guard runs: every unit of a stage may start at once, each reserving an estimate, and the guard stops a unit that outgrows its share, which runs again reserving what it reached.
+    - The task's previous peak, the largest among its latest successful executions, when it has run before; the stage's measured peaks raise it.
+    - The first time it runs, for its pieces, what the largest piece holds of its inputs, as its program reads them: two segments of an input it only loops over, the pager's keyed reads at most of one it reads by key, nothing of one it only sizes, and every row of one it uses any other way — each row at what a row of that input weighs decoded, east's decoded weight, east-c's layout, of a sample of its segments — and a margin for the runner and a Set's or Dict's sorter. For its merges, the largest peak its pieces reached. The stage's measured peaks take its place as they come.
 - **Guard,** on Linux and macOS; Windows keeps reservations alone.
   - Every runner the local runner starts is watched while it runs. e3 measures its resident memory every quarter second:
     - its cgroup's working set (`memory.current` less its inactive file cache), where it has one;
@@ -371,7 +375,7 @@ One budget of cores and memory is the one setting a person makes (`execution/bud
   - e3 first moves itself into a child cgroup of its own, since the kernel requires that before its cgroup's children can take the memory controller.
   - Each unit then runs in a cgroup of its own beside it, which its runner enters before it starts.
   - A unit with a reservation is capped (`memory.max`) at the reservation plus half, and at least 64 MiB more, so a runaway unit dies alone. Its cgroup has no swap (`memory.swap.max` 0), where swap would let it crawl on instead of dying and running again under a larger cap.
-  - A unit its cap kills is requeued reserving its cap, so each requeue raises the cap by half, and one that needs more than the budget runs alone. A unit with nothing measured yet is not capped: the guard alone watches it.
+  - A unit its cap kills is requeued reserving its cap, so each requeue raises the cap by half, and one that needs more than the budget runs alone. A unit with nothing measured yet — or only a guess from what it holds of its rows, which its program may far outgrow — is not capped: the guard alone watches it.
   - The peak a unit records stays its runner's own. `memory.peak` counts the page cache the unit's reads and writes fill, so a unit writing 1 GiB would record about 1 GiB more than it used, and every later unit of its stage would reserve that.
 - **Visibility.** The API serves what the budget is doing with a run's state, where the server has one; a backend without one serves none. That is the cores and memory in use against its capacity, a unit waiting for room and how much it needs, and a unit the guard or its cap stopped and requeued, with the peak it reached. A task's runs carry each execution's `peakBytes`. e3-ui's TUI shows them: the budget, the waits and the requeues in the execution panel, the peaks in the tasks table and the Runs tab, and the budget a run gets in `/run`'s confirmation.
   - The local runner reports a unit waiting for room, and a unit it requeued, through two callbacks of the execution options, which any runner may call; the loop names each by its task and unit.
@@ -420,9 +424,9 @@ The recognizer lives in the e3 SDK (`libs/e3/packages/e3/src/parallel.ts`) as on
 | Platform constants (in rule ids and code; not configurable) | Machine settings (never in a package) |
 |---|---|
 | the segment cut rules' parameters, for Set/Dict and for Array (§3.4) | `-j` cores |
-| the piece rule's sizes: 16, 64 and 256 MiB of stored bytes (§3.7); a delivery's intake pieces close at 64 MiB of its bytes (§3.6) | `--memory` |
+| the piece rule's sizes, from the input's stored bytes: 16, 64 and 256 MiB within 16 MiB and from 2 GiB, a target of its 32nd part in powers of two between (§3.7); a delivery's intake pieces close at 64 MiB of its bytes (§3.6) | `--memory` |
 | the RunSorter's caps, 131,072 elements or 64 MiB, the second also the cap on a foreign segment and a delivery's | the scratch directory (`E3_SCRATCH_DIR`) |
-| merge and fold fan-in, 32; the merge range size, 64 MiB | cgroup use (`E3_CGROUPS`); verbosity |
+| merge and fold fan-in, 32; the merge range size, the pieces' target | cgroup use (`E3_CGROUPS`); verbosity |
 
 The left column decides how work, and so floating-point folds, are grouped, which decides output bytes. The right column decides only when work runs.
 

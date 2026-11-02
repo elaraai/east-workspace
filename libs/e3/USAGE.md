@@ -323,9 +323,12 @@ Wrap a stream task's input in `e3.partition` and the body runs once per
 **piece** of it, each piece a unit of its own — cached on its own, and run in
 parallel under the budget — typed as the whole dataset: a key range of a Set or
 Dict, a position range of an Array. The pieces' outputs combine as the output
-kind says. Pieces are cut where the content says, most of them 64 to 100 MiB of
-stored bytes, so an append or an insertion re-runs only the pieces it reaches;
-the rest are served from the cache.
+kind says. Pieces are cut where the content says, at sizes that follow what
+the input weighs: an input of at most 16 MiB is one piece, mid-size data is cut
+into tens of pieces (some 20 at 100 MB, 50 at 1 GB), and from 2 GiB most pieces
+hold 64 to 100 MiB of stored bytes. An append or an insertion re-runs only the
+pieces it reaches, and the rest are served from the cache; an input that grows
+past 256 MiB, 512 MiB, 1 GiB or 2 GiB is cut once more.
 
 ```typescript
 const sales = e3.input('sales', DictType(SaleKeyType, SaleType));
@@ -714,10 +717,18 @@ CPUs of its affinity mask, capped by a cgroup quota, and the cgroup's
 `memory.max` or else physical memory, less a reserve for e3 and the OS.
 
 A unit of a split task reserves the largest peak memory a unit of its stage
-(its pieces, or one level of its merges) has reached in the run, so each stage
-runs its first unit alone and then fans out. Anything else reserves nothing. On
-Linux and macOS a guard stops the newest such unit when the runners together
-pass the budget, and runs it again once there is room.
+(its pieces, or one level of its merges) has reached in the run. On Linux and
+macOS a guard stops the newest such unit when the runners together pass the
+budget, and runs it again once there is room; so there a stage starts all its
+units at once, as many as fit, each reserving the task's peak the last time it
+ran, or the first time what the largest piece holds of its rows decoded, as its
+program reads them — two segments of an input it only loops over, the segments
+its keyed reads keep of one it reads by key, all the rows of one it uses any
+other way, each row at what a sample of the input's rows weighs by its type —
+with its merges reserving the peak the pieces reached; the peaks the stage
+reaches take over as units finish. On Windows, which has no guard, each stage
+runs its first unit alone to measure it, then fans out. Anything else reserves
+nothing.
 
 `e3 watch`, `e3 run`, `e3 call`, `e3 mutate`, `e3 reindex` and
 `e3 workspace deploy` take the same two flags for a local repository, a deploy

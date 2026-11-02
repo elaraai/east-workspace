@@ -163,7 +163,7 @@ export function executionCacheTests(setup: BackendSetup): void {
     it('hands a split task\'s unit running on another host to its executor as it is, once, when the driver\'s liveness says it can finish', async (t) => {
       const { storage, repo } = await setup(t);
       const { taskHash: split, task, input } = await splitTask(t, storage, repo);
-      const plan = await planPieces(storage, repo, task.inputs, [input], pieceSizes());
+      const plan = await planPieces(storage, repo, task.inputs, [input], pieceSizes);
       assert.ok(plan.pieces.length > 2, `the input is cut into ${plan.pieces.length} pieces`);
       const unit = inputsHash(plan.pieces[0]!);
       const running = await recordRunningElsewhere(storage, repo, split, unit, true);
@@ -195,7 +195,7 @@ export function executionCacheTests(setup: BackendSetup): void {
     it('repairs a split task\'s unit the driver\'s liveness says cannot finish, and runs it again', async (t) => {
       const { storage, repo } = await setup(t);
       const { taskHash: split, task, input } = await splitTask(t, storage, repo);
-      const plan = await planPieces(storage, repo, task.inputs, [input], pieceSizes());
+      const plan = await planPieces(storage, repo, task.inputs, [input], pieceSizes);
       const unit = inputsHash(plan.pieces[0]!);
       await recordRunningElsewhere(storage, repo, split, unit, true);
 

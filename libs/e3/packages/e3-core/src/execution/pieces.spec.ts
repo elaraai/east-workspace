@@ -17,7 +17,7 @@ import {
   SortedMap, compareFor, decodeBeast2For, some, none, variant,
 } from '@elaraai/east';
 import { decodeCollectionManifest } from '@elaraai/e3-types';
-import { PIECE_SIZES, pieceBoundaries, pieceSizes, planPieces, type PieceSizes } from './pieces.js';
+import { PIECE_SIZES, pieceBoundaries, pieceSizes, pieceSizesFor, planPieces, type PieceSizes } from './pieces.js';
 // The local runner is the host that reads a test's piece size from this
 // process's environment: loaded, it says where pieceSizes reads it.
 import './LocalTaskRunner.js';
@@ -90,14 +90,85 @@ describe('the piece rule', () => {
     assert.ok(changed.length <= 3, `${changed.length} of ${now.length} pieces changed around a 6-segment insertion`);
   });
 
+  describe('at the sizes an input\'s weight gives it (#1108)', () => {
+    const MiB = 2 ** 20;
+    /** An input of `count` segments of `bytes` each, named by real SHA-256s. */
+    const input = (count: number, bytes: number, id = 'segment') =>
+      Array.from({ length: count }, (_, i) => ({ hash: createHash('sha256').update(`${id} ${i}`).digest('hex'), bytes: BigInt(bytes) }));
+    const weight = (list: readonly { bytes: bigint }[]): number => list.reduce((sum, e) => sum + Number(e.bytes), 0);
+    /** Each piece as the segments it holds, cut at the sizes the input's weight gives. */
+    const piecesOf = async (list: readonly { hash: string; bytes: bigint }[]): Promise<string[]> => {
+      const starts = (await pieceBoundaries(list, pieceSizesFor(weight(list)))).map((start) => start.seg);
+      return starts.map((start, p) => list.slice(start, starts[p + 1] ?? list.length).map((e) => e.hash).join());
+    };
+
+    it('cuts an input within 16 MiB into one piece, and mid-size data into tens', async () => {
+      // 1 MiB segments: 16 of them stay one piece, as they always did.
+      assert.equal((await piecesOf(input(16, MiB))).length, 1);
+      // 100 MiB: 4 MiB targets, where the platform's sizes made one or two pieces.
+      const mid = await piecesOf(input(100, MiB));
+      assert.ok(mid.length >= 14 && mid.length <= 40, `100 MiB is cut into ${mid.length} pieces`);
+      assert.ok((await pieceBoundaries(input(100, MiB), PIECE_SIZES)).length <= 2, 'the platform\'s sizes cut it into one or two');
+      // 3 GiB of 8 MiB segments: the platform's sizes, as before.
+      const large = input(384, 8 * MiB);
+      assert.deepEqual(await piecesOf(large), await (async () => {
+        const starts = (await pieceBoundaries(large, PIECE_SIZES)).map((start) => start.seg);
+        return starts.map((start, p) => large.slice(start, starts[p + 1] ?? large.length).map((e) => e.hash).join());
+      })());
+    });
+
+    it('holds each piece of a tier between its least and most, but for the last', async () => {
+      for (const [count, bytes] of [[300, MiB], [700, MiB], [1500, MiB]] as const) {
+        const list = input(count, bytes);
+        const sizes = pieceSizesFor(weight(list));
+        const starts = (await pieceBoundaries(list, sizes)).map((start) => start.seg);
+        starts.forEach((start, p) => {
+          const held = weight(list.slice(start, starts[p + 1] ?? list.length));
+          assert.ok(held <= sizes.max, `piece ${p} of ${count} MiB holds ${held / MiB} MiB, at most ${sizes.max / MiB}`);
+          if (p + 1 < starts.length) assert.ok(held >= sizes.min, `piece ${p} of ${count} MiB holds ${held / MiB} MiB, at least ${sizes.min / MiB}`);
+        });
+      }
+    });
+
+    it('moves only the pieces at its end when an append stays within the tier', async () => {
+      // 300 MiB and 301 MiB both cut at 8 MiB targets.
+      const before = input(300, MiB);
+      const after = [...before, ...input(1, MiB, 'appended')];
+      assert.equal(pieceSizesFor(weight(before)).target, pieceSizesFor(weight(after)).target);
+      const was = await piecesOf(before);
+      const now = await piecesOf(after);
+      const kept = new Set(was);
+      const changed = now.filter((piece) => !kept.has(piece));
+      assert.ok(was.length > 20, `the input spans many pieces, got ${was.length}`);
+      assert.ok(changed.length <= 2, `${changed.length} of ${now.length} pieces changed after an append`);
+      assert.deepEqual(now.slice(0, was.length - 1), was.slice(0, -1), 'every piece before the last stands');
+    });
+
+    it('cuts an input again once an append takes it into the next tier', async () => {
+      // 255 MiB cuts at 4 MiB targets, and 257 MiB at 8 MiB.
+      const before = input(255, MiB);
+      const after = [...before, ...input(2, MiB, 'appended')];
+      assert.equal(pieceSizesFor(weight(before)).target, 4 * MiB);
+      assert.equal(pieceSizesFor(weight(after)).target, 8 * MiB);
+      const was = await piecesOf(before);
+      const now = await piecesOf(after);
+      assert.ok(now.length < was.length, `${now.length} pieces at the next tier, ${was.length} before`);
+    });
+  });
+
   it('plans with the platform\'s sizes, and a test\'s through E3_TEST_PIECE_BYTES, which the local runner reads', () => {
     const saved = process.env.E3_TEST_PIECE_BYTES;
     try {
       delete process.env.E3_TEST_PIECE_BYTES;
       assert.deepEqual(pieceSizes(), PIECE_SIZES);
       assert.deepEqual(PIECE_SIZES, { min: 16 * 2 ** 20, target: 64 * 2 ** 20, max: 256 * 2 ** 20 });
+      // An input's own sizes follow its weight.
+      assert.deepEqual(pieceSizes(100 * 2 ** 20), pieceSizesFor(100 * 2 ** 20));
+      assert.equal(pieceSizes(100 * 2 ** 20).target, 4 * 2 ** 20);
       process.env.E3_TEST_PIECE_BYTES = '4096';
       assert.deepEqual(pieceSizes(), { min: 1024, target: 4096, max: 16384 });
+      // A test's sizes hold whatever the input weighs.
+      assert.deepEqual(pieceSizes(100 * 2 ** 20), { min: 1024, target: 4096, max: 16384 });
       process.env.E3_TEST_PIECE_BYTES = '1 MiB';
       assert.throws(() => pieceSizes(), /E3_TEST_PIECE_BYTES is '1 MiB': it is a whole number of bytes, at least 4/);
     } finally {
@@ -140,6 +211,22 @@ describe('planning the pieces of an input', () => {
       assert.deepEqual(await entriesOf(pieces[p]![0]!), [entries[p]], `piece ${p} names segment ${p} as it stands`);
     }
     assert.equal(await storeCollection(storage, repo, TableType, pieces.map(([piece]) => ({ stored: piece! }))), hash);
+  });
+
+  it('cuts at the sizes the primary\'s weight gives, and says which', async () => {
+    const hash = await datasetWrite(storage, repo, table(0, 8000), TableType);
+    const weighed: number[] = [];
+    const plan = await planPieces(storage, repo,
+      [{ path: [variant('field', 'sales')], partition: some({ by: [] }) }], [hash], (bytes) => {
+        weighed.push(bytes);
+        return EVERY_SEGMENT;
+      });
+    assert.deepEqual(weighed, [plan.primaryBytes], 'the rule is given what the primary weighs, once');
+    assert.equal(plan.sizes, EVERY_SEGMENT);
+    assert.ok(plan.pieces.length > 1);
+    // Fixed sizes are the sizes it cut at; with none given, the platform's rule.
+    assert.equal((await planPieces(storage, repo, [{ path: [variant('field', 'sales')], partition: some({ by: [] }) }], [hash], PIECE_SIZES)).sizes, PIECE_SIZES);
+    assert.deepEqual((await planPieces(storage, repo, [{ path: [variant('field', 'sales')], partition: some({ by: [] }) }], [hash])).sizes, pieceSizes(plan.primaryBytes));
   });
 
   it('plans one piece, the inputs themselves, when the input fits in one', async () => {

@@ -52,9 +52,12 @@ task or a unit each — and `--memory <size>` (`8G`, `512M`) what they may reser
 between them. The defaults are `E3_JOBS` and `E3_MEMORY`, else what e3 may use:
 its CPU affinity capped by a cgroup quota, and the cgroup's `memory.max` or
 physical memory, less a reserve. A unit of a split task reserves the largest
-peak a unit of its stage has reached in the run, so a stage runs its first unit
-alone and then fans out; on Linux and macOS a guard stops the newest unit when
-the runners together pass the budget, and runs it again once it fits. A deploy
+peak a unit of its stage has reached in the run. On Linux and macOS a guard
+stops the newest unit when the runners together pass the budget, and runs it
+again once it fits, so there a stage starts all its units at once, each
+reserving the task's last peak or, the first time, what the largest piece
+holds of its rows decoded, as its program reads them; on Windows a stage runs
+its first unit alone and then fans out. A deploy
 takes its `file` sources in `-j` at a time, their pieces' intake units running
 under the same budget. A source deploy, or a `watch`, exports the workspace
 packages its imported functions come from `-j` at a time, a process each, on

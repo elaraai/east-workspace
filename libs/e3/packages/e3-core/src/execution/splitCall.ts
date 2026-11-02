@@ -365,7 +365,7 @@ export async function splitCallExplain(
   call: SplitCallTask,
 ): Promise<SplitCallPlan> {
   const task = decodeTaskObject(await storage.objects.read(repo, call.task));
-  const plan = await withRunningWork(storage, repo, () => planPieces(storage, repo, task.inputs, [...call.inputs], pieceSizes()));
+  const plan = await withRunningWork(storage, repo, () => planPieces(storage, repo, task.inputs, [...call.inputs], pieceSizes));
   return { pieces: BigInt(plan.pieces.length), over: BigInt(plan.primary), bytes: BigInt(plan.primaryBytes) };
 }
 

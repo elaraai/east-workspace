@@ -42,10 +42,15 @@ export interface TaskExecuteOptions {
   /** Callback for stderr data */
   onStderr?: (data: string) => void;
   /** The memory, in bytes, the execution is expected to need: for a unit of a
-   *  split task, the largest peak a unit of its stage has reached in the run.
-   *  A local runner reserves it from its budget; a remote one may size the
-   *  unit's function by it. Absent while nothing has been measured. */
+   *  split task, the largest peak a unit of its stage has reached in the run,
+   *  or its stage's estimate where the run starts stages with one. A local
+   *  runner reserves it from its budget; a remote one may size the unit's
+   *  function by it. Absent while nothing has been measured or estimated. */
   expectedPeakBytes?: number;
+  /** Whether {@link expectedPeakBytes} is a guess from what the unit holds
+   *  of its rows decoded, which no run of its program measured: a local
+   *  runner reserves it, and does not cap the unit by it. Runtime-only. */
+  expectedPeakGuessed?: boolean;
   /** Called as each unit of a split task (a piece, or a merge of their
    *  outputs) starts, and as it succeeds. Runtime-only progress reporting. */
   onPartitionProgress?: (progress: PartitionProgress) => void;
