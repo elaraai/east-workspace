@@ -47,9 +47,10 @@ function sample(page: Page, holding: boolean): Promise<{ starting: number; still
             const doc = document.scrollingElement ?? document.documentElement;
             // An example draws once its East has compiled, or failed to; an e3
             // example once e3 has started, or failed to; a builder once its
-            // cold load is over and no read keeps its main busy (#1398) —
-            // unless the spec holds that read on purpose.
-            const busy = holding ? "" : ', [data-builder-frame] [data-frame-slot="main"][aria-busy="true"]';
+            // cold load is over and no read keeps its main busy (#1398), nor a
+            // Plan's row or card it shows reading its cells — unless the spec
+            // holds that read on purpose.
+            const busy = holding ? "" : ', [data-builder-frame] [data-frame-slot="main"][aria-busy="true"], [data-plan-plot][data-plan-unread], [data-plan-cardbody][data-plan-unread]';
             const waiting = document.querySelectorAll(`[data-east-compiling], [data-e3-start="starting"], [data-builder-loading]${busy}`).length
                 + [...document.querySelectorAll("[data-example-deferred]")].filter(el => {
                     const box = el.getBoundingClientRect();
@@ -100,8 +101,9 @@ function panesStill(page: Page): Promise<boolean> {
  * Resolves once the page has stopped laying itself out: the webfonts are
  * loaded, no example is still compiling its East behind its skeleton, no e3
  * example is waiting for the e3 the page runs to start (#849), no builder is
- * still loading or busy reading what it shows (its main `aria-busy`, unless
- * the spec holds that read: {@link SettleOptions}), visible deferred
+ * still loading or busy reading what it shows (its main `aria-busy`, or a
+ * Plan's row reading its cells, unless the spec holds that read:
+ * {@link SettleOptions}), visible deferred
  * previews have started, every virtualized row and the document's width
  * hold still across two frames, and then two more, and no builder's pane is
  * still sliding.

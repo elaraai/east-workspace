@@ -32,7 +32,7 @@ import { test, expect, type Locator, type Page } from "playwright/test";
 import { East, PatchType, SortedMap, StringType, compareFor, diffFor, encodeBeast2For, variant } from "@elaraai/east";
 import { SCHEDULE_EVENT_CAP } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-nested";
-import { heldE3, holdE3, installE3Faults, mutateE3, releaseE3 } from "./e3-faults";
+import { e3Requests, heldE3, holdE3, installE3Faults, mutateE3, releaseE3 } from "./e3-faults";
 import { drawnSel, openExample } from "./plan-page";
 import { settled } from "./settle";
 
@@ -383,7 +383,13 @@ function defineChecks(theme: "light" | "dark", tag: "@desktop" | "@mobile"): voi
         await expect(kind(WORKS)).toHaveAttribute(kindOf, "span");
         const before = await inView(entry, narrow);
         expect(Object.keys(before.rows).length).toBeGreaterThan(1);
+        // The works' cells read so far: once the page has heard the works move (`SHOWCASE_POLL_MS`), it reads them again.
+        const cellReads = async () => (await e3Requests(page)).filter((r) => r.dataset === WORKS_RECORD && (r.kind === "find" || r.kind === "runs")).length;
+        const readBefore = await cellReads();
         await crowd(page);
+        await expect.poll(cellReads).toBeGreaterThan(readBefore);
+        // Every row in view read again: the page at rest waits out each row still reading its cells.
+        await settled(page);
         // Hatched at a week: every works row in view shades, each at its place and its height.
         for (const id of Object.keys(before.rows)) {
             const row = entry.locator(`[${narrow ? "data-plan-card" : "data-plan-row"}=${JSON.stringify(id)}]`);
