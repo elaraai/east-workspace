@@ -167,10 +167,8 @@ def eager_entry(entry: dict[str, Any]) -> dict[str, Any] | None:
         "imports": [],
         "languages": ["python"],
         "python": "# The same example over East values: each eager method runs in east-c now.\n" + source,
-        "ir": None,
-        "ts": None,
-        "signature": None,
-        "inputs": None,
+        "signature": entry["signature"],
+        "inputs": entry.get("inputs"),
         "builtins": entry.get("builtins"),
     }
 
