@@ -559,9 +559,13 @@ export class SplitTask {
     }));
     split.running = true;
     // The log says which input the pieces were cut over: the partitioned
-    // input that weighs the most, whatever the order it is listed in.
+    // input that weighs the most, whatever the order it is listed in. An input
+    // with no path — a split call's, an index build's — is named by its
+    // position, 1-based, as the planner's errors name it.
     if (cut !== null) {
-      split.log(`plan pieces=${cut.pieces.length} over=${pathToString(task.inputs[cut.primary]!.path)} bytes=${cut.primaryBytes}\n`);
+      const path = task.inputs[cut.primary]!.path;
+      const over = path.length === 0 ? `input-${cut.primary + 1}` : pathToString(path);
+      split.log(`plan pieces=${cut.pieces.length} over=${over} bytes=${cut.primaryBytes}\n`);
     }
     split.logWave();
     return split;
