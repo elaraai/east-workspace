@@ -122,6 +122,13 @@ for (const theme of ["light", "dark"] as const) {
                 await expect(cell.locator("[data-slot=actionState]")).toHaveAttribute("data-case", "started");
                 await expect(cell.locator("[data-slot=actionNext]")).toHaveCount(0);
             });
+            await test.step("the action column in view at the frame's right edge, as wide as its state (X4)", async () => {
+                const frame = (await entry.locator("[data-frame-slot=main] [data-sheet-card]").boundingBox())!;
+                const box = (await cell.boundingBox())!;
+                expect(Math.round(box.width)).toBe(112);
+                expect(box.x).toBeGreaterThanOrEqual(frame.x);
+                expect(box.x + box.width).toBeLessThanOrEqual(frame.x + frame.width + 1);
+            });
             const bar = entry.locator("[data-sheet-action-bar]");
             await test.step("the action bar (X5, X6): the first full width, every target 44 tall", async () => {
                 await cell.tap();

@@ -147,7 +147,8 @@ export type SheetNotice =
     | { id: "proposalRejected"; to: string | undefined; from: string | undefined }
     | { id: "fillDismissed"; column: string }
     | { id: "deleted"; n: number; what: "rows" | "lines" | "groups"; noun: string | undefined; nouns: string | undefined; again: boolean }
-    | { id: "pasted"; rows: number; cols: number; skipped: number }
+    /** A paste: `actions` the action cells it passed by, which take no paste (T7), and `wrote` false when no cell took it. */
+    | { id: "pasted"; rows: number; cols: number; skipped: number; actions?: number | undefined; wrote?: boolean | undefined }
     | { id: "copied"; rows: number; cols: number }
     | { id: "newGroup"; noun: string | undefined }
     /** An issue gone to: where it is, as the sheet names it, and the issue — the note goes once the session no longer holds it. */

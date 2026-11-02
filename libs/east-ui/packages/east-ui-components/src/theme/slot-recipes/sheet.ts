@@ -534,6 +534,13 @@ export const sheetSlotRecipe = defineSlotRecipe({
             minWidth: "0",
             borderRightWidth: "1px",
             borderRightColor: "border.subtle",
+            // The action column's head, pinned with its cells on a phone's frame (#1479).
+            "&[data-kind=action]": {
+                "[data-sheet-card][data-phone] &": {
+                    position: "sticky", right: "0", zIndex: "1", backgroundColor: "inherit",
+                    boxShadow: "-1px 0 0 var(--chakra-colors-border-strong)",
+                },
+            },
         },
         headerLabel: {
             fontFamily: "mono",
@@ -819,6 +826,14 @@ export const sheetSlotRecipe = defineSlotRecipe({
             borderRightWidth: "1px",
             borderRightColor: "border.subtle",
             minWidth: "0",
+            // A phone's frame (#1479, X4): the action column stays in view at the frame's right edge as the columns
+            // scroll sideways, on its row's own surface — whatever wash the row wears — its gutter-like rule on its left.
+            "&[data-kind=action]": {
+                "[data-sheet-card][data-phone] &": {
+                    position: "sticky", right: "0", zIndex: "3", backgroundColor: "inherit",
+                    boxShadow: "-1px 0 0 var(--chakra-colors-border-strong)",
+                },
+            },
             // A cell's hover, but not on the row a drag rests on: the row's wash shows through (#1187).
             "&:is(:hover, [data-hover]):not([data-drop-active] > *, [data-drop-invalid] > *)": { background: "bg.panel" },
             // A conflict not yet chosen: the warn ring inside the cell, as the optimiser's highlight draws its own; selected,
@@ -1417,8 +1432,10 @@ export const sheetSlotRecipe = defineSlotRecipe({
             marginLeft: "6px",
             "&[data-quiet]": { opacity: "0.6" },
         },
+        // A band's title and its cells are inset as a line's cells are (10 px), so the ring clears their text and the
+        // title's editor opens over it where it stands (the hand retest of #1475).
         groupTitle: {
-            position: "relative", display: "flex", alignItems: "center", minWidth: "0",
+            position: "relative", display: "flex", alignItems: "center", minWidth: "0", paddingX: "10px",
             minHeight: "28px", cursor: "text", overflow: "visible",
             '&:has([data-slot=editorInput])': { width: "240px", flex: "0 0 240px" },
         },
@@ -1446,7 +1463,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             zIndex: "1",
         },
         groupCell: {
-            position: "relative", display: "flex", alignItems: "center", minWidth: "0", minHeight: "28px",
+            position: "relative", display: "flex", alignItems: "center", minWidth: "0", minHeight: "28px", paddingX: "10px",
             cursor: "default", overflow: "visible",
             // A conflict not yet chosen: the warn ring inside the cell; selected, just inside the selection's 2px of brand.
             ...conflictRingInset,

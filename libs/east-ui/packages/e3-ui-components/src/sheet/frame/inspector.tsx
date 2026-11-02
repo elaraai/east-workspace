@@ -65,6 +65,7 @@ import { NULL_CELL, cellText, indexRegisters, type SheetColumnMeta } from "../mo
 import type { SheetCellValue } from "../values.js";
 import { issueText, type SheetWords } from "../words.js";
 import { actionColumnOf } from "../actions/model.js";
+import { namesMember } from "../Rows.js";
 import type { SheetValue } from "./index.js";
 
 /** The inspector pane, decoded: its forms, and the author's own Details. */
@@ -357,6 +358,10 @@ function useTargetForm({ value, words, hidden, styles, inspect, target, form }: 
         const meta = key === undefined ? undefined : inspect.columnAt(r, key);
         // An action field: its state, the cases its row is offered, and a choice's or a form's inline (#1478).
         if (key !== undefined && meta?.kind === "action") return inspect.drawAction(r, key);
+        // A read-only field naming a register member says its label, as its cell does — never its key (F7 of the hand test).
+        if (key !== undefined && meta !== undefined && spec.editor.type === "readonly" && namesMember(meta)) {
+            return <Box css={styles.linkCell} data-inspector-member={key}>{inspect.drawCell(r, key)}</Box>;
+        }
         if (key === undefined || meta === undefined || (meta.kind !== "link" && meta.kind !== "set")) return undefined;
         const shown = !hidden.has(key);
         return (

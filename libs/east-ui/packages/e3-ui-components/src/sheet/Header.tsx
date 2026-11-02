@@ -73,7 +73,7 @@ export const SheetHeader = memo(function SheetHeader({ styles, columns, gridTemp
                 </Box>
             </Box>
             {columns.map((col, i) => (
-                <Box key={col.key} css={styles.headerCell} data-slot="headerCell" data-key={col.key} role="columnheader" aria-colindex={i + 2} title={col.sub}>
+                <Box key={col.key} css={styles.headerCell} data-slot="headerCell" data-key={col.key} data-kind={col.kind} role="columnheader" aria-colindex={i + 2} title={col.sub}>
                     <Box as="span" css={styles.headerLabel}>{col.header}</Box>
                     {col.sub !== undefined && <Box as="span" css={styles.headerSub}>{col.sub}</Box>}
                 </Box>

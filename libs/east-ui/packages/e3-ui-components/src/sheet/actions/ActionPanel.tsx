@@ -27,6 +27,7 @@ import type { SheetRegisterIndex } from "../model.js";
 import type { SheetCellValue } from "../values.js";
 import { ActionCell } from "./ActionCell.js";
 import { canTake, verbOf, type ActionCase, type ActionColumn } from "./model.js";
+import { emptyRequired, getAt, setAt } from "./form-check.js";
 import type { SheetActionHost } from "./host.js";
 
 /** What the inspector's action field takes beyond the cell's host. */
@@ -51,21 +52,6 @@ export interface ActionPanelProps {
     registers: SheetRegisterIndex;
 }
 
-/** A value with one field along a path set. */
-function setAt(value: unknown, path: readonly string[], to: unknown): unknown {
-    if (path.length === 0) return to;
-    const [head, ...rest] = path;
-    const at = (value ?? {}) as Record<string, unknown>;
-    return { ...at, [head!]: setAt(at[head!], rest, to) };
-}
-
-/** A field's value along a path. */
-function getAt(value: unknown, path: readonly string[]): unknown {
-    let at = value;
-    for (const name of path) at = at === undefined || at === null ? undefined : (at as Record<string, unknown>)[name];
-    return at;
-}
-
 /** Renders an action field in the inspector. */
 export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, column, cell, summary, registers }: ActionPanelProps) {
     const styles = useSlotStyles("sheetAction");
@@ -78,6 +64,9 @@ export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, 
     const [value, setValue] = useState<unknown>(undefined);
     const valueRef = useRef<unknown>(undefined);
     const [missing, setMissing] = useState(false);
+    // The inline form's element, whose inputs say a required field was emptied (F3 of the hand test), and that field.
+    const formRef = useRef<HTMLDivElement | null>(null);
+    const [emptied, setEmptied] = useState<FieldSpecValue | undefined>(undefined);
     const controls = host.controls(r, columnKey);
     const choose = (c: ActionCase) => {
         if (c.kind === "button") { api.take(r, columnKey, c, null); return; }
@@ -86,6 +75,7 @@ export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, 
         valueRef.current = form?.scalar === true ? { [c.name]: initial } : initial;
         setValue(valueRef.current);
         setMissing(false);
+        setEmptied(undefined);
         setOpen(open?.name === c.name ? undefined : c);
     };
     const onChange = useCallback((path: readonly string[], to: unknown) => {
@@ -107,11 +97,11 @@ export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, 
     const takeForm = () => {
         if (open === undefined) return;
         const now = valueRef.current;
-        if (specs.some((spec) => !spec.optional && getAt(now, spec.path) === undefined)) { setMissing(true); return; }
+        if (emptyRequired(specs, now, formRef.current) !== undefined) { setMissing(true); return; }
         if (api.take(r, columnKey, open, caseValue(now))) setOpen(undefined);
     };
     return (
-        <chakra.div data-inspector-action-field={columnKey}>
+        <chakra.div css={styles.panel} data-inspector-action-field={columnKey}>
             <chakra.div css={styles.panelState}>
                 <ActionCell column={column} summary={summary} offer={offer} controls={false} dirty={host.dirty(r, columnKey)}
                     selected={false} held={undefined} live={host.live(r, columnKey)} onNext={() => undefined} onMore={() => undefined} />
@@ -142,11 +132,14 @@ export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, 
                 </chakra.div>
             )}
             {open !== undefined && open.kind === "form" && (
-                <chakra.div css={styles.panelForm} data-inspector-action-form={open.name}>
+                <chakra.div ref={formRef} css={styles.panelForm} data-inspector-action-form={open.name}
+                    onInput={() => setEmptied(emptyRequired(specs, valueRef.current, formRef.current))}>
                     <FieldForm specs={specs} value={value} options={options} onChange={onChange} live />
                     {missing && <chakra.span css={styles.formError} role="alert">{m.issueRequired()}</chakra.span>}
                     <chakra.div css={styles.formFoot}>
-                        <chakra.span css={styles.formConsequence}>{api.consequence(r, columnKey, open, caseValue(value))}</chakra.span>
+                        <chakra.span css={styles.formConsequence}>
+                            {emptied !== undefined ? m.actionNeeds({ fields: [emptied.label] }) : api.consequence(r, columnKey, open, caseValue(value))}
+                        </chakra.span>
                         <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} onClick={() => setOpen(undefined)}>{m.actionFormCancel()}</chakra.button>
                         <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} data-inspector-take-form="" onClick={takeForm}>{open.label}</chakra.button>
                     </chakra.div>

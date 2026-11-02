@@ -30,6 +30,7 @@ import type { FieldSpecValue } from "@elaraai/east-ui/internal";
 import { useSheetWords } from "../words.js";
 import type { SheetRegisterIndex } from "../model.js";
 import { canTake, verbOf, type ActionCase } from "./model.js";
+import { emptyRequired, getAt, setAt } from "./form-check.js";
 import type { SheetActionHost } from "./host.js";
 import type { ActionPanelApi } from "./ActionPanel.js";
 
@@ -52,21 +53,6 @@ export interface ActionBarProps {
 /** The most cases the bar's buttons show before More… (X6). */
 const BAR_MAX = 4;
 
-/** A value with one field along a path set. */
-function setAt(value: unknown, path: readonly string[], to: unknown): unknown {
-    if (path.length === 0) return to;
-    const [head, ...rest] = path;
-    const at = (value ?? {}) as Record<string, unknown>;
-    return { ...at, [head!]: setAt(at[head!], rest, to) };
-}
-
-/** A field's value along a path. */
-function getAt(value: unknown, path: readonly string[]): unknown {
-    let at = value;
-    for (const name of path) at = at === undefined || at === null ? undefined : (at as Record<string, unknown>)[name];
-    return at;
-}
-
 /** What the bar shows: the row's buttons, the rest of them, or a case opened inside it. */
 type BarView = { kind: "buttons" } | { kind: "more" } | { kind: "choice"; c: ActionCase } | { kind: "form"; c: ActionCase };
 
@@ -82,6 +68,9 @@ export const ActionBar = memo(function ActionBar({ host, api, r, columnKey, name
     const [value, setValue] = useState<unknown>(undefined);
     const valueRef = useRef<unknown>(undefined);
     const [missing, setMissing] = useState(false);
+    // The bar's form, whose inputs say a required field was emptied (F3 of the hand test), and that field.
+    const formRef = useRef<HTMLDivElement | null>(null);
+    const [emptied, setEmptied] = useState<FieldSpecValue | undefined>(undefined);
     const onChange = useCallback((path: readonly string[], to: unknown) => {
         valueRef.current = setAt(valueRef.current, path, to);
         setValue(valueRef.current);
@@ -106,6 +95,7 @@ export const ActionBar = memo(function ActionBar({ host, api, r, columnKey, name
         valueRef.current = form?.scalar === true ? { [c.name]: initial } : initial;
         setValue(valueRef.current);
         setMissing(false);
+        setEmptied(undefined);
         setView({ kind: "form", c });
     };
     const caseButton = (c: ActionCase, first: boolean) => (
@@ -148,15 +138,18 @@ export const ActionBar = memo(function ActionBar({ host, api, r, columnKey, name
         const caseOf = (v: unknown): unknown => (form?.scalar === true ? getAt(v, [c.name]) : v);
         const takeForm = () => {
             const now = valueRef.current;
-            if (specs.some((spec) => !spec.optional && getAt(now, spec.path) === undefined)) { setMissing(true); return; }
+            if (emptyRequired(specs, now, formRef.current) !== undefined) { setMissing(true); return; }
             take(c, caseOf(now));
         };
         return (
-            <chakra.div key="form" css={styles.bar} data-sheet-action-bar="form" data-case={c.name}>
+            <chakra.div key="form" ref={formRef} css={styles.bar} data-sheet-action-bar="form" data-case={c.name}
+                onInput={() => setEmptied(emptyRequired(specs, valueRef.current, formRef.current))}>
                 {back}
                 <FieldForm specs={specs} value={value} options={options} onChange={onChange} live />
                 {missing && <chakra.span css={styles.formError} role="alert">{m.issueRequired()}</chakra.span>}
-                <chakra.span css={styles.barConsequence}>{api.consequence(r, columnKey, c, caseOf(value))}</chakra.span>
+                <chakra.span css={styles.barConsequence}>
+                    {emptied !== undefined ? m.actionNeeds({ fields: [emptied.label] }) : api.consequence(r, columnKey, c, caseOf(value))}
+                </chakra.span>
                 <chakra.div css={styles.barRest} data-bar-foot="" style={{ ["--action-rest" as string]: "2" }}>
                     <chakra.button type="button" css={[button({ variant: "outline", size: "md" }), styles.barButton]} onClick={() => setView({ kind: "buttons" })}>{m.actionFormCancel()}</chakra.button>
                     <chakra.button type="button" css={[button({ variant: "outline", size: "md" }), styles.barButton]} data-bar-take-form="" onClick={takeForm}>{c.label}</chakra.button>

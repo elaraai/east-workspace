@@ -639,6 +639,9 @@ interface SheetActionApi extends Omit<SheetActionHost, "subscribe" | "version"> 
 /** The dwell before the strip previews the action the pointer rests on, and the grace before it lets it go (P8, N5). */
 const PREVIEW_MS = 120;
 
+/** An action column's width in a phone's frame (X4): its state alone, as wide as a cell's next half — pinned at the frame's right edge. */
+const ACTION_PHONE_PX = 112;
+
 /** A row-space item's drop row, printed — what its drop cell's `CellRef` carries. */
 function dropText(item: SheetBodyItem): string | undefined {
     const row = dropRowOf(item);
@@ -736,15 +739,20 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // A frame too narrow for the touch gutter beside the first column folds it: one row-actions button holds each row's actions (#1215).
     const folded = gutterFolds(framePx, coarse, fullGutterPx, columns.list[0]?.width);
     const gutterPx = folded ? least.folded : fullGutterPx;
+    // A phone's frame (X4, X5): 560 wide or less — a frame not laid out yet (0 wide) is none. Its action cells show
+    // their state alone, in a column as wide as that, pinned at the frame's right edge, and the docked strip is the
+    // selected row's action bar.
+    const phoneFrame = framePx !== undefined && framePx > 0 && framePx <= 560;
+    const widthOf = useCallback((c: SheetColumnMeta): number => (phoneFrame && c.kind === "action" ? ACTION_PHONE_PX : c.width), [phoneFrame]);
     // The frame's slack goes to the TEXT columns, each capped at 2.5× its
     // width, and a trailing filler track takes the rest: a link or date
     // column keeps its declared width on a wide screen instead of stretching
     // to the frame.
     const gridTemplate = useMemo(() => {
-        const tracks = columns.list.map((c) => (c.kind === "text" ? `minmax(${c.width}px, ${Math.round(c.width * 2.5)}px)` : `${c.width}px`));
+        const tracks = columns.list.map((c) => (c.kind === "text" ? `minmax(${c.width}px, ${Math.round(c.width * 2.5)}px)` : `${widthOf(c)}px`));
         return `${gutterPx}px ${tracks.join(" ")} minmax(0, 1fr)`;
-    }, [gutterPx, columns]);
-    const minWidth = gutterPx + columns.totalWidth;
+    }, [gutterPx, columns, widthOf]);
+    const minWidth = gutterPx + columns.list.reduce((n, c) => n + widthOf(c), 0);
     const today = useMemo(() => todayUtc(), []);
 
     // Callbacks — taken from the latest value on every render.
@@ -1860,6 +1868,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     const laid = layoutPaste(matrix, columns.list, eff.c);
                     const writes: CellWrite[] = [];
                     let skipped = 0;
+                    // The action cells it passes by (T7): said apart, never as unrecognised (the hand test's F18).
+                    let actions = 0;
                     // On a grouped sheet a paste lands on the anchor's group — its lines from the ring, its blank line, then new lines past it — never across a band (G9).
                     const anchor = rowAt(eff.r);
                     const gid = group !== undefined && anchor !== undefined && (anchor.kind === "real" || anchor.kind === "blank") ? anchor.group?.row.id : undefined;
@@ -1872,8 +1882,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     for (const p of laid.cells) {
                         const meta = columns.list[p.c];
                         if (meta === undefined) continue;
-                        // An action cell takes no paste (T7): counted as skipped.
-                        if (meta.kind === "action") { skipped += 1; continue; }
+                        // An action cell takes no paste (T7).
+                        if (meta.kind === "action") { actions += 1; continue; }
                         const r = eff.r + p.dr;
                         const outcome = parseCell(meta, p.text, parseCtxFor(Math.min(r, blankR ?? r), meta));
                         const cell = outcome.kind === "unrecognised" ? variant("Invalid", p.text) : outcome.kind === "cell" ? outcome.cell : NULL_CELL;
@@ -1895,7 +1905,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     const wide = Math.max(1, laid.width);
                     dispatchStore({ t: "patch", patch: {
                         selEnd: { r: eff.r + matrix.length - 1, c: Math.min(colCount - 1, eff.c + wide - 1) },
-                        msg: { id: "pasted", rows: matrix.length, cols: matrix[0]?.length ?? 0, skipped },
+                        msg: { id: "pasted", rows: matrix.length, cols: matrix[0]?.length ?? 0, skipped, actions, wrote: writes.length > 0 },
                     } });
                     break;
                 }
@@ -2025,6 +2035,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const actedRef = useRef<(action: HistoryAction, redoOrigin: string | undefined) => void>(() => undefined);
     const executeHistory = useCallback((action: HistoryAction) => {
         actedRef.current(action, session.nextRedo?.origin);
+        // The footer's message said what the last gesture did: a step of the history moves past it (F13 of the hand test).
+        if (action !== "refresh") dispatchStore({ t: "patch", patch: { msg: null } });
         if (action === "apply") void session.apply();
         else if (action === "refresh") session.refresh();
         else session[action]();
@@ -3508,9 +3520,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const [actionPreview, setActionPreview] = useState<{ r: number; key: string; c: ActionCase } | undefined>(undefined);
     const previewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     useEffect(() => () => { if (previewTimer.current !== undefined) clearTimeout(previewTimer.current); }, []);
-    // A phone's frame (X4, X5): 560 wide or less — a frame not laid out yet (0 wide) is none. Its cells show their state
-    // alone, and the docked strip is the selected row's action bar.
-    const phoneFrame = framePx !== undefined && framePx > 0 && framePx <= 560;
     // Auto mode: each action saved as it is taken, its dot's echo running until the save is acknowledged (T5).
     const autoSave = value.editing.mode.type === "auto";
     const actionHost = useMemo<SheetActionHost>(() => ({
@@ -3683,6 +3692,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     };
     const closeOverlay = () => {
         setActionOverlay(undefined);
+        // What the overlay's items previewed goes with it, taken or not (P9; F2 of the hand retest).
+        if (previewTimer.current !== undefined) { clearTimeout(previewTimer.current); previewTimer.current = undefined; }
+        setActionPreview(undefined);
         // Focus goes back to the grid, whose ring is on the cell (K6) — unless another overlay took its place.
         queueMicrotask(() => { if (actionOverlayRef.current === undefined) cardRef.current?.focus({ preventScroll: true }); });
     };
@@ -3724,8 +3736,11 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             if (!canTake(offer)) return;
             const first = offer.offered[0];
             const cases = rs.length > 1 ? rangeOffer(rs, key).filter((c) => c.name !== first?.name) : offer.offered.slice(1);
-            // Nothing every row of a range is offered: no Menu (T8).
-            if (cases.length === 0) return;
+            // Nothing more every row of a range is offered: no Menu, and the footer says why (T8; F12 of the hand retest).
+            if (cases.length === 0) {
+                if (rs.length > 1) dispatchStore({ t: "patch", patch: { msg: { id: "text", text: words.m.actionRangeNothing() } } });
+                return;
+            }
             setActionOverlay({ kind: "menu", r, rs, key, part: "more", anchor, cases, head: words.m.actionMenuHead(actionHead(r, key)) });
         },
         preview: (r, key, c) => {
@@ -3825,7 +3840,13 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // column; with no row selected, the strip.
     const barKey = phoneFrame && ui.selEnd === null ? allColumns.list.find((col) => col.kind === "action")?.key : undefined;
     const barRow = barKey !== undefined ? actionAt(ui.sel.r, barKey) : undefined;
-    const barHead = barKey !== undefined && barRow !== undefined ? actionHead(ui.sel.r, barKey) : undefined;
+    // The bar's head names the step's group too — `WO-1042 · step 20` — as nothing else on a phone's screen may (X5; F17 of the hand test).
+    const barHeadOf = (r: number, key: string) => {
+        const head = actionHead(r, key);
+        const lg = actionAt(r, key)?.lg;
+        return lg === undefined || head.name === undefined ? head : { ...head, name: `${lg.row.id} · ${head.name}` };
+    };
+    const barHead = barKey !== undefined && barRow !== undefined ? barHeadOf(ui.sel.r, barKey) : undefined;
     // The inspector's action field (#1478): the same host and the same command as the grid's.
     const panelApi = useMemo<ActionPanelApi>(() => ({
         take: (r, key, c, value) => actionApi.current?.take(r, key, c, value) ?? false,
@@ -4801,6 +4822,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 data-sheet-card
                 // Where the gutter ends — what the seam lines start from — whether it folded (#1215), and how wide its number column is.
                 data-gutter={folded ? "folded" : undefined}
+                // A phone's frame (#1479): its action column pinned at the frame's right edge.
+                data-phone={phoneFrame && hasActions ? "" : undefined}
                 style={{ "--sheet-gutter": `${gutterPx}px`, "--sheet-number": `${numberPx}px` } as CSSProperties}
                 role="grid"
                 // Rows that stand in — a narrowing's last, or those a key's far jump holds — are retained (#1398, CL8,

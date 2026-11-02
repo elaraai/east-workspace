@@ -503,8 +503,8 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     noticeRowFillDismissed: () => string;
     /** Rows, lines or groups deleted — `again`: the group is left empty, ⌫ again removes it. */
     noticeDeleted: (p: { n: number; count: string; what: "rows" | "lines" | "groups"; noun: string; nouns: string; again: boolean }) => string;
-    /** A paste. */
-    noticePasted: (p: { rows: string; cols: string; n: number; skipped: string }) => string;
+    /** A paste — `wrote` whether any cell took it; `nActions` the action cells it passed by, which take no paste (T7). */
+    noticePasted: (p: { rows: string; cols: string; n: number; skipped: string; wrote: boolean; nActions: number; actions: string }) => string;
     /** A copy. */
     noticeCopied: (p: { rows: string; cols: string }) => string;
     /** A new row discarded. */
@@ -613,6 +613,10 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     actionFormCancel: () => string;
     /** What taking it writes (R5, F8) — `Sets Good 12 · Done 14:02`; nothing beside its field, `Sets nothing beside the action`. */
     actionSets: (p: { facts: readonly string[] }) => string;
+    /** What a form's foot says while a required field is empty, in place of what it sets — `Needs Good parts`. */
+    actionNeeds: (p: { fields: readonly string[] }) => string;
+    /** The footer's line for ▾ on a range whose rows share no further case (T8). */
+    actionRangeNothing: () => string;
     /** What a choice's preview says (R2) — `Pick a reason · sets …`. */
     actionPickReason: (p: { facts: readonly string[] }) => string;
     /** What a form's preview says (R2) — `Opens its form`. */
@@ -862,7 +866,9 @@ export const sheetMessages: SheetMessages = {
             : `${count} ${what === "lines" ? plural(n, "line", "lines") : plural(n, "row", "rows")}`;
         return `Deleted ${deleted}${again ? ` — ⌫ again removes the ${noun}` : ""}`;
     },
-    noticePasted: ({ rows, cols, n, skipped }) => `Pasted ${rows}×${cols} from clipboard${n > 0 ? ` · ${skipped} unrecognised` : ""}`,
+    noticePasted: ({ rows, cols, n, skipped, wrote, nActions, actions }) => (!wrote
+        ? `Nothing pasted${nActions > 0 ? " — an action cell takes no paste" : ""}`
+        : `Pasted ${rows}×${cols} from clipboard${n > 0 ? ` · ${skipped} unrecognised` : ""}${nActions > 0 ? ` · ${actions} action ${plural(nActions, "cell", "cells")} skipped` : ""}`),
     noticeCopied: ({ rows, cols }) => `Copied ${rows}×${cols} to clipboard`,
     noticeDiscarded: () => "Discarded new row",
     noticeNewRow: () => "New row",
@@ -963,6 +969,8 @@ export const sheetMessages: SheetMessages = {
     actionFormClose: () => "Close",
     actionFormCancel: () => "Cancel",
     actionSets: ({ facts }) => (facts.length === 0 ? "Sets nothing beside the action" : `Sets ${facts.join(" · ")}`),
+    actionNeeds: ({ fields }) => `Needs ${fields.join(", ")}`,
+    actionRangeNothing: () => "Nothing more is offered to every selected row",
     actionPickReason: ({ facts }) => (facts.length === 0 ? "Pick a reason" : `Pick a reason · sets ${facts.join(" · ")}`),
     actionOpensForm: () => "Opens its form",
     actionStripLabel: ({ verb, name }) => [verb ?? "Action", name].filter((t) => t !== undefined && t !== "").join(" · "),

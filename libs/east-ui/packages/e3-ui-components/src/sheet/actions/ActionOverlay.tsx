@@ -26,6 +26,7 @@ import type { FieldSpecValue } from "@elaraai/east-ui/internal";
 import { useSheetWords } from "../words.js";
 import type { SheetRegisterIndex } from "../model.js";
 import { verbOf, type ActionCase } from "./model.js";
+import { FIRST_CONTROL, emptyRequired, getAt, setAt } from "./form-check.js";
 
 /** The overlay open on an action cell, as its sheet holds it. */
 export type ActionOverlayState =
@@ -152,6 +153,11 @@ export const ActionMenu = memo(function ActionMenu({ state, registers, onTake, o
         return out;
     }, [direct, choices, registers, onForm, onTake, onClose]);
     useOutsideDismiss(insideOverlay, onClose);
+    // An item the pointer rests on goes from under it as the Menu closes, picked or not, and never says it left: the
+    // strip lets its preview go as the Menu does (P9; F2 of the hand retest).
+    const previewRef = useRef(onPreview);
+    previewRef.current = onPreview;
+    useEffect(() => () => previewRef.current?.(undefined), []);
     const anchor = state.anchor;
     // Under the control, its right edge on the control's, flipping above where it would pass the sheet's bottom (M6).
     const positioning = useMemo(() => ({
@@ -208,21 +214,6 @@ function formValueOf(c: ActionCase, value: unknown, scalar: boolean): unknown {
     return scalar ? { [c.name]: value } : value;
 }
 
-/** A value with one field along a path set. */
-function setAt(value: unknown, path: readonly string[], to: unknown): unknown {
-    if (path.length === 0) return to;
-    const [head, ...rest] = path;
-    const at = (value ?? {}) as Record<string, unknown>;
-    return { ...at, [head!]: setAt(at[head!], rest, to) };
-}
-
-/** A field's value along a path. */
-function getAt(value: unknown, path: readonly string[]): unknown {
-    let at = value;
-    for (const name of path) at = at === undefined || at === null ? undefined : (at as Record<string, unknown>)[name];
-    return at;
-}
-
 /** Props of {@link ActionForm}. */
 export interface ActionFormProps {
     state: Extract<ActionOverlayState, { kind: "form" }>;
@@ -269,19 +260,17 @@ export const ActionForm = memo(function ActionForm({ state, registers, consequen
     }, []);
     const caseOf = (v: unknown): unknown => (scalar ? getAt(v, [c.name]) : v);
     const caseValue = caseOf(value);
+    // A required field emptied as it is typed in: the foot says what it needs, never what a take it would refuse writes.
+    const [emptied, setEmptied] = useState<FieldSpecValue | undefined>(undefined);
+    const onInput = () => setEmptied(emptyRequired(specs, valueRef.current, bodyRef.current));
     const take = () => {
         const now = valueRef.current;
         // A required field left empty (F9): the popover stays, the focus on it.
-        // A field emptied as it is typed in is empty, whatever value it last told (F3 of the hand test).
-        const typedEmpty = (spec: FieldSpecValue) => {
-            const input = bodyRef.current?.querySelector<HTMLInputElement>(`[data-field="${spec.path.join(".")}"] input:not([type=radio]):not([type=checkbox])`);
-            return input !== null && input !== undefined && input.value.trim() === "";
-        };
-        const empty = specs.find((spec) => !spec.optional && (getAt(now, spec.path) === undefined || typedEmpty(spec)));
+        const empty = emptyRequired(specs, now, bodyRef.current);
         if (empty !== undefined) {
             const key = empty.path.join(".");
             setMissing(key);
-            bodyRef.current?.querySelector<HTMLElement>(`[data-field="${key}"] input, [data-field="${key}"] button`)?.focus();
+            bodyRef.current?.querySelector<HTMLElement>(`[data-field="${key}"] :is(${FIRST_CONTROL}, button)`)?.focus();
             return;
         }
         onTake(c, caseOf(now));
@@ -293,7 +282,8 @@ export const ActionForm = memo(function ActionForm({ state, registers, consequen
         let second = 0;
         const first = requestAnimationFrame(() => {
             second = requestAnimationFrame(() => {
-                const field = bodyRef.current?.querySelector<HTMLElement>("input, [role=radio], textarea");
+                // A date's first segment is its control (F1 of the hand retest).
+                const field = bodyRef.current?.querySelector<HTMLElement>(FIRST_CONTROL);
                 field?.focus({ preventScroll: true });
                 if (field instanceof HTMLInputElement) field.select();
             });
@@ -310,23 +300,29 @@ export const ActionForm = memo(function ActionForm({ state, registers, consequen
     return (
         <SliceEditPopover open onOpenChange={(open) => { if (!open) onClose(); }} anchor={null} hangFrom={hangFrom} still
             label={(
-                <>
+                <chakra.span css={styles.formLabel} data-slot="actionFormLabel">
                     <chakra.span css={styles.formEyebrow} data-slot="actionFormEyebrow">{m.actionFormEyebrow({ verb: c.label, name: state.name })}</chakra.span>
                     {state.meta !== undefined && <chakra.span css={styles.formMeta} data-slot="actionFormMeta">{state.meta}</chakra.span>}
-                </>
+                </chakra.span>
             )}
-            initialFocusEl={() => bodyRef.current?.querySelector<HTMLElement>("input, [role=radio], button") ?? null}
-            footLeft={<chakra.span css={styles.formConsequence} data-slot="actionConsequence">{consequence(c, caseValue)}</chakra.span>}
+            initialFocusEl={() => bodyRef.current?.querySelector<HTMLElement>(FIRST_CONTROL) ?? null}
+            footLeft={<chakra.span css={styles.formConsequence} data-slot="actionConsequence" title={emptied !== undefined ? undefined : consequence(c, caseValue)}>
+                {emptied !== undefined ? m.actionNeeds({ fields: [emptied.label] }) : consequence(c, caseValue)}
+            </chakra.span>}
             footActions={(
                 <>
                     <chakra.button type="button" css={[button({ variant: "outline", size: "xs" }), styles.formButton]} data-slot="actionCancel" onClick={onClose}>{m.actionFormCancel()}</chakra.button>
                     <chakra.button type="button" css={[button({ variant: "outline", size: "xs" }), styles.formButton]} data-slot="actionTake" onClick={take}>{c.label}</chakra.button>
                 </>
             )}>
-            <chakra.div ref={bodyRef} css={styles.formBody} data-sheet-action-form="" data-case={c.name}
-                onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
-                    // ⏎ in a field takes the action (K5, F9).
-                    if (event.key !== "Enter" || event.shiftKey || event.metaKey || event.ctrlKey) return;
+            <chakra.div ref={bodyRef} css={styles.formBody} data-sheet-action-form="" data-case={c.name} onInput={onInput}
+                // ⏎ in a field takes the action (K5, F9) — heard before the field, which may keep its own Enter (a date's
+                // segments do: F1 of the hand retest). A text area keeps its line breaks; an open list, its pick.
+                onKeyDownCapture={(event: KeyboardEvent<HTMLDivElement>) => {
+                    if (event.key !== "Enter" || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
+                    const at = event.target as HTMLElement;
+                    if (at.tagName === "TEXTAREA" || at.closest("[aria-expanded=true]") !== null) return;
+                    if (at.tagName === "BUTTON" && at.getAttribute("role") !== "radio") return;
                     event.preventDefault();
                     event.stopPropagation();
                     queueMicrotask(take);

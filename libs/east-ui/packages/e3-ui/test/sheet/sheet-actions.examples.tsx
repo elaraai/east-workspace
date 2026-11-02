@@ -263,13 +263,14 @@ export const sheetActionsTickets = example({
         <Reactive>{$ => {
             const tickets = $.let(Record.bind(sheetTickets));
             const crews = $.let(Data.bind(sheetCrews));
+            const crewList = $.let(crews.read());
             const open = ["acknowledged", "deferred", "handed_over", "closed"] as const;
             return (
                 <Box height="420px">
                     <Sheet
                         record={tickets}
                         name="sheetActionsTickets"
-                        registers={{ crews: Sheet.register.members(crews.read(), { kind: "crew", key: (_c, k) => k, label: c => c.name }) }}
+                        registers={{ crews: Sheet.register.members(crewList, { kind: "crew", key: (_c, k) => k, label: c => c.name }) }}
                         columns={{
                             title: Sheet.column.text(Ticket, { header: "Ticket", width: "220px" }),
                             crew: Sheet.column.reference(Ticket, "crews", { header: "Crew", width: "120px", editable: false }),
@@ -289,7 +290,8 @@ export const sheetActionsTickets = example({
                                     handed_over: {
                                         label: "Hand over", state: "Handed over", icon: "right-left", next: open,
                                         take: Sheet.action.menu({ of: "crews" }),
-                                        summary: (crew) => crew,
+                                        // The crew by its name, as the Crew column shows it: the value is its key.
+                                        summary: (crew) => crewList.get(crew, (_$2, key) => ({ name: key })).name,
                                         updates: (crew) => ({ row: Sheet.patch(Ticket, { crew }) }),
                                     },
                                     closed: { label: "Close", state: "Closed", tone: "success", icon: "check" },

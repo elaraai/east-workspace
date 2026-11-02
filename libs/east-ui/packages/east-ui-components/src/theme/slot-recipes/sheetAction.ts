@@ -62,8 +62,8 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
     slots: [
         "root", "zone", "state", "dot", "summary", "absent", "next", "icon", "caret", "more", "moreSpace",
         "menu", "menuHead", "menuKbd", "menuReason",
-        "form", "formHead", "formEyebrow", "formMeta", "formClose", "formBody", "formError", "formFoot", "formConsequence", "formButton",
-        "panelState", "panelActions", "panelChoices", "panelForm",
+        "form", "formHead", "formLabel", "formEyebrow", "formMeta", "formClose", "formBody", "formError", "formFoot", "formConsequence", "formButton",
+        "panel", "panelState", "panelActions", "panelChoices", "panelForm",
         "bar", "barHead", "barEyebrow", "barState", "barFirst", "barRest", "barButton", "barConsequence", "barBack", "barChoice",
     ],
     base: {
@@ -184,8 +184,8 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
         },
         /* Where a column's ▾ part stands on a row offered one case: kept, so the next halves line up down the column (F16 of the hand test). */
         moreSpace: { flex: "none", width: "24px" },
-        /* The menu card (M1, M7): 240 wide, appearing at once. */
-        menu: { minWidth: "240px", animation: "none" },
+        /* The menu card (M1, M7): 240 wide, appearing at once — the Menu recipe's open state animates it, so that state too (F9 of the hand retest). */
+        menu: { minWidth: "240px", animation: "none", _open: { animation: "none", animationName: "none", animationDuration: "0s" } },
         /* The menu: a group's head (M2), a direct action's Kbd cap and a disabled item's reason (M3, M4). */
         menuHead: {
             height: "24px",
@@ -237,6 +237,8 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             borderBottomStyle: "solid",
             borderBottomColor: "border.subtle",
         },
+        /* The form's label: its eyebrow, then the row's words beside it, on one line (F11 of the hand retest). */
+        formLabel: { display: "flex", alignItems: "baseline", gap: "8px", minWidth: 0 },
         formEyebrow: {
             flex: "none",
             fontFamily: "mono",
@@ -293,6 +295,8 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             borderRadius: "md",
             background: "bg.surface",
         },
+        /* The inspector's field: inside the pane's width, as the form it holds (#1478, F8 of the hand retest). */
+        panel: { minWidth: 0, maxWidth: "100%" },
         panelActions: { minWidth: 0, display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px", marginTop: "8px", "& svg": { fontSize: "12px" } },
         panelChoices: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "4px", marginTop: "8px" },
         panelForm: {

@@ -333,3 +333,90 @@ test("facts name a register member by its label and the band by its group, in th
     await press(nextOf(cell)!);
     expect(slot(container, "footer")!.textContent).toContain("set WO-1043 In progress");
 });
+
+test("a date form holds the focus in its first segment, and ⏎ there takes it (hand retest 1, F1)", async () => {
+    const { container } = await h.mount(ex.sheetActionsTickets);
+    await press(cellOf(container, "T-301", "action").querySelector('[data-slot="actionMore"]')!);
+    await pick(within(document.querySelector<HTMLElement>("[data-sheet-action-menu]")!).getByRole("menuitem", { name: /Defer…/ }));
+    await act(async () => { await new Promise<void>((resolve) => { setTimeout(resolve, 60); }); });
+    await settle();
+    const form = document.querySelector<HTMLElement>("[data-sheet-action-form]")!;
+    const segment = form.querySelector<HTMLElement>("[role=spinbutton]")!;
+    expect(document.activeElement).toBe(segment);
+    fireEvent.keyDown(segment, { key: "Enter" });
+    await settle();
+    expect(document.querySelector("[data-sheet-action-form]")).toBeNull();
+    expect(stateOf(cellOf(container, "T-301", "action"))).toBe("deferred");
+});
+
+test("a Menu item's preview goes as the Menu closes, picked or not: the strip says the ring's cell again (hand retest 2, P9)", async () => {
+    const { container } = await h.mount(ex.sheetActionsTickets);
+    await press(cellOf(container, "T-301", "action").querySelector('[data-slot="actionMore"]')!);
+    const item = within(document.querySelector<HTMLElement>("[data-sheet-action-menu]")!).getByRole("menuitem", { name: /Defer…/ });
+    fireEvent.pointerEnter(item);
+    await dwell();
+    expect(strip(container).label).toBe("Defer… · Spindle noise");
+    const undo = within(slot(container, "toolbar")!).getByRole("button", { name: "Undo" });
+    await act(async () => { fireEvent.pointerDown(undo); fireEvent.mouseDown(undo); fireEvent.mouseUp(undo); fireEvent.click(undo); });
+    await settle();
+    expect(document.querySelector("[data-sheet-action-menu]")).toBeNull();
+    await dwell();
+    expect(strip(container).label).toBe("Action · Spindle noise");
+});
+
+test("on a phone the bar's form refuses an emptied required field, its foot saying what it needs (hand test F3, retest 12)", async () => {
+    const restore = touchFrame(390);
+    try {
+        const { container } = await h.mount(ex.sheetActionsWorkOrders);
+        fireEvent.mouseDown(lineCell(container, "WO-1042", "1", "action"), { button: 0 });
+        await settle();
+        await press(bar(container)!.querySelector('[data-bar-take="reported"]')!);
+        const input = bar(container)!.querySelector<HTMLInputElement>("input")!;
+        const user = userEvent.setup();
+        await user.clear(input);
+        await settle();
+        expect(bar(container)!.textContent).toContain("Needs Good parts");
+        await press(bar(container)!.querySelector("[data-bar-take-form]")!);
+        expect(bar(container)!.getAttribute("data-sheet-action-bar")).toBe("form");
+        expect(stateOf(lineCell(container, "WO-1042", "1", "action"))).toBe("started");
+    } finally { restore(); }
+});
+
+test("a paste over an action cell says so, never that it pasted (hand test F18)", async () => {
+    const { container } = await h.mount(ex.sheetActionsBasic);
+    fireEvent.mouseDown(cellOf(container, "J-0002", "state"), { button: 0 });
+    await settle();
+    await act(async () => { fireEvent.paste(card(container), { clipboardData: { getData: () => "finished" } }); });
+    await settle();
+    expect(slot(container, "footer")!.textContent).toContain("Nothing pasted — an action cell takes no paste");
+});
+
+test("▾ on a range whose rows share no further case opens no Menu, and the footer says why (T8, hand test F12)", async () => {
+    const { container } = await h.mount(ex.sheetActionsWorkOrders);
+    // WO-1044: step 20 is alerted, offered Start and Complete; step 10 is verified, offered nothing.
+    fireEvent.mouseDown(lineCell(container, "WO-1044", "1", "action"), { button: 0 });
+    fireEvent.mouseDown(lineCell(container, "WO-1044", "0", "action"), { button: 0, shiftKey: true });
+    await settle();
+    await press(lineCell(container, "WO-1044", "1", "action").querySelector('[data-slot="actionMore"]')!);
+    expect(document.querySelector("[data-sheet-action-menu]")).toBeNull();
+    expect(slot(container, "footer")!.textContent).toContain("Nothing more is offered to every selected row");
+});
+
+test("handed over to a crew, the cell's summary names the crew by its label (hand test F7)", async () => {
+    const { container } = await h.mount(ex.sheetActionsTickets);
+    await press(cellOf(container, "T-302", "action").querySelector('[data-slot="actionMore"]')!);
+    await pick(within(document.querySelector<HTMLElement>("[data-sheet-action-menu]")!).getByRole("menuitem", { name: "Night crew" }));
+    const cell = cellOf(container, "T-302", "action");
+    expect(stateOf(cell)).toBe("handed_over");
+    expect(cell.querySelector('[data-slot="actionSummary"]')?.textContent).toBe("Night crew");
+});
+
+test("the inspector's read-only Status says the member's label, as the band's cell does (hand test F7)", async () => {
+    const { container } = await h.mount(ex.sheetActionsWorkOrders);
+    fireEvent.mouseDown(bandCell(container, "WO-1042", "$title"), { button: 0 });
+    await settle();
+    const details = slot(container, "end")!.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+    const status = details.querySelector<HTMLElement>('[data-field="status"]')!;
+    expect(status.textContent).toContain("In progress");
+    expect(status.textContent).not.toContain("in_progress");
+});
