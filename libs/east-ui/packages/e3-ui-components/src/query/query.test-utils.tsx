@@ -61,12 +61,15 @@ export const TOLD = "query-library-test.told";
 
 /** A one-shot call: what a run of one call, or a summary, sends. */
 export const isRun: E3Match = (request) => request.kind === "one-shot";
-/** A split call's launch (#941). */
-export const isSplitLaunch: E3Match = (request) => request.kind === "split" && request.method === "POST" && request.query.get("explain") !== "1";
+/** A split call's launch (#941): a POST that names no job. */
+export const isSplitLaunch: E3Match = (request) => request.kind === "split" && request.method === "POST" && request.name === undefined && request.query.get("explain") !== "1";
 /** The launch of a split call's explain (#1132). */
-export const isExplain: E3Match = (request) => request.kind === "split" && request.method === "POST" && request.query.get("explain") === "1";
+export const isExplain: E3Match = (request) => request.kind === "split" && request.method === "POST" && request.name === undefined && request.query.get("explain") === "1";
 /** A poll of a split call's job, or of an explain's: of one job's, when given. */
 export const isPoll = (job?: string): E3Match => (request) => request.kind === "split" && request.method === "GET" && (job === undefined || request.name === job);
+/** The cancel of a split call's job, or of an explain's (#1104): of one job's, when given. */
+export const isCancel = (job?: string): E3Match => (request) =>
+    request.kind === "split" && request.method === "POST" && request.name !== undefined && (job === undefined || request.name === job);
 
 /**
  * The root the history builder's data sources give ({@link QueryHarness.mountHistory}): the

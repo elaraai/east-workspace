@@ -25,7 +25,9 @@
  * call — a program over a dataset's pieces — is launched, explained and polled
  * by a reader, under the same rule; it is found only through the repository
  * and workspace that launched it, and a reader never polls one only an
- * elevated grant could launch.
+ * elevated grant could launch. Whoever may poll a split call may cancel it: a
+ * running one answers `cancelled` from then on, and one that has ended is left
+ * as it ended.
  */
 
 import { describe, it } from 'node:test';
@@ -70,6 +72,7 @@ import {
   workspaceFunctionList,
   oneShotExecute,
   splitCall,
+  splitCallCancel,
   splitCallExplain,
   splitCallLaunch,
   splitCallStatus,
@@ -83,7 +86,7 @@ import {
 import {
   ExecuteResultType, PermissionDeniedErrorType, TreePathType, WorkspaceNotDeployedErrorType, WorkspaceNotFoundErrorType, type TreePath,
 } from '@elaraai/e3-types';
-import { Console } from '@elaraai/east-node-std';
+import { Console, Time } from '@elaraai/east-node-std';
 
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
@@ -179,6 +182,29 @@ const emitEachPrice = East.function([PricesType, FunctionType([IntegerType], Nul
 
 /** `prices`, as a split call's argument cut into pieces. */
 const PRICES_PIECES: SplitCallRequest['args'][number] = { arg: variant('dataset', PRICES_PATH), partition: some({ by: [] }) };
+
+/** A split call's program whose every piece sleeps 30 s first, on east-node
+ *  given east-node-std: only an elevated grant launches it. */
+const sleepingSplit: SplitCallRequest = {
+  ...splitOf(East.asyncFunction([PricesType, FunctionType([IntegerType], NullType)], NullType, ($, prices, emit) => {
+    $(Time.sleep(30_000n));
+    $.for(prices, ($, price) => {
+      $(emit(price));
+    });
+  }), [PRICES_PIECES], variant('array', null)),
+  runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
+};
+
+/** A refusal of a split call a workspace did not launch: `internal`, naming
+ *  the workspace and the id. */
+function noSplitCall(ws: string, id: string): (err: unknown) => boolean {
+  return (err) => {
+    assert.ok(err instanceof ApiError, `${ws}: expected an ApiError`);
+    assert.equal(err.code, 'internal', ws);
+    assert.equal((err.details as { message: string }).message, `workspace '${ws}' has no split call '${id}'`);
+    return true;
+  };
+}
 
 /** A split call's status once its job has ended, polled as the client's
  *  `splitCall` polls it. */
@@ -873,6 +899,82 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       const ended = await splitCallEnded(ctx, 'split-elevated-ws', id, opts);
       if (ended.type !== 'completed') assert.fail(`the call ended ${ended.type}`);
       assertValue(ended.value.result, ArrayType(IntegerType), [1n, 2n, 3n]);
+    });
+
+    it('an admin cancels a running split call: the cancel answers cancelled, and so does every poll after it', async (t) => {
+      const ctx = await withFunctions(t);
+      const opts = await ctx.opts();
+      const base = ctx.config.baseUrl;
+
+      await ctx.createWorkspace('split-cancel-ws');
+      await ctx.deployPackage('split-cancel-ws', `${PKG}@${VERSION}`);
+      const { id } = await splitCallLaunch(base, ctx.repoName, 'split-cancel-ws', sleepingSplit, opts);
+      const running = await splitCallStatus(base, ctx.repoName, 'split-cancel-ws', id, opts);
+      assert.equal(running.type, 'processing', 'its pieces sleep 30 s');
+
+      assert.equal((await splitCallCancel(base, ctx.repoName, 'split-cancel-ws', id, opts)).type, 'cancelled');
+      for (let poll = 0; poll < 3; poll++) {
+        assert.equal((await splitCallStatus(base, ctx.repoName, 'split-cancel-ws', id, opts)).type, 'cancelled', `poll ${poll + 1}`);
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+      assert.equal((await splitCallCancel(base, ctx.repoName, 'split-cancel-ws', id, opts)).type, 'cancelled', 'cancelled again, it stays so');
+    });
+
+    it('cancelling a split call that has ended leaves it as it ended: a completed one answers its result', async (t) => {
+      const ctx = await withFunctions(t);
+      const opts = await ctx.opts();
+
+      await ctx.createWorkspace('split-ended-ws');
+      await ctx.deployPackage('split-ended-ws', `${PKG}@${VERSION}`);
+      const { id } = await splitCallLaunch(ctx.config.baseUrl, ctx.repoName, 'split-ended-ws', splitOf(emitEachPrice, [PRICES_PIECES], variant('array', null)), opts);
+      const ended = await splitCallEnded(ctx, 'split-ended-ws', id, opts);
+      if (ended.type !== 'completed') assert.fail(`the call ended ${ended.type}`);
+
+      const after = await splitCallCancel(ctx.config.baseUrl, ctx.repoName, 'split-ended-ws', id, opts);
+      if (after.type !== 'completed') assert.fail(`the cancel answered ${after.type}`);
+      assertValue(after.value.result, ArrayType(IntegerType), [1n, 2n, 3n]);
+    });
+
+    it('a reader cancels its own platform-free split call, and is refused the cancel of one only an elevated grant could launch', async (t) => {
+      const ctx = await withFunctions(t);
+      const opts = await ctx.opts();
+      const reader = await ctx.readerOpts();
+      const base = ctx.config.baseUrl;
+
+      await ctx.createWorkspace('split-reader-cancel-ws');
+      await ctx.deployPackage('split-reader-cancel-ws', `${PKG}@${VERSION}`);
+      // A platform-free program sleeps on no platform, and may end before
+      // the cancel comes: either way it is the reader's to cancel. (One that
+      // counts for ever would hold a host that runs units on its own thread.)
+      const own = await splitCallLaunch(base, ctx.repoName, 'split-reader-cancel-ws', splitOf(emitEachPrice, [PRICES_PIECES], variant('array', null)), reader);
+      const ownAfter = await splitCallCancel(base, ctx.repoName, 'split-reader-cancel-ws', own.id, reader);
+      assert.ok(ownAfter.type === 'cancelled' || ownAfter.type === 'completed', `the reader's cancel answered ${ownAfter.type}`);
+      assert.equal((await splitCallStatus(base, ctx.repoName, 'split-reader-cancel-ws', own.id, reader)).type, ownAfter.type,
+        'and the call stays as the cancel left it');
+
+      const elevated = await splitCallLaunch(base, ctx.repoName, 'split-reader-cancel-ws', sleepingSplit, opts);
+      await assert.rejects(splitCallCancel(base, ctx.repoName, 'split-reader-cancel-ws', elevated.id, reader),
+        oneShotRefusal('a reader cancelling a call on a runner given a platform package'));
+      assert.equal((await splitCallStatus(base, ctx.repoName, 'split-reader-cancel-ws', elevated.id, opts)).type, 'processing',
+        'the refused cancel left it running');
+      assert.equal((await splitCallCancel(base, ctx.repoName, 'split-reader-cancel-ws', elevated.id, opts)).type, 'cancelled');
+    });
+
+    it('a split call is cancelled only through the workspace that launched it', async (t) => {
+      const ctx = await withFunctions(t);
+      const opts = await ctx.opts();
+      const base = ctx.config.baseUrl;
+
+      await ctx.createWorkspace('split-cancel-own-ws');
+      await ctx.deployPackage('split-cancel-own-ws', `${PKG}@${VERSION}`);
+      await ctx.createWorkspace('split-cancel-other-ws');
+      await ctx.deployPackage('split-cancel-other-ws', `${PKG}@${VERSION}`);
+      const { id } = await splitCallLaunch(base, ctx.repoName, 'split-cancel-own-ws', sleepingSplit, opts);
+
+      await assert.rejects(splitCallCancel(base, ctx.repoName, 'split-cancel-other-ws', id, opts), noSplitCall('split-cancel-other-ws', id));
+      assert.equal((await splitCallStatus(base, ctx.repoName, 'split-cancel-own-ws', id, opts)).type, 'processing',
+        'another workspace\'s cancel left it running');
+      assert.equal((await splitCallCancel(base, ctx.repoName, 'split-cancel-own-ws', id, opts)).type, 'cancelled');
     });
 
   });
