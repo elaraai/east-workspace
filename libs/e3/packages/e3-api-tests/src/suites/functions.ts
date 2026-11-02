@@ -27,7 +27,8 @@
  * and workspace that launched it, and a reader never polls one only an
  * elevated grant could launch. Whoever may poll a split call may cancel it: a
  * running one answers `cancelled` from then on, and one that has ended is left
- * as it ended.
+ * as it ended. One whose value is over its result limit answers `too_large`
+ * and names its output, which its reader reads a window at a time.
  */
 
 import { describe, it } from 'node:test';
@@ -47,8 +48,10 @@ import {
   decodeBeast2For,
   encodeEastIR,
   equalFor,
+  isTypeValueEqual,
   isValueOf,
   printFor,
+  toEastTypeValue,
   variant,
   some,
   none,
@@ -71,6 +74,7 @@ import {
   workspaceFunctionDescribe,
   workspaceFunctionList,
   oneShotExecute,
+  collectionOpen,
   splitCall,
   splitCallCancel,
   splitCallExplain,
@@ -126,7 +130,12 @@ function successValue(result: ExecuteResult): bigint {
 /** Asserts a result succeeded with `expected`. */
 function assertValue<T extends EastType>(result: ExecuteResult, type: T, expected: ValueTypeOf<T>): void {
   if (result.outcome.type !== 'success') assert.fail(`expected success, got ${result.outcome.type}: ${result.stderr}`);
-  const value = decodeBeast2For(type)(result.outcome.value.value);
+  assertHolds(type, result.outcome.value.value, expected);
+}
+
+/** Asserts `data` is the BEAST2 of `expected`, a value of `type`. */
+function assertHolds<T extends EastType>(type: T, data: Uint8Array, expected: ValueTypeOf<T>): void {
+  const value = decodeBeast2For(type)(data);
   assert.ok(equalFor(type)(value, expected), `the value is ${printFor(type)(value)}, expected ${printFor(type)(expected)}`);
 }
 
@@ -917,6 +926,28 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       if (again.report === null) assert.fail('the call again reported nothing');
       assert.deepEqual([again.report.pieces, again.report.ran, again.report.cached], [first.report.pieces, 0n, 0n]);
       assertValue(again.result, ArrayType(IntegerType), [1n, 2n, 3n]);
+    });
+
+    it('a split call over its result limit answers too_large and names its output, which its reader opens and reads a window at a time', async (t) => {
+      const ctx = await withFunctions(t);
+      const reader = await ctx.readerOpts();
+
+      await ctx.createWorkspace('split-large-ws');
+      await ctx.deployPackage('split-large-ws', `${PKG}@${VERSION}`);
+      const answer = await splitCall(ctx.config.baseUrl, ctx.repoName, 'split-large-ws', {
+        ...splitOf(emitEachPrice, [PRICES_PIECES], variant('array', null)),
+        limits: some({ timeoutMs: none, maxResultBytes: some(8n), maxLogBytes: none }),
+      }, reader);
+      assert.equal(answer.result.outcome.type, 'too_large', `the call answered ${answer.result.outcome.type}: ${answer.result.stderr}`);
+      if (answer.output === null) assert.fail('the answer names no output');
+
+      const remote = await collectionOpen(ctx.config.baseUrl, ctx.repoName, answer.output, reader);
+      assert.ok(isTypeValueEqual(remote.type, toEastTypeValue(ArrayType(IntegerType))), 'an Array of Integer');
+      assert.equal(remote.totalElements, 3);
+      assertHolds(ArrayType(IntegerType), (await remote.page({ offset: 0, limit: remote.totalElements })).data, [1n, 2n, 3n]);
+      const rest = await remote.page({ offset: 1, limit: 10 });
+      assert.deepEqual([rest.offset, rest.count], [1, 2]);
+      assertHolds(ArrayType(IntegerType), rest.data, [2n, 3n]);
     });
 
     it('an admin cancels a running split call: the cancel answers cancelled, and so does every poll after it', async (t) => {

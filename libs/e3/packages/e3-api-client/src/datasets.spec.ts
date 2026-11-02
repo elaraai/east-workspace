@@ -32,19 +32,24 @@
  * commit, say — reads it through the same calls: `objectGet` for one object,
  * `collectionGetStream` for a collection by its manifest's hash, and
  * `parsePage` for a page of it, which `datasetGetPage` reads its own with.
+ *
+ * `collectionOpen` opens a collection by its manifest's hash — a split call's
+ * output over its result limit — to read it a window at a time (#1106): each
+ * window is the decoded whole's, fetched from only the segments it overlaps.
  */
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  Beast2ManifestWriter, DictType, IntegerType, SortedMap, StringType, compareFor, decodeCollectionManifest, encodeBeast2PagedFor, encodeCollectionManifest,
-  sha256Hex, variant,
+  ArrayType, Beast2ManifestWriter, DictType, IntegerType, SetType, SortedMap, SortedSet, StringType, compareFor, decodeBeast2For, decodeCollectionManifest,
+  encodeBeast2For, encodeBeast2PagedFor, encodeCollectionManifest, equalFor, isTypeValueEqual, printFor, sha256Hex, toEastTypeValue, variant,
+  type Beast2ElementOf, type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
 import { datasetFindKey, datasetGet, datasetGetPage, datasetGetStream } from './datasets.js';
 import { ApiError, AuthError, DatasetHashMismatchError } from './http.js';
 // Through the root entry, as a host reaches them.
-import { collectionGetStream, objectGet, parsePage } from './index.js';
+import { collectionGetStream, collectionOpen, objectGet, parsePage } from './index.js';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -163,6 +168,27 @@ describe('datasetFindKey', () => {
   });
 });
 
+/** A collection of `type` holding `elements` (a Dict's pairs), as a server
+ *  stores it: every object by its hash, the manifest's own among them. */
+function storedElements<T extends EastType>(
+  type: T,
+  elements: Iterable<Beast2ElementOf<T>>,
+): { objects: Map<string, Uint8Array>; manifest: string; segments: string[] } {
+  const objects = new Map<string, Uint8Array>();
+  let manifest = '';
+  const writer = new Beast2ManifestWriter(type, {
+    object: (hash, bytes) => objects.set(hash, bytes),
+    manifest: (bytes) => {
+      manifest = sha256Hex(bytes);
+      objects.set(manifest, bytes);
+    },
+  });
+  for (const element of elements) writer.add(element);
+  writer.finish();
+  const segments = decodeCollectionManifest(objects.get(manifest)!).entries.map((entry) => entry.hash);
+  return { objects, manifest, segments };
+}
+
 /** A collection as a server stores it — every object by its hash, the
  *  manifest's own among them — and the blob its splice is: `length` keys,
  *  each holding its index plus `first`, so another `first` is another value. */
@@ -173,19 +199,7 @@ function storedCollection(
   const value = new SortedMap(
     Array.from({ length }, (_, i) => [`k${String(i).padStart(6, '0')}`, BigInt(first + i)] as [string, bigint]),
     compareFor(StringType));
-  const objects = new Map<string, Uint8Array>();
-  let manifest = '';
-  const writer = new Beast2ManifestWriter(type, {
-    object: (hash, bytes) => objects.set(hash, bytes),
-    manifest: (bytes) => {
-      manifest = sha256Hex(bytes);
-      objects.set(manifest, bytes);
-    },
-  });
-  for (const entry of value.entries()) writer.add(entry);
-  writer.finish();
-  const segments = decodeCollectionManifest(objects.get(manifest)!).entries.map((entry) => entry.hash);
-  return { objects, manifest, segments, blob: encodeBeast2PagedFor(type)(value) };
+  return { ...storedElements(type, value.entries()), blob: encodeBeast2PagedFor(type)(value) };
 }
 
 /** A `fetch` serving a dataset route naming `manifest`, and an objects route
@@ -477,9 +491,12 @@ describe('a read of a dataset that moves while it is read', () => {
     await assert.rejects(collectionGetStream(BASE, 'r', levelledHash, { token: null, fetch: server.fetch }), { message: refusal });
     assert.deepEqual(server.requests.map((request) => request.url), [`${BASE}/api/repos/r/objects/${levelledHash}`], 'the manifest alone is read');
 
-    // A dataset holding one is refused the same way.
+    // A dataset holding one is refused the same way, and so is its opening.
     await assert.rejects(datasetGet(BASE, 'r', 'ws', lookupPath, { token: null, fetch: collectionServer(levelledHash, objects, new Set()).fetch }),
       { message: refusal });
+    const opening = collectionServer(levelledHash, objects, new Set());
+    await assert.rejects(collectionOpen(BASE, 'r', levelledHash, { token: null, fetch: opening.fetch }), { message: refusal });
+    assert.deepEqual(opening.requests.map((request) => request.url), [`${BASE}/api/repos/r/objects/${levelledHash}`]);
   });
 });
 
@@ -555,5 +572,130 @@ describe('a stored value, by its hash', () => {
     assert.deepEqual(await parsePage(new Response(new Uint8Array(), { status: 200, headers: { 'X-Total-Exactness': 'upper-bound' } })), {
       data: new Uint8Array(), totalElements: 0, totalBytes: 0, totalExact: false, segmentCount: 0, offset: 0, count: 0, hash: '',
     });
+  });
+});
+
+/** Where each segment of a stored collection starts, by its place in the
+ *  collection, and last where the collection ends. */
+function startsOf(objects: Map<string, Uint8Array>, manifest: string): number[] {
+  const starts = [0];
+  for (const entry of decodeCollectionManifest(objects.get(manifest)!).entries) starts.push(starts.at(-1)! + Number(entry.count));
+  return starts;
+}
+
+/** The segments a server was asked for through its objects route, by their
+ *  place in the manifest. */
+function segmentsAsked(requests: { url: string }[], segments: string[]): number[] {
+  return requests.flatMap((request) => {
+    const at = request.url.startsWith(`${BASE}/api/repos/r/objects/`) ? segments.indexOf(request.url.slice(request.url.lastIndexOf('/') + 1)) : -1;
+    return at < 0 ? [] : [at];
+  });
+}
+
+/** Asserts `data` is the BEAST2 of `expected`, a value of `type`. */
+function assertHolds<T extends EastType>(type: T, data: Uint8Array, expected: ValueTypeOf<T>, what: string): void {
+  const value = decodeBeast2For(type)(data);
+  assert.ok(equalFor(type)(value, expected), `${what}: ${printFor(type)(value)}, expected ${printFor(type)(expected)}`);
+}
+
+describe('a stored collection, a window at a time (#1106)', () => {
+  it('opens a collection by its manifest\'s hash from the manifest alone: its type, and how many elements it holds', async () => {
+    refuseGlobalFetch();
+    const { objects, manifest } = storedCollection();
+    const server = collectionServer(manifest, objects, new Set());
+    const remote = await collectionOpen(BASE, 'r', manifest, { token: null, fetch: server.fetch });
+    assert.equal(remote.hash, manifest);
+    assert.ok(isTypeValueEqual(remote.type, toEastTypeValue(DictType(StringType, IntegerType))), 'a Dict of String to Integer');
+    assert.equal(remote.totalElements, 20_000);
+    assert.deepEqual(server.requests.map((request) => request.url), [`${BASE}/api/repos/r/objects/${manifest}`], 'the manifest alone is read');
+  });
+
+  it('answers windows at the start, the middle, the end and past the end as the decoded whole holds them', async () => {
+    const type = DictType(StringType, IntegerType);
+    const { objects, manifest, blob } = storedCollection();
+    const whole = [...decodeBeast2For(type)(blob)];
+    const at = startsOf(objects, manifest);
+    const remote = await collectionOpen(BASE, 'r', manifest, { token: null, fetch: collectionServer(manifest, objects, new Set()).fetch });
+
+    const windows: [string, number, number][] = [
+      ['the start', 0, 100],
+      ['the middle, across three bounds of segments', at[3]! - 7, at[5]! - at[3]! + 14],
+      ['the end, which holds fewer', 19_950, 100],
+      ['just past the end', 20_000, 100],
+      ['far past the end', 25_000, 10],
+      ['the whole', 0, 20_000],
+      ['no element', 123, 0],
+    ];
+    for (const [what, offset, limit] of windows) {
+      const page = await remote.page({ offset, limit });
+      const expected = whole.slice(offset, offset + limit);
+      assert.deepEqual([page.offset, page.count], [offset, expected.length], what);
+      assertHolds(type, page.data, new SortedMap(expected, compareFor(StringType)), what);
+    }
+  });
+
+  it('fetches only the segments a window overlaps, each checked against its hash', async () => {
+    const { objects, manifest, segments } = storedCollection();
+    const at = startsOf(objects, manifest);
+    const server = collectionServer(manifest, objects, new Set([segments[2]!]));
+    const remote = await collectionOpen(BASE, 'r', manifest, { token: null, fetch: server.fetch });
+    const asked = async (offset: number, limit: number): Promise<number[]> => {
+      server.requests.length = 0;
+      await remote.page({ offset, limit });
+      return segmentsAsked(server.requests, segments);
+    };
+
+    assert.deepEqual(await asked(at[1]! + 1, at[2]! - at[1]! - 2), [1], 'inside one segment');
+    assert.deepEqual(await asked(at[1]!, at[2]! - at[1]!), [1], 'one segment, exactly');
+    assert.deepEqual(await asked(at[2]! - 5, 10), [1, 2], 'across a bound, the second answered by a URL');
+    assert.deepEqual(await asked(at[3]!, at[6]! - at[3]!), [3, 4, 5], 'from one segment\'s first element to another\'s last');
+    assert.deepEqual(await asked(at.at(-1)! - 1, 10), [segments.length - 1], 'the last element');
+    assert.deepEqual(await asked(at.at(-1)!, 10), [], 'past the end');
+    assert.deepEqual(await asked(5, 0), [], 'no element');
+
+    const cut = objects.get(segments[4]!)!.subarray(0, 100);
+    objects.set(segments[4]!, cut);
+    await assert.rejects(remote.page({ offset: at[4]!, limit: 10 }), {
+      message: `object ${segments[4]} arrived as ${sha256Hex(cut)}: the download was cut short or corrupted`,
+    });
+  });
+
+  it('reads an Array\'s and a Set\'s windows the same way, in their order', async () => {
+    const numbers = Array.from({ length: 20_000 }, (_, i) => BigInt(i * 7919 % 100_003));
+    const array = storedElements(ArrayType(IntegerType), numbers);
+    const arrayAt = startsOf(array.objects, array.manifest);
+    const arrays = await collectionOpen(BASE, 'r', array.manifest, { token: null, fetch: collectionServer(array.manifest, array.objects, new Set()).fetch });
+    assert.equal(arrays.totalElements, 20_000);
+    for (const [offset, limit] of [[0, 10], [arrayAt[2]! - 3, 6], [19_995, 10]] as const) {
+      assertHolds(ArrayType(IntegerType), (await arrays.page({ offset, limit })).data, numbers.slice(offset, offset + limit), `the Array from ${offset}`);
+    }
+
+    const names = Array.from({ length: 20_000 }, (_, i) => `s${String(i).padStart(6, '0')}`);
+    const set = storedElements(SetType(StringType), names);
+    const setAt = startsOf(set.objects, set.manifest);
+    const sets = await collectionOpen(BASE, 'r', set.manifest, { token: null, fetch: collectionServer(set.manifest, set.objects, new Set()).fetch });
+    assert.equal(sets.totalElements, 20_000);
+    for (const [offset, limit] of [[0, 10], [setAt[2]! - 3, 6], [19_995, 10]] as const) {
+      assertHolds(SetType(StringType), (await sets.page({ offset, limit })).data,
+        new SortedSet(names.slice(offset, offset + limit), compareFor(StringType)), `the Set from ${offset}`);
+    }
+  });
+
+  it('refuses a window that is no whole number of elements, and an object that is no collection\'s manifest', async () => {
+    const { objects, manifest, segments } = storedCollection();
+    const fold = encodeBeast2For(IntegerType)(6n);
+    objects.set(sha256Hex(fold), fold);
+    const options = { token: null, fetch: collectionServer(manifest, objects, new Set()).fetch };
+    const remote = await collectionOpen(BASE, 'r', manifest, options);
+    for (const [offset, limit] of [[-1, 10], [0, -1], [1.5, 10], [0, Number.NaN], [0, Number.POSITIVE_INFINITY]]) {
+      await assert.rejects(remote.page({ offset: offset!, limit: limit! }), RangeError, `offset ${offset}, limit ${limit}`);
+    }
+
+    // A fold's output is one object, and so is a segment.
+    for (const hash of [sha256Hex(fold), segments[0]!]) {
+      await assert.rejects(collectionOpen(BASE, 'r', hash, options), {
+        message: `the object ${hash} is no collection's manifest but a value stored whole, as a fold's output is: objectGet reads it`,
+      });
+    }
   });
 });

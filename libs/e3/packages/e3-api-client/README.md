@@ -127,7 +127,8 @@ level 0, which only a newer e3 writes, is refused, naming the update to make.
 
 A value named by its hash rather than by a dataset, such as a record's state at
 a past commit, is read through the objects route the same way:
-`collectionGetStream` streams a collection by its manifest's hash, and
+`collectionGetStream` streams a collection by its manifest's hash,
+`collectionOpen` opens one to read a window at a time (below), and
 `objectGet` reads any other value, which is one object. The caller picks by
 the value's type. A client of a host's own routes reads a page with
 `parsePage`, as `datasetGetPage` reads its own, and a JSON refusal with
@@ -223,7 +224,8 @@ its value and its logs, by hash, which `objectGet` reads.
 ### Split calls
 
 ```typescript
-import { splitCall, splitCallCancel, splitCallLaunch, splitCallStatus } from '@elaraai/e3-api-client';
+import { collectionOpen, splitCall, splitCallCancel, splitCallLaunch, splitCallStatus } from '@elaraai/e3-api-client';
+import { decodeBeast2For } from '@elaraai/east';
 
 // Run a program over a dataset's pieces as a job, polled to its end. Aborting
 // the signal stops polling and cancels the job, so the server stops its units;
@@ -237,6 +239,17 @@ const { result, output, report } = await splitCall(url, 'my-repo', 'production',
 // into, the units this call ran and the cache served it, and the highest peak
 // a unit reached. A call the cache served whole ran 0 and was served 0, and
 // still names its pieces and peak.
+
+// A value over the call's result limit is answered too_large, naming the
+// stored output instead: open it, and read it a window at a time. Each window
+// fetches only the segments it overlaps, each checked against its hash.
+if (result.outcome.type === 'too_large' && output !== null) {
+  const remote = await collectionOpen(url, 'my-repo', output, { token });
+  // remote.type: the collection's type; remote.totalElements: how many it holds
+  const page = await remote.page({ offset: 1_000, limit: 100 });
+  const rows = decodeBeast2For(remote.type)(page.data);
+  // page.count: fewer than asked at the end, and none past it
+}
 
 // Or launch, poll and cancel it yourself
 const { id } = await splitCallLaunch(url, 'my-repo', 'production', request, { token });
