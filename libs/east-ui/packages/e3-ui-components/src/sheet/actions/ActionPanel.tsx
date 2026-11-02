@@ -63,7 +63,8 @@ export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, 
     const [open, setOpen] = useState<ActionCase | undefined>(undefined);
     const [value, setValue] = useState<unknown>(undefined);
     const valueRef = useRef<unknown>(undefined);
-    const [missing, setMissing] = useState(false);
+    // The required field a take found empty, named in the error as the popover names it.
+    const [missing, setMissing] = useState<FieldSpecValue | undefined>(undefined);
     // The inline form's element, whose inputs say a required field was emptied (F3 of the hand test), and that field.
     const formRef = useRef<HTMLDivElement | null>(null);
     const [emptied, setEmptied] = useState<FieldSpecValue | undefined>(undefined);
@@ -74,14 +75,14 @@ export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, 
         const initial = c.kind === "form" ? api.initial(r, columnKey, c) : undefined;
         valueRef.current = form?.scalar === true ? { [c.name]: initial } : initial;
         setValue(valueRef.current);
-        setMissing(false);
+        setMissing(undefined);
         setEmptied(undefined);
         setOpen(open?.name === c.name ? undefined : c);
     };
     const onChange = useCallback((path: readonly string[], to: unknown) => {
         valueRef.current = setAt(valueRef.current, path, to);
         setValue(valueRef.current);
-        setMissing(false);
+        setMissing(undefined);
     }, []);
     const options = useMemo(() => {
         const out: Record<string, FieldOption[]> = {};
@@ -97,7 +98,8 @@ export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, 
     const takeForm = () => {
         if (open === undefined) return;
         const now = valueRef.current;
-        if (emptyRequired(specs, now, formRef.current) !== undefined) { setMissing(true); return; }
+        const empty = emptyRequired(specs, now, formRef.current);
+        if (empty !== undefined) { setMissing(empty); return; }
         if (api.take(r, columnKey, open, caseValue(now))) setOpen(undefined);
     };
     return (
@@ -135,9 +137,9 @@ export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, 
                 <chakra.div ref={formRef} css={styles.panelForm} data-inspector-action-form={open.name}
                     onInput={() => setEmptied(emptyRequired(specs, valueRef.current, formRef.current))}>
                     <FieldForm specs={specs} value={value} options={options} onChange={onChange} live />
-                    {missing && <chakra.span css={styles.formError} role="alert">{m.issueRequired()}</chakra.span>}
+                    {missing !== undefined && <chakra.span css={styles.formError} role="alert">{m.issueRequired()} — {missing.label}</chakra.span>}
                     <chakra.div css={styles.formFoot}>
-                        <chakra.span css={styles.formConsequence}>
+                        <chakra.span css={styles.formConsequence} data-consequence="">
                             {emptied !== undefined ? m.actionNeeds({ fields: [emptied.label] }) : api.consequence(r, columnKey, open, caseValue(value))}
                         </chakra.span>
                         <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} onClick={() => setOpen(undefined)}>{m.actionFormCancel()}</chakra.button>

@@ -749,9 +749,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // column keeps its declared width on a wide screen instead of stretching
     // to the frame.
     const gridTemplate = useMemo(() => {
-        const tracks = columns.list.map((c) => (c.kind === "text" ? `minmax(${c.width}px, ${Math.round(c.width * 2.5)}px)` : `${widthOf(c)}px`));
+        // On a phone's frame the action columns are the last tracks, their cells placed there by the recipe (`order`): their
+        // own place is then the frame's right edge at the scroll's end, and pinned there before it (the hand retest's 1).
+        const placed = phoneFrame ? [...columns.list.filter((c) => c.kind !== "action"), ...columns.list.filter((c) => c.kind === "action")] : columns.list;
+        const tracks = placed.map((c) => (c.kind === "text" ? `minmax(${c.width}px, ${Math.round(c.width * 2.5)}px)` : `${widthOf(c)}px`));
         return `${gutterPx}px ${tracks.join(" ")} minmax(0, 1fr)`;
-    }, [gutterPx, columns, widthOf]);
+    }, [gutterPx, columns, widthOf, phoneFrame]);
     const minWidth = gutterPx + columns.list.reduce((n, c) => n + widthOf(c), 0);
     const today = useMemo(() => todayUtc(), []);
 

@@ -859,7 +859,7 @@ export const SheetRunRow = memo(function SheetRunRow({
     // The gutter, then each column's cells: the column kind's shape on the sheet's own cell rules.
     const cells = useMemo((): RunCell[] => [
         { kind: "rowNumber", css: slot(styles, "runGutter") },
-        ...columns.list.map((meta): RunCell => ({ kind: RUN_KINDS[meta.kind], css: slot(styles, "runCell") })),
+        ...columns.list.map((meta): RunCell => ({ kind: RUN_KINDS[meta.kind], css: slot(styles, meta.kind === "action" ? "runActionCell" : "runCell") })),
     ], [styles, columns]);
     // A grouped sheet's elements: a band each, then the lines the ledger's rate says an element draws.
     const group = useMemo(() => {
@@ -1140,7 +1140,8 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                     const member = meta !== undefined && namesMember(meta) && cell?.type === "String" ? resolveMember(registers, meta.register, cell.value) : undefined;
                     const op = marks?.cells.get(colMeta.key);
                     const provenance = op === undefined || marks === undefined ? undefined : cellProvenance(op, marks.previous.get(colMeta.key), meta, marks.run, words);
-                    const bandTitle = m.bandCellTitle({ header: colMeta.header, value: cellText(cell, meta, words) });
+                    // A member by its label, as the cell shows it (the hand retest's 4).
+                    const bandTitle = m.bandCellTitle({ header: colMeta.header, value: member !== undefined && member.label !== "" ? member.label : cellText(cell, meta, words) });
                     return (
                         <Box
                             key={colMeta.key}

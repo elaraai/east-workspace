@@ -141,6 +141,8 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             color: "fg.muted",
             "&[data-dirty]": { color: "brandPressed" },
             "& [data-num]": { fontFamily: "mono", fontWeight: 500 },
+            /* A phone's frame shows the state alone (X4): no sliver of a summary (the hand retest's 3). */
+            "[data-sheet-card][data-phone] &": { display: "none" },
         },
         /* Nothing taken (S8): not started, or why the row waits. */
         absent: {
@@ -185,7 +187,11 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
         /* Where a column's ▾ part stands on a row offered one case: kept, so the next halves line up down the column (F16 of the hand test). */
         moreSpace: { flex: "none", width: "24px" },
         /* The menu card (M1, M7): 240 wide, appearing at once — the Menu recipe's open state animates it, so that state too (F9 of the hand retest). */
-        menu: { minWidth: "240px", animation: "none", _open: { animation: "none", animationName: "none", animationDuration: "0s" } },
+        menu: {
+            minWidth: "240px", animation: "none",
+            /* The Menu recipe animates its open state by placement, so the placement's selector too (the hand retest's 5). */
+            _open: { animation: "none", "&[data-placement]": { animation: "none" } },
+        },
         /* The menu: a group's head (M2), a direct action's Kbd cap and a disabled item's reason (M3, M4). */
         menuHead: {
             height: "24px",
@@ -315,6 +321,8 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             paddingTop: "8px",
             paddingX: "8px",
             "& [data-slot=actionFoot]": { marginX: "-8px" },
+            /* The pane is narrow: its consequence wraps rather than cut. */
+            "& [data-consequence]": { whiteSpace: "normal" },
         },
         /* A phone's action bar (X5–X7): the docked strip as the selected row's actions. */
         bar: {

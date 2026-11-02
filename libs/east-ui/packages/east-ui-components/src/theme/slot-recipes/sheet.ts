@@ -173,7 +173,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         "editorTime",
         "linkGrid", "half", "halfLabel", "chip", "chipDashed", "chipPicked", "chipMeta", "lockTag", "lockWarn", "arrow",
         "retry", "rowError",
-        "run", "runRow", "runGutter", "runCell", "runBand",
+        "run", "runRow", "runGutter", "runCell", "runActionCell", "runBand",
         "gutterAction", "groupSummary",
         "groupRow", "groupChevron", "groupCount", "groupTitle", "groupTitleText", "groupSub", "groupCell",
         "strip", "stripLabel", "stripChips", "stripChip", "stripChipOn", "stripChipFlat", "stripMeta", "stripKeys",
@@ -537,7 +537,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             // The action column's head, pinned with its cells on a phone's frame (#1479).
             "&[data-kind=action]": {
                 "[data-sheet-card][data-phone] &": {
-                    position: "sticky", right: "0", zIndex: "1", backgroundColor: "inherit",
+                    order: "1", position: "sticky", right: "0", zIndex: "1", backgroundColor: "inherit",
                     boxShadow: "-1px 0 0 var(--chakra-colors-border-strong)",
                 },
             },
@@ -830,7 +830,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             // scroll sideways, on its row's own surface — whatever wash the row wears — its gutter-like rule on its left.
             "&[data-kind=action]": {
                 "[data-sheet-card][data-phone] &": {
-                    position: "sticky", right: "0", zIndex: "3", backgroundColor: "inherit",
+                    // Last in its row, as its track is; above a ring a cell scrolled under it draws (z 4), as the gutter is.
+                    order: "1", position: "sticky", right: "0", zIndex: "5", backgroundColor: "inherit",
                     boxShadow: "-1px 0 0 var(--chakra-colors-border-strong)",
                 },
             },
@@ -1369,6 +1370,14 @@ export const sheetSlotRecipe = defineSlotRecipe({
             borderRightColor: "border.subtle",
             "&[data-run-failed]": { overflow: "visible", borderRightWidth: "0" },
             "&[data-run-failed] > [data-loading-failed]": { position: "sticky", left: "calc(var(--sheet-gutter, 128px) + 10px)" },
+        },
+        // A run's cell under an action column: last in its row on a phone's frame, as the column's track is (#1479).
+        runActionCell: {
+            paddingX: "10px",
+            borderRightWidth: "1px",
+            borderRightStyle: "solid",
+            borderRightColor: "border.subtle",
+            "[data-sheet-card][data-phone] &": { order: "1" },
         },
         // A grouped run's band: its chevron past the gutter, where a group band's sits.
         runBand: {

@@ -67,14 +67,15 @@ export const ActionBar = memo(function ActionBar({ host, api, r, columnKey, name
     const [view, setView] = useState<BarView>({ kind: "buttons" });
     const [value, setValue] = useState<unknown>(undefined);
     const valueRef = useRef<unknown>(undefined);
-    const [missing, setMissing] = useState(false);
+    // The required field a take found empty, named in the error as the popover names it.
+    const [missing, setMissing] = useState<FieldSpecValue | undefined>(undefined);
     // The bar's form, whose inputs say a required field was emptied (F3 of the hand test), and that field.
     const formRef = useRef<HTMLDivElement | null>(null);
     const [emptied, setEmptied] = useState<FieldSpecValue | undefined>(undefined);
     const onChange = useCallback((path: readonly string[], to: unknown) => {
         valueRef.current = setAt(valueRef.current, path, to);
         setValue(valueRef.current);
-        setMissing(false);
+        setMissing(undefined);
     }, []);
     const options = useMemo(() => {
         const out: Record<string, FieldOption[]> = {};
@@ -94,7 +95,7 @@ export const ActionBar = memo(function ActionBar({ host, api, r, columnKey, name
         const initial = api.initial(r, columnKey, c);
         valueRef.current = form?.scalar === true ? { [c.name]: initial } : initial;
         setValue(valueRef.current);
-        setMissing(false);
+        setMissing(undefined);
         setEmptied(undefined);
         setView({ kind: "form", c });
     };
@@ -138,7 +139,8 @@ export const ActionBar = memo(function ActionBar({ host, api, r, columnKey, name
         const caseOf = (v: unknown): unknown => (form?.scalar === true ? getAt(v, [c.name]) : v);
         const takeForm = () => {
             const now = valueRef.current;
-            if (emptyRequired(specs, now, formRef.current) !== undefined) { setMissing(true); return; }
+            const empty = emptyRequired(specs, now, formRef.current);
+            if (empty !== undefined) { setMissing(empty); return; }
             take(c, caseOf(now));
         };
         return (
@@ -146,7 +148,7 @@ export const ActionBar = memo(function ActionBar({ host, api, r, columnKey, name
                 onInput={() => setEmptied(emptyRequired(specs, valueRef.current, formRef.current))}>
                 {back}
                 <FieldForm specs={specs} value={value} options={options} onChange={onChange} live />
-                {missing && <chakra.span css={styles.formError} role="alert">{m.issueRequired()}</chakra.span>}
+                {missing !== undefined && <chakra.span css={styles.formError} role="alert">{m.issueRequired()} — {missing.label}</chakra.span>}
                 <chakra.span css={styles.barConsequence}>
                     {emptied !== undefined ? m.actionNeeds({ fields: [emptied.label] }) : api.consequence(r, columnKey, c, caseOf(value))}
                 </chakra.span>

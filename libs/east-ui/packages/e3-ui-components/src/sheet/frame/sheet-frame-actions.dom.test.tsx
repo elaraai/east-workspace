@@ -240,6 +240,9 @@ test("on a phone each cell shows its state alone, and the selected row's actions
         const { container } = await h.mount(ex.sheetActionsBasic);
         expect(nextOf(cellOf(container, "J-0003", "state"))).toBeNull();
         expect(bar(container)).toBeNull();
+        // The action column is the row's last track, its state's width, so its own place is the frame's right edge (X4).
+        const row = slot(container, "main")!.querySelector<HTMLElement>('[data-slot="row"][data-row-id="J-0003"]')!;
+        expect(row.style.gridTemplateColumns).toMatch(/ 112px minmax\(0, 1fr\)$/);
         fireEvent.mouseDown(cellOf(container, "J-0003", "task"), { button: 0 });
         await settle();
         const buttons = bar(container)!;
