@@ -302,8 +302,9 @@ export interface StartSplitCallOptions {
  * The launch applies the caller's grant, pins the call's dataset arguments and
  * writes what the job runs (e3-core `splitCallPrepare`), then files the job and
  * dispatches it to the compute the store chooses. An explain launches the same
- * way, and its job plans the pieces, which stores them for the run to take up:
- * the request does no more than the launch's small writes. A request found
+ * way, and its job plans the pieces as the run would, which a run that
+ * follows plans again, finding the pieces it stored: the request does no more
+ * than the launch's small writes. A request found
  * wrong is filed as a job already `completed` with its `invalid` result, so
  * every call's result, whatever it is, comes back through the poll. The job
  * records whether a caller whose grant is `platform_free` may poll it

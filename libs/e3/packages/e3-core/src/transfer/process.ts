@@ -534,8 +534,9 @@ const SPLIT_PROGRESS_INTERVAL_MS = 500;
  * job's timeout counts from its launch (`createdAt`), so a call that goes on
  * with a job handed over gets what is left of it.
  *
- * An explain's job plans the call's pieces instead (`splitCallExplain`), which
- * stores them for the run to take up, runs no unit, and ends `planned`. Either
+ * An explain's job plans the call's pieces instead (`splitCallExplain`), as
+ * the call's run would plan them, runs no unit, and ends `planned`; a launch
+ * that follows plans them again and finds the pieces the explain stored. Either
  * re-references what the call's `object` arguments name first
  * (`splitCallReference`), and ends `completed`, `invalid`, when the store no
  * longer holds one whole.
@@ -577,7 +578,9 @@ export async function handleProcessSplitCall(
     if (record.explain) {
       const status = await withRunningWork(storage, repo, async () => {
         const unheld = await splitCallReference(storage, repo, call);
-        return unheld === null ? variant('planned', await splitCallExplain(storage, repo, call)) : variant('completed', unheld);
+        return unheld === null
+          ? variant('planned', await splitCallExplain(storage, repo, call, signal === undefined ? {} : { signal }))
+          : variant('completed', unheld);
       });
       await splitCallStore.updateStatus(id, status);
       return;

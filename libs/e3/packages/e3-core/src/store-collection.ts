@@ -78,8 +78,11 @@ export const READ_CHUNK_BYTES = 1024 * 1024;
 export type CollectionSource =
   /** A collection in the store — a manifest, or a record state naming one —
    *  or its segments `[from, to)`; or a collection stored whole, as the object
-   *  it arrived as. */
-  | { readonly stored: string; readonly from?: number; readonly to?: number }
+   *  it arrived as. `manifest` is the collection's manifest, already decoded,
+   *  which the caller vouches is the one `stored` names: the door takes it
+   *  rather than read the object again, and checks it as it checks one it
+   *  reads. */
+  | { readonly stored: string; readonly from?: number; readonly to?: number; readonly manifest?: CollectionManifest }
   /** A beast2 blob arriving as a stream of bytes, from outside. */
   | { readonly chunks: AsyncIterable<Uint8Array> | Iterable<Uint8Array> }
   /** Elements in canonical order: an Array's in position, a Set's or a
@@ -144,6 +147,10 @@ export interface CollectionDoor {
  * A file on this machine — a stock runner's output, a manifest directory — is
  * stored through the root entry's `storeCollection`, which reads it where it
  * lies.
+ *
+ * A stored source that carries its manifest is not read again: a caller that
+ * stores many runs of one collection's segments, as a split's planning stores
+ * its pieces, decodes the manifest once and passes it with each.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -239,8 +246,10 @@ export async function storeCollectionThrough<S extends object>(
     }
   }
 
-  const storedPiece = async (source: { stored: string; from?: number; to?: number }): Promise<CollectionPiece> => {
-    const opened = await openDatasetObject(storage, repo, source.stored);
+  const storedPiece = async (source: { stored: string; from?: number; to?: number; manifest?: CollectionManifest }): Promise<CollectionPiece> => {
+    const opened = source.manifest !== undefined
+      ? { hash: source.stored, manifest: source.manifest }
+      : await openDatasetObject(storage, repo, source.stored);
     const manifest = opened.manifest;
     if (manifest === null) {
       if (source.from !== undefined || source.to !== undefined) {
