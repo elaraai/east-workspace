@@ -11,11 +11,14 @@
  *
  * - FR1: the frame stacks — the toolbar, its second row, main the frame's
  *   whole width, the pane strip — and no pane takes width at a side;
- * - FR6: the second row is 44px under the first, the history there and not in
- *   the first row: Issues, Undo, Redo, Discard and Save each 44 × 44, centred
- *   on the row and taking the pointer at its centre;
+ * - FR6: the second row is 56px under the first (the designer's
+ *   `WorkOrdersPhone` session bar, less its safe area), padded 0 12 0 16, the
+ *   history there and not in the first row: Issues, Undo, Redo, Discard and
+ *   Save each 44 × 44 on a 6px radius, centred on the row and taking the
+ *   pointer at its centre; one that does not act drawn in `--rule` and
+ *   `--ink-5`, never faded;
  * - FR4: the pane strip is 44px on the frame's bottom edge, one equal tab a
- *   pane, each the strip's height;
+ *   pane, each the strip's height, in `--ink-3` until it is open;
  * - FR5: a tab opens its drawer up from the strip — at most 500px tall, the
  *   frame's width, its foot on the strip's top — with the scrim over main;
  *   Esc closes it, the focus back on its tab; one drawer at a time.
@@ -62,7 +65,18 @@ function phoneFaults(entry: Locator): Promise<string[]> {
         // FR6: the second row, the history there.
         const second = slot("sessionRow")!;
         const s = second.getBoundingClientRect();
-        if (Math.abs(s.height - 44) > 0.5) faults.push(`second row ${round(s.height)}px`);
+        if (Math.abs(s.height - 56) > 0.5) faults.push(`second row ${round(s.height)}px`);
+        const rowStyle = getComputedStyle(second);
+        if (rowStyle.paddingLeft !== "16px" || rowStyle.paddingRight !== "12px") faults.push(`second row padded ${rowStyle.padding}`);
+        /** A token's colour as the page resolves it. */
+        const token = (name: string) => {
+            const probe = document.createElement("span");
+            probe.style.color = `var(--chakra-colors-${name})`;
+            frame.appendChild(probe);
+            const value = getComputedStyle(probe).color;
+            probe.remove();
+            return value;
+        };
         if (frame.querySelector("[data-frame-slot='toolbar'] [data-toolbar-item='history']") !== null) faults.push("the history in the first row");
         const history = second.querySelector("[data-slot='history'][data-history-form='phone']");
         if (history === null) faults.push("no history in the second row");
@@ -71,6 +85,12 @@ function phoneFaults(entry: Locator): Promise<string[]> {
             const name = button.getAttribute("aria-label") ?? "?";
             if (b.width === 0) continue;
             if (Math.abs(b.width - 44) > 0.5 || Math.abs(b.height - 44) > 0.5) faults.push(`${name} ${round(b.width)} × ${round(b.height)}`);
+            const look = getComputedStyle(button);
+            if (look.borderTopLeftRadius !== "6px") faults.push(`${name} radius ${look.borderTopLeftRadius}`);
+            const off = button.hasAttribute("disabled") || button.getAttribute("aria-disabled") === "true";
+            if (off && (look.borderTopColor !== token("border-subtle") || look.color !== token("fg-faint") || look.opacity !== "1")) {
+                faults.push(`${name}, off, drawn ${look.borderTopColor} / ${look.color} at ${look.opacity}`);
+            }
             if (Math.abs(b.top + b.height / 2 - (s.top + s.height / 2)) > 0.5) faults.push(`${name} off the row's centre`);
             if (b.left < s.left - 0.5 || b.right > s.right + 0.5) faults.push(`${name} past the row`);
             const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
@@ -84,6 +104,9 @@ function phoneFaults(entry: Locator): Promise<string[]> {
         if (Math.abs(p.bottom - f.bottom) > 0.5) faults.push("the strip off the frame's bottom edge");
         const tabs = [...strip.querySelectorAll<HTMLElement>("[data-pane-tab]")].map((tab) => tab.getBoundingClientRect());
         if (tabs.some((t) => Math.abs(t.width - tabs[0]!.width) > 1 || Math.abs(t.height - p.height) > 2.5)) faults.push(`tabs ${tabs.map((t) => `${round(t.width)} × ${round(t.height)}`).join(", ")}`);
+        for (const tab of strip.querySelectorAll<HTMLElement>("[data-pane-tab][aria-selected='false']")) {
+            if (getComputedStyle(tab).color !== token("fg-muted")) faults.push(`${tab.textContent} tab in ${getComputedStyle(tab).color}`);
+        }
         return faults;
     });
 }
@@ -106,9 +129,8 @@ function drawerAt(entry: Locator, side: string) {
 
 for (const theme of ["light", "dark"] as const) {
     for (const [name, route] of PHONES) {
-    test(`${name}: a phone's frame stacks its regions, the history the second row's at 44px, the panes a strip of drawers — in its 390px box and a 294px parent (${theme})`, async ({ page }) => {
-        const faults: Record<string, string[]> = {};
-        {
+        test(`${name}: a phone's frame stacks its regions, the history the second row's 44px buttons, the panes a strip of drawers — in its 390px box and a 294px parent (${theme})`, async ({ page }) => {
+            const faults: Record<string, string[]> = {};
             await test.step(route, async () => {
                 await page.setViewportSize({ width: 1440, height: 900 });
                 const entry = await visitBuilder(page, route, ROOT, theme);
@@ -136,8 +158,7 @@ for (const theme of ["light", "dark"] as const) {
                 await entry.locator(ROOT).first().locator("xpath=..").evaluate((box) => { (box as HTMLElement).style.width = ""; });
                 await settled(page);
             });
-        }
-        expect(faults).toEqual({});
-    });
+            expect(faults).toEqual({});
+        });
     }
 }

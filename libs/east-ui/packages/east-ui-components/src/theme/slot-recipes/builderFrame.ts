@@ -38,15 +38,17 @@
  *     the rows read as rows on every screen). A live footer
  *     (`data-frame-live`) stays out from under it.
  *   - A phone's frame (`data-phone`, 560px or narrower; `Mobile Builder
- *     Frame Spec.md`): the session row, the toolbar's second row — 44px, a
- *     rule between it and the first, padded 0 4 0 16, its controls 4px
- *     apart, the status (the loading line) leading it; the pane strip on
- *     the bottom edge — 44px, one equal tab a pane split by a rule, its icon
- *     14, its label the mono caps, its meta mono `fg.subtle`, the open one
- *     in ink over a 2px underline; and a drawer — absolute at the body's
- *     foot, at most 500px tall, `--r-lg` top corners over a `border.strong`
- *     rule, sliding up over `--dur-base` on `--ease-out` (at once under
- *     reduced motion), down off main while a drag is under way.
+ *     Frame Spec.md`, the designer's `WorkOrdersPhone` measures): the session
+ *     row, the toolbar's second row — 56px, its 44px controls 6px clear of
+ *     either rule, padded 0 12 0 16 and 4px apart, the status (the loading
+ *     line) leading it; the pane strip on the bottom edge — 44px over a
+ *     `--rule`, one equal tab a pane split by a rule inset 10px top and
+ *     bottom, its icon 14, its label the mono caps, its meta mono
+ *     `fg.subtle`, the open one in ink over a 2px underline; and a drawer —
+ *     absolute at the body's foot, at most 500px tall, `--r-lg` top corners,
+ *     a `border.strong` rule on its top and sides, sliding up over
+ *     `--dur-base` on `--ease-out` (at once under reduced motion), down off
+ *     main while a drag is under way, over a veil of `--paper-3` at 72%.
  *
  * @packageDocumentation
  */
@@ -170,6 +172,8 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             inset: "0",
             zIndex: "overlay",
             background: "{colors.overlay.backdrop}",
+            /* A phone's drawer's veil: `--paper-3` at 72%, the designer's. */
+            "[data-phone] &": { background: "color-mix(in oklch, var(--chakra-colors-bg-subtle) 72%, transparent)" },
         },
         footer: {
             flex: "none",
@@ -185,9 +189,9 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             display: "flex",
             alignItems: "center",
             gap: "{spacing.1}",
-            height: "44px",
+            height: "56px",
             paddingInlineStart: "{spacing.4}",
-            paddingInlineEnd: "{spacing.1}",
+            paddingInlineEnd: "{spacing.3}",
             background: "bg.surface",
             borderBottomWidth: "1px",
             borderBottomStyle: "solid",
@@ -218,15 +222,19 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             justifyContent: "center",
             gap: "{spacing.2}",
-            paddingX: "{spacing.3}",
+            paddingX: "{spacing.2}",
             background: "transparent",
             border: "none",
             borderBottomWidth: "2px",
             borderBottomStyle: "solid",
             borderBottomColor: "transparent",
-            color: "fg.subtle",
+            color: "fg.muted",
             cursor: "pointer",
-            "& + &": { borderInlineStartWidth: "1px", borderInlineStartStyle: "solid", borderInlineStartColor: "border.subtle" },
+            /* Split from the tab before by a rule inset 10px top and bottom. */
+            "& + &": {
+                position: "relative",
+                "&::before": { content: '""', position: "absolute", insetInlineStart: "0", top: "10px", bottom: "10px", width: "1px", background: "border.subtle" },
+            },
             _hover: { color: "fg" },
             _focusVisible: { outline: "none", boxShadow: "focusInset" },
             "&[aria-selected=true]": { color: "fg", borderBottomColor: "fg" },
@@ -256,9 +264,10 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             height: "min(500px, 100%)",
             minHeight: "0",
             background: "bg.surface",
-            borderTopWidth: "1px",
-            borderTopStyle: "solid",
-            borderTopColor: "border.strong",
+            borderWidth: "1px",
+            borderBottomWidth: "0",
+            borderStyle: "solid",
+            borderColor: "border.strong",
             borderTopLeftRadius: "lg",
             borderTopRightRadius: "lg",
             overflow: "hidden",

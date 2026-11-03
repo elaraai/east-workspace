@@ -26,7 +26,7 @@ The proposal answers each: the panes leave the sides, the toolbar's targets are 
 |---|---|---|
 | Safe area | env | the device's top inset |
 | Toolbar | 44 | views, the count line, Filters, Search Records (FR2) |
-| Toolbar, second row | 44 | the session row: the change count, the Elara eye and the history (FR6) |
+| Toolbar, second row | 56 | the session row: the change count, the Elara eye and the history (FR6) |
 | Builder's own band | 44, optional | the Sheet's column pager (`Mobile Sheet Spec.md`) |
 | Main | fills | the builder's content, scrolling itself |
 | Bottom container | content, at most 420 | the builder's bar or editor when open (the Sheet's action bar, a cell editor) |
@@ -80,9 +80,9 @@ Versus production: the start and end panes are 44 px side rails that open as 320
 
 **FR6. Session row.** Production's history buttons, as the toolbar's second row, always shown (ruled 3 Nov 2026, after review: the designer drew a session bar on the bottom edge; it moves to the top, under the first row).
 
-- 44 tall, `--paper`, 1 px `--rule` between it and the first row, padding 0 4 0 16, buttons 4 apart.
+- 56 tall (the designer's bar is 90 with 34 of safe area under it: its buttons 6 clear of either rule), `--paper`, 1 px `--rule` between it and the first row, padding 0 12 0 16, buttons 4 apart.
 - Summary at the start: `No changes` mono 11 `--ink-4`, or a `--brand-tint` chip `3 changes` mono 11/600 `--brand-dd`.
-- Buttons, outline 44 squares, icon 16: Issues `fa-triangle-exclamation` · Undo `fa-arrow-rotate-left` · Redo `fa-arrow-rotate-right` · Discard `fa-xmark` · Save `fa-check`.
+- Buttons, outline 44 squares on `--r-md`, icon 16: Issues `fa-triangle-exclamation` · Undo `fa-arrow-rotate-left` · Redo `fa-arrow-rotate-right` · Discard `fa-xmark` · Save `fa-check`. Acting: 1 px `--rule-strong`, `--ink`.
 - Save fills `--brand-d` with a `--paper` tick while there are drafts. Disabled: 1 px `--rule`, icon `--ink-5`, no action.
 - **FR6.1** Undo and Redo step through the session's history. Discard asks first (FR8).
 - **FR6.2** Save sends one batch: a live dot replaces the tick while in flight (the `east-pulse` echo), then the row returns to `No changes`.
@@ -121,7 +121,7 @@ Every recommendation below is adopted. R3, R6 with R1–R2 were put to the user 
 | R3 | Scope of the frame changes (FR1, FR4–FR6) | Drawn on the Sheet | One frame for every builder | Every builder at ≤560 px, so the phone frame is one thing |
 | R4 | Where the Elara eye goes | Not drawn | Before the history item, never out of the toolbar | Into the session row, before Issues |
 | R5 | Where the loading line goes with no footer | Not drawn | The footer's one live line (CL3) | Into the session row's summary slot while a read is in flight, the change count otherwise |
-| R6 | Where the history goes | A session bar on the bottom edge | Ruled 26 Oct 2026: history and Save never leave the toolbar at a phone's width | The toolbar's second row, always shown, at 44 px: the 26 Oct ruling stands, and the bottom edge is left to the action bar and the pane strip (ruled 3 Nov 2026, revising the first answer of the same day) |
+| R6 | Where the history goes | A session bar on the bottom edge | Ruled 26 Oct 2026: history and Save never leave the toolbar at a phone's width | The toolbar's second row, always shown, its 44 px buttons in a 56 px row: the 26 Oct ruling stands, and the bottom edge is left to the action bar and the pane strip (ruled 3 Nov 2026, revising the first answer of the same day) |
 
 ## 10 · Not in this proposal
 

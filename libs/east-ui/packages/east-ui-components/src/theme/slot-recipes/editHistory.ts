@@ -24,7 +24,7 @@
  * its start (`No changes` mono 11 `fg.subtle`, or a `brandTint` chip mono
  * 11/600 in `brandPressed`), then 44px outline squares with a 16px icon, Save
  * filled `brand.solid` while it would save and a live dot in its place while
- * one is out; Discard's question below it, its title DM Sans 16/700.
+ * one is out; Discard's question below it, its title DM Sans 20/700.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
@@ -59,8 +59,12 @@ export const editHistorySlotRecipe = defineSlotRecipe({
         },
         button: {
             flexShrink: "0",
+            /* A phone's (the designer's `WorkOrdersPhone`): 44px squares on `--r-md`, `--rule-strong` and ink while they act,
+             * `--rule` and `--ink-5` while they don't, never faded; Save `--brand-d` while it would save. */
             "[data-history-form=phone] &": {
-                width: "44px", height: "44px", minWidth: "44px", "& svg": { fontSize: "16px" },
+                width: "44px", height: "44px", minWidth: "44px", padding: "0", borderRadius: "md", borderWidth: "1px",
+                borderColor: "border.strong", background: "bg.surface", color: "fg", "& svg": { fontSize: "16px" },
+                "&:disabled, &[aria-disabled=true]": { borderColor: "border.subtle", color: "fg.faint", opacity: 1 },
                 "&[data-ready]": { background: "brand.solid", borderColor: "brand.solid", color: "brand.contrast" },
             },
             // Locked while a run of the app's optimiser is out (#1409, R2): the disabled look, the control kept.
@@ -116,8 +120,8 @@ export const editHistorySlotRecipe = defineSlotRecipe({
                 _motionReduce: { animation: "none" },
             },
         },
-        askTitle: { fontFamily: "heading", fontSize: "title.sm", fontWeight: "700", color: "fg", lineHeight: "1.25" },
-        askBody: { fontSize: "body", color: "fg.muted", lineHeight: "1.5" },
+        askTitle: { fontFamily: "heading", fontSize: "title.lg", fontWeight: "700", letterSpacing: "-0.015em", color: "fg", lineHeight: "1.2" },
+        askBody: { fontSize: "body", color: "fg.strong", lineHeight: "1.5" },
         askButton: { minHeight: "44px" },
         /* An Apply's issues in a banner's body: one to a line, unmarked. */
         bannerIssues: {
