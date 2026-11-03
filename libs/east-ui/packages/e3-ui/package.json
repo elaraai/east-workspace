@@ -49,7 +49,8 @@
   "scripts": {
     "build": "tsc",
     "lint": "eslint .",
-    "test": "node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'"
+    "test": "node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'",
+    "test:ci": "node --import ../../scripts/no-source-locations.mjs --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'"
   },
   "repository": {
     "type": "git",
