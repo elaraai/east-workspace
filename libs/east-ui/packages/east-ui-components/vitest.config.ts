@@ -3,11 +3,20 @@
  * Licensed under AGPL-3.0. See LICENSE file for details.
  */
 
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
     plugins: [react()],
+    // Vite 8 holds a `?inline` import to `server.fs.allow`, and pnpm keeps a
+    // dependency's stylesheet (the Flowchart's `@xyflow/react/dist/style.css`)
+    // in the workspace root's store, above this package.
+    server: {
+        fs: {
+            allow: [fileURLToPath(new URL("../../../../", import.meta.url))],
+        },
+    },
     test: {
         globals: true,
         environment: "node",

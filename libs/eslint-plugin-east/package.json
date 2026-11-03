@@ -40,7 +40,7 @@
   },
   "peerDependencies": {
     "eslint": ">=9.0.0",
-    "typescript": ">=5.0.0"
+    "typescript": ">=5.0.0 <7"
   },
   "dependencies": {
     "@elaraai/east-diagnostics": "workspace:*",
@@ -51,6 +51,7 @@
     "@types/node": "^22.18.1",
     "@typescript-eslint/parser": "^8.42.0",
     "eslint": "^9.34.0",
-    "typescript": "~5.9.2"
+    "typescript": "npm:@typescript/typescript6@6.0.2",
+    "typescript-7": "npm:typescript@7.0.2"
   }
 }

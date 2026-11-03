@@ -67,11 +67,7 @@ export default defineConfig({
         ],
     },
     build: {
-        commonjsOptions: {
-            defaultIsModuleExports: true,
-            include: [/sorted-btree/, /node_modules/],
-        },
-        rollupOptions: {
+        rolldownOptions: {
             external: (id: string) => id.startsWith('node:'),
         },
     },

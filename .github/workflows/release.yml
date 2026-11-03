@@ -246,6 +246,19 @@ jobs:
         with:
           key: release-east-c-${{ runner.os }}-${{ hashFiles('libs/east-c/**', '!libs/east-c/build/**', '!**/node_modules/**') }}
           path: libs/east-c/build
+      # npm's own cache: verdaccio, which npx installs cold on every run, and the
+      # third-party tarballs the consumer's install fetches through it. npm still
+      # asks verdaccio for every manifest and takes a tarball from this cache only
+      # by the integrity the manifest gives, so a package published in this run
+      # is its own bytes, and the install proves what it proved.
+      - name: Restore npm's cache
+        uses: actions/cache@v4
+        with:
+          key: release-npm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: release-npm-${{ runner.os }}-
+          path: |
+            ~/.npm
+            ~/AppData/Local/npm-cache
       - name: Install
         run: pnpm install
       - name: Release dry-run against verdaccio

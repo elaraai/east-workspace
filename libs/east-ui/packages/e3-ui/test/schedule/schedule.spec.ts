@@ -244,8 +244,8 @@ export function scheduleTypeChecks(): void {
     // A job's Option times take a backlog.
     Schedule.events(boundJobs, { name: "Job", icon: "i", title: "title", start: "start", end: "end", backlog: { duration: (job) => variant("hours", job.estimate_h) } });
     Schedule.events(bound, {
-        name: "Shift", icon: "i", title: "title", start: "start", end: "end", resource: { field: "person", of: "people" },
+        name: "Shift", icon: "i", title: "title", start: "start", end: "end",
         // @ts-expect-error — a template's values leave out the start, the end and the resource
-        templates: [{ key: "day", name: "Day", duration: variant("hours", 8), values: { title: "Day", start: new Date(0), status: variant("tentative", null), crew: 1n, skills: new Set<string>(), handover: [] } }],
+        resource: { field: "person", of: "people" }, templates: [{ key: "day", name: "Day", duration: variant("hours", 8), values: { title: "Day", start: new Date(0), status: variant("tentative", null), crew: 1n, skills: new Set<string>(), handover: [] } }],
     });
 }

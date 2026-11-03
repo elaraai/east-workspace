@@ -210,7 +210,7 @@ export function keyFieldRef(field: KeyField | undefined, rowType: EastType): Exp
                 : ref(value as unknown as ExprType<StringType>);
         }
         const of = field.of;
-        const byCase = (v: ExprType<EastType>) => (v as unknown as { match: (arms: object) => ExprType<EastType> }).match(Object.fromEntries(field.cases.map((c) =>
+        const byCase = (v: ExprType<EastType>) => (v as unknown as { match: (arms: object) => ExprType<typeof RefOption> }).match(Object.fromEntries(field.cases.map((c) =>
             [c, (_$2: unknown, key: ExprType<StringType>) => East.value(some(East.value({ kind: of[c]!, key }, ScheduleResourceRefType)), RefOption)])));
         return field.optional
             ? (value as unknown as ExprType<OptionType<EastType>>).match({ none: (_$2) => East.value(none, RefOption), some: (_$2, v) => byCase(v) })

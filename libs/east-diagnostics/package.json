@@ -43,12 +43,13 @@
     "node": ">=22.0.0"
   },
   "peerDependencies": {
-    "typescript": ">=5.0.0"
+    "typescript": ">=5.0.0 <7"
   },
   "devDependencies": {
     "@elaraai/east": "workspace:*",
     "@elaraai/e3": "workspace:*",
     "@types/node": "^22.18.1",
-    "typescript": "~5.9.2"
+    "typescript": "npm:@typescript/typescript6@6.0.2",
+    "typescript-7": "npm:typescript@7.0.2"
   }
 }

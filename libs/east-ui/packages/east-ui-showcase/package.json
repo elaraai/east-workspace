@@ -41,7 +41,7 @@
     "@types/react-dom": "^19.0.0",
     "@typescript-eslint/eslint-plugin": "^8.42.0",
     "@typescript-eslint/parser": "^8.42.0",
-    "@vitejs/plugin-react": "^4.3.0",
+    "@vitejs/plugin-react": "^6.2.1",
     "@xyflow/react": "^12.10.1",
     "cytoscape": "^3.30.0",
     "cytoscape-cose-bilkent": "^4.1.0",
@@ -53,8 +53,9 @@
     "playwright": "^1.49.0",
     "prettier": "^3.3.0",
     "tsx": "^4.19.2",
-    "typescript": "~5.9.2",
-    "vite": "^6.0.0"
+    "typescript": "npm:@typescript/typescript6@6.0.2",
+    "typescript-7": "npm:typescript@7.0.2",
+    "vite": "^8.3.5"
   },
   "engines": {
     "node": ">=22.0.0"

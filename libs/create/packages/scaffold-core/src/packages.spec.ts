@@ -195,7 +195,7 @@ test("member-flag scaffold with default features compiles (tsc --noEmit) (#301)"
     symlinkSync(target, linkPath, "junction");
   }
   const require = createRequire(import.meta.url);
-  const tsc = join(dirname(require.resolve("typescript")), "..", "bin", "tsc");
+  const tsc = join(dirname(require.resolve("typescript-7/package.json")), "bin", "tsc");
   try {
     execFileSync(process.execPath, [tsc, "--noEmit", "-p", dir], { stdio: "pipe" });
   } catch (err) {

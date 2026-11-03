@@ -3,7 +3,7 @@
   "include": ["src/**/*"],
   "compilerOptions": {
     // File Layout
-    // "rootDir": "./src",
+    "rootDir": "./src",
     "outDir": "./dist",
 
     // Environment Settings

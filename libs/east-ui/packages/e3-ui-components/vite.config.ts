@@ -1,18 +1,16 @@
-import { defineConfig } from 'vite';
+import { defineConfig, esmExternalRequirePlugin } from 'vite';
 import react from '@vitejs/plugin-react';
-import dts from 'vite-plugin-dts';
 import { resolve } from 'path';
-
-// The declarations the packages and apps that compile against this one read:
-// written unless EAST_UI_DECLARATIONS=0, which CI's test build sets, its
-// tests reading the JavaScript alone (#1466).
-const declarations = process.env.EAST_UI_DECLARATIONS !== '0';
 
 // Library build configuration for @elaraai/e3-ui-components: the package's
 // entry, and `query` — a query's calls without the builder, which imports no
 // React and no renderer, so it loads in Node (`src/query/calls.ts`).
 export default defineConfig({
-  plugins: [react(), ...(declarations ? [dts()] : [])],
+  // A CommonJS dependency bundled here requires React (`__require("react")`), which
+  // Rolldown leaves as a `require` in the ES output, where Node and a browser have
+  // none: the plugin makes each such `require` of an external an import. These are
+  // external through it alone: named in `external` as well, it never sees them.
+  plugins: [react(), esmExternalRequirePlugin({ external: ['react', 'react-dom', 'react/jsx-runtime', '@chakra-ui/react'] })],
   build: {
     lib: {
       entry: {
@@ -22,12 +20,8 @@ export default defineConfig({
       formats: ['es', 'cjs'],
       fileName: (format, entryName) => `${entryName}.${format === 'es' ? 'js' : 'cjs'}`,
     },
-    rollupOptions: {
+    rolldownOptions: {
       external: (id) => [
-        'react',
-        'react-dom',
-        'react/jsx-runtime',
-        '@chakra-ui/react',
         // The locale's context, as React's and Chakra's: one for every
         // renderer package — bundled here, the Plan would read a context of
         // its own, which the host's `I18nProvider` never sets.

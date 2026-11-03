@@ -397,7 +397,11 @@ Neither side matches patterns against text. The TypeScript side needs the
 `typescript` package at run time — an **optional peer dependency** of
 `@elaraai/east`, required lazily from node on the first build (about 100 ms
 and 45 MB once per process; nothing where it is absent, as in a browser,
-where every variable stays `_N`). A call inside another call's arguments,
+where every variable stays `_N`). TypeScript 7's package carries no parser, so
+a project on it keeps its names by installing the API beside its `tsc`, as this
+repository does: `"typescript": "npm:@typescript/typescript6@6.0.2"` and
+`"typescript-7": "npm:typescript@7.0.2"`. With `typescript` itself at 7 every
+variable stays `_N`. A call inside another call's arguments,
 or one with a further call chained onto it (`$.let(0n).add(1n)`),
 initializes nothing and stays unnamed.
 

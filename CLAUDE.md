@@ -239,6 +239,11 @@ duplicate it.
 ## Key conventions
 
 - Node 22 (`.nvmrc`), pnpm 10.x (`packageManager` in package.json)
+- TypeScript side by side: `tsc` is TypeScript 7 (`"typescript-7":
+  "npm:typescript@7.0.2"`); `"typescript"` is the compiler API, 6.0
+  (`"npm:@typescript/typescript6@6.0.2"`), for what imports it — typescript-eslint,
+  east-diagnostics and its plugins, East's names (`src/naming.ts`). Vite 8 (Rolldown)
+  bundles; declarations come from `tsc`.
 - `make build` / `make test` / `make lint` work in every lib directory
 - `@elaraai/*` packages use `"beta"` dist-tag for pre-releases,
   `"latest"` for stable

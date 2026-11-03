@@ -149,19 +149,16 @@ export default defineConfig(({ command }) => {
       ...(dev ? { dedupe: ['react', 'react-dom', '@chakra-ui/react'] } : {}),
     },
     build: {
-      commonjsOptions: {
-        defaultIsModuleExports: true,
-        include: [/sorted-btree/, /node_modules/],
-      },
-      rollupOptions: {
+      rolldownOptions: {
         external: (id: string) => id.startsWith('node:'),
         /* A member read off a namespace import that its module does not
          * export — a member of `e3` against a shim that lacks it — is only a
-         * warning to Rollup, which compiles the read to `undefined`: the
-         * bundle builds and the whole showcase then fails to load. Fail the
-         * build instead, naming the binding and its importer. */
+         * warning to Rolldown (IMPORT_IS_UNDEFINED, Rollup's MISSING_EXPORT),
+         * which compiles the read to `undefined`: the bundle builds and the
+         * whole showcase then fails to load. Fail the build instead, naming the
+         * binding and its importer. */
         onwarn(warning, warn) {
-          if (warning.code === 'MISSING_EXPORT') throw new Error(warning.message);
+          if (warning.code === 'IMPORT_IS_UNDEFINED' || warning.code === 'MISSING_EXPORT') throw new Error(warning.message);
           warn(warning);
         },
       },

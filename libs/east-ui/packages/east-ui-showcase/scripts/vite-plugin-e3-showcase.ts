@@ -251,7 +251,7 @@ export function e3ShowcasePlugin(opts: E3ShowcaseOptions): Plugin {
                     + `export default (area) => ${JSON.stringify(base)} + e3ShowcaseBundle(area);\n`
                     + `export const bundlesKey = ${JSON.stringify(`dev-${startedAt}-${generation}`)};\n`;
             }
-            // Each named by its content: Rollup gives an asset the hash of its
+            // Each named by its content: the bundler gives an asset the hash of its
             // bytes, and writes its URL where the module reads it.
             const urls = [...await buildE3ShowcaseBundles(opts.e3UiDir)].map(([area, source]) =>
                 `[${JSON.stringify(area)}, import.meta.ROLLUP_FILE_URL_${this.emitFile({ type: "asset", name: e3ShowcaseBundle(area), source })}]`);
