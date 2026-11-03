@@ -32,7 +32,7 @@ import { walkSteps } from "./check.js";
 import { jqTypeNames, nullablePayload, unify, unwrap } from "./shapes.js";
 import { childPath, jqChildren, type JqNode } from "./spans.js";
 import { formatTokens } from "./strftime.js";
-import { isRoot, parts, type Block, type BuiltinRule, type CallSite, type Emit, type Env, type Translator, type TypeParts, type Value } from "./translate.js";
+import { isRoot, isRows, parts, type Block, type BuiltinRule, type CallSite, type Emit, type Env, type Translator, type TypeParts, type Value } from "./translate.js";
 
 /** Builds a rule table entry for each of some names. */
 const rules: Record<string, BuiltinRule> = {};
@@ -134,7 +134,8 @@ rule("first", (t, c) => {
     t.once(c.$, ($, label) => arg(t, c, 0, $, c.x, ($2, v) => { c.emit($2, v); t.brk($2, label); }), c.path);
     return;
   }
-  t.indexOf(c.$, input(t, c), t.int(0), false, c.path, c.emit);
+  // A stage's rows (#1140): the first, kept as it is made.
+  t.indexOf(c.$, isRows(c.x) ? t.firstRows(c.$, c.x, 1n, c.path) : input(t, c), t.int(0), false, c.path, c.emit);
 });
 
 rule("last", (t, c) => {
@@ -718,6 +719,13 @@ rule("transpose", (t, c) => {
 // ─── Collections ─────────────────────────────────────────────────────────
 
 rule("length", (t, c) => {
+  if (isRows(c.x)) {
+    // A stage's rows, counted as they are made (#1140).
+    const count = t.declare(c.$, t.int(0), "count");
+    c.x.each(c.$, $ => t.assign($, count, t.add(count, t.int(1), c.path)));
+    c.emit(c.$, count);
+    return;
+  }
   const x = t.open(input(t, c));
   const length = ($: Block, v: Expr, emit: Emit): void => {
     const o = t.open(v);
@@ -896,9 +904,13 @@ export function addInto(t: Translator, c: CallSite, $: Block, acc: Expr, v: Expr
 
 rule("add", (t, c) => {
   const type = outputType(t, c);
+  // A stage's rows, added as they are made (#1140).
+  const rows = c.args.length === 0 && isRows(c.x) ? c.x : undefined;
   if (type.type === "Null") {
     // The values' type has no identity to add: jq's null.
     if (c.args.length === 1) arg(t, c, 0, c.$, c.x, () => {});
+    // The rows are made all the same, as the array's were, when making one may raise.
+    else if (rows !== undefined && !rows.stops) rows.each(c.$, () => {});
     c.emit(c.$, t.null(c.path));
     return;
   }
@@ -907,6 +919,7 @@ rule("add", (t, c) => {
   const acc = t.declare(c.$, start, "sum");
   const each = ($: Block, v: Expr): void => addInto(t, c, $, acc, v, type);
   if (c.args.length === 1) arg(t, c, 0, c.$, c.x, each);
+  else if (rows !== undefined) rows.each(c.$, each);
   else t.iterate(c.$, input(t, c), false, c.path, each);
   c.emit(c.$, acc);
 });
@@ -915,10 +928,21 @@ rule(["any", "all"], (t, c) => {
   const any = c.name === "any";
   // any: true at the first true; all: false at the first false.
   const result = t.declare(c.$, t.bool(!any), "result");
-  const test = ($: Block, v: Expr, label: Label): void => {
+  const test = ($: Block, v: Expr, label: Label | undefined): void => {
     const truth = t.truthy(v, c.path);
-    t.branch($, any ? truth : negate(t, truth, c.path), $2 => { t.assign($2, result, t.bool(any)); t.brk($2, label); }, () => {}, c.path);
+    t.branch($, any ? truth : negate(t, truth, c.path), $2 => {
+      t.assign($2, result, t.bool(any));
+      if (label !== undefined) t.brk($2, label);
+    }, () => {}, c.path);
   };
+  if (c.args.length === 0 && isRows(c.x)) {
+    // A stage's rows, tested as they are made (#1140): the stage stops at the answer, unless making a row may raise.
+    const rows = c.x;
+    if (rows.stops) t.once(c.$, ($, label) => rows.each($, ($2, row) => test($2, row, label)), c.path);
+    else rows.each(c.$, ($, row) => test($, row, undefined));
+    c.emit(c.$, result);
+    return;
+  }
   t.once(c.$, ($, label) => {
     if (c.args.length === 2) {
       arg(t, c, 0, $, c.x, ($2, g) => arg(t, c, 1, $2, g, ($3, v) => test($3, v, label)));
@@ -1081,18 +1105,22 @@ rule("unique", (t, c) => {
 });
 
 rule(["min", "max"], (t, c) => {
-  const array = elementsOf(t, c, c.$);
-  if (array === undefined) { cannot(t, c, c.$, input(t, c), "an array"); return; }
-  const element = t.type(array).value as EastType;
+  // A stage's rows, compared as they are made (#1140), or an array's elements.
+  const rows = isRows(c.x) ? c.x : undefined;
+  const array = rows === undefined ? elementsOf(t, c, c.$) : undefined;
+  if (rows === undefined && array === undefined) { cannot(t, c, c.$, input(t, c), "an array"); return; }
+  const element = (rows === undefined ? t.type(array!) : parts(rows.type)).value as EastType;
   const option = OptionType(element);
   const best = t.declare(c.$, t.none(option), "best");
-  t.forEach(c.$, array, ($, item) => {
+  const each = ($: Block, item: Expr): void => {
     const better = t.matchValue(best, {
       none: () => t.bool(true),
       some: (_$2, b) => c.name === "min" ? t.lt(item, b, c.path) : t.b("GreaterEqual", [element], [item, b], BooleanType, c.path),
     }, BooleanType, c.path);
     t.ifElse($, better, $2 => t.assign($2, best, t.some(item, option)), undefined, c.path);
-  }, c.path);
+  };
+  if (rows !== undefined) rows.each(c.$, each);
+  else t.forEach(c.$, array!, ($, item) => each($, item), c.path);
   const out = outputType(t, c);
   if (nullablePayload(option) !== undefined) { c.emit(c.$, t.widenTo(c.$, best, out, c.path)); return; }
   // An element that can be null already is the answer as it is, and no element is its null.

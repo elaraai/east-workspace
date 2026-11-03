@@ -585,3 +585,68 @@ def test_a_query_over_a_dict_of_struct_keys_looks_up_by_the_keys_type() -> None:
     cells.insert(EastStruct({"region": "NSW", "week": 1}), 1080.0)
     found = evaluate_jq('.[{region: "NSW", week: 1}]', cells, input_type=DictType(cell, FloatType))
     assert_value(OptionType(FloatType), found, some(1080.0))
+
+
+# ─── A stage's rows folded as they are made (#1140) ─────────────────────
+
+#: A stage over the orders and a step after it, as ``query.spec.ts`` has them: steps that fold every row, steps that
+#: keep the first, and stages whose rows may raise past the rows a step needs.
+_FOLDED = [
+    ("map(.total)", "add"), ("map(select(.total < 0) | .total)", "add"), ("map(empty)", "add"),
+    ("map(.total)", "min"), ("map(.id)", "max"),
+    ("map(.total)", "length"), ("[.[] | select(.total > 1000)]", "length"), ("[.[] | .lines[]]", "length"),
+    ("map(.total > 1000)", "any"), ("map(.lines | length > 0)", "all"),
+    ("map(.total)", "reduce .[] as $t (0.0; . + $t)"),
+    ("map(select(.total > 1000))", "reduce .[] as $o ({}; .[$o.customer_id] += $o.total)"),
+    ("map(select(.total > 1000))", "first"), ("map(.id)", ".[:3]"), ("map(.id)", ".[:0]"), ("[.[] | .id, .total]", ".[:5]"),
+    ('map(if .total > 1000 then error("too much") else .id end)', "first"),
+    ('map(if .total > 1000 then error("too much") else .id end)', ".[:1]"),
+    ("map(.id / (.id - 1040))", "any"),
+    ("map(.id % (.id - 1040))", "all"),
+]
+
+
+def _outcome(program: str, value: Any) -> str:
+    """What a program over the fixture's root type gives over a value: its answer, printed, or the message it raised."""
+    checked = check_jq(program, FIXTURE_ROOT)
+    assert checked.program is not None, program
+    try:
+        return print_for(translate_jq(checked).result_type)(evaluate_jq(checked, value))
+    except QueryError as e:
+        # The message alone: the two programs place the step at different columns.
+        return "raised " + "; ".join(d["message"] for d in e.diagnostics)
+
+
+@pytest.mark.parametrize(("stage", "step"), _FOLDED)
+def test_a_stage_a_step_folds_answers_as_its_rows_collected_first_do_over_the_orders_and_over_none(stage: str,
+                                                                                                  step: str) -> None:
+    fused = f".orders | {stage} | {step}"
+    collected = f".orders | {stage} as $rows | $rows | {step}"
+    no_orders = {**FIXTURE, "orders": []}
+    for value in (FIXTURE, no_orders):
+        assert _outcome(fused, value) == _outcome(collected, value), fused
+
+
+def test_in_a_lenient_place_where_a_row_may_raise_for_its_kind_the_stage_makes_every_row() -> None:
+    # `.discount * 2` raises for an order with no discount, which `try` lets by: jq makes every row, and the try catches.
+    for fused, collected in [
+        ("[try (.orders | map(.discount * 2) | first)]", "[try (.orders | map(.discount * 2) as $rows | $rows | first)]"),
+        ("def d: .orders | map(.discount * 2) | .[:1]; [try d]",
+         "def d: .orders | map(.discount * 2) as $rows | $rows | .[:1]; [try d]"),
+    ]:
+        assert _outcome(fused, FIXTURE) == "[]", fused
+        assert _outcome(fused, FIXTURE) == _outcome(collected, FIXTURE), fused
+
+
+def test_a_break_out_of_the_stage_leaves_it_as_a_raise_does_and_one_inside_its_filter_does_not() -> None:
+    for fused, collected in [
+        ("[label $out | .orders | map(if .id == 1005 then break $out else .id end) | first]",
+         "[label $out | .orders | map(if .id == 1005 then break $out else .id end) as $rows | $rows | first]"),
+        ("[.orders | map(label $l | (.id, break $l)) | first]", "[.orders | map(label $l | (.id, break $l)) as $rows | $rows | first]"),
+        ("[label $out | .orders | map(try (if .id == 1005 then break $out else .id end)) | .[:2]]",
+         "[label $out | .orders | map(try (if .id == 1005 then break $out else .id end)) as $rows | $rows | .[:2]]"),
+        ('[.orders | map(try (if .id == 1005 then error("refunded") else .id end)) | .[:2]]',
+         '[.orders | map(try (if .id == 1005 then error("refunded") else .id end)) as $rows | $rows | .[:2]]'),
+    ]:
+        assert _outcome(fused, FIXTURE) == _outcome(collected, FIXTURE), fused
+    assert _outcome("[label $out | .orders | map(if .id == 1005 then break $out else .id end) | first]", FIXTURE) == "[]"

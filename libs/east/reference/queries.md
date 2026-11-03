@@ -22,6 +22,12 @@ const revenue = East.function([ArrayType(Order)], FloatType, ($, orders) =>
     East.jq({ orders }, ".orders | map(.total) | add", FloatType));
 ```
 
+A stage that collects rows before a step that reads them one at a time —
+`map(f) | add`, `| length`, `| any`, `| first`, `| .[:n]`, a `reduce` over
+`.[]` — runs as one loop, so the array between them is never built; `first`
+and `.[:n]` stop the stage once they have their rows, unless a later row could
+raise (QUERY.md §15.1–15.2).
+
 | Signature | Description | Example |
 |-----------|-------------|---------|
 | **In an East body** |
