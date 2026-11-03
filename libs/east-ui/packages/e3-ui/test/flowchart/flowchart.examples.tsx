@@ -231,14 +231,28 @@ export const flowchartFlows = example({
 });
 
 export const flowchartFlowsMobile = example({
-    keywords: ["Flowchart", "record", "Flows", "mobile", "phone", "pane strip", "drawer", "second row", "history"],
-    description: "The same record of flows in a phone's 390-wide frame: the toolbar over its second row — the history at 44px — the canvas the frame's whole width, and the Flows tab and the inspector a strip of drawers along the bottom edge",
+    keywords: ["Flowchart", "record", "Flows", "mobile", "phone", "pane strip", "drawer", "second row", "history", "Slice.bindRecords", "Flowchart.library.states"],
+    description: "The same record of flows in a phone's 390-wide frame: the toolbar over its second row — the history at 44px — the canvas the frame's whole width, the rail's Filters narrowing the step types, and the library and the inspector a strip of views along the bottom edge",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const flows = $.let(Record.bind(depotFlows));
+            const steps = $.let(Data.bind(stepTemplates));
+            // One rail: the step types by kind, through the source the Steps tab names.
+            const slice = $.let(Slice.bindRecords("flowchart.flowsMobile", {
+                steps: { source: Data.bindPaged(stepTemplates, { indexes: ["flowchart_steps_by_kind"] }), label: "Steps", icon: { prefix: "fas", name: "box" },
+                    fields: { kind: { label: "Step kind", hints: ["Intake", "Sort", "Hold", "Load"] } } },
+            }));
             return (
                 <Box width="390px" maxWidth="100%" height="720px">
-                    <Flowchart record={flows} name="flowsMobile" flow="Inbound parcels" library={[Flowchart.library.flows()]} />
+                    <Flowchart record={flows} name="flowsMobile" flow="Inbound parcels" slice={{ slice }}
+                        library={[
+                            Flowchart.library.flows(),
+                            Flowchart.library.states(steps.read(), {
+                                name: "Steps", icon: "box", source: "steps",
+                                label: s => s.name, meta: (_s, code) => some(code), group: s => s.kind,
+                                drop: (s, code) => Flowchart.patch(Flowchart.Types.State, { key: code, label: some(s.name), members: s.slots }),
+                            }),
+                        ]} />
                 </Box>
             );
         }}</Reactive>

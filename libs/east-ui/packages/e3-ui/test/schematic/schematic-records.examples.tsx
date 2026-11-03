@@ -221,6 +221,7 @@ export const schematicRecordIndexesMobile = example({
                 <Box width="390px" maxWidth="100%" height="640px">
                     <Schematic
                         id="recordIndexesMobile"
+                        library={[Schematic.library.index()]}
                         inspector
                         extent={{ width: 382, height: 254 }}
                         scaleUnit="m"

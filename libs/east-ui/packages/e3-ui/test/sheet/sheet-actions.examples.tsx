@@ -448,6 +448,7 @@ export const sheetActionsPhone = example({
                             }),
                             done: Sheet.column.date(Step, { header: "Done", width: "64px", level: () => "time", format: "HH:mm" }),
                         }}
+                        library={[Sheet.library.columns()]}
                         inspector
                         // Good's field, as a tap on its cell edits it under the grid: counted in parts, never below none.
                         fields={{ good: Sheet.field.number({ unit: "pcs", min: 0n, help: "empty until reported" }) }}
