@@ -635,6 +635,20 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     actionBarMore: () => string;
     /** Why the field took no value (an action's `updates` threw, or its value could not be read): the gesture is refused. */
     actionFailed: (p: { verb: string; reason: string }) => string;
+
+    // ── A phone's column pager (`Mobile Sheet Spec.md` SH1, SH2) ────────────
+    /** The readout's lead — `Columns`, before the range in view. */
+    pagerColumns: () => string;
+    /** What follows the range — `of 3`. */
+    pagerOf: (p: { n: number; total: string }) => string;
+    /** The readout's accessible name — `Columns 1–2 of 3 · go to a column`. */
+    pagerName: (p: { from: string; to: string; n: number; total: string }) => string;
+    /** The step back a column. */
+    pagerPrevious: () => string;
+    /** The step on a column. */
+    pagerNext: () => string;
+    /** The jump menu's eyebrow. */
+    pagerMenu: () => string;
 }
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
@@ -989,6 +1003,13 @@ export const sheetMessages: SheetMessages = {
     actionBarBack: () => "Back to the actions",
     actionBarMore: () => "More…",
     actionFailed: ({ verb, reason }) => `${verb} could not be taken — ${reason}`,
+
+    pagerColumns: () => "Columns",
+    pagerOf: ({ total }) => `of ${total}`,
+    pagerName: ({ from, to, total }) => `Columns ${from}–${to} of ${total} · go to a column`,
+    pagerPrevious: () => "Previous column",
+    pagerNext: () => "Next column",
+    pagerMenu: () => "Go to column",
 };
 
 const SheetMessagesContext = createContext<SheetMessages>(sheetMessages);

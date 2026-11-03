@@ -240,9 +240,11 @@ test("on a phone each cell shows its state alone, and the selected row's actions
         const { container } = await h.mount(ex.sheetActionsBasic);
         expect(nextOf(cellOf(container, "J-0003", "state"))).toBeNull();
         expect(bar(container)).toBeNull();
-        // The action column is the row's last track, its state's width, so its own place is the frame's right edge (X4).
+        // A phone's tracks (Mobile Sheet Spec.md SH1, SH4): the pinned column's 150, then a slot a column — the action
+        // column paged with the rest, never pinned at the right (R1).
         const row = slot(container, "main")!.querySelector<HTMLElement>('[data-slot="row"][data-row-id="J-0003"]')!;
-        expect(row.style.gridTemplateColumns).toMatch(/ 112px minmax\(0, 1fr\)$/);
+        expect(row.style.gridTemplateColumns.split(" ")[0]).toBe("150px");
+        expect(row.style.gridTemplateColumns).not.toMatch(/minmax/);
         fireEvent.mouseDown(cellOf(container, "J-0003", "task"), { button: 0 });
         await settle();
         const buttons = bar(container)!;

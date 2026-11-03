@@ -118,6 +118,15 @@
  *     cell's right edge; once its actual is known the tag says `actual`
  *     ink-5 in capitals like the resolution tags; a delta (`+1d` · `−3h`)
  *     keeps its lowercase, late warn, early info.
+ *   - A phone's frame (`data-phone` on the card, 560px or narrower;
+ *     `Mobile Sheet Spec.md`, the designer's `WorkOrdersPhone`): no gutter —
+ *     its cells and the header's corner drawn nowhere — the first column
+ *     pinned at the left, 150 wide, padded 0 8 0 16, behind a `border.strong`
+ *     rule (SH4); the other columns each a slot of the window, padded 0 8,
+ *     snapping to their start past the pinned column (SH1.3); the header 32
+ *     tall, one line (SH3); numbers mono 13/500 in ink (SH5); a band 44
+ *     tall, its content across the view whatever the scroll — a 40 wide
+ *     chevron, the name, its id, and at its end its status as a chip (SH6).
  *   - A phone (the adaptive contract, #346): the grid scrolls sideways under
  *     a gutter that stays put (`position: sticky`), the frame's toolbar keeps
  *     its one row through its ladder — on a coarse pointer its controls (the
@@ -182,6 +191,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         "diagnostic",
         "subRow", "subRowGutter", "subRowIndex", "subRowStem", "subRowWell", "subRowContent", "subRowLead", "subRowCode", "subRowName",
         "subRowDetail", "subRowChip", "subRowFacet", "subRowFacetLabel", "subRowFacetValue", "subRowId", "subRowChevron",
+        "pager", "pagerReadout", "pagerCaret", "pagerStep", "pagerMenu", "pagerMenuHead", "pagerMenuItem", "pagerMenuCheck", "pagerMenuLabel", "pagerMenuKind",
     ],
     base: {
         // The sheet fills its frame's main region (#1216).
@@ -509,6 +519,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         // The gutter's corner — rail · number · actions like every row; the gutters stay put while the grid scrolls sideways.
         headerGutter: {
+            // A phone's frame has no gutter (R5).
+            "[data-sheet-card][data-phone] &": { display: "none" },
             display: "grid", gridTemplateColumns: "28px var(--sheet-number, 36px) 1fr", alignItems: "stretch",
             background: "bg.panel",
             borderRightWidth: "1px",
@@ -534,12 +546,16 @@ export const sheetSlotRecipe = defineSlotRecipe({
             minWidth: "0",
             borderRightWidth: "1px",
             borderRightColor: "border.subtle",
-            // The action column's head, pinned with its cells on a phone's frame (#1479).
-            "&[data-kind=action]": {
-                "[data-sheet-card][data-phone] &": {
-                    order: "1", position: "sticky", right: "0", zIndex: "1", backgroundColor: "inherit",
-                    boxShadow: "-1px 0 0 var(--chakra-colors-border-strong)",
-                },
+            // A phone's (SH3): one 32px line, padded 0 8, each a snap point of the window; a number's to the right.
+            "[data-sheet-card][data-phone] &": {
+                // 32 with the header's rule below it (the designer's box).
+                height: "31px", paddingX: "8px", gap: "0", scrollSnapAlign: "start",
+                "&[data-kind=integer], &[data-kind=quantity]": { alignItems: "flex-end" },
+            },
+            // A phone's pinned column's head (SH4): at the left, past the window's snap, behind a strong rule.
+            "[data-sheet-card][data-phone] [data-slot=headerGutter] + &": {
+                position: "sticky", left: "0", zIndex: "2", background: "bg.panel", scrollSnapAlign: "none",
+                paddingLeft: "16px", paddingRight: "8px", borderRightColor: "border.strong",
             },
         },
         headerLabel: {
@@ -555,6 +571,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             textOverflow: "ellipsis",
         },
         headerSub: {
+            "[data-sheet-card][data-phone] &": { display: "none" },
             fontFamily: "mono",
             fontSize: "10.5px",
             fontWeight: "500",
@@ -608,6 +625,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         // so it paints its row's own surface (rest · hover · picked · band ·
         // dirty), and its right edge is the gutter edge, `border.strong`.
         gutter: {
+            "[data-sheet-card][data-phone] &": { display: "none" },
             display: "grid",
             gridTemplateColumns: "28px var(--sheet-number, 36px) 1fr",
             alignItems: "stretch",
@@ -826,14 +844,13 @@ export const sheetSlotRecipe = defineSlotRecipe({
             borderRightWidth: "1px",
             borderRightColor: "border.subtle",
             minWidth: "0",
-            // A phone's frame (#1479, X4): the action column stays in view at the frame's right edge as the columns
-            // scroll sideways, on its row's own surface — whatever wash the row wears — its gutter-like rule on its left.
-            "&[data-kind=action]": {
-                "[data-sheet-card][data-phone] &": {
-                    // Last in its row, as its track is; above a ring a cell scrolled under it draws (z 4), as the gutter is.
-                    order: "1", position: "sticky", right: "0", zIndex: "5", backgroundColor: "inherit",
-                    boxShadow: "-1px 0 0 var(--chakra-colors-border-strong)",
-                },
+            // A phone's (SH5): padded 0 8, as tall as its row (44 coarse, 32 fine), whatever the density.
+            "[data-sheet-card][data-phone] &": { paddingX: "8px", paddingY: "0", minHeight: "0" },
+            // A phone's pinned column (SH4): at the left on its row's own surface — whatever wash the row wears — above a
+            // ring a cell scrolled under it draws (z 4), padded 0 8 0 16, behind a strong rule.
+            "[data-sheet-card][data-phone] [data-slot=gutter] + &": {
+                position: "sticky", left: "0", zIndex: "5", backgroundColor: "inherit",
+                paddingLeft: "16px", paddingRight: "8px", borderRightColor: "border.strong",
             },
             // A cell's hover, but not on the row a drag rests on: the row's wash shows through (#1187).
             "&:is(:hover, [data-hover]):not([data-drop-active] > *, [data-drop-invalid] > *)": { background: "bg.panel" },
@@ -883,6 +900,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             zIndex: "1",
         },
         cellNum: {
+            // A phone's (SH5): mono 13/500 in ink.
+            "[data-sheet-card][data-phone] &": { fontSize: "13px", fontWeight: "500", color: "fg" },
             marginLeft: "auto",
             fontFamily: "mono",
             fontSize: "12px",
@@ -1346,6 +1365,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         // Its gutter, as a row's: rail · number · actions, sticky while the columns scroll sideways, the gutter edge;
         // the number in the number column, right-aligned.
         runGutter: {
+            "[data-sheet-card][data-phone] &": { display: "none" },
             display: "grid",
             gridTemplateColumns: "28px var(--sheet-number, 36px) 1fr",
             alignItems: "center",
@@ -1377,7 +1397,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
             borderRightWidth: "1px",
             borderRightStyle: "solid",
             borderRightColor: "border.subtle",
-            "[data-sheet-card][data-phone] &": { order: "1" },
         },
         // A grouped run's band: its chevron past the gutter, where a group band's sits.
         runBand: {
@@ -1389,6 +1408,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         groupSummary: {
             display: "flex", alignItems: "center", gap: "10px", paddingX: "12px", minWidth: "0", whiteSpace: "nowrap", overflow: "hidden",
+            // A phone's band (SH6): its content across the view whatever the scroll, the chevron at its start, 12 clear of its end.
+            "[data-sheet-card][data-phone] &": { position: "sticky", left: "0", width: "var(--sheet-view)", gap: "8px", paddingLeft: "0", paddingRight: "12px" },
         },
         // One summary spans the row columns; membership is the connector in the gutter.
         // A group's band (#740): one grid row on the line columns' template — `bg.panel`, `bg.muted` on hover.
@@ -1430,6 +1451,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             _hover: { color: "fg" },
             "& svg": { transition: "transform 180ms cubic-bezier(0.2, 0, 0, 1)", "@media (prefers-reduced-motion: reduce)": { transition: "none" } },
             "&[aria-expanded=true] svg": { transform: "rotate(90deg)" },
+            // A phone's (SH6): a 40 wide target the band's height, its chevron 12.
+            "[data-sheet-card][data-phone] &": { width: "40px", height: "43px", fontSize: "12px", borderRadius: "0", marginRight: "-8px" },
         },
         groupCount: {
             fontFamily: "mono",
@@ -1440,10 +1463,12 @@ export const sheetSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             marginLeft: "6px",
             "&[data-quiet]": { opacity: "0.6" },
+            "[data-sheet-card][data-phone] &": { display: "none" },
         },
         // A band's title and its cells are inset as a line's cells are (10 px), so the ring clears their text and the
         // title's editor opens over it where it stands (the hand retest of #1475).
         groupTitle: {
+            "[data-sheet-card][data-phone] &": { paddingX: "0", flex: "0 1 auto" },
             position: "relative", display: "flex", alignItems: "center", minWidth: "0", paddingX: "10px",
             minHeight: "28px", cursor: "text", overflow: "visible",
             '&:has([data-slot=editorInput])': { width: "240px", flex: "0 0 240px" },
@@ -1480,6 +1505,15 @@ export const sheetSlotRecipe = defineSlotRecipe({
             '& > span': { fontSize: "10px", fontFamily: "mono", color: "fg.muted" },
             '&[data-editable]': { cursor: "text" },
             '&:last-child': { marginLeft: "auto" },
+            // A phone's band's status (SH6): a 22 tall chip at the band's end — an 8 dot and the word mono 10.5/600 caps —
+            // on `brandTint` while the band is a draft.
+            "[data-sheet-card][data-phone] &": {
+                minHeight: "22px", height: "22px", paddingX: "4px", gap: "8px", borderRadius: "sm",
+                // The dot (it carries its tone), then the word after it.
+                "& [data-tone]": { width: "8px", height: "8px", marginRight: "0" },
+                "& [data-tone] + span": { fontSize: "label.md", fontWeight: "600", letterSpacing: "0.1em" },
+                "[data-band-row][data-draft] &": { background: "brandTint" },
+            },
         },
         // the strip stands as tall as a row and reads at the cells' size; its chips page (see `stripPager`), never scroll or clip.
         strip: {
@@ -1707,6 +1741,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         // Its gutter: sticky like a line's, on the surface so the tree reads on white — the group's rail through the rail track, the tree and the index in the rest, the gutter edge on its right.
         subRowGutter: {
+            "[data-sheet-card][data-phone] &": { display: "none" },
             display: "grid",
             gridTemplateColumns: "28px 1fr",
             alignItems: "stretch",
@@ -1876,6 +1911,40 @@ export const sheetSlotRecipe = defineSlotRecipe({
             "& svg": { transition: "transform 180ms cubic-bezier(0.2, 0, 0, 1)", "@media (prefers-reduced-motion: reduce)": { transition: "none" } },
             "&[data-open] svg": { transform: "rotate(90deg)" },
         },
+        // ── A phone's column pager (`Mobile Sheet Spec.md` SH1, SH2; the designer's `WorkOrdersPhone`) ──
+        // A 44px band over the grid on the paper, a `--rule` below, padded 0 4 0 16, its parts 4 apart.
+        pager: {
+            flex: "none", height: "44px", display: "flex", alignItems: "center", gap: "{spacing.1}", boxSizing: "border-box",
+            paddingInlineStart: "{spacing.4}", paddingInlineEnd: "{spacing.1}",
+            background: "bg.surface", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",
+        },
+        // The readout: mono 10.5 tabular in `--ink-3`, the range 600 in ink, a caret 8 in `--ink-4` — it opens the jump menu.
+        pagerReadout: {
+            flex: "1", minWidth: "0", height: "44px", display: "flex", alignItems: "center", gap: "{spacing.2}",
+            border: "none", padding: "0", background: "transparent", textAlign: "left", cursor: "pointer",
+            fontFamily: "mono", fontSize: "label.md", fontVariantNumeric: "tabular-nums", color: "fg.muted", whiteSpace: "nowrap",
+            "& b": { fontWeight: "600", color: "fg" },
+            _focusVisible: { outline: "none", boxShadow: "focusInset" },
+        },
+        pagerCaret: { display: "inline-flex", fontSize: "8px", color: "fg.subtle" },
+        // ‹ and ›: 44px ghosts on `--r-md`, their chevrons 16 in `--ink-2`; at the ends `--ink-5` and inert.
+        pagerStep: {
+            flex: "none", width: "44px", height: "44px", display: "inline-flex", alignItems: "center", justifyContent: "center",
+            border: "none", padding: "0", borderRadius: "md", background: "transparent", color: "fg.strong", cursor: "pointer",
+            "& svg": { fontSize: "16px" },
+            _hover: { background: "bg.subtle", color: "fg" },
+            _focusVisible: { outline: "none", boxShadow: "focus" },
+            "&[aria-disabled=true]": { color: "fg.faint", cursor: "default", _hover: { background: "transparent", color: "fg.faint" } },
+        },
+        // The jump menu (SH2): 240 wide, its eyebrow, then a 44px item a column — a check on those in view, the header, the kind.
+        pagerMenu: { minWidth: "240px", width: "240px" },
+        pagerMenuHead: {
+            fontFamily: "mono", fontSize: "label.sm", fontWeight: "600", letterSpacing: "0.14em", textTransform: "uppercase", color: "fg.subtle",
+        },
+        pagerMenuItem: { minHeight: "44px", gap: "{spacing.2}" },
+        pagerMenuCheck: { flex: "none", width: "14px", display: "inline-flex", justifyContent: "center", color: "brand.solid", "& svg": { fontSize: "12px" } },
+        pagerMenuLabel: { flex: "1", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+        pagerMenuKind: { fontFamily: "mono", fontSize: "label.md", color: "fg.subtle" },
     },
     variants: {
         size: {

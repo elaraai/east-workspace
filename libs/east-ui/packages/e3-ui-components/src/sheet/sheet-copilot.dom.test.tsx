@@ -552,8 +552,10 @@ describe("a folded gutter (#1215)", () => {
     test("the anchor's menu fills the row, as its → does — one `row` patch, the grid keeping the focus — and Undo takes it back", async () => {
         const { value, edits, draft } = withSpies(buildCopilotSheet());
         const { container, card, key, type, editorKey, settle } = mount(value);
+        // A phone's frame (Mobile Sheet Spec.md R5): the gutter takes no track — its folded form's menu, which these tests
+        // drive, is drawn nowhere there; the copilot's fill is the docked strip's chip on a phone.
         expect(card.getAttribute("data-gutter")).toBe("folded");
-        expect(card.style.getPropertyValue("--sheet-gutter")).toBe("108px");
+        expect(card.style.getPropertyValue("--sheet-gutter")).toBe("0px");
         key("R");
         type("Routing");
         editorKey("Enter");

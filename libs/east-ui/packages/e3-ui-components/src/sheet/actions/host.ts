@@ -26,6 +26,8 @@ export interface SheetActionHost {
     offer: (r: number, key: string) => ActionOffer | undefined;
     /** Whether the cell draws its controls (T9, X4). */
     controls: (r: number, key: string) => boolean;
+    /** Whether a phone's cell offers a start (`Mobile Sheet Spec.md` SH7): nothing taken yet, and the row may act now. */
+    startable: (r: number, key: string) => boolean;
     /** The control of the cell whose overlay is open. */
     held: (r: number, key: string) => ActionHeld | undefined;
     /** Whether the cell's value is a draft (ST3). */

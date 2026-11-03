@@ -97,23 +97,18 @@ const caption = () => {
     return el === null ? null : { text: el.textContent, refused: el.hasAttribute("data-refused") };
 };
 
-test("on a coarse pointer a frame one pixel short of the touch gutter beside the first column folds it — one row-actions button a row, named as its grip is, no actions column and no seam; exactly enough room, or a fine pointer, keeps today's gutter", async () => {
+test("a phone's frame — one too narrow for the touch gutter beside the first column, as every frame of 560px or less is — draws no gutter (Mobile Sheet Spec.md R5): its tracks the pinned column's 150 and a slot a column; a wider frame, or a fine pointer, keeps today's gutter", async () => {
     onTouch(493);
     const narrow = await h.mount(ex.sheetBatches, { drag: true });
     let c = narrow.container;
-    expect(card(c).getAttribute("data-gutter")).toBe("folded");
-    expect(card(c).style.getPropertyValue("--sheet-gutter")).toBe("108px");
-    expect(linesOf(c, "B-101")[0]!.style.gridTemplateColumns.split(" ")[0]).toBe("108px");
-    expect(actionsOf(linesOf(c, "B-101")[0]!)!.getAttribute("aria-label")).toBe("Actions — line 1 of Doors, oak");
-    expect(actionsOf(bandOf(c, "B-101"))!.getAttribute("aria-label")).toBe("Actions — batch 1");
-    // The button is the row's grip too — one that waits for travel, so a tap stays a tap — and takes no tab stop.
-    expect(actionsOf(linesOf(c, "B-101")[0]!)!.getAttribute("data-drag-grip")).toBe("tap");
-    expect(actionsOf(linesOf(c, "B-101")[0]!)!.hasAttribute("tabindex")).toBe(false);
-    expect(main(c).querySelector('[data-slot="fillSlot"], [data-slot="rowGrip"], [data-slot="insertPoint"]')).toBeNull();
+    expect(card(c).hasAttribute("data-phone")).toBe(true);
+    expect(card(c).style.getPropertyValue("--sheet-gutter")).toBe("0px");
+    expect(linesOf(c, "B-101")[0]!.style.gridTemplateColumns.split(" ")[0]).toBe("150px");
     narrow.unmount();
     offTouch();
 
-    onTouch(494);
+    // Past a phone's frame, room for the touch gutter beside the first column: today's gutter.
+    onTouch(561);
     const wide = await h.mount(ex.sheetBatches, { drag: true });
     c = wide.container;
     expect(card(c).hasAttribute("data-gutter")).toBe(false);

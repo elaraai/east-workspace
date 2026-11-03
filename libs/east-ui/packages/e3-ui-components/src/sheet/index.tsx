@@ -166,6 +166,7 @@ import { ActionForm, ActionMenu, type ActionOverlayState } from "./actions/Actio
 import { ActionPanel, type ActionPanelApi } from "./actions/ActionPanel.js";
 import { ActionBar } from "./actions/ActionBar.js";
 import { SheetTabs, type SheetTabsFold, type SheetTabView } from "./Tabs.js";
+import { SheetPager } from "./Pager.js";
 import { SheetEditor, type EditorFocusRequest, type EditorOption, type LinkEditorView } from "./Editor.js";
 import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripModel, type StripSuggestInput } from "./Strip.js";
 import type { SheetFooterProps, SheetLoadingLine } from "./Footer.js";
@@ -639,8 +640,18 @@ interface SheetActionApi extends Omit<SheetActionHost, "subscribe" | "version"> 
 /** The dwell before the strip previews the action the pointer rests on, and the grace before it lets it go (P8, N5). */
 const PREVIEW_MS = 120;
 
-/** An action column's width in a phone's frame (X4): its state alone, as wide as a cell's next half — pinned at the frame's right edge. */
-const ACTION_PHONE_PX = 112;
+/** A phone's frame (`Mobile Sheet Spec.md` SH4): its pinned column's width, at the left, beside the window of columns. */
+export const PHONE_PIN_PX = 150;
+
+/** How many columns a phone's frame shows beside its pinned one, unless the sheet's `narrow` says (SH1.4). */
+const PHONE_COLUMNS = 2;
+
+/** A phone's band, px (SH6): 44, whatever the density. */
+const PHONE_BAND_PX = 44;
+
+/** The rows' scroll element: sideways as wide as the columns; on a phone, snapping to a column past the pinned one (SH1.3). */
+const WIDE_ROOT_CSS = { overflowX: "auto" } as const;
+const PHONE_ROOT_CSS = { overflowX: "auto", scrollSnapType: "x mandatory", scrollPaddingLeft: `${PHONE_PIN_PX}px`, scrollbarWidth: "none" } as const;
 
 /** A row-space item's drop row, printed — what its drop cell's `CellRef` carries. */
 function dropText(item: SheetBodyItem): string | undefined {
@@ -668,11 +679,22 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // when it would hide them all.
     const allColumns = useMemo(() => indexColumns(value.columns), [value.columns]);
     const hidden = host.hidden;
+    // The frame's width: inside it (`clientWidth`), the view a sub row's well
+    // keeps its content to; its box (`offsetWidth`, which no scrollbar of its
+    // own changes), what decides whether the gutter folds (#1215).
+    const [viewPx, setViewPx] = useState<number | undefined>(undefined);
+    const [framePx, setFramePx] = useState<number | undefined>(undefined);
+    // A phone's frame (`Mobile Sheet Spec.md`): 560 wide or less — a frame not laid out yet (0 wide) is none. Its pinned
+    // column leads the row at the left (SH4), the others a window of them beside it that the pager pages (SH1); no
+    // gutter (R5).
+    const phoneFrame = framePx !== undefined && framePx > 0 && framePx <= 560;
     const columns = useMemo(() => {
-        if (hidden === undefined || hidden.size === 0) return allColumns;
-        const shown = value.columns.filter((c) => !hidden.has(c.key));
-        return shown.length === 0 || shown.length === value.columns.length ? allColumns : indexColumns(shown);
-    }, [allColumns, value.columns, hidden]);
+        const shown = hidden === undefined || hidden.size === 0 ? value.columns : value.columns.filter((c) => !hidden.has(c.key));
+        const drawn = shown.length === 0 ? value.columns : shown;
+        if (!phoneFrame) return drawn.length === value.columns.length ? allColumns : indexColumns(drawn);
+        // The pinned column first: the sheet's first, the one a phone's frame pins at the left.
+        return drawn.length === value.columns.length ? allColumns : indexColumns(drawn);
+    }, [allColumns, value.columns, hidden, phoneFrame]);
     const registers = useMemo(() => indexRegisters(value.registers), [value.registers]);
     const driver = useMemo(() => getSomeorUndefined(value.driver), [value.driver]);
     const driverColumn = driver?.column;
@@ -695,8 +717,10 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // row and stretch mounting was a compensation of the scroll the view could only round, and the view crept as the
     // narrowing's rows landed (#1398, CL8). On the grid each one measures as it was laid out, and rows land where their
     // placeholders stood.
-    const rowPx = devicePixels(Math.max(useDensityHeights(size).row, coarse ? 45 : 0));
-    const bandPx = devicePixels(Math.max(groupBandPx(size), coarse ? 46 : 42));
+    const densityRow = useDensityHeights(size).row;
+    // A phone's rows (SH5): 44 on a coarse pointer, 32 on a fine one, whatever the density — the rule included.
+    const rowPx = devicePixels(phoneFrame ? (coarse ? 44 : 32) : Math.max(densityRow, coarse ? 45 : 0));
+    const bandPx = devicePixels(phoneFrame ? PHONE_BAND_PX : Math.max(groupBandPx(size), coarse ? 46 : 42));
     // A sub row's least height; a wrapping detail grows it, and the rows are measured.
     const subRowPx = devicePixels(30);
     // The word for a group: the host's (#844), else the sheet's words (#861).
@@ -724,11 +748,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // What moves the rows, as the frame reports it (#856): the element they
     // scroll in, both ways.
     const [viewport, setViewport] = useState<RowsViewport | null>(null);
-    // The frame's width: inside it (`clientWidth`), the view a sub row's well
-    // keeps its content to; its box (`offsetWidth`, which no scrollbar of its
-    // own changes), what decides whether the gutter folds (#1215).
-    const [viewPx, setViewPx] = useState<number | undefined>(undefined);
-    const [framePx, setFramePx] = useState<number | undefined>(undefined);
     // The number column: as wide as the widest number the sheet shows, in the
     // number's own face (measured below, before the first paint), never
     // narrower than its least width — and every gutter grows by what it grows by.
@@ -738,25 +757,25 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const fullGutterPx = Math.max(parseWidth(style !== undefined ? getSomeorUndefined(style.gutterWidth) : undefined) ?? DEFAULT_GUTTER_PX, least.fine, coarse ? least.coarse : 0);
     // A frame too narrow for the touch gutter beside the first column folds it: one row-actions button holds each row's actions (#1215).
     const folded = gutterFolds(framePx, coarse, fullGutterPx, columns.list[0]?.width);
-    const gutterPx = folded ? least.folded : fullGutterPx;
-    // A phone's frame (X4, X5): 560 wide or less — a frame not laid out yet (0 wide) is none. Its action cells show
-    // their state alone, in a column as wide as that, pinned at the frame's right edge, and the docked strip is the
-    // selected row's action bar.
-    const phoneFrame = framePx !== undefined && framePx > 0 && framePx <= 560;
-    const widthOf = useCallback((c: SheetColumnMeta): number => (phoneFrame && c.kind === "action" ? ACTION_PHONE_PX : c.width), [phoneFrame]);
+    // A phone's frame has no gutter (R5): its rows are picked by their pinned cell, and their actions are the Inspector's.
+    const gutterPx = phoneFrame ? 0 : folded ? least.folded : fullGutterPx;
+    // A phone's window (SH1.4): the frame's width less the pinned column, shared by the columns in view.
+    const phoneColumns = PHONE_COLUMNS;
+    const slotPx = phoneFrame && viewPx !== undefined ? Math.max(0, (viewPx - PHONE_PIN_PX) / phoneColumns) : 0;
     // The frame's slack goes to the TEXT columns, each capped at 2.5× its
     // width, and the last column takes the rest, out to the frame's edge: the
-    // grid ends at its own last column, never at an empty track after it.
+    // grid ends at its own last column, never at an empty track after it. A
+    // phone's frame: the pinned column, then a slot a column (SH1, SH4) — the
+    // gutter's cells drawn nowhere (the recipe), so they take no track.
     const gridTemplate = useMemo(() => {
-        // On a phone's frame the action columns are the last tracks, their cells placed there by the recipe (`order`): their
-        // own place is then the frame's right edge at the scroll's end, and pinned there before it (the hand retest's 1). A
-        // pinned column keeps its width, so there a filler track takes what is left.
-        const placed = phoneFrame ? [...columns.list.filter((c) => c.kind !== "action"), ...columns.list.filter((c) => c.kind === "action")] : columns.list;
-        const tracks = placed.map((c, i) => (!phoneFrame && i === placed.length - 1 ? `minmax(${widthOf(c)}px, 1fr)`
-            : c.kind === "text" ? `minmax(${c.width}px, ${Math.round(c.width * 2.5)}px)` : `${widthOf(c)}px`));
-        return `${gutterPx}px ${tracks.join(" ")}${phoneFrame ? " minmax(0, 1fr)" : ""}`;
-    }, [gutterPx, columns, widthOf, phoneFrame]);
-    const minWidth = gutterPx + columns.list.reduce((n, c) => n + widthOf(c), 0);
+        if (phoneFrame) return [`${PHONE_PIN_PX}px`, ...columns.list.slice(1).map(() => `${slotPx}px`)].join(" ");
+        const tracks = columns.list.map((c, i) => (i === columns.list.length - 1 ? `minmax(${c.width}px, 1fr)`
+            : c.kind === "text" ? `minmax(${c.width}px, ${Math.round(c.width * 2.5)}px)` : `${c.width}px`));
+        return `${gutterPx}px ${tracks.join(" ")}`;
+    }, [gutterPx, columns, phoneFrame, slotPx]);
+    // The columns a phone's pager pages: every one but the pinned one.
+    const pagedColumns = useMemo(() => columns.list.slice(1), [columns]);
+    const minWidth = phoneFrame ? PHONE_PIN_PX + slotPx * Math.max(0, columns.list.length - 1) : gutterPx + columns.list.reduce((n, c) => n + c.width, 0);
     const today = useMemo(() => todayUtc(), []);
 
     // Callbacks — taken from the latest value on every render.
@@ -3286,7 +3305,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const head = headerRef.current?.querySelectorAll<HTMLElement>('[data-slot="headerCell"]')[col];
         if (head !== undefined) {
             const box = frame.getBoundingClientRect();
-            const left = box.left + frame.clientLeft + gutterPx;
+            const left = box.left + frame.clientLeft + (phoneFrame ? PHONE_PIN_PX : gutterPx);
             const right = box.left + frame.clientLeft + frame.clientWidth;
             const cell = head.getBoundingClientRect();
             if (cell.left < left) frame.scrollLeft -= left - cell.left;
@@ -3531,6 +3550,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         version: actionStore.version,
         offer: (r, key) => actionApi.current?.offer(r, key),
         controls: (r, key) => actionApi.current?.controls(r, key) ?? false,
+        startable: (r, key) => actionApi.current?.startable(r, key) ?? false,
         held: (r, key) => actionApi.current?.held(r, key),
         dirty: (r, key) => actionApi.current?.dirty(r, key) ?? false,
         live: (r, key) => actionApi.current?.live(r, key) ?? false,
@@ -3710,6 +3730,13 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         },
         // Owned rows, a read-only sheet, a column that takes no edit, and a phone's frame show the state alone (T9, X4).
         controls: (r, key) => actionWritable(r, key) && !phoneFrame,
+        // A phone's cell with nothing taken, its row free to act and offered a case now: `▶ Start` (SH7).
+        startable: (r, key) => {
+            if (!phoneFrame || !actionWritable(r, key) || !editingState.available) return false;
+            const a = actionAt(r, key);
+            if (a === undefined || a.cell?.type === "Action") return false;
+            return canTake(offerOf(a.column, a.cell, wireContextFor(r)));
+        },
         held: (r, key) => (actionOverlay !== undefined && actionOverlay.r === r && actionOverlay.key === key ? actionOverlay.part : undefined),
         dirty: (r, key) => {
             const a = actionAt(r, key);
@@ -4818,6 +4845,10 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // insertion layer — the insertion strip, and the strip docked under them.
     const grid = (
         <>
+            {/* A phone's column pager over the grid (SH1): the window of columns beside the pinned one. */}
+            {phoneFrame && columns.list.length > 1 && (
+                <SheetPager styles={styles} frame={viewport?.frame ?? null} columns={pagedColumns} slotPx={slotPx} inView={phoneColumns} />
+            )}
             <Box
                 ref={cardRef}
                 id={gridId}
@@ -4826,9 +4857,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 data-sheet-card
                 // Where the gutter ends — what the seam lines start from — whether it folded (#1215), and how wide its number column is.
                 data-gutter={folded ? "folded" : undefined}
-                // A phone's frame (#1479): its action column pinned at the frame's right edge.
-                data-phone={phoneFrame && hasActions ? "" : undefined}
-                style={{ "--sheet-gutter": `${gutterPx}px`, "--sheet-number": `${numberPx}px` } as CSSProperties}
+                // A phone's frame (`Mobile Sheet Spec.md`): its pinned column, its window of columns, its band across the view.
+                data-phone={phoneFrame ? "" : undefined}
+                style={{ "--sheet-gutter": `${gutterPx}px`, "--sheet-number": `${numberPx}px`, "--sheet-view": `${viewPx ?? 0}px`, "--sheet-pin": `${PHONE_PIN_PX}px` } as CSSProperties}
                 role="grid"
                 // Rows that stand in — a narrowing's last, or those a key's far jump holds — are retained (#1398, CL8,
                 // CL10): readable and walked by the keys, the frame's main busy, and taking no edit, drag or drop.
@@ -4863,7 +4894,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     // Where the scroll rests, persisted and restored as an item (#857).
                     onAnchorChange={onAnchorChange}
                     restoreAnchor={restoreAnchor}
-                    rootCss={{ overflowX: "auto" }}
+                    // A phone's columns snap to the window's slots, past the pinned column (SH1.3).
+                    rootCss={phoneFrame ? PHONE_ROOT_CSS : WIDE_ROOT_CSS}
                 />
                 {seam !== undefined && seamsOn && (
                     <SheetInsertLayer ref={insertLayerRef} styles={styles} seam={seam} actions={insertActions(seam.r, seam.side)} onLeave={onSeamLeave} />

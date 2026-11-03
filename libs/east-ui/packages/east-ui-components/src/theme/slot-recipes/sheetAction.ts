@@ -60,7 +60,7 @@ const CONTROL = {
 export const sheetActionSlotRecipe = defineSlotRecipe({
     className: "elara-sheet-action",
     slots: [
-        "root", "zone", "state", "dot", "summary", "absent", "next", "icon", "caret", "more", "moreSpace",
+        "root", "zone", "state", "dot", "summary", "absent", "start", "next", "icon", "caret", "more", "moreSpace",
         "menu", "menuHead", "menuKbd", "menuReason",
         "form", "formHead", "formLabel", "formEyebrow", "formMeta", "formClose", "formBody", "formError", "formFoot", "formConsequence", "formButton",
         "panel", "panelState", "panelActions", "panelChoices", "panelForm",
@@ -87,6 +87,8 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             gap: "8px",
             paddingX: "8px",
             cursor: "default",
+            /* A phone's (SH7): the state over its summary, 2 apart, padded as the grid's cells are. */
+            "[data-sheet-card][data-phone] &": { flexDirection: "column", alignItems: "stretch", justifyContent: "center", gap: "2px" },
         },
         /* The state's word after its dot (S4), its slot as wide as the column's widest word (S5). */
         state: {
@@ -141,8 +143,22 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             color: "fg.muted",
             "&[data-dirty]": { color: "brandPressed" },
             "& [data-num]": { fontFamily: "mono", fontWeight: 500 },
-            /* A phone's frame shows the state alone (X4): no sliver of a summary (the hand retest's 3). */
-            "[data-sheet-card][data-phone] &": { display: "none" },
+            /* A phone's (SH7): under the state, 16 in, 12.5 in `--ink-3` — only where a 44px row has room for its
+             * line; on a fine pointer's 32px row the state stands alone. */
+            "[data-sheet-card][data-phone] &": { flex: "none", display: "none", paddingLeft: "16px", _coarse: { display: "block" } },
+        },
+        /* A phone's cell with nothing taken, its row free to act (SH7): `▶ Start` 12.5/500 in the brand. */
+        start: {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            flex: "none",
+            fontSize: "body.sm",
+            fontWeight: 500,
+            lineHeight: "16px",
+            color: "brand.solid",
+            whiteSpace: "nowrap",
+            "& svg": { fontSize: "12px" },
         },
         /* Nothing taken (S8): not started, or why the row waits. */
         absent: {

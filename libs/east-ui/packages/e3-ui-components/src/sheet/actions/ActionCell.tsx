@@ -11,7 +11,10 @@
  * flush inside its rules and set no position of their own, so the grid's
  * ring, the cell's last child, paints over them (S11, S12). A row that may
  * not act now keeps its controls, off (T6); a cell that takes no action —
- * read only, owned, a phone's (T9, X4) — shows the state alone.
+ * read only, owned, a phone's (T9, X4) — shows the state alone. A phone's
+ * cell (`Mobile Sheet Spec.md` SH7) shows its summary under its state at 44px
+ * rows, and, with nothing taken yet and the row free to act, `▶ Start` in the
+ * brand: a tap on it opens the row's action bar.
  *
  * @packageDocumentation
  */
@@ -20,7 +23,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useSyncExternalStore, ty
 import { chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
-import { faAngleDown } from "@fortawesome/free-solid-svg-icons";
+import { faAngleDown, faPlay } from "@fortawesome/free-solid-svg-icons";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { useSheetWords } from "../words.js";
 import type { SheetCellValue } from "../values.js";
@@ -40,6 +43,8 @@ export interface ActionCellProps {
     offer: ActionOffer;
     /** Whether the cell draws its controls: not on a read-only sheet, an owned row, a column that takes no edit, or a phone (T9, X4). */
     controls: boolean;
+    /** A phone's cell with nothing taken and the row free to act: `▶ Start` in place of the absent value (SH7). */
+    startable?: boolean | undefined;
     /** The cell's value is a draft (ST3). */
     dirty: boolean;
     /** The ring is on the cell (ST2). */
@@ -84,7 +89,7 @@ function hold(event: MouseEvent): void {
 }
 
 /** Renders an action column's cell. */
-export const ActionCell = memo(function ActionCell({ column, summary, offer, controls, dirty, selected, held, live, onNext, onMore, onPreview }: ActionCellProps) {
+export const ActionCell = memo(function ActionCell({ column, summary, offer, controls, startable = false, dirty, selected, held, live, onNext, onMore, onPreview }: ActionCellProps) {
     const styles = useSlotStyles("sheetAction");
     const { m } = useSheetWords();
     const slot = useMemo(() => stateSlot(column), [column]);
@@ -115,6 +120,8 @@ export const ActionCell = memo(function ActionCell({ column, summary, offer, con
                         </chakra.span>
                         {summary !== "" && <chakra.span css={styles.summary} data-slot="actionSummary" data-dirty={dirty ? "" : undefined}>{summary}</chakra.span>}
                     </>
+                ) : startable && first !== undefined ? (
+                    <chakra.span css={styles.start} data-slot="actionStart"><FontAwesomeIcon icon={faPlay} aria-hidden />{verbOf(first)}</chakra.span>
                 ) : (
                     <chakra.span css={styles.absent} data-slot="actionAbsent">
                         {offer.offered.length > 0 ? m.actionNotStarted() : offer.blocked ?? m.actionNotStarted()}
@@ -183,7 +190,7 @@ export const ActionCellSlot = memo(function ActionCellSlot({ host, r, columnKey,
     if (offer === undefined) return null;
     return (
         <ActionCell column={column} summary={summary} offer={offer} selected={selected}
-            controls={host.controls(r, columnKey)} dirty={host.dirty(r, columnKey)} held={host.held(r, columnKey)} live={host.live(r, columnKey)}
+            controls={host.controls(r, columnKey)} startable={host.startable(r, columnKey)} dirty={host.dirty(r, columnKey)} held={host.held(r, columnKey)} live={host.live(r, columnKey)}
             onNext={onNext} onMore={onMore} onPreview={onPreview} />
     );
 });
