@@ -375,8 +375,8 @@ export const sheetActionsPhone = example({
                         name="sheetActionsPhone"
                         group={Sheet.group(WorkOrder, "steps", {
                             title: "name", sub: o => o.id, noun: { singular: "order", plural: "orders" },
-                            // The order's status on its band, under the Action column; the actions write it.
-                            cells: { action: Sheet.group.cell.enum(WorkOrder, "statuses", "status", { editable: false }) },
+                            // The order's status on its band, under the Action column; the actions write it, and a status card sets it.
+                            cells: { action: Sheet.group.cell.enum(WorkOrder, "statuses", "status") },
                         })}
                         registers={{
                             statuses: Sheet.register.members(statuses, { kind: "status", key: s => s.word, label: s => s.label, tone: s => some(s.tone) }),
@@ -448,7 +448,11 @@ export const sheetActionsPhone = example({
                             }),
                             done: Sheet.column.date(Step, { header: "Done", width: "64px", level: () => "time", format: "HH:mm" }),
                         }}
-                        library={[Sheet.library.columns()]}
+                        library={[
+                            // The statuses an order takes: a tap sets one on the selected order, as a drop on its band does on a wider frame.
+                            Sheet.library.tab(statuses, { name: "Statuses", key: s => s.word, label: s => s.label, drop: s => Sheet.patch(WorkOrder, { status: s.word }) }),
+                            Sheet.library.columns(),
+                        ]}
                         inspector
                         // Good's field, as a tap on its cell edits it under the grid: counted in parts, never below none.
                         fields={{ good: Sheet.field.number({ unit: "pcs", min: 0n, help: "empty until reported" }) }}

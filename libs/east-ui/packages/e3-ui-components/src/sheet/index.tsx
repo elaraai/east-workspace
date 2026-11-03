@@ -538,6 +538,20 @@ export interface SheetParts {
     enter: (library: string, key: string) => void;
     /** What the frame places of a run of the app's optimiser (#1409). */
     optimise: SheetOptimiseParts;
+    /** A phone's Library (`Mobile Sheet Spec.md` SH11). */
+    phoneLibrary: SheetPhoneLibrary;
+}
+
+/** What a phone's Library reads of the sheet, and the taps it makes (`Mobile Sheet Spec.md` SH11, R7). */
+export interface SheetPhoneLibrary {
+    /** What a tap on a card of a library acts on, as the hint names it: its row, or its band; `undefined` with nothing to act on. */
+    targetOf: (library: string) => string | undefined;
+    /** Whether a card of a library is what its target holds now: every cell it sets is there. */
+    holds: (library: string, key: string) => boolean;
+    /** A tap on a card: its cells set on its target, or a template added below the ring's row, as one transaction. */
+    tap: (library: string, key: string) => void;
+    /** Pages the window to a column, by the least it must. Stable. */
+    goToColumn: (key: string) => void;
 }
 
 /**
@@ -820,6 +834,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         return rowNumbers ? [{ key: ROW_COLUMN, header: words.m.pagerRow(), kind: words.m.pagerRowKind() }, ...each] : each;
     }, [pagedColumns, rowNumbers, words.m]);
     const minWidth = phoneFrame ? pinPx + slotPx * pagerColumns.length : gutterPx + columns.list.reduce((n, c) => n + c.width, 0);
+    // The window as it stands, for a pick of the phone's Library (SH11).
+    const pagerRef = useRef({ list: pagerColumns, slot: slotPx, inView: phoneColumns });
+    pagerRef.current = { list: pagerColumns, slot: slotPx, inView: phoneColumns };
     const today = useMemo(() => todayUtc(), []);
 
     // Callbacks — taken from the latest value on every render.
@@ -4747,6 +4764,62 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const enterRef = useRef(enterCard);
     enterRef.current = enterCard;
     const enter = useCallback((library: string, key: string) => enterRef.current(library, key), []);
+    // A phone's Library (SH11): a tap on an author's card is its drop on the row it lands on — a group's card on the ring's
+    // band, or the band of the line the ring is on; a tap on a template its ⏎.
+    const cardRing = ui.sel.r;
+    const cardTargetR = (lands: "row" | "group"): number | undefined => {
+        const item = rowAt(cardRing);
+        if (lands === "row") return item?.kind === "real" ? cardRing : undefined;
+        if (item?.kind === "group") return cardRing;
+        return item?.kind === "real" && item.group !== undefined ? rowOf(item.group.row.id) : undefined;
+    };
+    const phoneLibrary: SheetPhoneLibrary = {
+        targetOf: (library) => {
+            const tab = dropHost?.tabs.get(library);
+            const r = tab === undefined ? cardRing : cardTargetR(tab.lands);
+            const item = r === undefined ? undefined : rowAt(r);
+            if (item === undefined || (item.kind !== "real" && item.kind !== "group")) return undefined;
+            if (item.kind === "group") {
+                const title = item.row.cells.get(TITLE_KEY);
+                return title?.type === "String" && title.value !== "" ? `${item.row.id} · ${title.value}` : item.row.id;
+            }
+            const lg = item.group;
+            return words.m.inspectorWhat({ what: lg !== undefined ? "line" : "row", number: String(lg !== undefined ? lg.number : item.position + 1), title: lg?.row.id, noun: noun.singular });
+        },
+        holds: (library, key) => {
+            const tab = dropHost?.tabs.get(library);
+            const card = tab?.cards.get(key);
+            const r = tab === undefined ? undefined : cardTargetR(tab.lands);
+            const item = r === undefined ? undefined : rowAt(r);
+            if (card === undefined || card.sets.size === 0 || item === undefined || (item.kind !== "real" && item.kind !== "group")) return false;
+            for (const [k, cell] of card.sets) if (!cellEqual(item.row.cells.get(k) ?? NULL_CELL, cell)) return false;
+            return true;
+        },
+        tap: (library, key) => {
+            const tab = dropHost?.tabs.get(library);
+            if (dropHost === undefined || tab === undefined) { enterCard(library, key); return; }
+            const source = cardSource(dropHost, library, key);
+            const r = cardTargetR(tab.lands);
+            const item = r === undefined ? undefined : rowAt(r);
+            const row = item === undefined ? undefined : dropRowOf(item);
+            if (source === undefined || row === undefined) return;
+            const plan = planBelow(source, row, dropCtx);
+            if (plan.kind !== "refused") {
+                runDrop(plan);
+                return;
+            }
+            const word = dropRefusal(plan, dropCtx, words, noun);
+            if (word !== undefined) dispatchStore({ t: "patch", patch: { msg: { id: "dropRefused", word } } });
+        },
+        goToColumn: useCallback((key: string) => {
+            const { list, slot, inView } = pagerRef.current;
+            const frame = viewportRef.current?.frame;
+            const at = list.findIndex((col) => stringEqual(col.key, key));
+            if (frame === undefined || at < 0 || slot <= 0) return;
+            const first = Math.round(frame.scrollLeft / slot);
+            pageWindow(frame, slot, Math.max(0, list.length - inView), at < first ? at : at >= first + inView ? at - inView + 1 : first);
+        }, []),
+    };
 
     // ── The app's optimiser's parts (#1409, #1418) ─────────────────────────
     // The eye before the history item, the banner, the footer line and the legend, over the run above; the request
@@ -4826,7 +4899,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 <SheetRetry styles={styles} onRetry={retrySource} />
             </Box>
         );
-        return { styles, root, toolbar, grid: null, footer, loading: loadingFacts, history, failure, inspect, enter, optimise };
+        return { styles, root, toolbar, grid: null, footer, loading: loadingFacts, history, failure, inspect, enter, optimise, phoneLibrary };
     }
 
     const stickyItem = stickyAt !== undefined ? body[stickyAt] : undefined;
@@ -5004,7 +5077,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             {actionOverlayNode}
         </>
     );
-    return { styles, root, toolbar, grid, footer, loading: loadingFacts, history, failure: undefined, inspect, enter, optimise };
+    return { styles, root, toolbar, grid, footer, loading: loadingFacts, history, failure: undefined, inspect, enter, optimise, phoneLibrary };
 }
 
 const SheetContext = createContext<SheetParts | undefined>(undefined);
@@ -5271,6 +5344,15 @@ export function useSheetOptimise(): SheetOptimiseParts {
  */
 export function useSheetDropEnter(): (library: string, key: string) => void {
     return useSheetParts().enter;
+}
+
+/**
+ * Reads what a phone's Library reads of the sheet, and the taps it makes (`Mobile Sheet Spec.md` SH11, R7).
+ *
+ * @returns What a card's tap acts on, whether a card is what it holds now, the tap, and the go to a column
+ */
+export function useSheetPhoneLibrary(): SheetPhoneLibrary {
+    return useSheetParts().phoneLibrary;
 }
 
 /**

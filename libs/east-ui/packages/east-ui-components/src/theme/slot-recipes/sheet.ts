@@ -206,6 +206,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         "diagnostic",
         "subRow", "subRowGutter", "subRowIndex", "subRowStem", "subRowWell", "subRowContent", "subRowLead", "subRowCode", "subRowName",
         "subRowDetail", "subRowChip", "subRowFacet", "subRowFacetLabel", "subRowFacetValue", "subRowId", "subRowChevron",
+        "phoneList", "phoneHint", "phoneRow", "phoneRowMain", "phoneRowLabel", "phoneRowMeta", "phoneRowMark", "phoneRowEye",
         "pager", "pagerReadout", "pagerCaret", "pagerStep", "pagerMenu", "pagerMenuHead", "pagerMenuItem", "pagerMenuCheck", "pagerMenuLabel", "pagerMenuKind",
     ],
     base: {
@@ -1948,6 +1949,29 @@ export const sheetSlotRecipe = defineSlotRecipe({
             // It turns down as the line opens.
             "& svg": { transition: "transform 180ms cubic-bezier(0.2, 0, 0, 1)", "@media (prefers-reduced-motion: reduce)": { transition: "none" } },
             "&[data-open] svg": { transform: "rotate(90deg)" },
+        },
+        // ── A phone's Library (`Mobile Sheet Spec.md` SH11): its hint, then a 44px row a card or a column ──
+        phoneList: { flex: "1", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column" },
+        phoneHint: { flex: "none", paddingX: "{spacing.4}", paddingY: "{spacing.3}", fontSize: "body", lineHeight: "1.4", color: "fg.muted", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle" },
+        phoneRow: {
+            flex: "none", minHeight: "44px", display: "flex", alignItems: "stretch", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",
+            "&[data-off]": { opacity: "0.6" },
+        },
+        phoneRowMain: {
+            flex: "1", minWidth: "0", display: "flex", alignItems: "center", gap: "{spacing.2}", paddingX: "{spacing.4}", border: "none", background: "transparent", textAlign: "left", cursor: "pointer", color: "fg",
+            _hover: { background: "bg.subtle" },
+            _focusVisible: { outline: "none", boxShadow: "focusInset" },
+            "&[aria-disabled=true]": { color: "fg.subtle", cursor: "default", _hover: { background: "transparent" } },
+            "& > svg": { flex: "none", fontSize: "12px", color: "fg.subtle" },
+        },
+        phoneRowLabel: { flex: "1", minWidth: "0", fontSize: "body", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+        phoneRowMeta: { flex: "none", maxWidth: "50%", fontFamily: "mono", fontSize: "label.md", color: "fg.subtle", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+        phoneRowMark: { flex: "none", fontFamily: "mono", fontSize: "label.md", fontWeight: "600", color: "brand.solid" },
+        phoneRowEye: {
+            flex: "none", width: "44px", display: "inline-flex", alignItems: "center", justifyContent: "center", border: "none", background: "transparent", color: "fg.subtle", cursor: "pointer",
+            _hover: { background: "bg.subtle", color: "fg" },
+            _focusVisible: { outline: "none", boxShadow: "focusInset" },
+            "&[aria-disabled=true]": { color: "fg.faint", cursor: "default", _hover: { background: "transparent", color: "fg.faint" } },
         },
         // ── A phone's column pager (`Mobile Sheet Spec.md` SH1, SH2; the designer's `WorkOrdersPhone`) ──
         // A 44px band over the grid on the paper, a `--rule` below, padded 0 4 0 16, its parts 4 apart.

@@ -24,3 +24,13 @@
 export function openFramePane(root: Element | null, label: string, side: "start" | "end"): void {
     root?.querySelector<HTMLButtonElement>(`button[aria-label="Expand ${label}"], [data-pane-tab="${side}"][aria-selected="false"]`)?.click();
 }
+
+/**
+ * Closes the phone's view a control stands in, as its collapse does: what a tap in it asked for shows on main.
+ *
+ * @param from - An element in the view
+ * @param label - The pane's name, as its Collapse control names it
+ */
+export function closeFramePane(from: Element | null, label: string): void {
+    from?.closest("[data-frame-drawer]")?.querySelector<HTMLButtonElement>(`button[aria-label="Collapse ${label}"]`)?.click();
+}

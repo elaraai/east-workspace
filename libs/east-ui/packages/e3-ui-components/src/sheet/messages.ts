@@ -531,6 +531,18 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     templateLines: (p: { n: number; count: string }) => string;
     /** A column's kind, as the Columns tab names it (SB36). */
     columnKind: (p: { kind: SheetKind }) => string;
+    /** A phone's Library (`Mobile Sheet Spec.md` SH11): what a tap on an author's card does — sets it on `target` — or, with nothing to set it on, what to select first. */
+    libraryPhoneSet: (p: { target: string | undefined }) => string;
+    /** …and on a template: adds it below `target`, or what to select first. */
+    libraryPhoneAdd: (p: { target: string | undefined }) => string;
+    /** The mark on the card the target holds now. */
+    libraryPhoneCurrent: () => string;
+    /** Over a phone's Columns: what stays pinned, where one does, and what a tap does. */
+    libraryPhoneColumns: (p: { pinned: string | undefined }) => string;
+    /** A phone's column row's kind, the pinned column's said so — `text · pinned`. */
+    libraryPhoneKind: (p: { kind: string; pinned: boolean }) => string;
+    /** A phone's column row's accessible name — `Go to Good`. */
+    libraryPhoneGo: (p: { header: string }) => string;
     /** A column's eye: shown, hidden, or the last one shown, which stays. */
     columnEye: (p: { hidden: boolean; last: boolean }) => string;
     /** The inspector pane's name. */
@@ -925,6 +937,12 @@ export const sheetMessages: SheetMessages = {
     libraryGroupBy: ({ tab }) => (tab === "rows" ? "Category" : "Group"),
     templateLines: ({ n, count }) => `${count} ${plural(n, "line", "lines")}`,
     columnKind: ({ kind }) => kind,
+    libraryPhoneSet: ({ target }) => (target === undefined ? "Select a row in the sheet, then tap a card here." : `Tap a card to set it on ${target}. On desktop you drag it there.`),
+    libraryPhoneAdd: ({ target }) => (target === undefined ? "Select a row in the sheet, then tap a template here." : `Tap a template to add it below ${target}. On desktop you drag it there.`),
+    libraryPhoneCurrent: () => "current",
+    libraryPhoneColumns: ({ pinned }) => (pinned === undefined ? "Tap a column to go to it." : `${pinned} stays pinned. Tap a column to go to it.`),
+    libraryPhoneKind: ({ kind, pinned }) => (pinned ? `${kind} · pinned` : kind),
+    libraryPhoneGo: ({ header }) => `Go to ${header}`,
     columnEye: ({ hidden, last }) => (hidden ? "Hidden — click to show" : last ? "Shown — the last column shown stays" : "Shown — click to hide"),
     inspectorPane: () => "Inspector",
     inspectorTab: ({ tab }) => (tab === "details" ? "Details" : "Issues"),

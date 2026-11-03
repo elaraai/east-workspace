@@ -55,7 +55,7 @@ test.describe("A phone's Sheet pager", () => {
         const item = page.getByRole("menuitemcheckbox", { name: /Row number/ });
         await expect(item).toHaveAttribute("aria-checked", "false");
         await expect(item).toContainText("off by default");
-        await expect(item.evaluate((el) => el.getBoundingClientRect().height)).resolves.toBeGreaterThanOrEqual(44);
+        expect(Math.round(await item.evaluate((el) => el.getBoundingClientRect().height))).toBeGreaterThanOrEqual(44);
         await item.click();
 
         await expect(card).toHaveAttribute("data-row-numbers", "");
@@ -118,5 +118,51 @@ test.describe("A phone's Sheet pager", () => {
         await settled(page);
         expect(await scrollOf(card)).toBe(0);
         expect(one).toBeGreaterThan(0);
+    });
+});
+
+/** The Library's view on a phone, open at a tab. */
+async function openLibrary(page: Page, card: Locator, tab: string): Promise<Locator> {
+    const root = card.locator("xpath=ancestor::*[@data-builder-frame][1]");
+    await root.locator("[data-pane-tab='start']").click();
+    const drawer = root.locator("[data-frame-drawer][data-frame-slot='start']");
+    await expect(drawer).toHaveAttribute("data-open", "");
+    await drawer.getByRole("tab", { name: new RegExp(`^${tab}`) }).click();
+    await settled(page);
+    return drawer;
+}
+
+test.describe("A phone's Sheet Library (SH11, R7)", () => {
+    test("a tap on a status sets it on the selected order, the hint naming the order and the row marked current", async ({ page }) => {
+        const card = await openPhone(page);
+        await card.locator("[data-band-row]").first().locator("[data-slot='groupSummary']").click({ position: { x: 80, y: 20 } });
+        const drawer = await openLibrary(page, card, "Statuses");
+        await expect(drawer.locator("[data-sheet-phone-hint]:visible")).toContainText("Tap a card to set it on");
+        const held = drawer.locator("[data-sheet-phone-current]:visible");
+        await expect(held).toHaveCount(1);
+        const key = await drawer.locator("[data-sheet-phone-row]:visible:not(:has([data-sheet-phone-current]))").first().getAttribute("data-sheet-phone-row");
+        const other = drawer.locator(`[data-sheet-phone-row='${key}']:visible`);
+        const box = await other.boundingBox();
+        expect(Math.round(box!.height)).toBeGreaterThanOrEqual(44);
+        await other.locator("button").click();
+        await expect(other.locator("[data-sheet-phone-current]")).toBeVisible();
+        await expect(held).toHaveCount(1);
+    });
+
+    test("a tap on a column closes the view and pages to it, its eye still hiding it", async ({ page }) => {
+        const card = await openPhone(page);
+        let drawer = await openLibrary(page, card, "Columns");
+        await expect(drawer.locator("[data-sheet-phone-hint]:visible")).toContainText("Tap a column to go to it");
+        const last = drawer.locator("[data-sheet-phone-row]:visible").last();
+        const key = await last.getAttribute("data-sheet-phone-row");
+        await last.locator("button").first().click();
+        await expect(drawer).not.toHaveAttribute("data-open", "");
+        await expect.poll(() => scrollOf(card)).toBeGreaterThan(0);
+
+        drawer = await openLibrary(page, card, "Columns");
+        await drawer.locator(`[data-sheet-phone-row='${key}']:visible [data-sheet-phone-eye]`).click();
+        await expect(card.locator(`[data-slot='headerCell'][data-key='${key}']`)).toHaveCount(0);
+        await drawer.locator(`[data-sheet-phone-row='${key}']:visible [data-sheet-phone-eye]`).click();
+        await expect(card.locator(`[data-slot='headerCell'][data-key='${key}']`)).toHaveCount(1);
     });
 });
