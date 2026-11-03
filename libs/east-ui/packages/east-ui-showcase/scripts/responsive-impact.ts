@@ -127,14 +127,14 @@ export function changedPaths(base: string, head = "HEAD", cwd = process.cwd()): 
     } catch { return null; }
 }
 
-/** A job's share of the suite: ten minutes of its tests' recorded time. */
-const SHARD_MS = 10 * 60_000;
+/** A job's share of the suite: five minutes of its tests' recorded time. The jobs start together, so the longest job is the suite's wall clock. */
+const SHARD_MS = 5 * 60_000;
 
 /** The most jobs the suite runs in. */
 export const MAX_SHARDS = 24;
 
 /**
- * As many jobs as hold the tests' recorded time ten minutes each, at most
+ * As many jobs as hold the tests' recorded time five minutes each, at most
  * {@link MAX_SHARDS}: a small focused selection takes one.
  */
 export function shardCount(tests: readonly string[], timings?: Readonly<Record<string, number>>): number {

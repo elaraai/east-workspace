@@ -25,7 +25,7 @@ EAST_UI_EXAMPLE_ITEM_KEYS := $(shell for f in $$(find packages/east-ui/test \( -
 E3_UI_EXAMPLE_KEYS := $(shell find packages/e3-ui/test \( -name '*.examples.ts' -o -name '*.examples.tsx' \) 2>/dev/null \
                              | sed -e 's|^packages/e3-ui/test/||' -e 's|\.examples\.tsx$$||' -e 's|\.examples\.ts$$||')
 
-.PHONY: build build-js build-checked check-apps test test-group test-export lint showcase build-showcase build-showcase-js design probe-slice probe-collections clean examples test-responsive \
+.PHONY: build build-js build-js-ir build-js-renderers build-checked check-apps test test-group test-export lint showcase build-showcase build-showcase-js design probe-slice probe-collections clean examples test-responsive \
         east-ui-examples-html-all $(EAST_UI_EXAMPLE_KEYS:%=east-ui-examples-html-%) \
         $(EAST_UI_EXAMPLE_ITEM_KEYS:%=east-ui-examples-html-%) \
         e3-ui-examples-html-all $(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%) select-responsive help
@@ -38,12 +38,23 @@ build:
 	pnpm -r $(PACKAGES) run build
 
 ## The JavaScript the tests run, and no more (#1466): east-ui and e3-ui compile
-## with tsc (e3-ui against east-ui's declarations, its specs into dist), and the
-## renderers bundle with no type-check and no declarations. CI's test jobs run
-## on it; `build-checked` and `check-apps` type-check every package beside them.
+## with tsc unchecked (e3-ui against east-ui's declarations, its specs into dist),
+## and the renderers bundle with no type-check and no declarations, the two side
+## by side: the renderers keep every @elaraai package external, so neither reads
+## what the other writes. CI's test jobs run on it, restoring either half from
+## its cache while its sources stand; `build-checked` and `check-apps` type-check
+## every package beside them.
 build-js:
-	pnpm --filter @elaraai/east-ui --filter @elaraai/e3-ui run build
-	pnpm --filter @elaraai/east-ui-components --filter @elaraai/e3-ui-components exec vite build
+	$(MAKE) --no-print-directory -j2 build-js-ir build-js-renderers
+
+## east-ui, then e3-ui against its declarations, compiled with no type-check.
+build-js-ir:
+	pnpm --filter @elaraai/east-ui exec tsc --noCheck
+	pnpm --filter @elaraai/e3-ui exec tsc --noCheck
+
+## The two renderers bundled, side by side.
+build-js-renderers:
+	EAST_UI_DECLARATIONS=0 pnpm --parallel --filter @elaraai/east-ui-components --filter @elaraai/e3-ui-components exec vite build
 
 ## Every package a test or lint reads built as `build` builds it, type-checked
 ## and its declarations written: all but the showcase, which `check-apps`
@@ -244,6 +255,8 @@ help:
 	@echo ""
 	@echo "  build             - Build all packages"
 	@echo "  build-js          - The JavaScript the tests run: no type-check, no declarations (CI's test build)"
+	@echo "  build-js-ir       - Its half of east-ui and e3-ui"
+	@echo "  build-js-renderers - Its half of the two renderers"
 	@echo "  build-checked     - Every package a test or lint reads, type-checked with its declarations (CI's check)"
 	@echo "  check-apps        - Over build-checked: the showcase type-checked (CI's apps check)"
 	@echo "  build-showcase-js - The showcase's bundle alone, over build-js (CI's browser shards)"

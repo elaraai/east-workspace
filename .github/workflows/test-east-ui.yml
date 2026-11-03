@@ -85,6 +85,27 @@ jobs:
             libs/east-diagnostics/dist
             libs/eslint-plugin-east/dist
 
+      # East-ui's JavaScript, restored while what compiles it stands (each half apart: a change to
+      # a renderer compiles no IR, and one to the IR bundles no renderer). Before the install, so
+      # the hash walks no node_modules.
+      - name: Restore east-ui's IR JavaScript
+        id: js-ir
+        uses: actions/cache@v4
+        with:
+          key: east-ui-js-ir-${{ runner.os }}-node22-${{ hashFiles('libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/e3/**', 'libs/east-py/packages/east-py-datascience/**', 'libs/east-diagnostics/**', 'libs/eslint-plugin-east/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', 'libs/east-ui/packages/east-ui/**', 'libs/east-ui/packages/e3-ui/**', 'libs/east-ui/Makefile', '!**/*.md', '!**/node_modules/**', '!**/dist/**') }}
+          path: |
+            libs/east-ui/packages/east-ui/dist
+            libs/east-ui/packages/e3-ui/dist
+
+      - name: Restore east-ui's renderers' JavaScript
+        id: js-renderers
+        uses: actions/cache@v4
+        with:
+          key: east-ui-js-renderers-${{ runner.os }}-node22-${{ hashFiles('libs/east-ui/packages/east-ui-components/**', 'libs/east-ui/packages/e3-ui-components/**', 'libs/east-ui/Makefile', 'pnpm-lock.yaml', '!**/*.md', '!**/*.test.ts', '!**/*.test.tsx', '!**/vitest.timings.json', '!**/node_modules/**', '!**/dist/**') }}
+          path: |
+            libs/east-ui/packages/east-ui-components/dist
+            libs/east-ui/packages/e3-ui-components/dist
+
       - name: Install dependencies
         run: pnpm install
 
@@ -129,7 +150,14 @@ jobs:
 
       - name: Build east-ui packages' JavaScript
         working-directory: libs/east-ui
-        run: make build-js
+        env:
+          IR_HIT: ${{ steps.js-ir.outputs.cache-hit }}
+          RENDERERS_HIT: ${{ steps.js-renderers.outputs.cache-hit }}
+        run: |
+          targets=""
+          if [ "$IR_HIT" != true ]; then targets="$targets build-js-ir"; fi
+          if [ "$RENDERERS_HIT" != true ]; then targets="$targets build-js-renderers"; fi
+          if [ -n "$targets" ]; then make -j2 $targets; fi
 
       - name: Package compiled workspaces
         run: |
@@ -320,6 +348,36 @@ jobs:
             libs/east-diagnostics/dist
             libs/eslint-plugin-east/dist
 
+      # East-ui's JavaScript, restored while what compiles it stands (each half apart: a change to
+      # a renderer compiles no IR, and one to the IR bundles no renderer). Before the install, so
+      # the hash walks no node_modules.
+      - name: Restore east-ui's IR JavaScript
+        id: js-ir
+        uses: actions/cache@v4
+        with:
+          key: east-ui-js-ir-${{ runner.os }}-node22-${{ hashFiles('libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/e3/**', 'libs/east-py/packages/east-py-datascience/**', 'libs/east-diagnostics/**', 'libs/eslint-plugin-east/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', 'libs/east-ui/packages/east-ui/**', 'libs/east-ui/packages/e3-ui/**', 'libs/east-ui/Makefile', '!**/*.md', '!**/node_modules/**', '!**/dist/**') }}
+          path: |
+            libs/east-ui/packages/east-ui/dist
+            libs/east-ui/packages/e3-ui/dist
+
+      - name: Restore east-ui's renderers' JavaScript
+        id: js-renderers
+        uses: actions/cache@v4
+        with:
+          key: east-ui-js-renderers-${{ runner.os }}-node22-${{ hashFiles('libs/east-ui/packages/east-ui-components/**', 'libs/east-ui/packages/e3-ui-components/**', 'libs/east-ui/Makefile', 'pnpm-lock.yaml', '!**/*.md', '!**/*.test.ts', '!**/*.test.tsx', '!**/vitest.timings.json', '!**/node_modules/**', '!**/dist/**') }}
+          path: |
+            libs/east-ui/packages/east-ui-components/dist
+            libs/east-ui/packages/e3-ui-components/dist
+
+      # The showcase's bundle, restored while nothing it is made of has changed: a change to the
+      # responsive specs, or to this workflow, builds nothing.
+      - name: Restore the showcase's bundle
+        id: showcase-dist
+        uses: actions/cache@v4
+        with:
+          key: east-ui-showcase-dist-${{ runner.os }}-node22-${{ hashFiles('libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/e3/**', 'libs/east-py/packages/east-py-datascience/**', 'libs/east-diagnostics/**', 'libs/eslint-plugin-east/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', 'libs/east-ui/packages/east-ui/**', 'libs/east-ui/packages/e3-ui/**', 'libs/east-ui/Makefile', '!**/*.md', 'libs/east-ui/packages/east-ui-components/**', 'libs/east-ui/packages/e3-ui-components/**', 'libs/east-ui/Makefile', 'pnpm-lock.yaml', '!**/*.md', '!**/*.test.ts', '!**/*.test.tsx', '!**/vitest.timings.json', 'libs/east-ui/packages/east-ui-showcase/**', '!libs/east-ui/packages/east-ui-showcase/tests/**', '!libs/east-ui/packages/east-ui-showcase/responsive.timings.json', '!libs/east-ui/packages/east-ui-showcase/scripts/responsive-*', '!libs/east-ui/packages/east-ui-showcase/playwright.config.ts', '!**/node_modules/**', '!**/dist/**') }}
+          path: libs/east-ui/packages/east-ui-showcase/dist
+
       - name: Install dependencies
         run: pnpm install
 
@@ -364,7 +422,14 @@ jobs:
 
       - name: Build east-ui packages' JavaScript
         working-directory: libs/east-ui
-        run: make build-js
+        env:
+          IR_HIT: ${{ steps.js-ir.outputs.cache-hit }}
+          RENDERERS_HIT: ${{ steps.js-renderers.outputs.cache-hit }}
+        run: |
+          targets=""
+          if [ "$IR_HIT" != true ]; then targets="$targets build-js-ir"; fi
+          if [ "$RENDERERS_HIT" != true ]; then targets="$targets build-js-renderers"; fi
+          if [ -n "$targets" ]; then make -j2 $targets; fi
 
       - name: Select responsive checks
         id: responsive
@@ -376,12 +441,14 @@ jobs:
       # The showcase's workspaces, deployed and run once (#1397): restored while
       # nothing that makes them has changed, which is most of the bundle's time.
       - name: Restore the showcase's workspaces
+        if: steps.showcase-dist.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           key: east-ui-showcase-workspaces-${{ runner.os }}-node22-${{ hashFiles('libs/east/src/**', 'libs/east-node/packages/*/src/**', 'libs/east-web/packages/*/src/**', 'libs/e3/packages/*/src/**', 'libs/east-ui/packages/east-ui/src/**', 'libs/east-ui/packages/e3-ui/src/**', 'libs/east-ui/packages/e3-ui/test/**', 'libs/east-ui/packages/east-ui-showcase/scripts/**', 'libs/east-ui/packages/east-ui-showcase/showcase-*.ts', 'pnpm-lock.yaml') }}
           path: ${{ runner.temp }}/showcase-workspaces
 
       - name: Build the showcase
+        if: steps.showcase-dist.outputs.cache-hit != 'true'
         working-directory: libs/east-ui
         env:
           E3_SHOWCASE_BUNDLES_DIR: ${{ runner.temp }}/showcase-workspaces
