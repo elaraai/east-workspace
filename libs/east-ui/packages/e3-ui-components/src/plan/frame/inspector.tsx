@@ -78,7 +78,7 @@
 
 import { ScheduleInspectorHead } from "../../shared/schedule/inspector-head.js";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../../shared/focus-home.js";
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
+import { memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
@@ -92,7 +92,7 @@ import { PlanEventItemType, ScheduleEventRefType, ScheduleResourceRefType, planH
 import {
     BannerView, EastChakraComponent, FieldForm, getSomeorUndefined, useDataStable, useTrackedEvaluation, type BuilderFrameDock, type FieldOption,
 } from "@elaraai/east-ui-components";
-import { PlaceholderShape } from "@elaraai/east-ui-components/internal";
+import { FrameDrawer, PlaceholderShape } from "@elaraai/east-ui-components/internal";
 import { heldRowOf } from "../../shared/schedule/editing.js";
 import { removePlanEvents, type PlanEventChange, type PlanEventEditing } from "../edit/events.js";
 import { usePlanResourceRows, type PlanResourceLookup, type PlanResourceRefValue } from "./resources.js";
@@ -1161,6 +1161,7 @@ function RowView({ rowKey, at, kinds, resources, chrome, counts, words, styles, 
 /** Nothing selected: the window's counts, and three hints. */
 function NothingSelected({ styles, counts, words }: { styles: Styles; counts: PlanEventCounts | undefined; words: PlanWords }) {
     const { m } = words;
+    const touch = useContext(FrameDrawer);
     const stats = counts === undefined ? [] : [
         // A kind whose events are not counted (#1039) is in no count: where no kind's are, there is none.
         ...(counts.events !== undefined ? [{ stat: "events" as const, n: counts.events, text: words.number(counts.events) }] : []),
@@ -1191,7 +1192,8 @@ function NothingSelected({ styles, counts, words }: { styles: Styles; counts: Pl
                 </Box>
             )}
             <Box as="ul" css={styles.hints}>
-                {([1, 2, 3] as const).map((n) => <Box as="li" key={n} css={styles.hint}>{m.inspectorHint({ n })}</Box>)}
+                {touch ? <Box as="li" css={styles.hint}>{m.inspectorHintTouch()}</Box>
+                    : ([1, 2, 3] as const).map((n) => <Box as="li" key={n} css={styles.hint}>{m.inspectorHint({ n })}</Box>)}
             </Box>
         </Box>
     );

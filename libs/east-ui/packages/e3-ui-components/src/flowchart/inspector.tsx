@@ -66,7 +66,7 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import {
     DateTimeType, IntegerType, OptionType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant,
@@ -78,6 +78,7 @@ import {
     EastChakraComponent, EmptyStateView, FieldForm, fieldFormMessages, getSomeorUndefined, useDataStable,
     type BuilderFrameDock, type FieldFormWords, type FieldOption,
 } from "@elaraai/east-ui-components";
+import { FrameDrawer } from "@elaraai/east-ui-components/internal";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import {
     deleteDecision, deleteLane, deleteLink, deleteState, deleteStates, describeFlow, duplicateState, laneStates, linkKeyOf, linkRow, moveStates,
@@ -809,6 +810,7 @@ function FlowView({ flow, held, name, heldName, styles, words, edit, available, 
     const m = words.m;
     const formWords = useFormWords(words);
     const many = name !== undefined;
+    const touch = useContext(FrameDrawer);
     const specs = useMemo(() => Fields.specs(FlowFormType, {
         name: Fields.text({ label: m.inspectorField({ field: "name" }), help: m.inspectorHelp({ help: "flowName" }) }),
         description: Fields.text({ label: m.inspectorField({ field: "description" }) }),
@@ -860,7 +862,8 @@ function FlowView({ flow, held, name, heldName, styles, words, edit, available, 
                 {record && <Box css={styles.fact} data-inspector-saved="">{m.inspectorSaved({ when: saved?.when, by: saved?.by })}</Box>}
             </Box>
             <Box as="ul" css={styles.hints}>
-                {([1, 2, 3] as const).map((n) => <Box as="li" key={n} css={styles.hint}>{m.inspectorHint({ n })}</Box>)}
+                {touch ? <Box as="li" css={styles.hint}>{m.inspectorHintTouch()}</Box>
+                    : ([1, 2, 3] as const).map((n) => <Box as="li" key={n} css={styles.hint}>{m.inspectorHint({ n })}</Box>)}
             </Box>
         </Box>
     );

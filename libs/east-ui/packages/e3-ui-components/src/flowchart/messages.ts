@@ -202,6 +202,8 @@ export interface FlowchartMessages extends EditingMessages {
     inspectorSaved: (p: { when: string | undefined; by: string | undefined }) => string;
     /** One of the three hints nothing selected shows. */
     inspectorHint: (p: { n: 1 | 2 | 3 }) => string;
+    /** The hint in a phone's pane, nothing selected (ruled 3 Nov 2026): a tap, and no several selected or renamed in place there. */
+    inspectorHintTouch: () => string;
     /** The Issues tab with none: its title, and the line under it. */
     inspectorNoIssues: (p: { part: "title" | "hint" }) => string;
     /** An issue of the open flow (FB37) — `SCN → GONE names GONE, which the flow has no state of`. */
@@ -386,6 +388,7 @@ export const flowchartMessages: FlowchartMessages = {
     inspectorSplit: ({ planned, observed, unresolved }) => `${planned} planned · ${observed} observed · ${unresolved} unresolved`,
     inspectorSaved: ({ when, by }) => (when === undefined ? "Not saved yet" : by === undefined ? `Saved ${when}` : `Saved ${when} by ${by}`),
     inspectorHint: ({ n }) => HINTS[n],
+    inspectorHintTouch: () => "Tap a state, a transition, a decision or a lane's header to see its details here.",
     inspectorNoIssues: ({ part }) => (part === "title" ? "No issues" : "Every transition, state and decision of the flow resolves."),
     issueText: (p) => {
         switch (p.issue) {

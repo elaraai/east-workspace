@@ -98,6 +98,8 @@ export const inspectorBase = {
         flexWrap: "wrap",
         gap: "{spacing.2}",
         padding: "{spacing.4}",
+        /* In a card of the phone's Roster, which pads its own: on the line of the card's words. */
+        "[data-roster-proposal] > &": { padding: "0" },
     },
     /* Several selected: how many, and an edit across them. */
     bulk: { ...INSPECTOR_SECTION, gap: "{spacing.3}" },

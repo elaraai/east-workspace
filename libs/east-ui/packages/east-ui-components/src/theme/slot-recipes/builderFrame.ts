@@ -119,7 +119,11 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             borderBottomColor: "border.subtle",
             overflow: "clip",
             /* A phone's: its items carry their own padding, the views' 16 at its start (FR2). */
-            "[data-phone] > &": { paddingX: "0", alignItems: "stretch" },
+            "[data-phone] > &": {
+                paddingX: "0", alignItems: "stretch",
+                /* With nothing in it, no row at all: its history is the second row's. */
+                "&:not(:has([data-toolbar-item]))": { display: "none" },
+            },
         },
         banners: {
             flex: "none",
@@ -198,7 +202,8 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             },
             /* A pane's view lies over the band: what a gesture in it was refused for stays in sight, over the view's foot. */
             "[data-phone]:has(> [data-frame-drawer][data-open]) > &": {
-                "&:has([data-footer-live])": {
+                /* All but what only describes the main the view covers (`data-footer-ambient`), which the view covers too. */
+                "&:has([data-footer-live]:not([data-footer-ambient]))": {
                     position: "absolute",
                     insetInline: "0",
                     bottom: "0",

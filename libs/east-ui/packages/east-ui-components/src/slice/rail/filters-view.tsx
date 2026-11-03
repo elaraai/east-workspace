@@ -12,8 +12,8 @@
  *
  * - It covers the builder edge to edge (ruled 3 Nov 2026, in place of SL3's
  *   48px strip); ← and Done close it, and Esc.
- * - Its head: ← back, `Filters`, how many fields narrow (`2 active`), Done
- *   (SL4).
+ * - Its head: ← back, `Filters`, how many fields narrow (`2 active`) (SL4; its
+ *   Done gone, ruled 3 Nov 2026: one Done, at the foot).
  * - The presets first, their chips beside a 72px label (SL5); then one 44px
  *   row a field, in the rail's order: its name, its choice or `Any`,
  *   `Applied` while it narrows, and a chevron (SL6). One field is open at a
@@ -79,7 +79,6 @@ export function SliceFiltersView({ model, kinds, onClose }: SliceFiltersViewProp
                     </chakra.button>
                     <Box as="span" css={styles.title}>Filters</Box>
                     <Box as="span" css={styles.active} data-filters-active="">{active === 0 ? "none active" : `${active} active`}</Box>
-                    <chakra.button type="button" css={styles.headDone} data-filters-done="" onClick={onClose}>Done</chakra.button>
                 </Box>
                 <Box css={styles.body}>
                     <SliceDensityContext.Provider value="editor">
@@ -131,7 +130,7 @@ export function SliceFiltersView({ model, kinds, onClose }: SliceFiltersViewProp
                         {model.clear !== undefined && (
                             <chakra.button type="button" css={styles.action} data-filters-clear="" disabled={active === 0} onClick={model.clear}>Clear all</chakra.button>
                         )}
-                        <chakra.button type="button" css={styles.action} data-primary="" onClick={onClose}>Done</chakra.button>
+                        <chakra.button type="button" css={styles.action} data-primary="" data-filters-done="" onClick={onClose}>Done</chakra.button>
                     </Box>
                 </Box>
             </Box>

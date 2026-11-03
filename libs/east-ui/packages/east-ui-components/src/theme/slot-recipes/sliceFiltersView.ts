@@ -13,7 +13,7 @@
  *     (at once under reduced motion);
  *   - head: 44 over a `--rule`, padded 0 8 0 0, 8 apart — ← back 44 (its arrow
  *     16 in `--ink-3`), `Filters` DM Sans 16/700 at −0.01em, the active count
- *     mono 10.5 in `--ink-4`, Done a Default 36 (padded 0 12, 12.5/500);
+ *     mono 10.5 in `--ink-4` (one Done, at the foot, ruled 3 Nov 2026);
  *   - presets: at least 52, padded 0 16, over a `--rule`, its label in a 72px
  *     column (mono 10/600 caps at 0.14em, `--ink-4`), then its chips;
  *   - row: one 44 a field, padded 0 16, 8 apart, over a `--rule` — its name
@@ -60,7 +60,7 @@ const COLUMN = { width: "72px", flex: "none" } as const;
 export const sliceFiltersViewSlotRecipe = defineSlotRecipe({
     className: "elara-slice-filters-view",
     slots: [
-        "root", "panel", "head", "back", "title", "active", "headDone", "body",
+        "root", "panel", "head", "back", "title", "active", "body",
         "presets", "presetsLabel", "presetsChips", "group", "groupIcon", "groupLabel", "groupCount",
         "row", "rowLabel", "rowChoice", "applied", "chevron", "editor", "foot", "count", "actions", "action",
         "choices", "choice", "choiceBox", "choiceText", "choiceLabel", "choiceHint", "choiceCount", "choiceError",
@@ -86,7 +86,6 @@ export const sliceFiltersViewSlotRecipe = defineSlotRecipe({
         },
         title: { fontFamily: "heading", fontSize: "title.sm", fontWeight: 700, letterSpacing: "-0.01em", color: "fg", lineHeight: "1.4" },
         active: { flex: "1", minWidth: "0", fontFamily: "mono", fontSize: "label.md", lineHeight: "1.4", color: "fg.subtle", whiteSpace: "nowrap" },
-        headDone: { ...DEFAULT_BUTTON, height: "36px", paddingX: "12px" },
         body: { flex: "1", minHeight: "0", overflowY: "auto", scrollbarWidth: "none" },
         presets: {
             minHeight: "52px", display: "flex", alignItems: "center", gap: "8px", paddingX: "16px", boxSizing: "border-box",
@@ -174,7 +173,8 @@ export const sliceFiltersViewSlotRecipe = defineSlotRecipe({
             paddingTop: "12px", paddingX: "16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))",
             background: "bg.surface", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.strong",
         },
-        count: { minWidth: "0", overflowWrap: "anywhere", "& *": { whiteSpace: "normal" }, fontFamily: "mono", fontSize: "label.lg", fontVariantNumeric: "tabular-nums", color: "fg.muted", minHeight: "16px" },
+        /* Its sources side by side where they fit, each its own lines where not: the dot between them says nothing then. */
+        count: { minWidth: "0", overflowWrap: "anywhere", "& *": { whiteSpace: "normal" }, "& [data-record-slices-summary] > [aria-hidden]": { display: "none" }, fontFamily: "mono", fontSize: "label.lg", fontVariantNumeric: "tabular-nums", color: "fg.muted", minHeight: "16px" },
         actions: { display: "flex", gap: "8px" },
         action: { ...DEFAULT_BUTTON, flex: "1", height: "44px", "&[data-primary]": { fontWeight: 600 } },
     },

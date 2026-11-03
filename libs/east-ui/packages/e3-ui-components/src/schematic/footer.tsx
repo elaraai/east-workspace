@@ -115,7 +115,7 @@ export function SchematicFooter({ styles, words, density, names, viewport, exten
         <Box ref={rail} css={styles.footer} data-schematic-footer="">
             <Box ref={live} css={styles.footerNotices} data-schematic-notices="" data-footer-slack="" data-builder-narrow={wrap ? "" : undefined}>
                 {dense.map((notice) => (
-                    <Box as="span" key={notice.slot} css={styles.footerItem} data-schematic-density={notice.slot} data-density-cell={notice.side} data-footer-live="">{notice.text}</Box>
+                    <Box as="span" key={notice.slot} css={styles.footerItem} data-schematic-density={notice.slot} data-density-cell={notice.side} data-footer-live="" data-footer-ambient="">{notice.text}</Box>
                 ))}
                 {refusal !== undefined && <Box as="span" css={styles.footerItem} data-schematic-refused="" data-footer-live="" role="alert">{refusal}</Box>}
                 {notices.map((notice) => <RecordSliceSaveNotice key={notice.slot} slice={notice.slice} singular={notice.singular} plural={notice.plural} />)}

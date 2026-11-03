@@ -155,6 +155,8 @@ export const librarySlotRecipe = defineSlotRecipe({
             _focusWithin: { borderColor: "brand.solid", boxShadow: "focus" },
             "&[data-size=mid]": { width: "220px" },
             "&[data-size=narrow]": { width: "160px" },
+            /* In a phone's pane with no toolbar to fold it, as the Schematic's Index: the row's width. */
+            "[data-frame-drawer] :not([data-toolbar-item]) > &": { width: "100%" },
         },
         searchIcon: {
             flexShrink: "0",

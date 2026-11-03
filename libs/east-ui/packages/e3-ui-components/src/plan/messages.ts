@@ -279,6 +279,8 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     inspectorNotCounted: (p: { kinds: readonly string[]; hours: readonly string[] }) => string;
     /** A hint when nothing is selected — three of them. */
     inspectorHint: (p: { n: 1 | 2 | 3 }) => string;
+    /** The hint in a phone's pane, nothing selected (ruled 3 Nov 2026): its cards take a tap, and it has no Esc or modifier keys. */
+    inspectorHintTouch: () => string;
     /** One event's overlaps banner (#1198, PB53) — `Overlaps 2 events on Press B2`: `on` is its resource's name. */
     inspectorOverlaps: (p: { n: number; count: string; on: string }) => string;
     /** A row's overlaps banner (PB40) — `2 overlaps`: the pairs on the row's resource in the window. */
@@ -682,6 +684,7 @@ export const planMessages: PlanMessages = {
     inspectorHint: ({ n }) => (n === 1 ? "Click an event to see it here — Shift, ⌘ or Ctrl adds another."
         : n === 2 ? "Click a row's plot to see the row and its measures at that bucket."
             : "Esc clears what is selected."),
+    inspectorHintTouch: () => "Tap a card to see its row and its measures here.",
     inspectorOverlaps: ({ n, count, on }) => `Overlaps ${count} ${plural(n, "event", "events")} on ${on}`,
     inspectorRowOverlaps: ({ n, count }) => `${count} ${plural(n, "overlap", "overlaps")}`,
     inspectorOverlapPair: ({ first, second }) => `${first} · ${second}`,

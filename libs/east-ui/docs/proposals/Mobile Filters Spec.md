@@ -27,8 +27,9 @@ Versus production: the rail folds to its filter icon alone at the toolbar's floo
 **SL4. Head.** 44 tall:
 - a ← back button (44, `fa-arrow-left` 16, `--ink-3`), named `Back to the sheet`;
 - `Filters`, DM Sans 16/700;
-- `N active` (or `none active`), mono 10.5 `--ink-4`;
-- Done, Default 36.
+- `N active` (or `none active`), mono 10.5 `--ink-4`.
+
+Ruled 3 Nov 2026: the head's Done is gone. Two Dones confused; the foot's is the one (SL8), and ← closes the view too.
 
 **SL5. Presets.** The first row, at least 52 tall: `PRESETS` in a 72 px column (mono label caps `--ink-4`), then a chip a preset (34 tall, mono 12/500). An applied preset takes `--brand-tint`, 1 px `--brand-d` and `--brand-dd` ink.
 

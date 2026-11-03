@@ -186,8 +186,11 @@ export const calendarSlotRecipe = defineSlotRecipe({
             },
         },
         // The narrow agenda: the shared part the Roster and the Allocation take too, a card in an overlap pair ringed in warn.
-        agenda: scheduleAgenda, agendaGroup: scheduleAgendaGroup, agendaHead: scheduleAgendaHead,
-        card: { ...scheduleCard, "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING }, "&[data-overlap][data-conflict]": { boxShadow: CONFLICT_RING }, "[data-calendar-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },
+        agenda: scheduleAgenda, agendaHead: scheduleAgendaHead,
+        // A day with no card: its words on the line of its heading, not inset as a card's.
+        agendaGroup: { ...scheduleAgendaGroup, "& > :not([data-calendar-card]):not(:first-child)": { paddingInline: "0" } },
+        // Its select action lined up with the card's words and its other actions, not centred across it.
+        card: { ...scheduleCard, "& > button + button": { alignSelf: "flex-start", paddingInline: "0" }, "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING }, "&[data-overlap][data-conflict]": { boxShadow: CONFLICT_RING }, "[data-calendar-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },
         cardHead: scheduleCardHead, cardTitle: scheduleCardTitle, actions: scheduleCardActions,
         section: { display: "flex", flexDirection: "column", gap: "12px", padding: "16px", borderBottomWidth: "1px", borderColor: "border.subtle", minWidth: 0 },
         status: INSPECTOR_STATUS,

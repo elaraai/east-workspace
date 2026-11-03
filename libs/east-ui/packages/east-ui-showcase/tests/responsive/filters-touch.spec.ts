@@ -25,6 +25,8 @@ test("every field's row and its editor's controls are 44px or more, inside the v
     await entry.locator("[data-rail-phone]").first().click();
     const view = page.locator("[data-slice-filters-view]").first();
     await expect(view).toBeVisible();
+    // One Done, at the foot (ruled 3 Nov 2026).
+    await expect(view.getByRole("button", { name: "Done", exact: true })).toHaveCount(1);
     const rows = view.locator("button[data-slice-section]");
     const count = await rows.count();
     expect(count).toBeGreaterThan(0);
