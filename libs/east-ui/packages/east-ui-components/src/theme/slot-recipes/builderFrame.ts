@@ -189,10 +189,12 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             minWidth: "0",
             /* A phone's footer whose loading line the session row took (FR1, R5) shows only what is live, a band over the
              * pane tabs while something is, and nothing else of its rail: no legend, no count, no hint. */
-            "[data-phone] > &:has([data-footer-line-moved]):not(:has([data-footer-live]))": { display: "none" },
-            "[data-phone] > &:has([data-footer-line-moved]) > *": { height: "auto", minHeight: "28px", flexWrap: "wrap" },
-            "[data-phone] > &:has([data-footer-line-moved]) > * > :not([data-footer-live]):not(:has([data-footer-live]))": { display: "none" },
-            "[data-phone] > &:has([data-footer-line-moved]) [data-footer-live]": { minWidth: "0", whiteSpace: "normal" },
+            "[data-phone] > &": {
+                "&:has([data-footer-line-moved]):not(:has([data-footer-live]))": { display: "none" },
+                "&:has([data-footer-line-moved]) > *": { height: "auto", minHeight: "28px", flexWrap: "wrap" },
+                "&:has([data-footer-line-moved]) > * > :not([data-footer-live]):not(:has([data-footer-live]))": { display: "none" },
+                "&:has([data-footer-line-moved]) [data-footer-live]": { minWidth: "0", whiteSpace: "normal" },
+            },
         },
         /* A phone's second row of the toolbar: the status, the drafts' count, then the eye and the history. */
         sessionRow: {
