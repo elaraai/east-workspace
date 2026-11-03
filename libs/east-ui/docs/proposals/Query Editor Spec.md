@@ -189,9 +189,13 @@ e3-api-client's `oneShotExecute`, and a run's plan (#941: `planQuery` and `split
   through its `fetch` — an e3 running in the page answers it there.
 - **A split call** — a run's, over a dataset larger than one piece (§4.15) — goes through
   `useQuerySplitCall`: a host's `QuerySplitCallProvider`, else e3-api-client's `splitCall`, which launches
-  it, polls it with backoff and reports its progress. **Its explain** — asked only when a run answered before
-  e3 named its pieces (§4.15, #1132) — goes through `useQuerySplitExplain`: that provider's `explain`, so a
-  host's split calls are explained by the host or not at all, else e3-api-client's `splitCallExplain`. **A
+  it, polls it with backoff, reports its progress and, once it answers, its report, and cancels the job when
+  the run gives it up (#1104, #1113). **Its explain** — asked only when a run answered with no report before
+  it named its pieces, as a host's may (§4.15, #1132) — goes through `useQuerySplitExplain`: that provider's
+  `explain`, so a host's split calls are explained by the host or not at all, else e3-api-client's
+  `splitCallExplain`. **A result too large for one answer** that a split call assembled with no final step is
+  opened by the hash its answer names through `useQueryCollection`: e3-api-client's `collectionOpen` (#1106,
+  #1113); a host's split calls' outputs are not opened, so their answers stay too large. **A
   data source's status** — what a run weighs before it plans — goes through `useQuerySourceStatus`: a host's
   `QuerySourceStatusProvider`, else e3's dataset status through the TanStack Query cache the Datasets tab
   polls. Each goes through the `E3Provider`'s token and `fetch`, as the one-shot call does. **The plan's
@@ -539,22 +543,26 @@ Beside the pane, the result of the last run:
 - **Failed**: a strip in the danger tint, its icon before the title and its message under it — "Not run — the
   checker found problems", "Not run" (a runtime error, a
   dataset with no value yet, or a call the server refused), "Stopped after {s} s" (narrow the query, or ask for
-  fewer rows), "The result is too large" ({bytes} over the limit), "Not run — the query calls a function this
+  fewer rows), "The result is too large" ({bytes} over the limit) — unless a split call assembled it with no
+  final step, whose rows are then read a page at a time (§4.15) — "Not run — the query calls a function this
   server can't run" (it needs {functions}), "Couldn't reach the server" — each over its message.
 - **The footer** holds the result's read-outs, since the toolbar holds its controls: its count in words ("10
   orders") and fields; "Showing 1–1,000 of 4,210" when a visual run returned fewer rows than it counted, "1,000+
-  rows" when a jq run was cut at the call's most outputs; how the run reads its data — "One call", "Split call ·
-  24 pieces" — its explanation on a click (§4.15); the run's number, time (hours and minutes) and duration, its
+  rows" when a jq run was cut at the call's most outputs, every row of a result read a page at a time; how the
+  run reads its data — "One call", "Split call · 24 pieces · 20 units cached" — its explanation on a click (§4.15);
+  the run's number, time (hours and minutes) and duration, its
   East type and multiplicity on hover; and "reads customers #9b07e3a4 · orders #4f2a1c8d" — each data source it
   read, with its hash. The fields, then what it read, give way as the results narrow.
 - **Download ▾**, a menu: CSV ("table": East CSV, one row per output, a nested value as the words the Table
   shows) and BEAST2 ("typed": the result with its type, self-describing), named after the query
-  ("top-shipped-orders-2026.csv"), and a note after each: a strip in the info tint, dismissible.
+  ("top-shipped-orders-2026.csv"), and a note after each: a strip in the info tint, dismissible. It is off for
+  a result read a page at a time, which the browser does not hold.
 
 **A run** (Run or ⌘⏎) checks and translates the query in the browser and runs it on e3 as a one-shot call
 over its root (#935's `prepareQuery`, sent with e3-api-client's `oneShotExecute`), with the call's limits —
 or, when the dataset it works through weighs more than one piece, as a split call over that dataset's pieces
-(§4.15); a new run abandons the one before. The call names no time limit, so the server's applies: its
+(§4.15); a new run abandons the one before, and a split call a run gives up — to a new run, or as the builder
+unmounts — is cancelled on e3 (#1104, #1113). The call names no time limit, so the server's applies: its
 default for a call that names none, under the longest a request to it may take (#1131). Opening a saved query runs it; starting a new one does not;
 editing never does. After a fresh run each shape line counts its rows: in the visual view a one-shot run's
 program counts its own stages (`length as $nK` after each stage whose shape is rows), so one run gives every
@@ -621,7 +629,8 @@ is the builder's (e3-ui-components `src/query/plan.ts`); the split is east's.
 - **The split** (`splitJq`, `devdocs/QUERY.md` §17.1): the stage of the query that works row by row, the
   program each piece runs, how the pieces' outputs combine — the rows joined; totals, each by its rule; rows
   grouped by a key, each group's totals combined or its rows collected; the distinct rows; the first row of
-  each key; a `reduce`'s updates by key, added or the last kept — and what runs once after them; or why the
+  each key; a `reduce`'s updates by key, added or the last kept; a stream's first rows (`first`, `limit(n; …)`),
+  each piece stopping once it has them (#1113) — and what runs once after them; or why the
   query runs as one unit. A piece whose output combines by key — a grouping that collects its rows aside —
   folds its rows into a table first, by the rule its outputs combine by, and sends the table on every 32,768
   rows and at its end; once the table holds more keys than a thirty-second of a flush's rows, 1,024, it sends
@@ -645,7 +654,8 @@ is the builder's (e3-ui-components `src/query/plan.ts`); the split is east's.
   split run counts only the source, from its dataset's stored rows, and the result; the shape lines between
   stay uncounted.
 - **The read-out**, in the results' footer before the run's line: "One call"; "Split call · 3 of 24 pieces
-  done" while it goes — the running head says the same — and "Split call · 24 pieces" once it has. A click
+  done" while it goes — the running head says the same — and "Split call · 24 pieces" once it has, with the
+  units e3's cache served: "· 20 units cached", or "· all cached" when it served the whole call. A click
   opens the design system's popover (`SliceEditPopover`, as the save popover is), "How this run reads its
   data", with the **explanation**, a line per sentence and the jq each is about:
   - the path and why — "Split call over orders: it weighs 1.5 GB, more than one piece (16 MB).", "One call:
@@ -653,20 +663,32 @@ is the builder's (e3-ui-components `src/query/plan.ts`); the split is east's.
     reason the query runs as one unit: "One call: a step needs every row at once, and no work is done row by
     row before it:" `sort_by(.total)`;
   - for a split: "Each piece of orders runs:" and its jq; how they combine — "Their rows are joined in
-    order.", "Their totals combine, each by its rule:" then each total, "Added up:" `map(.total) | add`; "Then,
-    once, over what they combine to:" and its jq; "Every piece reads customers whole."; and the pieces —
-    "Orders is cut into 24 pieces, about 64 MB each." once e3 has named them;
+    order.", "Their totals combine, each by its rule:" then each total, "Added up:" `map(.total) | add`, "The
+    first 5 rows, in input order, are kept: each piece stops once it has 5, …"; "Then, once, over what they
+    combine to:" and its jq; "Every piece reads customers whole."; the pieces — "Orders is cut into 24 pieces,
+    about 64 MB each." once e3 has named them; and how its units ran, once it answered — "The cache served 20
+    of its 24 units, and 4 ran.";
   - the reads that prune — "Reads the count from the index of orders, and no segment:" `.orders | length`.
 
   Every sentence is the builder's message table's (`plan…`), pinned by golden tests; its parts are the
   `queryResults` recipe's (`footerPlan`, `planLines`, `planLine`, `planText`, `planCode`).
-- **The pieces** come from the run's progress while it goes. A run that answers before e3 reports any — one
-  that ended between two polls, or one served whole from e3's cache — has its call explained once it has
-  answered (`splitCallExplain`, #1132): a job that plans the pieces as the run did and runs no unit, so the
-  count is the run's — a re-keyed join's, its join call's. Its result shows at once, "Split call" until the
-  explain names the count, which then lands in the read-out and the explanation. An explain is work in
-  proportion to the dataset, so it is asked only then, never before a run, and never of a run whose progress
-  named its pieces. One that fails leaves the read-out "Split call"; a new run abandons it with the run.
+- **The pieces** come from the run's progress while it goes, and from the call's report once it answers
+  (e3's `SplitCallReport`, #1105, #1113): how many pieces it cut, and how many of its units ran and how many
+  e3's cache served — a re-keyed join's, its join call's — so a run that ended between two polls, or one
+  served whole from the cache, still names them. A call that answers with no report before its progress named
+  its pieces — a host's may — has its call explained once it has answered (`splitCallExplain`, #1132): a job
+  that plans the pieces as the run did and runs no unit, so the count is the run's. Its result shows at once,
+  "Split call" until the explain names the count. An explain is work in proportion to the dataset, so it is
+  asked only then, never before a run. One that fails leaves the read-out "Split call"; a new run abandons it
+  with the run.
+- **A run given up** — to a new run, or as the builder unmounts — cancels its split call on e3 (#1104), so
+  its units stop and its pieces are not run for nothing; each launch is a job of its own, so a cancel never
+  reaches the run after it.
+- **A result too large for one answer** (#1113): a split call with no final step that e3 answered
+  `too_large` names its assembled output by its hash, which the builder opens (`collectionOpen`, #1106) and
+  reads a page at a time, 1,000 rows a page — the Table through east-ui's paged row source, as far as its
+  dense prefix reaches (#581), the Tree through the ValueTree's paging, every row — with no banner, every row
+  counted in the footer and Download off. An answer a final step made, and a host's, stays too large.
 
 ---
 
@@ -771,7 +793,8 @@ the plans against a real e3, as the builder sends them.
 | D1–D6 | The Datasets tab's groups and items; a click starts a query; the Library tab; a root bound elsewhere; dropping a library card; no drag layer, no target | #939 |
 | L1–L7 | The library's toolbar, pane and gallery; wireframes; search, sort and layout; recent; Open in builder and `onOpen`; its manifest, and no dataset read | #1063 |
 | V1–V3 | Examples ↔ tests and the plugin index; the builder's and the library's layout in the responsive specs; the showcase, and this document as built | #940 |
-| N1 | Golden plans in words for every combine kind, every reason a query runs as one unit and every read that prunes; the path by what the dataset weighs; the split call's request decoded back; every split, run in memory over many pieces, answering as its one-shot call does; a split run in the visual and jq views, its progress and its explanation in the DOM; a run that answered before e3 named its pieces counted by its call's explain — a re-keyed join's join call's — and one whose progress named them never explained, a refused explain, one abandoned by a new run, a host's calls never explained by the server; every call through the `E3Provider`'s `fetch`, none through the global one | #941, #1132 |
+| N1 | Golden plans in words for every combine kind, every reason a query runs as one unit and every read that prunes; the path by what the dataset weighs; the split call's request decoded back; every split, run in memory over many pieces, answering as its one-shot call does; a split run in the visual and jq views, its progress and its explanation in the DOM; a host's call that answered with no report before it named its pieces counted by its explain, and one whose progress named them never explained, a refused explain, one abandoned by a new run, a host's calls never explained by the server; every call through the `E3Provider`'s `fetch`, none through the global one | #941, #1132 |
+| N5 | A split run's report names its pieces, the units that ran and those the cache served — "all cached" on a whole hit, a re-keyed join's join call's — with no explain; a new run and the builder unmounting cancel the job on e3; `first` and `limit(n; …)` split as a `first` output, with no final step when the limit is within the most outputs, and answer as the one-shot call does; a result a split call assembled too large, with no final step, opened by its hash and read a page at a time as a Table and as a Tree, its manifest read once, Download off; one a final step made stays too large | #1113 |
 | N2 | The reads that prune, counted: `.orders \| length` reads the index and no segment, `.byId[k]` the one segment that holds the key (east's `test/query.lazy.spec.ts`); the explanation names each (N1's golden lines) | #941 |
 | N3 | Against a real e3, on east-node and on east-c: over orders of many pieces, each split call answers as its one-shot call does — revenue by region with the customers read whole, the first and the last row of a key, the least and the last greatest, the first and the last total, the distinct values, the top rows, a count; at two input sizes no unit's peak passes the runner's baseline and the RunSorter's cap, and twice the input raises none beyond a margin | #941 |
 | N4 | A relaunch is served from the cache, running no unit; after an append only the pieces around it run, one to three, as e3's execution records show; the answer is the one-shot call's over the new rows | #941 |

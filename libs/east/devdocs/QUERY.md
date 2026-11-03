@@ -1866,6 +1866,7 @@ the engine groups the additions.
 | `unique` | `set` | united |
 | `unique_by(g)` | `dict`, by `g` | the first row of each key |
 | `reduce .[] as $x ({}; .[k] += v)`, or `= v`, or over `.D[]` | `dict`, by `k` | added with `+`, or the last kept |
+| `first(f)` or `limit(n; f)` around a stream of the dataset's rows, `n` a whole number of at least 1 (#1113) | `first`, of `n` (one for `first`) | concatenated in input order, and the first `n` kept: e3 stops once the pieces before the rest hold them (#1110) |
 | anything else, after some row work | `array` | concatenated in input order |
 
 - **The first rows of a sort** (#942). A piece keeps each row with its sort
@@ -1876,6 +1877,16 @@ the engine groups the additions.
   result is the one unit's. The step that reads them runs once after, in the
   final function (`.[:10]`, `.[0].id`). A sort whose every row the query
   keeps (`sort_by(g) | reverse`) is still `every_row`.
+- **A stream's first rows** (#1113). `first(f)` and `limit(n; f)`, where `f`
+  streams a dataset's rows — `.D[] | g`, `.D | .[] | g`, a dict's
+  `to_entries[]` — keep `f`'s first outputs in input order. Each piece sends
+  its rows as they come and stops once it has sent `n`, so it reads only as
+  far as it needs; e3 keeps the first `n` of all, in input order, and stops
+  the pieces after once the pieces before them hold `n` (#1110). The steps
+  after the `first` or `limit` run on each of the rows it keeps, in the final
+  function, and a `many` query whose `n` rows are its result, `n` no more than
+  its sink keeps, has none. A count the query computes, or one below 1, is
+  the one unit's to read: `stops_early`.
 - **A join cut at the same keys** (#942). Where the rows are a dict's
   entries, a dict bound before the stream (`.B as $b`) and keyed as the
   dataset is, which the pieces read only at the row's own key — `$b[.key]`,
@@ -1955,7 +1966,7 @@ the engine groups the additions.
 |---|---|
 | `no_stream` | it reads no dataset row by row: a count (`.D \| length`), a key (`.D[k]`, `has(k)`), or a value whole |
 | `nested` | it reads a dataset's rows inside an expression, not as its pipeline |
-| `stops_early` | a stream, `first(…)` or `limit(…)`: one unit stops as soon as it has the outputs it keeps, and a caller caps a stream's. An ordered early stop stays one lazy unit until e3 can stop a split call's other units once one has what it keeps (#942) |
+| `stops_early` | a stream that is the query's own outputs, which a caller caps; or a `first(…)` or `limit(…)` that does not split — over no dataset's stream, or a `limit` whose count the query computes or is below 1: one unit stops as soon as it has the outputs it keeps |
 | `position` | a step takes rows by position (`.[a:b]`, `first`, `last`), with no row work before it |
 | `every_row` | a step needs every row at once (`sort_by`, `reverse`, …), with no row work before it, and is not a sort whose first rows alone are read |
 | `state` | `foreach`, or a builtin that reads the program's further inputs |
@@ -1979,7 +1990,8 @@ a flush, with keys few and all different, and what a piece sends is held to
 the count the table's rules give. A join cut at the same keys runs over two
 dicts keyed alike, cut by either one's keys, and a re-keyed join's two calls
 over the fixture, cut by the re-keyed rows' keys or the customers', each held
-to the translation's result.
+to the translation's result. A stream's first rows run the same way, no piece
+emitting more than it keeps.
 
 ---
 

@@ -11,7 +11,8 @@
  * scrollbar spans the WHOLE collection, unloaded rows render as
  * placeholders, and scrolling requests the element windows that come into
  * view (fetched through the paged dataset API, one page per window, deduped
- * and cached by content hash). Used by `<DatasetPreview>` when a dataset's
+ * and cached by content hash, and held as the page cache the query builder's
+ * paged result shares holds them, `page-reads.ts`). Used by `<DatasetPreview>` when a dataset's
  * type is pageable (Array/Set/Dict) and its value exceeds the inline display
  * limit — pageable datasets always load, they never dead-end on size.
  *
@@ -37,6 +38,7 @@ import { StatusDisplay } from './StatusDisplay.js';
 import { DatasetKeySearch, type DatasetKeyMatchRange, type DatasetKeyQuery } from '@elaraai/east-ui-components';
 import { DownloadButton, formatSize } from './DatasetPreview.js';
 import { SEARCH_DEBOUNCE_MS, useControlledKeySearch } from './controlled-search.js';
+import { usePageReads } from './page-reads.js';
 import { treeControlsOf, type PreviewControls } from './preview-controls.js';
 import { pagingDebug } from '../debug.js';
 
@@ -116,8 +118,19 @@ export interface PagedDatasetPreviewProps {
     controls?: PreviewControls;
 }
 
-/** Materializes one decoded page into the renderer's paged-row contract. */
-function pageRows(type: EastTypeValue, decoded: unknown, offset: number): ValueTreePagedRow[] {
+/**
+ * Materializes one decoded page into the ValueTree renderer's paged-row
+ * contract: an Array's or a Set's elements by their place in the whole, a
+ * Dict's values under their keys — String keys as steps, others labelled.
+ *
+ * @param type - The collection's type: an Array, a Set or a Dict
+ * @param decoded - The page, a value of that type
+ * @param offset - The page's first element's place in the whole collection
+ * @returns The page's root rows
+ *
+ * @internal
+ */
+export function pageRows(type: EastTypeValue, decoded: unknown, offset: number): ValueTreePagedRow[] {
     if (type.type === 'Array') {
         const elemType = type.value as EastTypeValue;
         return (decoded as unknown[]).map((el, i) => ({
@@ -141,9 +154,16 @@ function pageRows(type: EastTypeValue, decoded: unknown, offset: number): ValueT
     }));
 }
 
-/** The empty collection value of a pageable root — the paged tree's root
- *  node carries kind only; rows come from the pages. */
-function emptyOf(type: EastTypeValue): unknown {
+/**
+ * The empty collection value of a pageable root — the paged tree's root node
+ * carries kind only; rows come from the pages.
+ *
+ * @param type - The collection's type: an Array, a Set or a Dict
+ * @returns The empty value of it
+ *
+ * @internal
+ */
+export function emptyOf(type: EastTypeValue): unknown {
     return type.type === 'Array' ? [] : type.type === 'Dict' ? new Map() : new Set();
 }
 
@@ -166,83 +186,53 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
     // The totals line, in the app's locale (#850).
     const words = useFormatters();
     const queryClient = useQueryClient();
-    const [pages, setPages] = useState<ReadonlyMap<number, readonly ValueTreePagedRow[]>>(new Map());
     const [totals, setTotals] = useState<{ elements: number; bytes: number } | null>(null);
-    const [loadingCount, setLoadingCount] = useState(0);
-    const [error, setError] = useState<Error | null>(null);
     /** Key-search jump target — the tree's controlled scrollToRow (#520). */
     const [jumpRow, setJumpRow] = useState<number | undefined>(undefined);
-    const inflightRef = useRef(new Set<number>());
-    // The value the preview shows. A page applies only while it is the one
-    // the page was fetched for: one still in flight when the value moves
-    // belongs to the old value, and would land among the new one's pages.
-    const shownRef = useRef({ path, hash });
     // The size pages are addressed by — requested at PAGE_SIZE, then whatever
     // the server actually serves (#829). The ref is what an in-flight load
     // checks when it lands: a page fetched at a size since abandoned covers
     // the wrong rows.
     const [pageSize, setPageSize] = useState(PAGE_SIZE);
     const pageSizeRef = useRef(PAGE_SIZE);
+    // How a trimmed page starts the pages afresh: the reads' own, once made.
+    const resetPages = useRef<(pages?: ReadonlyMap<number, readonly ValueTreePagedRow[]>) => void>(() => {});
 
-    // A new value (content hash) invalidates every page.
+    // A new value (content hash) invalidates every page: the reads start
+    // afresh by it, and its totals, its jump and its page size here.
     useEffect(() => {
         pagingDebug(`reset (path=${path}, hash=${hash.slice(0, 8)})`);
-        shownRef.current = { path, hash };
-        setPages(new Map());
         setTotals(null);
-        setError(null);
         setJumpRow(undefined);
-        inflightRef.current = new Set();
         pageSizeRef.current = PAGE_SIZE;
         setPageSize(PAGE_SIZE);
     }, [path, hash]);
 
-    const loadPage = useCallback((pageIdx: number) => {
-        const inflight = inflightRef.current;
-        if (inflight.has(pageIdx)) return;
-        inflight.add(pageIdx);
-        const current = () => shownRef.current.path === path && shownRef.current.hash === hash;
+    // One page, read for the value the preview shows: a page that lands once
+    // the value has moved belongs to the old value, and lands nothing.
+    const readPage = useCallback(async (pageIdx: number, live: () => boolean): Promise<readonly ValueTreePagedRow[] | undefined> => {
         const size = pageSizeRef.current;
-        setLoadingCount((n) => n + 1);
         pagingDebug(`fetch p${pageIdx} (offset=${pageIdx * size}, limit=${size}, hash=${hash.slice(0, 8)})`);
         const pathParts = path.split('.').filter(Boolean).map((v) => variant('field', v));
         const reqOpts = requestOptions ?? { token: null };
-        queryClient.fetchQuery({
-            queryKey: ['datasetPage', apiUrl, repo, workspace, path, hash, `p${pageIdx}@${size}`],
-            // Hash-pinned: the URL is a pure function of the bytes, so any
-            // HTTP cache between here and the server can hold it immutably.
-            queryFn: () => datasetGetPage(apiUrl, repo, workspace, pathParts, { offset: pageIdx * size, limit: size, hash }, reqOpts),
-            staleTime: Infinity, // pages of one content hash are immutable
-        }).then((page) => {
-            if (!current()) return;
-            if (size !== pageSizeRef.current) return; // addressed at an abandoned size — the tree re-asks
-            const decoded = decodeBeast2For(type)(page.data);
-            const rows = pageRows(type, decoded, page.offset);
-            pagingDebug(`p${pageIdx} ok: count=${page.count} rows=${rows.length} offset=${page.offset} total=${page.totalElements} segs=${page.segmentCount}`,
-                rows.length > 0 ? `first=${JSON.stringify(rows[0]!.label ?? '(derived)')}` : '(empty)');
-            setTotals({ elements: page.totalElements, bytes: page.totalBytes });
-            const served = servedPageSize(size, page);
-            if (served === size) {
-                setPages((prev) => new Map(prev).set(pageIdx, rows));
-                return;
-            }
-            // Trimmed: every later page is served at this size, so address
-            // pages by it. Page 0 keeps its place — `[0, served)` is exactly
-            // what it holds; a later page re-learning (a server that did not
-            // trim uniformly) drops everything and the tree re-asks.
-            pagingDebug(`p${pageIdx} SHORT page: served ${page.count} of ${size} — addressing pages by ${served}`);
-            pageSizeRef.current = served;
-            setPageSize(served);
-            setPages(pageIdx === 0 ? new Map([[0, rows]]) : new Map());
-        }).catch((err: unknown) => {
+        let page: DatasetPage;
+        try {
+            page = await queryClient.fetchQuery({
+                queryKey: ['datasetPage', apiUrl, repo, workspace, path, hash, `p${pageIdx}@${size}`],
+                // Hash-pinned: the URL is a pure function of the bytes, so any
+                // HTTP cache between here and the server can hold it immutably.
+                queryFn: () => datasetGetPage(apiUrl, repo, workspace, pathParts, { offset: pageIdx * size, limit: size, hash }, reqOpts),
+                staleTime: Infinity, // pages of one content hash are immutable
+            });
+        } catch (err) {
             pagingDebug(`p${pageIdx} FAILED:`, err);
-            if (!current()) return;
+            if (!live()) return undefined;
             if (err instanceof DatasetHashMismatchError) {
                 // The dataset holds another value now, which is no failure:
                 // its status, fetched again, names the new hash, and the new
                 // hash re-keys this preview.
                 void queryClient.invalidateQueries({ queryKey: ['datasetStatus', apiUrl, repo, workspace, path] });
-                return;
+                return undefined;
             }
             if (err instanceof ApiError && err.code === 'dataset_not_indexed') {
                 // A legacy (pre-index) blob cannot page — hand back to the
@@ -250,32 +240,50 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
                 // state below stays as the backstop UI if no parent handles.
                 onNotIndexed?.();
             }
-            setError(err instanceof Error ? err : new Error(String(err)));
-        }).finally(() => {
-            inflight.delete(pageIdx);
-            setLoadingCount((n) => n - 1);
-        });
+            throw err;
+        }
+        if (!live()) return undefined;
+        if (size !== pageSizeRef.current) return undefined; // addressed at an abandoned size — the tree re-asks
+        const decoded = decodeBeast2For(type)(page.data);
+        const rows = pageRows(type, decoded, page.offset);
+        pagingDebug(`p${pageIdx} ok: count=${page.count} rows=${rows.length} offset=${page.offset} total=${page.totalElements} segs=${page.segmentCount}`,
+            rows.length > 0 ? `first=${JSON.stringify(rows[0]!.label ?? '(derived)')}` : '(empty)');
+        setTotals({ elements: page.totalElements, bytes: page.totalBytes });
+        const served = servedPageSize(size, page);
+        if (served === size) return rows;
+        // Trimmed: every later page is served at this size, so address
+        // pages by it. Page 0 keeps its place — `[0, served)` is exactly
+        // what it holds; a later page re-learning (a server that did not
+        // trim uniformly) drops everything and the tree re-asks.
+        pagingDebug(`p${pageIdx} SHORT page: served ${page.count} of ${size} — addressing pages by ${served}`);
+        pageSizeRef.current = served;
+        setPageSize(served);
+        resetPages.current(pageIdx === 0 ? new Map([[0, rows]]) : new Map());
+        return undefined;
     }, [queryClient, apiUrl, repo, workspace, path, hash, requestOptions, type, onNotIndexed]);
+    // Each page read once while it is wanted, those far from the window let
+    // go: materialized rows are heavy (see MAX_RETAINED_PAGES).
+    const reads = usePageReads({ identity: `${path}\u0000${hash}`, read: readPage, retain: MAX_RETAINED_PAGES });
+    resetPages.current = reads.reset;
+    const { pages, need, keep } = reads;
+    const error = reads.failure;
 
-    // First page carries the totals that size the virtual scrollbar.
+    // First page carries the totals that size the virtual scrollbar. A new
+    // value's pages are read afresh, and `need` with them, so it asks again.
     useEffect(() => {
-        if (totals === null && error === null) loadPage(0);
-    }, [totals, error, loadPage]);
+        if (totals === null && error === undefined) need(0, 0);
+    }, [totals, error, need]);
 
     const onNeedRows = useCallback((startRow: number, endRow: number) => {
         const first = Math.max(0, Math.floor(startRow / pageSize));
         const last = Math.max(first, Math.ceil(endRow / pageSize) - 1);
-        const missing: number[] = [];
-        for (let p = first; p <= last; p++) {
-            if (!pages.has(p)) missing.push(p);
-        }
-        pagingDebug(`need rows [${startRow}, ${endRow}) → pages ${first}..${last}, missing=[${missing.join(',')}], inflight=[${[...inflightRef.current].join(',')}]`);
-        // Retention: drop pages far from this window (same reference back —
-        // and no re-render — while under the cap), so heap and per-arrival
-        // re-flatten stay bounded however far the user roams.
-        setPages((prev) => pruneRetainedPages(prev, first, last, MAX_RETAINED_PAGES));
-        for (const p of missing) loadPage(p);
-    }, [pages, loadPage, pageSize]);
+        pagingDebug(`need rows [${startRow}, ${endRow}) → pages ${first}..${last}`);
+        // Retention: drop pages far from this window (the same pages while
+        // under the cap), so heap and per-arrival re-flatten stay bounded
+        // however far the user roams.
+        keep(first, last);
+        need(first, last);
+    }, [need, keep, pageSize]);
 
     // Key search (#520): queries resolve server-side against the segment
     // fences; results and popup windows are hash-pinned and immutable, so
@@ -335,7 +343,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
         }
     ), [totals, pageSize, pages, onNeedRows, jumpRow]);
 
-    if (error !== null) {
+    if (error !== undefined) {
         // The server refusing for its own safety (read cap) is not a
         // failure — show the remedy and the download escape hatch.
         if (error instanceof ApiError && error.code === 'dataset_too_large') {
@@ -363,7 +371,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
                     <Text fontSize="body.sm" color="fg.muted" whiteSpace="nowrap">
                         {words.number(totals.elements)} {itemNoun} · {formatSize(totals.bytes > 0 ? totals.bytes : sizeBytes, words)}
                     </Text>
-                    {loadingCount > 0 && <Text fontSize="body.sm" color="fg.muted">Loading…</Text>}
+                    {reads.loading > 0 && <Text fontSize="body.sm" color="fg.muted">Loading…</Text>}
                     {search === undefined && keyType !== null && (
                         <DatasetKeySearch keyType={keyType} onFind={onFindKey} onListRange={onListRange}
                             onJump={setJumpRow} onClear={() => setJumpRow(undefined)} onInputChange={onSearchChange} />

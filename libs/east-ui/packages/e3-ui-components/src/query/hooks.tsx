@@ -19,7 +19,9 @@
  *   own ({@link QuerySplitCallProvider}). And how its pieces are counted when
  *   a run answered before e3 reported them (`useQuerySplitExplain`, #1132):
  *   e3-api-client's `splitCallExplain`, or the host's own beside its split
- *   call.
+ *   call. And how a split call's output is opened, when its answer was too
+ *   large for one (`useQueryCollection`, #1113): e3-api-client's
+ *   `collectionOpen`, which reads it a page at a time.
  * - **A data source's status** (`useQuerySourceStatus`, #941): what it weighs
  *   and how many rows it holds, which a run reads before it plans — e3's
  *   dataset status, through the query the Datasets tab polls; or a host's own
@@ -41,7 +43,7 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 import { DataSourceType, SavedQueryType } from "@elaraai/e3-ui/internal";
-import { datasetGetStatus, oneShotExecute, splitCall, splitCallExplain, type SplitCallAnswer } from "@elaraai/e3-api-client";
+import { collectionOpen, datasetGetStatus, oneShotExecute, splitCall, splitCallExplain, type RemoteCollection, type SplitCallAnswer } from "@elaraai/e3-api-client";
 import {
     pathToString,
     type DatasetStatusDetail, type ExecuteResult, type OneShotRequest, type SplitCallPlan, type SplitCallProgress, type SplitCallRequest, type TreePath,
@@ -175,9 +177,13 @@ export function useQueryCall(): QueryCall | undefined {
 // The split call (#941)
 // ============================================================================
 
-/** What a split call is given: the signal that abandons it, and where its progress goes. */
+/** What a split call is given: the signal that gives it up, and where its progress goes. */
 export interface QuerySplitCallOptions {
-    /** Abandons the call: it stops polling, and rejects with the signal's reason. Its job runs on. */
+    /**
+     * Gives the call up: it stops polling, its job is cancelled, so e3 stops
+     * its units (#1104), and it rejects with the signal's reason. The units
+     * that finished are cached, so a run of the same call again is served them.
+     */
     readonly signal: AbortSignal;
     /** Told the call's progress each time e3 reports it: its stage, and the units of it done of all. */
     readonly onProgress: (progress: SplitCallProgress) => void;
@@ -185,20 +191,23 @@ export interface QuerySplitCallOptions {
 
 /**
  * Makes a split call: the request, answered once its job ends by the call's
- * result — read as a one-shot call's is — and the hash of its assembled
- * output, which a re-keyed join's second call reads (#942).
+ * result — read as a one-shot call's is — the hash of its assembled output,
+ * which a re-keyed join's second call reads (#942) and a result too large for
+ * one answer is read a page at a time from (#1113), and how it ran: its
+ * pieces, and the units it ran and the cache served (#1105).
  *
  * @param request - The request — a plan's, platform-free (`splitCallRequest`,
  *   `rekeyCallRequests`)
- * @param options - The signal that abandons it, and where its progress goes
- * @returns The call's result, and its assembled output's hash once its pieces
- *   ran (`null` before)
+ * @param options - The signal that gives it up, and where its progress goes
+ * @returns The call's result, its assembled output's hash once its pieces ran
+ *   (`null` before), and its report (`null` when the call reports none)
  *
  * @remarks
  * It rejects with e3-api-client's `ApiError` or `AuthError` when the server
  * refuses the call, with a `TypeError` when the server cannot be reached, as
  * `fetch` does, and with any other error when e3 could not run it (a job that
- * ended `failed`); and with the signal's reason once it is abandoned.
+ * ended `failed`); and with the signal's reason once it is given up, its job
+ * cancelled (#1104).
  */
 export type QuerySplitCall = (request: SplitCallRequest, options: QuerySplitCallOptions) => Promise<SplitCallAnswer>;
 
@@ -252,8 +261,8 @@ export function QuerySplitCallProvider({ call, explain, children }: QuerySplitCa
  * How the builder makes a split call: a {@link QuerySplitCallProvider}'s, else
  * e3-api-client's `splitCall` against the `E3Provider`'s server and workspace,
  * with its token and through its `fetch`, which launches the call, polls it —
- * 100 ms apart at first, backing off to a second — and reports each progress
- * it finds.
+ * 100 ms apart at first, backing off to a second — reports each progress it
+ * finds, and cancels the job once its signal aborts (#1104).
  *
  * @returns The call, or `undefined` when there is no server to call
  */
@@ -290,6 +299,47 @@ export function useQuerySplitExplain(): QuerySplitExplain | undefined {
         const repo = config.repo ?? "default";
         return (request, { signal }) => splitCallExplain(apiUrl, repo, workspace, request, e3RequestOptions(config), { signal });
     }, [host, provided, config]);
+}
+
+// ============================================================================
+// A split call's output, opened (#1113)
+// ============================================================================
+
+/**
+ * Opens a stored collection by its hash, to read it a window at a time: the
+ * output of a split call whose answer was too large for one (#1113).
+ *
+ * @param hash - The collection's hash: its manifest's, as the call's answer names it
+ * @returns The collection — its type, how many elements it holds, and a
+ *   window of them as beast2
+ *
+ * @remarks
+ * It rejects as e3-api-client's `collectionOpen` does: with an `ApiError` for
+ * a manifest the repository does not hold, and with an `Error` for an object
+ * that is no collection.
+ */
+export type QueryCollection = (hash: string) => Promise<RemoteCollection>;
+
+/**
+ * How the builder opens a split call's output whose answer was too large for
+ * one (#1113): e3-api-client's `collectionOpen` against the `E3Provider`'s
+ * server, with its token and through its `fetch`, which reads the manifest
+ * once and each window from the segments it overlaps. A host's split calls
+ * (a {@link QuerySplitCallProvider}'s) are not e3's, so their outputs are not
+ * opened: such an answer stays too large.
+ *
+ * @returns The opener, or `undefined` when there is none to open with
+ */
+export function useQueryCollection(): QueryCollection | undefined {
+    const host = useContext(QuerySplitCallContext);
+    const config = useE3ConfigOptional();
+    return useMemo((): QueryCollection | undefined => {
+        if (host !== null) return undefined;
+        if (config === null || config.workspace === undefined) return undefined;
+        const { apiUrl } = config;
+        const repo = config.repo ?? "default";
+        return (hash) => collectionOpen(apiUrl, repo, hash, e3RequestOptions(config));
+    }, [host, config]);
 }
 
 // ============================================================================

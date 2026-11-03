@@ -31,7 +31,7 @@ import {
 import { PIECE_SIZES, TreePathType, pieceSizesFor, type SplitCallRequest, type TreePath } from "@elaraai/e3-types";
 import { formatters } from "@elaraai/east-ui-components";
 import { createInMemoryQueryCall, createInMemorySplitCall } from "./in-memory-call.js";
-import { planWords, queryWords } from "./model/words.js";
+import { planBadge, planWords, queryWords } from "./model/words.js";
 import { prepareQuery, queryResultOf, queryRoot, type QueryResult, type QueryRootEntry } from "./one-shot.js";
 import { planQuery, splitCallRequest, type PlanExplanation, type QueryPlan, type SourceWeight } from "./plan.js";
 
@@ -153,6 +153,16 @@ const SPLITS: readonly (readonly [program: string, explanation: string])[] = [
     [".orders | reduce .[] as $o ({}; .[$o.customer_id] = $o.id)", [
         SPLIT, "Each piece of orders runs: «.orders»", "Their updates combine by key, the last kept: «$o.customer_id»",
     ].join("\n")],
+    // A stream's first rows, in input order (#1113): each piece stops once it has them.
+    ["first(.orders[] | select(.total > 1000)) | .id", [
+        SPLIT, "Each piece of orders runs: «.orders[] | select(.total > 1000)»",
+        "The first row, in input order, is kept: each piece stops at its first, and the call once the pieces before the rest have one: «first(.orders[] | select(.total > 1000))»",
+        "Then, once, over what they combine to: «.id»",
+    ].join("\n")],
+    ["limit(3; .orders[] | select(.total > 100) | .id)", [
+        SPLIT, "Each piece of orders runs: «.orders[] | select(.total > 100) | .id»",
+        "The first 3 rows, in input order, are kept: each piece stops once it has 3, and the call once the pieces before the rest have them: «limit(3; .orders[] | select(.total > 100) | .id)»",
+    ].join("\n")],
     // A data source every piece reads whole.
     [".customers as $c | .orders | map($c[.customer_id].region) | unique", [
         SPLIT, "Each piece of orders runs: «.orders | map($c[.customer_id].region)»", "Their distinct rows are kept: «unique»",
@@ -180,8 +190,9 @@ const WHOLES: readonly (readonly [program: string, explanation: string])[] = [
         "One call: its outputs stream from orders, and one call stops once it has as many as a run returns.",
         "Reads only the segments of orders it reaches before it stops: «.orders[]»",
     ].join("\n")],
-    ["first(.orders[] | select(.total > 1000)) | .id",
-        "One call: it keeps only its first outputs, and one call stops as soon as it has them: «first(.orders[] | select(.total > 1000))»"],
+    // A count the query computes is the one call's to read.
+    ["limit(.orders | length; .orders[] | .id)",
+        "One call: it keeps only its first outputs, and one call stops as soon as it has them: «limit(.orders | length; .orders[] | .id)»"],
     [".orders | .[0:3]", "One call: it takes rows by their position, and one call reads only as far as it needs: «.[0:3]»"],
     // A sort whose every row the query keeps: no first rows to keep in the pieces.
     [".orders | sort_by(.total) | reverse", "One call: a step needs every row at once, and no work is done row by row before it: «sort_by(.total)»"],
@@ -220,6 +231,23 @@ describe("N1: golden explanations, at the words level", () => {
         expect(lines({ pieces: 24, progress: { phase: variant("partition", null), done: 3n, units: 24n } })).toEqual(["3 of 24 pieces done"]);
         expect(lines({ pieces: 24, progress: { phase: variant("combine", null), done: 0n, units: 1n } })).toEqual(["0 of 1 fold done"]);
         expect(lines({ pieces: 24, progress: { phase: variant("merge", null), done: 1n, units: 3n } })).toEqual(["1 of 3 merges done"]);
+    });
+
+    test("how a split call's units ran, once it answered (#1105): in the read-out the units the cache served, and in the explanation all of them", () => {
+        const p = plan(".orders | map(.total) | add");
+        const report = (ran: bigint, cached: bigint) => ({ pieces: 24n, ran, cached, peakBytes: none });
+        const units = (run: Parameters<typeof planWords>[2]) => planWords(p.explanation, words, run).filter(line => line.kind === "units").map(line => line.text);
+        expect([planBadge(p, words, { pieces: 24 }), units({ pieces: 24 })]).toEqual(["Split call · 24 pieces", []]);
+        expect([planBadge(p, words, { pieces: 24, report: report(25n, 0n) }), units({ pieces: 24, report: report(25n, 0n) })])
+            .toEqual(["Split call · 24 pieces", ["All 25 of its units ran: the cache held none."]]);
+        expect([planBadge(p, words, { pieces: 24, report: report(3n, 22n) }), units({ pieces: 24, report: report(3n, 22n) })])
+            .toEqual(["Split call · 24 pieces · 22 units cached", ["The cache served 22 of its 25 units, and 3 ran."]]);
+        // Served whole: it consulted no unit.
+        expect([planBadge(p, words, { pieces: 24, report: report(0n, 0n) }), units({ pieces: 24, report: report(0n, 0n) })])
+            .toEqual(["Split call · 24 pieces · all cached", ["The cache served the whole call: no unit ran."]]);
+        // While it goes, its progress alone.
+        const going = { pieces: 24, progress: { phase: variant("partition", null), done: 3n, units: 24n }, report: report(3n, 22n) };
+        expect([planBadge(p, words, going), units(going)]).toEqual(["Split call · 3 of 24 pieces done", []]);
     });
 
     test("a query that would split is one call within one piece, or when what its dataset weighs isn't known", () => {
@@ -364,6 +392,9 @@ describe("the request", () => {
         const kinds = (program: string) => splitOf(program).request.output.type;
         expect(kinds(".orders | map(.id)")).toBe("array");
         expect(kinds(".orders | map(.customer_id) | unique | length")).toBe("set");
+        // A stream's first rows: how many, and no final function when they are the result (#1113).
+        const first = splitOf("limit(3; .orders[] | .id)").request;
+        expect([first.output, first.then.type]).toEqual([variant("first", { limit: 3n }), "none"]);
         const dict = splitOf(".orders | group_by(.customer_id) | map({customer: .[0].customer_id, revenue: map(.total) | add})").request;
         if (dict.output.type !== "dict" || dict.output.value.merge.type !== "some") throw new Error("expected a dict with a merge");
         const merge = functionType(dict.output.value.merge.value);
