@@ -33,6 +33,7 @@ import {
 import { QueryCallType } from "../types.js";
 import { UPDATE_SELECTORS, walkSteps, type CheckJqResult } from "./check.js";
 import { isoDateTime, literalValue } from "./literals.js";
+import { cannotRaise, narrowRows } from "./narrow.js";
 import { casesOf, membersOf, nullablePayload, unify, unifyShape, unwrap, type Facts, type Result, type Shape } from "./shapes.js";
 import { childPath, jqChildren, toQuerySpan, type JqNode, type JqPattern } from "./spans.js";
 import { BUILTIN_RULES, FORMATS } from "./translate-builtins.js";
@@ -273,82 +274,6 @@ function readsNoInput(node: JqNode): boolean {
     case "object": return node.value.length === 0;
     default: return false;
   }
-}
-
-/**
- * Builtins that raise for nothing the checker lets reach them, by name and
- * arity: given arguments that never raise, they never raise. The checker
- * refuses a value of a kind a builtin cannot take, outside a lenient place,
- * so what is left to raise at run time is a value's own: a zero divisor, a
- * string that is no number, a count below zero, `error`.
- */
-const NEVER_RAISE: ReadonlySet<string> = new Set([
-  "select/1", "not/0", "length/0", "utf8bytelength/0", "type/0", "tostring/0", "tojson/0", "empty/0", "keys/0", "keys_unsorted/0",
-  "has/1", "in/1", "contains/1", "inside/1", "startswith/1", "endswith/1", "ltrimstr/1", "rtrimstr/1", "ascii_downcase/0", "ascii_upcase/0",
-  "floor/0", "ceil/0", "round/0", "fabs/0", "sqrt/0", "abs/0", "values/0", "nulls/0", "numbers/0", "strings/0", "booleans/0", "arrays/0",
-  "objects/0", "iterables/0", "scalars/0", "map/1", "add/0", "any/0", "all/0", "min/0", "max/0",
-]);
-
-/**
- * Whether a filter never raises, whatever its input: what a step that has
- * the rows it needs may leave unmade (#1140), since jq makes every row of a
- * stage before the step after it reads one, and a row that raises makes the
- * whole query raise. Conservative: paths, literals, comparisons, `and`,
- * `or`, `+`, `-` and `*`, objects, arrays, strings, `if`, `//`, `try`, a
- * `label` and a `break` to it, and the builtins in {@link NEVER_RAISE}, of
- * parts that never raise. `/` and `%` (a zero divisor), a `def` or a call of
- * one, a function value, any other builtin, and a `break` out of the filter,
- * which leaves the stage as a raise does, may raise.
- *
- * @param labels - The labels the filter is inside, which a `break` may leave
- */
-function cannotRaise(node: JqNode, env: Env, labels: ReadonlySet<string> = new Set()): boolean {
-  const all = (nodes: readonly JqNode[]): boolean => nodes.every(n => cannotRaise(n, env, labels));
-  switch (node.type) {
-    case "identity": case "literal": case "variable": case "descend":
-      return true;
-    case "break": return labels.has(node.value);
-    case "field": return all([node.value.target]);
-    // An index or a bound jq may refuse for its value (`null`, a key of another kind) only when computed: a literal never is.
-    case "index": return node.value.index.type === "literal" && all([node.value.target]);
-    case "slice": {
-      const { from, target, to } = node.value;
-      return (from.type === "none" || (from.value as JqNode).type === "literal") && (to.type === "none" || (to.value as JqNode).type === "literal")
-        && all([target]);
-    }
-    case "iterate": return all([node.value.target]);
-    case "pipe": case "comma": case "alternative": return all([node.value.left, node.value.right]);
-    case "binary": return node.value.op !== "/" && node.value.op !== "%" && all([node.value.left, node.value.right]);
-    case "negate": return all([node.value]);
-    case "array": return node.value.type === "none" || all([node.value.value as JqNode]);
-    // A computed key that is no string raises.
-    case "object":
-      return node.value.every(entry => entry.key.type !== "computed" && (entry.value.type === "none" || all([entry.value.value as JqNode])));
-    case "string":
-      return node.value.every(part => part.type === "text" || all([part.value as JqNode]));
-    case "if": {
-      const { branches, otherwise } = node.value;
-      return branches.every(b => all([b.condition, b.then])) && (otherwise.type === "none" || all([otherwise.value as JqNode]));
-    }
-    // What `try` runs raises into its handler, which may raise; a `break` leaves it.
-    case "try": return !breaksOut(node.value.body, labels) && (node.value.catch.type === "none" || all([node.value.catch.value as JqNode]));
-    case "label": return cannotRaise(node.value.body, env, new Set(labels).add(node.value.name));
-    // A pattern that destructures may not match its value.
-    case "bind": return node.value.patterns.every(pattern => pattern.type === "variable") && all([node.value.source, node.value.body]);
-    case "call": {
-      const key = `${node.value.name}/${node.value.args.length}`;
-      return NEVER_RAISE.has(key) && !env.defs.has(key) && all(node.value.args);
-    }
-    default:
-      return false;
-  }
-}
-
-/** Whether a filter may `break` to a label it is not inside: leave itself, as a raise does. */
-function breaksOut(node: JqNode, labels: ReadonlySet<string>): boolean {
-  if (node.type === "break") return !labels.has(node.value);
-  const inner = node.type === "label" ? new Set(labels).add(node.value.name) : labels;
-  return jqChildren(node).some(child => child.node !== undefined && breaksOut(child.node, inner));
 }
 
 /** The translator for one checked program. @internal */
@@ -1328,14 +1253,14 @@ export class Translator {
       const f = left.value.args[0]!;
       const argPath = childPath(path, "call.args[0]");
       return {
-        rows: true, type, stops: !env.lenient && cannotRaise(f, env),
+        rows: true, type, stops: !env.lenient && cannotRaise(f, env.defs),
         each: ($, each) => this.iterate($, this.expr(x, path), false, path, ($2, item) => this.gen(f, argPath, $2, item, e, ($3, v) => row($3, v, each))),
       };
     }
     // As `[f]` makes them: `f`'s outputs.
     const body = left.value.value as JqNode;
     return {
-      rows: true, type, stops: !env.lenient && cannotRaise(body, env),
+      rows: true, type, stops: !env.lenient && cannotRaise(body, env.defs),
       each: ($, each) => this.gen(body, childPath(path, "array.some"), $, x, e, ($2, v) => row($2, v, each)),
     };
   }
@@ -3542,7 +3467,8 @@ function stateHeldBy(node: JqNode, input: Held, vars: ReadonlyMap<string, Held>,
  * program's result is its sink: the value for `one`, an `Option` for `maybe`,
  * an `Array` for `many`. Checked as an e3 root, each root field the program
  * reads is an input of its own, so a lazy dataset is read only where the
- * query reads it (`devdocs/QUERY.md` §15).
+ * query reads it (`devdocs/QUERY.md` §15). A row a stage builds or keeps holds
+ * only the fields the steps after it read (#1141).
  *
  * @example
  * ```ts
@@ -3560,8 +3486,11 @@ export function translateJq(checked: CheckJqResult, options: TranslateJqOptions 
     const errors = checked.diagnostics.filter(d => d.severity.type === "error").map(d => d.message);
     throw new TranslationError(`the program does not check: ${errors.join(" ")}`);
   }
-  // The program as written: each value it holds is given as the type the checker read it as.
-  const program = checked.program;
+  // The program as written, which the `Query` builtin carries; and the program it runs, its rows narrowed to the
+  // fields its later steps read (#1141), each value it holds given as the type the checker read it as.
+  const written = checked.program;
+  const narrowed = narrowRows(checked);
+  const program = narrowed.program!;
   const element = checked.elementType;
   const multiplicity = checked.multiplicity;
   const inputType = checked.inputType;
@@ -3574,7 +3503,7 @@ export function translateJq(checked: CheckJqResult, options: TranslateJqOptions 
   const fields = root ? Object.entries(parts(unwrap(inputType)).fields) : [];
   const params = root ? fields.map(([, type]) => type) : [inputType];
   const into = ($: Block, values: readonly Expr[]): Expr => {
-    const t = new Translator(checked, options);
+    const t = new Translator(narrowed, options);
     const x: Value = root ? { root: true, fields: new Map(inputs.map((input, i) => [input.name!, values[i]!])) } : values[0]!;
     const env: Env = { vars: new Map(), defs: new Map(), labels: new Map(), instance: "", recursion: new Map() };
     if (multiplicity === "one") return t.one(program, "", $, x, env, element);
@@ -3620,7 +3549,7 @@ export function translateJq(checked: CheckJqResult, options: TranslateJqOptions 
       // Each field of the root is a parameter; the translation reads those the query reads.
       const translation = func(params, resultType, ($: Block, ...args: Expr[]) =>
         into($, root ? inputs.map(i => args[fields.findIndex(([name]) => name === i.name)]!) : args));
-      const constant = variant("v1", { inputs: root ? some(fields.map(([name]) => name)) : none, program });
+      const constant = variant("v1", { inputs: root ? some(fields.map(([name]) => name)) : none, program: written });
       const builtin: AST = {
         ast_type: "Builtin", type: F, loc_id: loc, builtin: "Query", type_parameters: [F],
         arguments: [valueOrExprToAstTyped(constant, QueryCallType, undefined, loc), (translation as any)[AstSymbol] as AST],

@@ -27,6 +27,7 @@ from typing import Any
 
 from east.query.jq.literals import iso_date_time, literal_value
 from east.query.jq.lower import UNKNOWN_LOC_ID, A, Label, external, variable
+from east.query.jq.narrow import cannot_raise, narrow_rows
 from east.query.jq.shapes import (
     Facts,
     Result,
@@ -254,94 +255,6 @@ def _reads_no_input(n: JqNode) -> bool:
     if n.type == "object":
         return len(n.value) == 0
     return False
-
-
-#: Builtins that raise for nothing the checker lets reach them, by name and arity: given arguments that never raise,
-#: they never raise. The checker refuses a value of a kind a builtin cannot take, outside a lenient place, so what is
-#: left to raise at run time is a value's own: a zero divisor, a string that is no number, a count below zero,
-#: ``error``.
-_NEVER_RAISE = frozenset({
-    "select/1", "not/0", "length/0", "utf8bytelength/0", "type/0", "tostring/0", "tojson/0", "empty/0", "keys/0",
-    "keys_unsorted/0", "has/1", "in/1", "contains/1", "inside/1", "startswith/1", "endswith/1", "ltrimstr/1",
-    "rtrimstr/1", "ascii_downcase/0", "ascii_upcase/0", "floor/0", "ceil/0", "round/0", "fabs/0", "sqrt/0", "abs/0",
-    "values/0", "nulls/0", "numbers/0", "strings/0", "booleans/0", "arrays/0", "objects/0", "iterables/0",
-    "scalars/0", "map/1", "add/0", "any/0", "all/0", "min/0", "max/0",
-})
-
-
-def _cannot_raise(n: JqNode, env: Env, labels: frozenset[str] = frozenset()) -> bool:  # noqa: C901
-    """Whether a filter never raises, whatever its input: what a step that has the rows it needs may leave unmade (#1140).
-
-    jq makes every row of a stage before the step after it reads one, and a
-    row that raises makes the whole query raise. Conservative: paths,
-    literals, comparisons, ``and``, ``or``, ``+``, ``-`` and ``*``, objects,
-    arrays, strings, ``if``, ``//``, ``try``, a ``label`` and a ``break`` to
-    it, and the builtins in :data:`_NEVER_RAISE`, of parts that never raise.
-    ``/`` and ``%`` (a zero divisor), a ``def`` or a call of one, a function
-    value, any other builtin, and a ``break`` out of the filter, which leaves
-    the stage as a raise does, may raise.
-
-    Args:
-        n: The filter.
-        env: What is in scope where it runs.
-        labels: The labels the filter is inside, which a ``break`` may leave.
-    """
-    def every(nodes: list[JqNode]) -> bool:
-        return all(_cannot_raise(m, env, labels) for m in nodes)
-    kind = n.type
-    v = n.value
-    if kind in ("identity", "literal", "variable", "descend"):
-        return True
-    if kind == "break":
-        return v in labels
-    if kind == "field":
-        return every([v["target"]])
-    # An index or a bound jq may refuse for its value (`null`, a key of another kind) only when computed: a literal
-    # never is.
-    if kind == "index":
-        return v["index"].type == "literal" and every([v["target"]])
-    if kind == "slice":
-        return ((v["from"].type == "none" or v["from"].value.type == "literal")
-                and (v["to"].type == "none" or v["to"].value.type == "literal") and every([v["target"]]))
-    if kind == "iterate":
-        return every([v["target"]])
-    if kind in ("pipe", "comma", "alternative"):
-        return every([v["left"], v["right"]])
-    if kind == "binary":
-        return v["op"] not in ("/", "%") and every([v["left"], v["right"]])
-    if kind == "negate":
-        return every([v])
-    if kind == "array":
-        return v.type == "none" or every([v.value])
-    # A computed key that is no string raises.
-    if kind == "object":
-        return all(entry["key"].type != "computed" and (entry["value"].type == "none" or every([entry["value"].value]))
-                   for entry in v)
-    if kind == "string":
-        return all(part.type == "text" or every([part.value]) for part in v)
-    if kind == "if":
-        return (all(every([branch["condition"], branch["then"]]) for branch in v["branches"])
-                and (v["otherwise"].type == "none" or every([v["otherwise"].value])))
-    # What `try` runs raises into its handler, which may raise; a `break` leaves it.
-    if kind == "try":
-        return not _breaks_out(v["body"], labels) and (v["catch"].type == "none" or every([v["catch"].value]))
-    if kind == "label":
-        return _cannot_raise(v["body"], env, labels | {v["name"]})
-    # A pattern that destructures may not match its value.
-    if kind == "bind":
-        return all(pattern.type == "variable" for pattern in v["patterns"]) and every([v["source"], v["body"]])
-    if kind == "call":
-        key = f"{v['name']}/{len(v['args'])}"
-        return key in _NEVER_RAISE and key not in env.defs and every(list(v["args"]))
-    return False
-
-
-def _breaks_out(n: JqNode, labels: frozenset[str]) -> bool:
-    """Whether a filter may ``break`` to a label it is not inside: leave itself, as a raise does."""
-    if n.type == "break":
-        return n.value not in labels
-    inner = labels | {n.value["name"]} if n.type == "label" else labels
-    return any(child.node is not None and _breaks_out(child.node, inner) for child in jq_children(n))
 
 
 def _fits(t: EastType, shape: Shape) -> bool:
@@ -1417,13 +1330,13 @@ class Translator:
             def each_of_map(b: Block, each: Emit) -> None:
                 self.iterate(b, self.expr(x, path), False, path, lambda b2, item: self.gen(
                     f, arg_path, b2, item, e, lambda b3, v: row(b3, v, each)))
-            return RowsValue(typ, each_of_map, not env.lenient and _cannot_raise(f, env))
+            return RowsValue(typ, each_of_map, not env.lenient and cannot_raise(f, env.defs))
         # As `[f]` makes them: `f`'s outputs.
         body = left.value.value
 
         def each_of_collect(b: Block, each: Emit) -> None:
             self.gen(body, child_path(path, "array.some"), b, x, e, lambda b2, v: row(b2, v, each))
-        return RowsValue(typ, each_of_collect, not env.lenient and _cannot_raise(body, env))
+        return RowsValue(typ, each_of_collect, not env.lenient and cannot_raise(body, env.defs))
 
     def first_rows(self, b: Block, rows: RowsValue, n: int, path: str) -> A:
         """The first ``n`` rows of a stage, collected as they are made (#1140).
@@ -3750,6 +3663,8 @@ class JqTranslation:
         #: The result's type: ``T`` for ``one``, ``Option<T>`` for ``maybe``, ``Array<T>`` for ``many``.
         self.result_type = result_type
         self._checked = checked
+        #: The program it runs: its rows narrowed to the fields its later steps read (#1141).
+        self._narrowed = narrow_rows(checked)
         self._max_outputs = max_outputs
         self._tooling = tooling
         #: Every field of a root, in the root's order (empty for a query of one input).
@@ -3759,14 +3674,14 @@ class JqTranslation:
 
     def _into(self, b: Block, values: list[A]) -> A:
         """The translation written into a block over its inputs: its statements there, its result returned."""
-        checked = self._checked
+        checked = self._narrowed
         element = checked.element_type
         multiplicity = checked.multiplicity
         t = Translator(checked, self._max_outputs, self._tooling)
         root = checked.source.root
         x: Value = RootValue({i.name: values[k] for k, i in enumerate(self.inputs)}) if root else values[0]  # type: ignore[misc]
         env = Env({}, {}, {}, "", {})
-        # The program as written: each value it holds is given as the type the checker read it as.
+        # The program it runs, each value it holds given as the type the checker read it as.
         program = checked.program
         if multiplicity == "one":
             return t.one(program, "", b, x, env, element)
@@ -3941,7 +3856,9 @@ def translate_jq(checked: Any, *, max_outputs: int | None = None, tooling: bool 
     program's result is its sink: the value for ``one``, an ``Option`` for
     ``maybe``, an ``Array`` for ``many``. Checked as an e3 root, each root
     field the program reads is an input of its own, so a lazy dataset is read
-    only where the query reads it (``QUERY.md`` §15).
+    only where the query reads it (``QUERY.md`` §15). A row a stage builds or
+    keeps holds only the fields the steps after it read (#1141); the ``Query``
+    builtin carries the program as written.
 
     Args:
         checked: What ``check_jq`` made of the program; it must have no error.
