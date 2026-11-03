@@ -70,7 +70,7 @@ export function SliceFiltersView({ model, kinds, onClose }: SliceFiltersViewProp
     const active = model.activeCount;
     return (
         <Box css={styles.root} data-slice-filters-view="">
-            <Box css={styles.panel} role="region" aria-label="Filters" onKeyDown={onKeyDown}>
+            <Box css={styles.panel} role="dialog" aria-label="Filters" onKeyDown={onKeyDown}>
                 <Box css={styles.head}>
                     <chakra.button ref={backRef} type="button" css={styles.back} aria-label="Back" data-filters-back="" onClick={onClose}>
                         <FontAwesomeIcon icon={faArrowLeft} aria-hidden />

@@ -97,13 +97,14 @@ const caption = () => {
     return el === null ? null : { text: el.textContent, refused: el.hasAttribute("data-refused") };
 };
 
-test("a phone's frame — one too narrow for the touch gutter beside the first column, as every frame of 560px or less is — draws no gutter (Mobile Sheet Spec.md R5): its tracks the pinned column's 150 and a slot a column; a wider frame, or a fine pointer, keeps today's gutter", async () => {
+test("a phone's frame — one too narrow for the touch gutter beside the first column, as every frame of 560px or less is — draws no gutter (Mobile Sheet Spec.md R5): its tracks a slot a column, none pinned; a wider frame, or a fine pointer, keeps today's gutter", async () => {
     onTouch(493);
     const narrow = await h.mount(ex.sheetBatches, { drag: true });
     let c = narrow.container;
     expect(card(c).hasAttribute("data-phone")).toBe(true);
     expect(card(c).style.getPropertyValue("--sheet-gutter")).toBe("0px");
-    expect(linesOf(c, "B-101")[0]!.style.gridTemplateColumns.split(" ")[0]).toBe("150px");
+    // No column pinned: two of the frame's columns in view, the first half of its 493px.
+    expect(linesOf(c, "B-101")[0]!.style.gridTemplateColumns.split(" ")[0]).toBe("246.5px");
     narrow.unmount();
     offTouch();
 

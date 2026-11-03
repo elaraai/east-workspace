@@ -166,7 +166,7 @@ for (const theme of ["light", "dark"] as const) {
     }
 }
 
-test("Flowchart: a phone shows two lanes across main, and the pager's ‹ › step the window a lane, 44px each, off at each end", async ({ page }) => {
+test("Flowchart: a phone shows two lanes across main, and the pager's steps move the window a lane, 44px each, off at each end", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const entry = await visitBuilder(page, "e3/flowchart/flowchart/flowchartFlowsMobile", ROOT, "light");
     const frame = entry.locator(ROOT).first();

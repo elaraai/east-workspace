@@ -498,7 +498,7 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
                         : hit !== undefined ? `${words.number(hit.count)} ${hit.count === 1 ? 'record' : 'records'}`
                             : range !== null ? (noMatchesText ?? 'No record matches') : 'Records';
         return (
-            <Box css={phoneStyles.root} role="region" aria-label={title} data-part="dataset-key-search" data-key-search-phone=""
+            <Box css={phoneStyles.root} role="dialog" aria-label={title} data-part="dataset-key-search" data-key-search="popover" data-key-search-phone=""
                 onKeyDown={(e) => {
                     if (e.key !== 'Escape' || e.defaultPrevented) return;
                     e.preventDefault();

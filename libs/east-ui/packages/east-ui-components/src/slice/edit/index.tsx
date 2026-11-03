@@ -330,7 +330,7 @@ function FramePhoneView({ slot, open, onOpenChange, toggle, anchored, label, foo
         <>
             <chakra.span ref={holdRef} css={styles.hold}>{trigger}</chakra.span>
             {open && createPortal(
-                <Box ref={viewRef} css={styles.root} role="region" aria-label={typeof label === "string" ? label : undefined} data-frame-view="" onKeyDown={onKeyDown}>
+                <Box ref={viewRef} css={styles.root} role="dialog" aria-label={typeof label === "string" ? label : undefined} data-frame-view="" onKeyDown={onKeyDown}>
                     <Box css={styles.head}>
                         <chakra.button type="button" css={styles.back} aria-label="Back" data-frame-view-back="" onClick={() => onOpenChange(false)}>
                             <FontAwesomeIcon icon={faArrowLeft} aria-hidden />
