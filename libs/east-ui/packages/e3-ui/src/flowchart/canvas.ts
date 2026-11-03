@@ -28,6 +28,7 @@ import {
     BooleanType,
     DateTimeType,
     FunctionType,
+    IntegerType,
     NullType,
     OptionType,
     StringType,
@@ -35,6 +36,17 @@ import {
 } from "@elaraai/east";
 
 import { FlowchartOrientationType, FlowchartFreshnessType } from "./types.js";
+
+/**
+ * The flowchart on a phone: a frame 560 px wide or narrower shows a window of
+ * its lanes across its width, which its pager steps through. Above 560 px it
+ * does nothing.
+ *
+ * @property lanes - How many lanes the window shows at once, 1 to 3; `none` shows 2
+ */
+export const FlowchartNarrowType = StructType({ lanes: OptionType(IntegerType) });
+/** Type alias for {@link FlowchartNarrowType}. */
+export type FlowchartNarrowType = typeof FlowchartNarrowType;
 
 /**
  * East type for the flowchart's canvas — what it draws its flow with: the
@@ -55,6 +67,7 @@ export const FlowchartCanvasType: StructType<{
     onSelectTrigger: OptionType<FunctionType<[StringType], NullType>>,
     onTracePath: OptionType<FunctionType<[StringType], NullType>>,
     canConnect: OptionType<FunctionType<[StringType, StringType], BooleanType>>,
+    narrow: OptionType<FlowchartNarrowType>,
 }> = StructType({
     orientation: OptionType(FlowchartOrientationType),
     freshness: OptionType(FlowchartFreshnessType),
@@ -65,6 +78,7 @@ export const FlowchartCanvasType: StructType<{
     onSelectTrigger: OptionType(FunctionType([StringType], NullType)),
     onTracePath: OptionType(FunctionType([StringType], NullType)),
     canConnect: OptionType(FunctionType([StringType, StringType], BooleanType)),
+    narrow: OptionType(FlowchartNarrowType),
 });
 
 /**
@@ -131,6 +145,9 @@ export interface FlowchartCanvasOptions {
 
     /** Optional connection validator — `(from, to)` BEFORE the draft snaps; false forbids the pair. A throwing validator logs and ALLOWS (fail-open). */
     canConnect?: SubtypeExprOrValue<FunctionType<[StringType, StringType], BooleanType>>;
+
+    /** On a phone: how many lanes the window shows at once, 1 to 3 (default 2), its pager stepping through them. */
+    narrow?: { lanes?: 1 | 2 | 3 };
 }
 
 // ============================================================================
@@ -146,6 +163,10 @@ export interface FlowchartCanvasOptions {
  * @internal
  */
 export function buildCanvas(options: FlowchartCanvasOptions): ExprType<FlowchartCanvasType> {
+    const lanes = options.narrow?.lanes;
+    if (lanes !== undefined && ![1, 2, 3].includes(lanes)) {
+        throw new Error(`Flowchart: \`narrow.lanes\` is how many lanes a phone shows at once, 1 to 3 — got ${String(lanes)}`);
+    }
     return East.value({
         orientation: options.orientation !== undefined
             ? some(typeof options.orientation === "string" ? variant(options.orientation, null) : options.orientation)
@@ -163,5 +184,6 @@ export function buildCanvas(options: FlowchartCanvasOptions): ExprType<Flowchart
         onSelectTrigger: options.onSelectTrigger !== undefined ? some(options.onSelectTrigger) : none,
         onTracePath: options.onTracePath !== undefined ? some(options.onTracePath) : none,
         canConnect: options.canConnect !== undefined ? some(options.canConnect) : none,
+        narrow: options.narrow !== undefined ? some({ lanes: lanes !== undefined ? some(BigInt(lanes)) : none }) : none,
     }, FlowchartCanvasType);
 }

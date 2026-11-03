@@ -346,6 +346,8 @@ export interface LayoutOptions {
     legendPad?: number | undefined;
     /** Minimum canvas height — lanes stretch to fill a pinned frame body. */
     minHeight?: number | undefined;
+    /** Each lane's width in px, where a phone's window of lanes sets it; left out, the lanes fill `width`. Left to right only. */
+    laneWidth?: number | undefined;
 }
 
 /**
@@ -373,7 +375,7 @@ export function computeLayout(model: FlowchartModel, opts: LayoutOptions): Flowc
         if (avail > rows * pitch) pitch = Math.min(260, Math.floor(avail / rows));
     }
     const laneSpan = td ? Number.POSITIVE_INFINITY : opts.width - LANE_TAIL_W;
-    const laneW = Math.max(laneMin, Number.isFinite(laneSpan) ? Math.floor(laneSpan / laneCount) : laneMin);
+    const laneW = opts.laneWidth ?? Math.max(laneMin, Number.isFinite(laneSpan) ? Math.floor(laneSpan / laneCount) : laneMin);
     // Logical cross extent (LR: canvas height; TD: canvas width).
     let crossExtent = LANE_HEADER_H + 16 + rows * pitch + CANVAS_PAD_BOTTOM;
     if (!td && opts.minHeight !== undefined) crossExtent = Math.max(crossExtent, opts.minHeight - (opts.legendPad ?? 0));

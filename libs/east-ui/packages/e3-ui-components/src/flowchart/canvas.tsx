@@ -82,8 +82,9 @@ import type { FlowchartCanvasValue, FlowchartModel, ModelLink } from "./model.js
 import {
     computeLayout, landingSeam, previewCursorPath, previewLinkPath,
     type FlowchartLayout, type LinkRoute, type Pt,
-    BADGE_H, LANE_HEADER_H, RING_R,
+    BADGE_H, LANE_HEADER_H, NODE_W, RING_R,
 } from "./layout.js";
+import { FlowchartLanePager } from "./lane-pager.js";
 import { dropTargetAt, existingLink, laneAt } from "./connect.js";
 import {
     ON_CANVAS, dropAtPoint, markEqual, markOf, printDropAt, readDropAt,
@@ -268,6 +269,13 @@ function portColor(attached: ModelLink[], selectedLink: string | null): string {
     return INK;
 }
 
+/** How many lanes a phone's window shows at once, unless the canvas's `narrow.lanes` says. */
+const PHONE_LANES = 2;
+/** A phone's main: 560 wide or narrower, as the frame's phone is. */
+const PHONE_MAIN = 560;
+/** The narrowest a phone's lane gets, however many it is told to show: a state's card, and room for its handles. */
+const PHONE_LANE_MIN = NODE_W + 16;
+
 /** A lane's ×: its box's side, centred on its glyph. */
 const CLOSE_BOX = 14;
 /** A lane header's middle above its baseline: mono 10px caps. */
@@ -445,6 +453,13 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
         return () => ro.disconnect();
     }, []);
 
+    // A phone's window of lanes, left to right: as many across main's width as the canvas's `narrow.lanes` says, which
+    // its pager steps through. Top down, the lanes stack and the view scrolls down them.
+    const narrow = getSomeorUndefined(canvas.narrow);
+    const narrowLanes = narrow === undefined ? undefined : getSomeorUndefined(narrow.lanes);
+    const lanesInView = narrowLanes === undefined ? PHONE_LANES : Number(narrowLanes);
+    const windowed = size !== null && size.w > 0 && size.w <= PHONE_MAIN && orientation === "LR";
+    const laneWidth = windowed ? Math.max(PHONE_LANE_MIN, Math.floor(size.w / lanesInView)) : undefined;
     const layout: FlowchartLayout | null = useMemo(
         () => (size === null ? null : computeLayout(model, {
             width: size.w,
@@ -452,8 +467,9 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
             legendPad: legendOn ? 122 : 0,
             // The lanes run the whole of main's height.
             minHeight: size.h > 0 ? size.h : undefined,
+            laneWidth,
         })),
-        [model, size, orientation, legendOn],
+        [model, size, orientation, legendOn, laneWidth],
     );
 
     // ── drops (#1249) ─────────────────────────────────────────────────────
@@ -515,6 +531,12 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
     // or a key edited where it stands — scrolled to the middle of the canvas's
     // box: once per ask.
     const scrollRef = useRef<HTMLDivElement | null>(null);
+    // The element itself, for the lane pager, which hears it scroll.
+    const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+    const setScroll = useCallback((el: HTMLDivElement | null) => {
+        scrollRef.current = el;
+        setScrollEl(el);
+    }, []);
     const revealed = useRef(0);
     useEffect(() => {
         if (reveal === null || reveal.seq === revealed.current) return;
@@ -698,7 +720,7 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
             onPointerEnter={() => { hoveredRef.current = true; }} onPointerLeave={() => { hoveredRef.current = false; }}>
             {layout !== null && !empty && (
                 // Focusable, so a press inside it — a state, a transition — lands its keys here: Del's.
-                <Box ref={scrollRef} css={styles.scroll} data-flowchart-scroll="" tabIndex={-1} onKeyDown={onCanvasKey}>
+                <Box ref={setScroll} css={styles.scroll} data-flowchart-scroll="" tabIndex={-1} onKeyDown={onCanvasKey}>
                     {/* The canvas's one drop cell, where a tab of the library drops (#1249). */}
                     <Box ref={setWrap} css={styles.canvasWrap} style={{ width: layout.width, height: layout.height }}>
                         <svg
@@ -1340,6 +1362,14 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
         </Box>
     );
 
-    return body;
+    // A phone's lane pager over the canvas, while the window holds fewer lanes than the flow has.
+    return (
+        <>
+            {layout !== null && !empty && laneWidth !== undefined && layout.lanes.length > lanesInView && (
+                <FlowchartLanePager frame={scrollEl} total={layout.lanes.length} inView={lanesInView} slotPx={laneWidth} words={words} />
+            )}
+            {body}
+        </>
+    );
 }
 

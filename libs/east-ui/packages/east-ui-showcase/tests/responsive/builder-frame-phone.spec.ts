@@ -23,6 +23,10 @@
  *   as a view over the whole frame, edge to edge; Esc closes it, the focus
  *   back on its tab; one at a time.
  *
+ * And the Flowchart's lane pager (`narrow.lanes`, ruled 3 Nov 2026): its window
+ * shows the lanes the example asks, each half of main's width, and ‹ › step it
+ * a lane, the readout following.
+ *
  * Run: `pnpm exec playwright test builder-frame-phone`.
  */
 
@@ -161,3 +165,28 @@ for (const theme of ["light", "dark"] as const) {
         });
     }
 }
+
+test("Flowchart: a phone shows two lanes across main, and the pager's ‹ › step the window a lane, 44px each, off at each end", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const entry = await visitBuilder(page, "e3/flowchart/flowchart/flowchartFlowsMobile", ROOT, "light");
+    const frame = entry.locator(ROOT).first();
+    const pager = frame.locator("[data-flowchart-lane-pager]");
+    const readout = pager.locator("[data-slot='pagerReadout']");
+    const previous = pager.locator("[data-slot='pagerPrevious']");
+    const next = pager.locator("[data-slot='pagerNext']");
+    await expect(readout).toHaveText("Lanes 1–2 of 3");
+    await expect(previous).toHaveAttribute("aria-disabled", "true");
+    for (const step of [previous, next]) {
+        const box = await step.boundingBox();
+        expect([box?.width, box?.height]).toEqual([44, 44]);
+    }
+    const scroll = frame.locator("[data-flowchart-scroll]");
+    const width = await scroll.evaluate((el) => el.clientWidth);
+    await next.click();
+    await expect(readout).toHaveText("Lanes 2–3 of 3");
+    await expect(next).toHaveAttribute("aria-disabled", "true");
+    await expect.poll(() => scroll.evaluate((el) => el.scrollLeft)).toBe(Math.floor(width / 2));
+    await previous.click();
+    await expect(readout).toHaveText("Lanes 1–2 of 3");
+    await expect.poll(() => scroll.evaluate((el) => el.scrollLeft)).toBe(0);
+});

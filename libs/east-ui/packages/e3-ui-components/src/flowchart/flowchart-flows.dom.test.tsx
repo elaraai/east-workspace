@@ -135,7 +135,7 @@ function payload(source: FlowchartValue["source"], options: Partial<Pick<Flowcha
         canvas: {
             orientation: none, freshness: none, minimap: none, legend: some(false),
             onSelectState: none, onSelectLink: none, onSelectTrigger: none,
-            onTracePath: none, canConnect: none,
+            onTracePath: none, canConnect: none, narrow: none,
         },
         source,
         open: options.open ?? none,

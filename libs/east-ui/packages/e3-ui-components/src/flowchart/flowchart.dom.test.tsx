@@ -102,6 +102,7 @@ const CANVAS: FlowchartCanvasValue = {
     onSelectTrigger: none,
     onTracePath: none,
     canConnect: none,
+    narrow: none,
 };
 
 /** A payload over `source`, its canvas the one above, no slice narrowing it, its inspector taken away (`inspector={false}`). */

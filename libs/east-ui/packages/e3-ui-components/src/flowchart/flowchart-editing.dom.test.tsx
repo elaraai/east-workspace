@@ -160,7 +160,7 @@ function payload(source: FlowchartValue["source"], canConnect?: (from: string, t
         canvas: {
             orientation: none, freshness: none, minimap: none, legend: some(false),
             onSelectState: none, onSelectLink: none, onSelectTrigger: none,
-            onTracePath: none, canConnect: canConnect === undefined ? none : some(canConnect),
+            onTracePath: none, canConnect: canConnect === undefined ? none : some(canConnect), narrow: none,
         },
         source,
         open: some("Sort"),

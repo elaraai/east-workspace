@@ -196,6 +196,7 @@ Task → What do you need?
     │   ├─ The flows listed by name, one opened, new started  → library={[Flowchart.library.flows()]}
     │   ├─ State and transition templates, the author's cards → library={[…, Flowchart.library.states(templates.read(), {…, source }), Flowchart.library.transitions(…), Flowchart.library.tab(rows, {…})]}
     │   ├─ Narrow its flows, templates and tabs — one rail    → slice={{ slice: Slice.bindRecords(key, { flows?, steps?, … }) }}
+    │   ├─ On a phone: how many lanes in view, ‹ › through them → narrow={{ lanes?: 1 | 2 | 3 }} (2 by default)
     │   └─ Edit a flow: lanes, states, transitions, one Save  → record={…}, or data={…} + onApply (canConnect vetoes a pair)
     │
     ├─ Draw the app's records at world coordinates — a floor, a site — the Schematic

@@ -120,6 +120,10 @@ export interface FlowchartMessages extends EditingMessages {
     laneWord: () => string;
     /** "+ LANE"'s accessible name, and its tooltip. */
     addLane: () => string;
+    /** A phone's lane pager (`lane-pager.tsx`): its readout's word and what it counts — `Lanes 1–2 of 3`. */
+    lanePager: (p: { range: string; total: string }) => string;
+    /** The pager's ‹ and ›. */
+    laneStep: (p: { more: boolean }) => string;
     /** The "+ STATE" ghost: the word beside its plus. */
     stateWord: () => string;
     /** A lane's ×: its accessible name, and its tooltip while it can delete — `Delete lane Sort`. */
@@ -321,6 +325,8 @@ export const flowchartMessages: FlowchartMessages = {
     newLane: ({ count }) => `Lane ${count}`,
     laneWord: () => "Lane",
     addLane: () => "Add lane",
+    lanePager: ({ range, total }) => `Lanes ${range} of ${total}`,
+    laneStep: ({ more }) => (more ? "Next lane" : "Previous lane"),
     stateWord: () => "state",
     deleteLane: ({ label }) => `Delete lane ${label}`,
     laneHoldsStates: ({ n, count }) => `Move its ${count} ${plural(n, "state", "states")} first`,
