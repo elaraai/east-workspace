@@ -985,8 +985,8 @@ that refuses, goes into the e3-ui example module it belongs to.
 - Use responsive browser checks at 1440/1024/768/390/360, the light theme (dark too where a check holds a colour),
   narrow parent containers and state-preserving resize. Exercise explicit
   narrow actions, folded toolbar access and real drag previews. Verify computed
-  CSS, element geometry, overflow and accessibility; follow the library's
-  DOM-based verification guidance rather than screenshot inspection.
+  CSS, element geometry, overflow and accessibility, and screenshot each state
+  and width and read the screenshots: a spec holds only what someone measured.
 - Run affected shared-component regressions when extracting or changing shared
   behavior. Keep all component definitions inline in their examples as required
   by the [authoring guide](../e3-ui/CLAUDE.md#examples-show-the-complete-component-definition-inline).

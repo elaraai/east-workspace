@@ -1509,7 +1509,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
         // A band's title and its cells are inset as a line's cells are (10 px), so the ring clears their text and the
         // title's editor opens over it where it stands (the hand retest of #1475).
         groupTitle: {
-            "[data-sheet-card][data-phone] &": { paddingX: "0", flex: "0 1 auto" },
+            // A phone's: its words where they stand, the ring 6 clear of them.
+            "[data-sheet-card][data-phone] &": { paddingX: "6px", marginInlineStart: "-6px", flex: "0 1 auto" },
             position: "relative", display: "flex", alignItems: "center", minWidth: "0", paddingX: "10px",
             minHeight: "28px", cursor: "text", overflow: "visible",
             '&:has([data-slot=editorInput])': { width: "240px", flex: "0 0 240px" },
@@ -1536,8 +1537,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             textOverflow: "ellipsis",
             position: "relative",
             zIndex: "1",
-            // A phone's band: the first to give way, whole, so the name and the status keep their room.
-            "[data-sheet-card][data-phone] &": { ...wholeOrNone("24px"), flex: "0 1000 auto", minWidth: "0" },
+            // A phone's band: only the room the name and the status leave, whole or not at all.
+            "[data-sheet-card][data-phone] &": { ...wholeOrNone("24px"), flex: "1 1 0", minWidth: "0" },
         },
         groupCell: {
             position: "relative", display: "flex", alignItems: "center", minWidth: "0", minHeight: "28px", paddingX: "10px",

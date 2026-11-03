@@ -118,7 +118,6 @@ export const inspectorBase = {
         gap: "{spacing.2}",
         margin: "0",
         padding: "{spacing.4}",
-        paddingLeft: "calc({spacing.4} + 14px)",
     },
     hint: { textStyle: "body.sm", color: "fg.muted", textWrap: "pretty" },
     /* An empty state — the view's home where it has no head (the Calendar's Nothing selected, #1398), focused by script and

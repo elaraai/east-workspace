@@ -23,8 +23,8 @@
  *     wide; open, `--ink` over a 2px `--ink` rule. Its count after its name,
  *     500 at 0.04em in `--ink-4`. `+ Tab`: 34 tall, padded 0 12, a dashed
  *     `--rule-strong` on `--r-sm`, mono 10.5/600 at 0.1em in caps, `--ink-4`.
- *   - count: the count line, 8 clear of what is before it and 16 of what is
- *     after, mono 10.5 tabular in `--ink-3`, its number 600 in `--ink`. A row
+ *   - count: the count line, 8 clear of what is before it and 4 of what is
+ *     after, whose own padding keeps it clear, mono 10.5 tabular in `--ink-3`, its number 600 in `--ink`. A row
  *     short of room drops it, or over several sources those that do not fit,
  *     each whole: it never cuts one, nor the views or the buttons around it.
  *
@@ -54,6 +54,9 @@ const BUTTON = {
     _focusVisible: { outline: "none", boxShadow: "focus" },
 } as const;
 
+/** What a Filters button draws inside its target: 34px, as tall as `+ Tab`, on `--r-md`. */
+const FILLED = { content: '""', position: "absolute", insetInline: "0", insetBlock: "5px", zIndex: -1, boxSizing: "border-box", borderRadius: "md" } as const;
+
 export const toolbarPhoneSlotRecipe = defineSlotRecipe({
     className: "elara-toolbar-phone",
     slots: ["filters", "search", "searchGroup", "views", "view", "viewLabel", "viewCount", "viewAdd", "count"],
@@ -70,13 +73,14 @@ export const toolbarPhoneSlotRecipe = defineSlotRecipe({
             "& svg": { fontSize: "14px" },
             position: "relative",
             isolation: "isolate",
+            /* 4 clear of the row's end, where it is the last of it (a Plan has no search). */
+            "[data-toolbar-item]:last-child &": { marginInlineEnd: "{spacing.1}" },
             "&[data-active]": {
                 color: "brandPressed",
-                "&::before": {
-                    content: '""', position: "absolute", insetInline: "0", insetBlock: "5px", zIndex: -1, boxSizing: "border-box",
-                    background: "brandTint", borderWidth: "1px", borderStyle: "solid", borderColor: "brand.solid", borderRadius: "md",
-                },
+                "&::before": { ...FILLED, background: "brandTint", borderWidth: "1px", borderStyle: "solid", borderColor: "brand.solid" },
             },
+            /* Its ring on the 34px it draws, never the 44px target, whose edges are the row's, which clips. */
+            _focusVisible: { outline: "none", boxShadow: "none", "&::before": { ...FILLED, boxShadow: "focus" } },
         },
         search: {
             ...BUTTON,
@@ -154,7 +158,7 @@ export const toolbarPhoneSlotRecipe = defineSlotRecipe({
             columnGap: "{spacing.3}",
             /* Margins, not padding: what clips the line clips at its padding's edge, so words ran through the padding. */
             marginInlineStart: "{spacing.2}",
-            marginInlineEnd: "{spacing.4}",
+            marginInlineEnd: "{spacing.1}",
             fontFamily: "mono",
             fontSize: "label.md",
             fontVariantNumeric: "tabular-nums",

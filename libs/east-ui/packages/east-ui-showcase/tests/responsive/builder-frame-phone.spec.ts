@@ -173,6 +173,7 @@ function phoneFaults(entry: Locator, name: string): Promise<string[]> {
             const b = set.getBoundingClientRect();
             const inset = Number.parseFloat(getComputedStyle(set, "::before").top);
             const top = slot("toolbar")!.getBoundingClientRect();
+            if (getComputedStyle(set).boxShadow !== "none") faults.push("set Filters rings its whole target");
             if (b.height < 44 || !(b.top + inset - top.top >= 4) || !(top.bottom - (b.bottom - inset) >= 4)) faults.push(`set Filters, ${round(b.height)}px with its fill ${inset}px in`);
         }
         // The Plan's ruler: each label clear of the rules beside it, the now line behind it.
@@ -183,6 +184,15 @@ function phoneFaults(entry: Locator, name: string): Promise<string[]> {
             if (look.visibility === "hidden") continue;
             if (Number.parseFloat(look.paddingLeft) < 3) faults.push(`${label.textContent} on its rule`);
             if (now && Number(look.zIndex) <= Number(getComputedStyle(now).zIndex)) faults.push(`the now line over ${label.textContent}`);
+            // Its words clear of the paper of any label beside it.
+            const words = document.createRange();
+            words.selectNodeContents(label);
+            const text = words.getBoundingClientRect();
+            for (const other of label.closest("[data-time-ruler]")?.querySelectorAll<HTMLElement>("[data-tick-label]") ?? []) {
+                if (other === label || getComputedStyle(other).visibility === "hidden") continue;
+                const paper = other.getBoundingClientRect();
+                if (paper.left < text.right - 0.5 && paper.right > text.left + 0.5) faults.push(`${other.textContent} covers ${label.textContent}`);
+            }
         }
         return faults;
     }, name);

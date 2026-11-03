@@ -17,7 +17,7 @@
  *   - presets: at least 52, padded 0 16, over a `--rule`, its label in a 72px
  *     column (mono 10/600 caps at 0.14em, `--ink-4`), then its chips;
  *   - row: one 44 a field, padded 0 16, 8 apart, over a `--rule` — its name
- *     13/500 in a 72px column, its choice 13 right-aligned (`Any` in
+ *     13/500, whole, at least a 72px column, its choice 13 right-aligned (`Any` in
  *     `--ink-4`), `Applied` (20 tall, padded 0 8, a `--rule` on `--r-sm`,
  *     `--paper-3`, mono 10/500 in `--ink-3`) and a chevron 10 in `--ink-4`;
  *   - editor: the open field's, under its row on `--paper-2` over a `--rule`,
@@ -114,7 +114,8 @@ export const sliceFiltersViewSlotRecipe = defineSlotRecipe({
             background: "bg.surface", color: "fg", textAlign: "start", cursor: "pointer",
             _focusVisible: { outline: "none", boxShadow: "focusInset" },
         },
-        rowLabel: { ...COLUMN, fontSize: "body", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+        /* At least its column, and as wide as its name: the choice beside it gives way first. */
+        rowLabel: { flex: "none", minWidth: "72px", maxWidth: "70%", fontSize: "body", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
         rowChoice: {
             flex: "1", minWidth: "0", textAlign: "end", fontSize: "body", color: "fg",
             whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
