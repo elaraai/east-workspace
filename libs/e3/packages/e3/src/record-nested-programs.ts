@@ -296,8 +296,8 @@ function placedItem(decl: NestedDeclaration, collection: NestedCollection, itemT
 }
 
 /** The empty collection a lean node holds in place of a listed one: `(N) → Dict<…>`, empty. */
-function emptied(nodeType: EastType, type: EastType): FunctionExpr<[EastType], EastType> {
-  return East.function([nodeType], type, () => new Map() as never);
+function emptied(nodeType: EastType, type: DictType<EastType, EastType>): FunctionExpr<[EastType], EastType> {
+  return East.function([nodeType], type, () => new Map());
 }
 
 /**
@@ -1853,7 +1853,7 @@ export function nestedFill(decl: NestedDeclaration, keyType: EastType, rowType: 
   // Each group's node filled, `(N, keys, byPlace) → N`, and its rows filled under a node at keys, `(Dict<String, N>, keys, byPlace) → Dict`:
   // its child groups' first.
   const fillOf: FunctionExpr<[EastType, typeof KeysType, typeof byPlace], EastType>[] = [];
-  const rowsFillOf: FunctionExpr<[EastType, typeof KeysType, typeof byPlace], EastType>[] = [];
+  const rowsFillOf: FunctionExpr<[EastType, typeof KeysType, typeof byPlace], DictType<StringType, EastType>>[] = [];
   for (const group of [...decl.groups].reverse()) {
     const fields: { readonly field: string; readonly fill: FunctionExpr<[EastType, typeof KeysType, typeof byPlace], EastType> }[] = [];
     for (const collection of group.collections) {
@@ -1871,7 +1871,7 @@ export function nestedFill(decl: NestedDeclaration, keyType: EastType, rowType: 
       fields.push({ field: child.field, fill: East.function([group.type, KeysType, byPlace], rowsType, ($, node, keys, entries) => {
         const rows = $.const(rowsOf);
         const fill = $.const(rowsFill);
-        return fill(rows(node), keys, entries) as never;
+        return fill(rows(node), keys, entries);
       }) });
     }
     const own = fields.reduce<FunctionExpr<[EastType, typeof KeysType, typeof byPlace], EastType>>(
@@ -1943,12 +1943,12 @@ export function nestedFill(decl: NestedDeclaration, keyType: EastType, rowType: 
 export function nestedLean(decl: NestedDeclaration, keyType: EastType, rowType: EastType): FunctionExpr<[EastType, EastType], EastType> {
   // Each group's own lean form, its child groups' first: their collections emptied, their child rows' lean.
   const leanOf: FunctionExpr<[EastType], EastType>[] = [];
-  const rowsLeanOf: FunctionExpr<[EastType], EastType>[] = [];
+  const rowsLeanOf: FunctionExpr<[EastType], DictType<StringType, EastType>>[] = [];
   for (const group of [...decl.groups].reverse()) {
     const fields: Record<string, FunctionExpr<[EastType], EastType>> = {};
     const struct = group.type.type === 'Recursive' ? group.type.node : group.type;
     if (struct.type !== 'Struct') throw new Error(`a nested series index's node is a Struct, not ${struct.type}`);
-    for (const collection of group.collections) fields[collection.field] = emptied(group.type, struct.fields[collection.field]!);
+    for (const collection of group.collections) fields[collection.field] = emptied(group.type, struct.fields[collection.field] as DictType<EastType, EastType>);
     for (const child of group.rows) {
       const rowsType = DictType(StringType, decl.groups[child.group]!.type);
       const rowsOf = fieldOf(group.type, child.field, rowsType);
@@ -1956,7 +1956,7 @@ export function nestedLean(decl: NestedDeclaration, keyType: EastType, rowType: 
       fields[child.field] = East.function([group.type], rowsType, ($, node) => {
         const rows = $.const(rowsOf);
         const lean = $.const(leanRows);
-        return lean(rows(node)) as never;
+        return lean(rows(node));
       });
     }
     const own = rebuiltNode(group.type, fields);
