@@ -176,6 +176,7 @@ Task → What do you need?
     │   ├─ Groups, loose rows between them, read-only sub rows → Sheet.group / Sheet.Types.Entry / Sheet.subRows
     │   ├─ Data too large to hold whole                       → data={paged}, a Data.bindPaged handle
     │   ├─ The app's optimiser over the rows in view          → optimise={Func.bind(e3.function)} from Sheet.Types.OptimiseRequest(R) to Sheet.Types.OptimiseResult(R)
+    │   ├─ On a phone: a column pinned, how many in view      → narrow={{ pin?: "<column>", columns?: 1 | 2 | 3 }} (none pinned, 2 in view by default)
     │   └─ Drafts checked as they are made, one checked Save  → onUpdate | onApply, ready, newRow
     │
     ├─ Schedule bound records on a calendar — the Calendar

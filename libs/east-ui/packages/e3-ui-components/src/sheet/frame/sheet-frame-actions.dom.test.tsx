@@ -240,11 +240,13 @@ test("on a phone each cell shows its state alone, and the selected row's actions
         const { container } = await h.mount(ex.sheetActionsBasic);
         expect(nextOf(cellOf(container, "J-0003", "state"))).toBeNull();
         expect(bar(container)).toBeNull();
-        // A phone's tracks (Mobile Sheet Spec.md SH1, SH4): the pinned column's 150, then a slot a column — the action
-        // column paged with the rest, never pinned at the right (R1).
+        // A phone's tracks (Mobile Sheet Spec.md SH1): a slot a column, none pinned unless the sheet's `narrow.pin` names
+        // one (ruled 3 Nov 2026) — the action column paged with the rest, never pinned at the right (R1).
         const row = slot(container, "main")!.querySelector<HTMLElement>('[data-slot="row"][data-row-id="J-0003"]')!;
-        expect(row.style.gridTemplateColumns.split(" ")[0]).toBe("150px");
+        const tracks = row.style.gridTemplateColumns.split(" ");
+        expect(new Set(tracks).size).toBe(1);
         expect(row.style.gridTemplateColumns).not.toMatch(/minmax/);
+        expect(card(container).hasAttribute("data-pin")).toBe(false);
         // A tap on the row's other cell opens no bar (Mobile Sheet Spec.md R3): the Action cell's tap does.
         fireEvent.mouseDown(cellOf(container, "J-0003", "task"), { button: 0 });
         await settle();

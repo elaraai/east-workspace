@@ -120,10 +120,13 @@
  *     keeps its lowercase, late warn, early info.
  *   - A phone's frame (`data-phone` on the card, 560px or narrower;
  *     `Mobile Sheet Spec.md`, the designer's `WorkOrdersPhone`): no gutter —
- *     its cells and the header's corner drawn nowhere — the first column
- *     pinned at the left, 150 wide, padded 0 8 0 16, behind a `border.strong`
- *     rule (SH4); the other columns each a slot of the window, padded 0 8,
- *     snapping to their start past the pinned column (SH1.3); the header 32
+ *     its cells and the header's corner drawn nowhere — the column the
+ *     sheet's `narrow.pin` names, where it names one (`data-pin` on the
+ *     card), pinned first at the left, 150 wide, padded 0 8 0 16, behind a
+ *     `border.strong` rule (SH4), and with none every column paged, the
+ *     first padded 0 8 0 16 (ruled 3 Nov 2026); the other columns each a slot
+ *     of the window, padded 0 8, snapping to their start past any pinned
+ *     column (SH1.3); the header 32
  *     tall, one line (SH3); numbers mono 13/500 in ink (SH5); a band 44
  *     tall, its content across the view whatever the scroll — a 40 wide
  *     chevron, the name, its id, and at its end its status as a chip (SH6).
@@ -552,10 +555,12 @@ export const sheetSlotRecipe = defineSlotRecipe({
                 height: "31px", paddingX: "8px", gap: "0", scrollSnapAlign: "start",
                 "&[data-kind=integer], &[data-kind=quantity]": { alignItems: "flex-end" },
             },
+            // A phone's first column's head: 16 in from the frame's edge.
+            "[data-sheet-card][data-phone] [data-slot=headerGutter] + &": { paddingLeft: "16px" },
             // A phone's pinned column's head (SH4): at the left, past the window's snap, behind a strong rule.
-            "[data-sheet-card][data-phone] [data-slot=headerGutter] + &": {
+            "[data-sheet-card][data-phone][data-pin] [data-slot=headerGutter] + &": {
                 position: "sticky", left: "0", zIndex: "2", background: "bg.panel", scrollSnapAlign: "none",
-                paddingLeft: "16px", paddingRight: "8px", borderRightColor: "border.strong",
+                paddingRight: "8px", borderRightColor: "border.strong",
             },
         },
         headerLabel: {
@@ -846,11 +851,13 @@ export const sheetSlotRecipe = defineSlotRecipe({
             minWidth: "0",
             // A phone's (SH5): padded 0 8, as tall as its row (44 coarse, 32 fine), whatever the density.
             "[data-sheet-card][data-phone] &": { paddingX: "8px", paddingY: "0", minHeight: "0" },
+            // A phone's first column: 16 in from the frame's edge.
+            "[data-sheet-card][data-phone] [data-slot=gutter] + &": { paddingLeft: "16px" },
             // A phone's pinned column (SH4): at the left on its row's own surface — whatever wash the row wears — above a
             // ring a cell scrolled under it draws (z 4), padded 0 8 0 16, behind a strong rule.
-            "[data-sheet-card][data-phone] [data-slot=gutter] + &": {
+            "[data-sheet-card][data-phone][data-pin] [data-slot=gutter] + &": {
                 position: "sticky", left: "0", zIndex: "5", backgroundColor: "inherit",
-                paddingLeft: "16px", paddingRight: "8px", borderRightColor: "border.strong",
+                paddingRight: "8px", borderRightColor: "border.strong",
             },
             // A cell's hover, but not on the row a drag rests on: the row's wash shows through (#1187).
             "&:is(:hover, [data-hover]):not([data-drop-active] > *, [data-drop-invalid] > *)": { background: "bg.panel" },

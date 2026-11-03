@@ -1106,6 +1106,22 @@ export const SheetStyleType = StructType({
 /** Type alias for {@link SheetStyleType}. */
 export type SheetStyleType = typeof SheetStyleType;
 
+/**
+ * The Sheet on a phone (`Mobile Sheet Spec.md` §9): a frame 560 px wide or
+ * narrower pages a window of its columns, and pins the column `pin` names at
+ * the left beside it — none unless it names one (ruled 3 Nov 2026). Above
+ * 560 px it does nothing.
+ *
+ * @property pin - The column the phone pins at the left; `none` pins none
+ * @property columns - How many columns the window shows at once beside any pinned one, 1 to 3; `none` shows 2
+ */
+export const SheetNarrowType = StructType({
+    pin:     OptionType(StringType),
+    columns: OptionType(IntegerType),
+});
+/** Type alias for {@link SheetNarrowType}. */
+export type SheetNarrowType = typeof SheetNarrowType;
+
 // ============================================================================
 // Root
 // ============================================================================
@@ -1138,6 +1154,7 @@ export type SheetStyleType = typeof SheetStyleType;
  * @property density - Row rhythm
  * @property footer - Footer items
  * @property style - The gutter width
+ * @property narrow - On a phone: any column it pins, and how many it shows at once ({@link SheetNarrowType})
  */
 export const SheetRootType = StructType({
     rows:          SheetRowsType,
@@ -1159,6 +1176,7 @@ export const SheetRootType = StructType({
     density:       OptionType(DensityType),
     footer:        ArrayType(SheetFooterItemType),
     style:         OptionType(SheetStyleType),
+    narrow:        OptionType(SheetNarrowType),
     /** Source order is authoritative, including when drafts are overlaid. */
     ordered: BooleanType,
 });

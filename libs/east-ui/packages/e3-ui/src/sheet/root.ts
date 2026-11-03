@@ -69,6 +69,7 @@ import {
     SheetSelectionType,
     SheetFooterItemType,
     SheetStyleType,
+    SheetNarrowType,
     SheetGroupType,
     SheetGroupCellType,
     SheetNounType,
@@ -192,6 +193,7 @@ export interface SheetReadyInput<R extends StructType, G extends EastType = neve
  * @property density - Row rhythm
  * @property footer - Footer items
  * @property style - The gutter width
+ * @property narrow - On a phone: any column it pins at the left, and how many it shows at once ({@link SheetNarrowInput})
  */
 export interface SheetOptions<R extends StructType> {
     /** Structural capabilities; defaults depend on grouping and source ordering. */
@@ -249,6 +251,26 @@ export interface SheetOptions<R extends StructType> {
         /** The gutter width, a CSS px size. */
         gutterWidth?: SubtypeExprOrValue<StringType>;
     };
+    /** On a phone: any column it pins at the left, and how many it shows at once. */
+    narrow?: SheetNarrowInput<SheetFieldKey<R>>;
+}
+
+/**
+ * The Sheet on a phone (`Mobile Sheet Spec.md` §9): a frame 560 px wide or
+ * narrower shows a window of its columns, which its pager pages, and pins no
+ * column unless `pin` names one (ruled 3 Nov 2026) — then that column leads
+ * the row at the left, 150 wide, beside the window of the others. Above
+ * 560 px it does nothing.
+ *
+ * @typeParam K - The columns' keys
+ * @property pin - The column the phone pins at the left (default: none pinned)
+ * @property columns - How many columns the window shows at once beside any pinned one, 1 to 3 (default 2)
+ */
+export interface SheetNarrowInput<K extends string = string> {
+    /** The column the phone pins at the left; none is pinned without it. */
+    pin?: K;
+    /** How many columns the window shows at once beside any pinned one, 1 to 3. */
+    columns?: 1 | 2 | 3;
 }
 
 /** A secondary-index view edits by original primary identity. */
@@ -271,7 +293,9 @@ export interface SheetIndexedOptions<K extends EastType, R extends StructType> e
  * @property onUpdate - The whole collection of groups with the edit applied (inline arm only)
  * @property subRows - Read-only sub rows under each LINE, declared over the line type (#844)
  */
-export interface SheetGroupedOptions<P extends StructType, F extends SheetLinesField<P>> extends Omit<SheetOptions<P>, "group" | "suggest" | "onPatch" | "newRow" | "ready" | "subRows"> {
+export interface SheetGroupedOptions<P extends StructType, F extends SheetLinesField<P>> extends Omit<SheetOptions<P>, "group" | "suggest" | "onPatch" | "newRow" | "ready" | "subRows" | "narrow"> {
+    /** On a phone: any line column it pins at the left, and how many it shows at once. */
+    narrow?: SheetNarrowInput<SheetFieldKey<SheetLineOf<P, F>>>;
     /** Additional row and group requirements over complete field drafts. */
     ready?: SheetReadyInput<SheetLineOf<P, F>, SheetDraftEntryOf<P, F>>;
     /** Explicit defaults for each new child row. */
@@ -322,7 +346,8 @@ export interface SheetEntriesOptions<P extends StructType, F extends SheetLinesF
  * own, and its views and their write-back, which `<Sheet>` reads off its
  * `views` handle (`views.ts`).
  */
-type SheetAnyOptions = Omit<SheetOptions<StructType>, "group" | "suggest" | "onPatch" | "newRow" | "ready" | "subRows"> & {
+type SheetAnyOptions = Omit<SheetOptions<StructType>, "group" | "suggest" | "onPatch" | "newRow" | "ready" | "subRows" | "narrow"> & {
+    narrow?: SheetNarrowInput;
     subRows?: SheetSubRowsValue<StructType>;
     ready?: { row?: unknown; group?: unknown };
     group?: SheetGroupValue<StructType, string>;
@@ -962,6 +987,20 @@ function buildSheet(
             gutterWidth: optionOf(opts.style.gutterWidth, StringType),
         }), OptionType(SheetStyleType))
         : East.value(none, OptionType(SheetStyleType));
+    // On a phone (`Mobile Sheet Spec.md` §9): a pinned column one of the sheet's, and one to three columns in view.
+    const narrowOpt = opts.narrow;
+    if (narrowOpt?.pin !== undefined && !metaByKey.has(narrowOpt.pin)) {
+        throw new Error(`Sheet: \`narrow.pin\` names "${narrowOpt.pin}", which is not a column (${[...metaByKey.keys()].join(", ")})`);
+    }
+    if (narrowOpt?.columns !== undefined && ![1, 2, 3].includes(narrowOpt.columns)) {
+        throw new Error(`Sheet: \`narrow.columns\` is how many columns a phone shows at once beside any pinned one, 1 to 3 — got ${String(narrowOpt.columns)}`);
+    }
+    const narrow = narrowOpt !== undefined
+        ? East.value(some({
+            pin:     optionOf(narrowOpt.pin, StringType),
+            columns: narrowOpt.columns !== undefined ? some(BigInt(narrowOpt.columns)) : none,
+        }), OptionType(SheetNarrowType))
+        : East.value(none, OptionType(SheetNarrowType));
 
     const root = East.value({
         rows:          rowsValue,
@@ -989,6 +1028,7 @@ function buildSheet(
         density:       opts.density !== undefined ? some(resolveTag(opts.density, DensityType)) : none,
         footer,
         style,
+        narrow,
         ordered: ordered !== undefined,
     }, SheetRootType);
     return { root, bridge, metas, registers: Object.keys(registers), keyType };
