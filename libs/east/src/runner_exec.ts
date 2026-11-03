@@ -51,6 +51,7 @@ import {
   Beast2ManifestWriter,
   Beast2RunSorter,
   beast2LazyStats,
+  beast2PagedLoopStats,
   configureFramePool,
   decodeBeast2For,
   encodeBeast2For,
@@ -121,6 +122,16 @@ export interface UnitRunReport extends UnitInputReport {
    * @param bytesRead - the bytes its reads read from its files
    */
   lazyReads(index: number, path: string, stats: Beast2LazyStats, bytesRead: number): void;
+  /**
+   * The program ran, or failed, and an input opened lazily: what the loops
+   * that paged its inputs decoded — each segment to the fields its loop's body
+   * reads, or whole: a body that reads its row whole, a Set's loop, or a
+   * segment whose projected decode fell back (#1112).
+   *
+   * @param segmentsProjected - the segments decoded to the fields read
+   * @param segmentsWhole - the segments decoded whole
+   */
+  pagedLoops(segmentsProjected: number, segmentsWhole: number): void;
 }
 
 /** What a host gives {@link executeUnit} besides the unit and its files. */
@@ -248,6 +259,7 @@ async function runWork(work: RunWork, host: Host): Promise<void> {
   const compiled = (program as EastIR<unknown[], unknown>).compile(platforms);
   const output = openOutput(work.output, emitted ? signature.inputs.at(-1)! : signature.output, host, program.source_map);
   lap("compile");
+  const loops = beast2PagedLoopStats();
   try {
     const result = await compiled(...inputs, ...(output.emit !== undefined ? [output.emit] : []));
     lap("execute");
@@ -255,13 +267,21 @@ async function runWork(work: RunWork, host: Host): Promise<void> {
     lap("output");
   } finally {
     // What reading each lazy input came to, the output's writing included —
-    // or up to the failure.
+    // or up to the failure — and what the loops that paged them decoded.
     if (report !== undefined) {
+      let lazy = false;
       inputs.forEach((input, i) => {
         const read = lazyInputBytesRead(input);
         const stats = beast2LazyStats(input);
-        if (read !== undefined && stats !== undefined) report.lazyReads(i, work.inputs[i]!, stats, read);
+        if (read !== undefined && stats !== undefined) {
+          report.lazyReads(i, work.inputs[i]!, stats, read);
+          lazy = true;
+        }
       });
+      if (lazy) {
+        const now = beast2PagedLoopStats();
+        report.pagedLoops(now.segmentsProjected - loops.segmentsProjected, now.segmentsWhole - loops.segmentsWhole);
+      }
     }
   }
 }

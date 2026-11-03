@@ -25,8 +25,9 @@
  * value keep working.
  *
  * Compiled East code meets a lazy value where east-c meets a paged one: a
- * loop walks a Set or Dict as east-c's paged loop does ({@link loopWalk}), and
- * a container a lazy value goes into reads it whole
+ * loop walks a Set or Dict as east-c's paged loop does ({@link loopWalk}), each
+ * segment of an Array or a Dict decoded to the fields the loop's body reads
+ * ({@link loopEntries}), and a container a lazy value goes into reads it whole
  * ({@link readLazyWhole}), so a corrupt input fails at the same node in every
  * runtime.
  *
@@ -47,7 +48,8 @@ import { SortedMap } from "../../../containers/sortedmap.js";
 import { SortedSet } from "../../../containers/sortedset.js";
 import { asTypeValue } from "./type-section.js";
 import { isSegmentedRoot } from "./codec.js";
-import { Beast2Pages, type Beast2PagesOptions } from "./stream.js";
+import { Beast2Pages, type Beast2PagesOptions, type SegmentDecoder } from "./stream.js";
+import { countPagedLoopSegment, type LoopProjector } from "./project.js";
 import { type Beast2SyncRangeReader } from "./range.js";
 import { type Beast2ManifestSource } from "./manifest.js";
 
@@ -172,12 +174,33 @@ function grownSince(resident: (() => number) | undefined, before: number): numbe
   return resident === undefined ? 0 : Math.max(0, resident() - before);
 }
 
+/** Decodes segment `i` for a compiled loop, and counts it
+ *  ({@link countPagedLoopSegment}): by `projection` when the loop has one,
+ *  and by `whole` when it has none or the projected decode fails — as east-c's
+ *  paged loop retries one, so a back-reference that crosses the projection
+ *  decodes whole, and a corrupt segment fails in the whole decode's words. */
+function loopSegment(pages: Beast2Pages, i: number, projection: SegmentDecoder | null, whole: () => unknown): unknown {
+  if (projection !== null) {
+    try {
+      const segment = pages.segmentProjected(i, projection);
+      countPagedLoopSegment(true);
+      return segment;
+    } catch {
+      // Decoded whole below, which raises a failure that is not the
+      // projection's own.
+    }
+  }
+  countPagedLoopSegment(false);
+  return whole();
+}
+
 /** Streams a Set or Dict blob's elements — pairs, for a Dict — as east-c's
  *  paged loop walks them: every segment fence verified before the first
- *  element, and each segment checked against the next fence as it is read. */
-function* walkDisjoint<E>(pages: Beast2Pages): Generator<E> {
+ *  element, and each segment checked against the next fence as it is read. A
+ *  Dict's segments decode their values by `projection`, when one is given. */
+function* walkDisjoint<E>(pages: Beast2Pages, projection: SegmentDecoder | null): Generator<E> {
   for (let i = 0; i < pages.segmentCount; i++) {
-    yield* served(() => pages.segmentDisjoint(i)) as Iterable<E>;
+    yield* served(() => loopSegment(pages, i, projection, () => pages.segmentDisjoint(i))) as Iterable<E>;
   }
 }
 
@@ -202,6 +225,7 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
   // registry carries the brand (see openBeast2LazyFor).
   constructor(
     private readonly pages: Beast2Pages,
+    private readonly wire: EastTypeValue,
     private readonly cmp: (a: K, b: K) => number,
     private readonly frozen: boolean = false,
     private readonly resident?: () => number,
@@ -239,9 +263,10 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
     return statsOf(this.pages, this.wholeBytes);
   }
 
-  /** The entries a compiled loop walks ({@link loopWalk}). */
-  loopWalk(): Iterable<[K, V]> {
-    return this.hydrated ? super.entries() : walkDisjoint<[K, V]>(this.pages);
+  /** The entries a compiled loop walks ({@link loopWalk}), each segment's
+   *  values decoded by the projection `projector` gives for the map's type. */
+  loopWalk(projector: LoopProjector | null): Iterable<[K, V]> {
+    return this.hydrated ? super.entries() : walkDisjoint<[K, V]>(this.pages, projector?.(this.wire) ?? null);
   }
 
   override get size(): number {
@@ -405,9 +430,10 @@ class LazySortedSet<K> extends SortedSet<K> {
     return statsOf(this.pages, this.wholeBytes);
   }
 
-  /** The elements a compiled loop walks ({@link loopWalk}). */
+  /** The elements a compiled loop walks ({@link loopWalk}): a Set's elements
+   *  are its keys, and never project. */
   loopWalk(): Iterable<K> {
-    return this.hydrated ? super.keys() : walkDisjoint<K>(this.pages);
+    return this.hydrated ? super.keys() : walkDisjoint<K>(this.pages, null);
   }
 
   override get size(): number {
@@ -539,12 +565,16 @@ class LazySortedSet<K> extends SortedSet<K> {
 /** Array method names that stream from the pager without hydrating. */
 const LAZY_ARRAY_READS = new Set<PropertyKey>(["entries", "keys", "values", "forEach", Symbol.iterator]);
 
+/** The key of a lazy Array's method that walks it for a compiled loop
+ *  ({@link loopEntries}). */
+const LOOP_ENTRIES = Symbol("east.lazy.loopEntries");
+
 /** Builds a lazy Array value as a proxy over a real (initially empty)
  *  array: `length`, index reads and single-pass iteration are served from
  *  the pager; any other access hydrates the target array in place. The
  *  proxy IS the value, so identity-keyed host state (iteration locks,
  *  freezes) survives hydration. */
-function lazyArray(pages: Beast2Pages, frozen: boolean = false, resident?: () => number): unknown[] {
+function lazyArray(pages: Beast2Pages, wire: EastTypeValue, frozen: boolean = false, resident?: () => number): unknown[] {
   const target: unknown[] = [];
   let hydrated = false;
   // What reading the array whole added to resident memory, once an operation
@@ -577,6 +607,17 @@ function lazyArray(pages: Beast2Pages, frozen: boolean = false, resident?: () =>
       yield* served(() => pages.segment(i)) as unknown[];
     }
   }
+  // A compiled loop's walk: each segment decoded by the projection the loop
+  // gives for the array's type, and counted.
+  function* loopWalk(projector: LoopProjector | null): Generator<[number, unknown]> {
+    const projection = projector?.(wire) ?? null;
+    let index = 0;
+    for (let i = 0; i < pages.segmentCount; i++) {
+      for (const v of served(() => loopSegment(pages, i, projection, () => pages.segment(i))) as unknown[]) {
+        yield [index++, v];
+      }
+    }
+  }
   const lazyReads: Record<PropertyKey, unknown> = {
     [Symbol.iterator]: function* () { yield* elements(); },
     entries: function* () {
@@ -596,6 +637,7 @@ function lazyArray(pages: Beast2Pages, frozen: boolean = false, resident?: () =>
     get(t, prop, receiver) {
       if (prop === READ_WHOLE) return hydrate;
       if (prop === LAZY_STATS) return stats;
+      if (prop === LOOP_ENTRIES) return hydrated ? undefined : loopWalk;
       if (!hydrated) {
         if (prop === "length") return pages.elementCount;
         if (LAZY_ARRAY_READS.has(prop)) return lazyReads[prop];
@@ -659,16 +701,37 @@ function lazyArray(pages: Beast2Pages, frozen: boolean = false, resident?: () =>
  * segment checked against the next fence as it is read — so over a blob whose
  * fences descend the loop fails before its first iteration, and over segments
  * that overlap before the elements of the first that overlaps the next, where
- * east-c's fails and in its words. Anything else is walked as it iterates.
+ * east-c's fails and in its words. A Dict's segments decode their values to
+ * the projection `projector` gives for its type — what the loop's body reads
+ * of each — and each segment is counted (`beast2PagedLoopStats`).
+ * Anything else is walked as it iterates.
  *
  * @param collection - the Set or Dict the loop walks
+ * @param projector - the loop's projector, or `null` for a Set's loop
  * @returns what the loop walks
  * @internal
  */
-export function loopWalk<E>(collection: Iterable<E>): Iterable<E> {
-  return collection instanceof LazySortedMap || collection instanceof LazySortedSet
-    ? collection.loopWalk() as Iterable<E>
-    : collection;
+export function loopWalk<E>(collection: Iterable<E>, projector: LoopProjector | null = null): Iterable<E> {
+  if (collection instanceof LazySortedMap) return collection.loopWalk(projector) as Iterable<E>;
+  if (collection instanceof LazySortedSet) return collection.loopWalk() as Iterable<E>;
+  return collection;
+}
+
+/**
+ * What a compiled loop over an Array walks: its entries. A lazy one not yet
+ * read whole is walked a segment at a time, as east-c's paged loop walks one,
+ * each segment decoded to the projection `projector` gives for its type — what
+ * the loop's body reads of each element — or whole, and counted
+ * (`beast2PagedLoopStats`). Anything else is walked as it iterates.
+ *
+ * @param array - the Array the loop walks
+ * @param projector - the loop's projector
+ * @returns the entries the loop walks
+ * @internal
+ */
+export function loopEntries(array: unknown[], projector: LoopProjector): Iterable<[number, unknown]> {
+  const walk = (array as { [LOOP_ENTRIES]?: (projector: LoopProjector) => Iterable<[number, unknown]> })[LOOP_ENTRIES];
+  return walk === undefined ? array.entries() : walk(projector);
 }
 
 /**
@@ -772,13 +835,13 @@ export function openBeast2LazyFor<T extends EastType>(type: T | EastTypeValue, o
     const pages = new Beast2Pages(source, typeValue, options);
     let value: unknown;
     if (typeValue.type === "Array") {
-      value = lazyArray(pages, frozen, resident);
+      value = lazyArray(pages, typeValue, frozen, resident);
     } else if (typeValue.type === "Set") {
       const cmp = compareFor((typeValue as any).value) as (a: unknown, b: unknown) => number;
       value = new LazySortedSet(pages, cmp, frozen, resident);
     } else {
       const cmp = compareFor((typeValue as any).value.key) as (a: unknown, b: unknown) => number;
-      value = new LazySortedMap(pages, cmp, frozen, resident);
+      value = new LazySortedMap(pages, typeValue, cmp, frozen, resident);
     }
     // Lazy values cannot be Object.freeze'd (hydration writes through their
     // own internals), so the registry carries the frozen brand.

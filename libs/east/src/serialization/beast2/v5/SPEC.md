@@ -810,6 +810,65 @@ A program whose reads land at random across more than the budget, or that
 scans an input more than once, reads it whole instead (e3's `decode: whole`,
 a runner's `--decode whole`).
 
+## Projected decoding
+
+A reader may decode a value as a **projection** of its type: the wire type —
+what the bytes hold — narrowed to a projected type that keeps a subset of it.
+Nothing on the wire changes; the same bytes decode whole or projected, and a
+projected decode is the kept fields of the whole decode. east-c (`project.c`,
+which east-py's lazy files and compiled bodies read through, #599) and
+TypeScript (`project.ts`, #1112) decode projections by the same rules:
+
+- **What narrows.** A struct keeps a subset of its fields, by name, in the
+  wire's order. Within a variant's payloads, an array's elements, a ref's
+  contents and a dict's values, each projects in turn; a variant keeps every
+  case, since the wire numbers them. Every other part — a scalar, a Vector, a
+  Matrix, a recursive type, a function — must be the wire's whole.
+- **What never narrows.** A Set's elements and a Dict's keys order their
+  container, so a projection keeps them whole. A function-typed field cannot be
+  dropped: it cannot be parsed past without reading its IR.
+- **Reading the wire.** A dropped field is parsed past, never built. A
+  container in it still takes a definition, so the back-references after it
+  stay aligned with the encoder's numbering (*Mutable containers*). Each
+  definition records the shape it was decoded to: skipped, whole, or a
+  projection's node. A back-reference that names a container decoded to
+  another shape than its own — skipped, narrowed otherwise, or whole where the
+  reference is narrowed — fails, and the reader decodes that segment whole
+  instead. Sharing between a kept field and a dropped one is rare; when it
+  happens, it costs the one segment its projection.
+- **The bytes are read either way.** A segment's frame is fetched and inflated
+  as for a whole decode; projection saves building what is dropped, not reading
+  it.
+
+**A loop's projection.** A compiled `$.for` over a lazy Array or Dict — a task
+input a runner opened lazily, or a `blob.openBeast` — decodes each segment to
+the struct fields its body reads of the loop's value variable: an Array's
+element, a Dict's value. Each runtime infers the same projection from the
+loop's body (east-c's `east_beast2_projection_for_loop`, TypeScript's
+`loopProjectionType`), against the type the bytes hold:
+
+- a chain of field accesses rooted at the variable (`row.address.city`) keeps
+  that path, its last field whole;
+- an inner loop over an array or a dict on such a chain narrows its elements,
+  or its values, to what the inner body reads of its own variable, and the
+  chain's size (`ArraySize`, `DictSize`) reads none of them;
+- a function called inline on the variable, or on a chain of it, reads through
+  its parameter what the body reads of it;
+- the variable used any other way — bound to another variable, put in a
+  container, passed to a function value, compared — reads the row whole, and a
+  binder that shadows it, or an IR node the walk does not know, declines;
+- casts (`As`) are seen through, as east-c drops them reading the IR.
+
+The loop decodes whole when the projection declines, keeps every field, or
+the row is not a struct; a Set's loop always does. Every segment a loop
+decodes is counted, projected or whole — `east_beast2_paged_loop_stats` in
+east-c, `beast2PagedLoopStats` in TypeScript, `eager_stats()` in east-py — and
+every runner's `-v` reports them beside its lazy-read account, in the same
+words: `paged loops: N segments decoded to the fields read, M in full`.
+`east/test/loop_projection_corpus.spec.ts` pins the projection of each of its
+loops, and of #1093's benchmark queries' piece programs, and exports them for
+east-c and east-py to infer and run alike.
+
 ## Encoding algorithm (whole value)
 
 1. Resolve the header source map (explicit option, else the root value's

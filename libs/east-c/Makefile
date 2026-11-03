@@ -63,6 +63,7 @@ test-east-c: build
 	@./packages/east-c/scripts/run_compliance.sh $(EAST_TEST_IR_DIR)
 	@./build/packages/east-c/test_platform_check $(EAST_TEST_IR_DIR)/platform_check || [ $$? -eq 77 ]
 	@./build/packages/east-c/test_beast2_corpus $(EAST_TEST_IR_DIR)/beast2_corpus build || [ $$? -eq 77 ]
+	@./build/packages/east-c/test_loop_projection_corpus $(EAST_TEST_IR_DIR)/loop_projection || [ $$? -eq 77 ]
 	@cd build/packages/east-c-cli && ./test_cli_exec ./east-c $(EAST_TEST_IR_DIR)/runner_corpus || [ $$? -eq 77 ]
 
 test-east-c-std: build

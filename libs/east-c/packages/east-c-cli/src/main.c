@@ -494,6 +494,27 @@ static void report_input_reads(size_t i, EastValue *input)
     }
 }
 
+/* Whether any of a program's inputs opened lazily: only then can a loop of
+ * the program page one. */
+static bool any_paged(EastValue **args, size_t n)
+{
+    for (size_t i = 0; i < n; i++)
+        if (args[i] && args[i]->kind == EAST_VAL_PAGED) return true;
+    return false;
+}
+
+/* The -v account of the program's paged loops (#1112): the segments they
+ * decoded to the fields their bodies read, and those they decoded whole — a
+ * body that reads its row whole, a Set's, or a segment whose projected decode
+ * fell back. `projected` and `whole` are the counters before the run. */
+static void report_paged_loops(size_t projected, size_t whole)
+{
+    size_t projected_now = 0, whole_now = 0;
+    east_beast2_paged_loop_stats(&projected_now, &whole_now);
+    fprintf(stderr, "  paged loops: %zu segments decoded to the fields read, %zu in full\n",
+            projected_now - projected, whole_now - whole);
+}
+
 static int save_value(const char *path, EastValue *value, EastType *type)
 {
     FileFormat fmt = detect_format(path);
@@ -862,6 +883,8 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     clock_gettime(CLOCK_MONOTONIC, &t2);
 
     bool profiling = east_profile_start(profile);
+    size_t loops_projected = 0, loops_whole = 0;
+    east_beast2_paged_loop_stats(&loops_projected, &loops_whole);
     EvalResult result = east_call(fn, args, num_args);
     east_profile_enable(false);
     clock_gettime(CLOCK_MONOTONIC, &t3);
@@ -910,10 +933,12 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
 
     clock_gettime(CLOCK_MONOTONIC, &t4);
 
-    /* What reading each lazy input came to. */
+    /* What reading each lazy input came to, and what the loops that paged
+     * them decoded. */
     if (verbose) {
         for (size_t i = 0; i < num_args; i++)
             report_input_reads(i, args[i]);
+        if (any_paged(args, num_args)) report_paged_loops(loops_projected, loops_whole);
     }
 
     if (profiling) east_profile_finish(stderr);
@@ -1154,6 +1179,8 @@ static EvalResult exec_run(const EastUnit *unit, ExecClock *clock, bool verbose)
 
     if (r.status != EVAL_ERROR) {
         eval_result_free(&r);
+        size_t loops_projected = 0, loops_whole = 0;
+        east_beast2_paged_loop_stats(&loops_projected, &loops_whole);
         r = east_call(fn, args, num_params);
         exec_lap(clock, &clock->execute);
         if (r.status != EVAL_ERROR) {
@@ -1164,10 +1191,12 @@ static EvalResult exec_run(const EastUnit *unit, ExecClock *clock, bool verbose)
             exec_lap(clock, &clock->output);
         }
         /* What reading each lazy input came to, the output's writing
-         * included — or up to the failure. */
+         * included — or up to the failure — and what the loops that paged
+         * them decoded. */
         if (verbose) {
             for (size_t i = 0; i < file_params; i++)
                 report_input_reads(i, args[i]);
+            if (any_paged(args, file_params)) report_paged_loops(loops_projected, loops_whole);
         }
     }
 

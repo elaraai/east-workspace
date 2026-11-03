@@ -81,6 +81,10 @@ function orderCmpFor(typeValue: EastTypeValue, kind: SegmentedKind): ((a: any, b
 /** Running strict-ascent state threaded through ordered decodes. */
 type SegmentOrder = { prev: any; has: boolean };
 
+/** Decodes a segment's `n` elements, threading the order state of a Set's or
+ *  Dict's walk. @internal */
+export type SegmentDecoder = (reader: BufferReader, ctx: V5DecodeContext, n: number, order?: SegmentOrder) => any;
+
 /** Options accepted by {@link Beast2Writer} and {@link encodeBeast2SegmentsFor}. */
 export type Beast2WriterOptions = {
   /** Per-frame codec. Defaults to `"deflate"`. */
@@ -1171,7 +1175,7 @@ export class Beast2Pages<T extends EastType = EastType> {
   /** The stream's source map. For a manifest it starts empty and is replaced
    *  by the first segment's own header map, which every segment shares. */
   private sourceMap: SourceMap;
-  private readonly decodeSegment: (reader: BufferReader, ctx: V5DecodeContext, n: number, order?: SegmentOrder) => any;
+  private readonly decodeSegment: SegmentDecoder;
   private readonly platform: Beast2DecodeOptions | undefined;
   private readonly cumulative: number[];
   private readonly orderCmp: ((a: any, b: any) => number) | null;
@@ -1382,10 +1386,35 @@ export class Beast2Pages<T extends EastType = EastType> {
     return this.decodeSegmentCore(i, order);
   }
 
+  /**
+   * Decodes segment `i` to a projection of its elements — an Array's, or a
+   * Dict's values — decoded by `projection` (`buildProjectedSegmentDecoder`
+   * in `project.ts`): what a compiled loop over a lazy collection reads when
+   * its body reads only some fields. A Dict's segment is read as
+   * {@link segmentDisjoint} reads it, its fences verified. Never cached.
+   *
+   * @param i - zero-based segment index
+   * @param projection - the segment decoder of the projection
+   * @returns the segment's decoded collection, its elements projected
+   * @throws {Error} When the root is a Set, or as {@link segment} and
+   *   {@link segmentDisjoint} throw; and `Beast2ProjectionAliasError` when a
+   *   back-reference crosses the projection, after which the caller decodes
+   *   the segment whole.
+   * @internal
+   */
+  segmentProjected(i: number, projection: SegmentDecoder): ValueTypeOf<T> {
+    if (this.kind === "Set") {
+      throw new Error(`beast2 v5: a Set's elements never project — they are its keys`);
+    }
+    if (this.kind === "Array") return this.decodeSegmentCore(i, undefined, false, projection);
+    return this.decodeDisjoint(i, { prev: undefined, has: false }, this.verifyFences(), false, projection);
+  }
+
   /** Seeks to and decodes segment `i`, threading the caller's order state.
    *  `freeze` decodes it frozen whatever the pager was opened with: the
-   *  cache's segments are shared by every read they serve (#1129). */
-  private decodeSegmentCore(i: number, order: SegmentOrder | undefined, freeze = false): any {
+   *  cache's segments are shared by every read they serve (#1129). A
+   *  projection's decoder, when given, decodes it in place of the whole one. */
+  private decodeSegmentCore(i: number, order: SegmentOrder | undefined, freeze = false, decode: SegmentDecoder = this.decodeSegment): any {
     if (!this.selfContained) {
       throw new Error(`beast2 v5: blob has cross-segment aliasing — random access needs self-contained segments`);
     }
@@ -1398,7 +1427,7 @@ export class Beast2Pages<T extends EastType = EastType> {
       throw new Error(`beast2 v5: segment ${i} declares ${n} elements, index says ${this.indexData.counts[i]}`);
     }
     const ctx: V5DecodeContext = { containers: [], sourceMap: this.sourceMap, frozen: freeze || (this.platform?.frozen ?? false), ...buildPlatformContext(this.platform) };
-    const value = this.decodeSegment(reader, ctx, n, order);
+    const value = decode(reader, ctx, n, order);
     if (reader.offset !== reader.buffer.length) {
       throw new Error(`beast2 v5: ${reader.buffer.length - reader.offset} logical bytes after segment ${i}`);
     }
@@ -1591,8 +1620,8 @@ export class Beast2Pages<T extends EastType = EastType> {
   /** Decodes segment `i` with order threading, then checks its tail stays
    *  below the next segment's fence (segments must be disjoint ranges).
    *  Pass `cached` on the keyed read path to route through the segment LRU. */
-  private decodeDisjoint(i: number, order: SegmentOrder, fences: any[], cached = false): any {
-    const value = cached ? this.segmentCached(i, order) : this.decodeSegmentCore(i, order);
+  private decodeDisjoint(i: number, order: SegmentOrder, fences: any[], cached = false, decode?: SegmentDecoder): any {
+    const value = cached ? this.segmentCached(i, order) : this.decodeSegmentCore(i, order, false, decode);
     if (i + 1 < fences.length && order.has && this.orderCmp!(order.prev, fences[i + 1]) >= 0) {
       throw new Error(`beast2 v5: segments ${i} and ${i + 1} are not disjoint ascending ${this.kind === "Dict" ? "key" : "element"} ranges — the wire must hold the canonical value (corrupt or pre-contract blob)`);
     }

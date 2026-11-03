@@ -11,7 +11,8 @@ import { EastError } from "../error.js";
 import type { BreakIR, ContinueIR, ErrorIR, ForArrayIR, ForDictIR, ForSetIR, IfElseIR, IR, MatchIR, ReturnIR, TryCatchIR, WhileIR } from "../ir.js";
 import type { Location, SourceMap } from "../location.js";
 import type { PlatformFunction } from "../platform.js";
-import { loopWalk } from "../serialization/beast2/v5/lazy.js";
+import { loopEntries, loopWalk } from "../serialization/beast2/v5/lazy.js";
+import { loopProjectorFor } from "../serialization/beast2/v5/project.js";
 import { type ArrayTypeValue, type DictTypeValue, type EastTypeValue, expandTypeValue, type SetTypeValue } from "../type_of_type.js";
 
 /** A child, compiled to run as a statement: a signal a node under it threw is given back. */
@@ -325,6 +326,8 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
     // As a While's: whether the array can give a signal, and whether the loop must act on what its body gives.
     const array_leaves = escapesOf(ir.value.array) !== NO_ESCAPES;
     const reads = loopReads(ir.value.body, label);
+    // A lazy array's segments decode to the fields the body reads of each element.
+    const projector = loopProjectorFor(ir.value.body, value_name);
 
     if (ir.value.isAsync) {
       return async (ctx: RuntimeContext) => {
@@ -332,7 +335,7 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
         if (array_leaves && array instanceof ControlSignal) return array;
         lockForIteration(array);
         try {
-          for (const [key, value] of array.entries()) {
+          for (const [key, value] of loopEntries(array, projector)) {
             const ctx2: RuntimeContext = Object.create(ctx);
             ctx2[key_name] = variant("value", BigInt(key));
             ctx2[value_name] = variant("value", value);
@@ -355,7 +358,7 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
         if (array_leaves && array instanceof ControlSignal) return array;
         lockForIteration(array);
         try {
-          for (const [key, value] of array.entries()) {
+          for (const [key, value] of loopEntries(array, projector)) {
             const ctx2: RuntimeContext = Object.create(ctx);
             ctx2[key_name] = variant("value", BigInt(key));
             ctx2[value_name] = variant("value", value);
@@ -446,6 +449,8 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
     // As a While's: whether the dict can give a signal, and whether the loop must act on what its body gives.
     const dict_leaves = escapesOf(ir.value.dict) !== NO_ESCAPES;
     const reads = loopReads(ir.value.body, label);
+    // A lazy dict's segments decode to the fields the body reads of each value.
+    const projector = loopProjectorFor(ir.value.body, value_name);
 
     if (ir.value.isAsync) {
       return async (ctx: RuntimeContext) => {
@@ -453,7 +458,7 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
         if (dict_leaves && dict instanceof ControlSignal) return dict;
         lockForIteration(dict);
         try {
-          for (const [key, value] of loopWalk<[unknown, unknown]>(dict)) {
+          for (const [key, value] of loopWalk<[unknown, unknown]>(dict, projector)) {
             const ctx2: RuntimeContext = Object.create(ctx);
             ctx2[key_name] = variant("value", key);
             ctx2[value_name] = variant("value", value);
@@ -476,7 +481,7 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
         if (dict_leaves && dict instanceof ControlSignal) return dict;
         lockForIteration(dict);
         try {
-          for (const [key, value] of loopWalk<[unknown, unknown]>(dict)) {
+          for (const [key, value] of loopWalk<[unknown, unknown]>(dict, projector)) {
             const ctx2: RuntimeContext = Object.create(ctx);
             ctx2[key_name] = variant("value", key);
             ctx2[value_name] = variant("value", value);
