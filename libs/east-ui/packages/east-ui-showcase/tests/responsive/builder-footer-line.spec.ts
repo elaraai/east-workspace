@@ -7,7 +7,7 @@
  * The footer's one loading line (#1398, CL3) in each builder that reads what
  * it shows a part at a time — the Sheet, the Plan, the Roster, the Calendar,
  * the Allocation and the Schematic — on the real in-page e3, at rest, with its frame 1440,
- * 768, 390 and 360px wide, in both themes: the rail is one line at every
+ * 768 and 600px wide: the rail is one line at every
  * width, never wrapped, its height its widest's and nothing past its edge;
  * the items it shows are whole and on its centre line; the units its fit cut
  * are the last ones, each hidden whole and taking no room, and the "…" ends
@@ -30,6 +30,7 @@
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { sizeBuilder, visitBuilder } from "./builder-page";
+import { LAYOUT_THEMES } from "./themes";
 
 /** Each builder by its example: the root the box its example gives it holds, and its footer's rail. */
 const BUILDERS = [
@@ -42,8 +43,8 @@ const BUILDERS = [
     { builder: "Schematic", route: "e3/schematic/schematic/schematicDataCentre", root: "[data-schematic]", rail: "[data-schematic-footer]" },
 ] as const;
 
-/** The frame's widths, widest first. */
-const WIDTHS = [1440, 768, 390, 360] as const;
+/** The frame's widths, widest first: a phone's frame, 560px or narrower, has no footer (`builder-frame-phone.spec.ts`). */
+const WIDTHS = [1440, 768, 600] as const;
 
 /** The footer's voice, as the page resolves its tokens: the line speaks in it. */
 interface Voice {
@@ -165,7 +166,7 @@ function railAt(rail: Locator): Promise<RailAt> {
 }
 
 // A test a builder: each is an area of its own, whose workspace the page makes from its bundle the first time it shows (#1397).
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     for (const { builder, route, root, rail: railSelector } of BUILDERS) {
         test(`the ${builder}'s footer stays one line at every width, its fit cutting units whole, and its loading line says nothing at rest, in the footer's voice (#1398, CL3) (${theme}) @desktop`, async ({ page }) => {
             await page.setViewportSize({ width: 1920, height: 1200 });

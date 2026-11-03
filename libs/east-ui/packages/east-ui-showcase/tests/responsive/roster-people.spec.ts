@@ -16,6 +16,7 @@ import { toolbarFaults } from "./builder-frame";
 import { leaveBuilder } from "./builder-page";
 import { RECORD_READS, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 const FILE = "e3/roster/roster";
 async function open(page: Page, name: string, theme: "light" | "dark") {
     await page.goto(`/?theme=${theme}#${FILE}/${name}`);
@@ -92,8 +93,8 @@ const headerFaults = (header: Locator) => header.evaluate((root) => {
     return faults;
 });
 
-for (const theme of ["light", "dark"] as const) {
-    test(`People week and month fit 1440/1024/768/390/360 and a 294px parent: a row one line at the density's pitch, a 36px header, seven marks a cell lettered by the 13px rule, and the phone's cards by week alone (${theme}) @narrow`, async ({ page }) => {
+for (const theme of LAYOUT_THEMES) {
+    test(`People week and month fit 1440/1024/768/390/360 and a 294px parent: a row one line at the density's pitch, a 36px header, seven marks a cell lettered by the 13px rule, and the phone's cards by week alone (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         for (const name of ["rosterPeople", "rosterPeopleMonth"] as const) {
             const entry = await open(page, name, theme), frame = entry.locator("[data-roster-frame]").first();
@@ -159,30 +160,6 @@ for (const theme of ["light", "dark"] as const) {
             }
             expect(measured, `${name}: a width with its header`).toBeGreaterThan(0);
         }
-    });
-    test(`tiles take the shifts' colour tokens, their words in the ink the shade takes — the same in both themes (D6, P7) (${theme}) @desktop`, async ({ page }) => {
-        await page.setViewportSize({ width: 1920, height: 1080 });
-        const entry = await open(page, "rosterPeople", theme), frame = entry.locator("[data-roster-frame]").first();
-        await size(page, entry, 1440);
-        const tiles = frame.locator('[data-roster-grid="people"] [data-roster-tile]:not([data-removed])');
-        expect(await tiles.count()).toBeGreaterThan(0);
-        let seen = 0;
-        for (const [label, hue, ink] of SHIFTS) {
-            const tile = tiles.filter({ has: page.locator(`[data-roster-assignment-name]:text-is("${label}")`) }).first();
-            if (await tile.count() === 0) continue;
-            seen += 1;
-            expect(await tile.evaluate(el => getComputedStyle(el).backgroundColor), `${label}'s fill`).toBe(await resolve(page, "backgroundColor", `--chakra-colors-${hue}`));
-            expect(await tile.evaluate(el => getComputedStyle(el).color), `${label}'s ink`).toBe(await resolve(page, "color", `--chakra-colors-${ink}`));
-        }
-        expect(seen).toBeGreaterThan(0);
-        // The Patterns tab's marks and the assign menu's swatches take the same fill.
-        const library = frame.locator('[data-frame-slot="start"]');
-        const expand = frame.getByRole("button", { name: "Expand Library", exact: true });
-        if (await expand.isVisible()) await expand.click();
-        await library.getByRole("tab", { name: /^Patterns/ }).click();
-        const early = library.locator('[data-library-item="e5m"] [data-roster-pattern-strip] > *').nth(1);
-        expect(await early.evaluate(el => getComputedStyle(el).backgroundColor)).toBe(await resolve(page, "backgroundColor", "--chakra-colors-teal-300"));
-        expect(await library.locator('[data-library-item="e5m"] [data-roster-pattern-strip] > *').nth(0).evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(await resolve(page, "backgroundColor", "--chakra-colors-teal-300"));
     });
     test(`a pattern dropped on a person's row previews, replaces the week as one step, saves through e3 and reads back after a remount (D4, P17, P19) (${theme})`, async ({ page }, info) => {
         test.skip(info.project.name !== "desktop", "Phone People cards use explicit actions.");
@@ -273,5 +250,33 @@ for (const theme of ["light", "dark"] as const) {
             await settled(page);
             expect(new Set(await rowHeights(frame))).toEqual(new Set([36]));
         }
+    });
+}
+
+// A shift's colour token resolves through the theme's palette, the same in both colour modes: a colour of its own, so both themes.
+for (const theme of ["light", "dark"] as const) {
+    test(`tiles take the shifts' colour tokens, their words in the ink the shade takes — the same in both themes (D6, P7) (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        const entry = await open(page, "rosterPeople", theme), frame = entry.locator("[data-roster-frame]").first();
+        await size(page, entry, 1440);
+        const tiles = frame.locator('[data-roster-grid="people"] [data-roster-tile]:not([data-removed])');
+        expect(await tiles.count()).toBeGreaterThan(0);
+        let seen = 0;
+        for (const [label, hue, ink] of SHIFTS) {
+            const tile = tiles.filter({ has: page.locator(`[data-roster-assignment-name]:text-is("${label}")`) }).first();
+            if (await tile.count() === 0) continue;
+            seen += 1;
+            expect(await tile.evaluate(el => getComputedStyle(el).backgroundColor), `${label}'s fill`).toBe(await resolve(page, "backgroundColor", `--chakra-colors-${hue}`));
+            expect(await tile.evaluate(el => getComputedStyle(el).color), `${label}'s ink`).toBe(await resolve(page, "color", `--chakra-colors-${ink}`));
+        }
+        expect(seen).toBeGreaterThan(0);
+        // The Patterns tab's marks and the assign menu's swatches take the same fill.
+        const library = frame.locator('[data-frame-slot="start"]');
+        const expand = frame.getByRole("button", { name: "Expand Library", exact: true });
+        if (await expand.isVisible()) await expand.click();
+        await library.getByRole("tab", { name: /^Patterns/ }).click();
+        const early = library.locator('[data-library-item="e5m"] [data-roster-pattern-strip] > *').nth(1);
+        expect(await early.evaluate(el => getComputedStyle(el).backgroundColor)).toBe(await resolve(page, "backgroundColor", "--chakra-colors-teal-300"));
+        expect(await library.locator('[data-library-item="e5m"] [data-roster-pattern-strip] > *').nth(0).evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(await resolve(page, "backgroundColor", "--chakra-colors-teal-300"));
     });
 }

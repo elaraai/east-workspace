@@ -6,7 +6,7 @@
  * The Allocation's Table (#1329) on the real in-page e3: the mock's anatomy —
  * its column heads, a bin's row and a free row, the chips, the placeholders
  * and the statuses — and the shared Chooser where a cell lays it (#1322),
- * measured in the page in both themes (`Allocation Spec.md` §8); the Table at
+ * measured in the page (`Allocation Spec.md` §8); the Table at
  * every width, scrolling inside main with nothing overflowing the page; and a
  * chip's drag onto a free row (A45, A47).
  */
@@ -14,13 +14,14 @@ import { expect, type Locator } from "playwright/test";
 import { test } from "./kept-page";
 import { open, size, token } from "./allocation-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 /** An element's type, as the page draws it. */
 const type = (el: Element) => { const s = getComputedStyle(el); return { size: s.fontSize, weight: s.fontWeight, mono: /mono/i.test(s.fontFamily) }; };
 /** A free row's key: its lane and its slot's time. */
 const freeRow = (table: Locator, lane: string, hh: string, mm: string) => table.locator(`[data-allocation-row="slot:${lane}|2027-05-11T${hh}:${mm}:00.000"]`);
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`Table anatomy is the mock's: heads, a bin's row, a free row, chips, placeholders, statuses (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1200 });
         const entry = await open(page, "allocationTable", theme);
@@ -140,7 +141,7 @@ for (const theme of ["light", "dark"] as const) {
         await expect(entry.locator('[data-frame-slot="toolbar"] [data-record-slices-summary]').first()).toHaveText("26 of 33 bin events·2 of 3 bays");
     });
 
-    test(`Table fits 1440/1024/768/390/360 and a 294px parent, scrolling inside main; below 480px of main, its cards (${theme}) @narrow`, async ({ page }) => {
+    test(`Table fits 1440/1024/768/390/360 and a 294px parent, scrolling inside main; below 480px of main, its cards (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "allocationTable", theme);
         for (const width of [1440, 1024, 768, 390, 360, 294]) {

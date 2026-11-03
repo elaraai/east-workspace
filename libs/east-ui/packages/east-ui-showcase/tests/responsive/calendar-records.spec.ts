@@ -6,9 +6,10 @@
 import { expect, test, type Locator, type Page } from "playwright/test";
 import { settled } from "./settle";
 import { containedRecordEditor, recordField } from "./record-slice";
+import { LAYOUT_THEMES } from "./themes";
 
-for (const theme of ["light", "dark"] as const) {
-    test(`Calendar indexed overlaps and shared filters (${theme}) @narrow`, async ({ page }, info) => {
+for (const theme of LAYOUT_THEMES) {
+    test(`Calendar indexed overlaps and shared filters (${theme})`, async ({ page }, info) => {
         const mobile = info.project.name !== "desktop";
         const name = mobile ? "calendarRecordIndexesMobile" : "calendarRecordIndexes";
         const route = `e3/calendar/calendar-records/${name}`;
@@ -64,7 +65,7 @@ for (const theme of ["light", "dark"] as const) {
     });
 }
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`a String field the rail searches stands in its editor at its box's height — no empty block under it — and its values are listed under the box (${theme}) @desktop`, async ({ page }) => {
         const route = "e3/calendar/calendar-records/calendarRecordIndexes";
         await page.goto(`/?theme=${theme}#${route}`);
@@ -99,7 +100,7 @@ async function viewChoice(page: Page, frame: Locator, name: string) {
     await settled(page);
 }
 
-test(`a reload keeps the period the viewer left: Month shows its month and the month's events, not the day the slice's initial window holds @narrow`, async ({ page }, info) => {
+test(`a reload keeps the period the viewer left: Month shows its month and the month's events, not the day the slice's initial window holds`, async ({ page }, info) => {
     const mobile = info.project.name !== "desktop";
     const name = mobile ? "calendarRecordIndexesMobile" : "calendarRecordIndexes";
     const route = `e3/calendar/calendar-records/${name}`;

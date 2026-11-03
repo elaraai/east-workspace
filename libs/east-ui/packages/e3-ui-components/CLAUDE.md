@@ -909,7 +909,7 @@ part beside it, so the time grid's today dot sits wholly inside its day column
 (ruled 20 Oct). A part raised above the board's other layers (a selected
 Allocation card over the links) stays under the sticky heads' z. The
 Allocation's resource rows and lane pane, and the Calendar's day columns,
-month and timeline rows, are held to it in both themes by paint-order checks
+month and timeline rows, are held to it by paint-order checks
 (`elementFromPoint`, the probed layer taking the pointer) in the responsive
 suite.
 
@@ -965,7 +965,7 @@ that refuses, goes into the e3-ui example module it belongs to.
   Confirm that a paged example does not read the complete event record.
 - Test meaningful editing paths, failed/refused writes, unknown outcomes,
   read-only behavior and Save/remount persistence through the existing harnesses.
-- Use responsive browser checks at 1440/1024/768/390/360, light/dark themes,
+- Use responsive browser checks at 1440/1024/768/390/360, the light theme (dark too where a check holds a colour),
   narrow parent containers and state-preserving resize. Exercise explicit
   narrow actions, folded toolbar access and real drag previews. Verify computed
   CSS, element geometry, overflow and accessibility; follow the library's
@@ -1245,13 +1245,13 @@ Mobile day strips use the shared `Seg` component's `fullWidth` recipe
 variant: all seven buttons fill the available content width equally, with no
 unused tail or horizontal overflow. Picker rows have a neutral hover state,
 a distinct selected state and the shared keyboard focus ring, all in slot
-recipes. Verify their actual computed styles and geometry in both themes,
+recipes. Verify their actual computed styles and geometry,
 including a narrow container inside a wide viewport.
 
 Group bands fill the complete scrolling grid width in both layouts. Make text
 alignment explicit in slot recipes: Day shift details align left; compact Week
 and People day labels center over their cells. Test band geometry at wide and
-horizontally scrolled widths in both themes.
+horizontally scrolled widths.
 
 Date column captions use `timeHeaderText` from the shared `time/axis.ts`
 recipe part, also used by Plan's band captions. Roster's Day shift labels,
@@ -1260,7 +1260,7 @@ header button and inherit body typography. Calendar's weekday and date number
 use the same header part, with no title-sized numeral or independent font
 size. Keep the complete label on one line. Compare computed family, size,
 weight, line height, tracking, case and numeral settings across every view,
-including all seven week dates and selected/current dates, in both themes.
+including all seven week dates and selected/current dates.
 
 Header geometry is a separate requirement from typography. Roster's one-line
 Week date/shift cells are 28px tall (plus the row rule); the People week's
@@ -1305,7 +1305,7 @@ Inspector shift controls use shared `Seg fullWidth`: equal buttons fill the
 strip, including its trailing edge. Schedule inspector marks sit beneath the
 subtitle in the title's text column. Status badges reuse the shared draft-chip
 geometry and type so paired badges align and wrap with a real gap. Verify both
-marks together and the segment widths in both themes at desktop and phone widths.
+marks together and the segment widths at desktop and phone widths.
 
 Sharing the drag engine does not by itself make dragging responsive. Profile a
 realistic populated week. Keep shared drag handles/targets, but isolate sensor
@@ -1465,7 +1465,7 @@ a job dragged and saved, a quarter's pan, a zoom to the year and a pan three
 years back. e3-web holds the record in the test's process, so its sizes are
 what the test's heap holds.
 In a browser, the showcase's `plan-nested.spec.ts` holds `planNestedAll` to
-#1438's list at 1440 and 390, in both themes: the area's start within the
+#1438's list at 1440 and 390: the area's start within the
 start budget, the time it took printed; a scroll, a pan and a zoom moving
 nothing as their cells land, the rows waiting washed meanwhile; the rows
 shading past the cap at the height of those they stand in for; a folded
@@ -1573,7 +1573,7 @@ timeline labels the visible range and steps from its visible center; Today
 recenters even if the persisted date was already today. Do not duplicate the
 current date as detached toolbar text. Counts remain a separate folding item.
 
-Test all three consumers at 1440/1024/768/390/360 and a 294px parent, in both themes:
+Test all three consumers at 1440/1024/768/390/360 and a 294px parent:
 popup Today, all valid units, keyboard selection/cancel, hover versus selected
 styles, bounded reads, Slice writes, month/year boundaries and timeline
 recentring. Rebuild and check the actual HTTPS showcase before reporting that
@@ -1794,7 +1794,7 @@ data. Do not hide a missing read behind targets-only content or a zero-event
 count. Test deliberately delayed
 pages and fonts, retained canvas identity, equal loading/loaded frame dimensions,
 no accessible controls under the skeleton, and the first visible layout at
-both desktop and phone widths in both themes.
+both desktop and phone widths.
 
 Calendar tracks page arrivals in its window reader, a component of its own
 outside the frame (`CalendarDataReader`, #1343). Keep the displayed window

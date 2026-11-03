@@ -9,7 +9,7 @@
  * Plan as they scroll, the Calendar, the Roster and the Allocation as they
  * step, the Schematic as the rail narrows its racks — on the real in-page e3, its
  * reads held and failed through the showcase's e3 fault hook (`e3-faults.ts`),
- * with the frame 1440, 768 and 600px wide (a phone's has no footer, its line in the second row), in both themes, as
+ * with the frame 1440, 768 and 600px wide (a phone's has no footer, its line in the second row), as
  * `builder-footer-line.spec.ts` measures the rail at rest:
  *
  * - While a read is held, the line says what is read, one line in its own slot
@@ -43,6 +43,7 @@ import { sizeBuilder, visitBuilder } from "./builder-page";
 import { RECORD_READS, failE3, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { recordField } from "./record-slice";
 import { token } from "./tokens";
+import { LAYOUT_THEMES } from "./themes";
 
 /** How a builder is made to ask for what it has not read yet: its `n`-th new read. */
 type Read = (page: Page, entry: Locator, n: number) => Promise<void>;
@@ -270,7 +271,7 @@ function missedTaps(retry: Locator): Promise<string[]> {
 
 // A test a builder: each is an area of its own, whose workspace the page makes from its bundle the first time it shows (#1397). The page
 // is wide enough that a 1440px frame keeps clear of its "On this page" column.
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     for (const reader of READERS) {
         test(`the ${reader.builder}'s loading line, held in flight and then failed, says what it reads in one line that fits whole at every width — full, short or the dot alone — then "Couldn't read · Retry", Retry asking again (#1398, CL3, CL11) (${theme}) @desktop`, async ({ page }) => {
             await installE3Faults(page);

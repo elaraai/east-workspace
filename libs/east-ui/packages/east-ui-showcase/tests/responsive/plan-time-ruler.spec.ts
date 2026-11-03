@@ -8,9 +8,10 @@ import { test } from "./kept-page";
 import { openExample, PLAN_EVENT_EXAMPLES } from "./plan-page";
 import { cutText, rulerFaults } from "./plan-text";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
-for (const theme of ["light", "dark"] as const) {
-    test(`Plan time bands and short spans stay readable (${theme}) @narrow`, async ({ page }) => {
+for (const theme of LAYOUT_THEMES) {
+    test(`Plan time bands and short spans stay readable (${theme})`, async ({ page }) => {
         const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES, theme);
         for (const resolution of ["WEEK", "DAY"] as const) {
             const strip = entry.locator('[data-plan-seg="resolution"]');

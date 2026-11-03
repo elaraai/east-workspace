@@ -7,7 +7,7 @@
  * The Schematic's narrowing (#1392, `Schematic Builder Spec.md` §10, SC17,
  * SC18) on the real in-page e3: the data centre's one rail over its racks —
  * read through their source by name, hall and owner — and its two templates
- * records. At every width, in both themes and with both pointers, the rail
+ * records. At every width the rail
  * stands in the toolbar's one row, nothing leaving it, every source's field in
  * it: live, folded to its chip, or named by its one trigger.
  *
@@ -37,6 +37,7 @@ import { expectSourceCounts, type SourceCount } from "./record-counts";
 import { recordField } from "./record-slice";
 import { DATA_CENTRE, card, collapseInspector, openSchematic, pane, printedRef, sizeTo } from "./schematic-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 /** The rail, in the toolbar's row. */
 const RAIL = '[data-frame-slot="toolbar"] [data-slice-rail="record-slices"]';
@@ -115,8 +116,8 @@ const keptLook = (root: Locator, cardKey: string) => root.evaluate((el, key) => 
     };
 }, cardKey);
 
-for (const theme of ["light", "dark"] as const) {
-    test(`the one rail stands at every width, nothing leaving the toolbar, every source's field in it (${theme})`, async ({ page }) => {
+for (const theme of LAYOUT_THEMES) {
+    test(`the one rail stands at every width, nothing leaving the toolbar, every source's field in it (${theme}) @desktop`, async ({ page }) => {
         const root = await open(page, theme);
         for (const width of [1440, 1024, 768, 390, 360, 294]) {
             await sizeTo(page, root, width);
@@ -127,7 +128,7 @@ for (const theme of ["light", "dark"] as const) {
         }
     });
 
-    test(`each source narrows its own places, and the rail counts each in its own words; the racks it leaves out draw as context — faded, greyed and taking no pointer (${theme})`, async ({ page }) => {
+    test(`each source narrows its own places, and the rail counts each in its own words; the racks it leaves out draw as context — faded, greyed and taking no pointer (${theme}) @desktop`, async ({ page }) => {
         const root = await open(page, theme);
         const expectCounts = (counts: readonly [string, SourceCount][]) => expectSourceCounts(page, root, RAIL, Object.fromEntries(counts));
         await expectCounts([counted("racks", 7, 7, false), counted("rackTemplates", 3, 3, false), counted("fibreTemplates", 2, 2, false)]);
@@ -177,7 +178,7 @@ for (const theme of ["light", "dark"] as const) {
     });
 }
 
-test("a field's editor opens inside the frame at every width it fits — the rail's first, at the frame's side, never hanging past it, the first time it opens as every time after — and inside the page on a phone, whose frame it is wider than (#1393)", async ({ page }) => {
+test("a field's editor opens inside the frame at every width it fits — the rail's first, at the frame's side, never hanging past it, the first time it opens as every time after — and inside the page on a phone, whose frame it is wider than (#1393) @desktop", async ({ page }) => {
     const root = await open(page, "light");
     /** How far the open editor hangs past each side of the frame, and of the page. */
     const past = () => root.evaluate((el) => {

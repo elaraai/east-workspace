@@ -9,6 +9,7 @@ import { test } from "./kept-page";
 import { frameAt, toolbarFaults } from "./builder-frame";
 import { leaveBuilder } from "./builder-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 const FILE = "e3/calendar/calendar";
 async function open(page: Page, name = "calendarOperations", theme: "light" | "dark" = "light") {
     await page.goto(`/?theme=${theme}#${FILE}/${name}`);
@@ -36,8 +37,8 @@ async function movePointer(page: Page, source: Locator, x: number, y: number) {
     await page.mouse.move(box.x + box.width / 2 + 6, box.y + box.height / 2, { steps: 2 });
     await page.mouse.move(x, y, { steps: 10 });
 }
-for (const theme of ["light", "dark"] as const) {
-    test(`Calendar frame at 1440/1024/768/390/360 (${theme}) @narrow`, async ({ page }) => {
+for (const theme of LAYOUT_THEMES) {
+    test(`Calendar frame at 1440/1024/768/390/360 (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "calendarOperations", theme);
         for (const width of [1440, 1024, 768, 390, 360]) {
@@ -66,7 +67,7 @@ for (const theme of ["light", "dark"] as const) {
             }
         }
     });
-    test(`Resources omits period controls in expanded and folded toolbars (${theme}) @narrow`, async ({ page }) => {
+    test(`Resources omits period controls in expanded and folded toolbars (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1080 });
         const entry = await open(page, 'calendarOperations', theme), frame = entry.locator('[data-calendar-frame]').first();
         await size(page, entry, 1440); await viewChoice(page, frame, 'Week');
@@ -85,7 +86,7 @@ for (const theme of ["light", "dark"] as const) {
         await size(page, entry, 1440);
         await expect(frame.getByRole('radio', { name: 'Week', exact: true })).toHaveAttribute('aria-checked', 'true');
     });
-    test(`phone example schedules and saves a backlog row through e3 (${theme}) @narrow`, async ({ page }) => {
+    test(`phone example schedules and saves a backlog row through e3 (${theme}) @mobile`, async ({ page }) => {
         const entry = await open(page, "calendarMobile", theme);
         const frame = entry.locator("[data-calendar-frame]").first();
         await expect(frame.locator("[data-calendar-agenda]")).toBeVisible();
@@ -274,7 +275,7 @@ for (const theme of ["light", "dark"] as const) {
 
 }
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`Calendar uses shared typography, one range line and quiet resize grips (${theme})`, async ({ page }, info) => {
         test.skip(info.project.name !== "desktop", "Desktop type and hover; agenda interaction is covered on phones.");
         await page.setViewportSize({ width: 2160, height: 1080 });
@@ -367,7 +368,7 @@ for (const theme of ["light", "dark"] as const) {
     });
 }
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`Calendar timeline headers and collapsible groups share builder recipes (${theme})`, async ({ page }, info) => {
         test.skip(info.project.name !== "desktop", "Timeline is desktop; the test also checks the narrow agenda and return.");
         await page.setViewportSize({ width: 2160, height: 1080 });
@@ -453,7 +454,7 @@ for (const theme of ["light", "dark"] as const) {
     });
 }
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`the Timeline's ruler sticks only the captions about where its view starts: the period it starts in keeps its caption beside the resource column, every other caption stands where its column starts — at every period, wherever it scrolls (#1398, CL9) (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1080 });
         const entry = await open(page, "calendarOperations", theme); await size(page, entry, 1440);
@@ -493,7 +494,7 @@ for (const theme of ["light", "dark"] as const) {
     });
 }
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`what scrolls under a sticky part passes under it: the today line under the Day's and the Week's head scrolled down and under the hour column scrolled sideways, its dot wholly inside today's column; under the Timeline's resource column scrolled right; a dragged chip under the Month's weekdays (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1080 });
         const entry = await open(page, "calendarOperations", theme); await size(page, entry, 1440);
@@ -608,7 +609,7 @@ for (const theme of ["light", "dark"] as const) {
     });
 }
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`the time grid keeps its place across a step — the hour at its top where the viewer left it, never back to the morning — and Today brings the now line into view (#1398, CL8) (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1080 });
         const entry = await open(page, "calendarOperations", theme); await size(page, entry, 1440);

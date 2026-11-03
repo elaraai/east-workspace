@@ -9,13 +9,13 @@
  * Assigned to's field, meter and bins, and the field's Chooser laid in the
  * pane (A56–A59); a resource's banner (A62); the summary's counts (A63); the
  * Issues tab (A64); the drop list's rows under a pick (A34) and a refused
- * drop's note (A40) — the shared inspector's parts, measured in the page in
- * both themes (§8).
+ * drop's note (A40) — the shared inspector's parts, measured in the page (§8).
  */
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { open, size, token } from "./allocation-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 const endPane = (frame: Locator) => frame.locator('[data-frame-slot="end"]');
 const details = (frame: Locator) => frame.locator('[data-allocation-inspector="details"]');
@@ -60,7 +60,7 @@ async function bring(page: Page, el: Locator) {
     await settled(page);
 }
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`A55–A59 — the Inspector, 320px beside main: its tabs; a bin's head, Bin section and Assigned to on the shared parts, its Chooser laid in the pane (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1200 });
         const entry = await open(page, "allocationKilnYard", theme);
@@ -246,7 +246,7 @@ for (const theme of ["light", "dark"] as const) {
         expect(await end.locator(":scope > *").first().evaluate(leaves)).toEqual([]);
     });
 
-    test(`the Inspector at 1440/1024/768: beside main where it has room, else over main with a strip of it left; its Chooser inside it; nothing leaves the frame (${theme}) @narrow`, async ({ page }) => {
+    test(`the Inspector at 1440/1024/768: beside main where it has room, else over main with a strip of it left; its Chooser inside it; nothing leaves the frame (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "allocationKilnYard", theme);
         const frame = entry.locator("[data-allocation-frame]").first();

@@ -7,16 +7,17 @@
  * at every width, the combined View fold that keeps the date, the layout and
  * Publish reachable in the narrowest frame (A1), the date picker's day marks
  * (A2), and the footer — Plan's rail, the layout's legend and the one loading
- * line (A79, #1398), one line at every width — in both themes.
+ * line (A79, #1398), one line at every width.
  */
 import { expect } from "playwright/test";
 import { test } from "./kept-page";
 import { toolbarFaults } from "./builder-frame";
 import { open, size, token } from "./allocation-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
-for (const theme of ["light", "dark"] as const) {
-    test(`A1 — one toolbar row at every width, history folding last; at 294px the date, the layout, Save and Publish stay reachable (${theme}) @narrow`, async ({ page }) => {
+for (const theme of LAYOUT_THEMES) {
+    test(`A1 — one toolbar row at every width, history folding last; at 294px the date, the layout, Save and Publish stay reachable (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "allocationKilnYard", theme);
         const frame = entry.locator("[data-allocation-frame]").first();
@@ -35,7 +36,7 @@ for (const theme of ["light", "dark"] as const) {
         await page.keyboard.press("Escape");
     });
 
-    test(`A1, A13 — with a focus set, one toolbar row at every width: the focus chip, its icon, then at 294px inside the View with the controls, its Show all there (${theme}) @narrow`, async ({ page }) => {
+    test(`A1, A13 — with a focus set, one toolbar row at every width: the focus chip, its icon, then at 294px inside the View with the controls, its Show all there (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "allocationKilnYard", theme);
         const frame = entry.locator("[data-allocation-frame]").first();

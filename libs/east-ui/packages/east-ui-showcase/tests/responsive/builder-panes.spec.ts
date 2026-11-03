@@ -15,7 +15,7 @@
  * the panes are measured open, as they rest; on a phone each is opened from
  * its tab and measured over the frame, and where its row folds, a tap on its
  * `+n` opens the menu, which stays open, and a tab picked from it opens on
- * the row (#1235). In both themes; every measurement is polled until it
+ * the row (#1235). Every measurement is polled until it
  * holds, on a page at rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
@@ -25,6 +25,7 @@
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 /**
  * A builder the showcase holds: its example, what shows once it is at rest,
@@ -104,7 +105,7 @@ function tabRowsOf(frame: Locator) {
 
 test.describe("every builder pane's tab row fits its pane (#1210)", { tag: "@desktop" }, () => {
     const batches = [BUILDERS.slice(0, 3), BUILDERS.slice(3)];
-    for (const theme of ["light", "dark"] as const) {
+    for (const theme of LAYOUT_THEMES) {
         for (const batch of batches) {
             test(`${batch.map(builder => builder.name).join(", ")}: tabs stay clear of collapse controls (${theme})`, async ({ page }) => {
                 for (const builder of batch) await test.step(builder.name, async () => {

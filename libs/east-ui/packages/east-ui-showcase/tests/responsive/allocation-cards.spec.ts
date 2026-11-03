@@ -9,12 +9,13 @@
  * (the Roster's and the Calendar's) inside main, its actions whole and their
  * popovers inside the window, nothing to drag; resizing across 480px keeps
  * the layout, the selection and the drafts — measured at 390 and 360 and in a
- * 294px parent inside a wide window, in both themes, with no page overflow.
+ * 294px parent inside a wide window, with no page overflow.
  */
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { open, size, token } from "./allocation-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 /** What nothing on a narrow board may carry: a drag source, a drop target, a grip or a connector. */
 const DRAG = "[data-draggable], [data-drag-cell], [data-allocation-grip], [data-allocation-connector]";
@@ -52,8 +53,8 @@ const cardLook = (card: Locator) => card.evaluate(el => {
 /** Main's width, in px. */
 const mainWidth = (frame: Locator) => frame.locator("[data-allocation-main]").evaluate(el => el.getBoundingClientRect().width);
 
-for (const theme of ["light", "dark"] as const) {
-    test(`A78 — the Timeline's cards at 390/360 and in a 294px parent: each inside main and its parts inside it, the shared agenda's look, their actions whole, Book an arrival…'s popover inside the window, nothing to drag (${theme}) @narrow`, async ({ page }) => {
+for (const theme of LAYOUT_THEMES) {
+    test(`A78 — the Timeline's cards at 390/360 and in a 294px parent: each inside main and its parts inside it, the shared agenda's look, their actions whole, Book an arrival…'s popover inside the window, nothing to drag (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "allocationKilnYard", theme);
         const frame = entry.locator("[data-allocation-frame]").first();
@@ -84,7 +85,7 @@ for (const theme of ["light", "dark"] as const) {
         }
     });
 
-    test(`A78 — the Table's cards at 390/360 and in a 294px parent: each inside main, its band the shared group band, its status the Status cell's word, a free row's Book… inside the window, nothing to drag (${theme}) @narrow`, async ({ page }) => {
+    test(`A78 — the Table's cards at 390/360 and in a 294px parent: each inside main, its band the shared group band, its status the Status cell's word, a free row's Book… inside the window, nothing to drag (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "allocationTable", theme);
         const frame = entry.locator("[data-allocation-frame]").first();
@@ -128,8 +129,7 @@ for (const theme of ["light", "dark"] as const) {
         await expect(frame.locator("[data-allocation-main]")).toHaveAttribute("data-allocation-layout", "timeline");
     });
 
-    test(`A78 — the phone example in its 390px container: the kilns' cards, every action reachable, nothing to drag (${theme}) @narrow`, async ({ page }) => {
-        await page.setViewportSize({ width: 1920, height: 1080 });
+    test(`A78 — the phone example in its 390px container: the kilns' cards, every action reachable, nothing to drag (${theme}) @mobile`, async ({ page }) => {
         const entry = await open(page, "allocationMobile", theme);
         const frame = entry.locator("[data-allocation-frame]").first();
         await expect(frame.locator('[data-allocation-cards="timeline"]')).toBeVisible();
