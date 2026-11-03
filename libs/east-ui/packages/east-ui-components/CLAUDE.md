@@ -444,7 +444,7 @@ component, nothing in east-ui.
   a segment strip, a stepper, a tab strip, the key search's box and every
   button (`size="sm"`), the history's and the date navigator's among them. The
   showcase's `toolbar-row-heights.spec.ts` holds every builder to it, unfolded
-  and folded, in both themes.
+  and folded.
 - **The row's floor** (hand retest, 27 Oct 2026). Below the toolbar's ladder
   lies its floor: a fold step ranked at `FLOOR_RANK` (`toolbar/fold.ts`) or
   past it is one of its rungs, taken only once every step of the ladder — the

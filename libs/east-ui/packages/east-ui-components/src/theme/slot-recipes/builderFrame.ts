@@ -225,7 +225,8 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             "&:has(> [data-session-status]:only-child):not(:has([data-footer-line]:not([data-idle])))": { display: "none" },
         },
         sessionStatus: {
-            order: -2, flex: "1 1 auto", minWidth: "0", display: "flex", alignItems: "center", overflow: "hidden",
+            /* As tall as the row, so its clip spares a Retry's halo. */
+            order: -2, flex: "1 1 auto", alignSelf: "stretch", minWidth: "0", display: "flex", alignItems: "center", overflow: "hidden",
             "&:not(:has([data-footer-line]:not([data-idle])))": { display: "none" },
         },
         /* A phone's panes: one tab each along the frame's bottom edge, over the safe area. */

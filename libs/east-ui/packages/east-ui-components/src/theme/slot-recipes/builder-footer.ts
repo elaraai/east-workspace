@@ -225,6 +225,8 @@ export const builderFooterLineSlotRecipe = defineSlotRecipe({
         // On a touch screen Retry keeps its size, and its 44px tap target is its halo — never a taller rail.
         retry: {
             ...coarseHitArea({ position: true, foot: RETRY_FOOT }),
+            // In a phone's session row, which has room for it either way, the halo stands centred on it.
+            "[data-session-status] &": { _coarse: { _before: { bottom: "auto", top: "50%", transform: "translate(-50%, -50%)" } } },
             flex: "none",
             padding: "0",
             borderWidth: "0",

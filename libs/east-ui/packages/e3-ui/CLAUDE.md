@@ -426,7 +426,7 @@ word: its legend's items are units of its fit, cut whole, "…" ending a cut
 legend. Pass it through BuilderFrame's footer region with `liveFooter`; keep
 the footer visually distinct from the body. Plan, Sheet, Roster, Calendar,
 Allocation and the Schematic all consume this part. Browser tests must compare the actual rail
-and item styles in both themes and check that the rail stays one line at
+and item styles in the light theme (dark too where a check holds a colour) and check that the rail stays one line at
 narrow widths, no word cut. The renderer guide has the parts' names.
 
 Use the shared move-preview component and `time/move-ghost.ts` recipe for event
@@ -582,13 +582,13 @@ Mobile day strips use the shared `Seg` component's `fullWidth` recipe
 variant: all seven buttons fill the available content width equally, with no
 unused tail or horizontal overflow. Picker rows have a neutral hover state,
 a distinct selected state and the shared keyboard focus ring, all in slot
-recipes. Verify their actual computed styles and geometry in both themes,
+recipes. Verify their actual computed styles and geometry in the light theme (dark too where a check holds a colour),
 including a narrow container inside a wide viewport.
 
 Group bands fill the complete scrolling grid width in both layouts. Make text
 alignment explicit in slot recipes: Day shift details align left; compact Week
 and People day labels center over their cells. Test band geometry at wide and
-horizontally scrolled widths in both themes.
+horizontally scrolled widths.
 
 Date column captions use `timeHeaderText` from the shared `time/axis.ts`
 recipe part, also used by Plan's band captions. Roster's Day shift labels,
@@ -597,7 +597,7 @@ header button and inherit body typography. Calendar's weekday and date number
 use the same header part, with no title-sized numeral or independent font
 size. Keep the complete label on one line. Compare computed family, size,
 weight, line height, tracking, case and numeral settings across every view,
-including all seven week dates and selected/current dates, in both themes.
+including all seven week dates and selected/current dates.
 
 Header geometry is a separate requirement from typography. Roster's one-line
 Week date/shift cells are 28px tall (plus the row rule); the People week's
@@ -642,7 +642,7 @@ Inspector shift controls use shared `Seg fullWidth`: equal buttons fill the
 strip, including its trailing edge. Schedule inspector marks sit beneath the
 subtitle in the title's text column. Status badges reuse the shared draft-chip
 geometry and type so paired badges align and wrap with a real gap. Verify both
-marks together and the segment widths in both themes at desktop and phone widths.
+marks together and the segment widths at desktop and phone widths.
 
 Sharing the drag engine does not by itself make dragging responsive. Profile a
 realistic populated week. Keep shared drag handles/targets, but isolate sensor
@@ -695,7 +695,7 @@ timeline labels the visible range and steps from its visible center; Today
 recenters even if the persisted date was already today. Do not duplicate the
 current date as detached toolbar text. Counts remain a separate folding item.
 
-Test all three consumers at 1440/1024/768/390/360 and a 294px parent, in both themes:
+Test all three consumers at 1440/1024/768/390/360 and a 294px parent:
 popup Today, all valid units, keyboard selection/cancel, hover versus selected
 styles, bounded reads, Slice writes, month/year boundaries and timeline
 recentring. Rebuild and check the actual HTTPS showcase before reporting that
@@ -775,7 +775,7 @@ that still have usable data. Do not hide a missing read behind targets-only
 content or a zero-event count. Test deliberately delayed
 pages and fonts, retained canvas identity, equal loading/loaded frame dimensions,
 no accessible controls under the skeleton, and the first visible layout at
-both desktop and phone widths in both themes.
+both desktop and phone widths.
 
 Bound the work, not only the CSS scroll box. Use Library's existing virtualizer
 for populated bounded panes; do not disable it in an adapter. People rows and

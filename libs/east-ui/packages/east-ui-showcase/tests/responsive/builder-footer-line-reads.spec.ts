@@ -338,3 +338,28 @@ for (const theme of LAYOUT_THEMES) {
         });
     }
 }
+
+test("in a phone's frame a failed read's Retry stands in the toolbar's second row, a 44px tap target by its halo, and a tap on it reads again @mobile", async ({ page }) => {
+    await installE3Faults(page);
+    await page.setViewportSize(PAGE);
+    const reader = READERS[0]!;
+    const entry = await visitBuilder(page, reader.route, reader.root, "light");
+    await sizeBuilder(page, entry, reader.root, 390);
+    const fault = await failE3(page, { kinds: [...RECORD_READS] }, FAILURE);
+    await reader.read(page, entry, 1);
+    const retry = entry.locator("[data-builder-frame] [data-frame-slot='sessionRow'] [data-line-retry]:visible").first();
+    await expect(retry).toBeVisible();
+    await retry.scrollIntoViewIfNeeded();
+    const missed = await retry.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const x = r.left + r.width / 2, y = r.top + r.height / 2;
+        return [[x, y - 20], [x, y + 20], [x - 21, y], [x + 21, y]].flatMap(([px, py]) => {
+            const hit = document.elementFromPoint(px!, py!);
+            return hit !== null && el.contains(hit) ? [] : [`a tap at ${Math.round(px! - x)},${Math.round(py! - y)} lands on ${hit?.tagName ?? "nothing"}`];
+        });
+    });
+    expect(missed).toEqual([]);
+    await releaseE3(page, fault);
+    await retry.tap();
+    await expect(retry).toBeHidden({ timeout: 30_000 });
+});

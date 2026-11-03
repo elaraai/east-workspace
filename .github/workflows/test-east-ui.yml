@@ -48,8 +48,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The JavaScript every test job runs, compiled once, with no type-check and
-  # no declarations: `checked` makes those beside the tests (#1466). Renderer
+  # The JavaScript every test job runs, compiled once: the IR by tsc, its errors
+  # stopping the tests, the renderers with no type-check and no declarations,
+  # which `checked` makes beside the tests (#1466). Renderer
   # and browser shards never repeat compilation.
   build:
     name: test build

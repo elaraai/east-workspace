@@ -713,6 +713,23 @@ popover's final View form before history folds; Filters and Save must remain
 inside the toolbar and clickable. Exercise indexed search, far scrolling,
 Save leaving a filter and draft retention in one real e3 workflow per device.
 
+### The Sheet in a phone's frame
+
+In a frame 560px wide or narrower the Sheet's columns are a window the pager
+pages (`sheet/Pager.tsx`, `Mobile Sheet Spec.md`): the jump menu's `Row number`,
+off by default, adds the Row column — the gutter's cell as a slot of the window,
+its number alone (`data-row-numbers`), first among what the readout counts —
+and puts the window back at its start; the selected cell's column has its head
+tinted (`data-col-selected`); ← and → page the window while the grid has the
+focus, the ring where it is, never moving it between cells (R4). Its Library
+in the frame's view lists rows at touch size, no drag there
+(`sheet/frame/phone-library.tsx`): a tap on an author's card sets it on the
+selected row or band — a card that lands on a band, on the band of the line the
+ring is on — through the drop's own plan, its row marked `current` while the
+target holds it; a tap on a template is its ⏎; a tap on a column closes the view
+and pages to it, its eye still hiding it (R7). The showcase's
+`sheet-pager.spec.ts` holds them.
+
 ### Schematic windows, drafts and the narrow layout
 
 A kind read by area (#1393) is read through its window (`schematic/area.ts`):
@@ -1040,7 +1057,7 @@ Pass it through BuilderFrame's footer region with `liveFooter`, so the line
 and its Retry stay live under the cold-load cover; keep the footer visually
 distinct from the body. Plan, Sheet, Roster, Calendar, Allocation and the
 Schematic all consume this part. Browser tests must compare the actual rail and item styles
-in both themes and check that the rail stays one line at narrow widths, no
+and check that the rail stays one line at narrow widths, no
 word cut.
 
 Use the shared move-preview component and `time/move-ghost.ts` recipe for event
