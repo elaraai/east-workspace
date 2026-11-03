@@ -38,7 +38,7 @@ import { settled } from "./settle";
 
 /** The nested series examples file, in the catalog. */
 const NESTED = "e3/plan/plan-nested";
-/** The example: every series a Plan reads a cell at a time, over two hundred works. */
+/** The example: every series a Plan reads a cell at a time, over a hundred works. */
 const ALL = "planNestedAll";
 /** The workspace of the Plan's area in the page's e3: the area's own name. */
 const WORKSPACE = "plan";

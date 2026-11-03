@@ -9,7 +9,7 @@
  * hours and a tree of parts, sparse and spread evenly over ten years — read a
  * cell at a time through its nested series index, paged by rows and by time.
  *
- * - Opening the two hundred works the record holds reads them lean a page at
+ * - Opening the hundred works the record holds reads them lean a page at
  *   a time by name, then the cells around the rows in view in one batch of
  *   searches and one read of entries, never a works whole: each works' jobs
  *   draw. A quarter on, every works in view draws jobs there too.
@@ -170,7 +170,7 @@ describe("the works on a Plan (#1438)", () => {
         horizonWidth(1000);
         // Load alone: each works' load every four weeks, as the generator made them, counted by month.
         const months = new Map<number, number>();
-        for (const works of East.compile(ex.generateWorksAll, [])(200n, 522n).values()) {
+        for (const works of East.compile(ex.generateWorksAll, [])(100n, 522n).values()) {
             for (const at of works.load.keys()) {
                 const month = Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1);
                 months.set(month, (months.get(month) ?? 0) + 1);

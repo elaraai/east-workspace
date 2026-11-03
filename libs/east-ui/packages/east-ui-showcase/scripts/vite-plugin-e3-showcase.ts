@@ -58,6 +58,9 @@ const SHOWCASE_CONFIG = fileURLToPath(new URL("../showcase-config.ts", import.me
 /** The showcase's root, where the bundle step runs. */
 const SHOWCASE_DIR = fileURLToPath(new URL("..", import.meta.url));
 
+/** How many processes make the bundles of a build. */
+const STEPS = 4;
+
 /** The step that makes each area's bundle from its zip. */
 const BUNDLE_STEP = fileURLToPath(new URL("./e3-showcase-bundles.ts", import.meta.url));
 
@@ -145,19 +148,45 @@ export function buildE3ShowcaseZips(e3UiDir: string): Promise<Map<string, Uint8A
 }
 
 /**
+ * Makes the bundles of every area whose zip a directory holds, in as many
+ * processes as `STEPS`: the areas dealt out by their zips' sizes, largest first
+ * to the lightest process, so no process waits behind the largest area.
+ *
+ * @param dir - The directory of the zips ({@link writeE3ShowcaseZips})
+ * @throws {Error} When a step fails, naming the area and what failed
+ */
+async function writeE3ShowcaseBundlesAtOnce(dir: string): Promise<void> {
+    const zips = [...await filesOf(dir, ".zip")].sort(([, a], [, b]) => b.byteLength - a.byteLength);
+    const steps = Array.from({ length: STEPS }, () => ({ bytes: 0, areas: [] as string[] }));
+    for (const [area, zip] of zips) {
+        const lightest = steps.reduce((least, step) => (step.bytes < least.bytes ? step : least));
+        lightest.bytes += zip.byteLength;
+        lightest.areas.push(area);
+    }
+    await Promise.all(steps.filter((step) => step.areas.length > 0).map((step) => writeE3ShowcaseBundles(dir, step.areas)));
+}
+
+/**
  * Makes every area's bundle — its package step, then its workspace made and
- * written out — and reads them.
+ * written out — and reads them. Given a directory (`E3_SHOWCASE_BUNDLES_DIR`,
+ * which CI restores while what makes the bundles has not changed), the bundles
+ * it holds are read and nothing is made; holding none, they are made there.
  *
  * @param e3UiDir - e3-ui's root, built
  * @returns Each area's bundle, by area in the areas' order
  * @throws {Error} When a step fails, with what it wrote to stderr
  */
-export function buildE3ShowcaseBundles(e3UiDir: string): Promise<Map<string, Uint8Array>> {
-    return inTemporaryDir(async (dir) => {
+export async function buildE3ShowcaseBundles(e3UiDir: string): Promise<Map<string, Uint8Array>> {
+    const make = async (dir: string) => {
         await writeE3ShowcaseZips(e3UiDir, dir);
-        await writeE3ShowcaseBundles(dir);
+        await writeE3ShowcaseBundlesAtOnce(dir);
         return filesOf(dir, ".beast2");
-    });
+    };
+    const kept = process.env["E3_SHOWCASE_BUNDLES_DIR"];
+    if (kept === undefined || kept === "") return inTemporaryDir(make);
+    await fs.mkdir(kept, { recursive: true });
+    const held = await filesOf(kept, ".beast2");
+    return held.size > 0 ? held : make(kept);
 }
 
 /**

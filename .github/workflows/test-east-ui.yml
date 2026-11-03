@@ -373,8 +373,18 @@ jobs:
           RESPONSIVE_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^' || github.event.before }}
         run: make select-responsive BASE="$RESPONSIVE_BASE" OUTPUT_DIR="$RUNNER_TEMP"
 
+      # The showcase's workspaces, deployed and run once (#1397): restored while
+      # nothing that makes them has changed, which is most of the bundle's time.
+      - name: Restore the showcase's workspaces
+        uses: actions/cache@v4
+        with:
+          key: east-ui-showcase-workspaces-${{ runner.os }}-node22-${{ hashFiles('libs/east/src/**', 'libs/east-node/packages/*/src/**', 'libs/east-web/packages/*/src/**', 'libs/e3/packages/*/src/**', 'libs/east-ui/packages/east-ui/src/**', 'libs/east-ui/packages/e3-ui/src/**', 'libs/east-ui/packages/e3-ui/test/**', 'libs/east-ui/packages/east-ui-showcase/scripts/**', 'libs/east-ui/packages/east-ui-showcase/showcase-*.ts', 'pnpm-lock.yaml') }}
+          path: ${{ runner.temp }}/showcase-workspaces
+
       - name: Build the showcase
         working-directory: libs/east-ui
+        env:
+          E3_SHOWCASE_BUNDLES_DIR: ${{ runner.temp }}/showcase-workspaces
         run: make build-showcase-js
 
       - name: Package the showcase

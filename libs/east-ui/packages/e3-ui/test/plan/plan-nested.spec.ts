@@ -46,10 +46,10 @@ describe("the nested series records", () => {
             assert.equal(top!.parts.size, 2);
             for (const part of [top!, ...top!.parts.values()]) assert.ok(part.jobs.size >= 30 && part.jobs.size <= 31, `${part.name}: ${part.jobs.size} jobs`);
         }
-        // A works is a function of its number alone: the record's two hundred are the first two hundred of any more.
+        // A works is a function of its number alone: the record's hundred are the first hundred of any more.
         const more = East.compile(ex.generateWorksAll, [])(3n, 522n);
         assert.ok(equalFor(ex.WorksByKey)(works, new Map([...more].slice(0, 2))));
-        assert.equal(ex.planWorks.default?.size, 200);
+        assert.equal(ex.planWorks.default?.size, 100);
     });
 
     test("the works' task, at its inputs' defaults, makes the works the record starts with: a page runs every task of its area as the area starts", () => {
