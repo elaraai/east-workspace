@@ -522,6 +522,7 @@ class InMemorySplitCallStore implements SplitCallStore {
     private readonly storage?: StorageBackend,
     private readonly getRepoPath?: (repo: string) => string,
     private readonly getRunner?: (repoPath: string) => TaskRunner,
+    private readonly width?: number,
   ) {}
 
   async create(id: string, record: SplitCallJob): Promise<void> {
@@ -566,7 +567,7 @@ class InMemorySplitCallStore implements SplitCallStore {
     // The job runs in this process, on the runner every task of the server
     // runs on, and outlives the request that launched it.
     void handleProcessSplitCall(
-      { storage: this.storage, splitCallStore: this, runner },
+      { storage: this.storage, splitCallStore: this, runner, ...(this.width !== undefined && { width: this.width }) },
       { id, repo: repoPath },
     ).catch(() => {
       // Error already recorded in job status by handleProcessSplitCall
@@ -614,6 +615,11 @@ export interface InMemoryTransferBackendOptions {
    * object the bytes hash to — what a test of that path runs.
    */
   commitAs?: UploadCommitForm;
+  /**
+   * How many units a `first` split call's job keeps running at once (#1110),
+   * 4 by default: a server passes its budget's cores.
+   */
+  splitCallWidth?: number;
 }
 
 export class InMemoryTransferBackend implements TransferBackend {
@@ -637,7 +643,7 @@ export class InMemoryTransferBackend implements TransferBackend {
     this.packageExport = new InMemoryPackageExportStore(baseUrl, options.storage, options.getRepoPath);
     this.workspaceDeploy = new InMemoryWorkspaceDeployStore(options.storage, options.getRepoPath, options.getRunner);
     this.repoGc = new InMemoryRepoGcStore(options.storage, options.getRepoPath, options.getRunner);
-    this.splitCall = new InMemorySplitCallStore(options.storage, options.getRepoPath, options.getRunner);
+    this.splitCall = new InMemorySplitCallStore(options.storage, options.getRepoPath, options.getRunner, options.splitCallWidth);
   }
 
   clear(): void {

@@ -513,6 +513,12 @@ export interface ProcessSplitCallDeps {
    * timeout.
    */
   signal?: AbortSignal;
+  /**
+   * How many units a `first` call's job keeps running at once (#1110), 4 by
+   * default (`FIRST_CALL_WIDTH`): the local server's budget's cores, e3-web's
+   * pool's width, e3-cloud's `splitCalls.width`.
+   */
+  width?: number;
 }
 
 /** Input for handleProcessSplitCall. */
@@ -564,7 +570,7 @@ export async function handleProcessSplitCall(
   deps: ProcessSplitCallDeps,
   input: ProcessSplitCallInput,
 ): Promise<void> {
-  const { storage, splitCallStore, runner, signal } = deps;
+  const { storage, splitCallStore, runner, signal, width } = deps;
   const { id, repo } = input;
 
   const record = await splitCallStore.get(id);
@@ -575,6 +581,7 @@ export async function handleProcessSplitCall(
     inputs: record.inputs,
     objects: record.objects.map(Number),
     then: record.then.type === 'some' ? record.then.value : null,
+    first: record.first.type === 'some' ? Number(record.first.value) : null,
     limits: {
       timeoutMs: Number(record.limits.timeoutMs),
       maxResultBytes: Number(record.limits.maxResultBytes),
@@ -615,6 +622,7 @@ export async function handleProcessSplitCall(
     const outcome = await withRunningWork(storage, repo, () => splitCallRun(storage, runner, repo, call, {
       signal: jobSignal,
       launchedAt: record.createdAt,
+      ...(width !== undefined && { width }),
       onProgress: (progress) => {
         const now = Date.now();
         if (now - reported < SPLIT_PROGRESS_INTERVAL_MS) return;

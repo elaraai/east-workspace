@@ -6,7 +6,9 @@
 /**
  * Split calls (#1032): a caller's program over a dataset's pieces, run as a
  * split task on the engine and assembled by its output kind, then `then`,
- * over the assembled output and the arguments not partitioned (#1107).
+ * over the assembled output and the arguments not partitioned (#1107). A
+ * `first` call (#1110) runs the pieces in input order until they hold its
+ * limit, and shares them with an `array` call of the same program.
  * `E3_TEST_PIECE_BYTES` makes the pieces small, so a few thousand rows are
  * many pieces; the units run on east-node.
  */
@@ -20,8 +22,8 @@ import {
   type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import type { ExecuteResult, PartitionProgress, SplitCallRequest } from '@elaraai/e3-types';
-import { readManifest } from '../dataset-open.js';
+import { decodeTaskObject, type ExecuteResult, type PartitionProgress, type SplitCallRequest } from '@elaraai/e3-types';
+import { readDatasetWhole, readManifest } from '../dataset-open.js';
 import { PermissionDeniedError } from '../errors.js';
 import { executionReadLog, inputsHash } from '../executions.js';
 import { packageImport } from '../package-files.js';
@@ -33,6 +35,7 @@ import type { StorageBackend } from '../storage/interfaces.js';
 import type { TaskResult, TaskRunner } from './interfaces.js';
 import { LocalTaskRunner } from './LocalTaskRunner.js';
 import type { OneShotGrant } from './oneShot.js';
+import { planPieces } from './pieces.js';
 import { splitCallExplain, splitCallPrepare, splitCallResult, splitCallRun, type SplitCallOutcome } from './splitCall.js';
 
 const WS = 'ws';
@@ -86,6 +89,24 @@ function counting(storage: StorageBackend, asked: Set<string>): StorageBackend {
   });
   return new Proxy(storage, { get: (target, key, receiver) => (key === 'objects' ? objects : Reflect.get(target, key, receiver)) });
 }
+
+/** Each sale's key that leaves 4 over 13, in order: 616 of 8000 sales. */
+const everyThirteenth = ir(East.function([SalesType, EmitInteger], NullType, ($, sales, emit) => {
+  $.for(sales, ($, _amount, key) => {
+    $.if(East.equal(key.remainder(13n), 4n), ($) => {
+      $(emit(key));
+    });
+  });
+}));
+
+/** The key 1500 alone. */
+const only1500 = ir(East.function([SalesType, EmitInteger], NullType, ($, sales, emit) => {
+  $.for(sales, ($, _amount, key) => {
+    $.if(East.equal(key, 1500n), ($) => {
+      $(emit(key));
+    });
+  });
+}));
 
 /** The local runner, with every unit's progress heard. */
 function tapped(inner: TaskRunner, heard: PartitionProgress[]): TaskRunner {
@@ -460,6 +481,88 @@ describe('split calls', () => {
     const ran = settled.filter((progress) => progress.cached !== true);
     assert.ok(settled.length > 4, 'the input is many pieces');
     assert.ok(ran.length >= 1 && ran.length <= 3, `only the pieces around the append ran: ${ran.length} of ${settled.length}`);
+  });
+
+  describe('a first call: the first limit elements, in input order (#1110)', () => {
+    const args = [partitioned(dataset('sales'))];
+    const firstOf = (body: Uint8Array, limit: number): SplitCallRequest => call(body, args, variant('first', { limit: BigInt(limit) }));
+
+    /** The units the runner runs, each with what it came to, by the inputs
+     *  that name it. */
+    function unitsRun(): Map<string, TaskResult> {
+      const ran = new Map<string, TaskResult>();
+      const inner = runner;
+      runner = {
+        ...inner,
+        executeUnit: async (store, taskHash, unit, options) => {
+          const result = await inner.executeUnit(store, taskHash, unit, options);
+          ran.set(unit.inputs.join(','), result);
+          return result;
+        },
+      };
+      return ran;
+    }
+
+    /** The pieces the engine cuts a launched call's task into, each by the
+     *  inputs that name its unit. */
+    async function piecesOf(launched: { task: string; inputs: readonly string[] }): Promise<string[]> {
+      const task = decodeTaskObject(await storage.objects.read(repo, launched.task));
+      return (await planPieces(storage, repo, task.inputs, launched.inputs)).pieces.map((piece) => piece.join(','));
+    }
+
+    it('answers the first limit elements of the matching array call\'s value, or every one when there are fewer', async () => {
+      const matching = Array.from({ length: 616 }, (_, i) => BigInt(4 + 13 * i));
+      for (const limit of [1, 5, 100, 616, 10_000]) {
+        await assertValue(await run(firstOf(everyThirteenth, limit)), ArrayType(IntegerType), matching.slice(0, limit));
+      }
+      await assertValue(await run(call(everyThirteenth, args, variant('array', null))), ArrayType(IntegerType), matching);
+      assert.ok(pieces() > 4, 'over many pieces');
+    });
+
+    it('starts no piece past the one that holds its first match by more than its width', async () => {
+      const launched = await splitCallPrepare(storage, repo, WS, firstOf(only1500, 1), { grant: 'any' });
+      if ('outcome' in launched) assert.fail('the call was refused');
+      const cut = await piecesOf(launched);
+      const holds = await Promise.all(cut.map(async (piece) =>
+        (decodeBeast2For(SalesType)(await readDatasetWhole(storage, repo, piece.split(',')[0]!))).has(1500n)));
+      const k = holds.indexOf(true);
+      const width = 2;
+      assert.ok(k >= 0 && k + width + 1 < cut.length, `1500 is in piece ${k} of ${cut.length}, with pieces past ${k + width}`);
+
+      const ran = unitsRun();
+      const outcome = await splitCallRun(storage, runner, repo, launched, { width });
+      if (outcome.outcome.type !== 'success') assert.fail(`the call ended ${outcome.outcome.type}: ${outcome.stderr}`);
+      const value = decodeBeast2For(ArrayType(IntegerType))(await readDatasetWhole(storage, repo, outcome.outcome.value.value));
+      assert.ok(equalFor(ArrayType(IntegerType))(value, [1500n]), `the value is ${printFor(ArrayType(IntegerType))(value)}`);
+      const started = [...ran.keys()].map((unit) => cut.indexOf(unit)).sort((a, b) => a - b);
+      assert.ok(started.includes(k), `piece ${k} ran`);
+      assert.deepEqual(started.filter((index) => index > k + width), [], `no piece past ${k + width} started: ${started.join(', ')}`);
+      assert.equal(outcome.report.type === 'some' && outcome.report.value.pieces, BigInt(cut.length), 'it reports the pieces it cut');
+    });
+
+    it('leaves the pieces it ran cached, which an array call of the same program is served', async () => {
+      const launched = await splitCallPrepare(storage, repo, WS, firstOf(everyThirteenth, 50), { grant: 'any' });
+      if ('outcome' in launched) assert.fail('the call was refused');
+      const cut = await piecesOf(launched);
+      const ran = unitsRun();
+      const outcome = await splitCallRun(storage, runner, repo, launched);
+      assert.equal(outcome.outcome.type, 'success', outcome.stderr);
+      const finished = [...ran].filter(([, result]) => result.state === 'success').map(([unit]) => cut.indexOf(unit));
+      assert.ok(finished.length > 0 && finished.length < cut.length, `it ran ${finished.length} of ${cut.length} pieces`);
+
+      heard.length = 0;
+      await run(call(everyThirteenth, args, variant('array', null)));
+      const served = heard.filter((progress) => progress.phase === 'partition' && progress.state === 'completed' && progress.cached === true)
+        .map((progress) => progress.index);
+      assert.deepEqual(finished.filter((index) => !served.includes(index)), [], 'each piece the first call ran was served from the cache');
+      assert.ok(served.length < cut.length, 'and the rest ran');
+    });
+
+    it('answers invalid for a limit below 1, and runs nothing', async () => {
+      const launched = await splitCallPrepare(storage, repo, WS, firstOf(everyThirteenth, 0), { grant: 'any' });
+      if (!('outcome' in launched) || launched.outcome.type !== 'invalid') assert.fail('launched');
+      assert.equal(launched.outcome.value.diagnostics[0]!.message, `a first call answers from 1 to ${Number.MAX_SAFE_INTEGER} elements: its limit is 0`);
+    });
   });
 
   it('reports how it ran: the pieces, the units it ran and was served, and its peak; served whole, the pieces its record names (#1105)', async () => {
