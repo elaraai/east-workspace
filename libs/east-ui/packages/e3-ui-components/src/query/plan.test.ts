@@ -378,9 +378,12 @@ describe("the request", () => {
         const zero = decodeBeast2(fold.value.zero);
         expect(isTypeEqual(fromEastTypeValue(zero.type), combine.output)).toBe(true);
         expect(equalFor(combine.output)(zero.value as never, decodeBeast2For(combine.output)(fold.value.zero) as never)).toBe(true);
-        // The body takes the inputs, then emit; the final function the assembled output, then the inputs.
+        // The body takes the inputs, then emit; the final function the assembled output, then the inputs not
+        // partitioned (#1107): here none, as the orders are cut.
         const body = functionType(p.request.bodyIr);
         expect([body.inputs.length, isTypeEqual(body.output, NullType)]).toEqual([2, true]);
+        if (p.request.then.type !== "some") throw new Error("expected a final function");
+        expect(functionType(p.request.then.value).inputs.length).toBe(1);
     });
 
     test("a split call answers at the type the one-shot translation gives: the query's result type", () => {

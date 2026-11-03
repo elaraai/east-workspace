@@ -684,6 +684,13 @@ export async function oneShotExecute(
  * grant any other. A request found wrong is answered by the poll, as an
  * `invalid` result.
  *
+ * The final function, `then`, runs once over the assembled output and then the
+ * arguments not partitioned, in their order: the partitioned ones are the
+ * pieces' to read, and are never staged for it. One that takes any other count
+ * is `invalid`, naming its count and the call's. A client of this release and
+ * a server of an earlier one disagree on what `then` is given: keep them in
+ * step.
+ *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
  * @param ws - The workspace whose datasets the call reads
