@@ -30,6 +30,7 @@ describeEast("Sheet — action column examples (#1474)", test => {
         sheetActionsTickets: ex.sheetActionsTickets,
         sheetActionsReadOnly: ex.sheetActionsReadOnly,
         sheetActionsPhone: ex.sheetActionsPhone,
+        sheetActionsPinned: ex.sheetActionsPinned,
     });
 }, { platformFns: TestImpl });
 

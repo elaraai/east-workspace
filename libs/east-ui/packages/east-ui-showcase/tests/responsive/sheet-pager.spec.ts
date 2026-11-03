@@ -32,6 +32,8 @@ async function openPhone(page: Page): Promise<Locator> {
     return card;
 }
 
+const PINNED = "e3/sheet/sheet-actions/sheetActionsPinned";
+
 /** The element the rows scroll in. */
 const scrollOf = (card: Locator): Promise<number> => card.evaluate((el) => {
     const header = el.querySelector("[data-slot='header']")!;
@@ -131,6 +133,36 @@ async function openLibrary(page: Page, card: Locator, tab: string): Promise<Loca
     await settled(page);
     return drawer;
 }
+
+test("with a column pinned, the Row column pages beside it: the pinned column keeps the left, its head over its cells, the row's cells each under its head @mobile", async ({ page }) => {
+    const entry = await visitBuilder(page, PINNED, ROOT, "light");
+    const card = entry.locator("[data-sheet-card]").first();
+    await expect(card).toHaveAttribute("data-pin", "");
+    const root = card.locator("xpath=ancestor::*[@data-builder-frame][1]");
+    await root.locator("[data-slot='pagerReadout']").click();
+    await page.getByRole("menuitemcheckbox", { name: /Row number/ }).click();
+    await expect(card).toHaveAttribute("data-row-numbers", "");
+    await expect.poll(() => scrollOf(card)).toBe(0);
+    const row = card.locator("[data-slot='row']").first();
+    const boxes = async () => Promise.all([
+        card.locator("[data-slot='headerCell'][data-key='title']").boundingBox(),
+        card.locator("[data-slot='headerGutter']").boundingBox(),
+        row.locator("[data-slot='cell'][data-key='title']").boundingBox(),
+        row.locator("[data-slot='gutter']").boundingBox(),
+    ]);
+    const [titleHead, rowHead, title, number] = await boxes();
+    expect(Math.abs(titleHead!.x - title!.x)).toBeLessThan(1);
+    expect(Math.abs(rowHead!.x - number!.x)).toBeLessThan(1);
+    expect(Math.abs(rowHead!.x - (titleHead!.x + titleHead!.width))).toBeLessThan(1);
+    expect(Math.abs(rowHead!.y - titleHead!.y)).toBeLessThan(1);
+    expect(Math.abs(number!.y - title!.y)).toBeLessThan(1);
+    // Paged on, the pinned column stays and the Row column passes under it.
+    await card.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect.poll(() => scrollOf(card)).toBeGreaterThan(0);
+    const [after] = await boxes();
+    expect(Math.abs(after!.x - titleHead!.x)).toBeLessThan(1);
+});
 
 test.describe("A phone's Sheet Library (SH11, R7)", () => {
     test("a tap on a status sets it on the selected order, the hint naming the order and the row marked current @mobile", async ({ page }) => {

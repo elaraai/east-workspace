@@ -817,11 +817,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // grid ends at its own last column, never at an empty track after it. A
     // phone's frame: any pinned column, then a slot a column (SH1, SH4) — the
     // gutter's cells drawn nowhere (the recipe), so they take no track, but as
-    // the Row column, a slot of its own before the others (SH2).
+    // the Row column, a slot of its own first among the paged ones (SH2).
     const gridTemplate = useMemo(() => {
         if (phoneFrame) {
             const tracks = columns.list.map((_c, i) => (i === 0 && pinned ? `${PHONE_PIN_PX}px` : `${slotPx}px`));
-            return (rowNumbers ? [`${slotPx}px`, ...tracks] : tracks).join(" ");
+            if (rowNumbers) tracks.splice(pinned ? 1 : 0, 0, `${slotPx}px`);
+            return tracks.join(" ");
         }
         const tracks = columns.list.map((c, i) => (i === columns.list.length - 1 ? `minmax(${c.width}px, 1fr)`
             : c.kind === "text" ? `minmax(${c.width}px, ${Math.round(c.width * 2.5)}px)` : `${c.width}px`));
@@ -3288,6 +3289,14 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         measure();
         return () => observer.disconnect();
     }, [viewFrame]);
+    // The Row column shown or hidden puts the window back at its start (SH2): once it is laid out, for the browser re-snaps
+    // the scroll to the column it rested on as the tracks change.
+    const rowNumbersWere = useRef(rowNumbers);
+    useLayoutEffect(() => {
+        if (rowNumbersWere.current === rowNumbers) return;
+        rowNumbersWere.current = rowNumbers;
+        if (viewFrame !== undefined) viewFrame.scrollLeft = 0;
+    }, [rowNumbers, viewFrame]);
     // The widest number each of the gutter's numbers can show: a row's — a
     // flat sheet's blank padding and a proposal's among them — a band's, a
     // loose row's and a line's; and, apart, a line's with its sub rows'
