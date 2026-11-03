@@ -2,7 +2,7 @@
 
 **Status:** ruled 3 Nov 2026: every recommendation in §8 adopted, and the DX in §9 approved. To be built on PR #1481.
 **Visual source:** `Mobile Sheet Spec.html` (self-contained), the designer's canvas trimmed to the Sheet: production at 402 px beside the proposal, and spec cards 05 Column pager, 06 Grid, 07 Action bar and 08 Cell editors.
-**Example it is drawn on:** `sheetActionsWorkOrders` (e3-ui `test/sheet/sheet-actions.examples.tsx`), three orders and their steps, starting with one draft so the session bar is live.
+**Example it is drawn on:** `sheetActionsWorkOrders` (e3-ui `test/sheet/sheet-actions.examples.tsx`), three orders and their steps, starting with one draft so the session row is live.
 **Applies at:** a frame 560 px wide or narrower (the Sheet's `phoneFrame`). The frame around the grid is `Mobile Builder Frame Spec.md`; Filters and Search Records are `Mobile Filters Spec.md`.
 
 ## 1 · Why
@@ -100,7 +100,7 @@ The frame's drawers (`Mobile Builder Frame Spec.md` FR4–FR5) hold the Sheet's 
 | R2 | The action cell's summary | On a second line at 44 px rows | Hidden on a phone (X4) | The design's |
 | R3 | When the action bar opens | On a tapped Action cell, with ⌄ close | On any selected row | The design's: a tap on another cell opens its editor instead |
 | R4 | ← → with the grid focused | Page the columns | Move the ring between cells (desktop grammar) | Page the columns on a phone frame only; a hardware keyboard on a phone is rare |
-| R5 | The gutter on a phone | Gone: no checkbox, no #, no ⋮ row actions, no drag | Folded to 108 (checkbox, #, ⋮ with insert, discard and the grip) | Gone, as drawn; insert, delete and duplicate stay in the Inspector, discard in the session bar; row number becomes the optional column |
+| R5 | The gutter on a phone | Gone: no checkbox, no #, no ⋮ row actions, no drag | Folded to 108 (checkbox, #, ⋮ with insert, discard and the grip) | Gone, as drawn; insert, delete and duplicate stay in the Inspector, discard in the session row; row number becomes the optional column |
 | R6 | Range selection (T8) | Not drawn on a phone | A range down the action column takes one case on every row | Not on a phone in this round |
 | R7 | The Columns tab | Tap goes to the column | Each column's eye hides or shows it | Both on a phone: the row goes to the column, its eye still hides it |
 | R8 | The order's stats (Complete · Good) | Shown in the Inspector | The band's own fields; the Sheet knows no "complete" or "good" | The band's own fields, as today; stats an author wants come from their own `inspector` |
