@@ -23,7 +23,8 @@
  *     500 at 0.04em in `--ink-4`. `+ Tab`: 34 tall, padded 0 12, a dashed
  *     `--rule-strong` on `--r-sm`, mono 10.5/600 at 0.1em in caps, `--ink-4`.
  *   - count: the count line, padded 0 16 0 8, mono 10.5 tabular in
- *     `--ink-3`, its number 600 in `--ink`.
+ *     `--ink-3`, its number 600 in `--ink`; a row short of room cuts it with
+ *     an ellipsis, never the buttons after it.
  *
  * @packageDocumentation
  */
@@ -133,8 +134,11 @@ export const toolbarPhoneSlotRecipe = defineSlotRecipe({
             _focusVisible: { outline: "none", boxShadow: "focus" },
         },
         count: {
-            flex: "none",
+            display: "block",
+            minWidth: "0",
             alignSelf: "center",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
             paddingInlineStart: "{spacing.2}",
             paddingInlineEnd: "{spacing.4}",
             fontFamily: "mono",

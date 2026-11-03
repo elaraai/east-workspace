@@ -137,9 +137,11 @@ export interface ToolbarItem {
      *  button the rail is there, the Search Records button the key search is (`Mobile Builder Frame Spec.md` FR2). Its
      *  `order` places it in the row — items with none keep theirs, before those with one — and `grow` gives it the row's
      *  slack (the view tabs, which scroll inside it). A toolbar outside a frame never draws it. */
-    phone?: { readonly form: ReactNode; readonly order?: number | undefined; readonly grow?: boolean | undefined } | undefined;
+    phone?: { readonly form: ReactNode; readonly order?: number | undefined; readonly grow?: boolean | undefined; readonly shrink?: boolean | undefined } | undefined;
     /** Takes the row's slack, and may shrink to nothing: set by the frame for a phone form that `grow`s. */
     grow?: boolean | undefined;
+    /** Takes no slack, and gives way once the row has nothing left to fold, down to nothing: set by the frame for a phone form that `shrink`s, the count line. */
+    shrink?: boolean | undefined;
 }
 
 export interface ToolbarProps {
@@ -242,7 +244,7 @@ export const Toolbar = memo(function Toolbar({ items, gap }: ToolbarProps) {
                 const key = el.dataset["toolbarItem"];
                 if (key === undefined) continue;
                 // An item that grows takes the slack the rest leave: weighed at no width, it moves nothing the toolbar chooses by.
-                if (el.hasAttribute("data-toolbar-grow")) continue;
+                if (el.hasAttribute("data-toolbar-grow") || el.hasAttribute("data-toolbar-shrink")) continue;
                 const known = measured.current.get(key)?.widths.get(Number(el.dataset["toolbarForm"]));
                 if (known === undefined || Math.abs(known - el.getBoundingClientRect().width) > MOVED_PX) itemMoved = true;
             }
@@ -305,7 +307,9 @@ export const Toolbar = memo(function Toolbar({ items, gap }: ToolbarProps) {
             if (key === undefined || m === undefined) continue;
             const form = Number(el.dataset["toolbarForm"]);
             // An item that grows is weighed at no width: it takes the slack the rest leave, never a width of its own.
-            const px = el.hasAttribute("data-toolbar-grow") ? 0 : el.getBoundingClientRect().width;
+            // One that gives way is weighed whole, whatever it has given: the row folds the rest first, and cuts it only where they cannot.
+            const px = el.hasAttribute("data-toolbar-grow") ? 0
+                : el.hasAttribute("data-toolbar-shrink") ? Math.max(el.scrollWidth, el.firstElementChild?.scrollWidth ?? 0) : el.getBoundingClientRect().width;
             const was = m.widths.get(form);
             // Its content moved: what the other forms measured is not known any more.
             if (was !== undefined && Math.abs(was - px) > MOVED_PX) m.widths.clear();
@@ -428,7 +432,7 @@ export const Toolbar = memo(function Toolbar({ items, gap }: ToolbarProps) {
         if (isEmptyForm(node)) return null;
         return (
             <Box key={it.key} css={styles.item} data-toolbar-item={it.key} data-toolbar-form={form}
-                data-toolbar-end={firstEnd ? "" : undefined} data-toolbar-grow={it.grow === true ? "" : undefined}>
+                data-toolbar-end={firstEnd ? "" : undefined} data-toolbar-grow={it.grow === true ? "" : undefined} data-toolbar-shrink={it.shrink === true ? "" : undefined}>
                 {node}
             </Box>
         );

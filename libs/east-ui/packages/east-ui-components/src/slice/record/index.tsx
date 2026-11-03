@@ -465,7 +465,7 @@ export function useRecordSliceToolbarItems(slice: Bind | undefined, options: { p
     // row draws it as its count line, after the views (`Mobile Builder Frame Spec.md` FR2).
     return useMemo(() => (made.summary === undefined ? items
         : [...items, { key: "record-summary", side: "end" as const, rank: SUMMARY_RANK, forms: [made.summary, null],
-            phone: { form: <Box as="span" css={phoneStyles.count} data-toolbar-count="">{made.summary}</Box> } }]), [items, made.summary, phoneStyles]);
+            phone: { form: <Box as="span" css={phoneStyles.count} data-toolbar-count="">{made.summary}</Box>, shrink: true } }]), [items, made.summary, phoneStyles]);
 }
 
 /** A preset over several records: selected when every part holds it; a pick is the product's own toggle. */
@@ -568,5 +568,5 @@ export function useRecordSlicesToolbarItems(slices: Product | undefined, options
     // As one record's: after every step of the rail, before the host's own items; a phone's row's count line.
     return useMemo(() => (made.summary === undefined ? items
         : [...items, { key: "record-summary", side: "end" as const, rank: SUMMARY_RANK, forms: [made.summary, null],
-            phone: { form: <Box as="span" css={phoneStyles.count} data-toolbar-count="">{made.phoneSummary}</Box> } }]), [items, made.summary, made.phoneSummary, phoneStyles]);
+            phone: { form: <Box as="span" css={phoneStyles.count} data-toolbar-count="">{made.phoneSummary}</Box>, shrink: true } }]), [items, made.summary, made.phoneSummary, phoneStyles]);
 }

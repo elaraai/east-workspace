@@ -99,6 +99,8 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             minHeight: "0",
             background: "bg.surface",
             overflow: "hidden",
+            /* A phone's closed panes stand outside the frame: focus reaching one must not scroll the frame to it. */
+            "&[data-phone]": { overflow: "clip" },
             "&[data-loading] > [data-frame-slot]:not([data-frame-live])": { opacity: 0 },
             "&[data-loading] [data-frame-slot]": { transition: "none" },
         },

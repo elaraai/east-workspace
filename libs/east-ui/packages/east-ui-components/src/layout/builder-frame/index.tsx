@@ -504,7 +504,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
         const items = toolbar.filter((it): it is ToolbarItem => !!it && !moved.has(it.key));
         const phoned = items.map((it): ToolbarItem => it.phone === undefined ? it
             // One cluster, in the phone forms' order: the views, the count, Filters, Search Records.
-            : { key: it.key, forms: [it.phone.form], keep: it.keep, held: it.held, version: it.version, grow: it.phone.grow });
+            : { key: it.key, forms: [it.phone.form], keep: it.keep, held: it.held, version: it.version, grow: it.phone.grow, shrink: it.phone.shrink });
         const order = (it: ToolbarItem) => it.phone?.order ?? 0;
         return phoned.map((it, i) => ({ it, at: order(items[i]!), i })).sort((a, b) => a.at - b.at || a.i - b.i).map(({ it }) => it);
     }, [toolbar, secondKeys, phone]);
@@ -768,7 +768,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
                 return dock !== undefined && drawn(side) ? drawer(side, dock) : null;
             })}
             {/* A phone's view over the whole builder, a toolbar item's (FR7): empty, it takes no pointer. */}
-            {phone && <Box ref={setOverlaySlot} css={styles.overlay} data-frame-slot="overlay" />}
+            {phone && <Box ref={setOverlaySlot} css={styles.overlay} data-frame-slot="overlay" inert={covered} aria-hidden={covered ? true : undefined} />}
             {covered && <Box css={styles.loading} data-builder-loading="" role="status" aria-label={label === undefined ? "Loading builder" : `Loading ${label}`}
                 style={{ "--builder-loading-pitch": `${loadingPitch}px`, ...(footerLive ? { bottom: `${footerHeight ?? 0}px` } : {}) } as CSSProperties}>
                 {toolbar !== undefined && <Box css={[styles.toolbar, styles.loadingBar]} aria-hidden>

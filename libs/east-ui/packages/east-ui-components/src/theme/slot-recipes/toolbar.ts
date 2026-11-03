@@ -48,6 +48,7 @@ export const toolbarSlotRecipe = defineSlotRecipe({
             flex: "none",
             "&[data-toolbar-end]": { marginInlineStart: "auto" },
             "&[data-toolbar-grow]": { flex: "1 1 auto", minWidth: "0", alignSelf: "stretch" },
+            "&[data-toolbar-shrink]": { flex: "0 1 auto", minWidth: "0", overflow: "hidden" },
         },
     },
     variants: {
