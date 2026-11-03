@@ -1337,6 +1337,14 @@ translation.fn();         // East.function([Array<Order>], Float, …)
   order, a struct's fields in declared order.
 - **The result is the sink.** A `one` query's result is its output, `maybe`
   fills an `Option`, and `many` pushes each output onto an `Array`.
+- **A stage's rows fold into the step that reads them (#1140).** `map(f)` or
+  `[f]` before a step that reads an array only row by row, in order — `add`,
+  `length`, `min`, `max`, `any`, `all`, `first`, `.[:n]` for a literal `n`, or
+  a `reduce` over `.[]` whose start reads nothing of its input — is one loop:
+  each row is computed where collecting it would compute it, and folded at
+  once, and the array between them is never built. `.orders | map(.total) |
+  add` holds one total at a time. Any other step, a step a `def` names, and a
+  stage bound to a variable collect their rows as written.
 - **Every value has the checker's type.** Each node's outputs are converted to
   the type the checker gave it: Integer widened to Float, `T` and `null` to
   `Option<T>`, arrays, dicts, structs and variants part by part. Narrowing is
@@ -1368,6 +1376,19 @@ lazy input stops being read there (§15.6).
 first(.orders[] | select(.total > 1000)) | .id
 ```
 → `.some 1002` · Option<Integer>, maybe (the loop over the orders stops at the second)
+
+A stage folded into `first`, `.[:n]`, `any` or `all` (§15.1) stops there too,
+when making a row never raises. jq makes every row of `map(f)` before the step
+after it reads one, so a row past the answer that raises makes the query
+raise: the stage makes every row when `f` may raise — a division or a
+remainder, `error`, a conversion such as `tonumber`, a `def` or a function
+value — and in a lenient place, where the checker lets a value of a kind a step
+cannot take by, to raise.
+
+```jq
+.orders | map(select(.total > 1000)) | first | .id
+```
+→ `.some 1002` · Option<Integer>, one (the stage stops at the second order, and the array it collected is one row)
 
 ### 15.3 Control and errors
 

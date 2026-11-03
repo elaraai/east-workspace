@@ -85,7 +85,26 @@ class RootValue:
     root: bool = True
 
 
-Value = A | RootValue
+@dataclass(frozen=True)
+class RowsValue:
+    """The rows a stage collects, made one at a time for the step after it (#1140).
+
+    ``map(f)`` or ``[f]`` before a step that reads its input only row by row,
+    in order, which folds each row as it is made, so the array between them is
+    never built.
+    """
+
+    #: The array the stage collects, as the checker typed it.
+    type: EastType
+    #: Generates the stage in a block, giving each row to its ``each`` as the array's element type.
+    each: Callable[[Block, Emit], None]
+    #: Whether making a row never raises: then a step that has what it needs may leave the rest unmade, and a step
+    #: that needs none, make none.
+    stops: bool
+    rows: bool = True
+
+
+Value = A | RootValue | RowsValue
 
 
 class Block:
@@ -139,6 +158,10 @@ class Env:
     #: The path of a fold's update that sets a key of the fold's state in place: nothing else holds the state, so it
     #: changes without a copy (#1093).
     in_place: str | None = None
+    #: Whether this is a lenient place, as the checker checked it: a ``try``'s body, or a ``def`` called from one.
+    #: There the checker lets by a value of a kind a step cannot take, to raise at run time, so a stage's rows may
+    #: raise whatever the filters that make them (#1140).
+    lenient: bool = False
 
 
 @dataclass(frozen=True)
@@ -173,6 +196,152 @@ class TranslationError(Exception):
 def is_root(value: Value) -> bool:
     """Whether a value is the root."""
     return isinstance(value, RootValue)
+
+
+def is_rows(value: Value) -> bool:
+    """Whether a value is a stage's rows, made one at a time and never collected (#1140)."""
+    return isinstance(value, RowsValue)
+
+
+#: The steps that read an array only row by row, in order, called with no arguments: a stage's rows fold into them as
+#: they are made (#1140).
+_ROW_FOLDS = frozenset({"add", "length", "min", "max", "any", "all", "first"})
+
+
+def _folds_rows(right: JqNode, env: Env) -> bool:
+    """Whether the step at the head of a pipe's right side reads its input, an array, only row by row, in order (#1140).
+
+    ``add``, ``length``, ``min``, ``max``, ``any``, ``all`` or ``first``, as
+    the builtins (no ``def`` of the name in scope); ``.[:n]`` for a literal
+    ``n``; or a ``reduce`` over ``.[]`` whose start reads nothing of its input.
+    """
+    step = right
+    while step.type == "pipe":
+        step = step.value["right"] if step.value["left"].type == "identity" else step.value["left"]
+    if step.type == "call":
+        name = step.value["name"]
+        return len(step.value["args"]) == 0 and name in _ROW_FOLDS and f"{name}/0" not in env.defs
+    if step.type == "slice":
+        v = step.value
+        return (v["target"].type == "identity" and v["from"].type == "none" and v["to"].type == "some"
+                and _count_of(v["to"].value) is not None)
+    if step.type == "reduce":
+        v = step.value
+        return (v["source"].type == "iterate" and v["source"].value["target"].type == "identity"
+                and _reads_no_input(v["init"]))
+    return False
+
+
+def _count_of(n: JqNode) -> int | None:
+    """A literal count of rows, an Integer of 0 or more: the ``n`` of ``.[:n]``."""
+    if n.type != "literal" or n.value.type != "integer":
+        return None
+    count = n.value.value
+    return count if count >= 0 else None
+
+
+def _reads_no_input(n: JqNode) -> bool:
+    """Whether a filter reads nothing of its input: a constant, a variable, ``[]`` or ``{}``.
+
+    A fold's start, which a stage's rows can be folded from.
+    """
+    if n.type in ("literal", "variable"):
+        return True
+    if n.type == "negate":
+        return _reads_no_input(n.value)
+    if n.type == "array":
+        return n.value.type == "none"
+    if n.type == "object":
+        return len(n.value) == 0
+    return False
+
+
+#: Builtins that raise for nothing the checker lets reach them, by name and arity: given arguments that never raise,
+#: they never raise. The checker refuses a value of a kind a builtin cannot take, outside a lenient place, so what is
+#: left to raise at run time is a value's own: a zero divisor, a string that is no number, a count below zero,
+#: ``error``.
+_NEVER_RAISE = frozenset({
+    "select/1", "not/0", "length/0", "utf8bytelength/0", "type/0", "tostring/0", "tojson/0", "empty/0", "keys/0",
+    "keys_unsorted/0", "has/1", "in/1", "contains/1", "inside/1", "startswith/1", "endswith/1", "ltrimstr/1",
+    "rtrimstr/1", "ascii_downcase/0", "ascii_upcase/0", "floor/0", "ceil/0", "round/0", "fabs/0", "sqrt/0", "abs/0",
+    "values/0", "nulls/0", "numbers/0", "strings/0", "booleans/0", "arrays/0", "objects/0", "iterables/0",
+    "scalars/0", "map/1", "add/0", "any/0", "all/0", "min/0", "max/0",
+})
+
+
+def _cannot_raise(n: JqNode, env: Env, labels: frozenset[str] = frozenset()) -> bool:  # noqa: C901
+    """Whether a filter never raises, whatever its input: what a step that has the rows it needs may leave unmade (#1140).
+
+    jq makes every row of a stage before the step after it reads one, and a
+    row that raises makes the whole query raise. Conservative: paths,
+    literals, comparisons, ``and``, ``or``, ``+``, ``-`` and ``*``, objects,
+    arrays, strings, ``if``, ``//``, ``try``, a ``label`` and a ``break`` to
+    it, and the builtins in :data:`_NEVER_RAISE`, of parts that never raise.
+    ``/`` and ``%`` (a zero divisor), a ``def`` or a call of one, a function
+    value, any other builtin, and a ``break`` out of the filter, which leaves
+    the stage as a raise does, may raise.
+
+    Args:
+        n: The filter.
+        env: What is in scope where it runs.
+        labels: The labels the filter is inside, which a ``break`` may leave.
+    """
+    def every(nodes: list[JqNode]) -> bool:
+        return all(_cannot_raise(m, env, labels) for m in nodes)
+    kind = n.type
+    v = n.value
+    if kind in ("identity", "literal", "variable", "descend"):
+        return True
+    if kind == "break":
+        return v in labels
+    if kind == "field":
+        return every([v["target"]])
+    # An index or a bound jq may refuse for its value (`null`, a key of another kind) only when computed: a literal
+    # never is.
+    if kind == "index":
+        return v["index"].type == "literal" and every([v["target"]])
+    if kind == "slice":
+        return ((v["from"].type == "none" or v["from"].value.type == "literal")
+                and (v["to"].type == "none" or v["to"].value.type == "literal") and every([v["target"]]))
+    if kind == "iterate":
+        return every([v["target"]])
+    if kind in ("pipe", "comma", "alternative"):
+        return every([v["left"], v["right"]])
+    if kind == "binary":
+        return v["op"] not in ("/", "%") and every([v["left"], v["right"]])
+    if kind == "negate":
+        return every([v])
+    if kind == "array":
+        return v.type == "none" or every([v.value])
+    # A computed key that is no string raises.
+    if kind == "object":
+        return all(entry["key"].type != "computed" and (entry["value"].type == "none" or every([entry["value"].value]))
+                   for entry in v)
+    if kind == "string":
+        return all(part.type == "text" or every([part.value]) for part in v)
+    if kind == "if":
+        return (all(every([branch["condition"], branch["then"]]) for branch in v["branches"])
+                and (v["otherwise"].type == "none" or every([v["otherwise"].value])))
+    # What `try` runs raises into its handler, which may raise; a `break` leaves it.
+    if kind == "try":
+        return not _breaks_out(v["body"], labels) and (v["catch"].type == "none" or every([v["catch"].value]))
+    if kind == "label":
+        return _cannot_raise(v["body"], env, labels | {v["name"]})
+    # A pattern that destructures may not match its value.
+    if kind == "bind":
+        return all(pattern.type == "variable" for pattern in v["patterns"]) and every([v["source"], v["body"]])
+    if kind == "call":
+        key = f"{v['name']}/{len(v['args'])}"
+        return key in _NEVER_RAISE and key not in env.defs and every(list(v["args"]))
+    return False
+
+
+def _breaks_out(n: JqNode, labels: frozenset[str]) -> bool:
+    """Whether a filter may ``break`` to a label it is not inside: leave itself, as a raise does."""
+    if n.type == "break":
+        return n.value not in labels
+    inner = labels | {n.value["name"]} if n.type == "label" else labels
+    return any(child.node is not None and _breaks_out(child.node, inner) for child in jq_children(n))
 
 
 def _fits(t: EastType, shape: Shape) -> bool:
@@ -1080,6 +1249,11 @@ class Translator:
             if v["left"].type == "identity":
                 self.gen(v["right"], at("pipe.right"), b, x, env, emit)
                 return
+            # A stage that collects rows, before a step that folds them one at a time: the rows, never collected (#1140).
+            rows = self.rows_of(v["left"], at("pipe.left"), v["right"], x, env)
+            if rows is not None:
+                self.gen(v["right"], at("pipe.right"), b, rows, env, emit)
+                return
             self.gen(v["left"], at("pipe.left"), b, x, env,
                      lambda b2, lv: self.gen(v["right"], at("pipe.right"), b2, lv, env, emit))
             return
@@ -1113,6 +1287,10 @@ class Translator:
             self.gen_slice(n, path, b, x, env, emit)
             return
         if kind == "iterate":
+            # `.[]` on a stage's rows, as a `reduce` over them reads them (#1140): each row as it is made.
+            if is_rows(x) and v["target"].type == "identity":
+                x.each(b, emit)  # type: ignore[union-attr]
+                return
             self.gen(v["target"], at("iterate.target"), b, x, env,
                      lambda b2, tv: self.iterate(b2, self.expr(tv, path), v["optional"], path, emit))
             return
@@ -1197,6 +1375,78 @@ class Translator:
             return
         raise self.gap(f"a {kind} node")
 
+    def rows_of(self, left: JqNode, path: str, right: JqNode, x: Value, env: Env) -> RowsValue | None:
+        """The rows a pipe's left stage collects, made one at a time for the step after it (#1140).
+
+        When the stage collects a stream — ``map(f)``, or ``[f]`` — and the
+        step reads the array only row by row, in order (:func:`_folds_rows`),
+        the step folds each row as the stage makes it, and the array is never
+        built. Each row is bound as it is made, so it is computed where
+        collecting it would compute it, raising where that would, whether or
+        not the step reads it. ``None`` for any other pipe, which collects the
+        array as it is written; and for a stage ``gen`` would not make, or
+        would make as other than one array of the checker's type.
+        """
+        is_map = (left.type == "call" and left.value["name"] == "map" and len(left.value["args"]) == 1
+                  and "map/1" not in env.defs)
+        if not is_map and not (left.type == "array" and left.value.type == "some"):
+            return None
+        if is_root(x) or is_rows(x) or not _folds_rows(right, env):
+            return None
+        # The stage as `gen` makes it: reached, one array of the checker's type, which needs no converting.
+        input_shape = self.checked.input_at(path, env.instance)
+        if input_shape is None or (isinstance(input_shape, TypeShape) and input_shape.type.type == "Never"):
+            return None
+        e = self.env_for(path, env, x)
+        r = self.result(path, e)
+        if (r is None or r.mult.lo != 1 or r.mult.hi != 1 or not isinstance(r.shape, TypeShape)
+                or r.shape.type.type != "Array"):
+            return None
+        typ = r.shape.type
+        element = typ.value
+
+        def row(b: Block, v: A, each: Emit) -> None:
+            each(b, self.bind(b, self.widen_to(b, v, element, path), "row"))
+        if left.type == "call":
+            # As the `map` rule makes them: `f` on each of the input's elements.
+            if self.checked.opened(path, e.instance) is not None:
+                return None
+            f = left.value["args"][0]
+            arg_path = child_path(path, "call.args[0]")
+
+            def each_of_map(b: Block, each: Emit) -> None:
+                self.iterate(b, self.expr(x, path), False, path, lambda b2, item: self.gen(
+                    f, arg_path, b2, item, e, lambda b3, v: row(b3, v, each)))
+            return RowsValue(typ, each_of_map, not env.lenient and _cannot_raise(f, env))
+        # As `[f]` makes them: `f`'s outputs.
+        body = left.value.value
+
+        def each_of_collect(b: Block, each: Emit) -> None:
+            self.gen(body, child_path(path, "array.some"), b, x, e, lambda b2, v: row(b2, v, each))
+        return RowsValue(typ, each_of_collect, not env.lenient and _cannot_raise(body, env))
+
+    def first_rows(self, b: Block, rows: RowsValue, n: int, path: str) -> A:
+        """The first ``n`` rows of a stage, collected as they are made (#1140).
+
+        The rows after them are made and let go, or left unmade when making one
+        never raises.
+        """
+        kept = self.declare(b, self.empty_array(rows.type.value), "kept")
+        if n == 0 and rows.stops:
+            return kept
+        limit = self.int_(n)
+
+        def keep(b2: Block, row: A, label: Label | None) -> None:
+            self.if_else(b2, self.lt(self.size(kept, path), limit, path), lambda b3: self.push(b3, kept, row, path), None, path)
+            if label is not None:
+                self.if_else(b2, self.b("GreaterEqual", [IntegerType], [self.size(kept, path), limit], BooleanType, path),
+                             lambda b3: self.brk(b3, label), None, path)
+        if rows.stops:
+            self.once(b, lambda b2, label: rows.each(b2, lambda b3, row: keep(b3, row, label)), path)
+        else:
+            rows.each(b, lambda b2, row: keep(b2, row, None))
+        return kept
+
     def negate(self, b: Block, v: A, path: str, emit: Emit) -> None:
         """``-v``: a number negated; any other value raises jq's error, naming its kind."""
         o = self.open(v)
@@ -1221,9 +1471,15 @@ class Translator:
                           path)
 
     def expr(self, v: Value, path: str) -> A:
-        """A value that must be an expression: the root is only ever read a field at a time."""
+        """A value that must be an expression.
+
+        The root is only ever read a field at a time, and a stage's rows only
+        by the step that folds them (#1140).
+        """
         if is_root(v):
             raise self.gap(f"the whole root as a value at {self.text(path) or 'the program'}")
+        if is_rows(v):
+            raise self.gap(f"a stage's rows, never collected, as a value at {self.text(path) or 'the program'}")
         return v  # type: ignore[return-value]
 
     # ─── Paths ──────────────────────────────────────────────────────────────
@@ -1237,7 +1493,7 @@ class Translator:
                 raise self.gap(f".{name} is not an input")
             emit(b, input_expr)
             return
-        e = self.open(v)  # type: ignore[arg-type]
+        e = self.open(self.expr(v, path))
         t = e.type
         if t.type == "Null":
             emit(b, self.null(path))
@@ -1372,9 +1628,19 @@ class Translator:
                 return
             self.collected(option.value, child_path(path, step), b2, x, env, then)
 
-        bound(b, v["from"], "slice.from.some", lambda b2, a: bound(b2, v["to"], "slice.to.some", lambda b3, c: self.gen(
-            v["target"], child_path(path, "slice.target"), b3, x, env,
-            lambda b4, tv: self.slice_of(b4, self.expr(tv, path), a, c, optional, path, emit))))
+        def slice_rows(b3: Block, a: A | None, c: A | None) -> None:
+            # `.[:n]` on a stage's rows (#1140): its first n, kept as they are made.
+            if is_rows(x) and v["to"].type == "some":
+                count = _count_of(v["to"].value)
+                if count is None:
+                    raise self.gap(f"{self.text(path)} on a stage's rows")
+                self.slice_of(b3, self.first_rows(b3, x, count, path), a, c, optional, path, emit)  # type: ignore[arg-type]
+                return
+            self.gen(v["target"], child_path(path, "slice.target"), b3, x, env,
+                     lambda b4, tv: self.slice_of(b4, self.expr(tv, path), a, c, optional, path, emit))
+
+        bound(b, v["from"], "slice.from.some", lambda b2, a: bound(b2, v["to"], "slice.to.some",
+                                                                   lambda b3, c: slice_rows(b3, a, c)))
 
     def slice_of(self, b: Block, v: A, lo: A | None, hi: A | None, optional: bool, path: str, emit: Emit) -> None:
         """``.[a:b]`` on a value: half-open, negative bounds counted from the end, clamped."""
@@ -2079,7 +2345,7 @@ class Translator:
         r = self.result(condition_path, self.env_for(condition_path, env, x))
         proves = None if r is None else r.proves
         type_test = proves is not None and any(p.kind == "type" and len(p.path) == 0 for p in proves)
-        if not type_test or is_root(x) or nullable_payload(self.open(x).type) is None:  # type: ignore[arg-type]
+        if not type_test or is_root(x) or is_rows(x) or nullable_payload(self.open(x).type) is None:  # type: ignore[arg-type]
             then(b, x)
             return
         self.match(b, self.open(x), {  # type: ignore[arg-type]
@@ -2105,7 +2371,7 @@ class Translator:
                 if kept is None:
                     raise self.gap("a try whose outputs have no one type")
                 self.push(b3, kept, v, path)
-            self.gen(n.value["body"], body_path, b2, x, env, each)
+            self.gen(n.value["body"], body_path, b2, x, replace(env, lenient=True), each)
 
         def on_error(b2: Block, message: A) -> None:
             if caught is not None:
@@ -2260,7 +2526,7 @@ class Translator:
         scope = self.checked.scope_at(body_path, env.instance)
 
         def bind(b2: Block, name: str, v: Value) -> Value:
-            if is_root(v):
+            if is_root(v) or is_rows(v):
                 return v
             checked = None if scope is None else scope.vars.get(name)
             t = None if checked is None else unify_shape(checked.shape)
@@ -2318,7 +2584,7 @@ class Translator:
         instance = f"{env.instance}>{path}"
         if binding.kind == "param":
             assert binding.arg is not None and binding.env is not None
-            self.gen(binding.arg, binding.path, b, x, replace(binding.env, instance=instance), emit)
+            self.gen(binding.arg, binding.path, b, x, replace(binding.env, instance=instance, lenient=env.lenient), emit)
             return
         assert binding.node is not None and binding.env_thunk is not None
         definition = binding.node.value
@@ -2336,7 +2602,7 @@ class Translator:
                 if recursion is not None:
                     self.call_recursive(b2, recursion, x, values, path, emit)
                     return
-                body_env = Env(variables, defs, closure.labels, instance, env.recursion)
+                body_env = Env(variables, defs, closure.labels, instance, env.recursion, lenient=env.lenient)
                 if _calls_itself(definition["body"], f"{definition['name']}/{len(params)}"):
                     self.gen_recursive(b2, definition, body_path, signature, x, values, body_env, path, env, emit)
                 else:
@@ -2402,7 +2668,7 @@ class Translator:
             raise self.gap(f"no translation for the builtin {name}/{len(args)}")
         # Checked in a lenient place with its input's options opened: the builtin
         # is given the value, and null, or where it cannot take null, jq's error for it.
-        opened = None if is_root(x) else self.checked.opened(path, env.instance)
+        opened = None if is_root(x) or is_rows(x) else self.checked.opened(path, env.instance)
         if opened is not None:
             o = self.open(x)  # type: ignore[arg-type]
             if nullable_payload(o.type) is not None:
