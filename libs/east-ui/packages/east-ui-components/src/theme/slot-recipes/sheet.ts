@@ -129,7 +129,10 @@
  *     column (SH1.3); the header 32
  *     tall, one line (SH3); numbers mono 13/500 in ink (SH5); a band 44
  *     tall, its content across the view whatever the scroll — a 40 wide
- *     chevron, the name, its id, and at its end its status as a chip (SH6).
+ *     chevron, the name, its id, and at its end its status as a chip (SH6);
+ *     the selected cell's head tinted `bg.subtle` (SH3); and with the jump
+ *     menu's `Row number` (`data-row-numbers`) the gutter's cells back as the
+ *     Row column, a slot of the window holding the number alone (SH2).
  *   - A phone (the adaptive contract, #346): the grid scrolls sideways under
  *     a gutter that stays put (`position: sticky`), the frame's toolbar keeps
  *     its one row through its ladder — on a coarse pointer its controls (the
@@ -166,6 +169,15 @@ import { fieldInRingedControl } from "../field-chrome.js";
 import { TOOLBAR_CONTROL_HEIGHT } from "../toolbar-row.js";
 import { FOOTER_FIT } from "./builder-footer.js";
 import { schedulePaneBase } from "./schedule-pane.js";
+
+/**
+ * A phone's Row column (`Mobile Sheet Spec.md` SH2, R5): the gutter's cell as a column of the window, its number alone,
+ * padded 0 8, snapping as the others do and scrolling with them.
+ */
+const PHONE_ROW_COLUMN = {
+    display: "flex", alignItems: "center", justifyContent: "flex-end", paddingX: "8px",
+    position: "static", scrollSnapAlign: "start", borderRightColor: "border.subtle",
+} as const;
 
 export const sheetSlotRecipe = defineSlotRecipe({
     className: "elara-sheet",
@@ -524,6 +536,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
         headerGutter: {
             // A phone's frame has no gutter (R5).
             "[data-sheet-card][data-phone] &": { display: "none" },
+            // …but as the Row column, past a pinned column where there is one (SH2).
+            "[data-sheet-card][data-phone][data-row-numbers] &": { ...PHONE_ROW_COLUMN, "& > :not([data-slot=headerNumber])": { display: "none" } },
+            "[data-sheet-card][data-phone][data-row-numbers][data-pin] &": { gridColumn: "2", gridRow: "1" },
             display: "grid", gridTemplateColumns: "28px var(--sheet-number, 36px) 1fr", alignItems: "stretch",
             background: "bg.panel",
             borderRightWidth: "1px",
@@ -536,6 +551,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         headerNumber: {
             display: "flex", alignItems: "center", justifyContent: "flex-end", paddingRight: "10px",
             fontFamily: "mono", fontSize: "10px", fontWeight: "600", letterSpacing: "0.16em", color: "fg.subtle",
+            "[data-sheet-card][data-phone][data-row-numbers] &": { paddingRight: "0", textTransform: "uppercase" },
         },
         headerCell: {
             height: "48px",
@@ -554,6 +570,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
                 // 32 with the header's rule below it (the designer's box).
                 height: "31px", paddingX: "8px", gap: "0", scrollSnapAlign: "start",
                 "&[data-kind=integer], &[data-kind=quantity]": { alignItems: "flex-end" },
+                // The selected cell's column (SH3): its head tinted `--paper-3`, its label `--ink-2` (the label's own rule).
+                "&[data-col-selected]": { background: "bg.subtle" },
             },
             // A phone's first column's head: 16 in from the frame's edge.
             "[data-sheet-card][data-phone] [data-slot=headerGutter] + &": { paddingLeft: "16px" },
@@ -561,9 +579,13 @@ export const sheetSlotRecipe = defineSlotRecipe({
             "[data-sheet-card][data-phone][data-pin] [data-slot=headerGutter] + &": {
                 position: "sticky", left: "0", zIndex: "2", background: "bg.panel", scrollSnapAlign: "none",
                 paddingRight: "8px", borderRightColor: "border.strong",
+                "&[data-col-selected]": { background: "bg.subtle" },
             },
+            // Under the Row column, the pinned column's head keeps the first track.
+            "[data-sheet-card][data-phone][data-row-numbers][data-pin] [data-slot=headerGutter] + &": { gridColumn: "1", gridRow: "1" },
         },
         headerLabel: {
+            "[data-sheet-card][data-phone] [data-col-selected] &": { color: "fg.strong" },
             fontFamily: "mono",
             fontSize: "10px",
             lineHeight: "1.3",
@@ -631,6 +653,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
         // dirty), and its right edge is the gutter edge, `border.strong`.
         gutter: {
             "[data-sheet-card][data-phone] &": { display: "none" },
+            // …but as the Row column, past a pinned column on a row where there is one; a band's title spans what is left (SH2).
+            "[data-sheet-card][data-phone][data-row-numbers] &": { ...PHONE_ROW_COLUMN, "& > :not([data-slot=gutterNumber])": { display: "none" } },
+            "[data-sheet-card][data-phone][data-row-numbers][data-pin] [data-row]:not([data-band-row]) > &": { gridColumn: "2", gridRow: "1" },
             display: "grid",
             gridTemplateColumns: "28px var(--sheet-number, 36px) 1fr",
             alignItems: "stretch",
@@ -720,6 +745,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             "[data-row][data-picked] &": { color: "fg", fontWeight: "600" },
             // A line's number beside its sub rows' chevron (16 px at the column's start) keeps clear of it.
             "&[data-chevron]": { paddingLeft: "18px" },
+            // The Row column's (SH2, SH5): mono 13/500 in ink.
+            "[data-sheet-card][data-phone][data-row-numbers] &": { paddingRight: "0", fontSize: "13px", color: "fg" },
         },
         // What the number column is measured by: the widest numbers, each laid
         // out at its natural width as a row draws it — never shown, never hit.
@@ -859,6 +886,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
                 position: "sticky", left: "0", zIndex: "5", backgroundColor: "inherit",
                 paddingRight: "8px", borderRightColor: "border.strong",
             },
+            // Under the Row column, the pinned column keeps the first track (SH2).
+            "[data-sheet-card][data-phone][data-row-numbers][data-pin] [data-slot=gutter] + &": { gridColumn: "1", gridRow: "1" },
             // A cell's hover, but not on the row a drag rests on: the row's wash shows through (#1187).
             "&:is(:hover, [data-hover]):not([data-drop-active] > *, [data-drop-invalid] > *)": { background: "bg.panel" },
             // A conflict not yet chosen: the warn ring inside the cell, as the optimiser's highlight draws its own; selected,
@@ -1373,6 +1402,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
         // the number in the number column, right-aligned.
         runGutter: {
             "[data-sheet-card][data-phone] &": { display: "none" },
+            // …but under the Row column (SH2).
+            "[data-sheet-card][data-phone][data-row-numbers] &": { ...PHONE_ROW_COLUMN, "& > [data-shape]": { marginRight: "0" } },
             display: "grid",
             gridTemplateColumns: "28px var(--sheet-number, 36px) 1fr",
             alignItems: "center",

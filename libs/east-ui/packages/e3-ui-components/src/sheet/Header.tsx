@@ -36,6 +36,10 @@ export interface SheetHeaderProps {
     picked?: boolean | undefined;
     /** The fold-all, on a grouped sheet only: whether every group is folded (the action is then to open them), how many, the host's noun, and the gesture. */
     foldAll?: { folded: boolean; count: number; noun: SheetNounValue; onFoldAll: (folded: boolean) => void } | undefined;
+    /** On a phone's frame, the column of the selected cell: its head is tinted (`Mobile Sheet Spec.md` SH3). */
+    selected?: number | undefined;
+    /** On a phone's frame, the row numbers show as the Row column (SH2), its head named so. */
+    rowNumbers?: boolean | undefined;
 }
 
 /** The fold-all's mark: Font Awesome's angles-right — the groups' chevron doubled — in the recipe's 10 px box (#1263); the button turns it down while any group is open. */
@@ -44,7 +48,7 @@ function DoubleChevron() {
 }
 
 /** Renders the header row. */
-export const SheetHeader = memo(function SheetHeader({ styles, columns, gridTemplate, picked, foldAll }: SheetHeaderProps) {
+export const SheetHeader = memo(function SheetHeader({ styles, columns, gridTemplate, picked, foldAll, selected, rowNumbers }: SheetHeaderProps) {
     // The fold-all's words, its count in the app's locale (#850, #861).
     const words = useSheetWords();
     const { m } = words;
@@ -57,7 +61,7 @@ export const SheetHeader = memo(function SheetHeader({ styles, columns, gridTemp
                         {picked && <FontAwesomeIcon icon={faMinus} />}
                     </Box>
                 </Box>
-                <Box as="span" css={styles.headerNumber} data-slot="headerNumber">{m.headerNumber()}</Box>
+                <Box as="span" css={styles.headerNumber} data-slot="headerNumber">{rowNumbers === true ? m.pagerRow() : m.headerNumber()}</Box>
                 <Box css={styles.gutterAction} data-slot="foldAllSlot">
                     {foldAll !== undefined && foldAll.count > 0 && (
                         <chakra.button
@@ -73,7 +77,7 @@ export const SheetHeader = memo(function SheetHeader({ styles, columns, gridTemp
                 </Box>
             </Box>
             {columns.map((col, i) => (
-                <Box key={col.key} css={styles.headerCell} data-slot="headerCell" data-key={col.key} data-kind={col.kind} role="columnheader" aria-colindex={i + 2} title={col.sub}>
+                <Box key={col.key} css={styles.headerCell} data-slot="headerCell" data-key={col.key} data-kind={col.kind} data-col-selected={selected === i ? "" : undefined} role="columnheader" aria-colindex={i + 2} title={col.sub}>
                     <Box as="span" css={styles.headerLabel}>{col.header}</Box>
                     {col.sub !== undefined && <Box as="span" css={styles.headerSub}>{col.sub}</Box>}
                 </Box>

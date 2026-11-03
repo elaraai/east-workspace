@@ -655,6 +655,14 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     pagerNext: () => string;
     /** The jump menu's eyebrow. */
     pagerMenu: () => string;
+    /** The Row column's head, and its item in the jump menu (SH2). */
+    pagerRow: () => string;
+    /** What the jump menu says the Row column holds, as it says each column's kind (SH2). */
+    pagerRowKind: () => string;
+    /** The jump menu's checkbox that adds the Row column (SH2). */
+    pagerRowNumber: () => string;
+    /** Its note. */
+    pagerRowNumberNote: () => string;
 
     // ── A phone's cell editor (`Mobile Sheet Spec.md` SH10) ────────────────
     /** Its eyebrow: the column and the row — `Good · step 20 · Weld frame` as its action column names it, else `Good · line 2 of Frame assembly`. */
@@ -1031,6 +1039,10 @@ export const sheetMessages: SheetMessages = {
     pagerPrevious: () => "Previous column",
     pagerNext: () => "Next column",
     pagerMenu: () => "Go to column",
+    pagerRow: () => "Row",
+    pagerRowKind: () => "number",
+    pagerRowNumber: () => "Row number",
+    pagerRowNumberNote: () => "off by default",
 
     cellEditorEyebrow: ({ header, what }) => `${header} · ${what}`,
     cellEditorClose: () => "Close editor",

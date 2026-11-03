@@ -166,7 +166,7 @@ import { ActionForm, ActionMenu, type ActionOverlayState } from "./actions/Actio
 import { ActionPanel, type ActionPanelApi } from "./actions/ActionPanel.js";
 import { ActionBar } from "./actions/ActionBar.js";
 import { SheetTabs, type SheetTabsFold, type SheetTabView } from "./Tabs.js";
-import { SheetPager } from "./Pager.js";
+import { SheetPager, pageWindow, type SheetPagerColumn } from "./Pager.js";
 import { SheetEditor, type EditorFocusRequest, type EditorOption, type LinkEditorView } from "./Editor.js";
 import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripModel, type StripSuggestInput } from "./Strip.js";
 import type { SheetFooterProps, SheetLoadingLine } from "./Footer.js";
@@ -667,6 +667,9 @@ export const PHONE_PIN_PX = 150;
 /** How many columns a phone's frame shows at once beside any pinned one, unless the sheet's `narrow` says (SH1.4). */
 const PHONE_COLUMNS = 2;
 
+/** What the jump menu keys the Row column by (SH2): no column's key, a name no author's column reaches through the grid. */
+const ROW_COLUMN = "\u0000row";
+
 /** A phone's band, px (SH6): 44, whatever the density. */
 const PHONE_BAND_PX = 44;
 
@@ -723,6 +726,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // Whether a phone's frame pins a column: the one `narrow.pin` names, led into first place above.
     const pinned = phoneFrame && pinKey !== undefined && columns.list[0] !== undefined && stringEqual(columns.list[0].key, pinKey);
     const pinPx = pinned ? PHONE_PIN_PX : 0;
+    // A phone's Row column (SH2, R5): the row numbers as a column of the window, off until the jump menu's `Row number`.
+    const [rowNumbersOn, setRowNumbers] = useState(false);
+    const rowNumbers = phoneFrame && rowNumbersOn;
     const registers = useMemo(() => indexRegisters(value.registers), [value.registers]);
     const driver = useMemo(() => getSomeorUndefined(value.driver), [value.driver]);
     const driverColumn = driver?.column;
@@ -796,16 +802,24 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // width, and the last column takes the rest, out to the frame's edge: the
     // grid ends at its own last column, never at an empty track after it. A
     // phone's frame: any pinned column, then a slot a column (SH1, SH4) — the
-    // gutter's cells drawn nowhere (the recipe), so they take no track.
+    // gutter's cells drawn nowhere (the recipe), so they take no track, but as
+    // the Row column, a slot of its own before the others (SH2).
     const gridTemplate = useMemo(() => {
-        if (phoneFrame) return columns.list.map((_c, i) => (i === 0 && pinned ? `${PHONE_PIN_PX}px` : `${slotPx}px`)).join(" ");
+        if (phoneFrame) {
+            const tracks = columns.list.map((_c, i) => (i === 0 && pinned ? `${PHONE_PIN_PX}px` : `${slotPx}px`));
+            return (rowNumbers ? [`${slotPx}px`, ...tracks] : tracks).join(" ");
+        }
         const tracks = columns.list.map((c, i) => (i === columns.list.length - 1 ? `minmax(${c.width}px, 1fr)`
             : c.kind === "text" ? `minmax(${c.width}px, ${Math.round(c.width * 2.5)}px)` : `${c.width}px`));
         return `${gutterPx}px ${tracks.join(" ")}`;
-    }, [gutterPx, columns, phoneFrame, slotPx, pinned]);
-    // The columns a phone's pager pages: every one but a pinned one.
+    }, [gutterPx, columns, phoneFrame, slotPx, pinned, rowNumbers]);
+    // The columns a phone's pager pages: every one but a pinned one; and what it pages, the Row column before them while it shows.
     const pagedColumns = useMemo(() => (pinned ? columns.list.slice(1) : columns.list), [columns, pinned]);
-    const minWidth = phoneFrame ? pinPx + slotPx * pagedColumns.length : gutterPx + columns.list.reduce((n, c) => n + c.width, 0);
+    const pagerColumns = useMemo((): readonly SheetPagerColumn[] => {
+        const each = pagedColumns.map((c): SheetPagerColumn => ({ key: c.key, header: c.header, kind: words.m.columnKind({ kind: c.kind }) }));
+        return rowNumbers ? [{ key: ROW_COLUMN, header: words.m.pagerRow(), kind: words.m.pagerRowKind() }, ...each] : each;
+    }, [pagedColumns, rowNumbers, words.m]);
+    const minWidth = phoneFrame ? pinPx + slotPx * pagerColumns.length : gutterPx + columns.list.reduce((n, c) => n + c.width, 0);
     const today = useMemo(() => todayUtc(), []);
 
     // Callbacks — taken from the latest value on every render.
@@ -2319,6 +2333,16 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 return;
             }
         }
+        // On a phone's frame ← and → page the columns while the grid has the focus, the ring where it is (SH8.1, R4).
+        if (phoneFrame && (e.key === "ArrowLeft" || e.key === "ArrowRight") && !e.shiftKey && !meta && !e.altKey) {
+            takeKey(e);
+            const frame = viewportRef.current?.frame;
+            if (frame !== undefined && slotPx > 0) {
+                const first = Math.round(frame.scrollLeft / slotPx);
+                pageWindow(frame, slotPx, Math.max(0, pagerColumns.length - phoneColumns), first + (e.key === "ArrowRight" ? 1 : -1));
+            }
+            return;
+        }
         const handled = ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", "Tab", "Enter", "F2", "Escape", "Backspace", "Delete"];
         const printable = e.key.length === 1 && !meta && !e.altKey;
         const toSearch = meta && (e.key === "/" || e.key === "f");
@@ -2338,7 +2362,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             && sheetReducer(uiRef.current, event, ctxRef.current).effects.some((fx) => fx.t === "seek.step" || fx.t === "seek.edge");
         ringGesture(seeks);
         dispatch(event);
-    }, [dispatch, store.ui.edit, store.ui.sel.r, store.ui.sel.c, store.ui.selEnd, columns, onHistoryAction, onInsert, ringGesture]);
+    }, [dispatch, store.ui.edit, store.ui.sel.r, store.ui.sel.c, store.ui.selEnd, columns, onHistoryAction, onInsert, ringGesture, phoneFrame, slotPx, pagerColumns, phoneColumns]);
     // A band never copies (G9): a whole-group selection copies its lines.
     const isBandRow = useCallback((r: number) => { const k = rowAt(r)?.kind; return k === "group"; }, [rowAt]);
     const onCopy = useCallback((e: ClipboardEvent<HTMLDivElement>) => {
@@ -4813,7 +4837,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         : undefined;
     const header = (
         <Box ref={headerRef} position="relative">
-            <SheetHeader styles={styles} columns={columns.list} gridTemplate={gridTemplate} picked={wr !== null} foldAll={foldAll} />
+            <SheetHeader styles={styles} columns={columns.list} gridTemplate={gridTemplate} picked={wr !== null} foldAll={foldAll} rowNumbers={rowNumbers}
+                selected={phoneFrame && ui.selEnd === null && (ringItem?.kind === "real" || ringItem?.kind === "group") ? ringCol : undefined} />
             {stickyItem !== undefined && stickyItem.kind === "group" && group !== undefined && stickyAt !== undefined && (
                 // The band of the group whose lines scroll under the header (G1) — laid over the rows, so the list never moves.
                 // A copy: the band itself is the grid's row (#860).
@@ -4907,7 +4932,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         <>
             {/* A phone's column pager over the grid (SH1): the window of columns beside any pinned one. */}
             {phoneFrame && pagedColumns.length > phoneColumns && (
-                <SheetPager styles={styles} frame={viewport?.frame ?? null} columns={pagedColumns} slotPx={slotPx} inView={phoneColumns} />
+                <SheetPager styles={styles} frame={viewport?.frame ?? null} columns={pagerColumns} slotPx={slotPx} inView={phoneColumns} rowNumbers={rowNumbers} onRowNumbers={setRowNumbers} />
             )}
             <Box
                 ref={cardRef}
@@ -4920,6 +4945,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 // A phone's frame (`Mobile Sheet Spec.md`): its window of columns, any pinned column, its band across the view.
                 data-phone={phoneFrame ? "" : undefined}
                 data-pin={pinned ? "" : undefined}
+                data-row-numbers={rowNumbers ? "" : undefined}
                 style={{ "--sheet-gutter": `${gutterPx}px`, "--sheet-number": `${numberPx}px`, "--sheet-view": `${viewPx ?? 0}px`, "--sheet-pin": `${pinPx}px` } as CSSProperties}
                 role="grid"
                 // Rows that stand in — a narrowing's last, or those a key's far jump holds — are retained (#1398, CL8,
