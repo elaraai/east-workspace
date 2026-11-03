@@ -14,7 +14,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
-  DictType, IntegerType, StringType,
+  DictType, IntegerType, StringType, StructType,
   East, InMemoryUnitIO, UnitOutcomeType,
   Beast2ManifestWriter, decodeBeast2For, decodeCollectionManifest, encodeBeast2For, encodeEastIR, equalFor, executeUnit,
   isTypeValueEqual, none, printFor, toEastTypeValue, variant,
@@ -121,6 +121,7 @@ describe("executeUnit", () => {
       openedLazily: (i) => { heard.push(["lazily", i]); },
       decodedWhole: (i, grown) => { heard.push(["whole", i, grown]); },
       lazyReads: (i, path, stats: Beast2LazyStats, read) => { heard.push(["reads", i, path, stats, read > 0]); },
+      pagedLoops: (projected, whole) => { heard.push(["loops", projected, whole]); },
     };
     let gauge = 1_000;
     const result = await executeUnit(runUnit(["table.beast2", "x.beast2"]), io, {
@@ -138,10 +139,47 @@ describe("executeUnit", () => {
       ["lazily", 0],
       ["whole", 1, 10],
       ["reads", 0, "table.beast2", { segments, segmentsDecoded: 1, fencesProbed: segments, hydrated: false, hydratedBytes: 0 }, true],
-    ], "the collection opened lazily, and its one keyed read decoded one segment; the Integer decoded whole, weighed by the gauge");
+      ["loops", 0, 0],
+    ], "the collection opened lazily, and its one keyed read decoded one segment; the Integer decoded whole, weighed by the gauge; no loop paged it");
     assert.equal(inputTypes.length, 2);
     assert.ok(isTypeValueEqual(inputTypes[0]!, toEastTypeValue(DT)), "the table is read as its parameter's type");
     assert.ok(isTypeValueEqual(inputTypes[1]!, toEastTypeValue(IntegerType)), "the key is read as its parameter's type");
+  });
+
+  it("tells its report what the loops that paged its inputs decoded", async () => {
+    const Rows = DictType(IntegerType, StructType({ name: StringType, qty: IntegerType }));
+    const files = new Map<string, Uint8Array>();
+    const writer = new Beast2ManifestWriter(Rows, {
+      object: (hash, blob) => { files.set(`rows.beast2.segments/${hash}.beast2`, blob.slice()); },
+      manifest: (blob) => { files.set("rows.beast2", blob.slice()); },
+    });
+    let expected = 0n;
+    for (let i = 0; i < 20_000; i++) {
+      writer.add([BigInt(i), { name: `row-${i}`, qty: BigInt(i % 7) }]);
+      expected += BigInt(i % 7);
+    }
+    writer.finish();
+    const program = East.function([Rows], IntegerType, ($, rows) => {
+      const total = $.let(0n);
+      $.for(rows, ($, row) => { $.assign(total, total.add(row.qty)); });
+      return total;
+    });
+    files.set("program.beast2", encodeEastIR(program.toIR()));
+    const io = new InMemoryUnitIO(files);
+    const segments = decodeCollectionManifest(io.read("rows.beast2")).entries.length;
+    const loops: [number, number][] = [];
+    const report: UnitRunReport = {
+      running: () => {},
+      openedLazily: () => {},
+      decodedWhole: () => {},
+      lazyReads: () => {},
+      pagedLoops: (projected, whole) => { loops.push([projected, whole]); },
+    };
+    const result = await executeUnit(runUnit(["rows.beast2"]), io, { platforms: noPackages, report });
+    assert.ok(equalFor(UnitOutcomeType)(result.outcome, variant("ok", null)), printOutcome(result.outcome));
+    assert.equal(decodeBeast2For(IntegerType)(io.read("out.beast2")), expected);
+    assert.ok(segments > 1);
+    assert.deepEqual(loops, [[segments, 0]], "every segment decoded to the one field the loop reads");
   });
 
   it("gives each lazily opened input's pager the decoded weight its host keeps", async () => {
@@ -165,6 +203,7 @@ describe("executeUnit", () => {
         openedLazily: () => {},
         decodedWhole: () => {},
         lazyReads: (_i, _path, read) => { stats = read; },
+        pagedLoops: () => {},
       };
       const result = await executeUnit(runUnit(["table.beast2"]), io, {
         platforms: noPackages,

@@ -4,7 +4,7 @@
  */
 import { describe, test as unitTest } from "node:test";
 import assert from "node:assert/strict";
-import { East, ArrayType, DictType, IntegerType, StringType, StructType, SortedMap, compareFor, encodeBeast2SegmentsFor, toEastTypeValue, isFrozenValue, Beast2Pages, type EastTypeValue } from "@elaraai/east";
+import { East, ArrayType, DictType, IntegerType, StringType, StructType, SortedMap, compareFor, encodeBeast2SegmentsFor, toEastTypeValue, isFrozenValue, Beast2Pages, beast2PagedLoopStats, type EastTypeValue } from "@elaraai/east";
 import { describeEast, Assert, FileSystem, FileSystemImpl, NodePlatform } from "@elaraai/east-node-std";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -198,18 +198,29 @@ describe("FileSystem.openBeast laziness and build-time checks", () => {
         const proto = Beast2Pages.prototype as unknown as Record<string, (...args: unknown[]) => unknown>;
         const originalGet = proto.get!;
         const originalSegment = proto.segmentDisjoint!;
+        const originalProjected = proto.segmentProjected!;
         let keyed = 0;
         let segments = 0;
         proto.get = function (this: unknown, ...args: unknown[]) { keyed++; return originalGet.apply(this, args); };
+        // A segment the loop decodes whole or to the fields its body reads: either is checked against the next fence.
         proto.segmentDisjoint = function (this: unknown, ...args: unknown[]) { segments++; return originalSegment.apply(this, args); };
+        proto.segmentProjected = function (this: unknown, ...args: unknown[]) { segments++; return originalProjected.apply(this, args); };
+        const before = beast2PagedLoopStats();
         try {
             assert.equal(compiled(path), 37n + 435n);
         } finally {
             proto.get = originalGet;
             proto.segmentDisjoint = originalSegment;
+            proto.segmentProjected = originalProjected;
         }
+        const after = beast2PagedLoopStats();
         assert.equal(keyed, 1, "one keyed read reaches the pager");
         assert.equal(segments, 3, "the for loop streams each segment exactly once, checked against the next");
+        assert.deepEqual(
+            { projected: after.segmentsProjected - before.segmentsProjected, whole: after.segmentsWhole - before.segmentsWhole },
+            { projected: 3, whole: 0 },
+            "the loop's body reads a row's id alone, so each segment decodes to that field (#1112)",
+        );
     });
 
     unitTest("the opened value is frozen and stays un-hydrated after served reads", () => {

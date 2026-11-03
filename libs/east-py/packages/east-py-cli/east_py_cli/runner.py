@@ -16,7 +16,12 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
-from east.runtime.compiler import compile_from_beast2, compile_from_east, compile_from_json
+from east.runtime.compiler import (
+    compile_from_beast2,
+    compile_from_east,
+    compile_from_json,
+    eager_stats,
+)
 from east.runtime.errors import EastError
 from east.runtime.platform import PlatformFunction
 from east.serialization.east_printer import print_east, print_type
@@ -109,6 +114,24 @@ def _report_input_reads(i: int, value: object) -> None:
     else:
         print(f"  input {i}: {decoded} of {segments} segments decoded, {fences} fences probed",
               file=sys.stderr)
+
+
+def _paged_loop_counts() -> tuple[int, int]:
+    """The segments the compiled loops over paged inputs have decoded so far:
+    to the fields their bodies read, and whole."""
+    stats = eager_stats()
+    return stats["beast2_paged_loop_segments_projected"], stats["beast2_paged_loop_segments_whole"]
+
+
+def _report_paged_loops(before: tuple[int, int]) -> None:
+    """What the loops that paged the program's lazy inputs decoded since
+    ``before`` (#1112): the segments decoded to the fields their bodies read,
+    and those decoded whole — a body that reads its row whole, a Set's loop,
+    or a segment whose projected decode fell back. east-c and east-node say
+    it in the same words."""
+    projected, whole = _paged_loop_counts()
+    print(f"  paged loops: {projected - before[0]} segments decoded to the fields read, "
+          f"{whole - before[1]} in full", file=sys.stderr)
 
 
 def _load_frozen_input(type_ptr: object, file_path: Path, param_type: Any) -> object:
@@ -377,6 +400,7 @@ def _run_work(unit: dict[str, Any], platform_fns: list[PlatformFunction],
         inputs.append(sink.function_value())
     lap("load")
 
+    loops = _paged_loop_counts()
     try:
         returned = _eastc_call(handle._compiled, handle._input_types, handle._output_type,
                                tuple(inputs))
@@ -388,10 +412,12 @@ def _run_work(unit: dict[str, Any], platform_fns: list[PlatformFunction],
         lap("output")
     finally:
         # What reading each lazy input came to, the output's writing included
-        # — or up to the failure.
+        # — or up to the failure — and what the loops that paged them decoded.
         if verbose:
             for i in lazy_inputs:
                 _report_input_reads(i, inputs[i])
+            if lazy_inputs:
+                _report_paged_loops(loops)
 
 
 def _merge_work(unit: dict[str, Any], platform_fns: list[PlatformFunction],
@@ -514,6 +540,7 @@ def run_program(
     from east.runtime._compiler_eastc import _eastc_call, profile_finish, profile_start
 
     profile_start(profile)
+    loops = _paged_loop_counts()
     result = _eastc_call(handle._compiled, handle._input_types, handle._output_type, tuple(inputs))
 
     t3 = perf_counter()
@@ -544,5 +571,7 @@ def run_program(
 
         for i in lazy_inputs:
             _report_input_reads(i, inputs[i])
+        if lazy_inputs:
+            _report_paged_loops(loops)
 
     return result
