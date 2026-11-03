@@ -110,6 +110,8 @@ function createBoxStage(): BoxStage {
 function BoxSlot({ stage, where, css, slot }: {
     stage: BoxStage; where: "box" | "popover"; css: SystemStyleObject | undefined; slot?: MutableRefObject<HTMLDivElement | null> | undefined;
 }) {
+    // In a phone's frame the search has its own button and view: a View that bundles the box draws none.
+    const phone = useContext(FrameOverlaySlot) !== null;
     const mounted = useRef<HTMLDivElement | null>(null);
     const ref = useCallback((el: HTMLDivElement | null) => {
         if (el !== null) {
@@ -121,6 +123,7 @@ function BoxSlot({ stage, where, css, slot }: {
         }
         if (slot !== undefined) slot.current = el;
     }, [stage, slot]);
+    if (phone && where === "box") return null;
     return <Box ref={ref} css={css} data-key-search={where} />;
 }
 

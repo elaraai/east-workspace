@@ -3,7 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { cloneElement, useEffect, useId, useLayoutEffect, useMemo, useRef, type MouseEvent, type ReactElement, type ReactNode } from "react";
+import { cloneElement, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, type KeyboardEvent, type MouseEvent, type ReactElement, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Popover as ChakraPopover, Portal, Box, chakra, usePopoverContext } from "@chakra-ui/react";
 import { useSliceDensity } from "../density";
 import { useSlotStyles } from "../../theme/slot-styles.js";
@@ -11,7 +12,8 @@ import { POPOVER_GUTTER } from "../../overlays/popover/gutter.js";
 import { frameBounds } from "../../overlays/popover/frame-bounds.js";
 import { FOCUSABLE } from "../../primitives/focusable.js";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faArrowLeft, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { FrameOverlaySlot } from "../../layout/builder-frame/overlay-slot.js";
 
 /** What a {@link SliceEditPopover} hangs from: its trigger, or an anchor. */
 export type SliceEditPopoverAnchor =
@@ -126,6 +128,11 @@ function Rehang({ from }: { from: unknown }) {
  * the page anywhere else, and in a frame narrower than it — a phone's — inside
  * the page. Down the page it keeps to the page, flipping above its trigger
  * where there is no room below ({@link frameBounds}).
+ *
+ * In a phone's frame (560px or narrower), a popover its toolbar opens is a
+ * view over the whole builder instead, in the frame's overlay slot, as the
+ * rail's Filters view is (ruled 3 Nov 2026): ← back and its label at its
+ * head, the same body, its foot's actions at its end ({@link FramePhoneView}).
  */
 export function SliceEditPopover({
     open, onOpenChange, trigger, anchor, label, size = "sm", flush, footLeft, footActions, initialFocusEl, keepOnFocusOut = false, hangFrom, still = false, children,
@@ -134,6 +141,8 @@ export function SliceEditPopover({
     // timeline's date navigator's with each day its view crosses — and its recipe would work every slot out again.
     const styles = useSlotStyles("sliceEdit", { size, ...(flush === true && { flush: true }) });
     const density = useSliceDensity();
+    // A phone's frame's overlay slot, where its toolbar's popovers open as views over the builder.
+    const overlay = useContext(FrameOverlaySlot);
     const anchored = trigger === undefined;
     const anchorRef = useRef<HTMLDivElement | null>(null);
     const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -203,6 +212,14 @@ export function SliceEditPopover({
             </Box>
         );
     }
+    if (overlay !== null) {
+        return (
+            <FramePhoneView slot={overlay} open={open} onOpenChange={onOpenChange} toggle={trigger === undefined ? anchor : trigger} anchored={anchored}
+                label={label} footLeft={footLeft} footActions={footActions} initialFocusEl={initialFocusEl}>
+                {children}
+            </FramePhoneView>
+        );
+    }
     return (
         <ChakraPopover.Root
             open={open}
@@ -249,5 +266,87 @@ export function SliceEditPopover({
                 </ChakraPopover.Positioner>
             </Portal>
         </ChakraPopover.Root>
+    );
+}
+
+/** Props of {@link FramePhoneView}. */
+interface FramePhoneViewProps {
+    /** The frame's overlay slot it is drawn in. */
+    slot: HTMLElement;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    /** The trigger, which toggles it — or the anchor, which its host opens it from. */
+    toggle: ReactNode;
+    anchored: boolean;
+    label: ReactNode;
+    footLeft: ReactNode;
+    footActions: ReactNode;
+    initialFocusEl: (() => HTMLElement | null) | undefined;
+    children: ReactNode;
+}
+
+/**
+ * A toolbar's popover in a phone's frame (ruled 3 Nov 2026): a view over the
+ * whole builder in the frame's overlay slot — ← back and its label at its
+ * head, its body, its foot's actions at its end. Its trigger toggles it, as
+ * the popover's does; ←, Esc and the foot's actions close it; the focus moves
+ * in as it opens and back to its trigger, or its anchor's first control, as
+ * it closes.
+ */
+function FramePhoneView({ slot, open, onOpenChange, toggle, anchored, label, footLeft, footActions, initialFocusEl, children }: FramePhoneViewProps) {
+    const styles = useSlotStyles("frameView");
+    const holdRef = useRef<HTMLSpanElement | null>(null);
+    const viewRef = useRef<HTMLDivElement | null>(null);
+    const wasOpen = useRef(open);
+    useEffect(() => {
+        const opened = wasOpen.current;
+        wasOpen.current = open;
+        if (open === opened) return undefined;
+        const frame = requestAnimationFrame(() => {
+            if (open) (initialFocusEl?.() ?? viewRef.current?.querySelector<HTMLElement>(FOCUSABLE))?.focus({ preventScroll: true });
+            else {
+                const active = document.activeElement;
+                if (active !== null && active !== document.body && active.isConnected) return;
+                holdRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus({ preventScroll: true });
+            }
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [open, initialFocusEl]);
+    const own = anchored ? undefined : toggle as ReactElement<DisclosureTriggerProps>;
+    const trigger = own === undefined ? toggle : cloneElement(own, {
+        "aria-expanded": open,
+        onClick: (e: MouseEvent<HTMLElement>) => {
+            own.props.onClick?.(e);
+            onOpenChange(!open);
+        },
+    });
+    const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+        if (event.key !== "Escape" || event.defaultPrevented) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onOpenChange(false);
+    };
+    return (
+        <>
+            <chakra.span ref={holdRef} css={styles.hold}>{trigger}</chakra.span>
+            {open && createPortal(
+                <Box ref={viewRef} css={styles.root} role="region" aria-label={typeof label === "string" ? label : undefined} data-frame-view="" onKeyDown={onKeyDown}>
+                    <Box css={styles.head}>
+                        <chakra.button type="button" css={styles.back} aria-label="Back" data-frame-view-back="" onClick={() => onOpenChange(false)}>
+                            <FontAwesomeIcon icon={faArrowLeft} aria-hidden />
+                        </chakra.button>
+                        <Box as="span" css={styles.title}>{label}</Box>
+                    </Box>
+                    <Box css={styles.body}>{children}</Box>
+                    {(footLeft !== undefined || footActions !== undefined) && (
+                        <Box css={styles.foot}>
+                            {footLeft}
+                            <Box css={styles.footActions}>{footActions}</Box>
+                        </Box>
+                    )}
+                </Box>,
+                slot,
+            )}
+        </>
     );
 }
