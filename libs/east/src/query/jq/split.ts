@@ -33,6 +33,10 @@
  * first rows nothing follows keeps no more than its sink does — its most
  * outputs, and one more — so `n` is at most that many.
  *
+ * A split plans the program the translator runs, its rows narrowed to the
+ * fields its later steps read (#1141), so its pieces build, keep and send
+ * only those, and a re-keyed join's re-key call sends each row as those.
+ *
  * @packageDocumentation
  */
 
@@ -50,6 +54,7 @@ import {
 } from "../../types.js";
 import type { CheckJqResult } from "./check.js";
 import type { JqLiteral } from "./literals.js";
+import { checkAgain, narrowRows, rowsRead } from "./narrow.js";
 import { nullablePayload, unwrap } from "./shapes.js";
 import { childPath, jqChildren, type JqNode, type JqPattern, type JqRange } from "./spans.js";
 import { addInto } from "./translate-builtins.js";
@@ -163,11 +168,16 @@ export interface JqRekey {
   readonly key: JqRange;
   /** The join key's type: the other side's keys'. */
   readonly keyType: EastType;
-  /** The re-key call's output: each key's rows, concatenated in input order. */
+  /**
+   * The re-key call's output: each key's rows, concatenated in input order,
+   * each row the fields the query reads of it, where it reads only some
+   * (#1141).
+   */
   readonly output: { readonly kind: "dict"; readonly type: EastType; merge(): FunctionExpr<any[], any> };
   /**
    * The program each piece of the re-key call runs: a function of the
-   * dataset's piece and then `emit`, which sends each row under its key.
+   * dataset's piece and then `emit`, which sends each row under its key, as
+   * the output holds it.
    *
    * @returns the function
    */
@@ -1314,7 +1324,15 @@ export function splitJq(checked: CheckJqResult, options: SplitJqOptions = {}): J
     throw new TranslationError(`the program does not check: ${errors.join(" ")}`);
   }
   if (!checked.source.root) throw new TranslationError("splitJq splits a query checked as an e3 root");
-  const program = checked.program;
+  // The query as it runs: its rows narrowed to the fields its later steps read (#1141).
+  const narrowed = narrowRows(checked);
+  const planned = planOf(narrowed);
+  return "plan" in planned ? splitCall(narrowed, planned.plan, options, planned.pruning) : planned;
+}
+
+/** How a checked query splits — its row work, how its rows combine and the steps after — or why it runs as one unit. */
+function planOf(checked: CheckJqResult): { readonly plan: Plan; readonly pruning: readonly JqPruning[] } | JqWhole {
+  const program = checked.program!;
   const pruning = pruningOf(checked, program);
   const whole = (r: JqWholeReason): JqWhole => ({ kind: "whole", reason: r, pruning });
 
@@ -1324,7 +1342,7 @@ export function splitJq(checked: CheckJqResult, options: SplitJqOptions = {}): J
   if (rows.first !== undefined) {
     // The first outputs of a stream, in input order, and the steps after them on each (#1113).
     const combine: Combine = { kind: "first", path: rows.first.path, rows: rows.first.rows };
-    return splitCall(checked, { rows, combine, rest: rows.after, rowType: rowTypeOf(checked, rows), cutType: typeAfter(checked, rows.end) }, options, pruning);
+    return { plan: { rows, combine, rest: rows.after, rowType: rowTypeOf(checked, rows), cutType: typeAfter(checked, rows.end) }, pruning };
   }
   if (rows.stream && rows.after.length === 0) {
     // A stream is the query's outputs, which its caller caps: one unit stops as soon as it has them.
@@ -1353,8 +1371,7 @@ export function splitJq(checked: CheckJqResult, options: SplitJqOptions = {}): J
     combine = { kind: "concat" };
     rest = rows.after;
   }
-  const plan: Plan = { rows, combine, rest, rowType: rowTypeOf(checked, rows), cutType: typeAfter(checked, rows.end) };
-  return splitCall(checked, plan, options, pruning);
+  return { plan: { rows, combine, rest, rowType: rowTypeOf(checked, rows), cutType: typeAfter(checked, rows.end) }, pruning };
 }
 
 /** Why the step after a query's row work keeps it one unit, when no work is done row by row. */
@@ -1435,6 +1452,27 @@ function keepsInput(node: JqNode): boolean {
   return node.type === "pipe" && keepsInput(node.value.left) && keepsInput(node.value.right);
 }
 
+/**
+ * Whether a filter gives its input, nothing, or an object of some of its
+ * input's fields under their own names — `{a, b}`, `{a: .a}` — and pipes of
+ * them: what #1141's narrowing makes of a stage that passes its rows on,
+ * `map(select(p) | {a, b})`. Each field such an object gives is its input's,
+ * so a later step reads it at the field of the input it reads.
+ */
+function keepsInputFields(node: JqNode): boolean {
+  if (keepsInput(node)) return true;
+  if (node.type === "object") {
+    return node.value.length > 0 && node.value.every(entry => entry.key.type === "name"
+      && (entry.value.type === "none" || isInputField(entry.value.value as JqNode, entry.key.value)));
+  }
+  return node.type === "pipe" && keepsInputFields(node.value.left) && keepsInputFields(node.value.right);
+}
+
+/** Whether a node reads its input's field `name`: `.name`. */
+function isInputField(node: JqNode, name: string): boolean {
+  return node.type === "field" && !node.value.optional && node.value.target.type === "identity" && node.value.name === name;
+}
+
 /** The field names from the row to a node's value, when it reads a field of the row: `.a.b` where `.` is the row, `$r.a` where `$r` holds it, `$k` where `$k` holds one. */
 function rowField(node: JqNode, cx: RowContext): readonly string[] | undefined {
   if (node.type === "variable") return cx.fields.get(node.value);
@@ -1504,7 +1542,7 @@ function lookupsOnly(node: JqNode, path: string, cx: RowContext, name: string, f
         found.push({ fields, path: childPath(hasPath, "call.args[0]") });
         return true;
       }
-      return visit(left, "pipe.left") && visit(right, "pipe.right", { ...cx, row: cx.row && keepsInput(left) });
+      return visit(left, "pipe.left") && visit(right, "pipe.right", { ...cx, row: cx.row && keepsInputFields(left) });
     }
     case "bind": {
       const { body, patterns, source } = node.value;
@@ -1563,7 +1601,8 @@ function rowLookups(plan: Plan, name: string): Lookup[] | undefined {
   const bound = binds.findIndex(b => patternNames(b.node.value.patterns[0]!).includes(name));
   if (binds.slice(bound + 1).some(b => variablesIn(b.node.value.source).has(name))) return undefined;
   let cx: RowContext = { row: true, rows: new Set(), fields: new Map(), defs: new Set() };
-  // The rows are the dataset's own until a step makes others.
+  // The rows are the dataset's own until a step makes others: keeping some of
+  // their fields under their own names, as #1141's narrowing does, keeps them.
   let intact = true;
   for (const step of plan.rows.steps) {
     const here: RowContext = { ...cx, row: intact };
@@ -1576,12 +1615,12 @@ function rowLookups(plan: Plan, name: string): Lookup[] | undefined {
       case "map": {
         const arg = step.node.value.args[0]!;
         if (!lookupsOnly(arg, childPath(step.path, "call.args[0]"), here, name, found)) return undefined;
-        intact = intact && keepsInput(arg);
+        intact = intact && keepsInputFields(arg);
         break;
       }
       case "each":
         if (!lookupsOnly(step.node, step.path, here, name, found)) return undefined;
-        intact = intact && keepsInput(step.node);
+        intact = intact && keepsInputFields(step.node);
         break;
       case "bind": {
         const { patterns, source } = step.node.value;
@@ -1852,7 +1891,12 @@ function rekeyOf(
   }
   if (joins.length !== 1) return null;
   const join = joins[0]!;
-  const Rows = ArrayType(R);
+  // Each row as the re-key call sends it and the join call's pieces read it: the fields the query reads of it (#1141).
+  const narrowed = narrowedRows(checked, plan, A.type, R, output);
+  const sent = narrowed?.row ?? R;
+  const joinChecked = narrowed?.checked ?? checked;
+  const joinPlan = narrowed?.plan ?? plan;
+  const Rows = ArrayType(sent);
   const Keyed = DictType(join.key, Rows);
   const joinInputs = inputs.map(i => i.name === source.over ? { name: i.name, type: Keyed } : i);
   // Each key's rows, in input order: a re-keyed piece's rows.
@@ -1861,12 +1905,37 @@ function rekeyOf(
     name: join.name,
     key: join.range,
     keyType: join.key,
-    output: { kind: "dict", type: Keyed, merge: () => mergeFunction(checked, join.key, Rows, (t, _$, earlier, later) => t.b("ArrayConcat", [R], [earlier, later], Rows, source.path)) },
-    piece: () => rekeyPiece(checked, A.type, R, join.fields, join.key, source, options),
+    output: { kind: "dict", type: Keyed, merge: () => mergeFunction(checked, join.key, Rows, (t, _$, earlier, later) => t.b("ArrayConcat", [sent], [earlier, later], Rows, source.path)) },
+    piece: () => rekeyPiece(checked, A.type, R, sent, join.fields, join.key, source, options),
     inputs: joinInputs,
-    joinPiece: () => pieceProgram(checked, plan, joinInputs, output, options, rekeyed),
-    joinThen: () => thenNeeded ? thenProgram(checked, plan, joinInputs.filter(i => i.name !== source.over && i.name !== join.name), output, resultType, options) : null,
+    joinPiece: () => pieceProgram(joinChecked, joinPlan, joinInputs, output, options, rekeyed),
+    joinThen: () => thenNeeded ? thenProgram(joinChecked, joinPlan, joinInputs.filter(i => i.name !== source.over && i.name !== join.name), output, resultType, options) : null,
   };
+}
+
+/**
+ * A dataset's rows narrowed to the fields the query reads of them (#1141):
+ * the struct of those fields, in the row's order, and the query checked again
+ * and planned over rows of it; `undefined` when the query reads a row whole,
+ * or every field, or does not plan alike over them.
+ */
+function narrowedRows(checked: CheckJqResult, plan: Plan, A: EastType, R: EastType, output: JqSplitOutput): { row: EastType; checked: CheckJqResult; plan: Plan } | undefined {
+  const source = plan.rows.source;
+  const read = rowsRead(checked, source.path);
+  const row = unwrap(R);
+  const root = unwrap(checked.inputType);
+  if (read === undefined || row.type !== "Struct" || root.type !== "Struct" || unwrap(A).type !== "Array") return undefined;
+  const fields = Object.entries(row.fields as Record<string, EastType>);
+  const kept = fields.filter(([name]) => read.has(name));
+  if (kept.length === fields.length) return undefined;
+  const narrowed = StructType(Object.fromEntries(kept));
+  const input = StructType(Object.fromEntries(Object.entries(root.fields as Record<string, EastType>)
+    .map(([name, type]) => [name, name === source.over ? ArrayType(narrowed) : type])));
+  const again = checkAgain(checked, checked.program!, checked.source.spans, input);
+  if (again === undefined) return undefined;
+  const planned = planOf(again);
+  if (!("plan" in planned) || planned.plan.combine.kind !== plan.combine.kind || !isTypeEqual(outputOf(again, planned.plan).type, output.type)) return undefined;
+  return { row: narrowed, checked: again, plan: planned.plan };
 }
 
 /**
@@ -1874,13 +1943,13 @@ function rekeyOf(
  * its join key, a key's rows gathered first in the piece's table, appended in
  * place, since the table alone holds them until it sends them on.
  */
-function rekeyPiece(checked: CheckJqResult, A: EastType, R: EastType, fields: readonly string[], K: EastType, source: Source, options: SplitJqOptions): FunctionExpr<any[], any> {
-  const Rows = ArrayType(R);
+function rekeyPiece(checked: CheckJqResult, A: EastType, R: EastType, sent: EastType, fields: readonly string[], K: EastType, source: Source, options: SplitJqOptions): FunctionExpr<any[], any> {
+  const Rows = ArrayType(sent);
   return withLocationCapture(false, () => func([A, FunctionType([K, Rows], NullType)], NullType, ($, piece, emit) => {
     const t = new SplitTranslator(checked, {});
     const send = ($2: Block, ...args: Expr[]): void => t.stmt($2, t.callFn(emit as Expr, args, source.path));
     const append: Fold = (t2, $2, earlier, later) => {
-      t2.stmt($2, t2.b("ArrayAppend", [R], [earlier, later], NullType, source.path));
+      t2.stmt($2, t2.b("ArrayAppend", [sent], [earlier, later], NullType, source.path));
       return earlier;
     };
     const table = pieceTable(t, $, K, { type: Rows, fold: append }, source.path, options, send);
@@ -1888,8 +1957,10 @@ function rekeyPiece(checked: CheckJqResult, A: EastType, R: EastType, fields: re
       const row = t.bind($2, t.widenTo($2, item, R, source.path), "row");
       let key = row;
       for (const name of fields) key = t.field(key, name);
-      const one = t.declare($2, t.emptyArray(R), "rows");
-      t.push($2, one, row, source.path);
+      // The row as the query reads it: the fields it reads, where it reads only some (#1141).
+      const value = sent === R ? row : t.struct(sent, Object.fromEntries(Object.keys(parts(sent).fields).map(name => [name, t.field(row, name)])));
+      const one = t.declare($2, t.emptyArray(sent), "rows");
+      t.push($2, one, value, source.path);
       table.add($2, key, one);
     }, source.path);
     table.flush($);

@@ -268,7 +268,8 @@ describe("createInMemorySplitCall's explain (#1132)", () => {
     });
 
     test("of arguments partitioned together, it cuts over the heaviest — a re-keyed join's join call over the re-keyed orders, read by their hash, which weigh their beast2 bytes", async () => {
-        const program = ".customers as $c | .orders | map($c[.customer_id].region) | unique";
+        // The re-key call sends each order as the query reads it (#1141): its customer and its lines, which outweigh the customers.
+        const program = ".customers as $c | .orders | map({region: $c[.customer_id].region, lines: (.lines | length)}) | unique";
         const planned = planQuery(program, BOTH, new Map([["orders", { bytes: 1 << 30, rows: 40 }], ["customers", { bytes: 1 << 30, rows: 8 }]]));
         if ("result" in planned || planned.plan.kind !== "rekey") throw new Error(`${program} is not re-keyed`);
         const call = createInMemorySplitCall(DATASETS, { pieces: 3 });
