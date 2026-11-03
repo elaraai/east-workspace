@@ -167,7 +167,7 @@ export function App() {
                 selected={selectedCategory}
                 onSelect={selectFromDrawer}
             />
-            <Flex flex="1" minW={0} direction="column" h="100vh">
+            <Flex flex="1" minW={0} direction="column" h="100%">
                 <Header
                     category={selectedCategory}
                     categoryCount={scoped.length}

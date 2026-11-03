@@ -23,6 +23,12 @@
  *   as a view over the whole frame, edge to edge; Esc closes it, the focus
  *   back on its tab; one at a time.
  *
+ * Every word in it is whole or not there at all (3 Nov 2026) — cut by nothing,
+ * over no other word, in its chrome against no control — at 324px too, as wide as a 390px phone gives it
+ * in the showcase's card; a set Filters button's fill stands clear of its row;
+ * the first row's controls reach its end; and the Plan's now line runs behind
+ * the ruler's labels.
+ *
  * And the Flowchart's lane pager (`narrow.lanes`, ruled 3 Nov 2026): its window
  * shows the lanes the example asks, each half of main's width, and ‹ › step it
  * a lane, the readout following.
@@ -51,8 +57,8 @@ const PHONES: readonly (readonly [name: string, route: string])[] = [
 ];
 
 /** What is wrong with a phone's frame, as the page lays it out: each fault, in words. */
-function phoneFaults(entry: Locator): Promise<string[]> {
-    return entry.locator(ROOT).first().evaluate((frame) => {
+function phoneFaults(entry: Locator, name: string): Promise<string[]> {
+    return entry.locator(ROOT).first().evaluate((frame, builder) => {
         const faults: string[] = [];
         const round = (n: number) => Math.round(n * 10) / 10;
         if (!frame.hasAttribute("data-phone")) return ["not a phone's frame"];
@@ -115,8 +121,71 @@ function phoneFaults(entry: Locator): Promise<string[]> {
         for (const tab of strip.querySelectorAll<HTMLElement>("[data-pane-tab][aria-selected='false']")) {
             if (getComputedStyle(tab).color !== token("fg-muted")) faults.push(`${tab.textContent} tab in ${getComputedStyle(tab).color}`);
         }
+        // Every word of the frame whole, or not there at all: none cut by what clips it, none over another, none run into a
+        // control beside it in the chrome. Studio's and the query builder's main and footer are not yet a phone's.
+        const seen: { words: string; at: DOMRect }[] = [];
+        for (const region of ["toolbar", "sessionRow", "body", "paneStrip", "footer"]) {
+            const box = slot(region);
+            if (box === null || ((region === "body" || region === "footer") && (builder === "Studio" || builder === "Query"))) continue;
+            const controls = region === "body" ? [] : [...box.querySelectorAll("button")].filter((b) => b.getBoundingClientRect().width > 0);
+            const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+            for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+                const words = node.textContent?.trim() ?? "";
+                if (words === "" || words === "·") continue;
+                const range = document.createRange();
+                range.selectNodeContents(node);
+                const text = range.getBoundingClientRect();
+                const host = node.parentElement!;
+                if (text.width === 0 || getComputedStyle(host).visibility === "hidden" || host.closest("svg, [aria-hidden='true']") !== null) continue;
+                let hidden = false;
+                let cut = false;
+                for (let el: HTMLElement | null = host; el !== null && el !== frame; el = el.parentElement) {
+                    const style = getComputedStyle(el);
+                    // What scrolls shows the rest of it; only what clips cuts it.
+                    if ((style.overflowX === "visible" && style.overflowY === "visible") || style.overflowX === "auto" || style.overflowX === "scroll") continue;
+                    const clip = el.getBoundingClientRect();
+                    if (text.right <= clip.left || text.left >= clip.right || text.bottom <= clip.top || text.top >= clip.bottom) { hidden = true; break; }
+                    if (text.left < clip.left - 0.5 || text.right > clip.right + 0.5) cut = true;
+                }
+                if (hidden || text.bottom > f.bottom || text.top < f.top) continue;
+                // Each line of it, where it wraps: the range's box would take in the words beside it.
+                if (range.getClientRects().length === 1) for (const other of seen) {
+                    if (Math.min(other.at.right, text.right) - Math.max(other.at.left, text.left) > 1 && Math.min(other.at.bottom, text.bottom) - Math.max(other.at.top, text.top) > 2) faults.push(`"${words}" over "${other.words}"`);
+                }
+                if (range.getClientRects().length === 1) seen.push({ words, at: text });
+                if (cut || text.right > f.right + 0.5) faults.push(`${region}: "${words}" cut`);
+                for (const control of controls) {
+                    if (control.contains(host)) continue;
+                    const b = control.getBoundingClientRect();
+                    if (Math.min(b.bottom, text.bottom) - Math.max(b.top, text.top) > 2 && Math.max(b.left, text.left) - Math.min(b.right, text.right) < 4) {
+                        faults.push(`${region}: "${words}" against ${control.getAttribute("aria-label") ?? control.textContent}`);
+                    }
+                }
+            }
+        }
+        // The first row's controls reach its end, past the count's slack.
+        const row = slot("toolbar")?.querySelector("[data-toolbar]");
+        const last = row === null || row === undefined ? undefined : [...row.querySelectorAll("button")].filter((b) => b.getBoundingClientRect().width > 0).at(-1);
+        if (row && last !== undefined && row.getBoundingClientRect().right - last.getBoundingClientRect().right > 8) faults.push("the first row's controls short of its end");
+        // A Filters button that is set: a 44px target, its fill clear of the row's edges.
+        const set = frame.querySelector<HTMLElement>("[data-rail-phone][data-active]");
+        if (set !== null) {
+            const b = set.getBoundingClientRect();
+            const inset = Number.parseFloat(getComputedStyle(set, "::before").top);
+            const top = slot("toolbar")!.getBoundingClientRect();
+            if (b.height < 44 || !(b.top + inset - top.top >= 4) || !(top.bottom - (b.bottom - inset) >= 4)) faults.push(`set Filters, ${round(b.height)}px with its fill ${inset}px in`);
+        }
+        // The Plan's ruler: each label clear of the rules beside it, the now line behind it.
+        const ruler = frame.querySelector("[data-slot='narrowRuler']");
+        const now = ruler?.querySelector("[data-ruler-now]");
+        for (const label of ruler?.querySelectorAll<HTMLElement>("[data-tick-label]") ?? []) {
+            const look = getComputedStyle(label);
+            if (look.visibility === "hidden") continue;
+            if (Number.parseFloat(look.paddingLeft) < 3) faults.push(`${label.textContent} on its rule`);
+            if (now && Number(look.zIndex) <= Number(getComputedStyle(now).zIndex)) faults.push(`the now line over ${label.textContent}`);
+        }
         return faults;
-    });
+    }, name);
 }
 
 /** A pane's view as the page lays it out, against the frame. */
@@ -139,7 +208,7 @@ for (const theme of ["light", "dark"] as const) {
             await test.step(route, async () => {
                 await page.setViewportSize({ width: 1440, height: 900 });
                 const entry = await visitBuilder(page, route, ROOT, theme);
-                const found = await phoneFaults(entry);
+                const found = await phoneFaults(entry, name);
                 if (found.length > 0) faults[`${route} in its box`] = found;
                 const frame = entry.locator(ROOT).first();
                 const tabs = frame.locator("[data-pane-tab]");
@@ -162,8 +231,12 @@ for (const theme of ["light", "dark"] as const) {
                 }
                 // The pointer off the tab it last pressed, whose hover draws its ink.
                 await page.mouse.move(0, 0);
+                // As wide as it is on a 390px phone in the showcase's card, and in a 294px parent.
+                await sizeBuilder(page, entry, ROOT, 324);
+                const card = await phoneFaults(entry, name);
+                if (card.length > 0) faults[`${route} at 324px`] = card;
                 await sizeBuilder(page, entry, ROOT, 294);
-                const narrow = await phoneFaults(entry);
+                const narrow = await phoneFaults(entry, name);
                 if (narrow.length > 0) faults[`${route} in a 294px parent`] = narrow;
                 await entry.locator(ROOT).first().locator("xpath=..").evaluate((box) => { (box as HTMLElement).style.width = ""; });
                 await settled(page);
@@ -172,6 +245,26 @@ for (const theme of ["light", "dark"] as const) {
         });
     }
 }
+
+test("Sheet: narrowed, its Filters set, its tabs and its count stay whole beside the button", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const entry = await visitBuilder(page, "e3/sheet/sheet-actions/sheetActionsPhone", ROOT, "light");
+    const frame = entry.locator(ROOT).first();
+    const button = frame.locator("[data-rail-phone]").first();
+    await button.click();
+    const view = page.locator("[data-slice-filters-view]").first();
+    await view.locator("button[data-slice-section]").first().click();
+    await view.locator("[data-slice-filters-editor] button").first().click();
+    for (let i = 0; i < 2 && await view.isVisible(); i++) {
+        await page.keyboard.press("Escape");
+        await settled(page);
+    }
+    await expect(button).toHaveAttribute("data-active", "");
+    for (const width of [390, 324, 294]) {
+        await sizeBuilder(page, entry, ROOT, width);
+        expect(await phoneFaults(entry, "Sheet"), `at ${width}px`).toEqual([]);
+    }
+});
 
 test("Flowchart: a phone shows two lanes across main, and the pager's steps move the window a lane, 44px each, off at each end", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });

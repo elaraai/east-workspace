@@ -92,6 +92,8 @@ export const narrowBase = {
         bottom: 0,
         left: "25px",
         right: "25px",
+        // The now line behind the labels: each label's paper keeps its words whole, and the line shows on either side.
+        "& > [data-ruler-now]": { zIndex: 0 },
     },
     // One bucket: its separator on the right edge (every bucket has one,
     // labelled or not), its label centred over it, whole, on the ruler's
@@ -102,6 +104,8 @@ export const narrowBase = {
     // last sit against the track's ends (`data-align`).
     narrowRulerTick: {
         ...timeRulerBase.rulerTick,
+        // Each label clear of the rules beside it, on its paper.
+        "& > [data-tick-label]": { paddingInline: "4px" },
         // Highlight the now bucket without a chip obscuring neighbouring labels.
         "&[data-now]": { color: "brand.fg", fontWeight: "semibold" },
     },

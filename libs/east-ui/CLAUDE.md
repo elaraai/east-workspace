@@ -66,10 +66,17 @@ raw value. The token guard
 token, when a theme value drifts from the design system's in either colour
 mode — so after a re-download it names exactly what the theme must follow.
 
-Visual verification measures computed styles in the showcase's responsive
-suite (`make test-responsive`, `packages/east-ui-showcase/tests/responsive/`):
-a visual change lands with a visual invariant there. Never read a
-screenshot.
+Visual verification has two halves, and neither stands in for the other.
+
+- **Measure it.** A visual change lands with a visual invariant in the
+  showcase's responsive suite (`make test-responsive`,
+  `packages/east-ui-showcase/tests/responsive/`), measuring computed styles:
+  that is what holds it in CI.
+- **Look at it.** Before a visual change is called finished, screenshot it and
+  read the screenshots: each state it touches, at each width it has, a phone's
+  included. A spec holds only what someone thought to measure: tap targets and
+  geometry all pass over a label cut to `No`. What a look finds becomes an
+  invariant.
 
 Dark mode is for colour checks. A test of layout, geometry or behaviour runs
 in the light theme (`tests/responsive/themes.ts`' `LAYOUT_THEMES`); a test

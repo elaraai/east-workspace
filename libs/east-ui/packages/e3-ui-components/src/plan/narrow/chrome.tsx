@@ -50,7 +50,7 @@ export function NarrowRuler({ styles }: { styles: Styles }) {
             <Box css={styles.narrowRulerTrack}>
                 {units !== undefined && <TimeRulerRow scale={units} styles={rulerStyles} band="units" owner="plan-narrow" />}
                 <TimeRulerRow scale={scale} styles={rulerStyles} band="ticks" owner="plan-narrow" highlight={nowIndex} />
-                {scale.nowFrac !== undefined && <NowLine styles={styles} at={scale.nowFrac} />}
+                {scale.nowFrac !== undefined && <NowLine styles={styles} at={scale.nowFrac} data-ruler-now="" />}
             </Box>
         </Box>
     );

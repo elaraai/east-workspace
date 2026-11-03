@@ -69,9 +69,11 @@ pans and strip drags.
 | `make east-ui-examples-html-all` | Snapshots every east-ui example to standalone HTML. |
 | `make east-ui-examples-html-<key>` | Snapshots a single example (e.g. `east-ui-examples-html-disclosure/tabs`). |
 
-Visual verification measures computed styles in the responsive suite: a
-visual change lands with a visual invariant in
-`../east-ui-showcase/tests/responsive/`. Never read a screenshot.
+Visual verification measures and looks: a visual change lands with a visual
+invariant in `../east-ui-showcase/tests/responsive/`, computed styles measured
+in the page, and before it is called finished it is screenshotted and the
+screenshots read (see [`../../CLAUDE.md`](../../CLAUDE.md) › Canonical design
+source).
 
 **Palette (#1091).** Brand is the default `colorPalette`.
 `theme/global-css.ts` sets it on `html`, where Chakra sets its own `gray`.

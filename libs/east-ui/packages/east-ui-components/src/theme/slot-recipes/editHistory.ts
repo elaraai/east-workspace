@@ -22,12 +22,13 @@
  * In a phone's frame (`data-history-form=phone`, the toolbar's second row,
  * `Mobile Builder Frame Spec.md` FR6): the row's width, the drafts' count at
  * its start (`No changes` mono 11 `fg.subtle`, or a `brandTint` chip mono
- * 11/600 in `brandPressed`), then 44px outline squares with a 16px icon, Save
+ * 11/600 in `brandPressed`), shown whole or not at all, then 44px outline squares with a 16px icon, Save
  * filled `brand.solid` while it would save and a live dot in its place while
  * one is out; Discard's question below it, its title DM Sans 20/700.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { wholeOrNone } from "../../style/whole-or-none.js";
 
 export const editHistorySlotRecipe = defineSlotRecipe({
     className: "elara-edit-history",
@@ -98,9 +99,10 @@ export const editHistorySlotRecipe = defineSlotRecipe({
             fontSize: "body.sm",
             color: "fg.warning",
         },
-        /* A phone's row: what a Save is doing, else the drafts' count, taking what the buttons leave. */
+        /* A phone's row: what a Save is doing, else the drafts' count, taking what the buttons leave — whole, or, where
+         * they leave too little, not at all: the buttons say as much. */
         summary: {
-            order: -1, flex: "1 1 auto", minWidth: "0", display: "flex", alignItems: "center", overflow: "hidden",
+            order: -1, flex: "1 1 auto", minWidth: "0", ...wholeOrNone("24px"),
             /* The frame's loading line showing at the row's start, the count steps aside for it (R5); a Save's words do not. */
             "&[data-history-summary=count]": { "[data-frame-slot=sessionRow]:has([data-footer-line]:not([data-idle])) &": { display: "none" } },
         },

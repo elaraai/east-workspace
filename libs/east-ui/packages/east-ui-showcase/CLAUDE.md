@@ -106,9 +106,11 @@ Visual verification is the responsive suite (`tests/responsive/`): after
 an east-ui example or component change, rebuild and run it, and land a
 visual change with a visual invariant there — computed styles measured in
 the page, in the light theme, and in dark too where the check holds a colour
-(`tests/responsive/themes.ts`). Never read a screenshot. The design system it
-measures against is the read-only download in `../../app_design_system/`
-(see [`../../CLAUDE.md`](../../CLAUDE.md) › Canonical design source).
+(`tests/responsive/themes.ts`) — and before it is called finished, screenshot
+it and read the screenshots: a spec holds only what someone thought to measure.
+The design system it measures against is the read-only download in
+`../../app_design_system/` (see [`../../CLAUDE.md`](../../CLAUDE.md) › Canonical
+design source).
 
 ## Keep responsive checks economical
 

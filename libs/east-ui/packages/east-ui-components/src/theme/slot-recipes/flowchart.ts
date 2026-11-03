@@ -441,13 +441,15 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             color: "fg.muted",
             whiteSpace: "nowrap",
             overflow: "hidden",
+            /* A phone's: every count in sight, on as many lines as they take. */
+            "[data-phone] &": { height: "auto", minHeight: "38px", flexWrap: "wrap", rowGap: "1", paddingY: "2", whiteSpace: "normal" },
         },
         /* The open flow's name, leading the counts over many flows. */
         footerFlow: { color: "fg", fontWeight: "600" },
         footerStrong: { color: "fg", fontWeight: "700" },
         /* Why a card's ⏎ was refused (#1249): the footer's own ink, cut short before the split. */
         footerMessage: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-        footerSplit: { marginLeft: "auto", color: "fg.subtle" },
+        footerSplit: { marginLeft: "auto", color: "fg.subtle", "[data-phone] &": { marginLeft: "0" } },
 
         /* ── the Flows tab — its cards, and "+ New flow" under them (#1246) ── */
         /* The tab's body: the cards filling the pane, the foot under them. */

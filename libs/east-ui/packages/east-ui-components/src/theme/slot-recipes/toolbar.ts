@@ -16,6 +16,9 @@
  *     item of the end cluster takes the row's slack before it.
  *   - Item: one that grows (`data-toolbar-grow`) takes the row's slack, and
  *     may shrink to nothing — a phone's view tabs, which scroll inside it.
+ *   - Item: one that gives way (`data-toolbar-shrink`, a phone's count line)
+ *     does so before one that grows does, and what follows it stands at the
+ *     row's end.
  *   - Gap: `md` 10px (the Plan's band), `lg` 12px, `none` with no padding
  *     either — a phone's row, whose items carry their own (`Mobile Builder
  *     Frame Spec.md` FR2).
@@ -48,7 +51,9 @@ export const toolbarSlotRecipe = defineSlotRecipe({
             flex: "none",
             "&[data-toolbar-end]": { marginInlineStart: "auto" },
             "&[data-toolbar-grow]": { flex: "1 1 auto", minWidth: "0", alignSelf: "stretch" },
-            "&[data-toolbar-shrink]": { flex: "0 1 auto", minWidth: "0", overflow: "hidden" },
+            /* Gives way before anything else does, the row's slack past it: what follows stands at the row's end. */
+            "&[data-toolbar-shrink]": { flex: "0 1000 auto", minWidth: "0", overflow: "hidden" },
+            "&[data-toolbar-shrink] + [data-toolbar-item]": { marginInlineStart: "auto" },
         },
     },
     variants: {

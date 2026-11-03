@@ -129,7 +129,8 @@
  *     column (SH1.3); the header 32
  *     tall, one line (SH3); numbers mono 13/500 in ink (SH5); a band 44
  *     tall, its content across the view whatever the scroll — a 40 wide
- *     chevron, the name, its id, and at its end its status as a chip (SH6);
+ *     chevron, the name, its id, and at its end its status as a chip (SH6):
+ *     the name and the status keep their room, the id whole or not at all;
  *     the selected cell's head tinted `bg.subtle` (SH3); and with the jump
  *     menu's `Row number` (`data-row-numbers`) the gutter's cells back as the
  *     Row column, a slot of the window holding the number alone (SH2).
@@ -165,6 +166,7 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { CONFLICT_RING_INSIDE_FOCUS, conflictRingInset } from "../conflict-ring.js";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { wholeOrNone } from "../../style/whole-or-none.js";
 import { fieldInRingedControl } from "../field-chrome.js";
 import { TOOLBAR_CONTROL_HEIGHT } from "../toolbar-row.js";
 import { FOOTER_FIT } from "./builder-footer.js";
@@ -1534,6 +1536,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             textOverflow: "ellipsis",
             position: "relative",
             zIndex: "1",
+            // A phone's band: the first to give way, whole, so the name and the status keep their room.
+            "[data-sheet-card][data-phone] &": { ...wholeOrNone("24px"), flex: "0 1000 auto", minWidth: "0" },
         },
         groupCell: {
             position: "relative", display: "flex", alignItems: "center", minWidth: "0", minHeight: "28px", paddingX: "10px",
@@ -1547,7 +1551,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             // A phone's band's status (SH6): a 22 tall chip at the band's end — an 8 dot and the word mono 10.5/600 caps —
             // on `brandTint` while the band is a draft.
             "[data-sheet-card][data-phone] &": {
-                minHeight: "22px", height: "22px", paddingX: "4px", gap: "8px", borderRadius: "sm",
+                minHeight: "22px", height: "22px", paddingX: "4px", gap: "8px", borderRadius: "sm", flexShrink: 0,
                 // The dot (it carries its tone), then the word after it.
                 "& [data-tone]": { width: "8px", height: "8px", marginRight: "0" },
                 "& [data-tone] + span": { fontSize: "label.md", fontWeight: "600", letterSpacing: "0.1em" },

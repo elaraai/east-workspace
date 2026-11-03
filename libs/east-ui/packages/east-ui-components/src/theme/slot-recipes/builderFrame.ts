@@ -43,8 +43,8 @@
  *     either rule, padded 0 12 0 16 and 4px apart, the status (the loading
  *     line) leading it; the pane strip on the bottom edge — 44px over a
  *     `--rule`, one equal tab a pane split by a rule inset 10px top and
- *     bottom, its icon 14, its label the mono caps, its meta mono
- *     `fg.subtle`, the open one in ink over a 2px underline; a pane open — a
+ *     bottom, its icon 14, its label the mono caps, whole, its meta mono
+ *     `fg.subtle`, whole or not at all, the open one in ink over a 2px underline; a pane open — a
  *     view over the whole builder, edge to edge, as the Filters view is
  *     (ruled 3 Nov 2026), `--paper`, sliding in from the right over
  *     `--dur-base` on `--ease-out` (at once under reduced motion), off to the
@@ -58,6 +58,7 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { builderFooter } from "./builder-footer.js";
+import { wholeOrNone } from "../../style/whole-or-none.js";
 
 /** The motion of a state toggle: the design system's `--dur-base` on `--ease-in-out`. */
 const TOGGLE_MOTION = {
@@ -267,12 +268,13 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             "&[aria-selected=true]": { color: "fg", borderBottomColor: "fg" },
         },
         paneTabIcon: { display: "inline-flex", flexShrink: 0, fontSize: "14px", "[data-active] > &": { color: "brand.solid" } },
+        /* Its label whole: the tab's name. What follows it, whole or not at all, in the room it leaves. */
         paneTabLabel: {
-            minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            flexShrink: 0, whiteSpace: "nowrap",
             fontFamily: "mono", fontSize: "label.lg", fontWeight: "600", letterSpacing: "0.16em", textTransform: "uppercase",
         },
         paneTabMeta: {
-            flexShrink: 1, minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            flexShrink: 1, minWidth: "0", ...wholeOrNone("16px"), whiteSpace: "nowrap",
             fontFamily: "mono", fontSize: "label.md", fontWeight: "500", color: "fg.subtle", fontVariantNumeric: "tabular-nums",
         },
         paneTabMark: {
