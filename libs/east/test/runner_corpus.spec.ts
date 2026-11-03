@@ -358,9 +358,12 @@ describe("runner protocol corpus", () => {
         });
 
         test("a Dict emitted in random order, its repeated keys summed, as sorted runs", () => {
+            // The first 150,000 keys are distinct (7919 is prime to 150,000),
+            // so the fold table steps aside at its first spill, and the element
+            // cap closes the runs, a key repeating within and across them.
             const program = East.function([EmitStringInteger], NullType, ($, emit) => {
                 $.for(East.Array.range(0n, 200_000n), ($, i) => {
-                    $(emit(East.str`k${i.multiply(7919n).remainder(60_000n)}`, i));
+                    $(emit(East.str`k${i.multiply(7919n).remainder(150_000n)}`, i));
                 });
             }).toIR();
             const sum = East.function([StringType, IntegerType, IntegerType], IntegerType, (_$, _key, acc, value) => acc.add(value)).toIR();
@@ -395,9 +398,10 @@ describe("runner protocol corpus", () => {
             });
         });
 
-        test("a Dict of floats summed across the element cap", () => {
-            // Where the run closes decides how the floats group before they
-            // sum, and so the output's bytes.
+        test("a Dict of floats summed as they are emitted", () => {
+            // Seven keys: the fold table folds each key's floats as they are
+            // emitted, pairwise, and the one run holds the seven. How they
+            // group decides the output's bytes.
             const program = East.function([EmitStringFloat], NullType, ($, emit) => {
                 $.for(East.Array.range(0n, 140_000n), ($, i) => {
                     $(emit(East.str`f${i.remainder(7n)}`, i.remainder(11n).add(1n).toFloat().multiply(0.1)));
@@ -406,7 +410,7 @@ describe("runner protocol corpus", () => {
             const sum = East.function([StringType, FloatType, FloatType], FloatType, (_$, _key, acc, value) => acc.add(value)).toIR();
             const out = new Map<string, Uint8Array>();
             const runs = addRuns(out, "out", DictType(StringType, FloatType), emissionsOf(program, [], true), { merge: sum.compile([]) as (key: unknown, acc: unknown, value: unknown) => unknown });
-            assert.equal(runs, 2);
+            assert.equal(runs, 1, "the fold table writes one run of the seven keys");
             cases.push({
                 dir: "dict-floats",
                 files: new Map([
@@ -420,7 +424,7 @@ describe("runner protocol corpus", () => {
                         result: "result.beast2",
                     })],
                 ]),
-                expected: { name: "a Dict of floats summed across the element cap", outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: ["out/2.beast2"] },
+                expected: { name: "a Dict of floats summed as they are emitted", outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: ["out/1.beast2"] },
             });
         });
 
