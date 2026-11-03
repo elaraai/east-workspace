@@ -3,7 +3,10 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { ArrayType, IntegerType, NullType, StringType, decodeBeast2For, encodeBeast2For, equalFor, printFor, spliceBeast2Segments } from '@elaraai/east';
+import {
+  ArrayType, IntegerType, NullType, SortedMap, SortedSet, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor,
+  isCollectionManifestType, printFor, readBeast2Type, spliceBeast2Segments, type EastTypeValue,
+} from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
 import {
   BEAST2_CONTENT_TYPE, E3_RELEASE, TRANSFER_PROTOCOL_VERSION, decodeCollectionManifest, pathToString, transferPartCount, transferPartRange,
@@ -430,6 +433,154 @@ export async function collectionGetStream(url: string, repo: string, manifestHas
       }
     })());
   })();
+}
+
+/** A stored collection opened by its hash: its type, how many elements it
+ *  holds, and its windows, each read from the segments it overlaps. */
+export interface RemoteCollection {
+  /** The hash it was opened by: its manifest's. */
+  readonly hash: string;
+  /** The collection's type: an Array, a Set or a Dict. */
+  readonly type: EastTypeValue;
+  /** Its elements (pairs, for a Dict), as its manifest counts them. */
+  readonly totalElements: number;
+  /**
+   * A window of its elements, in its order: an Array's, or a Set's or Dict's
+   * keys'.
+   *
+   * @param window - The first element, and the most to answer
+   * @returns The window
+   * @throws {RangeError} When `offset` or `limit` is not a whole number of
+   *   elements, zero or more
+   * @throws {ApiError} When the repository no longer holds a segment
+   * @throws {Error} When a segment arrives cut short or corrupted
+   */
+  page(window: { offset: number; limit: number }): Promise<CollectionPage>;
+}
+
+/** A window of a {@link RemoteCollection}. */
+export interface CollectionPage {
+  /** BEAST2 of exactly the window's elements: a value of the collection's
+   *  type, as a dataset page's `data` is. */
+  readonly data: Uint8Array;
+  /** The window's first element. */
+  readonly offset: number;
+  /** The elements it holds: fewer than asked at the end, and none past it. */
+  readonly count: number;
+}
+
+/**
+ * Open a stored collection by its manifest's hash, to read it a window at a
+ * time: a split call's output, which a result over its limit names, or any
+ * other collection a caller names by its hash.
+ *
+ * @remarks
+ * The manifest is read once, through the objects route, and checked against
+ * its hash. Each window then fetches only the segments it overlaps, a few at a
+ * time, each checked against its hash ({@link objectGet}), decodes them, and
+ * answers exactly the window. To read the whole collection as it streams, use
+ * {@link collectionGetStream}. A manifest above level 0 is refused, as
+ * `collectionGetStream` refuses it.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param hash - The hash of the collection's segment manifest
+ * @param options - Request options including auth token
+ * @returns The collection, opened
+ * @throws {ApiError} On application-level errors, such as a manifest the
+ *   repository does not hold
+ * @throws {AuthError} On 401 Unauthorized
+ * @throws {Error} When the object is no collection's manifest — a value
+ *   stored whole, as a fold's output is, which {@link objectGet} reads — or
+ *   the manifest is above level 0
+ *
+ * @example
+ * ```ts
+ * const answer = await splitCall(url, repo, ws, request, { token });
+ * if (answer.result.outcome.type === 'too_large' && answer.output !== null) {
+ *   const remote = await collectionOpen(url, repo, answer.output, { token });
+ *   const page = await remote.page({ offset: 0, limit: 1_000 });
+ *   const rows = decodeBeast2For(remote.type)(page.data);
+ * }
+ * ```
+ */
+export async function collectionOpen(url: string, repo: string, hash: string, options: RequestOptions): Promise<RemoteCollection> {
+  const bytes = await objectGet(url, repo, hash, options);
+  if (!isCollectionManifestType(readBeast2Type(bytes))) {
+    throw new Error(`the object ${hash} is no collection's manifest but a value stored whole, as a fold's output is: objectGet reads it`);
+  }
+  const manifest = decodeCollectionManifest(bytes);
+  if (!integerEqual(manifest.level, 0n)) {
+    throw new Error(`the collection ${hash} is a level ${printInteger(manifest.level)} manifest, whose entries name manifests, not segments: ` +
+      'a newer e3 wrote it, which this client does not read — update @elaraai/e3-api-client');
+  }
+  const type = manifest.type;
+  if (type.type !== 'Array' && type.type !== 'Set' && type.type !== 'Dict') throw new Error(`the manifest ${hash} names a ${type.type}, which is no collection`);
+  const kind = type.type;
+  const decode = decodeBeast2For(type);
+  const encode = encodeBeast2For(type);
+  const order = type.type === 'Array' ? null : compareFor(type.type === 'Set' ? type.value : type.value.key);
+  // Each segment's first element, by its place in the collection.
+  const starts: number[] = [];
+  let totalElements = 0;
+  for (const entry of manifest.entries) {
+    starts.push(totalElements);
+    totalElements += Number(entry.count);
+  }
+  return {
+    hash,
+    type,
+    totalElements,
+    async page({ offset, limit }) {
+      if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 0) {
+        throw new RangeError(`a window is a whole number of elements from a whole offset, zero or more: got offset ${offset}, limit ${limit}`);
+      }
+      const end = Math.min(totalElements, offset + limit);
+      const rows: unknown[] = [];
+      if (offset < end) {
+        // The segments the window overlaps: from the last to start at or
+        // before its first element, to the last to start before its end.
+        let first = 0;
+        while (first + 1 < starts.length && starts[first + 1]! <= offset) first++;
+        let last = first;
+        while (last + 1 < starts.length && starts[last + 1]! < end) last++;
+        const segments = await eachAtMost(SEGMENT_CONCURRENCY, last - first + 1, async (i) =>
+          decode(await objectGet(url, repo, manifest.entries[first + i]!.hash, options)));
+        for (let i = 0; i < segments.length && rows.length < end - offset; i++) {
+          const items: unknown[] = kind === 'Array' ? segments[i] as unknown[]
+            : kind === 'Set' ? [...segments[i] as Set<unknown>]
+            : [...segments[i] as Map<unknown, unknown>];
+          // From the window's first element in the first, to its last in the last.
+          for (let at = Math.max(0, offset - starts[first + i]!); at < items.length && rows.length < end - offset; at++) rows.push(items[at]);
+        }
+      }
+      const value = kind === 'Array' ? rows
+        : kind === 'Set' ? new SortedSet(rows, order!)
+        : new SortedMap(rows as [unknown, unknown][], order!);
+      return { data: encode(value as never), offset, count: rows.length };
+    },
+  };
+}
+
+/** Runs `n` tasks, at most `width` at once, and answers their results in
+ *  order. Once one fails, no other starts. */
+async function eachAtMost<T>(width: number, n: number, task: (i: number) => Promise<T>): Promise<T[]> {
+  const results = new Array<T>(n);
+  let next = 0;
+  let failed = false;
+  const lane = async (): Promise<void> => {
+    while (next < n && !failed) {
+      const i = next++;
+      try {
+        results[i] = await task(i);
+      } catch (err) {
+        failed = true;
+        throw err;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(width, n) }, lane));
+  return results;
 }
 
 /**

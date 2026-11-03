@@ -93,6 +93,7 @@ export {
   callFunctionSync,
   startSplitCall,
   getSplitCallStatus,
+  cancelSplitCall,
   type StartSplitCallOptions,
 } from './functions.js';
 

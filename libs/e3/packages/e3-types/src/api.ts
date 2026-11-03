@@ -1345,7 +1345,19 @@ export const SplitCallArgType = VariantType({
  * not partitioned reaches every piece whole. `output` is how the pieces'
  * outputs combine, as a task's output kinds do, with its programs and its zero
  * inline. `then`, when given, runs once over the assembled output and then the
- * arguments, and its value is the call's.
+ * arguments not partitioned, in their order, and its value is the call's. The
+ * partitioned arguments are the pieces' to read: `then` reads what the pieces
+ * made. A `then` that takes any other count is `invalid`, and nothing runs. A
+ * plan that needs a partitioned dataset again after the combine runs another
+ * split call over it, given this call's output as an `object` argument.
+ *
+ * `first` (#1110) is an `array` whose call stops once it has its first `limit`
+ * elements, at least 1: the body emits as an array's does, and the value is an
+ * Array of the first `limit` elements in input order, or of every element when
+ * there are fewer. Its pieces run in input order, a few at a time, and once the
+ * pieces finished from the first hold `limit` elements no piece after them
+ * starts. Its pieces are an `array` call's, so the two share them in the
+ * cache. `then` is given the first `limit` elements as its output.
  *
  * SECURITY: a caller whose one-shot grant is `platform_free` may launch one
  * only when it is platform-free: a stock runtime given no platform package,
@@ -1361,6 +1373,7 @@ export const SplitCallRequestType = StructType({
   output: VariantType({
     array: NullType,
     dict:  StructType({ merge: OptionType(BlobType) }),
+    first: StructType({ limit: IntegerType }),
     fold:  StructType({ combine: BlobType, zero: BlobType }),
     set:   NullType,
   }),
@@ -1392,22 +1405,42 @@ export const SplitCallPlanType = StructType({
 });
 
 /**
+ * How a finished split call ran: how many pieces its input was cut into; the
+ * units this job ran, pieces and merges, and those the execution cache served
+ * it; and the highest peak resident memory a unit reached, in bytes, as the
+ * task's execution records it — for a call the cache served too. A call the
+ * cache served whole consulted no unit: it ran 0, and was served 0. `then`'s
+ * run is no unit.
+ */
+export const SplitCallReportType = StructType({
+  pieces:    IntegerType,
+  ran:       IntegerType,
+  cached:    IntegerType,
+  peakBytes: OptionType(IntegerType),
+});
+
+/**
  * A split call's status, as its poll answers it.
  *
  * - `processing`: the job runs, and how far it has got once it has said
  * - `completed`: the call's result, and the assembled output's hash once the
  *   pieces ran — what a caller reads through the object route when the result
- *   is `too_large`, or passes on as the next call's `object` argument; an
- *   explain found wrong ends here too, `invalid`
+ *   is `too_large`, or passes on as the next call's `object` argument; and how
+ *   it ran ({@link SplitCallReportType}), `none` for a call found wrong, which
+ *   ran nothing. An explain found wrong ends here too, `invalid`
  * - `planned`: an explain's answer, the pieces the call's run would cut, which
- *   its job stored for the run to take up, and ran no unit for
+ *   its job planned and ran no unit for; a run plans them again, and finds the
+ *   pieces it stored
  * - `failed`: why e3 could not run it
+ * - `cancelled`: the call was cancelled before it ended, and its units
+ *   stopped; the units that finished are cached, so a relaunch is served them
  */
 export const SplitCallStatusType = VariantType({
   processing: OptionType(SplitCallProgressType),
-  completed:  StructType({ result: ExecuteResultType, output: OptionType(StringType) }),
+  completed:  StructType({ result: ExecuteResultType, output: OptionType(StringType), report: OptionType(SplitCallReportType) }),
   planned:    SplitCallPlanType,
   failed:     StructType({ message: StringType }),
+  cancelled:  NullType,
 });
 
 /**
@@ -1672,6 +1705,7 @@ export type SplitCallRequest = ValueTypeOf<typeof SplitCallRequestType>;
 export type SplitCallProgress = ValueTypeOf<typeof SplitCallProgressType>;
 export type SplitCallStatus = ValueTypeOf<typeof SplitCallStatusType>;
 export type SplitCallPlan = ValueTypeOf<typeof SplitCallPlanType>;
+export type SplitCallReport = ValueTypeOf<typeof SplitCallReportType>;
 export type MutationCallRequest = ValueTypeOf<typeof MutationCallRequestType>;
 export type MutationResult = ValueTypeOf<typeof MutationResultType>;
 export type RecordMigrationApplied = ValueTypeOf<typeof RecordMigrationAppliedType>;

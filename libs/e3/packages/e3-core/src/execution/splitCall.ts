@@ -15,7 +15,9 @@
  * its program and its inputs. So a relaunch is served from the cache, and a
  * call after an append reruns only the pieces whose rows changed. With `then`,
  * the job then runs that function once, detached, over the assembled output
- * and the arguments.
+ * and the arguments not partitioned: the pieces read the others. A `first`
+ * call (#1110) is an `array` call whose job runs the pieces itself, in input
+ * order, and stops once it has its first `limit` elements.
  *
  * What a caller may launch is one-shot's grant: `platform_free` launches only a
  * platform-free call ({@link splitCallPlatformUse}). The whole call goes
@@ -30,10 +32,11 @@ import {
   type ValueTypeOf,
 } from '@elaraai/east';
 import {
-  DiagnosticType, TASK_OBJECT_KIND, TaskObjectType, decodeTaskObject, manifestByteSize,
+  DiagnosticType, SplitCallReportType, TASK_OBJECT_KIND, TaskObjectType, decodeTaskObject, decodeUnitPlan, manifestByteSize,
   type ExecuteResult, type PartitionProgress, type SplitCallPlan, type SplitCallProgress, type SplitCallRequest, type TaskOutputKind,
 } from '@elaraai/e3-types';
 import { PermissionDeniedError } from '../errors.js';
+import { executionGet, inputsHash } from '../executions.js';
 import { openDatasetObject, readDatasetWhole, readManifest } from '../dataset-open.js';
 import { touchReachable } from '../gc-graph.js';
 import { withRunningWork } from '../running-work.js';
@@ -41,12 +44,13 @@ import { storeDatasetBytes } from '../store-collection.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { workspaceGetDatasetHash } from '../trees.js';
 import { workspaceGetPackage } from '../workspaces.js';
-import type { TaskRunner } from './interfaces.js';
+import type { TaskResult, TaskRunner } from './interfaces.js';
 import {
-  invalidExecuteResult, programPlatformUse, resolveJobLimits, runnerPlatformUse,
+  invalidExecuteResult, programArity, programPlatformUse, resolveJobLimits, runnerPlatformUse,
   type ExecuteCeilings, type OneShotGrant, type ResolvedLimits,
 } from './oneShot.js';
 import { pieceSizes, planPieces } from './pieces.js';
+import { FIRST_CALL_WIDTH, runFirstPieces } from './splitFirst.js';
 
 const encodeTaskObject = encodeBeast2For(TaskObjectType);
 
@@ -62,7 +66,9 @@ const encodeTaskObject = encodeBeast2For(TaskObjectType);
  * - `timed_out`: the job ran past its timeout, and was stopped
  *
  * `output` is the assembled output once the pieces ran; the log tails are
- * `then`'s, or a failed task's error.
+ * `then`'s, or a failed task's error. `report` is how the task ran, once it
+ * has ({@link SplitCallReportType}): `none` for a call found wrong, and for one
+ * whose pieces cannot be told.
  */
 export const SplitCallOutcomeType = StructType({
   outcome: VariantType({
@@ -77,6 +83,7 @@ export const SplitCallOutcomeType = StructType({
   stderr: StringType,
   stdoutTruncated: BooleanType,
   stderrTruncated: BooleanType,
+  report: OptionType(SplitCallReportType),
 });
 export type SplitCallOutcome = ValueTypeOf<typeof SplitCallOutcomeType>;
 
@@ -92,6 +99,9 @@ export interface SplitCallTask {
   readonly objects: readonly number[];
   /** The hash of `then`'s IR bundle, or `null` when the call has none. */
   readonly then: string | null;
+  /** A `first` call's limit: its task is an `array` call's, whose pieces the
+   *  job runs until they hold this many elements; `null` for any other. */
+  readonly first: number | null;
   /** The call's limits; its timeout is the job's. */
   readonly limits: ResolvedLimits;
   /** Each dataset argument's path and the hash it was pinned at, in argument
@@ -130,6 +140,9 @@ export interface SplitCallRunOptions {
   /** Reads the time, in epoch milliseconds, which the job's timeout is counted
    *  by. Default: `Date.now`. */
   now?: () => number;
+  /** How many units a `first` call keeps running at once (default
+   *  {@link FIRST_CALL_WIDTH}): the host's cores, say, or its pool's width. */
+  width?: number;
 }
 
 /**
@@ -193,18 +206,24 @@ export function splitCallPlatformFree(request: SplitCallRequest, grant: OneShotG
  * 1. **Grant.** `none` is refused, and so is `platform_free` with a call that
  *    is not platform-free, before anything is read or written. A
  *    `platform_free` caller's program that does not decode is `invalid`.
- * 2. **Pin.** Each dataset argument is pinned at the hash it holds, and an
+ * 2. **Shape.** A call on the custom runtime, one that partitions no argument,
+ *    a `first` call whose limit is below 1, and one whose `then` does not take
+ *    the assembled output and then each argument not partitioned — or does
+ *    not decode — are `invalid`, naming what is wrong: `then`'s arity and the
+ *    count it is given.
+ * 3. **Pin.** Each dataset argument is pinned at the hash it holds, and an
  *    `object` argument's own object must be in the store; a partitioned
  *    argument must be a stored collection. What an `object` argument names —
  *    an earlier call's output, say, a collection of thousands of segments —
  *    is the job's to re-reference before it runs ({@link splitCallReference}):
  *    the launch answers a request, and reads nothing of it but its own object.
- * 3. **Write.** The value arguments go through the store's door, so a
+ * 4. **Write.** The value arguments go through the store's door, so a
  *    partitioned one is a collection the pieces are cut from; the programs and
  *    a fold's zero are stored as objects.
- * 4. **Task.** The task object: the program as its body, on the call's runner,
+ * 5. **Task.** The task object: the program as its body, on the call's runner,
  *    an input per argument with its partition and no path, as an index build's
- *    are, and the call's output kind.
+ *    are, and the call's output kind: an `array` for a `first` call, whose
+ *    limit the job is given.
  *
  * Nothing names what this writes until the job's executions do, so it is
  * written holding the repository's running work.
@@ -243,6 +262,26 @@ export async function splitCallPrepare(
   if (!request.args.some((arg) => arg.partition.type === 'some')) {
     return invalidExecuteResult('a split call partitions at least one of its arguments: its pieces are cut from it');
   }
+  if (request.output.type === 'first') {
+    const limit = request.output.value.limit;
+    if (limit < 1n || limit > BigInt(Number.MAX_SAFE_INTEGER)) {
+      return invalidExecuteResult(`a first call answers from 1 to ${Number.MAX_SAFE_INTEGER} elements: its limit is ${limit}`);
+    }
+  }
+  if (request.then.type === 'some') {
+    // The assembled output, then each argument the pieces do not cut.
+    const given = 1 + request.args.filter((arg) => arg.partition.type === 'none').length;
+    let arity: number;
+    try {
+      arity = programArity(request.then.value);
+    } catch (err) {
+      return invalidExecuteResult(`then does not decode as a function: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (arity !== given) {
+      return invalidExecuteResult(`then takes ${argumentCount(arity)}, and the call gives it ${argumentCount(given)}: ` +
+        'the assembled output, then each argument not partitioned, in order');
+    }
+  }
   await workspaceGetPackage(storage, repo, workspace);
 
   return withRunningWork(storage, repo, async () => {
@@ -279,6 +318,8 @@ export async function splitCallPrepare(
     let kind: TaskOutputKind;
     switch (request.output.type) {
       case 'array':
+      // A `first` call's pieces are an `array` call's, which it shares.
+      case 'first':
         kind = variant('array', null);
         break;
       case 'set':
@@ -305,7 +346,8 @@ export async function splitCallPrepare(
       role: variant('data', null),
       environment: none,
     }));
-    return { task, inputs, objects, then, limits: resolveJobLimits(request.limits, options.ceilings), read };
+    const first = request.output.type === 'first' ? Number(request.output.value.limit) : null;
+    return { task, inputs, objects, then, first, limits: resolveJobLimits(request.limits, options.ceilings), read };
   });
 }
 
@@ -345,27 +387,33 @@ export async function splitCallReference(storage: StorageBackend, repo: string, 
  *
  * @remarks
  * The pieces are planned as the call's run plans them (`planPieces`), so the
- * count is the run's, and the pieces it stores are the ones the run takes up.
- * Planning stores every piece's manifest, and re-cuts the segment at each
- * boundary a `by` or an argument partitioned with another moves, so it is a
- * job's work, never a request's: the request launches the call
- * ({@link splitCallPrepare}), and its job plans it, once it has re-referenced
- * what the call's `object` arguments name ({@link splitCallReference}).
+ * count is the run's. Nothing of the plan is kept for a run: a launch that
+ * follows plans the pieces again, which costs a read of each partitioned
+ * argument's manifest, and finds the objects the explain stored. Planning
+ * stores every piece's manifest, and re-cuts the segment at each boundary a
+ * `by` or an argument partitioned with another moves, so it is a job's work,
+ * never a request's: the request launches the call ({@link splitCallPrepare}),
+ * and its job plans it, once it has re-referenced what the call's `object`
+ * arguments name ({@link splitCallReference}).
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param call - What the launch wrote
+ * @param options - `signal`, the job's, which stops the planning between
+ *   pieces
  * @returns The piece count, the argument they are cut over and what it weighs
  * @throws {Error} When the pieces cannot be planned: arguments partitioned
  *   together that are not cut by keys of the same types, say.
+ * @throws The signal's reason, once it has aborted.
  */
 export async function splitCallExplain(
   storage: StorageBackend,
   repo: string,
   call: SplitCallTask,
+  options: { readonly signal?: AbortSignal } = {},
 ): Promise<SplitCallPlan> {
   const task = decodeTaskObject(await storage.objects.read(repo, call.task));
-  const plan = await withRunningWork(storage, repo, () => planPieces(storage, repo, task.inputs, [...call.inputs], pieceSizes));
+  const plan = await withRunningWork(storage, repo, () => planPieces(storage, repo, task.inputs, [...call.inputs], pieceSizes, options));
   return { pieces: BigInt(plan.pieces.length), over: BigInt(plan.primary), bytes: BigInt(plan.primaryBytes) };
 }
 
@@ -378,6 +426,11 @@ function progressOf(progress: PartitionProgress): SplitCallProgress {
 }
 
 /** A text's UTF-8 bytes. */
+/** `n` arguments, as a refusal counts them. */
+function argumentCount(n: number): string {
+  return `${n} argument${n === 1 ? '' : 's'}`;
+}
+
 const utf8Bytes = new TextEncoder();
 
 /** UTF-8 bytes as text: a sequence cut short reads as U+FFFD, and a leading
@@ -400,7 +453,16 @@ function tail(text: string, limit: number): { text: string; truncated: boolean }
  * engine's pieces and merges, each a unit on the runner, under the budget, and
  * served from the execution cache when it ran before. With `then`, the
  * function then runs once, detached, over the assembled output and the
- * arguments, and the value it returns is stored through the store's door.
+ * arguments not partitioned, and the value it returns is stored through the
+ * store's door. A partitioned argument is the pieces' to read, and is never
+ * staged for `then`.
+ *
+ * A `first` call's job runs its `array` task's pieces itself, in input order,
+ * at most `options.width` at once ({@link runFirstPieces}): once the pieces
+ * finished from the first hold its limit, the units still running are
+ * stopped and none after them starts, and its output is the first `limit`
+ * elements, which `then` is given. It records no execution of the task, whose
+ * whole output it never assembled; every piece it ran is cached.
  *
  * Before any unit runs, the job re-references what the call's `object`
  * arguments name ({@link splitCallReference}): an argument the store no longer
@@ -434,26 +496,53 @@ export async function splitCallRun(
   /** What is left of the job's timeout. */
   const left = (): number => call.limits.timeoutMs - (now() - launched);
   const quiet = { stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false };
-  const timedOut = (output: string | null): SplitCallOutcome => ({
+  const timedOut = (output: string | null, report: SplitCallOutcome['report'] = none): SplitCallOutcome => ({
     outcome: variant('timed_out', { ms: BigInt(call.limits.timeoutMs) }),
     output: output === null ? none : some(output),
     ...quiet,
+    report,
   });
   if (left() <= 0) return timedOut(null);
   const unheld = await splitCallReference(storage, repo, call);
   if (unheld !== null) return unheld;
+  // The task's units as they settle, and the pieces it was cut into.
+  let pieces: number | null = null;
+  let ran = 0;
+  let cached = 0;
   const deadline = new AbortController();
   const timer = setTimeout(() => deadline.abort(), left());
   const signal = options.signal === undefined ? deadline.signal : AbortSignal.any([options.signal, deadline.signal]);
   try {
-    const result = await runner.execute(storage, call.task, [...call.inputs], {
+    const execution = {
       signal,
       ...(options.verbose !== undefined && { verbose: options.verbose }),
-      ...(options.onProgress !== undefined && { onPartitionProgress: (progress: PartitionProgress) => options.onProgress!(progressOf(progress)) }),
-    });
+      onPartitionProgress: (progress: PartitionProgress) => {
+        if (progress.phase === 'partition') pieces = progress.total;
+        if (progress.state === 'completed') {
+          if (progress.cached === true) cached++;
+          else ran++;
+        }
+        options.onProgress?.(progressOf(progress));
+      },
+    };
+    const result = call.first === null
+      ? await runner.execute(storage, call.task, [...call.inputs], execution)
+      : await runFirstPieces(storage, runner, repo, call.task, call.inputs, call.first, { ...execution, width: options.width ?? FIRST_CALL_WIDTH });
     options.signal?.throwIfAborted();
+    // How the task ran. Served whole from the cache it consulted no unit, and
+    // its pieces are read from the execution that served it, as they are for
+    // a run that took the task up past its pieces.
+    const peakBytes = result.peakBytes === undefined ? none : some(BigInt(result.peakBytes));
+    const counted = result.cached ? null : pieces;
+    const cut = counted ?? await recordedPieces(storage, repo, call, result);
+    const report: SplitCallOutcome['report'] = cut === null ? none : some({
+      pieces: BigInt(cut),
+      ran: BigInt(result.cached ? 0 : ran),
+      cached: BigInt(result.cached ? 0 : cached),
+      peakBytes,
+    });
     if (result.state !== 'success' || result.outputHash === undefined) {
-      if (deadline.signal.aborted) return timedOut(null);
+      if (deadline.signal.aborted) return timedOut(null, report);
       const stderr = tail(result.error ?? '', call.limits.maxLogBytes);
       return {
         outcome: variant('failed', { exitCode: BigInt(result.exitCode ?? -1) }),
@@ -462,18 +551,21 @@ export async function splitCallRun(
         stderr: stderr.text,
         stdoutTruncated: false,
         stderrTruncated: stderr.truncated,
+        report,
       };
     }
     const output = result.outputHash;
-    if (call.then === null) return { outcome: variant('success', { value: output }), output: some(output), ...quiet };
+    if (call.then === null) return { outcome: variant('success', { value: output }), output: some(output), ...quiet, report };
 
     const remaining = left();
-    if (remaining <= 0) return timedOut(output);
+    if (remaining <= 0) return timedOut(output, report);
     const task = decodeTaskObject(await storage.objects.read(repo, call.task));
+    // The assembled output, then the arguments not partitioned, each by the
+    // object it is.
+    const unpartitioned = call.inputs.filter((_, i) => task.inputs[i]!.partition.type === 'none');
     const detached = await runner.runDetached({
       bodyIr: await storage.objects.read(repo, call.then),
-      // The assembled output, then the arguments, each by the object it is.
-      args: [output, ...call.inputs].map((dataset) => ({ dataset })),
+      args: [output, ...unpartitioned].map((dataset) => ({ dataset })),
       runner: task.runner,
       limits: { ...call.limits, timeoutMs: remaining },
     }, {
@@ -490,18 +582,48 @@ export async function splitCallRun(
     };
     switch (detached.kind) {
       case 'success':
-        return { outcome: variant('success', { value: await storeDatasetBytes(storage, repo, detached.value) }), output: some(output), ...streams };
+        return { outcome: variant('success', { value: await storeDatasetBytes(storage, repo, detached.value) }), output: some(output), ...streams, report };
       case 'failed':
         // Stopped at the deadline, a detached run answers failed.
-        if (deadline.signal.aborted) return { ...timedOut(output), ...streams };
-        return { outcome: variant('failed', { exitCode: BigInt(detached.exitCode) }), output: some(output), ...streams };
+        if (deadline.signal.aborted) return { ...timedOut(output, report), ...streams };
+        return { outcome: variant('failed', { exitCode: BigInt(detached.exitCode) }), output: some(output), ...streams, report };
       case 'too_large':
-        return { outcome: variant('too_large', { bytes: BigInt(detached.bytes), limit: BigInt(detached.limit) }), output: some(output), ...streams };
+        return { outcome: variant('too_large', { bytes: BigInt(detached.bytes), limit: BigInt(detached.limit) }), output: some(output), ...streams, report };
       case 'timed_out':
-        return { ...timedOut(output), ...streams };
+        return { ...timedOut(output, report), ...streams };
     }
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * How many pieces a split call's task was cut into, as the execution that
+ * holds its output records it: the record's `plan` names the task's last
+ * stage, whose `previous` chain leads back to the pieces; a task with no plan
+ * was one piece.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param call - The call, whose task and inputs the execution is of
+ * @param result - The task's result, naming its execution
+ * @returns The pieces, or `null` when the execution did not succeed, or its
+ *   record or plans cannot be read
+ */
+async function recordedPieces(storage: StorageBackend, repo: string, call: SplitCallTask, result: TaskResult): Promise<number | null> {
+  if (result.state !== 'success') return null;
+  try {
+    const record = await executionGet(storage, repo, call.task, inputsHash([...call.inputs]), result.executionId);
+    if (record === null || record.type !== 'success') return null;
+    if (record.value.plan.type === 'none') return 1;
+    for (let next: string | null = record.value.plan.value; next !== null;) {
+      const plan = decodeUnitPlan(await storage.objects.read(repo, next));
+      if (plan.stage.type === 'pieces') return plan.stage.value.length;
+      next = plan.previous.type === 'some' ? plan.previous.value : null;
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 
@@ -568,5 +690,6 @@ export function splitCallInvalid(result: ExecuteResult): SplitCallOutcome {
     stderr: result.stderr,
     stdoutTruncated: result.stdoutTruncated,
     stderrTruncated: result.stderrTruncated,
+    report: none,
   };
 }

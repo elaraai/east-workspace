@@ -285,6 +285,32 @@ export interface V5DecodeContext extends PlatformDecodeContext {
   /** The key of the function IR being read, told of each container it
    *  defines, back-references and closes; `null` between IRs. */
   irKey?: IrKey | null;
+  /** In a projected decode (`project.ts`), the shape each container was
+   *  decoded to — the projection's node for a narrowed one, a marker for a
+   *  skipped one, absent for one decoded whole — which a back-reference must
+   *  match ({@link curShape}), or the decode throws
+   *  {@link Beast2ProjectionAliasError}. Absent outside a projected decode.
+   *  @internal */
+  projShapes?: WeakMap<object, object>;
+  /** In a projected decode, the shape the container about to be read is
+   *  decoded to: `null` within a subtree decoded whole. @internal */
+  curShape?: object | null;
+}
+
+/**
+ * Thrown by a projected decode (`project.ts`) when a back-reference crosses
+ * the projection's boundary: it names a container decoded to another shape
+ * than the reference's — narrowed differently, skipped, or whole where the
+ * reference is narrowed. The caller decodes the segment whole instead, as
+ * east-c's projected decode falls back.
+ *
+ * @internal
+ */
+export class Beast2ProjectionAliasError extends Error {
+  constructor() {
+    super("beast2 v5 projection: a back-reference crosses the projection boundary — decode whole");
+    this.name = "Beast2ProjectionAliasError";
+  }
 }
 
 // =============================================================================
@@ -360,7 +386,8 @@ export function readSourceMapSectionV5(reader: BufferReader): SourceMap {
 // =============================================================================
 
 type V5Encoder = (value: any, writer: BufferWriter, ctx: V5EncodeContext) => void;
-type V5Decoder = (reader: BufferReader, ctx: V5DecodeContext) => any;
+/** Decodes one value at the reader's offset. @internal */
+export type V5Decoder = (reader: BufferReader, ctx: V5DecodeContext) => any;
 
 /** Emits the NEW tag and registers a container definition; returns false when
  *  the container was already defined and a REF was written instead. */
@@ -620,8 +647,10 @@ export function buildV5Encoder(type: EastTypeValue, typeCtx: Map<bigint, V5Encod
 
 /** Reads a container tag; resolves and returns the aliased container for REF,
  *  or `undefined` for NEW (the caller then defines the container, and tells
- *  the IR key being read, if any, where its content ends). */
-function readContainerTag(reader: BufferReader, ctx: V5DecodeContext): any | undefined {
+ *  the IR key being read, if any, where its content ends). In a projected
+ *  decode, a REF must name a container decoded to the shape it is read as.
+ *  @internal */
+export function readContainerTag(reader: BufferReader, ctx: V5DecodeContext): any | undefined {
   const at = reader.offset;
   const tag = reader.readUint8();
   if (tag === TAG_NEW) {
@@ -637,7 +666,11 @@ function readContainerTag(reader: BufferReader, ctx: V5DecodeContext): any | und
   }
   const def = ctx.containers.length - delta;
   ctx.irKey?.ref(at, reader.offset, def);
-  return ctx.containers[def];
+  const target = ctx.containers[def];
+  if (ctx.projShapes !== undefined && (ctx.projShapes.get(target) ?? null) !== (ctx.curShape ?? null)) {
+    throw new Beast2ProjectionAliasError();
+  }
+  return target;
 }
 
 /**

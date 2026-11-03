@@ -20,7 +20,7 @@ reads any container version its type was written in.
 | **Collections larger than memory** (v5) |
 | `new Beast2ElementWriter(T, sink, opts?)` | The canonical writer: `.add(element)` one Array/Set element or Dict `[key, value]` — Set elements and Dict keys strictly ascending in East order — and the content-defined cut rule places the segments, so the bytes are a function of the value, identical from east-c and east-py, and a one-row edit re-cuts only the segments around it. Memory is one segment; `.finish()` writes the last, the terminator and the index. `sink` is `(bytes) => void`, or `{ segment(s) }` for one standalone segment blob at a time (`s`: `{ count, fence, logicalBytes, blob }`, under `writer.header`) |
 | `encodeBeast2PagedFor(T)(value)` | One value in memory through the element writer; plain `Map`/`Set` inputs are sorted first |
-| `new Beast2RunSorter(T, openRun, { merge } \| { union })` | Elements in ANY order in, sorted canonical runs out (a key added twice folds with `merge(key, acc, value)`, or `union` for a Set; without one it throws); then `mergeBeast2For(T, { merge } \| { union })(runs, sink)` writes the value. Memory is one run, then one segment per run. A run closes at `RUN_MAX_COUNT` elements or `RUN_MAX_BYTES`, platform constants, so every runtime writes the same runs |
+| `new Beast2RunSorter(T, openRun, { merge } \| { union })` | Elements in ANY order in, sorted canonical runs out (a key added twice folds with `merge(key, acc, value)`, or `union` for a Set; without one it throws); then `mergeBeast2For(T, { merge } \| { union })(runs, sink)` writes the value. Memory is one run, then one segment per run. A run closes at `RUN_MAX_COUNT` elements or `RUN_MAX_BYTES`, platform constants, so every runtime writes the same runs. A fold whose values do not grow — `merge` over a bounded value type (Null, Boolean, Integer, Float, DateTime, Structs and Variants of those), or `union` — folds each key's values as they are added, in a table of at most `FOLD_TABLE_MAX_KEYS` keys and `FOLD_TABLE_MAX_KEY_BYTES` that spills into the open run, so few keys make one small run |
 | `mergeBeast2For(T, opts?)(sources, sink)` | Sorted collections — blobs, range readers or manifests — into their union's blob or manifest, segment by segment; a key several hold folds in input order; `opts.from` / `opts.to` merge a key range |
 | `recutBeast2For(T)(pieces, sink)` | A collection in pieces, some already written, into its canonical segments: a segment the whole shares with its piece is carried unread (`sink.carried`), the rest re-cut (`sink.written`) |
 | `intakeBeast2For(T)(delivery, sink, opts?)` | A collection from outside — a `Beast2SyncRangeReader` over a v4 or v5 blob whose header names exactly `T` — through the Writer into a `Beast2ManifestSink`, a segment at a time: each row is walked by its type, the Writer's own bytes go on as they stand, and any other row is decoded and written again. `opts.segments` takes in the index's segments `[from, to)`, a piece of a large delivery. Refuses another type, a malformed segment or one over `RUN_MAX_BYTES`, a row that does not decode, and keys that do not ascend, with `Beast2IntakeError` in the words every runner uses. What e3's intake units run, on every runner |
@@ -69,3 +69,12 @@ openBeast2PagesFor(Rows)(blob).element(4_000_000);  // one row: decodes ONE segm
   `$.for` cost one segment, mutation is refused (`.copy()` first), and the
   header type is checked against `T` first. `East.Blob.encodeBeast` writes no
   index, so a paged blob comes from the writers above or a runner's output.
+- **A `$.for` over a lazy input decodes each segment to the fields its body
+  reads** of each row — an Array's element, a Dict's value — on every runtime:
+  read through field accesses (`row.total`, `row.address.city`), inner loops
+  over its arrays and dicts (`$.for(row.lines, …)`), their sizes, and functions
+  called on the row or its fields. Binding the row (`$.let(row)`), putting it in
+  a container or passing it to a function value decodes every field, as does a
+  Set's loop. Every runner's `-v` says `paged loops: N segments decoded to the
+  fields read, M in full`; in process, `beast2PagedLoopStats()` counts
+  them. The bytes are read either way: a dropped field is only not built.

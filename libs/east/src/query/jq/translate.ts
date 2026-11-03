@@ -33,6 +33,7 @@ import {
 import { QueryCallType } from "../types.js";
 import { UPDATE_SELECTORS, walkSteps, type CheckJqResult } from "./check.js";
 import { isoDateTime, literalValue } from "./literals.js";
+import { cannotRaise, narrowRows } from "./narrow.js";
 import { casesOf, membersOf, nullablePayload, unify, unifyShape, unwrap, type Facts, type Result, type Shape } from "./shapes.js";
 import { childPath, jqChildren, toQuerySpan, type JqNode, type JqPattern } from "./spans.js";
 import { BUILTIN_RULES, FORMATS } from "./translate-builtins.js";
@@ -90,8 +91,27 @@ export interface RootValue {
   readonly fields: ReadonlyMap<string, Expr>;
 }
 
-/** A value the translation passes along: an East expression, or the root. @internal */
-export type Value = Expr | RootValue;
+/**
+ * The rows a stage collects, made one at a time for the step after it
+ * (#1140): `map(f)` or `[f]` before a step that reads its input only row by
+ * row, in order, which folds each row as it is made, so the array between
+ * them is never built. @internal
+ */
+export interface RowsValue {
+  readonly rows: true;
+  /** The array the stage collects, as the checker typed it. */
+  readonly type: EastType;
+  /** Generates the stage in `$`, giving each row to `each` as the array's element type. */
+  readonly each: ($: Block, each: Emit) => void;
+  /**
+   * Whether making a row never raises: then a step that has what it needs
+   * may leave the rest unmade, and a step that needs none, make none.
+   */
+  readonly stops: boolean;
+}
+
+/** A value the translation passes along: an East expression, the root, or a stage's rows. @internal */
+export type Value = Expr | RootValue | RowsValue;
 
 /**
  * A type with its parts readable, for code that has decided its kind: an
@@ -162,6 +182,13 @@ export interface Env {
    * nothing else holds the state, so it changes without a copy (#1093).
    */
   readonly inPlace?: string;
+  /**
+   * Whether this is a lenient place, as the checker checked it: a `try`'s
+   * body, or a `def` called from one. There the checker lets by a value of a
+   * kind a step cannot take, to raise at run time, so a stage's rows may
+   * raise whatever the filters that make them (#1140).
+   */
+  readonly lenient?: boolean;
 }
 
 /** A call of a builtin being translated. @internal */
@@ -194,7 +221,59 @@ export class TranslationError extends Error {
 
 /** Whether a value is the root. @internal */
 export function isRoot(value: Value): value is RootValue {
-  return !(value instanceof Expr);
+  return !(value instanceof Expr) && "root" in value;
+}
+
+/** Whether a value is a stage's rows, made one at a time and never collected (#1140). @internal */
+export function isRows(value: Value): value is RowsValue {
+  return !(value instanceof Expr) && "rows" in value;
+}
+
+/** The steps that read an array only row by row, in order, called with no arguments: a stage's rows fold into them as they are made (#1140). */
+const ROW_FOLDS: ReadonlySet<string> = new Set(["add", "length", "min", "max", "any", "all", "first"]);
+
+/**
+ * Whether the step at the head of a pipe's right side reads its input, an
+ * array, only row by row, in order, and nothing else of it (#1140): `add`,
+ * `length`, `min`, `max`, `any`, `all` or `first`, as the builtins (no `def`
+ * of the name in scope); `.[:n]` for a literal `n`; or a `reduce` over `.[]`
+ * whose start reads nothing of its input.
+ */
+function foldsRows(right: JqNode, env: Env): boolean {
+  let step = right;
+  while (step.type === "pipe") step = step.value.left.type === "identity" ? step.value.right : step.value.left;
+  switch (step.type) {
+    case "call":
+      return step.value.args.length === 0 && ROW_FOLDS.has(step.value.name) && !env.defs.has(`${step.value.name}/0`);
+    case "slice": {
+      const { from, target, to } = step.value;
+      return target.type === "identity" && from.type === "none" && to.type === "some" && countOf(to.value as JqNode) !== undefined;
+    }
+    case "reduce": {
+      const { init, source } = step.value;
+      return source.type === "iterate" && source.value.target.type === "identity" && readsNoInput(init);
+    }
+    default:
+      return false;
+  }
+}
+
+/** A literal count of rows, an Integer of 0 or more: the `n` of `.[:n]`. */
+function countOf(node: JqNode): bigint | undefined {
+  if (node.type !== "literal" || node.value.type !== "integer") return undefined;
+  const n = node.value.value;
+  return n >= 0n ? n : undefined;
+}
+
+/** Whether a filter reads nothing of its input: a constant, a variable, `[]` or `{}` — a fold's start, which a stage's rows can be folded from. */
+function readsNoInput(node: JqNode): boolean {
+  switch (node.type) {
+    case "literal": case "variable": return true;
+    case "negate": return readsNoInput(node.value);
+    case "array": return node.value.type === "none";
+    case "object": return node.value.length === 0;
+    default: return false;
+  }
 }
 
 /** The translator for one checked program. @internal */
@@ -736,16 +815,22 @@ export class Translator {
   /** The instance a node's records are in for an input: its own, or one checked again for this input's type. */
   envFor(path: string, env: Env, x: Value): Env {
     if (isRoot(x)) return env;
+    const type = this.valueType(x);
     const input = this.checked.inputAt(path, env.instance);
-    if (input === null || fits(this.type(x), input)) return env;
-    const key = `${env.instance}|${path}|${printType(this.type(x))}`;
+    if (input === null || fits(type, input)) return env;
+    const key = `${env.instance}|${path}|${printType(type)}`;
     let instance = this.retyped.get(key);
     if (instance === undefined) {
-      instance = this.checked.retype(path, env.instance, this.type(x));
+      instance = this.checked.retype(path, env.instance, type);
       this.retyped.set(key, instance);
     }
-    if (instance === null) throw this.gap(`${this.text(path) || "the program"} on ${printType(this.type(x))}`);
+    if (instance === null) throw this.gap(`${this.text(path) || "the program"} on ${printType(type)}`);
     return { ...env, instance };
+  }
+
+  /** The type of a value that is not the root: an expression's, or the array a stage's rows would be collected into. */
+  valueType(x: Expr | RowsValue): TypeParts {
+    return isRows(x) ? parts(x.type) : this.type(x);
   }
 
   // ─── Converting to the checker's types ──────────────────────────────────
@@ -1022,11 +1107,15 @@ export class Translator {
         emit($, this.expr(bound, path));
         return;
       }
-      case "pipe":
+      case "pipe": {
         // `. | f` is f on the input itself, the root included.
         if (node.value.left.type === "identity") { this.gen(node.value.right, at("pipe.right"), $, x, env, emit); return; }
+        // A stage that collects rows, before a step that folds them one at a time: the rows, never collected (#1140).
+        const rows = this.rowsOf(node.value.left, at("pipe.left"), node.value.right, x, env);
+        if (rows !== undefined) { this.gen(node.value.right, at("pipe.right"), $, rows, env, emit); return; }
         this.gen(node.value.left, at("pipe.left"), $, x, env, ($2, v) => this.gen(node.value.right, at("pipe.right"), $2, v, env, emit));
         return;
+      }
       case "comma":
         this.gen(node.value.left, at("comma.left"), $, x, env, emit);
         this.gen(node.value.right, at("comma.right"), $, x, env, emit);
@@ -1049,6 +1138,8 @@ export class Translator {
         this.genSlice(node, path, $, x, env, emit);
         return;
       case "iterate":
+        // `.[]` on a stage's rows, as a `reduce` over them reads them (#1140): each row as it is made.
+        if (isRows(x) && node.value.target.type === "identity") { x.each($, emit); return; }
         this.gen(node.value.target, at("iterate.target"), $, x, env, ($2, v) => this.iterate($2, this.expr(v, path), node.value.optional, path, emit));
         return;
       case "descend":
@@ -1133,6 +1224,68 @@ export class Translator {
   }
 
   /**
+   * The rows a pipe's left stage collects, made one at a time for the step
+   * after it (#1140): when the stage collects a stream — `map(f)`, or `[f]`
+   * — and the step reads the array only row by row, in order
+   * ({@link foldsRows}), the step folds each row as the stage makes it, and
+   * the array is never built. Each row is bound as it is made, so it is
+   * computed where collecting it would compute it, raising where that would,
+   * whether or not the step reads it. `undefined` for any other pipe, which
+   * collects the array as it is written; and for a stage `gen` would not
+   * make, or would make as other than one array of the checker's type.
+   */
+  private rowsOf(left: JqNode, path: string, right: JqNode, x: Value, env: Env): RowsValue | undefined {
+    const map = left.type === "call" && left.value.name === "map" && left.value.args.length === 1 && !env.defs.has("map/1");
+    if (!map && !(left.type === "array" && left.value.type === "some")) return undefined;
+    if (isRoot(x) || isRows(x) || !foldsRows(right, env)) return undefined;
+    // The stage as `gen` makes it: reached, one array of the checker's type, which needs no converting.
+    const input = this.checked.inputAt(path, env.instance);
+    if (input === null || (input.kind === "type" && input.type.type === "Never")) return undefined;
+    const e = this.envFor(path, env, x);
+    const r = this.result(path, e);
+    if (r === null || r.mult.lo !== 1 || r.mult.hi !== 1 || r.shape.kind !== "type" || r.shape.type.type !== "Array") return undefined;
+    const type = r.shape.type;
+    const element = parts(type).value;
+    const row = ($: Block, v: Expr, each: Emit): void => each($, this.bind($, this.widenTo($, v, element, path), "row"));
+    if (left.type === "call") {
+      // As the `map` rule makes them: `f` on each of the input's elements.
+      if (this.checked.opened(path, e.instance) !== null) return undefined;
+      const f = left.value.args[0]!;
+      const argPath = childPath(path, "call.args[0]");
+      return {
+        rows: true, type, stops: !env.lenient && cannotRaise(f, env.defs),
+        each: ($, each) => this.iterate($, this.expr(x, path), false, path, ($2, item) => this.gen(f, argPath, $2, item, e, ($3, v) => row($3, v, each))),
+      };
+    }
+    // As `[f]` makes them: `f`'s outputs.
+    const body = left.value.value as JqNode;
+    return {
+      rows: true, type, stops: !env.lenient && cannotRaise(body, env.defs),
+      each: ($, each) => this.gen(body, childPath(path, "array.some"), $, x, e, ($2, v) => row($2, v, each)),
+    };
+  }
+
+  /**
+   * The first `n` rows of a stage, collected as they are made (#1140): the
+   * rows after them made and let go, or left unmade when making one never
+   * raises.
+   */
+  firstRows($: Block, rows: RowsValue, n: bigint, path: string): Expr {
+    const kept = this.declare($, this.emptyArray(parts(rows.type).value), "kept");
+    if (n === 0n && rows.stops) return kept;
+    const limit = this.int(n);
+    const keep = ($2: Block, row: Expr, label: Label | undefined): void => {
+      this.ifElse($2, this.lt(this.size(kept, path), limit, path), $3 => this.push($3, kept, row, path), undefined, path);
+      if (label !== undefined) {
+        this.ifElse($2, this.b("GreaterEqual", [IntegerType], [this.size(kept, path), limit], BooleanType, path), $3 => this.brk($3, label), undefined, path);
+      }
+    };
+    if (rows.stops) this.once($, ($2, label) => rows.each($2, ($3, row) => keep($3, row, label)), path);
+    else rows.each($, ($2, row) => keep($2, row, undefined));
+    return kept;
+  }
+
+  /**
    * `-v`: a number negated. Any other value raises jq's error, naming its
    * kind, as a lenient place (`try`, `?`) lets it by; an option is null, or
    * its value.
@@ -1154,9 +1307,13 @@ export class Translator {
     return this.value({ file: "<top-level>", line }, StructType({ file: StringType, line: IntegerType }), path);
   }
 
-  /** A value that must be an expression: the root is only ever read a field at a time. */
+  /**
+   * A value that must be an expression: the root is only ever read a field at
+   * a time, and a stage's rows only by the step that folds them (#1140).
+   */
   expr(v: Value, path: string): Expr {
     if (isRoot(v)) throw this.gap(`the whole root as a value at ${this.text(path) || "the program"}`);
+    if (isRows(v)) throw this.gap(`a stage's rows, never collected, as a value at ${this.text(path) || "the program"}`);
     return v;
   }
 
@@ -1170,7 +1327,7 @@ export class Translator {
       emit($, input);
       return;
     }
-    const e = this.open(v);
+    const e = this.open(this.expr(v, path));
     const t = this.type(e);
     if (t.type === "Null") { emit($, this.null(path)); return; }
     if (nullablePayload(t) !== undefined) {
@@ -1287,6 +1444,13 @@ export class Translator {
       this.collected(option.value as JqNode, childPath(path, step), $2, x, env, then);
     };
     bound($, from, "slice.from.some", ($2, a) => bound($2, to, "slice.to.some", ($3, b) => {
+      // `.[:n]` on a stage's rows (#1140): its first n, kept as they are made.
+      if (isRows(x) && to.type === "some") {
+        const n = countOf(to.value as JqNode);
+        if (n === undefined) throw this.gap(`${this.text(path)} on a stage's rows`);
+        this.sliceOf($3, this.firstRows($3, x, n, path), a, b, optional, path, emit);
+        return;
+      }
       this.gen(target, childPath(path, "slice.target"), $3, x, env, ($4, v) => this.sliceOf($4, this.expr(v, path), a, b, optional, path, emit));
     }));
   }
@@ -1512,7 +1676,7 @@ export class Translator {
     const t = unwrap(type);
     const entries = node.value;
     if (t.type === "Struct") {
-      const inputFacts = isRoot(x) ? undefined : this.factsIn(this.checked.inputAt(path, env.instance), this.type(x));
+      const inputFacts = isRoot(x) ? undefined : this.factsIn(this.checked.inputAt(path, env.instance), this.valueType(x));
       // Each combination of the values' outputs, the first entry's slowest.
       const step = ($2: Block, i: number, values: Record<string, Expr>): void => {
         if (i === entries.length) {
@@ -1949,7 +2113,7 @@ export class Translator {
   narrowed($: Block, x: Value, conditionPath: string, env: Env, then: ($: Block, value: Value) => void): void {
     const proves = this.result(conditionPath, this.envFor(conditionPath, env, x))?.proves;
     const typeTest = proves?.some(p => p.kind === "type" && p.path.length === 0) === true;
-    if (!typeTest || isRoot(x) || nullablePayload(this.type(this.open(x))) === undefined) { then($, x); return; }
+    if (!typeTest || isRoot(x) || isRows(x) || nullablePayload(this.type(this.open(x))) === undefined) { then($, x); return; }
     this.match($, this.open(x), {
       none: $2 => then($2, this.null(conditionPath)),
       some: ($2, p) => then($2, p),
@@ -1967,7 +2131,7 @@ export class Translator {
     const handler = node.value.catch.type === "some" ? node.value.catch.value : undefined;
     const caught = handler === undefined ? undefined : this.declare($, this.none(OptionType(StringType)), "caught");
     this.tryCatch($, $2 => {
-      this.gen(node.value.body, bodyPath, $2, x, env, ($3, v) => {
+      this.gen(node.value.body, bodyPath, $2, x, { ...env, lenient: true }, ($3, v) => {
         // An output after an error the body always raises never comes.
         if (this.ended($3)) return;
         if (kept === undefined) throw this.gap("a try whose outputs have no one type");
@@ -2105,7 +2269,7 @@ export class Translator {
   destructure($: Block, pattern: JqPattern, path: string, value: Value, env: Env, bodyPath: string, then: ($: Block, vars: ReadonlyMap<string, Value>) => void): void {
     const scope = this.checked.scopeAt(bodyPath, env.instance);
     const bind = ($2: Block, name: string, v: Value): Value => {
-      if (isRoot(v)) return v;
+      if (isRoot(v) || isRows(v)) return v;
       const checked = scope?.vars.get(name);
       const type = checked === undefined ? undefined : unifyShape(checked.shape);
       return this.bind($2, type === undefined ? v : this.widenTo($2, v, type, path), name);
@@ -2168,7 +2332,7 @@ export class Translator {
     }
     const instance = `${env.instance}>${path}`;
     if (binding.kind === "param") {
-      this.gen(binding.arg, binding.path, $, x, { ...binding.env, instance }, emit);
+      this.gen(binding.arg, binding.path, $, x, { ...binding.env, instance, lenient: env.lenient === true }, emit);
       return;
     }
     const def = binding.node.value;
@@ -2177,14 +2341,14 @@ export class Translator {
     // Each combination of the value parameters' outputs, the first slowest.
     const bindParams = ($2: Block, i: number, vars: Map<string, Value>, defs: Map<string, Binding>, types: string[]): void => {
       if (i === def.params.length) {
-        const signature = [binding.path, isRoot(x) ? "root" : printType(this.type(x)), ...types].join("|");
+        const signature = [binding.path, isRoot(x) ? "root" : printType(this.valueType(x)), ...types].join("|");
         const values = def.params.filter(p => p.startsWith("$")).map(p => this.expr(vars.get(p.slice(1))!, path));
         const recursion = env.recursion.get(signature);
         if (recursion !== undefined) {
           this.callRecursive($2, recursion, x, values, path, emit);
           return;
         }
-        const bodyEnv: Env = { vars, defs, labels: closure.labels, instance, recursion: env.recursion };
+        const bodyEnv: Env = { vars, defs, labels: closure.labels, instance, recursion: env.recursion, lenient: env.lenient === true };
         if (callsItself(def.body, `${def.name}/${def.params.length}`)) this.genRecursive($2, def, bodyPath, signature, x, values, bodyEnv, path, env, emit);
         else this.gen(def.body, bodyPath, $2, x, bodyEnv, emit);
         return;
@@ -2251,7 +2415,7 @@ export class Translator {
     if (rule === undefined) throw this.gap(`no translation for the builtin ${name}/${args.length}`);
     // Checked in a lenient place with its input's options opened: the builtin is given the value, and null,
     // or where it cannot take null, jq's error for it.
-    const opened = isRoot(x) ? null : this.checked.opened(path, env.instance);
+    const opened = isRoot(x) || isRows(x) ? null : this.checked.opened(path, env.instance);
     if (opened !== null) {
       const o = this.open(x as Expr);
       if (nullablePayload(this.type(o)) !== undefined) {
@@ -3303,7 +3467,8 @@ function stateHeldBy(node: JqNode, input: Held, vars: ReadonlyMap<string, Held>,
  * program's result is its sink: the value for `one`, an `Option` for `maybe`,
  * an `Array` for `many`. Checked as an e3 root, each root field the program
  * reads is an input of its own, so a lazy dataset is read only where the
- * query reads it (`devdocs/QUERY.md` §15).
+ * query reads it (`devdocs/QUERY.md` §15). A row a stage builds or keeps holds
+ * only the fields the steps after it read (#1141).
  *
  * @example
  * ```ts
@@ -3321,8 +3486,11 @@ export function translateJq(checked: CheckJqResult, options: TranslateJqOptions 
     const errors = checked.diagnostics.filter(d => d.severity.type === "error").map(d => d.message);
     throw new TranslationError(`the program does not check: ${errors.join(" ")}`);
   }
-  // The program as written: each value it holds is given as the type the checker read it as.
-  const program = checked.program;
+  // The program as written, which the `Query` builtin carries; and the program it runs, its rows narrowed to the
+  // fields its later steps read (#1141), each value it holds given as the type the checker read it as.
+  const written = checked.program;
+  const narrowed = narrowRows(checked);
+  const program = narrowed.program!;
   const element = checked.elementType;
   const multiplicity = checked.multiplicity;
   const inputType = checked.inputType;
@@ -3335,7 +3503,7 @@ export function translateJq(checked: CheckJqResult, options: TranslateJqOptions 
   const fields = root ? Object.entries(parts(unwrap(inputType)).fields) : [];
   const params = root ? fields.map(([, type]) => type) : [inputType];
   const into = ($: Block, values: readonly Expr[]): Expr => {
-    const t = new Translator(checked, options);
+    const t = new Translator(narrowed, options);
     const x: Value = root ? { root: true, fields: new Map(inputs.map((input, i) => [input.name!, values[i]!])) } : values[0]!;
     const env: Env = { vars: new Map(), defs: new Map(), labels: new Map(), instance: "", recursion: new Map() };
     if (multiplicity === "one") return t.one(program, "", $, x, env, element);
@@ -3381,7 +3549,7 @@ export function translateJq(checked: CheckJqResult, options: TranslateJqOptions 
       // Each field of the root is a parameter; the translation reads those the query reads.
       const translation = func(params, resultType, ($: Block, ...args: Expr[]) =>
         into($, root ? inputs.map(i => args[fields.findIndex(([name]) => name === i.name)]!) : args));
-      const constant = variant("v1", { inputs: root ? some(fields.map(([name]) => name)) : none, program });
+      const constant = variant("v1", { inputs: root ? some(fields.map(([name]) => name)) : none, program: written });
       const builtin: AST = {
         ast_type: "Builtin", type: F, loc_id: loc, builtin: "Query", type_parameters: [F],
         arguments: [valueOrExprToAstTyped(constant, QueryCallType, undefined, loc), (translation as any)[AstSymbol] as AST],

@@ -37,6 +37,7 @@ from east.query import (
     print_jq,
     translate_jq,
 )
+from east.query.jq.narrow import narrow_rows
 from east.query.jq.spans import jq_children
 from east.runtime.compiler import compile_from_value
 from east.runtime.errors import EastError
@@ -585,3 +586,160 @@ def test_a_query_over_a_dict_of_struct_keys_looks_up_by_the_keys_type() -> None:
     cells.insert(EastStruct({"region": "NSW", "week": 1}), 1080.0)
     found = evaluate_jq('.[{region: "NSW", week: 1}]', cells, input_type=DictType(cell, FloatType))
     assert_value(OptionType(FloatType), found, some(1080.0))
+
+
+# ─── A stage's rows folded as they are made (#1140) ─────────────────────
+
+#: A stage over the orders and a step after it, as ``query.spec.ts`` has them: steps that fold every row, steps that
+#: keep the first, and stages whose rows may raise past the rows a step needs.
+_FOLDED = [
+    ("map(.total)", "add"), ("map(select(.total < 0) | .total)", "add"), ("map(empty)", "add"),
+    ("map(.total)", "min"), ("map(.id)", "max"),
+    ("map(.total)", "length"), ("[.[] | select(.total > 1000)]", "length"), ("[.[] | .lines[]]", "length"),
+    ("map(.total > 1000)", "any"), ("map(.lines | length > 0)", "all"),
+    ("map(.total)", "reduce .[] as $t (0.0; . + $t)"),
+    ("map(select(.total > 1000))", "reduce .[] as $o ({}; .[$o.customer_id] += $o.total)"),
+    ("map(select(.total > 1000))", "first"), ("map(.id)", ".[:3]"), ("map(.id)", ".[:0]"), ("[.[] | .id, .total]", ".[:5]"),
+    ('map(if .total > 1000 then error("too much") else .id end)', "first"),
+    ('map(if .total > 1000 then error("too much") else .id end)', ".[:1]"),
+    ("map(.id / (.id - 1040))", "any"),
+    ("map(.id % (.id - 1040))", "all"),
+]
+
+
+def _outcome(program: str, value: Any) -> str:
+    """What a program over the fixture's root type gives over a value: its answer, printed, or the message it raised."""
+    checked = check_jq(program, FIXTURE_ROOT)
+    assert checked.program is not None, program
+    try:
+        return print_for(translate_jq(checked).result_type)(evaluate_jq(checked, value))
+    except QueryError as e:
+        # The message alone: the two programs place the step at different columns.
+        return "raised " + "; ".join(d["message"] for d in e.diagnostics)
+
+
+@pytest.mark.parametrize(("stage", "step"), _FOLDED)
+def test_a_stage_a_step_folds_answers_as_its_rows_collected_first_do_over_the_orders_and_over_none(stage: str,
+                                                                                                  step: str) -> None:
+    fused = f".orders | {stage} | {step}"
+    collected = f".orders | {stage} as $rows | $rows | {step}"
+    no_orders = {**FIXTURE, "orders": []}
+    for value in (FIXTURE, no_orders):
+        assert _outcome(fused, value) == _outcome(collected, value), fused
+
+
+def test_in_a_lenient_place_where_a_row_may_raise_for_its_kind_the_stage_makes_every_row() -> None:
+    # `.discount * 2` raises for an order with no discount, which `try` lets by: jq makes every row, and the try catches.
+    for fused, collected in [
+        ("[try (.orders | map(.discount * 2) | first)]", "[try (.orders | map(.discount * 2) as $rows | $rows | first)]"),
+        ("def d: .orders | map(.discount * 2) | .[:1]; [try d]",
+         "def d: .orders | map(.discount * 2) as $rows | $rows | .[:1]; [try d]"),
+    ]:
+        assert _outcome(fused, FIXTURE) == "[]", fused
+        assert _outcome(fused, FIXTURE) == _outcome(collected, FIXTURE), fused
+
+
+def test_a_break_out_of_the_stage_leaves_it_as_a_raise_does_and_one_inside_its_filter_does_not() -> None:
+    for fused, collected in [
+        ("[label $out | .orders | map(if .id == 1005 then break $out else .id end) | first]",
+         "[label $out | .orders | map(if .id == 1005 then break $out else .id end) as $rows | $rows | first]"),
+        ("[.orders | map(label $l | (.id, break $l)) | first]", "[.orders | map(label $l | (.id, break $l)) as $rows | $rows | first]"),
+        ("[label $out | .orders | map(try (if .id == 1005 then break $out else .id end)) | .[:2]]",
+         "[label $out | .orders | map(try (if .id == 1005 then break $out else .id end)) as $rows | $rows | .[:2]]"),
+        ('[.orders | map(try (if .id == 1005 then error("refunded") else .id end)) | .[:2]]',
+         '[.orders | map(try (if .id == 1005 then error("refunded") else .id end)) as $rows | $rows | .[:2]]'),
+    ]:
+        assert _outcome(fused, FIXTURE) == _outcome(collected, FIXTURE), fused
+    assert _outcome("[label $out | .orders | map(if .id == 1005 then break $out else .id end) | first]", FIXTURE) == "[]"
+
+
+# ─── A query's rows narrowed to the fields its later steps read (#1141) ──
+
+#: Rows built or kept with fields no later step reads, as ``query.spec.ts`` has them: each is narrowed.
+_NARROWED = [
+    ".customers as $c | .orders | map(. + {region: $c[.customer_id].region}) | group_by(.region) "
+    "| map({region: .[0].region, revenue: map(.total) | add, n: length})",
+    ".orders | map(. + {big: (.total > 1000)}) | group_by(.big) | map({big: .[0].big, n: length})",
+    ".orders | map(. + {total: (.total * 2)}) | map(.total) | add",
+    '.orders | map(. + {id: "s"}) | map(.id)',
+    ".orders | map({id, total, n: (.lines | length)}) | map(.id + .n)",
+    ".orders | map(select(.total > 1000)) | sort_by(-.total) | .[:3] | map(.id)",
+    ".orders | [.[] | select(.total > 100)] | map(.id)",
+    ".orders | map(if .total > 1000 then . else empty end) | map(.id)",
+    ".orders | map(select(.discount != null)) | map(.discount + 1)",
+    '.orders | map(select(.status.type == "shipped")) | map(.status.value)',
+    ".orders | map(. + {x: .total}) | unique_by(.customer_id) | map(.x)",
+    ".orders | map(. + {x: .total}) | max_by(.x) | {id, x}",
+    ".orders | map(. + {x: .total}) | reverse | .[2:5] | map(.x)",
+    ".orders | map(. + {x: .total}) | first(.[] | select(.x > 1000)) | .id",
+    '.orders | map(. + {x: .total}) | map("\\(.id)-\\(.x)")',
+    ".orders | map(. + {x: .total}) | map(try .x catch 0) | add",
+    "[.orders[] | {a: .id, b: .total} | .a]",
+    ".orders | map({a: .id, $__loc__}) | map(.a)",
+    # A field none reads that raises, or gives no value or many, is made all the same.
+    '.orders | map(. + {x: error("refused")}) | map(.id)',
+    ".orders | map(. + {x: (1 / (.id - 1040))}) | map(.id)",
+    ".orders | map(. + {x: (.lines[] | .qty)}) | map(.id) | length",
+    ".orders | map(. + {x: empty}) | map(.id)",
+]
+
+#: Rows read whole, or with nothing left out but what may raise or give other than one value: each runs as written.
+_WRITTEN = [
+    ".orders | map(. + {x: 1})",
+    ".orders | map(select(.total > 1000)) | .[0]",
+    ".orders | map(select(.total > 1000)) | map(keys)",
+    ".orders | map(. + {x: 1}) | map(tojson) | length",
+    ".orders | map(. + {x: 1}) | map(length)",
+    '.orders | map(. + {x: 1}) | map(has("id"))',
+    ".orders | map(. + {x: 1}) | map(. == .)",
+    ".orders | map(. + {x: .total}) | . as $all | $all | map(.x) | add",
+    ".orders | map(. + {x: .total}) | reduce .[] as $o (0; . + $o.x)",
+    ".orders | map({id, qty: .lines[].qty}) | map(.id) | length",
+    ".orders | map({id, r: (.total / 0)}) | map(.id)",
+    "[.orders[] | try ({a: .id, b: .total} | .a)]",
+    ".orders | map(. * {x: 1}) | map(.x)",
+    ".orders | map(select(.total > 1000)) | length",
+    # Leaving `b` out would leave a dataset unread: the program's inputs are what it reads.
+    "{a: (.orders | length), b: (.customers | length)} | .a",
+    "def unread: .; .orders | map(. + {x: 1}) | map(.x)",
+]
+
+
+def _root_checked(program: str) -> Any:
+    """A program checked as an e3 root over the fixture's datasets."""
+    checked = check_jq(program, FIXTURE_ROOT, root=True)
+    assert checked.program is not None, program
+    return checked
+
+
+def _root_outcome(program: str) -> str:
+    """What a program gives over the fixture, as an e3 root: its answer, printed, or what it raised and where."""
+    checked = _root_checked(program)
+    try:
+        return print_for(translate_jq(checked).result_type)(evaluate_jq(checked, FIXTURE))
+    except QueryError as e:
+        def at(d: Any) -> str:
+            if d["span"].type != "some":
+                return "-"
+            start = d["span"].value["offset"]
+            return program[start:start + d["span"].value["length"]]
+        return "raised " + "; ".join(f"{d['message']} at {at(d)}" for d in e.diagnostics)
+
+
+@pytest.mark.parametrize("program", _NARROWED)
+def test_a_row_built_or_kept_holds_only_the_fields_read_after_it_and_answers_as_written(program: str) -> None:
+    checked = _root_checked(program)
+    assert narrow_rows(checked) is not checked, program
+    # The program as written: one that defines a function, which is never narrowed, and never calls it.
+    assert _root_outcome(program) == _root_outcome(f"def unread: .; {program}"), program
+
+
+@pytest.mark.parametrize("program", _WRITTEN)
+def test_a_row_read_whole_runs_as_written(program: str) -> None:
+    checked = _root_checked(program)
+    assert narrow_rows(checked) is checked, program
+
+
+def test_a_field_none_reads_that_raises_is_made_and_its_error_names_the_query_as_written() -> None:
+    assert _root_outcome(_NARROWED[19]) == "raised runtime: Division by zero at 1 / (.id - 1040)"
+    assert _root_outcome(_NARROWED[18]).startswith('raised runtime: refused at error("refused")')

@@ -192,13 +192,16 @@ export type RepoGcJob = ValueTypeOf<typeof RepoGcJobType>;
  * How a split call's job stands, as a store keeps it for a poll: `processing`,
  * with how far it has got once it has said; `completed`, with what it came to
  * — hashes, not values ({@link SplitCallOutcomeType}); `planned`, an
- * explain's pieces; or `failed`, naming why e3 could not run it.
+ * explain's pieces; `failed`, naming why e3 could not run it; or `cancelled`,
+ * by a caller who may poll it, before it ended. Every status but `processing`
+ * is an end, which the store never moves the job out of.
  */
 export const SplitCallJobStatusType = VariantType({
   processing: OptionType(SplitCallProgressType),
   completed: SplitCallOutcomeType,
   planned: SplitCallPlanType,
   failed: StructType({ message: StringType }),
+  cancelled: NullType,
 });
 
 /**
@@ -222,10 +225,14 @@ export const SplitCallJobType = StructType({
    *  each names before it runs, which the launch never reads. */
   objects: ArrayType(IntegerType),
   then: OptionType(StringType),
+  /** A `first` call's limit (#1110): the job runs the `array` task's pieces in
+   *  input order until they hold that many elements; `none` for any other. */
+  first: OptionType(IntegerType),
   limits: StructType({ timeoutMs: IntegerType, maxResultBytes: IntegerType, maxLogBytes: IntegerType }),
   read: ArrayType(StructType({ path: TreePathType, hash: StringType })),
-  /** Whether the job is an explain's: it plans the call's pieces, stores them
-   *  for the run to take up, and runs no unit. */
+  /** Whether the job is an explain's: it plans the call's pieces as the run
+   *  would, and runs no unit. A run plans them again, and finds the pieces it
+   *  stored. */
   explain: BooleanType,
   /** Whether a `platform_free` caller may poll it: the call is platform-free,
    *  or a `platform_free` caller launched it. */

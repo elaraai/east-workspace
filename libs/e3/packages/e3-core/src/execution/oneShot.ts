@@ -22,7 +22,10 @@
  * @packageDocumentation
  */
 
-import { IMPORT_PLATFORM, decodeAsyncEastIR, decodeEastIR, literalValueOf, none, some, variant, walkIR, type IR, type ValueIR } from '@elaraai/east';
+import {
+  IMPORT_PLATFORM, decodeAsyncEastIR, decodeEastIR, literalValueOf, none, some, variant, walkIR, type AsyncFunctionIR, type FunctionIR, type IR,
+  type ValueIR,
+} from '@elaraai/east';
 import type { CallArg, ExecuteLimits, ExecuteResult, OneShotRequest, RunnerValue, TreePath } from '@elaraai/e3-types';
 import { PermissionDeniedError } from '../errors.js';
 import type { StorageBackend } from '../storage/interfaces.js';
@@ -205,16 +208,28 @@ function runtimeName(runner: RunnerValue): string {
  *
  * @throws {Error} When the bytes do not decode as a function.
  */
-function decodeBody(bodyIr: Uint8Array): IR {
+function decodeBody(bodyIr: Uint8Array): FunctionIR | AsyncFunctionIR {
   try {
-    return decodeEastIR(bodyIr).ir as IR;
+    return decodeEastIR(bodyIr).ir;
   } catch (err) {
     try {
-      return decodeAsyncEastIR(bodyIr).ir as IR;
+      return decodeAsyncEastIR(bodyIr).ir;
     } catch {
       throw err;
     }
   }
+}
+
+/**
+ * How many arguments a program takes.
+ *
+ * @param ir - The program's IR bundle
+ * @returns The count of its parameters
+ * @throws {Error} When the IR does not decode as a function.
+ * @internal
+ */
+export function programArity(ir: Uint8Array): number {
+  return decodeBody(ir).value.parameters.length;
 }
 
 /**

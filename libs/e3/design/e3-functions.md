@@ -612,6 +612,16 @@ New files:
     gateway error. The function and one-shot routes share the limits, so both
     take it. `ceilings` lowers what a request may ask for, where a host's
     response limits are tighter than a server's.
+  - **The local server's** (#1103) are its own to set, with no gateway in
+    front of it: `ServerConfig.calls` — `{ syncDeadlineMs?, ceilings? }` —
+    or the CLI's `--call-deadline`, `--job-timeout` (`ceilings.timeoutMs`),
+    `--max-result` and `--max-log`, each a positive duration or size,
+    refused naming its flag otherwise (`resolveCallLimits`). `createServer`
+    passes the deadline to all three factories and the ceilings to the
+    one-shot routes, which hold one-shot and split calls; a named function
+    call keeps the default ceilings. A larger result limit holds a larger
+    answer in the server's memory while it is answered; past it, a split
+    call's answer is read from its stored output by its hash (#1106).
 
 Mount in **`packages/e3-api-server/src/server.ts`** after the auth middleware
 (`app.use('/api/repos/:repo/*', authMiddleware)`), before any catch-all:
@@ -634,6 +644,7 @@ POST   /api/repos/:repo/workspaces/:ws/functions/:fn            (+ /async, /call
 POST   /api/repos/:repo/workspaces/:ws/one-shot                 → oneShotExecute (e3-core, §6.1)
 POST   /api/repos/:repo/workspaces/:ws/one-shot/split           → a split call's job id (§10.1); ?explain=1 a job that plans its pieces
 GET    /api/repos/:repo/workspaces/:ws/one-shot/split/:id       → the split call's status
+POST   /api/repos/:repo/workspaces/:ws/one-shot/split/:id/cancel → cancel it, and its status after (§10.1)
 POST   /api/repos/:repo/workspaces/:ws/one-shot/async           → callOneShotAsync
 GET    /api/repos/:repo/workspaces/:ws/one-shot/calls/:callId   → getCallStatus
 DELETE /api/repos/:repo/workspaces/:ws/one-shot/calls/:callId   → cancelCall
@@ -742,7 +753,8 @@ typical 7-field row ≈ 111 B — results in the low thousands of rows sit well 
 1 MB. The binding ceilings are the cloud transport (see cloud doc): **API Gateway
 10 MB** (hard), **Lambda sync response 6 MB**, and base64 inflation in the Lambda
 proxy → ~4.5 MB raw. **Default `maxResultBytes` = 1 MB**, server-owned and
-clamped (a deployment may set it lower). It leaves 3–4× headroom under the
+clamped (a deployment may set it lower; a local server, with no gateway,
+higher: `--max-result`, §7.1). It leaves 3–4× headroom under the
 base64-inflated Lambda ceiling and still allows multi-thousand-row tables inline.
 A result that doesn't fit is a dataset — deploy a task and read it with
 `datasetGet` (which already does the inline-vs-presigned split). Streaming is
@@ -838,21 +850,71 @@ export const SplitCallRequestType = StructType({
   output: VariantType({                               // a task's output kinds, the programs and zero inline
     array: NullType,
     dict:  StructType({ merge: OptionType(BlobType) }),
+    first: StructType({ limit: IntegerType }),        // an array's first `limit` elements, stopping once it has them (#1110)
     fold:  StructType({ combine: BlobType, zero: BlobType }),
     set:   NullType,
   }),
-  then:   OptionType(BlobType),                       // a final function: the assembled output, then the args
+  then:   OptionType(BlobType),                       // a final function: the assembled output, then the args not partitioned (#1107)
   runner: RunnerType,
   limits: OptionType(ExecuteLimitsType),
 });
 // the poll: SplitCallStatusType — processing (SplitCallProgressType), completed { result: ExecuteResult,
-// output: Option(hash) }, planned (an explain's: SplitCallPlanType { pieces, over, bytes }), failed { message }
+// output: Option(hash), report: Option(SplitCallReportType { pieces, ran, cached, peakBytes }) (#1105) },
+// planned (an explain's: SplitCallPlanType { pieces, over, bytes }), failed { message }, cancelled (#1104)
 ```
 
 At least one argument is partitioned, and the pieces follow the task's rules
 (`planPieces`): they are cut over the partitioned argument that weighs the
 most, the other partitioned arguments are cut at the same keys, and an argument
 not partitioned reaches every piece whole.
+
+**What `then` gets** (#1107): the assembled output, then the arguments **not**
+partitioned, in argument order. The partitioned arguments are what the pieces
+read; `then` reads what the pieces produced. Staging a partitioned argument for
+`then` was the whole of a cached 16 GB rerun with a final step — 396,534
+segment links on the local runner, the argument copied whole into e3-web's
+unit worker, its manifest downloaded on e3-cloud — 7.7–9.5 s against 0.3 s
+without one. A plan that needs a partitioned dataset again after the combine
+runs another split call over it, given the first call's output as an `object`
+argument, which is how plans already chain; the jq split reads a dict its
+final function reads whole in every piece, never cut with the rows. The launch
+refuses a `then` whose arity is not 1 plus the count of arguments not
+partitioned, `invalid`, naming both, and nothing runs. Client and server move
+together: a client of this release and a server of an earlier one disagree on
+what `then` is given.
+
+**A call that stops once it has its first `n`** (#1110). `output: first {
+limit }` answers an Array of the first `limit` elements in input order —
+every element when there are fewer — of what the body emits, as an `array`
+call's body emits it, `limit` at least 1 (`invalid` below it). A query such
+as `first(.orders[] | select(…))` over a rare match wants exactly that, and
+an `array` call would scan every piece for it.
+- **No new task kind.** The launch writes the task with the `array` kind, so
+  `TaskOutputKind` is unchanged, and its pieces are cached as an `array`
+  call's are: the two kinds of call share units. The job record holds the
+  limit (`SplitCallJobType.first`).
+- **How it runs.** `splitCallRun` runs a `first` call itself, not through
+  `runner.execute` (`runFirstPieces`, `execution/splitFirst.ts`): it plans the
+  pieces (`planPieces`), and runs them through `runner.executeUnit` — which
+  probes the cache — in input order, at most `width` at once, each within
+  `width` of the first piece not finished, so while piece `k` runs none past
+  `k + width` starts. As each finishes it reads the piece's element count from
+  its manifest. Once the pieces finished in an unbroken run from the first
+  hold `limit` elements, it stops the units still running and starts none
+  after them, and stores the first `limit` elements through the store's door:
+  the whole pieces by reference, and the first elements of the last, its
+  whole segments by reference too. A piece that fails ends the call as the
+  task's lowest failing unit would, when the answer needs it.
+- **What it records.** No execution of the task, whose whole output it never
+  assembled. Every piece it ran is cached. `then` is given the first `limit`
+  elements as its output.
+- **Width.** `ProcessSplitCallDeps.width` (4 by default) is how many units the
+  job keeps running: the local server passes its budget's cores, e3-web its
+  pool's width, e3-cloud its `splitCalls.width`.
+- **Rounds.** A job handed over between rounds resumes nothing: the next round
+  plans again, which #1100 made cheap, and finds the finished pieces cached.
+  A running Lambda unit cannot be stopped, so on e3-cloud fewer than `width`
+  pieces past the end run to their end, and stay cached.
 
 **The launch** (e3-core `splitCallPrepare`, `execution/splitCall.ts`) applies
 the caller's grant, pins each dataset argument by hash as a one-shot does,
@@ -862,8 +924,9 @@ objects, and writes the task object: `body: east { program }`, the call's
 runner, one input per argument with its partition and no path, as an index
 build's are, the output kind, `role: data`, `environment: none`. A request
 found wrong — no partitioned argument, a `custom` runner (a split task runs on
-a stock runner), a partitioned argument that is not a collection, an unassigned
-dataset, an object the store does not hold — is `invalid`, and the route files
+a stock runner), a `then` that does not take the assembled output and the
+arguments not partitioned, a partitioned argument that is not a collection, an
+unassigned dataset, an object the store does not hold — is `invalid`, and the route files
 it as a job already `completed`, so every result comes back through the poll.
 Of an `object` argument the launch reads only its own object: what it names —
 an earlier call's output, say, a collection of thousands of segments — is the
@@ -884,10 +947,11 @@ job does the same before it plans. Then
 `runner.execute(storage, task, inputs, { signal, onPartitionProgress })` —
 `executeSplitTask`'s pieces and merges, each a unit cached on its program and
 inputs — and then, with `then`, `runner.runDetached` over the assembled output
-and the arguments, each as `{ dataset: hash }`, whose value is stored through
-the door. The job's timeout is `limits.timeoutMs`, by default and at most
+and the arguments not partitioned, each as `{ dataset: hash }`, whose value is
+stored through the door. The job's timeout is `limits.timeoutMs`, by default and at most
 one-shot's ceiling of 10 minutes (`resolveJobLimits`: a job has no sync
-deadline). It is one budget for the whole job, counted from its launch (the
+deadline), which a local server sets with `--job-timeout` (§7.1). It is one
+budget for the whole job, counted from its launch (the
 record's `createdAt`, `splitCallRun`'s `launchedAt`); past it the run is
 aborted and the call ends `timed_out`. A caller that stops a call to run it
 again, as compute with a time limit does, leaves the job `processing`, and the
@@ -896,13 +960,44 @@ the timeout: a run that starts with none left ends `timed_out` without running
 a unit. So a host that runs a job in rounds sets the one-shot routes'
 `ceilings.timeoutMs` to the budget for the whole job, not for one round.
 
+**Cancel** (#1104). `POST …/one-shot/split/:id/cancel` cancels a job still
+`processing`: the route writes it `cancelled` (`SplitCallJobStatusType`) and
+answers its status after, as a poll does. Whoever may poll the job may cancel
+it, by the poll's rule (below). `SplitCallStore.updateStatus` records a status
+only while the job runs, checking and writing in one atomic step, and says
+whether it did: so a cancel never overwrites a result, nor a result a cancel,
+and a job that had ended answers as it ended. `handleProcessSplitCall` reads
+the job's record every second as it runs (`SPLIT_CANCEL_POLL_MS`), and a
+progress write the store refuses tells it the same. Once it finds the job
+ended, it aborts its own signal, which stops the run or the planning: the
+local runner kills the units' processes and the budget takes their grants
+back, e3-web terminates their workers, and e3-cloud launches no more. Finished
+units stay cached, so a relaunch is served them. An abort of the caller's own
+signal is still a hand-over, and leaves the job `processing`. The client's
+`splitCallCancel` sends the cancel, and `splitCall` and `splitCallExplain`
+send it when their signal aborts, then reject with the signal's reason.
+
+**The report** (#1105). A completed call says how it ran
+(`SplitCallReportType`): the pieces its input was cut into, the units this job
+ran and the units the cache served it, pieces and merges, and the highest peak
+a unit reached, as the task's execution records it. `splitCallRun` counts the
+units as they settle (`PartitionProgress` says which the cache served), and
+takes the pieces from the pieces stage. A task the cache serves whole consults
+no unit, so it reports `ran` and `cached` 0; its pieces are read from the
+execution that served it, whose `plan` names the last stage's `$plan`, whose
+`previous` chain leads back to the pieces — a task with no plan was one piece —
+and so are those of a run that took the task up past its pieces. `then`'s run
+is no unit. The report rides in `SplitCallOutcomeType`, and is `none` for a
+call found wrong, which ran nothing.
+
 **Hashes, not values.** A completed job's record holds the result's object and
 the assembled output's hash (`SplitCallOutcomeType`), so a store with small
 records keeps it. The poll (`splitCallResult`) reads the value and answers it
 inline, a collection spliced as `runDetached` splices one, up to the call's
 `maxResultBytes`; over it the result is `too_large`, and the caller reads the
-output by its hash through the object route, or passes it on as the next
-call's `object` argument. `inputs` names each pinned dataset, as a one-shot's
+output by its hash through the object route — e3-api-client's `collectionOpen`
+reads a window at a time, fetching only the segments each overlaps (#1106) —
+or passes it on as the next call's `object` argument. `inputs` names each pinned dataset, as a one-shot's
 does. A job's record is forgotten a while after it finishes.
 
 **What a split call writes** is what an index build writes: the task object,
@@ -932,12 +1027,13 @@ re-cuts a segment at each boundary a `by` or a co-partitioned argument moves,
 so it is the job's work: the request does only the grant, the pins and the
 launch's small writes.
 
-The client has `splitCallLaunch`, `splitCallStatus`, `splitCallExplain`, which
-launches an explain and polls it for the plan, and `splitCall`, which launches
-and polls to the end. A backend implements the `SplitCallStore`, keeping each
-job's `objects`, `explain` and `platformFree`, and dispatches its jobs to compute that
-runs `handleProcessSplitCall` on its runner; its `TaskRunner.execute` of a
-split task is what index builds already need.
+The client has `splitCallLaunch`, `splitCallStatus`, `splitCallCancel`,
+`splitCallExplain`, which launches an explain and polls it for the plan, and
+`splitCall`, which launches and polls to the end. A backend implements the
+`SplitCallStore`, keeping each job's `objects`, `explain` and `platformFree`,
+and refusing a status write to a job that has ended, and dispatches its jobs to
+compute that runs `handleProcessSplitCall` on its runner; its
+`TaskRunner.execute` of a split task is what index builds already need.
 
 ## 11. Security summary
 
@@ -1056,8 +1152,13 @@ paths.
     - e3-core `execution/splitCall.spec.ts`, over a local repository with
       `E3_TEST_PIECE_BYTES` so a small dataset is many pieces: `array`, `set`,
       `dict` with a merge and `fold` calls give what one unit over the whole
-      dataset gives; `then` runs over the assembled output and the arguments; an
-      argument not partitioned reaches every piece whole; an `object` argument
+      dataset gives; `then` runs over the assembled output and the arguments
+      not partitioned, in their order, staging no object of a partitioned one,
+      and one of another arity is `invalid` (#1107); a `first` call answers
+      the first `limit` elements of the matching `array` call's value, starts
+      no piece past `k + width` when piece `k` holds its one match, and leaves
+      the pieces it ran cached for an `array` call (#1110); an argument not
+      partitioned reaches every piece whole; an `object` argument
       chains one call's output into the next; the launch of a call whose
       `object` argument is a collection of many segments asks the store about
       none of them, and its job touches every one before its first unit; an

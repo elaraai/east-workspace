@@ -147,9 +147,16 @@ export function cgroupMemoryMax(
 }
 
 /**
- * The memory a cgroup's processes hold that the kernel does not reclaim
- * first: `memory.current` less the inactive file cache, which is what a unit
- * reading and writing files fills.
+ * The memory a cgroup's processes hold that the kernel cannot simply take
+ * back: `memory.current` less its clean file cache — the inactive and the
+ * active file pages (`memory.stat`'s `inactive_file` and `active_file`), less
+ * those dirty or being written back (`file_dirty`, `file_writeback`), which
+ * wait for the disk. A unit's reads of its segments land on the active list,
+ * so the cache a unit streams through is not memory it holds.
+ *
+ * @remarks
+ * What a unit uses, measured in its own cgroup, and what each level of e3's
+ * hierarchy holds against its limit, for what the machine has left.
  *
  * @param dir - The cgroup's directory
  * @param read - Reads a file's text, or `null` when it cannot be read
@@ -159,8 +166,29 @@ export function cgroupWorkingSet(dir: string, read: (path: string) => string | n
   const current = Number(read(posix.join(dir, 'memory.current'))?.trim() ?? NaN);
   if (!Number.isFinite(current)) return null;
   const stat = read(posix.join(dir, 'memory.stat'));
-  const inactive = stat === null ? null : /^inactive_file (\d+)$/m.exec(stat);
-  return Math.max(0, current - (inactive === null ? 0 : Number(inactive[1])));
+  const field = (name: string): number => {
+    const match = stat === null ? null : new RegExp(`^${name} (\\d+)$`, 'm').exec(stat);
+    return match === null ? 0 : Number(match[1]);
+  };
+  const clean = Math.max(0, field('inactive_file') + field('active_file') - field('file_dirty') - field('file_writeback'));
+  return Math.max(0, current - clean);
+}
+
+/**
+ * The share of the last 10 s, in percent, in which every task of a cgroup
+ * stalled on memory: its `memory.pressure`'s `full avg10`, the kernel's
+ * pressure stall information. The cache the working set leaves out is what the
+ * kernel reclaims, and some of it it cannot reclaim fast enough; this says when.
+ *
+ * @param dir - The cgroup's directory
+ * @param read - Reads a file's text, or `null` when it cannot be read
+ * @returns The percentage, or `null` where the kernel keeps no pressure — one
+ *   built without it, or booted with it off
+ */
+export function cgroupMemoryPressure(dir: string, read: (path: string) => string | null = readTextFile): number | null {
+  const text = read(posix.join(dir, 'memory.pressure'));
+  const match = text === null ? null : /^full avg10=(\d+(?:\.\d+)?)/m.exec(text);
+  return match === null ? null : Number(match[1]);
 }
 
 /**

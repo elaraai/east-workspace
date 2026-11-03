@@ -116,8 +116,19 @@ export interface PagedDatasetPreviewProps {
     controls?: PreviewControls;
 }
 
-/** Materializes one decoded page into the renderer's paged-row contract. */
-function pageRows(type: EastTypeValue, decoded: unknown, offset: number): ValueTreePagedRow[] {
+/**
+ * Materializes one decoded page into the ValueTree renderer's paged-row
+ * contract: an Array's or a Set's elements by their place in the whole, a
+ * Dict's values under their keys — String keys as steps, others labelled.
+ *
+ * @param type - The collection's type: an Array, a Set or a Dict
+ * @param decoded - The page, a value of that type
+ * @param offset - The page's first element's place in the whole collection
+ * @returns The page's root rows
+ *
+ * @internal
+ */
+export function pageRows(type: EastTypeValue, decoded: unknown, offset: number): ValueTreePagedRow[] {
     if (type.type === 'Array') {
         const elemType = type.value as EastTypeValue;
         return (decoded as unknown[]).map((el, i) => ({

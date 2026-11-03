@@ -8,6 +8,7 @@ import { extname } from 'path';
 import {
     EastIR,
     beast2LazyStats,
+    beast2PagedLoopStats,
     encodeBeast2For,
     encodeBeast2PagedFor,
     encodeEastFor,
@@ -182,6 +183,20 @@ export function reportLazyReads(i: number, path: string, stats: Beast2LazyStats,
 }
 
 /**
+ * Prints what the loops that paged a program's lazy inputs decoded (#1112):
+ * the segments decoded to the fields their bodies read, and those decoded
+ * whole — a body that reads its row whole, a Set's loop, or a segment whose
+ * projected decode fell back. east-c and east-py say it in the same words.
+ *
+ * @param projected - the segments decoded to the fields read
+ * @param whole - the segments decoded whole
+ * @internal
+ */
+export function reportPagedLoops(projected: number, whole: number): void {
+    console.error(`  paged loops: ${projected} segments decoded to the fields read, ${whole} in full`);
+}
+
+/**
  * The account `exec -v` gives of a run unit's inputs, on stderr: the program
  * and what its file weighs, then each input as `run -v` gives it — its file,
  * what it weighs and its type, whether it opened lazily or was decoded whole,
@@ -197,6 +212,7 @@ export const unitRunReport: UnitRunReport = {
     openedLazily: reportInputLazy,
     decodedWhole: reportInputWhole,
     lazyReads: reportLazyReads,
+    pagedLoops: reportPagedLoops,
 };
 
 /**
@@ -283,9 +299,15 @@ export async function runProgram(
     // to decode them before the program runs.
     const inputs = openInputs(inputPaths, inputTypes as EastTypeValue[], decode, verbose);
     /** The verbose summary's account of each lazy input: what paging came
-     *  to, against the size of the value. */
+     *  to, against the size of the value, and what the loops that paged them
+     *  decoded. */
+    const loops = beast2PagedLoopStats();
     const reportLazyReads = (): void => {
         for (let i = 0; i < inputs.length; i++) reportInputReads(i, inputPaths[i]!, inputs[i]);
+        if (inputs.some((input) => beast2LazyStats(input) !== undefined)) {
+            const now = beast2PagedLoopStats();
+            reportPagedLoops(now.segmentsProjected - loops.segmentsProjected, now.segmentsWhole - loops.segmentsWhole);
+        }
     };
 
     const t1 = now();

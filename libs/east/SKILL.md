@@ -186,6 +186,9 @@ Task → What do you need?
     ├─ A JSON contract for a type → jsonSchemaFor(T) · back from a vendored schema → typeFromJsonSchema(schema)
     └─ Data larger than memory → reference/beast2.md; inside a body blob.openBeast(T),
         and a file on the runner's disk FileSystem.openBeast(T, path) (east-node-std / east-c-std / east-py-std)
+        └─ A loop over a lazy input (a large task input, an openBeast) decodes only the fields its body reads:
+            read the row through fields (row.total, $.for(row.lines, …)), not bound whole ($.let(row));
+            a runner's -v says "paged loops: N segments decoded to the fields read, M in full"
 ```
 
 ## Types and their values

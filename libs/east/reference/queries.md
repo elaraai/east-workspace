@@ -22,6 +22,18 @@ const revenue = East.function([ArrayType(Order)], FloatType, ($, orders) =>
     East.jq({ orders }, ".orders | map(.total) | add", FloatType));
 ```
 
+A stage that collects rows before a step that reads them one at a time —
+`map(f) | add`, `| length`, `| any`, `| first`, `| .[:n]`, a `reduce` over
+`.[]` — runs as one loop, so the array between them is never built; `first`
+and `.[:n]` stop the stage once they have their rows, unless a later row could
+raise (QUERY.md §15.1–15.2).
+
+A row a stage builds or keeps holds only the fields the steps after it read:
+`map(. + {region: …}) | group_by(.region) | map(… .total …)` builds each row of
+its region and total, and over an e3 root `map(select(p))` keeps each row as
+the fields read after it, so a paged dataset decodes those alone. A row read
+whole — the output, `keys`, `tojson`, `==` — is built whole (QUERY.md §15.1).
+
 | Signature | Description | Example |
 |-----------|-------------|---------|
 | **In an East body** |
@@ -32,7 +44,7 @@ const revenue = East.function([ArrayType(Order)], FloatType, ($, orders) =>
 | `printJq(program: JqNode, options?: { layout?: "line" \| "pipeline" }): PrintedJq` | A program's canonical text, and its nodes' spans; `pipeline` puts each top-level stage on a line of its own | `printJq(checked.program!).text` |
 | `translateJq(checked: CheckJqResult, options?: { maxOutputs?: number, tooling?: boolean }): JqTranslation` **❗** | The translation: `fn()`, an East function of the inputs the query reads (`inputs`), and its `resultType` | `East.compile(translateJq(checked).fn(), [])` |
 | `evaluateJq(program: string \| CheckJqResult, input: unknown, options?: { inputType?, root?, tooling?, platform? }): unknown` **❗** | Checks, translates, compiles (cached) and runs a query over a TypeScript value. Throws `QueryError`: the checker's diagnostics, or one `runtime` diagnostic at the node that raised | `evaluateJq("[.[] \| .id]", orders, { inputType: ArrayType(Order) })` |
-| `splitJq(checked: CheckJqResult, options?: { maxOutputs?: number }): JqSplit` | A query checked as an e3 root, split over one dataset's pieces for an e3 split call: `piece()` each piece runs, the `output` kind its outputs combine by (`array`, `set`, `dict` with `merge()`, `fold` with `zero` and `combine()`), and `then()` over the result; or, `kind: "whole"`, why it runs as one unit. QUERY.md §17.1 | `splitJq(checkJq(".orders \| group_by(.region) \| map(length)", Root, { root: true })).output.kind` |
+| `splitJq(checked: CheckJqResult, options?: { maxOutputs?: number }): JqSplit` | A query checked as an e3 root, split over one dataset's pieces for an e3 split call: `piece()` each piece runs, the `output` kind its outputs combine by (`array`, `set`, `dict` with `merge()`, `fold` with `zero` and `combine()`, or `first` with its `limit`, a stream's first rows in input order for `first(f)` and `limit(n; f)`), and `then()` over the result; or, `kind: "whole"`, why it runs as one unit. QUERY.md §17.1 | `splitJq(checkJq(".orders \| group_by(.region) \| map(length)", Root, { root: true })).output.kind` |
 
 - **The values are East's.** A Dict is an object keyed by its key type, so
   `.byId[1035]` looks up an Integer key; a variant reads as `{type, value}`,

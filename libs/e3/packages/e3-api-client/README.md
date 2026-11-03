@@ -127,7 +127,8 @@ level 0, which only a newer e3 writes, is refused, naming the update to make.
 
 A value named by its hash rather than by a dataset, such as a record's state at
 a past commit, is read through the objects route the same way:
-`collectionGetStream` streams a collection by its manifest's hash, and
+`collectionGetStream` streams a collection by its manifest's hash,
+`collectionOpen` opens one to read a window at a time (below), and
 `objectGet` reads any other value, which is one object. The caller picks by
 the value's type. A client of a host's own routes reads a page with
 `parsePage`, as `datasetGetPage` reads its own, and a JSON refusal with
@@ -168,6 +169,49 @@ const graph = await dataflowGraph(url, 'production');
 // Read task logs
 const logs = await taskLogs(url, 'production', 'compute', { stream: 'stdout' });
 // { data: '...', offset: 0n, size: 1024n, totalSize: 2048n, complete: false }
+```
+
+### Split calls
+
+```typescript
+import { collectionOpen, splitCall, splitCallCancel, splitCallLaunch, splitCallStatus } from '@elaraai/e3-api-client';
+import { decodeBeast2For, variant } from '@elaraai/east';
+
+// Run a program over a dataset's pieces as a job, polled to its end. Aborting
+// the signal stops polling and cancels the job, so the server stops its units;
+// the call rejects with the signal's reason.
+const controller = new AbortController();
+const { result, output, report } = await splitCall(url, 'my-repo', 'production', request, { token }, {
+  onProgress: (progress) => console.log(progress.phase.type, progress.done, progress.units),
+  signal: controller.signal,
+});
+// report: { pieces, ran, cached, peakBytes } — the pieces its input was cut
+// into, the units this call ran and the cache served it, and the highest peak
+// a unit reached. A call the cache served whole ran 0 and was served 0, and
+// still names its pieces and peak.
+
+// An array's first `limit` elements, in input order: the body emits as an
+// array call's does, and the pieces run in order, a few at a time, stopping
+// once they hold that many. The pieces are shared with an array call's.
+const firstMatch = await splitCall(url, 'my-repo', 'production', { ...request, output: variant('first', { limit: 1n }) }, { token });
+
+// A value over the call's result limit is answered too_large, naming the
+// stored output instead: open it, and read it a window at a time. Each window
+// fetches only the segments it overlaps, each checked against its hash.
+if (result.outcome.type === 'too_large' && output !== null) {
+  const remote = await collectionOpen(url, 'my-repo', output, { token });
+  // remote.type: the collection's type; remote.totalElements: how many it holds
+  const page = await remote.page({ offset: 1_000, limit: 100 });
+  const rows = decodeBeast2For(remote.type)(page.data);
+  // page.count: fewer than asked at the end, and none past it
+}
+
+// Or launch, poll and cancel it yourself
+const { id } = await splitCallLaunch(url, 'my-repo', 'production', request, { token });
+const status = await splitCallStatus(url, 'my-repo', 'production', id, { token });
+// processing | completed { result, output, report } | planned | failed | cancelled
+const after = await splitCallCancel(url, 'my-repo', 'production', id, { token });
+// cancelled, or the status the job had already ended with
 ```
 
 ## Claude Code plugin

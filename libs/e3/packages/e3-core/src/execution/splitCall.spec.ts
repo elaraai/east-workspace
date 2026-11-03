@@ -5,7 +5,10 @@
 
 /**
  * Split calls (#1032): a caller's program over a dataset's pieces, run as a
- * split task on the engine and assembled by its output kind, then `then`.
+ * split task on the engine and assembled by its output kind, then `then`,
+ * over the assembled output and the arguments not partitioned (#1107). A
+ * `first` call (#1110) runs the pieces in input order until they hold its
+ * limit, and shares them with an `array` call of the same program.
  * `E3_TEST_PIECE_BYTES` makes the pieces small, so a few thousand rows are
  * many pieces; the units run on east-node.
  */
@@ -19,10 +22,10 @@ import {
   type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import type { ExecuteResult, PartitionProgress, SplitCallRequest } from '@elaraai/e3-types';
-import { readManifest } from '../dataset-open.js';
+import { decodeTaskObject, type ExecuteResult, type PartitionProgress, type SplitCallRequest } from '@elaraai/e3-types';
+import { readDatasetWhole, readManifest } from '../dataset-open.js';
 import { PermissionDeniedError } from '../errors.js';
-import { inputsHash } from '../executions.js';
+import { executionReadLog, inputsHash } from '../executions.js';
 import { packageImport } from '../package-files.js';
 import { datasetWrite, workspaceSetDataset } from '../trees.js';
 import { workspaceDeploy } from '../workspace-files.js';
@@ -32,6 +35,7 @@ import type { StorageBackend } from '../storage/interfaces.js';
 import type { TaskResult, TaskRunner } from './interfaces.js';
 import { LocalTaskRunner } from './LocalTaskRunner.js';
 import type { OneShotGrant } from './oneShot.js';
+import { planPieces } from './pieces.js';
 import { splitCallExplain, splitCallPrepare, splitCallResult, splitCallRun, type SplitCallOutcome } from './splitCall.js';
 
 const WS = 'ws';
@@ -69,6 +73,40 @@ const countByRemainder = call(
   [partitioned(dataset('sales'))],
   variant('dict', { merge: some(ir(East.function([IntegerType, IntegerType, IntegerType], IntegerType, ($, _key, a, b) => a.add(b)))) }),
 );
+
+/** `storage`, with the hash of every object its object store is asked about
+ *  recorded in `asked`. */
+function counting(storage: StorageBackend, asked: Set<string>): StorageBackend {
+  const objects = new Proxy(storage.objects, {
+    get(target, key, receiver) {
+      const member: unknown = Reflect.get(target, key, receiver);
+      if (typeof member !== 'function') return member;
+      return (...args: unknown[]) => {
+        if (typeof args[1] === 'string') asked.add(args[1]);
+        return (member as (...a: unknown[]) => unknown).apply(target, args);
+      };
+    },
+  });
+  return new Proxy(storage, { get: (target, key, receiver) => (key === 'objects' ? objects : Reflect.get(target, key, receiver)) });
+}
+
+/** Each sale's key that leaves 4 over 13, in order: 616 of 8000 sales. */
+const everyThirteenth = ir(East.function([SalesType, EmitInteger], NullType, ($, sales, emit) => {
+  $.for(sales, ($, _amount, key) => {
+    $.if(East.equal(key.remainder(13n), 4n), ($) => {
+      $(emit(key));
+    });
+  });
+}));
+
+/** The key 1500 alone. */
+const only1500 = ir(East.function([SalesType, EmitInteger], NullType, ($, sales, emit) => {
+  $.for(sales, ($, _amount, key) => {
+    $.if(East.equal(key, 1500n), ($) => {
+      $(emit(key));
+    });
+  });
+}));
 
 /** The local runner, with every unit's progress heard. */
 function tapped(inner: TaskRunner, heard: PartitionProgress[]): TaskRunner {
@@ -222,14 +260,66 @@ describe('split calls', () => {
     });
   });
 
-  it('runs `then` over the assembled output, and then the arguments', async () => {
-    const counted = await run({
-      ...countByRemainder,
-      then: some(ir(East.function([CountsType, SalesType], IntegerType, ($, counts, sales) =>
-        counts.size().multiply(100_000n).add(sales.size())))),
-    });
-    await assertValue(counted, IntegerType, 97n * 100_000n + 8000n);
+  it('runs `then` over the assembled output, and then the arguments not partitioned, in their order (#1107)', async () => {
+    const counted = await run(call(
+      ir(East.function([IntegerType, SalesType, IntegerType, EmitEntry], NullType, ($, _offset, sales, _seven, emit) => {
+        $.for(sales, ($, _amount, key) => {
+          $(emit(key.remainder(97n), 1n));
+        });
+      })),
+      [whole(dataset('offset')), partitioned(dataset('sales')), whole(variant('value', encodeBeast2For(IntegerType)(7n)))],
+      countByRemainder.output,
+      {
+        then: some(ir(East.function([CountsType, IntegerType, IntegerType], IntegerType, ($, counts, offset, seven) =>
+          counts.size().multiply(100_000n).add(offset.multiply(10n)).add(seven)))),
+      },
+    ));
+    await assertValue(counted, IntegerType, 97n * 100_000n + 1000n * 10n + 7n);
     assert.equal(counted.outcome.output.type, 'some', 'the result names the assembled output');
+  });
+
+  it('stages for `then` no object of a partitioned argument, which the pieces read (#1107)', async () => {
+    const staged = new Set<string>();
+    const inner = runner;
+    runner = {
+      ...inner,
+      runDetached: (spec, options) => inner.runDetached(spec, options?.storage === undefined ? options : { ...options, storage: counting(options.storage, staged) }),
+    };
+    const launched = await splitCallPrepare(storage, repo, WS, call(
+      ir(East.function([SalesType, IntegerType, EmitEntry], NullType, ($, sales, _offset, emit) => {
+        $.for(sales, ($, _amount, key) => {
+          $(emit(key.remainder(97n), 1n));
+        });
+      })),
+      [partitioned(dataset('sales')), whole(dataset('offset'))],
+      countByRemainder.output,
+      { then: some(ir(East.function([CountsType, IntegerType], IntegerType, ($, counts, offset) => counts.size().add(offset)))) },
+    ), { grant: 'any' });
+    if ('outcome' in launched) assert.fail('the call was refused');
+    const outcome = await splitCallRun(storage, runner, repo, launched);
+    assert.equal(outcome.outcome.type, 'success', outcome.stderr);
+    if (outcome.output.type !== 'some') assert.fail('the call assembled no output');
+
+    const [sales, offset] = launched.inputs;
+    const manifest = await readManifest(storage, repo, sales!);
+    if (manifest === null) assert.fail('sales is stored as a manifest');
+    assert.ok(manifest.entries.length > 4, `sales is ${manifest.entries.length} segments`);
+    // Its header is any collection's of its type: the assembled output's too.
+    const salesObjects = [sales!, ...manifest.entries.map((entry) => entry.hash)];
+    assert.deepEqual(salesObjects.filter((hash) => staged.has(hash)), [], 'no object of sales was asked for');
+    assert.ok(staged.has(offset!), 'offset was');
+    assert.ok(staged.has(outcome.output.value), 'and so was the assembled output');
+  });
+
+  it('names the argument its pieces are cut over in its log by its position, as it has no path (#1102)', async () => {
+    const launched = await splitCallPrepare(storage, repo, WS, countByRemainder, { grant: 'any' });
+    if ('outcome' in launched) assert.fail('the call was refused');
+    await splitCallRun(storage, runner, repo, launched);
+    const inHash = inputsHash([...launched.inputs]);
+    const status = await storage.refs.executionGetLatest(repo, launched.task, inHash);
+    assert.equal(status?.type, 'success');
+    const log = await executionReadLog(storage, repo, launched.task, inHash, status!.value.executionId, 'stdout');
+    assert.match(log.data, /^plan pieces=\d+ over=input-1 bytes=\d+$/m, log.data.split('\n')[0]);
   });
 
   it('hands an argument it does not partition to every piece whole', async () => {
@@ -393,6 +483,126 @@ describe('split calls', () => {
     assert.ok(ran.length >= 1 && ran.length <= 3, `only the pieces around the append ran: ${ran.length} of ${settled.length}`);
   });
 
+  describe('a first call: the first limit elements, in input order (#1110)', () => {
+    const args = [partitioned(dataset('sales'))];
+    const firstOf = (body: Uint8Array, limit: number): SplitCallRequest => call(body, args, variant('first', { limit: BigInt(limit) }));
+
+    /** The units the runner runs, each with what it came to, by the inputs
+     *  that name it. */
+    function unitsRun(): Map<string, TaskResult> {
+      const ran = new Map<string, TaskResult>();
+      const inner = runner;
+      runner = {
+        ...inner,
+        executeUnit: async (store, taskHash, unit, options) => {
+          const result = await inner.executeUnit(store, taskHash, unit, options);
+          ran.set(unit.inputs.join(','), result);
+          return result;
+        },
+      };
+      return ran;
+    }
+
+    /** The pieces the engine cuts a launched call's task into, each by the
+     *  inputs that name its unit. */
+    async function piecesOf(launched: { task: string; inputs: readonly string[] }): Promise<string[]> {
+      const task = decodeTaskObject(await storage.objects.read(repo, launched.task));
+      return (await planPieces(storage, repo, task.inputs, launched.inputs)).pieces.map((piece) => piece.join(','));
+    }
+
+    it('answers the first limit elements of the matching array call\'s value, or every one when there are fewer', async () => {
+      const matching = Array.from({ length: 616 }, (_, i) => BigInt(4 + 13 * i));
+      for (const limit of [1, 5, 100, 616, 10_000]) {
+        await assertValue(await run(firstOf(everyThirteenth, limit)), ArrayType(IntegerType), matching.slice(0, limit));
+      }
+      await assertValue(await run(call(everyThirteenth, args, variant('array', null))), ArrayType(IntegerType), matching);
+      assert.ok(pieces() > 4, 'over many pieces');
+    });
+
+    it('starts no piece past the one that holds its first match by more than its width', async () => {
+      const launched = await splitCallPrepare(storage, repo, WS, firstOf(only1500, 1), { grant: 'any' });
+      if ('outcome' in launched) assert.fail('the call was refused');
+      const cut = await piecesOf(launched);
+      const holds = await Promise.all(cut.map(async (piece) =>
+        (decodeBeast2For(SalesType)(await readDatasetWhole(storage, repo, piece.split(',')[0]!))).has(1500n)));
+      const k = holds.indexOf(true);
+      const width = 2;
+      assert.ok(k >= 0 && k + width + 1 < cut.length, `1500 is in piece ${k} of ${cut.length}, with pieces past ${k + width}`);
+
+      const ran = unitsRun();
+      const outcome = await splitCallRun(storage, runner, repo, launched, { width });
+      if (outcome.outcome.type !== 'success') assert.fail(`the call ended ${outcome.outcome.type}: ${outcome.stderr}`);
+      const value = decodeBeast2For(ArrayType(IntegerType))(await readDatasetWhole(storage, repo, outcome.outcome.value.value));
+      assert.ok(equalFor(ArrayType(IntegerType))(value, [1500n]), `the value is ${printFor(ArrayType(IntegerType))(value)}`);
+      const started = [...ran.keys()].map((unit) => cut.indexOf(unit)).sort((a, b) => a - b);
+      assert.ok(started.includes(k), `piece ${k} ran`);
+      assert.deepEqual(started.filter((index) => index > k + width), [], `no piece past ${k + width} started: ${started.join(', ')}`);
+      assert.equal(outcome.report.type === 'some' && outcome.report.value.pieces, BigInt(cut.length), 'it reports the pieces it cut');
+    });
+
+    it('leaves the pieces it ran cached, which an array call of the same program is served', async () => {
+      const launched = await splitCallPrepare(storage, repo, WS, firstOf(everyThirteenth, 50), { grant: 'any' });
+      if ('outcome' in launched) assert.fail('the call was refused');
+      const cut = await piecesOf(launched);
+      const ran = unitsRun();
+      const outcome = await splitCallRun(storage, runner, repo, launched);
+      assert.equal(outcome.outcome.type, 'success', outcome.stderr);
+      const finished = [...ran].filter(([, result]) => result.state === 'success').map(([unit]) => cut.indexOf(unit));
+      assert.ok(finished.length > 0 && finished.length < cut.length, `it ran ${finished.length} of ${cut.length} pieces`);
+
+      heard.length = 0;
+      await run(call(everyThirteenth, args, variant('array', null)));
+      const served = heard.filter((progress) => progress.phase === 'partition' && progress.state === 'completed' && progress.cached === true)
+        .map((progress) => progress.index);
+      assert.deepEqual(finished.filter((index) => !served.includes(index)), [], 'each piece the first call ran was served from the cache');
+      assert.ok(served.length < cut.length, 'and the rest ran');
+    });
+
+    it('answers invalid for a limit below 1, and runs nothing', async () => {
+      const launched = await splitCallPrepare(storage, repo, WS, firstOf(everyThirteenth, 0), { grant: 'any' });
+      if (!('outcome' in launched) || launched.outcome.type !== 'invalid') assert.fail('launched');
+      assert.equal(launched.outcome.value.diagnostics[0]!.message, `a first call answers from 1 to ${Number.MAX_SAFE_INTEGER} elements: its limit is 0`);
+    });
+  });
+
+  it('reports how it ran: the pieces, the units it ran and was served, and its peak; served whole, the pieces its record names (#1105)', async () => {
+    /** What the run's units told of themselves: the pieces, and the units
+     *  that ran and that the cache served, pieces and merges. */
+    const told = () => {
+      const settled = heard.filter((progress) => progress.state === 'completed');
+      return {
+        pieces: BigInt(pieces()),
+        ran: BigInt(settled.filter((progress) => progress.cached !== true).length),
+        cached: BigInt(settled.filter((progress) => progress.cached === true).length),
+      };
+    };
+    const reportOf = (outcome: SplitCallOutcome) => {
+      if (outcome.report.type === 'none') assert.fail('the call reported nothing');
+      return outcome.report.value;
+    };
+
+    // Every piece emits every remainder, so its counts are merged.
+    heard.length = 0;
+    const first = reportOf((await run(countByRemainder)).outcome);
+    assert.ok(first.pieces > 4n, `the sales are many pieces: ${first.pieces}`);
+    assert.deepEqual({ pieces: first.pieces, ran: first.ran, cached: first.cached }, told(), 'as the units told it');
+    assert.ok(first.ran > first.pieces, `every piece ran, and the merges after them: ${first.ran} units`);
+    assert.equal(first.cached, 0n);
+    assert.equal(first.peakBytes.type, 'some', 'the units reported their peak');
+
+    heard.length = 0;
+    const again = reportOf((await run(countByRemainder)).outcome);
+    assert.equal(heard.length, 0, 'served whole from the cache: no unit was consulted');
+    assert.deepEqual(again, { ...first, ran: 0n, cached: 0n }, 'the pieces its record names, and the peak it records');
+
+    await set('sales', salesOf(8040), SalesType);
+    heard.length = 0;
+    const appended = reportOf((await run(countByRemainder)).outcome);
+    assert.deepEqual({ pieces: appended.pieces, ran: appended.ran, cached: appended.cached }, told(), 'as the units told it');
+    assert.ok(appended.ran >= 2n, `the pieces the append touched ran, and the merges they reach: ${appended.ran} units`);
+    assert.ok(appended.cached > appended.ran, `the cache served the rest: ${appended.cached} units`);
+  });
+
   it('explains the pieces the run cuts in the job, leaving the launch — an explain\'s request — to store none, and runs no unit', async () => {
     // Every object written, and how many of them are manifests: a piece is one.
     const objects = storage.objects;
@@ -437,7 +647,7 @@ describe('split calls', () => {
           $(emit(key, amount));
         });
       })), [partitioned(dataset('sales'))], variant('dict', { merge: none }))],
-      ['its then', { ...countByRemainder, then: some(ir(East.function([CountsType, SalesType], IntegerType, ($, counts) => {
+      ['its then', { ...countByRemainder, then: some(ir(East.function([CountsType], IntegerType, ($, counts) => {
         const message = $.const('then');
         $(log(message));
         return counts.size();
@@ -462,6 +672,12 @@ describe('split calls', () => {
       ['a partitioned scalar', { ...countByRemainder, args: [partitioned(dataset('offset'))] }, /not a collection/],
       ['an unassigned dataset', { ...countByRemainder, args: [partitioned(dataset('unset'))] }, /not assigned/],
       ['an object the store does not hold', { ...countByRemainder, args: [partitioned(variant('object', '0'.repeat(64)))] }, /does not hold/],
+      // `then` takes the assembled output, then the arguments not partitioned (#1107).
+      ['a then given a partitioned argument', {
+        ...countByRemainder,
+        then: some(ir(East.function([CountsType, SalesType], IntegerType, ($, counts) => counts.size()))),
+      }, /^then takes 2 arguments, and the call gives it 1 argument: the assembled output, then each argument not partitioned, in order$/],
+      ['a then that is no function', { ...countByRemainder, then: some(Uint8Array.from([1, 2, 3])) }, /^then does not decode as a function: /],
     ];
     for (const [what, request, message] of invalid) {
       const launched = await splitCallPrepare(storage, repo, WS, request, { grant: 'any' });

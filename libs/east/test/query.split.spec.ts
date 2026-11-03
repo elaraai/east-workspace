@@ -24,7 +24,7 @@ import assert from "node:assert/strict";
 
 import {
   ArrayType, DictType, EastError, EastTypeType, FloatType, IntegerType, SortedMap, SortedSet, StringType, StructType,
-  checkJq, compareFor, decodeEastIR, encodeEastIR, equalFor, printFor, splitJq, toEastTypeValue, translateJq,
+  checkJq, compareFor, decodeEastIR, encodeEastIR, equalFor, isTypeEqual, printFor, printType, splitJq, toEastTypeValue, translateJq,
   type EastType, type FunctionExpr, type JqSplit, type JqSplitCall, type JqRange, type SplitJqOptions, type ValueTypeOf,
 } from "../src/index.js";
 import { FixtureRoot, Order, queryFixture } from "./query.fixture.js";
@@ -95,7 +95,7 @@ interface Call {
  * assembled by the output kind — an array concatenated, a set united in
  * East's order, a dict's equal keys merged in input order, a fold combined
  * from its zero, a piece at a time and then across them — and the final
- * function over the assembled output and the inputs.
+ * function over the assembled output and the inputs not partitioned (#1107).
  */
 function runCall(call: Call, values: Readonly<Record<string, unknown>>, partitioned: readonly string[], pieces: number, fencesBy = partitioned[0]!): unknown {
   const args = call.inputs.map(input => values[input.name]);
@@ -132,9 +132,14 @@ function runCall(call: Call, values: Readonly<Record<string, unknown>>, partitio
       assembled = partials.reduce((acc: unknown, value) => combine(acc, value), output.zero);
       break;
     }
+    case "first":
+      // The first rows in input order, as e3 keeps them (#1110): no piece emits more.
+      assert.ok(emitted.every(part => part.length <= output.limit), "a piece emits no more than the first output's limit");
+      assembled = emitted.flatMap(part => part.map(([row]) => row)).slice(0, output.limit);
+      break;
   }
   const then = call.then();
-  return then === null ? assembled : asRun(then)(assembled, ...args);
+  return then === null ? assembled : asRun(then)(assembled, ...call.inputs.flatMap((input, i) => parts.has(input.name) ? [] : [args[i]]));
 }
 
 /** A split over some data — the shared fixture's by default — cut into pieces, with what it partitions with its dataset cut at the same keys, the fences `fencesBy`'s. */
@@ -290,6 +295,17 @@ const SPLITS: readonly string[] = [
   ".byId | to_entries | map(select(.value.total > 1000) | .key)",
   "[.customers | to_entries[] | {id: .key, name: .value.name}]",
   ".byId | to_entries | map(.value.total) | add",
+  // The first outputs of a stream, in input order (#1113): the match in a late piece, none, and more than the rows.
+  "first(.orders[] | select(.total > 1000)) | .id",
+  "first(.orders[] | select(.customer_id == \"C8\" and .total > 100))",
+  "first(.orders[] | select(.total > 1e12))",
+  "limit(3; .orders[] | select(.total > 100)) | .id",
+  "limit(1000; .orders[] | .id)",
+  "limit(4; .orders[] | .lines[] | select(.qty > 1)) | {sku, qty}",
+  ".customers as $c | limit(5; .orders[] | {id, region: $c[.customer_id].region})",
+  "limit(3; .orders | .[] | .id) | . * 2",
+  "limit(2; .byId | to_entries[] | select(.value.total > 500) | .key)",
+  "first(.orders[] | .id as $id | .lines[] | select(.qty > 3) | {id: $id, sku})",
 ];
 
 describe("a split query gives what the one unit gives (N1)", () => {
@@ -332,6 +348,39 @@ describe("a split query gives what the one unit gives (N1)", () => {
     // `[.orders[] | .lines[] | {sku, qty}] | sort_by(.qty) | .[:3]`, above, keeps 3: one piece of every line cuts back at 70.
     const lines = (fixture.orders as ValueTypeOf<typeof Order>[]).flatMap(order => order.lines);
     assert.ok(lines.length > 2 * 3 + 64, `${lines.length} lines`);
+  });
+
+  test("a stream's first rows are a first output, and a piece stops once it has sent them (#1113)", () => {
+    const s = split("limit(3; .orders[] | select(.total > 100)) | .id");
+    assert.ok(s.kind === "split" && s.output.kind === "first");
+    assert.equal(s.output.limit, 3);
+    // One piece of every order sends its first three, and reads no further.
+    assert.deepEqual(sent(s, fixture.orders).length, 3);
+    const one = split("first(.orders[] | select(.total > 1000))");
+    assert.ok(one.kind === "split" && one.output.kind === "first" && one.output.limit === 1);
+    assert.equal(sent(one, fixture.orders).length, 1);
+  });
+
+  test("a stream's first rows, no more than a many query keeps, are its result: no final function", () => {
+    const s = split("limit(3; .orders[] | .id)");
+    assert.ok(s.kind === "split" && s.output.kind === "first");
+    assert.equal(s.then(), null);
+    // More than the query keeps, and one more: the final function cuts them back, as the translation does.
+    const more = split("limit(10; .orders[] | .id)", 5);
+    assert.ok(more.kind === "split" && more.output.kind === "first" && more.then() !== null);
+    const ids = runSplit(more, 3) as bigint[];
+    assert.equal(ids.length, 6);
+    const translation = translateJq(checked("limit(10; .orders[] | .id)"), { maxOutputs: 5 });
+    assert.ok(close(translation.resultType, ids, asRun(translation.fn())(fixture.orders)));
+  });
+
+  test("a count the query computes, or one below 1, stays one unit: the one unit reads it", () => {
+    for (const program of ["limit(0; .orders[] | .id)", "limit(-1; .orders[] | .id)", "limit(.orders | length; .orders[] | .id)", "limit(2.5; .orders[] | .id)"]) {
+      const c = checkJq(program, FixtureRoot, { root: true });
+      if (c.program === null) continue;
+      const s = splitJq(c, c.multiplicity === "many" ? { maxOutputs: 1000 } : {});
+      assert.equal(s.kind, "whole", program);
+    }
   });
 });
 
@@ -505,6 +554,8 @@ const REKEYED: readonly string[] = [
   ".customers as $c | .orders | map(select($c[.customer_id].tier.type == \"gold\") | .total) | add",
   ".customers as $c | reduce .orders[] as $o ({}; .[$c[$o.customer_id].region // \"?\"] += $o.total)",
   ".customers as $c | .orders | map({tier: $c[.customer_id].tier.type, total}) | group_by(.tier) | map({tier: .[0].tier, hi: (map(.total) | max), n: length})",
+  // A stage that passes its rows on, which #1141 narrows to the fields read after it: still the orders' own.
+  ".customers as $c | .orders | map(select(.status.type == \"shipped\")) | map(. + {region: $c[.customer_id].region}) | group_by(.region) | map({region: .[0].region, revenue: map(.total) | add, n: length})",
 ];
 
 /** Joins that are not re-keyed: a combine that keeps the rows' order, a lookup not at a field of the row, the dict read whole. */
@@ -513,6 +564,8 @@ const NOT_REKEYED: readonly string[] = [
   ".customers as $c | .orders | map(. + {name: $c[.customer_id].name}) | group_by(.name) | map(.[0].id)",
   ".customers as $c | .orders | map($c[.customer_id + \"\"].region) | unique",
   ".customers as $c | .orders | map({n: ($c | length), r: $c[.customer_id].region}) | unique",
+  // A field kept under another name is not one the orders give.
+  ".customers as $c | .orders | map({cid: .customer_id, total}) | map({total, region: $c[.cid].region}) | group_by(.region) | map({region: .[0].region, revenue: map(.total) | add})",
 ];
 
 describe("joins: cut at the same keys, or re-keyed (#942)", () => {
@@ -562,19 +615,41 @@ describe("joins: cut at the same keys, or re-keyed (#942)", () => {
     });
   }
 
+  // The final function is given only the inputs not partitioned (#1107).
+  for (const [program, root, data, dict] of [
+    [".prices as $p | .stock | to_entries | map(.value * ($p[.key] // 0)) | add | . / ($p | length)", StockRoot, stockData, "prices"],
+    [".customers as $c | .orders | map($c[.customer_id].region) | unique | map(. + ($c | length | tostring))", FixtureRoot, fixture, "customers"],
+  ] as const) {
+    test(`read whole, as its final function reads it too (#1107): ${program}`, () => {
+      const c = checked(program, root);
+      const s = splitJq(c, c.multiplicity === "many" ? { maxOutputs: 1000 } : {});
+      assert.ok(s.kind === "split", s.kind === "whole" ? `${s.reason.code} ${s.reason.name}` : "");
+      assert.deepEqual([s.copartitioned, s.broadcast, s.rekey], [[], [dict], null], "neither cut at the same keys nor re-keyed");
+      const translation = translateJq(c, c.multiplicity === "many" ? { maxOutputs: 1000 } : {});
+      const expected = asRun(translation.fn())(...translation.inputs.map(i => data[i.name!]));
+      for (const pieces of [1, 2, 3, 7, 64]) {
+        const got = runSplit(s, pieces, data);
+        assert.ok(close(translation.resultType, got, expected), `${pieces} pieces: ${printFor(translation.resultType)(got as never)} is not ${printFor(translation.resultType)(expected as never)}`);
+      }
+    });
+  }
+
   test("the re-key call's rows are each key's in input order, whatever its table does", () => {
     const s = split(REKEYED[0]!);
     assert.ok(s.kind === "split" && s.rekey !== null);
+    // Each order as the query reads it, its customer and total (#1141): no two of the fixture's are alike.
+    const Sent = StructType({ customer_id: StringType, total: FloatType });
+    const Rekeyed = DictType(StringType, ArrayType(Sent));
+    assert.ok(isTypeEqual(s.rekey.output.type, Rekeyed), `the re-key call sends ${printType(s.rekey.output.type)}`);
     const orders = fixture.orders as ValueTypeOf<typeof Order>[];
-    const expected = new SortedMap<string, bigint[]>([], compareFor(StringType));
-    for (const order of orders) expected.set(order.customer_id, [...(expected.get(order.customer_id) ?? []), order.id]);
+    const expected = new SortedMap<string, ValueTypeOf<typeof Sent>[]>([], compareFor(StringType));
+    for (const { customer_id, total } of orders) expected.set(customer_id, [...(expected.get(customer_id) ?? []), { customer_id, total }]);
     for (const flushes of FLUSHES) {
       const r = splitJq(checked(REKEYED[0]!), flushes);
       assert.ok(r.kind === "split" && r.rekey !== null);
       for (const pieces of [1, 3, 64]) {
-        const rekeyed = runCall({ inputs: [r.inputs.find(i => i.name === "orders")!], output: r.rekey.output, piece: r.rekey.piece, then: () => null }, fixture, ["orders"], pieces) as SortedMap<string, ValueTypeOf<typeof Order>[]>;
-        const ids = new SortedMap([...rekeyed.entries()].map(([k, rows]) => [k, rows.map(row => row.id)] as const), compareFor(StringType));
-        assert.ok(equalFor(DictType(StringType, ArrayType(IntegerType)))(ids, expected), `flushRows ${flushes.flushRows ?? "default"}, bypassRatio ${flushes.bypassRatio ?? "default"}, ${pieces} pieces`);
+        const rekeyed = runCall({ inputs: [r.inputs.find(i => i.name === "orders")!], output: r.rekey.output, piece: r.rekey.piece, then: () => null }, fixture, ["orders"], pieces);
+        assert.ok(equalFor(Rekeyed)(rekeyed as never, expected), `flushRows ${flushes.flushRows ?? "default"}, bypassRatio ${flushes.bypassRatio ?? "default"}, ${pieces} pieces`);
       }
     }
   });
@@ -591,6 +666,11 @@ describe("the programs", () => {
       assert.deepEqual(encodeEastIR(a.piece().toIR()), encodeEastIR(b.piece().toIR()), `${program}: the piece program`);
       const [ta, tb] = [a.then(), b.then()];
       assert.deepEqual(ta === null ? null : encodeEastIR(ta.toIR()), tb === null ? null : encodeEastIR(tb.toIR()), `${program}: the final function`);
+      // Of the assembled output and then the inputs not partitioned (#1107).
+      if (ta !== null) {
+        assert.equal(ta.toIR().ir.value.parameters.length, 1 + a.inputs.filter(i => i.name !== a.over && !a.copartitioned.includes(i.name)).length,
+          `${program}: the final function's parameters`);
+      }
       if (a.output.kind === "dict" && b.output.kind === "dict") assert.deepEqual(encodeEastIR(a.output.merge().toIR()), encodeEastIR(b.output.merge().toIR()), `${program}: the merge`);
       if (a.output.kind === "fold" && b.output.kind === "fold") assert.deepEqual(encodeEastIR(a.output.combine().toIR()), encodeEastIR(b.output.combine().toIR()), `${program}: the combine`);
     }
@@ -604,6 +684,11 @@ describe("the programs", () => {
       assert.deepEqual(encodeEastIR(a.rekey.joinPiece().toIR()), encodeEastIR(b.rekey.joinPiece().toIR()), `${program}: the join piece program`);
       const [ta, tb] = [a.rekey.joinThen(), b.rekey.joinThen()];
       assert.deepEqual(ta === null ? null : encodeEastIR(ta.toIR()), tb === null ? null : encodeEastIR(tb.toIR()), `${program}: the join's final function`);
+      if (ta !== null) {
+        const rekey = a.rekey;
+        assert.equal(ta.toIR().ir.value.parameters.length, 1 + rekey.inputs.filter(i => i.name !== a.over && i.name !== rekey.name).length,
+          `${program}: the join's final function's parameters`);
+      }
     }
   });
 
@@ -640,6 +725,7 @@ function explained(program: string, root: EastType = FixtureRoot): string {
     : c.kind === "distinct" ? "distinct"
     : c.kind === "distinct_by" ? `first of each ${text(c.key)}`
     : c.kind === "reduce" ? `reduce by ${text(c.key)}, ${c.update}`
+    : c.kind === "first" ? `first ${c.rows} in input order, ${text(c.range)}`
     : `first ${c.rows} of ${text(c.range)} by ${c.key === null ? "the row" : text(c.key)}`;
   const broadcast = s.broadcast.length === 0 ? "" : ` · whole in every piece: ${s.broadcast.join(", ")}`;
   const copartitioned = s.copartitioned.length === 0 ? "" : ` · cut at the same keys: ${s.copartitioned.join(", ")}`;
@@ -686,6 +772,12 @@ const GOLDEN: readonly (readonly [program: string, explanation: string])[] = [
     "split orders into array: piece «.orders | map({id, region: $c[.customer_id].region})» · concat · then - · whole in every piece: customers"],
   [".byId | to_entries | map(select(.value.total > 1000) | .key)", "split byId into array: piece «.byId | to_entries | map(select(.value.total > 1000) | .key)» · concat · then -"],
   [".orders | map(.lines) | flatten | map(.qty) | add", "split orders into fold: piece «.orders | map(.lines) | flatten | map(.qty)» · totals [add «add»] · then -"],
+  // A stream's first outputs, in input order: a first output, which e3 stops for (#1110, #1113).
+  ["first(.orders[] | select(.total > 1000)) | .id",
+    "split orders into first: piece «.orders[] | select(.total > 1000)» · first 1 in input order, «first(.orders[] | select(.total > 1000))» · then «.id»"],
+  ["limit(3; .orders[] | select(.total > 100)) | .id",
+    "split orders into first: piece «.orders[] | select(.total > 100)» · first 3 in input order, «limit(3; .orders[] | select(.total > 100))» · then «.id»"],
+  ["limit(3; .orders[] | .id)", "split orders into first: piece «.orders[] | .id» · first 3 in input order, «limit(3; .orders[] | .id)» · then -"],
   // Each reason a query stays one unit.
   [".orders | length", "whole: no_stream orders - · pruning count orders «.orders | length»"],
   [".byId[1010] | .total", "whole: no_stream - · pruning seek byId «.byId[1010]»"],
@@ -693,9 +785,8 @@ const GOLDEN: readonly (readonly [program: string, explanation: string])[] = [
   [".forecast", "whole: no_stream forecast -"],
   ["{revenue: (.orders | map(.total) | add)}", "whole: nested «.orders | map(.total) | add»"],
   [".orders[] | .id", "whole: stops_early orders - · pruning stop orders «.orders[]»"],
-  // Ordered early stop stays one lazy unit until e3 can cancel a split call's units (#942).
-  ["first(.orders[] | select(.total > 1000)) | .id", "whole: stops_early first «first(.orders[] | select(.total > 1000))»"],
-  ["limit(3; .orders[] | select(.total > 100)) | .id", "whole: stops_early limit «limit(3; .orders[] | select(.total > 100))»"],
+  // A count the query computes is the one unit's to read; a stream's first rows collected, nested.
+  ["limit(.orders | length; .orders[] | .id)", "whole: stops_early limit «limit(.orders | length; .orders[] | .id)»"],
   ["[limit(3; .orders[])]", "whole: nested «.orders[]»"],
   [".orders | .[0:3]", "whole: position slice «.[0:3]»"],
   [".orders | first", "whole: position first «first»"],

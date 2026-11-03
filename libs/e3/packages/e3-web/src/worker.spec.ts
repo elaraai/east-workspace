@@ -7,7 +7,8 @@
  * `serveE3` in Node: the e3 worker's side at one end of a `MessageChannel`,
  * and the page's `createWebE3` at the other, over in-memory repositories and
  * units in this thread — how it boots, refuses to, cuts a split call's pieces
- * at the size its host gives, closes with its page,
+ * at the size its host gives, ends a cancelled split call's unit, closes with
+ * its page,
  * answers a caller it does not know with what a server's auth answers, and
  * serves e3's own platform functions to a unit, bound to itself. The shared
  * API suites run against it in `libs/e3/test/integration`'s
@@ -20,6 +21,7 @@ import {
   ArrayType, East, FunctionType, IntegerType, NullType, StringType, decodeBeast2For, encodeBeast2For, encodeEastIR, none, some, variant,
 } from '@elaraai/east';
 import { readTestPieceBytesFrom } from '@elaraai/e3-core/portable';
+import { Time } from '@elaraai/east-web-std';
 import {
   ApiError,
   dataflowExecute,
@@ -29,7 +31,10 @@ import {
   packageImport,
   repoCreate,
   repoList,
+  splitCallCancel,
   splitCallExplain,
+  splitCallLaunch,
+  splitCallStatus,
   workspaceCreate,
   workspaceDeploy,
   workspaceList,
@@ -206,6 +211,35 @@ describe('serveE3, over a MessageChannel', () => {
         message: new RegExp(`^createWebE3: the e3 worker did not start: RangeError: a unit pool's width is a whole number of at least one, not ${width}`),
       }, `a width of ${width}`);
     }
+  });
+
+  it('terminates the worker of a split call\'s unit once the call is cancelled (#1104)', async () => {
+    const counted = countedUnits();
+    const e3 = await connect({ units: counted.units, width: 1 });
+    const opts: RequestOptions = { token: null, fetch: e3.fetch };
+    const zip = (await buildE3Fixtures()).platform;
+    await repoCreate(e3.apiUrl, 'default', opts);
+    await packageImport(e3.apiUrl, 'default', zip, opts);
+    await workspaceCreate(e3.apiUrl, 'default', 'main', opts);
+    await workspaceDeploy(e3.apiUrl, 'default', 'main', `${PLATFORM_PACKAGE}@${FIXTURE_VERSION}`, opts);
+    // One piece, which sleeps ten minutes before it emits anything.
+    const request: SplitCallRequest = {
+      bodyIr: encodeEastIR(East.asyncFunction([ArrayType(IntegerType), FunctionType([IntegerType], NullType)], NullType, ($, values, emit) => {
+        $(Time.sleep(600_000n));
+        $.for(values, ($2, value) => { $2(emit(value)); });
+      }).toIR()),
+      args: [{ arg: variant('value', encodeBeast2For(ArrayType(IntegerType))([1n, 2n, 3n])), partition: some({ by: [] }) }],
+      output: variant('array', null),
+      then: none,
+      runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
+      limits: none,
+    };
+    const { id } = await splitCallLaunch(e3.apiUrl, 'default', 'main', request, opts);
+    await until(() => counted.live() === 1, 'the piece\'s unit to start on a worker');
+
+    assert.equal((await splitCallCancel(e3.apiUrl, 'default', 'main', id, opts)).type, 'cancelled');
+    await until(() => counted.live() === 0, 'the unit\'s worker to be terminated');
+    assert.equal((await splitCallStatus(e3.apiUrl, 'default', 'main', id, opts)).type, 'cancelled', 'and the call stays cancelled');
   });
 
   describe('who calls, when the host says', () => {

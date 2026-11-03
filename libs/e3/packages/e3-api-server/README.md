@@ -42,6 +42,9 @@ e3-api-server --repo /path/to/repo --oidc
 
 # Custom port and host
 e3-api-server --repo /path/to/repo --port 8080 --host 0.0.0.0
+
+# Longer split calls, and larger results
+e3-api-server --repo /path/to/repo --job-timeout 1h --max-result 8M
 ```
 
 ### CLI Options
@@ -58,6 +61,13 @@ e3-api-server --repo /path/to/repo --port 8080 --host 0.0.0.0
 | `--refresh-token-expiry <duration>` | Refresh token expiry, e.g., "7d", "90d" (default: 90d) |
 | `-j, --jobs <n>` | Cores: runner processes in flight at once, across every run and call the server serves and every upload it takes in (default: `E3_JOBS`, else the CPUs available) |
 | `--memory <size>` | Memory those runner processes may reserve between them, as `8G` or `512M` (default: `E3_MEMORY`, else the memory available, less a reserve for e3 and the OS) |
+| `--call-deadline <duration>` | How long a one-shot or function call may run before it answers, as `90s` or `15m` (default: 120s). A call that names no timeout of its own gets 60s within it |
+| `--job-timeout <duration>` | How long a split call's job may run, as `30m` or `2h`, which is also the longest timeout a one-shot call may ask for (default: 10m) |
+| `--max-result <size>` | The largest result a one-shot or split call answers, as `8M` (default: 1M). The server holds a result in memory while it answers it, so a larger limit takes more of it; a split call's larger result is read from its stored output, by its hash |
+| `--max-log <size>` | The most of each of a call's stdout and stderr its answer may carry, as `1M` (default: 256K; a call that names no limit gets 64K) |
+
+A malformed value, or one that is not positive, is refused naming its flag,
+and the server does not start.
 
 ## Programmatic Usage
 
@@ -144,8 +154,33 @@ interface ServerConfig {
 
   // Runner processes (optional)
   budget?: Budget | BudgetSettings;  // Cores and memory every runner the server spawns shares (default: from E3_JOBS / E3_MEMORY, else the machine)
+
+  // Call limits (optional)
+  calls?: CallLimits;  // A sync call's deadline, and the most a call may ask for (below)
 }
 ```
+
+`calls` sets the limits the one-shot, function and split calls run under, as
+the CLI's `--call-deadline`, `--job-timeout`, `--max-result` and `--max-log`
+do (`resolveCallLimits` turns those flags into it):
+
+```typescript
+const server = await createServer({
+  singleRepoPath: '/path/to/repo',
+  calls: {
+    syncDeadlineMs: 300_000,         // a one-shot or function call answers within 5 minutes (default: 120 000)
+    ceilings: {
+      timeoutMs: 60 * 60_000,        // a split call's job runs up to an hour (default: 10 minutes)
+      maxResultBytes: 8 * 1024 ** 2, // results up to 8 MiB are answered inline (default: 1 MiB)
+      maxLogBytes: 1024 ** 2,        // log tails up to 1 MiB (default: 256 KiB)
+    },
+  },
+});
+```
+
+The deadline applies to one-shot and function calls, and the ceilings to
+one-shot and split calls: a named function call keeps the default ceilings. A
+limit that is not positive makes `createServer` throw a `RangeError`.
 
 ### Mounting the routes on another host
 
@@ -497,7 +532,8 @@ and its commit takes it in.
 | POST | `/api/repos/:repo/workspaces/:ws/functions/:fn` | Call one of them: each argument a value, or one of the workspace's datasets, pinned at its hash when the call starts; the result names the datasets it read (`inputs`) |
 | POST | `/api/repos/:repo/workspaces/:ws/one-shot` | Run a caller's program over the workspace's datasets: its result, naming the datasets it read (`inputs`) |
 | POST | `/api/repos/:repo/workspaces/:ws/one-shot/split` | Launch a split call — a caller's program over a dataset's pieces — as a job: answers the job's id; with `?explain=1` the job plans the pieces the call would run, and runs nothing |
-| GET | `/api/repos/:repo/workspaces/:ws/one-shot/split/:id` | Poll a split call: how far it has got, its result, the pieces an explain planned, or why it failed |
+| GET | `/api/repos/:repo/workspaces/:ws/one-shot/split/:id` | Poll a split call: how far it has got, its result, the pieces an explain planned, why it failed, or that it was cancelled |
+| POST | `/api/repos/:repo/workspaces/:ws/one-shot/split/:id/cancel` | Cancel a split call: one still running ends `cancelled`, and its units are stopped; one that has ended is left as it is. Answers its status after, as a poll does |
 
 What a caller may run through one-shot is the grant the host gives it
 (`OneShotAccess`). This server's, with auth, gives an elevated role (`admin`,
@@ -516,9 +552,12 @@ without the elevated grant. A host that mounts the function routes without
 A split call runs as a split task, so each
 piece and merge is cached: a relaunch is served from the cache, and one after
 an append reruns only the pieces the append reached. Its timeout is one budget
-for the whole job, counted from its launch. A call is polled only through the
-repository and workspace that launched it, and a caller with a platform-free
-grant polls only a platform-free call, or one such a caller launched.
+for the whole job, counted from its launch: the server's job limit
+(`--job-timeout`, 10 minutes by default) unless the call asks for less. A call
+is polled, and cancelled, only through the repository and workspace that
+launched it, and a caller with a platform-free grant polls or cancels only a
+platform-free call, or one such a caller launched. A cancel stops the units
+running, and those that finished stay cached, so a relaunch is served them.
 
 ### Records
 

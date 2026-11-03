@@ -275,6 +275,12 @@ so on a busy server a call waits its turn.
   - A task that runs as one unit, a mutation or a function call can touch
     systems outside e3, so the guard stops one only when the machine is nearly
     out of memory, and it then fails.
+  - What a runner uses, in a cgroup, leaves out the file cache the kernel can
+    take back: the data a unit streams through is not memory it holds. Under a
+    container's or a scope's memory limit, the machine is nearly out of memory
+    when under 5% of the limit is left, or when the limit's cgroup is under
+    memory pressure (every task stalled on memory for a fifth of the last
+    10 s), which catches cache the kernel cannot reclaim fast enough.
   - On Windows the guard does not run, and units are admitted by what they
     reserve.
 - **cgroups.** Where e3 runs in a cgroup delegated to it, as

@@ -94,6 +94,26 @@ describe("paged inputs stay paged (E3)", () => {
     assert.deepEqual(decoded(ordersBlob, orders.reads), [0, 1, 2]);
   });
 
+  test("a stage's first rows, folded as they are made, read only the segments that hold them (#1140)", () => {
+    const orders = opened(Orders, ordersBlob);
+    orders.reset();
+    const first = run(".orders | map(select(.total > 1000)) | first | .id", { orders: orders.value });
+    assertValue(OptionType(IntegerType), first, some(1002n));
+    assert.deepEqual(decoded(ordersBlob, orders.reads), [0]);
+    orders.reset();
+    const ids = run(".orders | map(.id) | .[:10]", { orders: orders.value });
+    assertValue(ArrayType(IntegerType), ids, [1001n, 1002n, 1003n, 1004n, 1005n, 1006n, 1007n, 1008n, 1009n, 1010n]);
+    assert.deepEqual(decoded(ordersBlob, orders.reads), [0, 1, 2]);
+  });
+
+  test("a stage whose rows may raise reads every segment: jq makes every row before the step reads one (#1140)", () => {
+    const orders = opened(Orders, ordersBlob);
+    orders.reset();
+    const first = run(".orders | map(if .total < 0 then error(\"a refund\") else .id end) | first", { orders: orders.value });
+    assertValue(OptionType(IntegerType), first, some(1001n));
+    assert.deepEqual(decoded(ordersBlob, orders.reads), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  });
+
   test(".orders | length reads the index alone", () => {
     const orders = opened(Orders, ordersBlob);
     orders.reset();

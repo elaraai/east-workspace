@@ -181,7 +181,19 @@ call's pieces (`explain`), since planning stores every piece. So is the
 re-reference of what an `object` argument names, an earlier call's output of
 thousands of segments, say: the launch checks only the argument's own object
 and records which arguments are objects (`objects`), and the job re-references
-the rest before it runs (`splitCallReference`).
+the rest before it runs (`splitCallReference`). A split call is cancelled by
+writing its job `cancelled`, and a `SplitCallStore` keeps an end: its
+`updateStatus` records a status only while the job is `processing`, checking
+and writing in one atomic step — at once in memory, in one records transaction
+in e3-web, as a conditional write in e3-cloud — and says whether it did, so a
+cancel never overwrites a result, nor a result a cancel. The job reads its
+record as it runs, and stops its units once it finds it ended. A `first`
+call's job (`first`, its limit) runs its `array` task's pieces itself, in
+input order, as many at once as `ProcessSplitCallDeps.width` says — the local
+server's budget's cores, e3-web's pool's width, e3-cloud's
+`splitCalls.width` — and stops them once it has its first `limit` elements;
+a remote runner whose unit cannot be stopped lets fewer than `width` pieces
+past the end run on, and they stay cached.
 
 **A job over compute with a time limit hands over between calls.** Each job's
 processor takes a signal its caller aborts at the deadline, and a call stopped
@@ -202,7 +214,8 @@ takes and passes it (`ProcessExportDeps.lock`), as a deploy's is
 next adopt takes in only the pieces the memo does not hold; a split call
 (`handleProcessSplitCall`) is served the units that finished from the
 execution cache, within what is left of its timeout, one budget counted from
-its launch — so a host that runs it in rounds sets the one-shot routes'
+its launch — a `first` call's next round plans its pieces again and finds the
+ones that finished cached — so a host that runs it in rounds sets the one-shot routes'
 `ceilings.timeoutMs` to the whole job's budget. An import and an export hold
 the repository's running work (`withRunningWork`) through each call, as every
 write that stores objects before a ref names them does, so gc holding the

@@ -18,7 +18,7 @@ import {
     none, some, variant,
     type EastType, type JqRange, type JqTotal, type SummaryLeafType, type ValueTypeOf,
 } from "@elaraai/east";
-import type { SplitCallProgress } from "@elaraai/e3-types";
+import type { SplitCallProgress, SplitCallReport } from "@elaraai/e3-types";
 import type { Formatters, TickFormatOpt } from "@elaraai/east-ui-components";
 import type { PlanExplanation, QueryPlan } from "../plan.js";
 import { conditionIn, datasetType, type CheckedSteps, type StepDiagnostic, type StepFix } from "../steps/check.js";
@@ -807,16 +807,38 @@ const BYTE_UNITS = ["B", "KB", "MB", "GB"] as const;
  *
  * @param bytes - the size
  * @param words - the words
+ * @param figures - the significant figures to round an estimate to (#1143) —
+ *   `300 MB` rather than `300.394 MB`; every one when not given
  * @returns the size
  */
-export function byteWords(bytes: number | bigint, words: QueryWords): string {
+export function byteWords(bytes: number | bigint, words: QueryWords, figures?: number): string {
     let value = Number(bytes);
     let unit = 0;
     while (value >= 1024 && unit < BYTE_UNITS.length - 1) {
         value /= 1024;
         unit += 1;
     }
+    if (figures !== undefined) value = roundTo(value, figures);
     return words.messages.byteSize({ value: unit === 0 ? words.formatters.number(value) : words.formatters.value(value, undefined), unit: BYTE_UNITS[unit]! });
+}
+
+/** A number rounded to some significant figures: an estimate's. */
+function roundTo(value: number, figures: number): number {
+    return value === 0 ? 0 : Number(value.toPrecision(figures));
+}
+
+/**
+ * An estimated duration in words (#1143), to two figures — `430 ms`, `2.9 s`,
+ * `17 s`, `4.9 min`: in milliseconds under a second, in seconds under two
+ * minutes, and in minutes after.
+ *
+ * @param seconds - the duration, in seconds
+ * @param words - the words
+ * @returns the duration
+ */
+export function durationWords(seconds: number, words: QueryWords): string {
+    const [value, unit] = seconds < 1 ? [Math.max(1, seconds * 1000), "ms" as const] : seconds < 120 ? [seconds, "s" as const] : [seconds / 60, "min" as const];
+    return words.messages.duration({ value: words.formatters.number(roundTo(value, 2)), unit });
 }
 
 // ─── A plan in words (#941) ──────────────────────────────────────────────────
@@ -824,24 +846,45 @@ export function byteWords(bytes: number | bigint, words: QueryWords): string {
 /** A line of a plan's explanation: a sentence, and the jq it is about. */
 export interface PlanLine {
     /**
-     * What it says: the path and why; a re-key and its stage (#942); what each
-     * piece runs, what it reads cut at the same keys (#942), how the pieces
-     * combine, a total, what runs once; what every piece reads whole; the
-     * pieces; a read that prunes.
+     * What it says: the path and why; both paths' estimates and what they
+     * assumed (#1143); a re-key and its stage (#942); what each piece runs,
+     * what it reads cut at the same keys (#942), how the pieces combine, a
+     * total, what runs once; what every piece reads whole; the pieces; how the
+     * call's units ran, once it answered (#1105); a read that prunes.
      */
-    readonly kind: "path" | "rekey" | "piece" | "copartitioned" | "combine" | "total" | "then" | "broadcast" | "pieces" | "pruning";
+    readonly kind: "path" | "estimate" | "rekey" | "piece" | "copartitioned" | "combine" | "total" | "then" | "broadcast" | "pieces" | "units" | "pruning";
     /** Its sentence: one that ends with a colon has its jq after it. */
     readonly text: string;
     /** The jq it is about, as the query writes it; `undefined` when it is about none. */
     readonly code: string | undefined;
 }
 
-/** What a run knows of its plan as it goes: a split call's progress, and how many pieces it cut. */
+/** What a run knows of its plan as it goes: a split call's progress, how many pieces it cut, and how its units ran. */
 export interface PlanRun {
     /** A split call's progress, while it goes. */
     readonly progress?: SplitCallProgress | undefined;
     /** How many pieces it cut, once e3 says. */
     readonly pieces?: number | undefined;
+    /** How a split call ran, once it answered (#1105): the units it ran, and those the cache served. */
+    readonly report?: SplitCallReport | undefined;
+}
+
+/**
+ * How a split call's units ran, in words, once it answered (#1105) — `The
+ * cache served 11 of its 14 units, and 3 ran.`; a call the cache served whole
+ * consulted no unit, and says so.
+ *
+ * @param report - how it ran, as e3 reports it
+ * @param words - the words
+ * @returns the words
+ */
+export function planUnitsWords(report: SplitCallReport, words: QueryWords): string {
+    const f = words.formatters;
+    const ran = Number(report.ran);
+    const cached = Number(report.cached);
+    const units = ran + cached;
+    const kind = units === 0 ? "whole" : cached > 0 ? "some" : "none";
+    return words.messages.planUnits({ kind, cached: f.number(cached), ran: f.number(ran), units: f.number(units), n: units });
 }
 
 /**
@@ -865,16 +908,25 @@ export function planProgressWords(progress: SplitCallProgress, words: QueryWords
  * @param explanation - the plan's explanation (`plan.ts`)
  * @param words - the words
  * @param run - what the run knows of its plan: a split call's progress while
- *   it goes, and how many pieces it cut once e3 says
+ *   it goes, how many pieces it cut once e3 says, and how its units ran once
+ *   it answered
  * @returns the lines, in order
  *
  * @remarks
- * - **The path**, first: a split call over a dataset and what it weighs, more
- *   than one piece — or what the heaviest dataset cut with it weighs; or one
- *   call — within one piece, a weight not known, a split call that could not
- *   be made, or the reason the query runs as one unit, with the jq the reason
- *   is about. A re-keyed join says so next, and its re-key stage with the join
- *   key and what the re-keyed rows are estimated to weigh (#942).
+ * - **The path**, first: a split call over a dataset, estimated faster than
+ *   one call or one call holding more memory than it may use (#1143), or, its
+ *   rows not known, what it weighs, more than one piece — or what the
+ *   heaviest dataset cut with it weighs; or one call — estimated faster,
+ *   within one piece, a weight not known, a split call that could not be
+ *   made, or the reason the query runs as one unit, with the jq the reason is
+ *   about.
+ * - **The estimates** beside it, when the path was chosen by them (#1143):
+ *   one call's time and what it holds, and the memory it may use; the split
+ *   call's time, its pieces and how many run at once, and what each holds;
+ *   and what they assumed — the rows, what each costs in one call and in a
+ *   piece, and what one call holding every row holds of each. A re-keyed
+ *   join says so next, and its re-key stage with the join key and what the
+ *   re-keyed rows are estimated to weigh (#942).
  * - **A split's stages**: what each piece runs; the data sources cut at the
  *   same keys with it (#942); how their outputs combine — rows joined;
  *   totals, each by its rule; grouped by a key, each group's totals combined
@@ -882,7 +934,8 @@ export function planProgressWords(progress: SplitCallProgress, words: QueryWords
  *   reduce's updates by key, added or the last kept; the first rows of a sort
  *   (#942); what runs once after them; the data sources every piece reads
  *   whole; and the pieces — how far the run has got while it goes, then how
- *   many and about what each weighs.
+ *   many and about what each weighs, and how the call's units ran: how many
+ *   the cache served, or that it served the whole call (#1105).
  * - **The reads that prune**, last: a count from a dataset's index, a key
  *   seek, a stream that stops.
  */
@@ -896,6 +949,24 @@ export function planWords(explanation: PlanExplanation, words: QueryWords, run: 
     };
     const totals = (list: readonly { readonly range: JqRange; readonly rule: JqTotal["rule"] }[]): void => {
         for (const total of list) say("total", m.planTotal({ rule: total.rule }), jq(total.range));
+    };
+    // Both paths' estimates and what they assumed, beside the path (#1143).
+    const estimated = (): void => {
+        const e = explanation.estimates;
+        if (e === null) return;
+        const memory = e.memoryBytes === null ? undefined : byteWords(e.memoryBytes, words);
+        say("estimate", m.planEstimateOneCall({
+            seconds: durationWords(e.oneCall.seconds, words), peak: byteWords(e.oneCall.peakBytes, words, 2), memory,
+            over: e.memoryBytes !== null && e.oneCall.peakBytes > e.memoryBytes,
+        }));
+        say("estimate", m.planEstimateSplit({
+            rekey: e.kind === "rekey", seconds: durationWords(e.split.seconds, words), pieces: f.number(e.pieces), n: e.pieces, cores: f.number(e.cores),
+            peak: byteWords(e.split.peakBytes, words, 2),
+        }));
+        say("estimate", m.planAssumed({
+            rows: f.number(e.rows), n: e.rows, over: e.over, oneCall: f.number(e.row.oneCallUs), piece: f.number(e.row.pieceUs),
+            held: e.holdsRows ? byteWords(e.row.heldBytes, words) : undefined,
+        }));
     };
     const path = explanation.path;
     if (path.kind === "one_shot") {
@@ -913,9 +984,16 @@ export function planWords(explanation: PlanExplanation, words: QueryWords, run: 
             case "unsplit":
                 say("path", m.planUnsplit({ message: why.message }));
                 break;
+            case "faster":
+                say("path", m.planFaster({ over: why.over }));
+                break;
         }
+        estimated();
     } else {
-        say("path", m.planSplit({ over: path.over, heaviest: path.heaviest, bytes: byteWords(path.bytes, words), piece: byteWords(path.pieceBytes, words) }));
+        say("path", path.why === "weight"
+            ? m.planSplit({ over: path.over, heaviest: path.heaviest, bytes: byteWords(path.bytes, words), piece: byteWords(path.pieceBytes, words) })
+            : m.planSplitBy({ over: path.over, why: path.why }));
+        estimated();
         if (path.rekey !== null) {
             say("rekey", m.planRekey({ name: path.rekey.name }));
             say("rekey", m.planRekeyStage({ over: path.over, name: path.rekey.name, bytes: byteWords(path.rekey.bytes, words) }), jq(path.rekey.key));
@@ -955,6 +1033,10 @@ export function planWords(explanation: PlanExplanation, words: QueryWords, run: 
                 // By the key `sort_by` sorts by, or for `sort` by the rows themselves: the sort and the step that keeps its first rows.
                 say("combine", m.planTop({ count: f.number(combine.rows), n: combine.rows }), jq(combine.key ?? combine.range));
                 break;
+            case "first":
+                // The `first` or `limit` that keeps them (#1113).
+                say("combine", m.planFirst({ count: f.number(combine.rows), n: combine.rows }), jq(combine.range));
+                break;
         }
         if (path.stages.then !== null) say("then", m.planThen(), jq(path.stages.then));
         if (path.broadcast.length > 0) say("broadcast", m.planBroadcast({ names: m.list({ items: path.broadcast }) }));
@@ -963,6 +1045,7 @@ export function planWords(explanation: PlanExplanation, words: QueryWords, run: 
         } else if (run.pieces !== undefined && run.pieces > 0) {
             say("pieces", m.planPieces({ over: path.over, count: f.number(run.pieces), n: run.pieces, size: byteWords(Math.round(path.bytes / run.pieces), words) }));
         }
+        if (run.progress === undefined && run.report !== undefined) say("units", planUnitsWords(run.report, words));
     }
     for (const read of explanation.pruning) say("pruning", m.planPruning({ kind: read.kind, name: read.name }), jq(read.range));
     return lines;
@@ -973,7 +1056,9 @@ export function planWords(explanation: PlanExplanation, words: QueryWords, run: 
  * has got while it goes — `Split call · 3 of 12 pieces done` — and how many
  * pieces it cut once e3 says — `Split call · 12 pieces`; and a re-keyed join's
  * two calls the same way — `Re-keyed join · 12 pieces`, the join call's
- * pieces (#942).
+ * pieces (#942). Once the call answered, the units the cache served follow —
+ * `Split call · 12 pieces · 11 units cached`, `Split call · 12 pieces · all
+ * cached` for a call it served whole (#1105).
  *
  * @param planned - the run's plan
  * @param words - the words
@@ -983,8 +1068,12 @@ export function planWords(explanation: PlanExplanation, words: QueryWords, run: 
 export function planBadge(planned: QueryPlan, words: QueryWords, run: PlanRun = {}): string {
     const m = words.messages;
     if (planned.kind === "one_shot") return m.planBadge({ kind: "one_shot", detail: "" });
-    const detail = run.progress !== undefined ? planProgressWords(run.progress, words)
-        : run.pieces !== undefined ? m.planPieceCount({ count: words.formatters.number(run.pieces), n: run.pieces })
-            : "";
-    return m.planBadge({ kind: planned.kind, detail });
+    if (run.progress !== undefined) return m.planBadge({ kind: planned.kind, detail: planProgressWords(run.progress, words) });
+    const parts: string[] = [];
+    if (run.pieces !== undefined) parts.push(m.planPieceCount({ count: words.formatters.number(run.pieces), n: run.pieces }));
+    // The units the cache served: none said, and a call it served whole, which consulted none, said so (#1105).
+    const cached = run.report === undefined ? 0 : Number(run.report.cached);
+    const whole = run.report !== undefined && Number(run.report.ran) + cached === 0;
+    if (cached > 0 || whole) parts.push(m.planCachedCount({ count: words.formatters.number(cached), n: cached, whole }));
+    return m.planBadge({ kind: planned.kind, detail: parts.join(" · ") });
 }

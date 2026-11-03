@@ -26,6 +26,15 @@
  * flush, not a pair per row. A table that gathers more keys than its rows
  * repay sends them on, and the piece's rows from there go straight on.
  *
+ * `first(f)` and `limit(n; f)` over a stream of a dataset's rows keep its first
+ * outputs in input order (#1113): each piece stops once it has `n`, and the
+ * split call's `first` output keeps the first `n` of all, which e3 stops for
+ * once the pieces before the rest hold them (#1110).
+ *
+ * A split plans the program the translator runs, its rows narrowed to the
+ * fields its later steps read (#1141), so its pieces build, keep and send
+ * only those, and a re-keyed join's re-key call sends each row as those.
+ *
  * @packageDocumentation
  */
 
@@ -43,6 +52,7 @@ import {
 } from "../../types.js";
 import type { CheckJqResult } from "./check.js";
 import type { JqLiteral } from "./literals.js";
+import { checkAgain, narrowRows, rowsRead } from "./narrow.js";
 import { nullablePayload, unwrap } from "./shapes.js";
 import { childPath, jqChildren, type JqNode, type JqPattern, type JqRange } from "./spans.js";
 import { addInto } from "./translate-builtins.js";
@@ -79,11 +89,13 @@ export type JqSplit = JqSplitCall | JqWhole;
  *
  * @remarks
  * A split call's arguments are the query's inputs, in {@link JqSplitCall.inputs}'
- * order, the one named {@link JqSplitCall.over} partitioned. Each piece runs
- * {@link JqSplitCall.piece} over its piece of that dataset and the other inputs
- * whole, emitting into {@link JqSplitCall.output}'s kind; {@link JqSplitCall.then}
- * runs once over the assembled output and then the inputs, and gives the
- * query's result, exactly as `translateJq`'s translation gives it.
+ * order, the one named {@link JqSplitCall.over} partitioned, and with it each
+ * of {@link JqSplitCall.copartitioned}. Each piece runs {@link JqSplitCall.piece}
+ * over its piece of those and the other inputs whole, emitting into
+ * {@link JqSplitCall.output}'s kind; {@link JqSplitCall.then} runs once over the
+ * assembled output and then the inputs not partitioned, as e3 gives it them
+ * (#1107), and gives the query's result, exactly as `translateJq`'s
+ * translation gives it.
  */
 export interface JqSplitCall {
   readonly kind: "split";
@@ -103,8 +115,10 @@ export interface JqSplitCall {
    */
   piece(): FunctionExpr<any[], any>;
   /**
-   * The final function, of the assembled output and then the inputs, which
-   * gives the query's result; `null` when the assembled output is the result.
+   * The final function, of the assembled output and then the inputs not
+   * partitioned — every one but `over` and `copartitioned` — in their order,
+   * which gives the query's result; `null` when the assembled output is the
+   * result.
    *
    * @returns the function, or `null`
    */
@@ -116,7 +130,8 @@ export interface JqSplitCall {
   /**
    * The root fields bound before the stream that the pieces read only at the
    * row's key: dicts keyed as the dataset is, which a split call partitions
-   * with it, cut at the same keys (#942).
+   * with it, cut at the same keys (#942). One the final function reads too is
+   * not among them: it is given only the inputs not partitioned (#1107).
    */
   readonly copartitioned: readonly string[];
   /**
@@ -151,11 +166,16 @@ export interface JqRekey {
   readonly key: JqRange;
   /** The join key's type: the other side's keys'. */
   readonly keyType: EastType;
-  /** The re-key call's output: each key's rows, concatenated in input order. */
+  /**
+   * The re-key call's output: each key's rows, concatenated in input order,
+   * each row the fields the query reads of it, where it reads only some
+   * (#1141).
+   */
   readonly output: { readonly kind: "dict"; readonly type: EastType; merge(): FunctionExpr<any[], any> };
   /**
    * The program each piece of the re-key call runs: a function of the
-   * dataset's piece and then `emit`, which sends each row under its key.
+   * dataset's piece and then `emit`, which sends each row under its key, as
+   * the output holds it.
    *
    * @returns the function
    */
@@ -171,7 +191,8 @@ export interface JqRekey {
   joinPiece(): FunctionExpr<any[], any>;
   /**
    * The join call's final function: the split's, of the assembled output and
-   * then the join call's inputs; `null` when the assembled output is the
+   * then the join call's inputs not partitioned — every one but the re-keyed
+   * rows and `name` — in their order; `null` when the assembled output is the
    * result.
    *
    * @returns the function, or `null`
@@ -191,12 +212,16 @@ export interface JqRekey {
  *   first.
  * - `fold`: every piece's value folded with `combine`, a function of two
  *   values, starting from `zero`, in input order.
+ * - `first`: the pieces' rows concatenated in input order, the first `limit`
+ *   of them (#1110): each piece emits no more than `limit`, and e3 stops once
+ *   the pieces before the rest hold them.
  */
 export type JqSplitOutput =
   | { readonly kind: "array"; readonly type: EastType }
   | { readonly kind: "set"; readonly type: EastType }
   | { readonly kind: "dict"; readonly type: EastType; merge(): FunctionExpr<any[], any> }
-  | { readonly kind: "fold"; readonly type: EastType; readonly zero: unknown; combine(): FunctionExpr<any[], any> };
+  | { readonly kind: "fold"; readonly type: EastType; readonly zero: unknown; combine(): FunctionExpr<any[], any> }
+  | { readonly kind: "first"; readonly type: EastType; readonly limit: number };
 
 /** The parts of a query a split runs where, as ranges of its text. */
 export interface JqSplitStages {
@@ -223,6 +248,8 @@ export interface JqSplitStages {
  * - `top`: the first `rows` rows of a sort (`sort_by(g) | .[:n]`,
  *   `sort | first`), each piece's kept and merged by the key `g` gives
  *   (`null` for `sort`, by the row), then by input order (#942).
+ * - `first`: the first `rows` outputs of a stream, in input order
+ *   (`first(f)`, `limit(n; f)`), each piece stopping once it has them (#1113).
  */
 export type JqCombine =
   | { readonly kind: "concat" }
@@ -231,7 +258,8 @@ export type JqCombine =
   | { readonly kind: "distinct"; readonly range: JqRange }
   | { readonly kind: "distinct_by"; readonly range: JqRange; readonly key: JqRange }
   | { readonly kind: "reduce"; readonly range: JqRange; readonly key: JqRange; readonly update: "add" | "replace" }
-  | { readonly kind: "top"; readonly range: JqRange; readonly key: JqRange | null; readonly rows: number };
+  | { readonly kind: "top"; readonly range: JqRange; readonly key: JqRange | null; readonly rows: number }
+  | { readonly kind: "first"; readonly range: JqRange; readonly rows: number };
 
 /**
  * One total, and the rule its pieces' parts combine by: `count` counted,
@@ -368,6 +396,12 @@ interface Rows {
   readonly elements: Elements | undefined;
   /** The pipeline's steps after the row work. */
   readonly after: readonly Step[];
+  /**
+   * The first outputs a stream keeps (#1113): the `first(f)` or `limit(n; f)`
+   * around it, by its path, and how many — the steps after it run on each;
+   * `undefined` for row work that keeps every output.
+   */
+  readonly first?: { readonly path: string; readonly rows: number };
 }
 
 /** A root field read, `.name`, on the root. */
@@ -516,10 +550,11 @@ function spanning(checked: CheckJqResult, from: string, to: string): JqRange {
 
 /**
  * Finds a query's row work: the bindings before it, the dataset it streams,
- * the steps done to each row, and the steps after.
+ * the steps done to each row, and the steps after. `path` is the program's,
+ * the root's by default.
  */
-function findRows(checked: CheckJqResult, program: JqNode): Found {
-  const steps = pipeline(program, "");
+function findRows(checked: CheckJqResult, program: JqNode, path = ""): Found {
+  const steps = pipeline(program, path);
   let i = 0;
   const binds: Extract<Step, { kind: "bind" }>[] = [];
   while (i < steps.length && steps[i]!.kind === "bind") binds.push(steps[i++] as Extract<Step, { kind: "bind" }>);
@@ -578,7 +613,7 @@ function findRows(checked: CheckJqResult, program: JqNode): Found {
       elements: { type: ArrayType(row), element: row }, after: steps.slice(i),
     });
   } else {
-    return { whole: earlyOrNested(checked, first) };
+    return firstRows(checked, first, binds, steps.slice(i + 1)) ?? { whole: earlyOrNested(checked, first) };
   }
 
   i += 1;
@@ -658,6 +693,36 @@ function earlyOrNested(checked: CheckJqResult, first: Extract<Step, { kind: "sta
   }
   if (node.type === "reduce" || node.type === "foreach") return reason(checked, node.type === "reduce" ? "shape" : "state", first.path, node.type);
   return nestedOrNone(checked, first);
+}
+
+/**
+ * `first(f)` or `limit(n; f)`, `n` a whole number of at least 1, over a stream
+ * of a dataset's rows (#1113): the stream's row work, which keeps its first
+ * `n` outputs — the bindings before it and in it, and the steps after it,
+ * which run on each. `undefined` when the node is neither, or `f` is no such
+ * stream; the stream's own reason when its row work cannot split.
+ */
+function firstRows(checked: CheckJqResult, first: Extract<Step, { kind: "stage" }>, binds: readonly Extract<Step, { kind: "bind" }>[], after: readonly Step[]): Found | undefined {
+  const node = first.node;
+  if (node.type !== "call") return undefined;
+  const { name, args } = node.value;
+  let rows: number;
+  if (name === "first" && args.length === 1) {
+    rows = 1;
+  } else if (name === "limit" && args.length === 2) {
+    // A count the query computes, or one below 1, is the one unit's to read: `limit(0; f)` keeps nothing, and a negative one raises.
+    const count = args[0]!;
+    const n = count.type === "literal" ? integerOf(count.value) : undefined;
+    if (n === undefined || n < 1n || n > BigInt(Number.MAX_SAFE_INTEGER)) return undefined;
+    rows = Number(n);
+  } else {
+    return undefined;
+  }
+  const at = args.length - 1;
+  const inner = findRows(checked, args[at]!, childPath(first.path, `call.args[${at}]`));
+  if ("whole" in inner) return inner.whole.code === "calls" || inner.whole.code === "state" ? inner : undefined;
+  if (!inner.rows.stream || inner.rows.first !== undefined) return undefined;
+  return checkBinds(checked, { ...inner.rows, binds: [...binds, ...inner.rows.binds], after, first: { path: first.path, rows } });
 }
 
 /** `nested` when a stream over a root field is somewhere inside the node; `no_stream` otherwise. */
@@ -1047,7 +1112,9 @@ type Combine =
   | { readonly kind: "distinct"; readonly path: string }
   | { readonly kind: "distinct_by"; readonly path: string; readonly key: { readonly node: JqNode; readonly path: string; readonly type: EastType } }
   | { readonly kind: "reduce"; readonly path: string; readonly node: Node<"reduce">; readonly accType: EastType; readonly keyType: EastType; readonly valueType: EastType; readonly update: "add" | "replace" }
-  | { readonly kind: "top"; readonly path: string; readonly keepPath: string; readonly key: SortKey | null; readonly rows: number; readonly element: EastType };
+  | { readonly kind: "top"; readonly path: string; readonly keepPath: string; readonly key: SortKey | null; readonly rows: number; readonly element: EastType }
+  /** The first `rows` outputs of a stream, the `first(f)` or `limit(n; f)` at `path` (#1113). */
+  | { readonly kind: "first"; readonly path: string; readonly rows: number };
 
 /**
  * How `sort_by(g)` keys a row, as the translator keys it (`keyed` in
@@ -1255,13 +1322,26 @@ export function splitJq(checked: CheckJqResult, options: SplitJqOptions = {}): J
     throw new TranslationError(`the program does not check: ${errors.join(" ")}`);
   }
   if (!checked.source.root) throw new TranslationError("splitJq splits a query checked as an e3 root");
-  const program = checked.program;
+  // The query as it runs: its rows narrowed to the fields its later steps read (#1141).
+  const narrowed = narrowRows(checked);
+  const planned = planOf(narrowed);
+  return "plan" in planned ? splitCall(narrowed, planned.plan, options, planned.pruning) : planned;
+}
+
+/** How a checked query splits — its row work, how its rows combine and the steps after — or why it runs as one unit. */
+function planOf(checked: CheckJqResult): { readonly plan: Plan; readonly pruning: readonly JqPruning[] } | JqWhole {
+  const program = checked.program!;
   const pruning = pruningOf(checked, program);
   const whole = (r: JqWholeReason): JqWhole => ({ kind: "whole", reason: r, pruning });
 
   const found = findRows(checked, program);
   if ("whole" in found) return whole(found.whole);
   const rows = found.rows;
+  if (rows.first !== undefined) {
+    // The first outputs of a stream, in input order, and the steps after them on each (#1113).
+    const combine: Combine = { kind: "first", path: rows.first.path, rows: rows.first.rows };
+    return { plan: { rows, combine, rest: rows.after, rowType: rowTypeOf(checked, rows), cutType: typeAfter(checked, rows.end) }, pruning };
+  }
   if (rows.stream && rows.after.length === 0) {
     // A stream is the query's outputs, which its caller caps: one unit stops as soon as it has them.
     return { kind: "whole", reason: reason(checked, "stops_early", null, rows.source.over), pruning: [...pruning, { kind: "stop", name: rows.source.over, range: rangeOf(checked, rows.source.path) }] };
@@ -1289,8 +1369,7 @@ export function splitJq(checked: CheckJqResult, options: SplitJqOptions = {}): J
     combine = { kind: "concat" };
     rest = rows.after;
   }
-  const plan: Plan = { rows, combine, rest, rowType: rowTypeOf(checked, rows), cutType: typeAfter(checked, rows.end) };
-  return splitCall(checked, plan, options, pruning);
+  return { plan: { rows, combine, rest, rowType: rowTypeOf(checked, rows), cutType: typeAfter(checked, rows.end) }, pruning };
 }
 
 /** Why the step after a query's row work keeps it one unit, when no work is done row by row. */
@@ -1371,6 +1450,27 @@ function keepsInput(node: JqNode): boolean {
   return node.type === "pipe" && keepsInput(node.value.left) && keepsInput(node.value.right);
 }
 
+/**
+ * Whether a filter gives its input, nothing, or an object of some of its
+ * input's fields under their own names — `{a, b}`, `{a: .a}` — and pipes of
+ * them: what #1141's narrowing makes of a stage that passes its rows on,
+ * `map(select(p) | {a, b})`. Each field such an object gives is its input's,
+ * so a later step reads it at the field of the input it reads.
+ */
+function keepsInputFields(node: JqNode): boolean {
+  if (keepsInput(node)) return true;
+  if (node.type === "object") {
+    return node.value.length > 0 && node.value.every(entry => entry.key.type === "name"
+      && (entry.value.type === "none" || isInputField(entry.value.value as JqNode, entry.key.value)));
+  }
+  return node.type === "pipe" && keepsInputFields(node.value.left) && keepsInputFields(node.value.right);
+}
+
+/** Whether a node reads its input's field `name`: `.name`. */
+function isInputField(node: JqNode, name: string): boolean {
+  return node.type === "field" && !node.value.optional && node.value.target.type === "identity" && node.value.name === name;
+}
+
 /** The field names from the row to a node's value, when it reads a field of the row: `.a.b` where `.` is the row, `$r.a` where `$r` holds it, `$k` where `$k` holds one. */
 function rowField(node: JqNode, cx: RowContext): readonly string[] | undefined {
   if (node.type === "variable") return cx.fields.get(node.value);
@@ -1440,7 +1540,7 @@ function lookupsOnly(node: JqNode, path: string, cx: RowContext, name: string, f
         found.push({ fields, path: childPath(hasPath, "call.args[0]") });
         return true;
       }
-      return visit(left, "pipe.left") && visit(right, "pipe.right", { ...cx, row: cx.row && keepsInput(left) });
+      return visit(left, "pipe.left") && visit(right, "pipe.right", { ...cx, row: cx.row && keepsInputFields(left) });
     }
     case "bind": {
       const { body, patterns, source } = node.value;
@@ -1499,7 +1599,8 @@ function rowLookups(plan: Plan, name: string): Lookup[] | undefined {
   const bound = binds.findIndex(b => patternNames(b.node.value.patterns[0]!).includes(name));
   if (binds.slice(bound + 1).some(b => variablesIn(b.node.value.source).has(name))) return undefined;
   let cx: RowContext = { row: true, rows: new Set(), fields: new Map(), defs: new Set() };
-  // The rows are the dataset's own until a step makes others.
+  // The rows are the dataset's own until a step makes others: keeping some of
+  // their fields under their own names, as #1141's narrowing does, keeps them.
   let intact = true;
   for (const step of plan.rows.steps) {
     const here: RowContext = { ...cx, row: intact };
@@ -1512,12 +1613,12 @@ function rowLookups(plan: Plan, name: string): Lookup[] | undefined {
       case "map": {
         const arg = step.node.value.args[0]!;
         if (!lookupsOnly(arg, childPath(step.path, "call.args[0]"), here, name, found)) return undefined;
-        intact = intact && keepsInput(arg);
+        intact = intact && keepsInputFields(arg);
         break;
       }
       case "each":
         if (!lookupsOnly(step.node, step.path, here, name, found)) return undefined;
-        intact = intact && keepsInput(step.node);
+        intact = intact && keepsInputFields(step.node);
         break;
       case "bind": {
         const { patterns, source } = step.node.value;
@@ -1710,9 +1811,17 @@ function splitCall(checked: CheckJqResult, plan: Plan, options: SplitJqOptions, 
   const resultType = multiplicity === "one" ? element : multiplicity === "maybe" ? OptionType(element) : ArrayType(element);
   const output = outputOf(checked, plan);
   const rangeEnd = plan.rest.length === 0 ? null : spanning(checked, plan.rest[0]!.path, plan.rest[plan.rest.length - 1]!.path);
-  // The assembled rows are the result when nothing follows them and they are its type.
-  const thenNeeded = !(plan.combine.kind === "concat" && plan.rest.length === 0 && multiplicity === "one" && isTypeEqual(output.type, resultType));
-  const copartitioned = copartitionedOf(plan, inputs);
+  // The assembled rows are the result when nothing follows them and they are its type: all of them, or a stream's
+  // first rows, no more than a `many` query's sink keeps.
+  const c = plan.combine;
+  const assembledIsResult = plan.rest.length === 0 && isTypeEqual(output.type, resultType) && (
+    (c.kind === "concat" && multiplicity === "one")
+    || (c.kind === "first" && multiplicity === "many" && (options.maxOutputs === undefined || c.rows <= options.maxOutputs + 1)));
+  const thenNeeded = !assembledIsResult;
+  // The final function is given only the inputs not partitioned (#1107), so a dict it reads is not.
+  const thenReads = thenNeeded ? finalRootReads(plan) : new Set<string>();
+  const copartitioned = copartitionedOf(plan, inputs).filter(name => !thenReads.has(name));
+  const thenInputs = inputs.filter(i => i.name !== plan.rows.source.over && !copartitioned.includes(i.name));
   return {
     kind: "split",
     over: plan.rows.source.over,
@@ -1720,7 +1829,7 @@ function splitCall(checked: CheckJqResult, plan: Plan, options: SplitJqOptions, 
     resultType,
     output,
     piece: () => pieceProgram(checked, plan, inputs, output, options),
-    then: () => thenNeeded ? thenProgram(checked, plan, inputs, output, resultType, options) : null,
+    then: () => thenNeeded ? thenProgram(checked, plan, thenInputs, output, resultType, options) : null,
     stages: {
       piece: spanning(checked, plan.rows.start, plan.rows.end),
       combine: combineOf(checked, plan),
@@ -1728,7 +1837,7 @@ function splitCall(checked: CheckJqResult, plan: Plan, options: SplitJqOptions, 
     },
     broadcast: [...new Set(plan.rows.binds.flatMap(bind => rootFieldsRead(bind.node.value.source)))].filter(name => !copartitioned.includes(name)),
     copartitioned,
-    rekey: copartitioned.length > 0 ? null : rekeyOf(checked, plan, inputs, output, resultType, thenNeeded, options),
+    rekey: copartitioned.length > 0 ? null : rekeyOf(checked, plan, inputs, output, resultType, thenNeeded, thenReads, options),
     pruning,
   };
 }
@@ -1738,11 +1847,12 @@ function splitCall(checked: CheckJqResult, plan: Plan, options: SplitJqOptions, 
  * piece (#942): the one dict, bound before the stream, that the pieces read
  * only at one field of the row as the dataset gives it — of the dict's key
  * type — when the combine is order-blind; `null` when there is none, or more
- * than one.
+ * than one. A dict the final function reads is none: the join call partitions
+ * it, and its final function is given only the inputs not partitioned (#1107).
  */
 function rekeyOf(
   checked: CheckJqResult, plan: Plan, inputs: readonly { name: string; type: EastType }[], output: JqSplitOutput,
-  resultType: EastType, thenNeeded: boolean, options: SplitJqOptions,
+  resultType: EastType, thenNeeded: boolean, thenReads: ReadonlySet<string>, options: SplitJqOptions,
 ): JqRekey | null {
   const source = plan.rows.source;
   if (source.entries !== undefined || !orderBlind(plan)) return null;
@@ -1753,7 +1863,7 @@ function rekeyOf(
   const joins: { name: string; fields: readonly string[]; key: EastType; range: JqRange }[] = [];
   for (const dataset of new Set(plan.rows.binds.flatMap(b => rootFieldsRead(b.node.value.source)))) {
     const B = inputs.find(i => i.name === dataset);
-    if (dataset === source.over || B === undefined) continue;
+    if (dataset === source.over || B === undefined || thenReads.has(dataset)) continue;
     const t = unwrap(B.type);
     if (t.type !== "Dict") continue;
     const lookups = joinedAt(plan, dataset);
@@ -1765,7 +1875,12 @@ function rekeyOf(
   }
   if (joins.length !== 1) return null;
   const join = joins[0]!;
-  const Rows = ArrayType(R);
+  // Each row as the re-key call sends it and the join call's pieces read it: the fields the query reads of it (#1141).
+  const narrowed = narrowedRows(checked, plan, A.type, R, output);
+  const sent = narrowed?.row ?? R;
+  const joinChecked = narrowed?.checked ?? checked;
+  const joinPlan = narrowed?.plan ?? plan;
+  const Rows = ArrayType(sent);
   const Keyed = DictType(join.key, Rows);
   const joinInputs = inputs.map(i => i.name === source.over ? { name: i.name, type: Keyed } : i);
   // Each key's rows, in input order: a re-keyed piece's rows.
@@ -1774,12 +1889,37 @@ function rekeyOf(
     name: join.name,
     key: join.range,
     keyType: join.key,
-    output: { kind: "dict", type: Keyed, merge: () => mergeFunction(checked, join.key, Rows, (t, _$, earlier, later) => t.b("ArrayConcat", [R], [earlier, later], Rows, source.path)) },
-    piece: () => rekeyPiece(checked, A.type, R, join.fields, join.key, source, options),
+    output: { kind: "dict", type: Keyed, merge: () => mergeFunction(checked, join.key, Rows, (t, _$, earlier, later) => t.b("ArrayConcat", [sent], [earlier, later], Rows, source.path)) },
+    piece: () => rekeyPiece(checked, A.type, R, sent, join.fields, join.key, source, options),
     inputs: joinInputs,
-    joinPiece: () => pieceProgram(checked, plan, joinInputs, output, options, rekeyed),
-    joinThen: () => thenNeeded ? thenProgram(checked, plan, joinInputs, output, resultType, options) : null,
+    joinPiece: () => pieceProgram(joinChecked, joinPlan, joinInputs, output, options, rekeyed),
+    joinThen: () => thenNeeded ? thenProgram(joinChecked, joinPlan, joinInputs.filter(i => i.name !== source.over && i.name !== join.name), output, resultType, options) : null,
   };
+}
+
+/**
+ * A dataset's rows narrowed to the fields the query reads of them (#1141):
+ * the struct of those fields, in the row's order, and the query checked again
+ * and planned over rows of it; `undefined` when the query reads a row whole,
+ * or every field, or does not plan alike over them.
+ */
+function narrowedRows(checked: CheckJqResult, plan: Plan, A: EastType, R: EastType, output: JqSplitOutput): { row: EastType; checked: CheckJqResult; plan: Plan } | undefined {
+  const source = plan.rows.source;
+  const read = rowsRead(checked, source.path);
+  const row = unwrap(R);
+  const root = unwrap(checked.inputType);
+  if (read === undefined || row.type !== "Struct" || root.type !== "Struct" || unwrap(A).type !== "Array") return undefined;
+  const fields = Object.entries(row.fields as Record<string, EastType>);
+  const kept = fields.filter(([name]) => read.has(name));
+  if (kept.length === fields.length) return undefined;
+  const narrowed = StructType(Object.fromEntries(kept));
+  const input = StructType(Object.fromEntries(Object.entries(root.fields as Record<string, EastType>)
+    .map(([name, type]) => [name, name === source.over ? ArrayType(narrowed) : type])));
+  const again = checkAgain(checked, checked.program!, checked.source.spans, input);
+  if (again === undefined) return undefined;
+  const planned = planOf(again);
+  if (!("plan" in planned) || planned.plan.combine.kind !== plan.combine.kind || !isTypeEqual(outputOf(again, planned.plan).type, output.type)) return undefined;
+  return { row: narrowed, checked: again, plan: planned.plan };
 }
 
 /**
@@ -1787,13 +1927,13 @@ function rekeyOf(
  * its join key, a key's rows gathered first in the piece's table, appended in
  * place, since the table alone holds them until it sends them on.
  */
-function rekeyPiece(checked: CheckJqResult, A: EastType, R: EastType, fields: readonly string[], K: EastType, source: Source, options: SplitJqOptions): FunctionExpr<any[], any> {
-  const Rows = ArrayType(R);
+function rekeyPiece(checked: CheckJqResult, A: EastType, R: EastType, sent: EastType, fields: readonly string[], K: EastType, source: Source, options: SplitJqOptions): FunctionExpr<any[], any> {
+  const Rows = ArrayType(sent);
   return withLocationCapture(false, () => func([A, FunctionType([K, Rows], NullType)], NullType, ($, piece, emit) => {
     const t = new SplitTranslator(checked, {});
     const send = ($2: Block, ...args: Expr[]): void => t.stmt($2, t.callFn(emit as Expr, args, source.path));
     const append: Fold = (t2, $2, earlier, later) => {
-      t2.stmt($2, t2.b("ArrayAppend", [R], [earlier, later], NullType, source.path));
+      t2.stmt($2, t2.b("ArrayAppend", [sent], [earlier, later], NullType, source.path));
       return earlier;
     };
     const table = pieceTable(t, $, K, { type: Rows, fold: append }, source.path, options, send);
@@ -1801,8 +1941,10 @@ function rekeyPiece(checked: CheckJqResult, A: EastType, R: EastType, fields: re
       const row = t.bind($2, t.widenTo($2, item, R, source.path), "row");
       let key = row;
       for (const name of fields) key = t.field(key, name);
-      const one = t.declare($2, t.emptyArray(R), "rows");
-      t.push($2, one, row, source.path);
+      // The row as the query reads it: the fields it reads, where it reads only some (#1141).
+      const value = sent === R ? row : t.struct(sent, Object.fromEntries(Object.keys(parts(sent).fields).map(name => [name, t.field(row, name)])));
+      const one = t.declare($2, t.emptyArray(sent), "rows");
+      t.push($2, one, value, source.path);
       table.add($2, key, one);
     }, source.path);
     table.flush($);
@@ -1831,6 +1973,7 @@ function combineOf(checked: CheckJqResult, plan: Plan): JqCombine {
     case "distinct_by": return { kind: "distinct_by", range: rangeOf(checked, c.path), key: rangeOf(checked, c.key.path) };
     case "reduce": return { kind: "reduce", range: rangeOf(checked, c.path), key: rangeOf(checked, childPath(c.path, "reduce.update.update.path.index.index")), update: c.update };
     case "top": return { kind: "top", range: spanning(checked, c.path, c.keepPath), key: c.key === null ? null : rangeOf(checked, c.key.path), rows: c.rows };
+    case "first": return { kind: "first", range: rangeOf(checked, c.path), rows: c.rows };
   }
 }
 
@@ -1878,6 +2021,8 @@ function outputOf(checked: CheckJqResult, plan: Plan): JqSplitOutput {
       const T = ArrayType(topPair(c));
       return { kind: "fold", type: T, zero: [], combine: () => combineFunction(checked, T, (t, $, a, b) => firstSorted(t, $, t.b("ArrayConcat", [topPair(c)], [a, b], T, c.path), c)) };
     }
+    case "first":
+      return { kind: "first", type: ArrayType(R), limit: c.rows };
   }
 }
 
@@ -2136,12 +2281,19 @@ function pieceProgram(checked: CheckJqResult, plan: Plan, inputs: readonly { nam
         : undefined;
     // The first rows of a sort are kept in the piece, and emitted once.
     const top = c.kind === "top" ? topRows(t, $, c) : undefined;
-    genBinds(t, $, root, binds, emptyEnv(), ($2, env) => {
+    // A stream's first rows are sent as they come, and the piece stops once it has sent them (#1113).
+    const kept = c.kind === "first" ? t.declare($, t.int(0), "kept") : undefined;
+    const rowsOfPiece = ($1: Block, stop: (($: Block) => void) | undefined): void => genBinds(t, $1, root, binds, emptyEnv(), ($2, env) => {
       const piece = root.fields.get(plan.rows.source.over)!;
       rowsOf(t, $2, piece, ($3, item) => genRow(t, $3, item, plan.rows.steps, 0, env, ($4, row, scope) => {
         switch (c.kind) {
           case "concat":
             send($4, t.widenTo($4, row, plan.rowType, plan.rows.end));
+            return;
+          case "first":
+            send($4, t.widenTo($4, row, plan.rowType, plan.rows.end));
+            t.assign($4, kept!, t.add(kept!, t.int(1), c.path));
+            t.ifElse($4, t.b("GreaterEqual", [IntegerType], [kept!, t.int(c.rows)], BooleanType, c.path), stop!, undefined, c.path);
             return;
           case "distinct":
             table!.add($4, t.widenTo($4, row, plan.rowType, plan.rows.end));
@@ -2183,6 +2335,8 @@ function pieceProgram(checked: CheckJqResult, plan: Plan, inputs: readonly { nam
         }
       }));
     });
+    if (c.kind === "first") t.once($, ($1, label) => rowsOfPiece($1, ($2) => t.brk($2, label)), c.path);
+    else rowsOfPiece($, undefined);
     if (c.kind === "totals") send($, t.struct(output.type, Object.fromEntries(folded.map((acc, i) => [`p${i}`, acc]))));
     if (top !== undefined) send($, top.result($));
     table?.flush($);
@@ -2310,14 +2464,29 @@ function pieceTable(t: SplitTranslator, $: Block, key: EastType, value: { type: 
 
 // ─── The final function ─────────────────────────────────────────────────────
 
-/** The final function: the value the combine gives, the rest of the query on it, and the query's sink. */
-function thenProgram(checked: CheckJqResult, plan: Plan, inputs: readonly { name: string; type: EastType }[], output: JqSplitOutput, resultType: EastType, options: SplitJqOptions): FunctionExpr<any[], any> {
+/** The variables the final function reads: in what follows the combine, and in the expression its totals make. */
+function finalVariables(plan: Plan): Set<string> {
   const c = plan.combine;
   const reads = new Set<string>();
   for (const step of plan.rest) variablesIn(step.node, reads);
   if (c.kind === "totals") variablesIn(c.node, reads);
   if (c.kind === "group") variablesIn(c.body.node, reads);
-  const binds = bindsFor(plan.rows.binds, reads);
+  return reads;
+}
+
+/** The root fields the final function reads: those the bindings it needs read. */
+function finalRootReads(plan: Plan): Set<string> {
+  return new Set(bindsFor(plan.rows.binds, finalVariables(plan)).flatMap(bind => rootFieldsRead(bind.node.value.source)));
+}
+
+/**
+ * The final function: the value the combine gives, the rest of the query on
+ * it, and the query's sink. It takes the assembled output, then `inputs`: the
+ * inputs not partitioned, each of the root fields it reads among them.
+ */
+function thenProgram(checked: CheckJqResult, plan: Plan, inputs: readonly { name: string; type: EastType }[], output: JqSplitOutput, resultType: EastType, options: SplitJqOptions): FunctionExpr<any[], any> {
+  const c = plan.combine;
+  const binds = bindsFor(plan.rows.binds, finalVariables(plan));
   const element = checked.elementType!;
   const multiplicity = checked.multiplicity!;
   return withLocationCapture(false, () => func([output.type, ...inputs.map(i => i.type)], resultType, ($, assembled, ...values) => {
@@ -2348,6 +2517,12 @@ function thenProgram(checked: CheckJqResult, plan: Plan, inputs: readonly { name
           const out = t.declare($2, t.emptyArray(c.element), "sorted");
           t.forEach($2, all, ($3, pair) => t.push($3, out, t.field(pair, "value"), c.path), c.path, "pair");
           rest($2, t.bind($2, t.widenTo($2, out, typeAfter(checked, c.path), c.path), "rows"));
+          return;
+        }
+        case "first": {
+          // The stream's first outputs, in input order, each on through the steps after them (#1113).
+          const each = typeAfter(checked, c.path);
+          t.forEach($2, all, ($3, row) => rest($3, t.widenTo($3, row, each, c.path)), c.path, "row");
           return;
         }
         case "totals": {

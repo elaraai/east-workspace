@@ -30,6 +30,7 @@ import { createDataEndpoints } from './routes/data.js';
 import { createPackageFunctionRoutes, createWorkspaceFunctionRoutes, createOneShotRoutes, oneShotAccessByRoles } from './routes/functions.js';
 import { createWorkspaceRecordRoutes } from './routes/records.js';
 import { localDataflow } from './local-dataflow.js';
+import { checkCallLimits, type CallLimits } from './call-limits.js';
 import type { DataflowRunnerLease } from './dataflow-runner.js';
 
 export type { DataflowRunnerLease } from './dataflow-runner.js';
@@ -89,6 +90,14 @@ export interface ServerConfig {
    *  `E3_JOBS` and `E3_MEMORY`, else what the process may use); settings
    *  that do not resolve make `createServer` throw a `RangeError`. */
   budget?: Budget | BudgetSettings;
+  /** The limits of the one-shot, function and split calls the server runs,
+   *  as `--call-deadline`, `--job-timeout`, `--max-result` and `--max-log`
+   *  give them: a sync call's deadline, which the one-shot and function
+   *  routes take, and the most a one-shot or split call may ask for, which
+   *  the one-shot routes take (default: 120 s; 10 minutes, 1 MiB and
+   *  256 KiB). A limit that is not positive makes `createServer` throw a
+   *  `RangeError`. */
+  calls?: CallLimits;
   /** Opens a per-run runner attachment, closed when the run ends. */
   dataflowRunner?: DataflowRunnerFactory;
 }
@@ -119,7 +128,8 @@ export interface Server {
  *
  * @param config - Server configuration
  * @returns Server instance
- * @throws {RangeError} When the budget's settings do not resolve
+ * @throws {RangeError} When the budget's settings do not resolve, or a call
+ *   limit is not positive
  * @throws {RepoNotFoundError} When the single repository is none
  * @throws {RepoLayoutError} When this e3 cannot open the single repository
  */
@@ -129,6 +139,7 @@ export async function createServer(config: ServerConfig): Promise<Server> {
     transferPartBytes, transferCommitWaitMs,
   } = config;
   const budget = config.budget instanceof Budget ? config.budget : resolveBudget(config.budget);
+  const calls = checkCallLimits(config.calls ?? {});
   // The store door frames on e3's own pool, whose workers take cores too.
   configureFramePool({ workers: Math.min(DOOR_FRAME_WORKERS, budget.cores) });
 
@@ -212,12 +223,14 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   };
 
   // Transfer backend for presigned URL object transfer, and the jobs that
-  // outlast a request, which it runs in this process
+  // outlast a request, which it runs in this process: a `first` split call
+  // keeps as many units running as the budget has cores
   const transferBackend: TransferBackend = new InMemoryTransferBackend({
     baseUrl: '',
     storage,
     getRepoPath,
     getRunner,
+    splitCallWidth: budget.cores,
     ...(transferPartBytes !== undefined && { partBytes: transferPartBytes }),
   });
 
@@ -281,7 +294,7 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   const access = auth || oidcProvider ? oneShotAccessByRoles() : () => 'any' as const;
 
   // Package-scoped function routes: /api/repos/:repo/packages/:pkg/:version/functions/*
-  app.route('/api/repos/:repo/packages/:pkg/:version/functions', createPackageFunctionRoutes(storage, getRepoPath, getRunner, { access }));
+  app.route('/api/repos/:repo/packages/:pkg/:version/functions', createPackageFunctionRoutes(storage, getRepoPath, getRunner, { access, syncDeadlineMs: calls.syncDeadlineMs }));
 
   // Workspace routes: /api/repos/:repo/workspaces/*
   app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, getRepoPath, transferBackend, getRunner));
@@ -299,11 +312,12 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   app.route('/api/repos/:repo/workspaces/:ws/tasks', createTaskRoutes(storage, getRepoPath));
 
   // Workspace-scoped function routes: /api/repos/:repo/workspaces/:ws/functions/*
-  app.route('/api/repos/:repo/workspaces/:ws/functions', createWorkspaceFunctionRoutes(storage, getRepoPath, getRunner, { access }));
+  app.route('/api/repos/:repo/workspaces/:ws/functions', createWorkspaceFunctionRoutes(storage, getRepoPath, getRunner, { access, syncDeadlineMs: calls.syncDeadlineMs }));
 
   // One-shot routes: /api/repos/:repo/workspaces/:ws/one-shot/*, and the split
-  // calls launched under the same grant, run as jobs on the transfer backend.
-  app.route('/api/repos/:repo/workspaces/:ws/one-shot', createOneShotRoutes(storage, getRepoPath, transferBackend, getRunner, { access }));
+  // calls launched under the same grant, run as jobs on the transfer backend,
+  // each under the server's call limits.
+  app.route('/api/repos/:repo/workspaces/:ws/one-shot', createOneShotRoutes(storage, getRepoPath, transferBackend, getRunner, { access, ...calls }));
 
   // Workspace-scoped record routes: /api/repos/:repo/workspaces/:ws/records/*
   app.route('/api/repos/:repo/workspaces/:ws/records', createWorkspaceRecordRoutes(storage, getRepoPath, getRunner));

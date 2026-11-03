@@ -22,13 +22,18 @@ import { execFile } from 'node:child_process';
 import { totalmem } from 'node:os';
 import { posix } from 'node:path';
 import { promisify } from 'node:util';
-import { cgroupLevels, cgroupWorkingSet, readTextFile } from './cgroups.js';
+import { cgroupLevels, cgroupMemoryPressure, cgroupWorkingSet, readTextFile } from './cgroups.js';
 
 const execFileAsync = promisify(execFile);
 
 /** How long macOS's memory level is taken as read, in milliseconds: reading
  *  it starts a process. */
 const MACOS_LEVEL_MS = 1_000;
+
+/** The memory pressure, in percent, at which a cgroup e3 runs under is nearly
+ *  out of memory: the share of the last 10 s in which every one of its tasks
+ *  stalled on memory (`memory.pressure`'s `full avg10`). */
+export const PRESSURE_FULL_AVG10 = 20;
 
 /** A runner as the guard measures it. */
 export interface MeasuredRunner {
@@ -45,6 +50,11 @@ export interface MachineMemory {
   readonly available: number;
   /** Bytes it has in all. */
   readonly total: number;
+  /** Whether a cgroup limit e3 runs under is under memory pressure: its tasks
+   *  all stalled on memory for {@link PRESSURE_FULL_AVG10} percent of the last
+   *  10 s or more. The machine is then nearly out of memory, whatever
+   *  {@link available} says. Absent, it is not. */
+  readonly pressured?: boolean;
 }
 
 /** Measures runners, and the machine they run on. */
@@ -80,7 +90,8 @@ export function defaultMemorySampler(): MemorySampler | null {
 /**
  * Linux's sampler: a runner's cgroup's working set where it has one, else the
  * resident memory of its process tree; and the machine's available memory, or
- * a container's, where a cgroup limit up this process's hierarchy leaves less.
+ * a container's, where a cgroup limit up this process's hierarchy leaves less,
+ * and whether such a limit is under memory pressure.
  *
  * @param proc - The proc filesystem's mount point
  * @param cgroupRoot - The cgroup filesystem's mount point
@@ -101,7 +112,8 @@ export function linuxMemorySampler(proc = '/proc', cgroupRoot = '/sys/fs/cgroup'
 }
 
 /** Linux's memory available, or a container's, where a cgroup limit up this
- *  process's hierarchy leaves less; `null` when meminfo cannot be read. */
+ *  process's hierarchy leaves less, and whether any such limit's cgroup is
+ *  under memory pressure; `null` when meminfo cannot be read. */
 function linuxMachineMemory(proc: string, cgroupRoot: string): MachineMemory | null {
   const meminfo = readTextFile(posix.join(proc, 'meminfo'));
   const field = (name: string): number | null => {
@@ -112,12 +124,16 @@ function linuxMachineMemory(proc: string, cgroupRoot: string): MachineMemory | n
   const total = field('MemTotal');
   if (available === null || total === null) return null;
   let machine: MachineMemory = { available, total };
+  let pressured = false;
   for (const level of cgroupLevels(readTextFile, posix.join(proc, 'self', 'cgroup'), cgroupRoot)) {
     const max = Number(readTextFile(posix.join(level, 'memory.max'))?.trim());
-    const used = Number.isSafeInteger(max) ? cgroupWorkingSet(level) : null;
+    if (!Number.isSafeInteger(max)) continue;
+    const used = cgroupWorkingSet(level);
     if (used !== null && max - used < machine.available) machine = { available: Math.max(0, max - used), total: max };
+    // A kernel with no pressure information leaves the working set to say.
+    if ((cgroupMemoryPressure(level) ?? 0) >= PRESSURE_FULL_AVG10) pressured = true;
   }
-  return machine;
+  return pressured ? { ...machine, pressured } : machine;
 }
 
 /** The resident memory, in bytes, of a process and every process beneath it,

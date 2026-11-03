@@ -9,9 +9,9 @@ export {
   encodeBeast2For, decodeBeast2For, decodeBeast2ForAsync, decodeBeast2,
   compileFunctionIR, compileAsyncFunctionIR, encodeEastIR, decodeEastIR, decodeAsyncEastIR,
   Beast2Writer, Beast2ElementWriter, encodeBeast2SegmentsFor, encodeBeast2PagedFor, iterBeast2SegmentsFor, Beast2Pages, openBeast2PagesFor, beast2HasIndex, readBeast2Type, readBeast2HeaderType,
-  readBeast2Extents, readBeast2SegmentLogicalBytes, carveBeast2, spliceBeast2, rebuildBeast2, openBeast2LazyFor, isBeast2LazySafe, beast2LazyStats,
+  readBeast2Extents, readBeast2SegmentLogicalBytes, carveBeast2, spliceBeast2, rebuildBeast2, openBeast2LazyFor, isBeast2LazySafe, beast2LazyStats, beast2PagedLoopStats,
   readBeast2ExtentsRanged, readBeast2ExtentsSync, isBeast2SyncRangeReader, carveBeast2Ranged, spliceBeast2Tail, spliceBeast2Segments,
-  RUN_MAX_COUNT, RUN_MAX_BYTES, Beast2RunSorter, mergeBeast2For, recutBeast2For, decodeBeast2ElementsFor,
+  RUN_MAX_COUNT, RUN_MAX_BYTES, FOLD_TABLE_MAX_KEYS, FOLD_TABLE_MAX_KEY_BYTES, Beast2RunSorter, mergeBeast2For, recutBeast2For, decodeBeast2ElementsFor,
   intakeBeast2For, Beast2IntakeError, type Beast2IntakeOptions, type Beast2IntakeStats,
   type Beast2RunSink, type Beast2RunSorterOptions, type Beast2MergeSource, type Beast2MergeOptions, type Beast2MergeStats,
   type Beast2Segment, type Beast2SegmentSink, type Beast2SegmentRef, type Beast2RecutPiece, type Beast2RecutSink,
@@ -29,7 +29,7 @@ export {
   configureFramePool, type FramePoolSettings,
   type Beast2EncodeOptions, type Beast2DecodeOptions, type Beast2WriterOptions, type Beast2ElementWriterOptions, type Beast2ElementOf,
   type Beast2PagedEncodeOptions, type Beast2PagesOptions, type Beast2PagesCacheStats, type Beast2Codec, type Beast2Version,
-  type Beast2Extents, type RebuildBeast2Options, type Beast2LazySafeOptions, type Beast2LazyOptions, type Beast2LazyStats,
+  type Beast2Extents, type RebuildBeast2Options, type Beast2LazySafeOptions, type Beast2LazyOptions, type Beast2LazyStats, type Beast2PagedLoopStats,
   type Beast2RangeReader, type Beast2SyncRangeReader, type Beast2RangedExtents, type ReadBeast2ExtentsRangedOptions,
 } from "./beast2/index.js";
 export * from "./json.js";

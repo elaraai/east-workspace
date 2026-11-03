@@ -46,6 +46,7 @@ import {
   listPackageFunctions,
   describePackageFunction,
   callFunctionSync,
+  cancelSplitCall,
   getSplitCallStatus,
   startSplitCall,
 } from '../handlers/functions.js';
@@ -234,12 +235,15 @@ export function createWorkspaceFunctionRoutes(
  *   job's id; with `?explain=1` its job plans the call's pieces instead, and
  *   runs no unit.
  * - `GET /split/:id` answers a split call's status: how far it has got, its
- *   result, the pieces an explain planned, or why e3 could not run it.
+ *   result, the pieces an explain planned, why e3 could not run it, or that
+ *   it was cancelled.
+ * - `POST /split/:id/cancel` cancels a split call that is still running, and
+ *   answers its status after, as a poll does.
  *
  * A caller refused is answered `permission_denied` (`path` `one-shot`), and
- * nothing runs. A caller whose grant is `none` polls no split call, and one
- * whose grant is `platform_free` only a platform-free one, or one such a
- * caller launched.
+ * nothing runs. A caller whose grant is `none` polls or cancels no split call,
+ * and one whose grant is `platform_free` only a platform-free one, or one such
+ * a caller launched.
  *
  * @param storage - Storage backend
  * @param getRepoPath - A repository's identifier from its name
@@ -299,6 +303,17 @@ export function createOneShotRoutes(
     try {
       const grant = await options.access(c);
       return await getSplitCallStatus(storage, getRepoPath(repo), transferBackend.splitCall, repo, c.req.param('ws')!, c.req.param('id'), grant);
+    } catch (err) {
+      return sendError(SplitCallStatusType, errorToVariant(err));
+    }
+  });
+
+  // POST /split/:id/cancel - Cancel a split call
+  app.post('/split/:id/cancel', async (c) => {
+    const repo = c.req.param('repo')!;
+    try {
+      const grant = await options.access(c);
+      return await cancelSplitCall(storage, getRepoPath(repo), transferBackend.splitCall, repo, c.req.param('ws')!, c.req.param('id'), grant);
     } catch (err) {
       return sendError(SplitCallStatusType, errorToVariant(err));
     }

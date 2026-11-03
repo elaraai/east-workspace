@@ -24,9 +24,10 @@ process writes them. Each rule is specified in its own section.
 - **East order decides Set and Dict content** (*Order*).
 - **A manifest** names every object by its SHA-256 and records the collection
   type with canonical recursive ids (*Segment manifests*).
-- **Sorted runs** close at fixed caps and merge in input order, and a
-  **re-cut** writes the canonical writer's segments (*Sorted runs and merges*,
-  *Re-cutting*).
+- **Sorted runs** close at fixed caps and merge in input order, a fold whose
+  values do not grow folds a key's values as they are added, and a **re-cut**
+  writes the canonical writer's segments (*Sorted runs and merges*, *Folding
+  as added*, *Re-cutting*).
 
 Readers accept every form ever released: v4 containers, index-less blobs,
 segments cut by the earlier rules (*Earlier rules*), aliasing scoped per root
@@ -637,6 +638,51 @@ which east-py binds).
   task's program's map, so the merge writes what one run of the whole would
   have.
 
+### Folding as added
+
+A fold whose values do not grow folds a repeated key's values as they are
+added, in a **fold table** in front of the open run, rather than holding every
+element until the run sorts. For an output with few keys — revenue by region —
+the sort is nearly all wasted work. The table takes:
+
+- a Dict with a merge function whose value type's encoding is bounded: Null,
+  Boolean, Integer, Float, DateTime, and Structs and Variants of those types;
+- a Set under union.
+
+Any other fold — a merge over Strings, Blobs, collections, functions, Refs or
+a recursive type, which grow as they fold — and no fold at all add every
+element to the open run, as *Closing a run* says.
+
+- **Keys.** The table holds keys by East equality: by their canonical bytes,
+  which are equal exactly when the keys are. Each key keeps its values'
+  partial folds as a run keeps a repeated key's: each value added becomes the
+  newest partial, and while the newest two partials cover equally many values
+  they fold into one, `merge(key, older, newer)`, the key being the first one
+  added. A Set's key is kept once, the first added.
+- **Bounds.** The table holds at most 65536 keys, and 16777216 bytes (16 MiB)
+  of their canonical key bytes, each key's counted once, as it enters. Both
+  are constants of the format.
+- **Spilling.** When the table holds a key, and a key it does not hold would
+  take it past either bound, the table spills: each entry, in the order its
+  key entered the table, its partials folded newest into oldest, is added to
+  the open run as one element, counted toward the run's caps as any element
+  is — so a run may close mid-spill — and the table empties. The new key then
+  enters the empty table; a key whose bytes alone pass the byte bound enters it
+  so, and the next new key spills it. When the producer finishes, the table
+  spills before the last run closes.
+- **Stepping aside.** At the first spill, a table that absorbed fewer than two
+  elements for each key it holds is switched off once the spill ends: the key
+  that made it spill, and every element after it, is added to the open run.
+
+Every element a key's spills and the open run hold then folds as a run folds
+it. With an associative merge function, which a run already requires, the
+value is the one a single fold of every value gives, and since the grouping is
+this rule's alone, every runtime writes the same bytes. A Dict whose values
+are Floats groups them differently than a sorter without a table did, so its
+last bits can differ from what releases before the table wrote. The runs
+differ too — fewer, each key in fewer of them — but their merge over an exact
+value type writes the same bytes as before.
+
 ## Re-cutting
 
 A collection that arrives in **pieces** — the outputs of parts of one
@@ -763,6 +809,65 @@ decodes, and in east-c the same memory, wherever it runs: east-c's pager
 A program whose reads land at random across more than the budget, or that
 scans an input more than once, reads it whole instead (e3's `decode: whole`,
 a runner's `--decode whole`).
+
+## Projected decoding
+
+A reader may decode a value as a **projection** of its type: the wire type —
+what the bytes hold — narrowed to a projected type that keeps a subset of it.
+Nothing on the wire changes; the same bytes decode whole or projected, and a
+projected decode is the kept fields of the whole decode. east-c (`project.c`,
+which east-py's lazy files and compiled bodies read through, #599) and
+TypeScript (`project.ts`, #1112) decode projections by the same rules:
+
+- **What narrows.** A struct keeps a subset of its fields, by name, in the
+  wire's order. Within a variant's payloads, an array's elements, a ref's
+  contents and a dict's values, each projects in turn; a variant keeps every
+  case, since the wire numbers them. Every other part — a scalar, a Vector, a
+  Matrix, a recursive type, a function — must be the wire's whole.
+- **What never narrows.** A Set's elements and a Dict's keys order their
+  container, so a projection keeps them whole. A function-typed field cannot be
+  dropped: it cannot be parsed past without reading its IR.
+- **Reading the wire.** A dropped field is parsed past, never built. A
+  container in it still takes a definition, so the back-references after it
+  stay aligned with the encoder's numbering (*Mutable containers*). Each
+  definition records the shape it was decoded to: skipped, whole, or a
+  projection's node. A back-reference that names a container decoded to
+  another shape than its own — skipped, narrowed otherwise, or whole where the
+  reference is narrowed — fails, and the reader decodes that segment whole
+  instead. Sharing between a kept field and a dropped one is rare; when it
+  happens, it costs the one segment its projection.
+- **The bytes are read either way.** A segment's frame is fetched and inflated
+  as for a whole decode; projection saves building what is dropped, not reading
+  it.
+
+**A loop's projection.** A compiled `$.for` over a lazy Array or Dict — a task
+input a runner opened lazily, or a `blob.openBeast` — decodes each segment to
+the struct fields its body reads of the loop's value variable: an Array's
+element, a Dict's value. Each runtime infers the same projection from the
+loop's body (east-c's `east_beast2_projection_for_loop`, TypeScript's
+`loopProjectionType`), against the type the bytes hold:
+
+- a chain of field accesses rooted at the variable (`row.address.city`) keeps
+  that path, its last field whole;
+- an inner loop over an array or a dict on such a chain narrows its elements,
+  or its values, to what the inner body reads of its own variable, and the
+  chain's size (`ArraySize`, `DictSize`) reads none of them;
+- a function called inline on the variable, or on a chain of it, reads through
+  its parameter what the body reads of it;
+- the variable used any other way — bound to another variable, put in a
+  container, passed to a function value, compared — reads the row whole, and a
+  binder that shadows it, or an IR node the walk does not know, declines;
+- casts (`As`) are seen through, as east-c drops them reading the IR.
+
+The loop decodes whole when the projection declines, keeps every field, or
+the row is not a struct; a Set's loop always does. Every segment a loop
+decodes is counted, projected or whole — `east_beast2_paged_loop_stats` in
+east-c, `beast2PagedLoopStats` in TypeScript, `eager_stats()` in east-py — and
+every runner's `-v` reports them beside its lazy-read account, in the same
+words: `paged loops: N segments decoded to the fields read, M in full`.
+`east/test/loop_projection_corpus.spec.ts` pins the projection of each of its
+loops, and of #1093's benchmark queries' piece programs, and exports them for
+east-c and east-py to infer and run alike.
 
 ## Encoding algorithm (whole value)
 

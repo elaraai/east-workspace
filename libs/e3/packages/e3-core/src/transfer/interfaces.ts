@@ -258,12 +258,27 @@ export interface RepoGcStore {
  * for the whole job, not for one round. The record keeps whether a caller
  * whose one-shot grant is `platform_free` may poll the job (`platformFree`).
  *
- * Flow: create → execute → poll get → delete
+ * A job is cancelled by writing it `cancelled`. The job's processor reads its
+ * record as it runs, and stops its units once it finds the job has ended
+ * (`handleProcessSplitCall`).
+ *
+ * Flow: create → execute → poll get (→ cancel) → delete
  */
 export interface SplitCallStore {
   create(id: string, record: SplitCallJob): Promise<void>;
   get(id: string): Promise<SplitCallJob | null>;
-  updateStatus(id: string, status: SplitCallJob['status']): Promise<void>;
+  /**
+   * Records a job's status, unless the job has ended: once it is
+   * `completed`, `planned`, `failed` or `cancelled`, the store never moves it
+   * to another status. The check and the write are one atomic step, so a
+   * cancel never overwrites a result, nor a result a cancel.
+   *
+   * @param id - The job's id
+   * @param status - Its new status
+   * @returns Whether the status was recorded: `false` when the job had ended
+   * @throws {Error} When there is no such job
+   */
+  updateStatus(id: string, status: SplitCallJob['status']): Promise<boolean>;
   delete(id: string): Promise<void>;
 
   /**

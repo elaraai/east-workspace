@@ -585,6 +585,20 @@ add_test(NAME beast2_corpus COMMAND test_beast2_corpus)
 set_tests_properties(beast2_corpus PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600
                      WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
+# The loop projection corpus TypeScript exports beside the compliance IR
+# (east/test/loop_projection_corpus.spec.ts): loops over a paged input, each
+# with the projection its body admits, and the piece programs of #1093's
+# benchmark queries. east_beast2_projection_for_loop must infer each loop's
+# projection as TypeScript did, and every case must give TypeScript's answer
+# and decode as many segments projected and whole (#1112). Skips (exit 77)
+# unless `make test-export` has produced $EAST_TEST_IR_DIR/loop_projection (set
+# by the root paths.mk through make). Run under ASan/LSan for the plans' and
+# the paged values' lifetimes.
+add_executable(test_loop_projection_corpus tests/test_loop_projection_corpus.c)
+target_link_libraries(test_loop_projection_corpus east-c)
+add_test(NAME loop_projection_corpus COMMAND test_loop_projection_corpus)
+set_tests_properties(loop_projection_corpus PROPERTIES SKIP_RETURN_CODE 77)
+
 # Beast2 encode/decode timing harnesses (dev profiling — build Release for real
 # numbers). profile_collections builds large Dict/Set values in C and times
 # encode + decode per call; profile_beast2_decode times a given .beast2 file.

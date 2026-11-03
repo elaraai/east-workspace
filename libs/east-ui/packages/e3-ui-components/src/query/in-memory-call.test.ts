@@ -15,7 +15,9 @@
  * abandoned by its signal. Its assembled output kept by its hash (#942),
  * which a later call's `object` argument reads — a re-keyed join's second
  * call — and an object no call assembled refused; arguments that cannot be
- * cut together, or none partitioned, refused. Its explain (#1132): the pieces
+ * cut together, or none partitioned, refused, and a final function that takes
+ * another count than the output and the arguments not partitioned (#1107).
+ * Its explain (#1132): the pieces
  * it cuts, the argument they are cut over and what that weighs, with no piece
  * run; what the call refuses refused, worded as e3-api-client's explain words
  * it; and abandoned by its signal. A data source's status: its rows, its hash
@@ -29,7 +31,7 @@ import {
 import { SplitCallPlanType, type SplitCallPlan, type SplitCallProgress } from "@elaraai/e3-types";
 import { createInMemoryQueryCall, createInMemorySourceStatus, createInMemorySplitCall } from "./in-memory-call.js";
 import { prepareQuery, queryResultOf, queryRoot, type QueryResult } from "./one-shot.js";
-import { planQuery, type QueryPlan } from "./plan.js";
+import { planQuery, type QueryPlan, type SourceWeight } from "./plan.js";
 import { CUSTOMERS, CustomersType, FIXTURE_VALUE, ORDERS, OrdersType } from "./fixture.test-utils.js";
 
 const orders = (FIXTURE_VALUE as Readonly<Record<string, unknown>>)["orders"];
@@ -88,9 +90,16 @@ const BOTH = queryRoot([
 ]);
 const DATASETS = [{ path: ORDERS, type: OrdersType, value: orders }, { path: CUSTOMERS, type: CustomersType, value: customers }];
 
+/**
+ * Both datasets weighed as larger than one piece, their rows not known: a run
+ * that splits is a split call by weight alone, not by its estimates (#1143),
+ * which a few dozen rows would make one call.
+ */
+const LARGE: ReadonlyMap<string, SourceWeight> = new Map([["orders", { bytes: 1 << 30, rows: undefined }], ["customers", { bytes: 1 << 30, rows: undefined }]]);
+
 /** A program's split call, its orders weighed as larger than one piece. */
 function splitOf(program: string, maxBytes?: number): Extract<QueryPlan, { kind: "split" }> {
-    const planned = planQuery(program, BOTH, new Map([["orders", { bytes: 1 << 30, rows: 40 }]]), maxBytes === undefined ? {} : { maxBytes });
+    const planned = planQuery(program, BOTH, new Map([["orders", LARGE.get("orders")!]]), maxBytes === undefined ? {} : { maxBytes });
     if ("result" in planned || planned.plan.kind !== "split") throw new Error(`${program} does not split`);
     return planned.plan;
 }
@@ -194,7 +203,7 @@ describe("createInMemorySplitCall (#941)", () => {
 
     test("an object argument reads an earlier call's output by its hash, as a re-keyed join's second call does; an object no call assembled is refused (#942)", async () => {
         const program = ".customers as $c | .orders | map($c[.customer_id].region) | unique";
-        const planned = planQuery(program, BOTH, new Map([["orders", { bytes: 1 << 30, rows: 40 }], ["customers", { bytes: 1 << 30, rows: 8 }]]));
+        const planned = planQuery(program, BOTH, LARGE);
         if ("result" in planned || planned.plan.kind !== "rekey") throw new Error(`${program} is not re-keyed`);
         const p = planned.plan;
         const call = createInMemorySplitCall(DATASETS, { pieces: 3 });
@@ -209,17 +218,22 @@ describe("createInMemorySplitCall (#941)", () => {
         expect(elsewhere.result.outcome.value.diagnostics.map(d => d.message)).toEqual([`Object argument 1 names ${first.output!}, which the repository does not hold`]);
     });
 
-    test("arguments partitioned together that are not dicts keyed alike are refused, and so is a call that partitions none", async () => {
+    test("arguments partitioned together that are not dicts keyed alike are refused, and so is a call that partitions none, or a final function given another count (#1107)", async () => {
         const { request } = splitOf(".customers as $c | .orders | map($c[.customer_id].region) | unique");
-        const refusal = async (partitions: readonly boolean[]) => {
+        // With no final function, unless one is given: the request's takes the output and the customers whole.
+        const refusal = async (partitions: readonly boolean[], then: typeof request.then = none) => {
             const args = request.args.map((a, i) => ({ ...a, partition: partitions[i] === true ? some({ by: [] }) : none }));
-            const { result } = await createInMemorySplitCall(DATASETS, { pieces: 3 })({ ...request, args }, QUIET);
+            const { result } = await createInMemorySplitCall(DATASETS, { pieces: 3 })({ ...request, args, then }, QUIET);
             if (result.outcome.type !== "invalid") throw new Error(`expected a refusal, got ${result.outcome.type}`);
             return result.outcome.value.diagnostics.map(d => d.message);
         };
         // The customers, a dict, with the orders, a list: no keys to cut them at together.
         expect(await refusal([true, true])).toEqual(["arguments partitioned together are dicts keyed by one type: their pieces are cut at the same keys"]);
         expect(await refusal([false, false])).toEqual(["a split call partitions at least one of its arguments: its pieces are cut from it"]);
+        // The customers cut too, they are not the final function's: it is given the output alone, as e3 gives it.
+        expect(await refusal([true, true], request.then)).toEqual([
+            "then takes 2 arguments, and the call gives it 1 argument: the assembled output, then each argument not partitioned, in order",
+        ]);
     });
 
     test("abandoned by its signal, it stops between pieces and rejects with the signal's reason", async () => {
@@ -261,8 +275,9 @@ describe("createInMemorySplitCall's explain (#1132)", () => {
     });
 
     test("of arguments partitioned together, it cuts over the heaviest — a re-keyed join's join call over the re-keyed orders, read by their hash, which weigh their beast2 bytes", async () => {
-        const program = ".customers as $c | .orders | map($c[.customer_id].region) | unique";
-        const planned = planQuery(program, BOTH, new Map([["orders", { bytes: 1 << 30, rows: 40 }], ["customers", { bytes: 1 << 30, rows: 8 }]]));
+        // The re-key call sends each order as the query reads it (#1141): its customer and its lines, which outweigh the customers.
+        const program = ".customers as $c | .orders | map({region: $c[.customer_id].region, lines: (.lines | length)}) | unique";
+        const planned = planQuery(program, BOTH, LARGE);
         if ("result" in planned || planned.plan.kind !== "rekey") throw new Error(`${program} is not re-keyed`);
         const call = createInMemorySplitCall(DATASETS, { pieces: 3 });
         const first = await call(planned.plan.first, QUIET);
@@ -280,7 +295,10 @@ describe("createInMemorySplitCall's explain (#1132)", () => {
         await expect(createInMemorySplitCall([], { pieces: 3 }).explain(request, UNABANDONED))
             .rejects.toThrow(/^Split call explain refused: Dataset argument 0 is not assigned \(ref type: unassigned\): nothing in memory at \.inputs\.orders$/);
         const joined = splitOf(".customers as $c | .orders | map($c[.customer_id].region) | unique").request;
-        const partitioned = (partitions: readonly boolean[]) => ({ ...joined, args: joined.args.map((a, i) => ({ ...a, partition: partitions[i] === true ? some({ by: [] }) : none })) });
+        // With no final function: the request's takes the customers whole.
+        const partitioned = (partitions: readonly boolean[]) => ({
+            ...joined, then: none, args: joined.args.map((a, i) => ({ ...a, partition: partitions[i] === true ? some({ by: [] }) : none })),
+        });
         await expect(createInMemorySplitCall(DATASETS, { pieces: 3 }).explain(partitioned([true, true]), UNABANDONED))
             .rejects.toThrow("Split call explain refused: arguments partitioned together are dicts keyed by one type: their pieces are cut at the same keys");
         await expect(createInMemorySplitCall(DATASETS, { pieces: 3 }).explain(partitioned([false, false]), UNABANDONED))

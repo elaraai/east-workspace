@@ -106,7 +106,7 @@ export type E3RequestKind =
     | "call"
     /** A one-shot call. */
     | "one-shot"
-    /** A split call launched, or explained (`explain=1`); or its job polled, the job's id its `name`. */
+    /** A split call launched, or explained (`explain=1`); or its job polled, or cancelled (#1104), the job's id its `name`. */
     | "split"
     /** A workspace's status. */
     | "status"

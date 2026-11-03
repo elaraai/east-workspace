@@ -22,10 +22,11 @@ import {
   ArrayType, BlobType, DictType, EastError, EastIR, East, Expr, FloatType, FunctionType, IRType, IntegerType, NeverType, NullType, OptionType, QueryCallType, RecursiveType,
   SortedMap, StringType, StructType, SummaryLeafType, SummaryType, checkJq, compareFor, constValueOf, decodeBeast2For, encodeBeast2For, equalFor, evaluateJq, none,
   printFor, printJq, QueryError, some, QueryErrorType, QuerySpanType, runtimeErrorAt, summaryProgram, toSource, translateJq, variant, walkIR,
-  type ArrayExpr, type EastType, type IR, type ValueTypeOf,
+  splitJq, type ArrayExpr, type CheckJqResult, type EastType, type IR, type ValueTypeOf,
 } from "../src/index.js";
 import { canonicalDifference, canonicalIR } from "../src/codegen/canonical.js";
 import { BUILTINS } from "../src/query/jq/catalog.js";
+import { narrowRows } from "../src/query/jq/narrow.js";
 import { BUILTIN_RULES, FORMATS } from "../src/query/jq/translate-builtins.js";
 import { inExportSubdirectory } from "./export-subdirectory.js";
 import { describeEast, assertEast } from "./platforms.spec.js";
@@ -594,5 +595,242 @@ describe("folds that set a key of their state in place (#1093)", () => {
     // Run again on the same input, which the first run left as it was.
     assertValue(Counts, evaluateJq(checked, value), counts([["a", 4n], ["b", 12n]]));
     assertValue(Counts, value.start, counts([["b", 10n]]));
+  });
+});
+
+// ─── A stage's rows folded as they are made (#1140) ──────────────────────
+
+/**
+ * The pushes onto arrays in a translation: in all, and those an `if` guards
+ * with an array's size below a count — the most rows a step keeps.
+ */
+function arrayPushes(ir: IR): { all: number; capped: number } {
+  const count = (root: IR): number => {
+    let n = 0;
+    walkIR(root, node => { if (node.type === "Builtin" && node.value.builtin === "ArrayPushLast") n += 1; });
+    return n;
+  };
+  let capped = 0;
+  walkIR(ir, node => {
+    if (node.type !== "IfElse") return;
+    for (const { predicate, body } of node.value.ifs) {
+      const size = predicate.type === "Builtin" && predicate.value.builtin === "Less" ? predicate.value.arguments[0] : undefined;
+      if (size?.type === "Builtin" && size.value.builtin === "ArraySize") capped += count(body);
+    }
+  });
+  return { all: count(ir), capped };
+}
+
+describe("a stage's rows folded as they are made (#1140)", () => {
+  const fixture = queryFixture();
+  const none = { ...fixture, orders: [] };
+  /** A stage over the orders and a step after it: as one pipe, and with the stage's rows collected first, bound to a variable no step folds. */
+  const programs = (stage: string, step: string): [fused: string, collected: string] =>
+    [`.orders | ${stage} | ${step}`, `.orders | ${stage} as $rows | $rows | ${step}`];
+  /** What a program gives over a value: its answer, printed, or the message it raised. */
+  const outcome = (program: string, value: unknown): string => {
+    const checked = checkJq(program, FixtureRoot);
+    assert.ok(checked.program !== null, `${program} checks`);
+    try {
+      return printFor(translateJq(checked).resultType)(evaluateJq(checked, value) as never);
+    } catch (e) {
+      // The message alone: the two programs place the step at different columns.
+      if (e instanceof QueryError) return `raised ${e.diagnostics.map(d => d.message).join("; ")}`;
+      throw e;
+    }
+  };
+  /** Steps that fold every row the stage makes: no array is built. */
+  const FOLDS: [stage: string, step: string][] = [
+    ["map(.total)", "add"], ["map(.customer_id)", "add"], ["map(select(.total < 0) | .total)", "add"], ["map(empty)", "add"],
+    ["map(.total)", "min"], ["map(.id)", "max"],
+    ["map(.total)", "length"], ["map(select(.total > 1000))", "length"], ["[.[] | select(.total > 1000)]", "length"], ["[.[] | .lines[]]", "length"],
+    ["map(.total > 1000)", "any"], ["map(.lines | length > 0)", "all"],
+    ["map(.total)", "reduce .[] as $t (0.0; . + $t)"], ["map(select(.total > 1000))", "reduce .[] as $o ({}; .[$o.customer_id] += $o.total)"],
+    ["map(.total)", "add | floor"], ["map(.total)", ". | add"], ["map(.id)", ".[:0]"],
+  ];
+  /** Steps that keep the first rows the stage makes: at most that many are collected. */
+  const FIRSTS: [stage: string, step: string][] = [
+    ["map(select(.total > 1000))", "first"], ["map(.id)", ".[:3]"], ["[.[] | .id, .total]", ".[:5]"], ["map(.id)", "first | . + 1"],
+  ];
+  /** Stages whose rows may raise, past the rows a step needs: jq makes every row first, so they are made, and raise. */
+  const RAISING: [stage: string, step: string][] = [
+    ["map(if .total > 1000 then error(\"too much\") else .id end)", "first"],
+    ["map(if .total > 1000 then error(\"too much\") else .id end)", ".[:1]"],
+    ["map(.id / (.id - 1040))", "any"],
+    ["map(.id % (.id - 1040))", "all"],
+  ];
+
+  test("a fold builds no array of the stage's rows, and first and .[:n] keep at most n: what the rows collected first build", () => {
+    for (const [stage, step] of [...FOLDS, ...FIRSTS, ...RAISING]) {
+      const [fused, collected] = programs(stage, step);
+      const pushes = arrayPushes(translateJq(checkJq(fused, FixtureRoot)).fn().toIR().ir);
+      const where = `${fused}: ${JSON.stringify(pushes)}`;
+      const is = (list: readonly [string, string][]): boolean => list.some(([s, t]) => s === stage && t === step);
+      if (is(FOLDS)) assert.deepEqual(pushes, { all: 0, capped: 0 }, fused);
+      // Every push is capped: one for each place the stage gives a row (`.id, .total` gives two).
+      else if (is(FIRSTS)) assert.ok(pushes.all > 0 && pushes.all === pushes.capped, where);
+      // Rows that may raise are all made: a fold pushes none of them, and first and .[:n] keep theirs capped all the same.
+      else assert.equal(pushes.all, pushes.capped, where);
+      // Collected first, the rows are all pushed, none capped: the array the fold does without.
+      const before = arrayPushes(translateJq(checkJq(collected, FixtureRoot)).fn().toIR().ir);
+      if (stage !== "map(empty)") assert.ok(before.all > before.capped, `${collected}: ${JSON.stringify(before)}`);
+    }
+  });
+
+  test("each answers as the rows collected first do, over the orders and over none, a row that raises included", () => {
+    for (const [stage, step] of [...FOLDS, ...FIRSTS, ...RAISING]) {
+      const [fused, collected] = programs(stage, step);
+      for (const value of [fixture, none]) assert.equal(outcome(fused, value), outcome(collected, value), fused);
+    }
+    for (const [stage, step] of RAISING) assert.match(outcome(programs(stage, step)[0], fixture), /^raised /, stage);
+  });
+
+  test("in a lenient place, where a row may raise for its kind, the stage makes every row", () => {
+    // `.discount * 2` raises for an order with no discount, which `try` lets by: jq makes every row, and the try catches.
+    const cases: [fused: string, collected: string][] = [
+      ["[try (.orders | map(.discount * 2) | first)]", "[try (.orders | map(.discount * 2) as $rows | $rows | first)]"],
+      ["def d: .orders | map(.discount * 2) | .[:1]; [try d]", "def d: .orders | map(.discount * 2) as $rows | $rows | .[:1]; [try d]"],
+    ];
+    for (const [fused, collected] of cases) {
+      assert.equal(outcome(fused, fixture), "[]", fused);
+      assert.equal(outcome(fused, fixture), outcome(collected, fixture), fused);
+    }
+  });
+
+  test("a break out of the stage leaves it as a raise does: the stage makes every row, unless the break stays inside its filter", () => {
+    const cases: [fused: string, collected: string][] = [
+      ["[label $out | .orders | map(if .id == 1005 then break $out else .id end) | first]",
+        "[label $out | .orders | map(if .id == 1005 then break $out else .id end) as $rows | $rows | first]"],
+      ["[.orders | map(label $l | (.id, break $l)) | first]", "[.orders | map(label $l | (.id, break $l)) as $rows | $rows | first]"],
+      ["[label $out | .orders | map(try (if .id == 1005 then break $out else .id end)) | .[:2]]",
+        "[label $out | .orders | map(try (if .id == 1005 then break $out else .id end)) as $rows | $rows | .[:2]]"],
+      ["[.orders | map(try (if .id == 1005 then error(\"refunded\") else .id end)) | .[:2]]",
+        "[.orders | map(try (if .id == 1005 then error(\"refunded\") else .id end)) as $rows | $rows | .[:2]]"],
+    ];
+    for (const [fused, collected] of cases) assert.equal(outcome(fused, fixture), outcome(collected, fixture), fused);
+    assert.equal(outcome(cases[0]![0], fixture), "[]");
+  });
+
+  test("a stage a step does not fold, or a def of a step's name, collects its rows as written", () => {
+    for (const program of [
+      ".orders | map(.total) | sort",
+      ".orders | map(.total) | .[1:]",
+      ".orders | map(.total) | .[:-1]",
+      ".orders | map(.total) | reduce .[] as $t (length; . + $t)",
+      ".orders | map(.total) | add(.[])",
+      "def add: length; .orders | map(.total) | add",
+      "def map(f): [.[] | f]; .orders | map(.total) | add",
+    ]) {
+      assert.ok(arrayPushes(translateJq(checkJq(program, FixtureRoot)).fn().toIR().ir).all > 0, program);
+    }
+  });
+});
+
+// ─── A query's rows narrowed to the fields its later steps read (#1141) ──
+
+/** The fields of each struct a translation builds, each struct's joined. */
+function structsBuilt(ir: IR): string[] {
+  const built: string[] = [];
+  walkIR(ir, node => { if (node.type === "Struct") built.push(node.value.fields.map(f => f.name).join(",")); });
+  return built;
+}
+
+describe("a query's rows narrowed to the fields its later steps read (#1141)", () => {
+  const fixture = queryFixture();
+  /** The program as written: one that defines a function, which is never narrowed, and never calls it. */
+  const written = (program: string): string => `def unread: .; ${program}`;
+  /** A program checked as an e3 root over the fixture's datasets. */
+  const checked = (program: string): CheckJqResult => {
+    const c = checkJq(program, FixtureRoot, { root: true });
+    assert.ok(c.program !== null, `${program} checks`);
+    return c;
+  };
+  /** What a program gives over the fixture: its answer, printed, or the message it raised and the text it raised at. */
+  const outcome = (program: string): string => {
+    const c = checked(program);
+    try {
+      return printFor(translateJq(c).resultType)(evaluateJq(c, fixture) as never);
+    } catch (e) {
+      if (!(e instanceof QueryError)) throw e;
+      return `raised ${e.diagnostics.map(d => `${d.message} at ${d.span.type === "some" ? program.slice(Number(d.span.value.offset), Number(d.span.value.offset + d.span.value.length)) : "-"}`).join("; ")}`;
+    }
+  };
+  /** Rows built or kept with fields no later step reads: each is narrowed. */
+  const NARROWED: readonly string[] = [
+    ".customers as $c | .orders | map(. + {region: $c[.customer_id].region}) | group_by(.region) | map({region: .[0].region, revenue: map(.total) | add, n: length})",
+    ".orders | map(. + {big: (.total > 1000)}) | group_by(.big) | map({big: .[0].big, n: length})",
+    ".orders | map(. + {total: (.total * 2)}) | map(.total) | add",
+    ".orders | map(. + {id: \"s\"}) | map(.id)",
+    ".orders | map({id, total, n: (.lines | length)}) | map(.id + .n)",
+    ".orders | map(select(.total > 1000)) | sort_by(-.total) | .[:3] | map(.id)",
+    ".orders | [.[] | select(.total > 100)] | map(.id)",
+    ".orders | map(if .total > 1000 then . else empty end) | map(.id)",
+    ".orders | map(select(.discount != null)) | map(.discount + 1)",
+    ".orders | map(select(.status.type == \"shipped\")) | map(.status.value)",
+    ".orders | map(. + {x: .total}) | unique_by(.customer_id) | map(.x)",
+    ".orders | map(. + {x: .total}) | max_by(.x) | {id, x}",
+    ".orders | map(. + {x: .total}) | reverse | .[2:5] | map(.x)",
+    ".orders | map(. + {x: .total}) | first(.[] | select(.x > 1000)) | .id",
+    ".orders | map(. + {x: .total}) | map(\"\\(.id)-\\(.x)\")",
+    ".orders | map(. + {x: .total}) | map(try .x catch 0) | add",
+    "[.orders[] | {a: .id, b: .total} | .a]",
+    ".orders | map({a: .id, $__loc__}) | map(.a)",
+    // A field none reads that raises, or gives no value or many, is made all the same.
+    ".orders | map(. + {x: error(\"refused\")}) | map(.id)",
+    ".orders | map(. + {x: (1 / (.id - 1040))}) | map(.id)",
+    ".orders | map(. + {x: (.lines[] | .qty)}) | map(.id) | length",
+    ".orders | map(. + {x: empty}) | map(.id)",
+  ];
+  /** Rows read whole, or with nothing left out but what may raise or give other than one value: each runs as written. */
+  const WRITTEN: readonly string[] = [
+    ".orders | map(. + {x: 1})",
+    ".orders | map(select(.total > 1000)) | .[0]",
+    ".orders | map(select(.total > 1000)) | map(keys)",
+    ".orders | map(. + {x: 1}) | map(tojson) | length",
+    ".orders | map(. + {x: 1}) | map(length)",
+    ".orders | map(. + {x: 1}) | map(has(\"id\"))",
+    ".orders | map(. + {x: 1}) | map(. == .)",
+    ".orders | map(. + {x: .total}) | . as $all | $all | map(.x) | add",
+    ".orders | map(. + {x: .total}) | reduce .[] as $o (0; . + $o.x)",
+    ".orders | map({id, qty: .lines[].qty}) | map(.id) | length",
+    ".orders | map({id, r: (.total / 0)}) | map(.id)",
+    "[.orders[] | try ({a: .id, b: .total} | .a)]",
+    ".orders | map(. * {x: 1}) | map(.x)",
+    ".orders | map(select(.total > 1000)) | length",
+    // Leaving `b` out would leave a dataset unread: the program's inputs are what it reads.
+    "{a: (.orders | length), b: (.customers | length)} | .a",
+    "def unread: .; .orders | map(. + {x: 1}) | map(.x)",
+  ];
+
+  test("each builds and keeps only the fields read after it, and answers as the program as written does", () => {
+    for (const program of NARROWED) {
+      const c = checked(program);
+      assert.notEqual(narrowRows(c), c, `${program} is narrowed`);
+      assert.equal(outcome(program), outcome(written(program)), program);
+    }
+    for (const program of WRITTEN) {
+      const c = checked(program);
+      assert.equal(narrowRows(c), c, `${program}: ${printJq(narrowRows(c).program!).text}`);
+    }
+  });
+
+  test("a field none reads that raises is made, and its error names the query as written", () => {
+    assert.equal(outcome(NARROWED[19]!), "raised runtime: Division by zero at 1 / (.id - 1040)");
+    assert.match(outcome(NARROWED[18]!), /^raised runtime: refused at error\("refused"\)/);
+  });
+
+  test("revenue by region builds no struct of an order's unread fields, as one unit or in its pieces", () => {
+    const program = NARROWED[0]!;
+    // The order's fields that revenue by region never reads.
+    const unread = ["discount", "id", "lines", "status"];
+    const holdsUnread = (fields: string): boolean => fields.split(",").some(f => unread.includes(f));
+    const one = structsBuilt(translateJq(checked(program)).fn().toIR().ir);
+    assert.ok(one.length > 0 && !one.some(holdsUnread), JSON.stringify(one));
+    const s = splitJq(checked(program));
+    assert.ok(s.kind === "split");
+    const piece = structsBuilt(s.piece().toIR().ir);
+    assert.ok(piece.length > 0 && !piece.some(holdsUnread), JSON.stringify(piece));
+    // As written, each order widened is built of all its fields.
+    assert.ok(structsBuilt(translateJq(checked(written(program))).fn().toIR().ir).some(holdsUnread));
   });
 });

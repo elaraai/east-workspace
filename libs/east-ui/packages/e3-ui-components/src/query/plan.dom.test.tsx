@@ -19,45 +19,52 @@
  * - a jq run likewise, the jq as typed;
  * - a join both of whose sides weigh more than one piece, re-keyed (#942):
  *   two split calls, the second over the first's output by its hash;
+ * - a stream's first rows, `first(…)` and `limit(n; …)`, a `first` split
+ *   call (#1110, #1113);
  * - the plan's read-out in the footer, and its explanation in a popover;
  * - a split run's progress while it goes — e3's units held — then its pieces;
- * - a split run that answered before e3 said how many pieces it cut — its
- *   polls held until e3 says it ended — counted by e3's explain of the call
- *   once it has answered (#1132); a re-keyed join's join call's; one whose
- *   progress named them never explained; an explain refused leaving the count
- *   unknown; a new run abandoning the one before's; and a host's split calls
- *   never explained by the server's;
+ * - how a split call ran, as its report says once it answered (#1105): one
+ *   that answered before e3 said how many pieces it cut — its polls held
+ *   until e3 says it ended — names them, and no explain is made; one the cache
+ *   served whole says so; a re-keyed join's are its join call's;
+ * - a host's split run that reports nothing counted by its explain once it
+ *   has answered (#1132); a re-keyed join's join call's; one whose progress
+ *   named them never explained; an explain refused leaving the count unknown;
+ *   a new run giving the one before's up; and a host's split calls never
+ *   explained by the server's;
  * - a small dataset one call, as the fixture's always are; the plan's
  *   options' own piece; a status that cannot be read; a query that runs as one
  *   unit; and no split call to make;
- * - a new run abandoning a split call by its signal; a split call e3 could not
- *   run, and one that never reached the server; the run a saved query starts
- *   as the builder mounts, under React's mount → unmount → mount
- *   (`StrictMode`, as the showcase mounts it), started again and answering;
+ * - a new run giving a split call up by its signal, and the builder going,
+ *   each cancelling its job (#1104); a split call e3 could not run, and one
+ *   that never reached the server; the run a saved query starts as the
+ *   builder mounts, under React's mount → unmount → mount (`StrictMode`, as
+ *   the showcase mounts it), started again and answering;
  * - under its `E3Provider`, whose `fetch` is e3's in the page, a run's status,
- *   its split call's launch and polls, its explain, and a one-shot call all go
- *   through that `fetch`, with the provider's token — and none reaches the
- *   global one, which refuses every request a test makes (`vitest.setup.ts`).
+ *   its split call's launch and polls, and a one-shot call all go through that
+ *   `fetch`, with the provider's token — and none reaches the global one,
+ *   which refuses every request a test makes (`vitest.setup.ts`).
  *
  * e3's execution cache is the file's: a test whose run must be caught going
  * runs a program no other test runs.
  */
 
+import type { ReactNode } from "react";
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { fireEvent, renderHook, screen, waitFor } from "@testing-library/react";
 import { checkJq, decodeBeast2, equalFor, fromEastTypeValue, none, variant, type EastType } from "@elaraai/east";
-import { SplitCallRequestType, type ExecuteResult, type SplitCallRequest, type SplitCallStatus } from "@elaraai/e3-types";
-import { datasetGetStatus, splitCallStatus } from "@elaraai/e3-api-client";
+import { SplitCallRequestType, type ExecuteResult, type SplitCallReport, type SplitCallRequest, type SplitCallStatus } from "@elaraai/e3-types";
+import { datasetGetStatus, splitCall, splitCallExplain, splitCallStatus } from "@elaraai/e3-api-client";
 import * as ex from "@elaraai/e3-ui/examples/query/query";
 import { formatters } from "@elaraai/east-ui-components";
 import { EXAMPLES_PIECE_MIN, type E3Dataset } from "../e3-web.test-utils.js";
-import { QueryPlanOptionsProvider, QuerySplitCallProvider, sourceStatusOf, type QuerySplitCall } from "./hooks.js";
+import { QueryPlanOptionsProvider, QuerySplitCallProvider, sourceStatusOf, useQueryPlanOptions, type QuerySplitCall } from "./hooks.js";
 import { createInMemorySplitCall } from "./in-memory-call.js";
 import { byteWords, queryWords } from "./model/words.js";
 import { prepareQuery, type QueryRoot } from "./one-shot.js";
 import { savedQuery } from "./fixture.test-utils.js";
 import {
-    HISTORY_ROOT, act, isExplain, isPoll, isSplitLaunch, openQuery, queryHarness, settle,
+    HISTORY_ROOT, act, isCancel, isExplain, isPoll, isSplitLaunch, openQuery, queryHarness, settle,
 } from "./query.test-utils.js";
 import { runFailure } from "./results.js";
 import { planRun, useQueryRun } from "./run.js";
@@ -92,6 +99,12 @@ const BY_STATUS = ".order_history | group_by(.status.type) | map({status: .[0].s
 
 /** A join of the history with the accounts, read only at the order's account, whose answer the rows' order cannot change: re-keyed, both large (#942). */
 const BY_REGION = ".accounts as $a | .order_history | map($a[.customer_id].region) | unique";
+
+/** The history's first order over 900, by input order: its id (#1113). */
+const FIRST = "first(.order_history[] | select(.total > 900)) | .id";
+
+/** The history's first five orders over 500, by input order: their ids (#1113). */
+const LIMIT = "limit(5; .order_history[] | select(.total > 500) | .id)";
 
 /** A grouping of the history of its own, for each test that runs one: e3's cache serves a program another test ran. */
 const grouped = (over: number) => `.order_history | map(select(.total >= ${over})) | group_by(.status.type) | map({status: .[0].status.type, n: length})`;
@@ -176,12 +189,14 @@ async function oneShot(program: string, root: QueryRoot): Promise<{ type: EastTy
     return decoded(await h.oneShot(prepared.prepared.request));
 }
 
-/** What the poll that found a split call's job completed carried: its result and its assembled output's hash. */
-function completedOf(polled: readonly { readonly job: string; readonly status: SplitCallStatus }[], job: string): { result: ExecuteResult; output: string | undefined } {
+/** What the poll that found a split call's job completed carried: its result, its assembled output's hash, and how it ran (#1105). */
+function completedOf(
+    polled: readonly { readonly job: string; readonly status: SplitCallStatus }[], job: string,
+): { result: ExecuteResult; output: string | undefined; report: SplitCallReport | undefined } {
     const done = polled.find((poll) => poll.job === job && poll.status.type === "completed");
     if (done === undefined || done.status.type !== "completed") throw new Error(`no poll found the job ${job} completed`);
-    const { result, output } = done.status.value;
-    return { result, output: output.type === "some" ? output.value : undefined };
+    const { result, output, report } = done.status.value;
+    return { result, output: output.type === "some" ? output.value : undefined, report: report.type === "some" ? report.value : undefined };
 }
 
 /** A dataset's status on e3, in what the read-outs show of it: its weight, its hash's first characters, its rows. */
@@ -194,9 +209,32 @@ async function weighed(dataset: E3Dataset): Promise<{ bytes: number; hash: strin
 /** How many pieces e3 cuts a call into, as its explain of it says. */
 const piecesOf = async (request: SplitCallRequest): Promise<number> => Number((await h.explain(request)).pieces);
 
-/** A read-out's last line: how many pieces a dataset is cut into, and about what each weighs. */
+/** A read-out's line: how many pieces a dataset is cut into, and about what each weighs. */
 const piecesLine = (source: string, pieces: number, bytes: number) =>
     ["pieces", `${source} is cut into ${pieces} pieces, about ${byteWords(Math.round(bytes / pieces), words)} each.`, undefined];
+
+/**
+ * What the read-out says after a call's pieces of the units the cache served,
+ * as its report says (#1105) — none said for a call whose every unit ran.
+ * e3's cache is the file's, so a run another test made is served from it.
+ */
+function cachedWords(report: SplitCallReport | undefined): string {
+    if (report === undefined) return "";
+    const [ran, cached] = [Number(report.ran), Number(report.cached)];
+    if (ran + cached === 0) return " · all cached";
+    return cached === 0 ? "" : ` · ${cached} ${cached === 1 ? "unit" : "units"} cached`;
+}
+
+/** An explanation's last line: how a call's units ran, as its report says (#1105). */
+function unitsLine(report: SplitCallReport | undefined): [string, string, undefined] {
+    if (report === undefined) throw new Error("the call reported nothing of how it ran");
+    const [ran, cached] = [Number(report.ran), Number(report.cached)];
+    const units = ran + cached;
+    const text = units === 0 ? "The cache served the whole call: no unit ran."
+        : cached > 0 ? `The cache served ${cached} of its ${units} units, and ${ran} ran.`
+            : `All ${units} of its units ran: the cache held none.`;
+    return ["units", text, undefined];
+}
 
 /**
  * Holds every poll of a split call's job until e3 says the job ended, then
@@ -287,10 +325,12 @@ describe("<Query.Builder> — a run over a dataset larger than one piece is a sp
         expect(equalFor(expected.type)(answer.value as never, expected.value as never)).toBe(true);
         // The pieces are the join call's; what the run read, the history the re-key call read, then the accounts.
         const pieces = await piecesOf(h.splitCalls()[1]!);
+        const { report } = completedOf(polled(), jobs().at(-1)!);
         const [history, accounts] = [await weighed(ex.historyTask.output), await weighed(ex.accountsTask.output)];
-        await waitFor(() => expect(footer().plan).toBe(`Re-keyed join · ${pieces} pieces`));
+        const plan = `Re-keyed join · ${pieces} pieces${cachedWords(report)}`;
+        await waitFor(() => expect(footer().plan).toBe(plan));
         expect(footer()).toEqual({
-            count: "8 rows", plan: `Re-keyed join · ${pieces} pieces`, run: expect.stringMatching(/^run #1 · /),
+            count: "8 rows", plan, run: expect.stringMatching(/^run #1 · /),
             reads: `reads order_history #${history.hash} · accounts #${accounts.hash}`,
         });
         const weight = byteWords(history.bytes, words);
@@ -301,15 +341,43 @@ describe("<Query.Builder> — a run over a dataset larger than one piece is a sp
             ["piece", "Each piece of order_history runs:", ".order_history\n| map($a[.customer_id].region)"],
             ["combine", "Their distinct rows are kept:", "unique"],
             piecesLine("Order_history", pieces, history.bytes),
+            unitsLine(report),
         ]);
     });
 
-    test("the plan's explanation: the path and why, what each piece runs, how the pieces combine, what runs once after, what each reads whole, and the pieces", async () => {
+    test("a stream's first rows — first(…) and limit(n; …) — are a first split call, which e3 stops once it has them; the one-shot call's result (#1110, #1113)", async () => {
+        const polled = h.splitResults();
+        const jobs = h.jobs();
+        await h.mountHistory();
+        await runJq(FIRST);
+        await ran(1);
+        const [call] = h.splitCalls();
+        expect([call!.output.type, call!.output.type === "first" ? call!.output.value.limit : undefined]).toEqual(["first", 1n]);
+        const one = await oneShot(FIRST, HISTORY_ROOT);
+        expect(equalFor(one.type)(decoded(completedOf(polled(), jobs()[0]!).result).value as never, one.value as never)).toBe(true);
+        // limit(n; …): its first n, in input order — the assembled rows its result, with no final function.
+        await runJq(LIMIT);
+        await ran(2);
+        const limited = h.splitCalls()[1]!;
+        expect([limited.output.type, limited.output.type === "first" ? limited.output.value.limit : undefined, limited.then.type]).toEqual(["first", 5n, "none"]);
+        const five = await oneShot(LIMIT, HISTORY_ROOT);
+        expect(equalFor(five.type)(decoded(completedOf(polled(), jobs()[1]!).result).value as never, five.value as never)).toBe(true);
+        expect((await explanation()).filter(([kind]) => kind === "piece" || kind === "combine" || kind === "then")).toEqual([
+            ["piece", "Each piece of order_history runs:", ".order_history[] | select(.total > 500) | .id"],
+            ["combine", "The first 5 rows, in input order, are kept: each piece stops once it has 5, and the call once the pieces before the rest have them:",
+                "limit(5; .order_history[] | select(.total > 500) | .id)"],
+        ]);
+    });
+
+    test("the plan's explanation: the path and why, what each piece runs, how the pieces combine, what runs once after, what each reads whole, the pieces, and how its units ran", async () => {
+        const polled = h.splitResults();
+        const jobs = h.jobs();
         await h.mountHistory();
         await openQuery(variant("saved", TOP.name));
         await ran(1);
         const pieces = await piecesOf(h.splitCalls()[0]!);
-        await waitFor(() => expect(footer().plan).toBe(`Split call · ${pieces} pieces`));
+        const { report } = completedOf(polled(), jobs()[0]!);
+        await waitFor(() => expect(footer().plan).toBe(`Split call · ${pieces} pieces${cachedWords(report)}`));
         const history = await weighed(ex.historyTask.output);
         const lines = await explanation();
         expect(screen.getByRole("dialog").textContent).toContain("How this run reads its data");
@@ -325,6 +393,7 @@ describe("<Query.Builder> — a run over a dataset larger than one piece is a sp
             ["then", "Then, once, over what they combine to:", ".[:10]"],
             ["broadcast", "Every piece reads customers whole.", undefined],
             piecesLine("Order_history", pieces, history.bytes),
+            unitsLine(report),
         ]);
     });
 
@@ -358,12 +427,85 @@ describe("<Query.Builder> — a run over a dataset larger than one piece is a sp
     });
 });
 
-// ─── Its pieces, counted by its explain ──────────────────────────────────────
+// ─── How it ran, as its report says ──────────────────────────────────────────
 
-describe("<Query.Builder> — a split run that answered before e3 said how many pieces it cut has them counted by e3's explain of the call (#1132)", () => {
-    test("once it has answered: its read-out and its explanation name the pieces, and the call explained is the one that ran", async () => {
+describe("<Query.Builder> — a split run's report says how many pieces it cut and how many units the cache served (#1105, #1113)", () => {
+    test("one that answered before e3 said how many pieces it cut: its read-out and its explanation name them, from its report, and no explain is made", async () => {
+        const polled = h.splitResults();
+        const jobs = h.jobs();
         const quiet = answeredBeforeItSaid();
         await h.mountHistory();
+        await runJq(grouped(600));
+        await quiet.end(0);
+        await ran(1);
+        const pieces = await piecesOf(h.splitCalls()[0]!);
+        const { report } = completedOf(polled(), jobs()[0]!);
+        expect([Number(report!.pieces), Number(report!.cached)]).toEqual([pieces, 0]);
+        await waitFor(() => expect([footer().count, footer().plan]).toEqual(["3 rows", `Split call · ${pieces} pieces`]));
+        expect(h.explains()).toEqual([]);
+        // Every unit ran: a program no other test runs.
+        expect((await explanation()).slice(-2)).toEqual([
+            piecesLine("Order_history", pieces, (await weighed(ex.historyTask.output)).bytes),
+            ["units", `All ${Number(report!.ran)} of its units ran: the cache held none.`, undefined],
+        ]);
+    });
+
+    test("one the cache served whole says so: its pieces, all cached, and no unit ran", async () => {
+        const polled = h.splitResults();
+        const jobs = h.jobs();
+        await h.mountHistory();
+        await runJq(grouped(700));
+        await ran(1);
+        // The same call again: e3's cache serves it whole, and no poll ever says how far it got.
+        await runKeys();
+        await ran(2);
+        const pieces = await piecesOf(h.splitCalls()[1]!);
+        const { report } = completedOf(polled(), jobs()[1]!);
+        expect([Number(report!.pieces), Number(report!.ran), Number(report!.cached)]).toEqual([pieces, 0, 0]);
+        await waitFor(() => expect([footer().run, footer().plan]).toEqual([expect.stringMatching(/^run #2 · /), `Split call · ${pieces} pieces · all cached`]));
+        expect(h.explains()).toEqual([]);
+        expect((await explanation()).slice(-2)).toEqual([
+            piecesLine("Order_history", pieces, (await weighed(ex.historyTask.output)).bytes),
+            ["units", "The cache served the whole call: no unit ran.", undefined],
+        ]);
+    });
+
+    test("a re-keyed join's are its join call's", async () => {
+        const polled = h.splitResults();
+        const jobs = h.jobs();
+        const quiet = answeredBeforeItSaid();
+        await h.mountHistory();
+        await runJq(".accounts as $a | .order_history | map($a[.customer_id].tier.type) | unique | length");
+        await quiet.end(0);
+        await quiet.end(1);
+        await ran(1);
+        const pieces = await piecesOf(h.splitCalls()[1]!);
+        const { report } = completedOf(polled(), jobs()[1]!);
+        expect(Number(report!.pieces)).toBe(pieces);
+        await waitFor(() => expect(footer().plan).toBe(`Re-keyed join · ${pieces} pieces`));
+        expect([h.splitCalls().length, h.explains().length]).toEqual([2, 0]);
+    });
+});
+
+// ─── Its pieces, counted by its explain ──────────────────────────────────────
+
+/**
+ * A host whose split calls are e3's, through the page's fetch, and report
+ * nothing of how they ran, as a host's own may; and whose explain is e3's,
+ * through the same fetch (#1132).
+ */
+const reportless = (builder: ReactNode) => (
+    <QuerySplitCallProvider
+        call={async (request, options) => ({ ...(await splitCall(h.e3.apiUrl, h.e3.repo, h.workspace, request, h.e3.options, options)), report: null })}
+        explain={(request, { signal }) => splitCallExplain(h.e3.apiUrl, h.e3.repo, h.workspace, request, h.e3.options, { signal })}>
+        {builder}
+    </QuerySplitCallProvider>
+);
+
+describe("<Query.Builder> — a host's split run that reports nothing, and answered before it said how many pieces it cut, has them counted by its explain (#1132)", () => {
+    test("once it has answered: its read-out and its explanation name the pieces, and the call explained is the one that ran", async () => {
+        const quiet = answeredBeforeItSaid();
+        await h.mountHistory({ host: reportless });
         await runJq(grouped(500));
         await quiet.end(0);
         await ran(1);
@@ -377,7 +519,7 @@ describe("<Query.Builder> — a split run that answered before e3 said how many 
     test("a run whose progress named its pieces is never explained: an explain is work in proportion to the dataset", async () => {
         // e3's units are held until a poll has said how many pieces the call cuts.
         const units = h.e3.holdUnits();
-        await h.mountHistory();
+        await h.mountHistory({ host: reportless });
         await runJq(grouped(400));
         await units.holding;
         await waitFor(() => expect(footer().plan).toMatch(/^Split call · 0 of \d+ pieces done$/), { timeout: 10_000 });
@@ -389,7 +531,7 @@ describe("<Query.Builder> — a split run that answered before e3 said how many 
 
     test("a re-keyed join's pieces are its join call's: that call explained, the re-key call's output read by its hash", async () => {
         const quiet = answeredBeforeItSaid();
-        await h.mountHistory();
+        await h.mountHistory({ host: reportless });
         await runJq(".accounts as $a | .order_history | map($a[.customer_id].tier.type) | unique");
         await quiet.end(0);
         await quiet.end(1);
@@ -404,7 +546,7 @@ describe("<Query.Builder> — a split run that answered before e3 said how many 
     test("an explain e3 refuses leaves the count unknown: the read-out says Split call, and nothing is wrong with the run", async () => {
         h.e3.fail(isExplain, { status: 500, type: "internal", message: "the pieces could not be planned" });
         const quiet = answeredBeforeItSaid();
-        await h.mountHistory();
+        await h.mountHistory({ host: reportless });
         await runJq(grouped(300));
         await quiet.end(0);
         await ran(1);
@@ -413,11 +555,11 @@ describe("<Query.Builder> — a split run that answered before e3 said how many 
         expect([footer().count, footer().plan, banners()]).toEqual(["3 rows", "Split call", []]);
     });
 
-    test("a new run abandons the explain of the run before with it: that count never lands, and the new run's does", async () => {
+    test("a new run gives the explain of the run before up with it: that count never lands, its job is cancelled, and the new run's does", async () => {
         const explains = h.e3.hold(isExplain);
         const explained = h.explainJobs();
         const quiet = answeredBeforeItSaid();
-        await h.mountHistory();
+        await h.mountHistory({ host: reportless });
         await runJq(grouped(200));
         await quiet.end(0);
         await ran(1);
@@ -430,9 +572,10 @@ describe("<Query.Builder> — a split run that answered before e3 said how many 
         await act(async () => { explains.release(); });
         const pieces = await piecesOf(h.splitCalls()[1]!);
         await waitFor(() => expect([footer().run, footer().plan]).toEqual([expect.stringMatching(/^run #2 · /), `Split call · ${pieces} pieces`]));
-        // The first run's explain was abandoned with its run: it stopped before it polled its job.
+        // The first run's explain was given up with its run: it stopped before it polled its job, and cancelled it (#1104).
         const [first, second] = explained();
         expect([h.requests("split").filter(isPoll(first)).length, h.requests("split").filter(isPoll(second)).length > 0]).toEqual([0, true]);
+        await waitFor(() => expect([h.requests("split").filter(isCancel(first)).length, h.requests("split").filter(isCancel(second)).length]).toEqual([1, 0]));
     });
 
     test("a host's split calls are explained by the host, or not at all: with no explain of its own, the server's is never asked", async () => {
@@ -473,6 +616,15 @@ describe("<Query.Builder> — one call, and when a split run can't be made (#941
         expect([footer().count, footer().plan]).toEqual(["10 orders", "Split call · 1 piece"]);
     });
 
+    test("the plan's options, as their provider gives them: its piece, the memory one call may use and the cores it runs pieces on (#1143)", () => {
+        const wrapper = ({ children }: { children?: ReactNode }) => (
+            <QueryPlanOptionsProvider memoryBytes={2 ** 30} cores={14}>{children}</QueryPlanOptionsProvider>
+        );
+        expect(renderHook(() => useQueryPlanOptions(), { wrapper }).result.current).toEqual({ memoryBytes: 2 ** 30, cores: 14 });
+        // None given: the planner's own.
+        expect(renderHook(() => useQueryPlanOptions()).result.current).toEqual({});
+    });
+
     test("a status that can't be read leaves the dataset's weight unknown: one call, which says so", async () => {
         h.e3.fail((request) => request.kind === "dataset-status" && request.dataset === "inputs.orders" && request.query.get("status") === "true");
         await h.mountBuilder();
@@ -497,7 +649,7 @@ describe("<Query.Builder> — one call, and when a split run can't be made (#941
         // A host that weighs its data sources by their statuses on e3, and makes neither call.
         const status = async (path: Parameters<typeof datasetGetStatus>[3]) =>
             sourceStatusOf(await datasetGetStatus(h.e3.apiUrl, h.e3.repo, h.workspace, path, h.e3.direct));
-        const { result } = renderHook(() => useQueryRun(HISTORY_ROOT, { call: undefined, split: undefined, explain: undefined, status, options: { pieceBytes: EXAMPLES_PIECE_MIN } }));
+        const { result } = renderHook(() => useQueryRun(HISTORY_ROOT, { call: undefined, split: undefined, explain: undefined, collection: undefined, status, options: { pieceBytes: EXAMPLES_PIECE_MIN } }));
         const program = ".order_history | map(.id)";
         const parsed = parseSteps(".order_history", HISTORY_ROOT.type);
         if ("error" in parsed) throw new Error(parsed.error.message);
@@ -514,7 +666,7 @@ describe("<Query.Builder> — one call, and when a split run can't be made (#941
 // ─── Abandoned, refused, unreachable ─────────────────────────────────────────
 
 describe("<Query.Builder> — a split run abandoned, refused, or never reaching the server (#941)", () => {
-    test("a new run abandons a split call by its signal: only the last run's answer shows", async () => {
+    test("a new run gives a split call up by its signal: its job is cancelled (#1104), and only the last run's answer shows", async () => {
         // e3's units are held, so the first run's call is going when the second starts.
         const units = h.e3.holdUnits();
         const polled = h.splitResults();
@@ -524,22 +676,44 @@ describe("<Query.Builder> — a split run abandoned, refused, or never reaching 
         await units.holding;
         await runKeys();
         await waitFor(() => expect(jobs()).toHaveLength(2));
+        // The first run's job is cancelled as the second run starts, while its units are held: e3 stops them.
+        await waitFor(() => expect(h.requests("split").filter(isCancel(jobs()[0]))).toHaveLength(1), { timeout: 10_000 });
         units.release();
         await ran(2);
         const pieces = await piecesOf(h.splitCalls()[1]!);
         await waitFor(() => expect([footer().count, footer().plan]).toEqual(["3 rows", `Split call · ${pieces} pieces`]));
-        // The first run's call stopped polling as the second began: no poll found its job ended.
+        // The first run's call stopped polling as the second began: no poll found its job ended; and the second's job ran on.
         expect(polled().filter((poll) => poll.job === jobs()[0] && poll.status.type !== "processing")).toEqual([]);
+        expect(h.requests("split").filter(isCancel(jobs()[1]))).toEqual([]);
+        await h.jobEnded(jobs()[0]!);
+        expect((await splitCallStatus(h.e3.apiUrl, h.e3.repo, h.workspace, jobs()[0]!, h.e3.direct)).type).toBe("cancelled");
+    });
+
+    test("the builder going gives its run in flight up: the split call's job is cancelled (#1104)", async () => {
+        const units = h.e3.holdUnits();
+        const jobs = h.jobs();
+        const view = await h.mountHistory();
+        await runJq(grouped(800));
+        await units.holding;
+        await waitFor(() => expect(jobs()).toHaveLength(1));
+        await act(async () => { view.unmount(); });
+        await waitFor(() => expect(h.requests("split").filter(isCancel(jobs()[0]))).toHaveLength(1), { timeout: 10_000 });
+        units.release();
+        await h.jobEnded(jobs()[0]!);
+        expect((await splitCallStatus(h.e3.apiUrl, h.e3.repo, h.workspace, jobs()[0]!, h.e3.direct)).type).toBe("cancelled");
     });
 
     test("the run a saved query starts as the builder mounts, under React's mount → unmount → mount: abandoned by the unmount, started again under its number, and answering", async () => {
+        const polled = h.splitResults();
+        const jobs = h.jobs();
         await h.mountHistory({ query: TOP.name, strict: true });
         await ran(1);
         const pieces = await piecesOf(h.splitCalls()[0]!);
-        await waitFor(() => expect(footer().plan).toBe(`Split call · ${pieces} pieces`));
+        const plan = `Split call · ${pieces} pieces${cachedWords(completedOf(polled(), jobs()[0]!).report)}`;
+        await waitFor(() => expect(footer().plan).toBe(plan));
         expect(banners()).toEqual([]);
         expect(footer()).toEqual({
-            count: "10 shipped order histories", plan: `Split call · ${pieces} pieces`, run: expect.stringMatching(/^run #1 · /),
+            count: "10 shipped order histories", plan, run: expect.stringMatching(/^run #1 · /),
             reads: `reads customers #${(await weighed(ex.customers)).hash} · order_history #${(await weighed(ex.historyTask.output)).hash}`,
         });
         // The unmount abandoned the run while it weighed the history, before it called: the one split call is the run's again.
@@ -567,13 +741,12 @@ describe("<Query.Builder> — a split run abandoned, refused, or never reaching 
 // ─── Through the provider's fetch ────────────────────────────────────────────
 
 describe("<Query.Builder> — under its E3Provider, whose fetch is e3's in the page, every call goes through it (#941)", () => {
-    test("a run's status, its split call's launch and polls, its explain, and a one-shot call — each with the provider's token", async () => {
+    test("a run's status, its split call's launch and polls, and a one-shot call — each with the provider's token", async () => {
         const jobs = h.jobs();
         const quiet = answeredBeforeItSaid();
         await h.mountHistory({ token: "tok" });
         // A split run: the history weighed, then the call launched and polled. Its job answered at its first poll — as a
-        // run e3's cache served does — so no progress told how many pieces it cut: its explain, launched and polled
-        // through the same fetch, counts them (#1132).
+        // run e3's cache served does — so no progress told how many pieces it cut: its report does (#1105).
         await runJq(grouped(50));
         await quiet.end(0);
         await ran(1);
@@ -589,10 +762,9 @@ describe("<Query.Builder> — under its E3Provider, whose fetch is e3's in the p
             `GET /repos/default/workspaces/${ws}/datasets/tasks/order_history/output?status=true`,
             `POST /repos/default/workspaces/${ws}/one-shot/split`,
             `GET /repos/default/workspaces/${ws}/one-shot/split/${jobs()[0]}`,
-            `POST /repos/default/workspaces/${ws}/one-shot/split?explain=1`,
-            `GET /repos/default/workspaces/${ws}/one-shot/split/${jobs()[1]}`,
             `POST /repos/default/workspaces/${ws}/one-shot`,
         ]));
+        expect(h.explains()).toEqual([]);
         expect(h.requests().filter((request) => request.authorization !== "Bearer tok").map((request) => request.path)).toEqual([]);
     });
 });

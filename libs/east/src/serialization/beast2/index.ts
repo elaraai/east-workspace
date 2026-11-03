@@ -89,8 +89,14 @@ export {
   type Beast2LazyStats,
 } from "./v5/lazy.js";
 export {
+  beast2PagedLoopStats,
+  type Beast2PagedLoopStats,
+} from "./v5/project.js";
+export {
   RUN_MAX_COUNT,
   RUN_MAX_BYTES,
+  FOLD_TABLE_MAX_KEYS,
+  FOLD_TABLE_MAX_KEY_BYTES,
   Beast2RunSorter,
   type Beast2RunSink,
   type Beast2RunSorterOptions,

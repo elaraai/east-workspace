@@ -1337,6 +1337,30 @@ translation.fn();         // East.function([Array<Order>], Float, …)
   order, a struct's fields in declared order.
 - **The result is the sink.** A `one` query's result is its output, `maybe`
   fills an `Option`, and `many` pushes each output onto an `Array`.
+- **A stage's rows fold into the step that reads them (#1140).** `map(f)` or
+  `[f]` before a step that reads an array only row by row, in order — `add`,
+  `length`, `min`, `max`, `any`, `all`, `first`, `.[:n]` for a literal `n`, or
+  a `reduce` over `.[]` whose start reads nothing of its input — is one loop:
+  each row is computed where collecting it would compute it, and folded at
+  once, and the array between them is never built. `.orders | map(.total) |
+  add` holds one total at a time. Any other step, a step a `def` names, and a
+  stage bound to a variable collect their rows as written.
+- **A row holds only the fields read after it (#1141).** An object a step
+  builds, `{a: f, b: g}` or `. + {c: h}` on a struct, keeps the fields the
+  steps after it read. A field none reads is left out where making it neither
+  raises nor gives other than one value: `{a: .x, b: (.y / .z)} | .a` makes
+  `b`, whose division may raise. Checked as an e3 root, a stage over a
+  dataset's rows that passes them on, `map(select(p))`, ends by building each
+  row of the fields read after it, and a paged dataset's loop then decodes
+  those fields alone (#1112). A row read whole is built whole: one that
+  reaches the output, or meets `keys`, `tojson`, `length` of an object,
+  `==`, a variable bound to it, or any step not known to read fields apart;
+  so is every value in a `try`'s body, and a program with a `def` runs as
+  written. The translation runs the narrowed program checked again, each
+  node at the text it came from, so a runtime error names the query as
+  written; the `Query` builtin carries the program as written (§15.7).
+  `.customers as $c | .orders | map(. + {region: $c[.customer_id].region}) |
+  group_by(.region) | …` builds each order of its total and region alone.
 - **Every value has the checker's type.** Each node's outputs are converted to
   the type the checker gave it: Integer widened to Float, `T` and `null` to
   `Option<T>`, arrays, dicts, structs and variants part by part. Narrowing is
@@ -1368,6 +1392,19 @@ lazy input stops being read there (§15.6).
 first(.orders[] | select(.total > 1000)) | .id
 ```
 → `.some 1002` · Option<Integer>, maybe (the loop over the orders stops at the second)
+
+A stage folded into `first`, `.[:n]`, `any` or `all` (§15.1) stops there too,
+when making a row never raises. jq makes every row of `map(f)` before the step
+after it reads one, so a row past the answer that raises makes the query
+raise: the stage makes every row when `f` may raise — a division or a
+remainder, `error`, a conversion such as `tonumber`, a `def` or a function
+value — and in a lenient place, where the checker lets a value of a kind a step
+cannot take by, to raise.
+
+```jq
+.orders | map(select(.total > 1000)) | first | .id
+```
+→ `.some 1002` · Option<Integer>, one (the stage stops at the second order, and the array it collected is one row)
 
 ### 15.3 Control and errors
 
@@ -1843,7 +1880,7 @@ split call runs a program (`libs/e3/design/e3-data-architecture.md` §3.7):
   output kind;
 - e3 combines the pieces' outputs by that kind;
 - a final function runs the rest of the query once, over the combined result
-  and the inputs.
+  and the inputs not partitioned (#1107): e3 gives it those alone.
 
 The result is the translation's (`translateJq`), of its `resultType`. Floats
 added up in pieces may differ from the one unit's in their last bits, since
@@ -1866,6 +1903,7 @@ the engine groups the additions.
 | `unique` | `set` | united |
 | `unique_by(g)` | `dict`, by `g` | the first row of each key |
 | `reduce .[] as $x ({}; .[k] += v)`, or `= v`, or over `.D[]` | `dict`, by `k` | added with `+`, or the last kept |
+| `first(f)` or `limit(n; f)` around a stream of the dataset's rows, `n` a whole number of at least 1 (#1113) | `first`, of `n` (one for `first`) | concatenated in input order, and the first `n` kept: e3 stops once the pieces before the rest hold them (#1110) |
 | anything else, after some row work | `array` | concatenated in input order |
 
 - **The first rows of a sort** (#942). A piece keeps each row with its sort
@@ -1876,6 +1914,16 @@ the engine groups the additions.
   result is the one unit's. The step that reads them runs once after, in the
   final function (`.[:10]`, `.[0].id`). A sort whose every row the query
   keeps (`sort_by(g) | reverse`) is still `every_row`.
+- **A stream's first rows** (#1113). `first(f)` and `limit(n; f)`, where `f`
+  streams a dataset's rows — `.D[] | g`, `.D | .[] | g`, a dict's
+  `to_entries[]` — keep `f`'s first outputs in input order. Each piece sends
+  its rows as they come and stops once it has sent `n`, so it reads only as
+  far as it needs; e3 keeps the first `n` of all, in input order, and stops
+  the pieces after once the pieces before them hold `n` (#1110). The steps
+  after the `first` or `limit` run on each of the rows it keeps, in the final
+  function, and a `many` query whose `n` rows are its result, `n` no more than
+  its sink keeps, has none. A count the query computes, or one below 1, is
+  the one unit's to read: `stops_early`.
 - **A join cut at the same keys** (#942). Where the rows are a dict's
   entries, a dict bound before the stream (`.B as $b`) and keyed as the
   dataset is, which the pieces read only at the row's own key — `$b[.key]`,
@@ -1883,7 +1931,8 @@ the engine groups the additions.
   `copartitioned`: partitioned with the dataset, so e3 cuts both at the same
   keys, those of whichever weighs more, and each piece reads only its own
   keys of it. Read any other way — at another key, or whole — it is
-  `broadcast`.
+  `broadcast`, and so is one the final function reads too, which is given
+  only the inputs not partitioned (#1107).
 - **A re-keyed join** (#942). Where the rows are an array's, or a set's, a
   dict bound before the stream which the pieces read only at one field of
   the row, of the dict's key type (`$c[.customer_id]`, `$c[$o.customer_id]`
@@ -1903,7 +1952,12 @@ the engine groups the additions.
   adds numbers. A Float sum is added in another grouping, as any split's is.
   Whether to re-key is the caller's, by what the datasets weigh: the query
   builder re-keys only when the joined dict weighs more than one piece too
-  (`Query Editor Spec.md` §4.15).
+  (`Query Editor Spec.md` §4.15). A dict the final function reads too is
+  never re-keyed: the join call partitions it, and its final function is
+  given only the inputs not partitioned (#1107). The re-key call sends each
+  row as the query reads it, of the fields read (#1141), the join key's
+  among them: revenue by carrier, `map({carrier: $s[.id].carrier, total})`,
+  sends each order's id and total, and its join call's pieces read those.
 
 - **A piece's table** (#1093). A piece whose output combines by key — a
   grouping by totals, `unique`, `unique_by`, a `reduce` — folds its rows into
@@ -1934,8 +1988,10 @@ the engine groups the additions.
   stands for: the totals finished and their expression generated over them,
   the groups in key order (`group_by`'s order), the set's rows in order, or
   the dict's values. It runs the rest of the pipeline on that value, then the
-  query's sink (§15.1), `maxOutputs` included. A query whose combined rows are
-  its result has no final function.
+  query's sink (§15.1), `maxOutputs` included. It takes the combined result,
+  then the inputs not partitioned, in their order, as e3 gives them (#1107):
+  never the dataset the pieces are cut from, nor a dict cut with it. A query
+  whose combined rows are its result has no final function.
 - **The programs are the translator's.** Each is generated from the checked
   program, a total's node standing for its finished value. So a piece
   computes what the one unit computes on its rows, and a runtime error names
@@ -1950,7 +2006,7 @@ the engine groups the additions.
 |---|---|
 | `no_stream` | it reads no dataset row by row: a count (`.D \| length`), a key (`.D[k]`, `has(k)`), or a value whole |
 | `nested` | it reads a dataset's rows inside an expression, not as its pipeline |
-| `stops_early` | a stream, `first(…)` or `limit(…)`: one unit stops as soon as it has the outputs it keeps, and a caller caps a stream's. An ordered early stop stays one lazy unit until e3 can stop a split call's other units once one has what it keeps (#942) |
+| `stops_early` | a stream that is the query's own outputs, which a caller caps; or a `first(…)` or `limit(…)` that does not split — over no dataset's stream, or a `limit` whose count the query computes or is below 1: one unit stops as soon as it has the outputs it keeps |
 | `position` | a step takes rows by position (`.[a:b]`, `first`, `last`), with no row work before it |
 | `every_row` | a step needs every row at once (`sort_by`, `reverse`, …), with no row work before it, and is not a sort whose first rows alone are read |
 | `state` | `foreach`, or a builtin that reads the program's further inputs |
@@ -1974,7 +2030,8 @@ a flush, with keys few and all different, and what a piece sends is held to
 the count the table's rules give. A join cut at the same keys runs over two
 dicts keyed alike, cut by either one's keys, and a re-keyed join's two calls
 over the fixture, cut by the re-keyed rows' keys or the customers', each held
-to the translation's result.
+to the translation's result. A stream's first rows run the same way, no piece
+emitting more than it keeps.
 
 ---
 

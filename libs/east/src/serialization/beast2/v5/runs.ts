@@ -23,6 +23,13 @@
  * decides the output's bytes; and both caps count what every runtime measures
  * alike — elements, and the bytes of their canonical encoding — so every
  * runtime closes a run at the same element.
+ *
+ * A fold whose values do not grow — a Dict's merge over a bounded value type,
+ * a Set's union — folds a key's values as they are added, in a fold table in
+ * front of the open run (SPEC.md, *Folding as added*): an output with few keys
+ * then sorts a few elements rather than every one. The table's bounds, and when
+ * it spills and steps aside, are constants and rules of the format too, as the
+ * caps are.
  */
 
 import { type EastTypeValue } from "../../../type_of_type.js";
@@ -43,6 +50,54 @@ export const RUN_MAX_COUNT = 131_072;
 /** Bytes of canonical element encoding — keys and values both — a run holds
  *  before it closes. */
 export const RUN_MAX_BYTES = 64 * 1024 * 1024;
+
+/** Keys a fold table holds before a new one makes it spill. */
+export const FOLD_TABLE_MAX_KEYS = 65_536;
+
+/** Bytes of canonical key encoding a fold table holds before a new key makes
+ *  it spill: each key's counted once, as it enters. */
+export const FOLD_TABLE_MAX_KEY_BYTES = 16 * 1024 * 1024;
+
+/**
+ * Whether a value type's encoding is bounded, so a fold over it does not grow:
+ * Null, Boolean, Integer, Float, DateTime, and Structs and Variants of those.
+ *
+ * @param type - the value type
+ * @returns whether a fold table may hold its values
+ */
+function boundedEncoding(type: EastTypeValue): boolean {
+  switch (type.type) {
+    case "Null":
+    case "Boolean":
+    case "Integer":
+    case "Float":
+    case "DateTime":
+      return true;
+    case "Struct":
+    case "Variant":
+      return (type.value as { type: EastTypeValue }[]).every((part) => boundedEncoding(part.type));
+    default:
+      return false;
+  }
+}
+
+/** A key a fold table holds, with its values' partial folds — a Set's key has
+ *  none. */
+interface FoldEntry {
+  /** The key as it was first added, which the merge function is given. */
+  readonly key: unknown;
+  /** Its canonical bytes. */
+  readonly keyBytes: Uint8Array;
+  /** The partial folds, oldest first, and how many values each covers. */
+  readonly partials: { value: unknown; covers: number }[];
+}
+
+/** A map key for canonical bytes: equal exactly when the bytes are. */
+function bytesId(bytes: Uint8Array): string {
+  let id = "";
+  for (let i = 0; i < bytes.length; i += 4_096) id += String.fromCharCode.apply(null, bytes.subarray(i, i + 4_096) as unknown as number[]);
+  return id;
+}
 
 /**
  * Folds `count` values pairwise, in order — how a run folds a repeated key's
@@ -147,6 +202,20 @@ export class Beast2RunSorter<T extends EastType = EastType> {
   private readonly buffer = new BufferWriter();
   /** A folded element, while it is assembled. */
   private readonly folded = new BufferWriter();
+  /** An element the fold table takes, while it is weighed. */
+  private readonly scratch = new BufferWriter();
+  /** An entry the fold table spills, while it is assembled. */
+  private readonly spilling = new BufferWriter();
+  /** The fold table: its entries by their keys' canonical bytes, in the order
+   *  the keys entered it; `null` for a fold it does not take, and once it has
+   *  stepped aside. */
+  private table: Map<string, FoldEntry> | null;
+  /** The canonical key bytes the table holds. */
+  private tableKeyBytes = 0;
+  /** The elements the table has absorbed, which its first spill weighs. */
+  private absorbed = 0;
+  /** Whether the table has spilled. */
+  private spilled = false;
   private starts: number[] = [];
   private keyLengths: number[] = [];
   private keys: unknown[] = [];
@@ -209,6 +278,7 @@ export class Beast2RunSorter<T extends EastType = EastType> {
       };
       this.cmp = compareFor(dict.key) as (a: unknown, b: unknown) => number;
       this.printKey = printFor(dict.key);
+      this.table = merge !== undefined && boundedEncoding(dict.value) ? new Map() : null;
     } else {
       const elementType = (typeValue as { value: EastTypeValue }).value;
       const elem = buildV5Encoder(elementType, typeCtx);
@@ -221,6 +291,7 @@ export class Beast2RunSorter<T extends EastType = EastType> {
       this.decodeValue = null;
       this.cmp = compareFor(elementType) as (a: unknown, b: unknown) => number;
       this.printKey = printFor(elementType);
+      this.table = union === true ? new Map() : null;
     }
   }
 
@@ -232,15 +303,23 @@ export class Beast2RunSorter<T extends EastType = EastType> {
 
   /**
    * Encodes one element and adds it to the open run, which is written out once
-   * it reaches {@link RUN_MAX_COUNT} elements or {@link RUN_MAX_BYTES}.
+   * it reaches {@link RUN_MAX_COUNT} elements or {@link RUN_MAX_BYTES} — or,
+   * for a fold the fold table takes, folds it into the table, which spills
+   * into the open run once a new key would take it past
+   * {@link FOLD_TABLE_MAX_KEYS} keys or {@link FOLD_TABLE_MAX_KEY_BYTES}.
    *
    * @param element - a Set element, or a Dict's `[key, value]` pair
    * @throws {Error} When called after {@link finish}; when the element cannot
-   *   be encoded, which leaves the sorter as it was; or, as the run it closes is
-   *   written, when a key repeats without a fold or the merge function throws.
+   *   be encoded, which leaves the sorter as it was; when the merge function
+   *   throws as the table folds; or, as the run it closes is written, when a
+   *   key repeats without a fold or the merge function throws.
    */
   add(element: Beast2ElementOf<T>): void {
     if (this.finished) throw new Error("add() after finish()");
+    if (this.table !== null) {
+      this.addToTable(element);
+      return;
+    }
     const start = this.buffer.size;
     // Aliasing is scoped to the element, so its bytes depend on it alone and
     // it can be written into whichever run it lands in by byte copy.
@@ -262,7 +341,8 @@ export class Beast2RunSorter<T extends EastType = EastType> {
   }
 
   /**
-   * Writes the open run, if it holds anything. Idempotent.
+   * Spills the fold table, and writes the open run, if it holds anything.
+   * Idempotent.
    *
    * @throws {Error} When a key of the open run repeats without a fold, or the
    *   merge function throws.
@@ -270,7 +350,116 @@ export class Beast2RunSorter<T extends EastType = EastType> {
   finish(): void {
     if (this.finished) return;
     this.finished = true;
+    if (this.table !== null && this.table.size > 0) this.spill();
     if (this.keys.length > 0) this.writeRun();
+  }
+
+  /**
+   * The fold table's state: whether it takes the elements added, and the keys
+   * and canonical key bytes it holds.
+   *
+   * @returns The state; a table that stepped aside, or that this fold never
+   *   had, is off and holds nothing
+   * @internal
+   */
+  foldTableState(): { on: boolean; keys: number; keyBytes: number } {
+    return this.table === null
+      ? { on: false, keys: 0, keyBytes: 0 }
+      : { on: true, keys: this.table.size, keyBytes: this.tableKeyBytes };
+  }
+
+  /** Folds one element into the fold table — first spilling it when the
+   *  element's key is new and would take it past a bound — or, once the table
+   *  has stepped aside, adds it to the open run. An element that fails to
+   *  encode, or whose fold throws, leaves the sorter as it was. */
+  private addToTable(element: unknown): void {
+    const scratch = this.scratch;
+    scratch.pop();
+    this.ctx.containerIndex.clear();
+    this.ctx.segmentBaseDef = this.ctx.containerCount;
+    let keyLength: number;
+    try {
+      keyLength = this.encodeElement(element, scratch);
+    } catch (err) {
+      scratch.pop();
+      throw err;
+    }
+    const bytes = scratch.toUint8Array();
+    const key = this.kind === "Dict" ? (element as [unknown, unknown])[0] : element;
+    const id = bytesId(bytes.subarray(0, keyLength));
+    const entry = this.table!.get(id);
+    if (entry === undefined) {
+      // A table holding no key never spills: a key whose bytes alone pass the
+      // bound enters it.
+      const size = this.table!.size;
+      if (size >= FOLD_TABLE_MAX_KEYS || (size > 0 && this.tableKeyBytes + keyLength > FOLD_TABLE_MAX_KEY_BYTES)) {
+        this.spill();
+        if (this.table === null) {
+          this.addEncoded(bytes, keyLength, key);
+          return;
+        }
+      }
+      const partials = this.kind === "Dict" ? [{ value: this.decodeValue!(bytes.subarray(keyLength)), covers: 1 }] : [];
+      this.table!.set(id, { key, keyBytes: bytes.slice(0, keyLength), partials });
+      this.tableKeyBytes += keyLength;
+      this.absorbed++;
+      return;
+    }
+    if (this.kind === "Dict") {
+      // Folded decoded, as a run folds a key's values: pairwise, in the order
+      // they were added. The partials change only once every fold has
+      // returned, so a merge that throws leaves them as they were.
+      const merge = this.merge!;
+      const partials = entry.partials;
+      let value = this.decodeValue!(bytes.subarray(keyLength));
+      let covers = 1;
+      let top = partials.length;
+      while (top > 0 && partials[top - 1]!.covers === covers) {
+        value = merge(entry.key, partials[top - 1]!.value, value);
+        covers *= 2;
+        top--;
+      }
+      partials.length = top;
+      partials.push({ value, covers });
+    }
+    this.absorbed++;
+  }
+
+  /** Spills the fold table into the open run, each entry in the order its key
+   *  entered, its partials folded newest into oldest; at the first spill, a
+   *  table that absorbed fewer than two elements a key steps aside. */
+  private spill(): void {
+    const table = this.table!;
+    const stepAside = !this.spilled && this.absorbed < 2 * table.size;
+    this.spilled = true;
+    for (const entry of table.values()) {
+      const out = this.spilling;
+      out.pop();
+      out.writeBytes(entry.keyBytes);
+      if (this.kind === "Dict") {
+        const merge = this.merge!;
+        const partials = entry.partials;
+        let acc = partials.pop()!.value;
+        while (partials.length > 0) acc = merge(entry.key, partials.pop()!.value, acc);
+        this.ctx.containerIndex.clear();
+        this.ctx.segmentBaseDef = this.ctx.containerCount;
+        this.encodeValue!(acc, out, this.ctx);
+      }
+      this.addEncoded(out.toUint8Array(), entry.keyBytes.length, entry.key);
+    }
+    table.clear();
+    this.tableKeyBytes = 0;
+    if (stepAside) this.table = null;
+  }
+
+  /** Adds an element, already in its canonical bytes, to the open run, which is
+   *  written out once it reaches either cap. */
+  private addEncoded(bytes: Uint8Array, keyLength: number, key: unknown): void {
+    this.starts.push(this.buffer.size);
+    this.buffer.writeBytes(bytes);
+    this.keyLengths.push(keyLength);
+    this.keys.push(key);
+    if (this.keys.length >= RUN_MAX_COUNT || this.buffer.size >= RUN_MAX_BYTES) this.writeRun();
   }
 
   /** Sorts the open run, folds its repeated keys, and writes it. A failure
