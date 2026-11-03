@@ -633,6 +633,10 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     actionBarBack: () => string;
     /** A phone's action bar: the button listing the rest of the offer, past four (X6). */
     actionBarMore: () => string;
+    /** A phone's action bar: ⌄ close (SH9). */
+    actionBarClose: () => string;
+    /** A phone's action bar over a row offered nothing further (SH9.1) — `No further actions · 24 good · done 08:42`. */
+    actionBarNothing: (p: { summary: string }) => string;
     /** Why the field took no value (an action's `updates` threw, or its value could not be read): the gesture is refused. */
     actionFailed: (p: { verb: string; reason: string }) => string;
 
@@ -1002,6 +1006,8 @@ export const sheetMessages: SheetMessages = {
     },
     actionBarBack: () => "Back to the actions",
     actionBarMore: () => "More…",
+    actionBarClose: () => "Close action bar",
+    actionBarNothing: ({ summary }) => (summary === "" ? "No further actions" : `No further actions · ${summary}`),
     actionFailed: ({ verb, reason }) => `${verb} could not be taken — ${reason}`,
 
     pagerColumns: () => "Columns",

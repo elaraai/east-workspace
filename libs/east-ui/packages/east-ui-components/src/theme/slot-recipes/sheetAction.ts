@@ -64,7 +64,7 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
         "menu", "menuHead", "menuKbd", "menuReason",
         "form", "formHead", "formLabel", "formEyebrow", "formMeta", "formClose", "formBody", "formError", "formFoot", "formConsequence", "formButton",
         "panel", "panelState", "panelActions", "panelChoices", "panelForm",
-        "bar", "barHead", "barEyebrow", "barState", "barFirst", "barRest", "barButton", "barConsequence", "barBack", "barChoice",
+        "bar", "barHead", "barEyebrow", "barState", "barFirst", "barRest", "barButton", "barConsequence", "barBack", "barChoice", "barClose", "barWhy",
     ],
     base: {
         /* The cell's content, filling it inside its rules; the ring the grid draws after it paints over. */
@@ -340,48 +340,82 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             /* The pane is narrow: its consequence wraps rather than cut. */
             "& [data-consequence]": { whiteSpace: "normal" },
         },
-        /* A phone's action bar (X5–X7): the docked strip as the selected row's actions. */
+        /* A phone's action bar (X5–X7; `Mobile Sheet Spec.md` SH9, the designer's `WorkOrdersPhone`): in the bottom
+         * container — `--paper-2`, a `--rule-strong` above, padded 0 16 12, its parts 8 apart, at most 420 then scrolling. */
         bar: {
             display: "flex",
             flexDirection: "column",
             gap: "8px",
-            padding: "12px",
+            paddingTop: "0",
+            paddingX: "16px",
             paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))",
             background: "bg.canvas",
             borderTopWidth: "1px",
             borderTopStyle: "solid",
             borderTopColor: "border.strong",
-            maxHeight: "60%",
+            maxHeight: "420px",
             overflowY: "auto",
             /* The grid gives way to the bar, never the bar to the grid (X7): a scroller's least height is 0. */
             flexShrink: 0,
         },
-        barHead: { display: "flex", alignItems: "center", gap: "8px", minHeight: "20px" },
+        /* Its head, 44: ‹ back in a sub-view, the eyebrow, the state, ⌄ close — the close 12 into the bar's padding. */
+        barHead: { flex: "none", height: "44px", display: "flex", alignItems: "center", gap: "8px", marginRight: "-12px" },
         barEyebrow: {
+            flex: "1",
+            minWidth: 0,
             fontFamily: "mono",
             fontSize: "label.sm",
             fontWeight: 600,
             letterSpacing: "0.14em",
             textTransform: "uppercase",
-            color: "brand.solid",
+            color: "fg",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
         },
-        barState: { marginLeft: "auto" },
+        barState: { flex: "none" },
         barFirst: { display: "flex" },
         barRest: { display: "grid", gridTemplateColumns: "repeat(var(--action-rest, 3), minmax(0, 1fr))", gap: "8px" },
+        /* Default 44 buttons on `--r-md` (`--rule-strong`, the paper): the first full width at 12.5/600, the rest 12.5/500. */
         barButton: {
             minHeight: "44px",
+            height: "44px",
             width: "100%",
             justifyContent: "center",
             gap: "8px",
+            paddingX: "8px",
+            borderColor: "border.strong",
+            borderRadius: "md",
+            background: "bg.surface",
+            fontSize: "body.sm",
+            fontWeight: 500,
+            color: "fg",
             whiteSpace: "nowrap",
+            "&[data-first]": { paddingX: "12px", fontWeight: 600 },
             "& svg": { fontSize: "16px" },
             "& [data-check] svg": { color: "status.pos" },
         },
-        barConsequence: { fontFamily: "mono", fontSize: "label.md", color: "fg.muted" },
-        barBack: { minWidth: "44px", minHeight: "44px" },
-        barChoice: { minHeight: "44px", justifyContent: "flex-start" },
+        barConsequence: { fontFamily: "mono", fontSize: "label.md", lineHeight: "1.5", color: "fg.muted" },
+        /* Why a blocked row waits (SH9.3): running text in `--ink-2`. */
+        barWhy: { paddingBottom: "4px", fontSize: "body", lineHeight: "1.5", color: "fg.strong" },
+        /* ‹ back: 44 on `--r-md`, 14 into the bar's padding, its chevron 14 in `--ink-3`. */
+        barBack: {
+            flex: "none", width: "44px", height: "44px", marginLeft: "-14px", marginRight: "-4px",
+            display: "inline-flex", alignItems: "center", justifyContent: "center", border: "none", padding: "0", borderRadius: "md",
+            background: "transparent", color: "fg.muted", cursor: "pointer", "& svg": { fontSize: "14px" },
+            _hover: { background: "bg.subtle", color: "fg" },
+        },
+        /* ⌄ close: the same, at the head's end. */
+        barClose: {
+            flex: "none", width: "44px", height: "44px",
+            display: "inline-flex", alignItems: "center", justifyContent: "center", border: "none", padding: "0", borderRadius: "md",
+            background: "transparent", color: "fg.muted", cursor: "pointer", "& svg": { fontSize: "14px" },
+            _hover: { background: "bg.subtle", color: "fg" },
+        },
+        /* A choice's reasons (SH9.2): a 44 row each, outlined, body 13 in ink, left-aligned. */
+        barChoice: {
+            minHeight: "44px", height: "44px", width: "100%", justifyContent: "flex-start", paddingX: "12px",
+            borderColor: "border.strong", borderRadius: "md", background: "bg.surface", fontSize: "body", fontWeight: 400, color: "fg",
+        },
     },
 });

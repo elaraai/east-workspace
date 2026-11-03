@@ -875,6 +875,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     });
     const ui = store.ui;
     const folds = ui.folds;
+    // A phone's action bar ⌄ closed at a cell (SH9): it stays closed there until a press on a cell — that one or another.
+    const [barClosedAt, setBarClosedAt] = useState<{ r: number; c: number } | undefined>(undefined);
     const foldedOf = useCallback((row: SheetRowValue): boolean => folds.get(row.id) ?? getSomeorUndefined(row.band)?.folded ?? false, [folds]);
     // A line's sub rows fold under its id like a group under its own: `false` open, `true` closed, absent untouched.
     const subRowsOpenOf = useCallback((lineKey: string): boolean | undefined => { const f = folds.get(lineKey); return f === undefined ? undefined : !f; }, [folds]);
@@ -2241,6 +2243,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         pressed.current = !e.shiftKey;
         dragging.current = false;
         ringGesture();
+        // A press opens a phone's action bar again, wherever it was closed (SH9).
+        setBarClosedAt(undefined);
         dispatch({ t: "cell.down", r, c, shift: e.shiftKey });
     }, [dispatch, ringGesture]);
     const onCellDouble = useCallback((r: number, c: number) => { ringGesture(); dispatch({ t: "cell.dbl", r, c }); }, [dispatch, ringGesture]);
@@ -3867,9 +3871,11 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             : <ActionForm key={`${actionOverlay.r}:${actionOverlay.key}:${actionOverlay.case.name}`} state={actionOverlay} registers={registers}
                 consequence={actionConsequence} onTake={onActionTake} onClose={onActionClose} />;
     const rowActions = hasActions ? actionHost : undefined;
-    // A phone's action bar (#1479): the selected row's actions in the docked strip's place, at the sheet's first action
-    // column; with no row selected, the strip.
-    const barKey = phoneFrame && ui.selEnd === null ? allColumns.list.find((col) => col.kind === "action")?.key : undefined;
+    // A phone's action bar (#1479; `Mobile Sheet Spec.md` SH9, R3): the ring's Action cell's actions in the docked strip's
+    // place, opened by a tap on that cell — never on a row's other cells — and ⌄ closed until the ring moves.
+    const ringColumn = columns.list[ui.sel.c];
+    const barClosed = barClosedAt !== undefined && barClosedAt.r === ui.sel.r && barClosedAt.c === ui.sel.c;
+    const barKey = phoneFrame && ui.selEnd === null && ringColumn?.kind === "action" && !barClosed ? ringColumn.key : undefined;
     const barRow = barKey !== undefined ? actionAt(ui.sel.r, barKey) : undefined;
     // The bar's head names the step's group too — `WO-1042 · step 20` — as nothing else on a phone's screen may (X5; F17 of the hand test).
     const barHeadOf = (r: number, key: string) => {
@@ -3895,7 +3901,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     }, [rowAt, allColumns, actionHost, panelApi, registers]);
     const actionBar = barKey === undefined || barRow === undefined || barHead === undefined ? undefined
         : <ActionBar key={barRow.lg !== undefined ? lineId(barRow.lg.row.id, barRow.lg.key) : barRow.it.row.id} host={actionHost} api={panelApi} r={ui.sel.r} columnKey={barKey}
-            name={barHead.name} title={barHead.title} registers={registers} writable={actionWritable(ui.sel.r, barKey)} />;
+            name={barHead.name} title={barHead.title} registers={registers} writable={actionWritable(ui.sel.r, barKey)}
+            summary={ruleText(barRow.it.row, barRow.column.summary) ?? ""} onClose={() => setBarClosedAt({ r: ui.sel.r, c: ui.sel.c })} />;
     // What the runs of the optimiser left on each row (#1409, R25), by the row's id — a line's by its line id — while the
     // drafts hold it: each row is handed its own marks, held still until a run touches it again.
     const marks: ReadonlyMap<string, SheetRowMarks> | undefined = optimised?.rows;

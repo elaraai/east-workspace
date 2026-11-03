@@ -245,7 +245,11 @@ test("on a phone each cell shows its state alone, and the selected row's actions
         const row = slot(container, "main")!.querySelector<HTMLElement>('[data-slot="row"][data-row-id="J-0003"]')!;
         expect(row.style.gridTemplateColumns.split(" ")[0]).toBe("150px");
         expect(row.style.gridTemplateColumns).not.toMatch(/minmax/);
+        // A tap on the row's other cell opens no bar (Mobile Sheet Spec.md R3): the Action cell's tap does.
         fireEvent.mouseDown(cellOf(container, "J-0003", "task"), { button: 0 });
+        await settle();
+        expect(bar(container)).toBeNull();
+        fireEvent.mouseDown(cellOf(container, "J-0003", "state"), { button: 0 });
         await settle();
         const buttons = bar(container)!;
         expect(buttons.getAttribute("data-sheet-action-bar")).toBe("buttons");
@@ -256,6 +260,14 @@ test("on a phone each cell shows its state alone, and the selected row's actions
         await press(first);
         expect(stateOf(cellOf(container, "J-0003", "state"))).toBe("started");
         expect(bar(container)!.querySelector('[data-bar-take][data-first]')?.textContent).toBe("Finish");
+        // ⌄ closes it (SH9) until the ring moves; back on the cell, it opens again.
+        await press(bar(container)!.querySelector<HTMLElement>("[data-bar-close]")!);
+        expect(bar(container)).toBeNull();
+        fireEvent.mouseDown(cellOf(container, "J-0003", "task"), { button: 0 });
+        await settle();
+        fireEvent.mouseDown(cellOf(container, "J-0003", "state"), { button: 0 });
+        await settle();
+        expect(bar(container)).not.toBeNull();
     } finally { restore(); }
 });
 

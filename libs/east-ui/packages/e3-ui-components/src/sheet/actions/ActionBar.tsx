@@ -15,6 +15,12 @@
  * halves (X7). Taking a case returns the bar to the row's new offer (X8),
  * through the same command as the grid's.
  *
+ * As the designer drew it (`Mobile Sheet Spec.md` SH9): it opens on a tapped
+ * Action cell, its head 44 — ‹ back in a sub-view, the eyebrow in ink, the
+ * state, and ⌄ close — then its buttons, 44 Default buttons; a blocked row
+ * says why in running text, and a row with nothing further says so with its
+ * summary.
+ *
  * @packageDocumentation
  */
 
@@ -22,7 +28,7 @@ import { memo, useCallback, useMemo, useRef, useState, useSyncExternalStore } fr
 import { chakra, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
-import { faArrowLeft, faEllipsis } from "@fortawesome/free-solid-svg-icons";
+import { faChevronDown, faChevronLeft, faEllipsis } from "@fortawesome/free-solid-svg-icons";
 import { variant } from "@elaraai/east";
 import { FieldForm, type FieldOption } from "@elaraai/east-ui-components";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
@@ -48,6 +54,10 @@ export interface ActionBarProps {
     registers: SheetRegisterIndex;
     /** Whether the row takes actions here: not on a read-only sheet, an owned row or a column that takes no edit (T9). */
     writable: boolean;
+    /** The row's summary: what a row with nothing further offered says after `No further actions` (SH9.1). */
+    summary?: string | undefined;
+    /** ⌄ close: the bar goes until the ring moves (SH9). */
+    onClose?: (() => void) | undefined;
 }
 
 /** The most cases the bar's buttons show before More… (X6). */
@@ -57,7 +67,7 @@ const BAR_MAX = 4;
 type BarView = { kind: "buttons" } | { kind: "more" } | { kind: "choice"; c: ActionCase } | { kind: "form"; c: ActionCase };
 
 /** Renders a phone's action bar for the selected row. */
-export const ActionBar = memo(function ActionBar({ host, api, r, columnKey, name, title, registers, writable }: ActionBarProps) {
+export const ActionBar = memo(function ActionBar({ host, api, r, columnKey, name, title, registers, writable, summary = "", onClose }: ActionBarProps) {
     const styles = useSlotStyles("sheetAction");
     const button = useRecipe({ key: "button" });
     const { m } = useSheetWords();
@@ -99,6 +109,12 @@ export const ActionBar = memo(function ActionBar({ host, api, r, columnKey, name
         setEmptied(undefined);
         setView({ kind: "form", c });
     };
+    // ⌄ close, at the head's end (SH9).
+    const close = onClose === undefined ? null : (
+        <chakra.button type="button" css={styles.barClose} aria-label={m.actionBarClose()} data-bar-close="" onClick={onClose}>
+            <FontAwesomeIcon icon={faChevronDown} aria-hidden />
+        </chakra.button>
+    );
     const caseButton = (c: ActionCase, first: boolean) => (
         <chakra.button key={c.name} type="button" css={[button({ variant: "outline", size: "md" }), styles.barButton]} disabled={!may}
             data-bar-take={c.name} data-first={first ? "" : undefined} title={may ? undefined : why} onClick={() => open(c)}>
@@ -111,11 +127,12 @@ export const ActionBar = memo(function ActionBar({ host, api, r, columnKey, name
         const c = view.c;
         const back = (
             <chakra.div css={styles.barHead}>
-                <chakra.button type="button" css={[button({ variant: "ghost", size: "md" }), styles.barBack]} aria-label={m.actionBarBack()} data-bar-back=""
+                <chakra.button type="button" css={styles.barBack} aria-label={m.actionBarBack()} data-bar-back=""
                     onClick={() => setView({ kind: "buttons" })}>
-                    <FontAwesomeIcon icon={faArrowLeft} aria-hidden />
+                    <FontAwesomeIcon icon={faChevronLeft} aria-hidden />
                 </chakra.button>
                 <chakra.span css={styles.barEyebrow}>{m.actionFormEyebrow({ verb: c.label, name })}</chakra.span>
+                {close}
             </chakra.div>
         );
         if (c.kind === "choice") {
@@ -126,7 +143,7 @@ export const ActionBar = memo(function ActionBar({ host, api, r, columnKey, name
                 <chakra.div key="choice" css={styles.bar} data-sheet-action-bar="choice" data-case={c.name} role="group" aria-label={m.actionMenuChoice({ verb: c.label })}>
                     {back}
                     {choices.map((choice) => (
-                        <chakra.button key={choice.id} type="button" css={[button({ variant: "ghost", size: "md" }), styles.barChoice]} data-bar-choice={choice.id}
+                        <chakra.button key={choice.id} type="button" css={[button({ variant: "outline", size: "md" }), styles.barChoice]} data-bar-choice={choice.id}
                             onClick={() => take(c, choice.value)}>
                             {choice.label}
                         </chakra.button>
@@ -168,12 +185,20 @@ export const ActionBar = memo(function ActionBar({ host, api, r, columnKey, name
         <chakra.div key="buttons" css={styles.bar} data-sheet-action-bar="buttons">
             <chakra.div css={styles.barHead}>
                 <chakra.span css={styles.barEyebrow} data-bar-eyebrow="">{eyebrow}</chakra.span>
-                <chakra.span css={[styles.state, styles.barState]} data-tone={offer.state?.tone} data-bar-state="">
-                    <chakra.span css={styles.dot} aria-hidden="true" />
-                    {offer.state?.state ?? m.actionNotStarted()}
-                </chakra.span>
+                {offer.state !== undefined ? (
+                    <chakra.span css={[styles.state, styles.barState]} data-tone={offer.state.tone} data-bar-state="">
+                        <chakra.span css={styles.dot} aria-hidden="true" />
+                        {offer.state.state}
+                    </chakra.span>
+                ) : <chakra.span css={[styles.absent, styles.barState]} data-bar-state="">{m.actionNotStarted()}</chakra.span>}
+                {close}
             </chakra.div>
-            {controls && first !== undefined && (
+            {/* A row that waits says why, in running text (SH9.3); one with nothing further says so, with its summary (SH9.1). */}
+            {controls && !may && why !== undefined && <chakra.span css={styles.barWhy} data-bar-why="">{why}</chakra.span>}
+            {controls && may && first === undefined && (
+                <chakra.span css={styles.barConsequence} data-bar-terminal="">{m.actionBarNothing({ summary })}</chakra.span>
+            )}
+            {controls && may && first !== undefined && (
                 <>
                     {view.kind !== "more" && <chakra.div css={styles.barFirst}>{caseButton(first, true)}</chakra.div>}
                     {(shown.length > 0 || folded) && (
@@ -187,7 +212,6 @@ export const ActionBar = memo(function ActionBar({ host, api, r, columnKey, name
                             )}
                         </chakra.div>
                     )}
-                    {!may && why !== undefined && <chakra.span css={styles.barConsequence} data-bar-why="">{why}</chakra.span>}
                     {may && consequence !== undefined && <chakra.span css={styles.barConsequence} data-bar-consequence="">{consequence}</chakra.span>}
                 </>
             )}
