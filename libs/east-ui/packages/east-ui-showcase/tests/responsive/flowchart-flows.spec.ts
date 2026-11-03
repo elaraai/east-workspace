@@ -54,17 +54,6 @@ const LADDER = "orientation>1 seek>1 history>1";
 
 /** The library pane's width open (§8). */
 const PANE = 272;
-/** On a phone, what the frame keeps beside the pane open over main: the inspector's rail on the other side (#1250) and the scrim's strip. */
-const RAIL = 44;
-const SCRIM = 48;
-
-/** The library pane's width open over main on a phone: its own, or what the frame leaves it beside the inspector's rail and the scrim. */
-function phonePane(root: Locator): Promise<number> {
-    return root.evaluate((el, [pane, rail, scrim]) => {
-        const frame = el.querySelector("[data-builder-frame]")!.getBoundingClientRect();
-        return Math.min(pane!, Math.round((frame.width - rail! - scrim!) * 10) / 10);
-    }, [PANE, RAIL, SCRIM]);
-}
 
 /** Open the depot's flows, at rest, and return the flowchart's root: the box its frame fills. */
 async function openFlows(page: Page, theme: "light" | "dark" = "light"): Promise<Locator> {

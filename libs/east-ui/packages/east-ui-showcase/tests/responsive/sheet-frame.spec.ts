@@ -41,7 +41,7 @@
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { settled } from "./settle";
-import { frameAt, tapScrim, type Box } from "./builder-frame";
+import { frameAt, type Box } from "./builder-frame";
 
 const HASH = "e3/sheet/sheet/sheetWorkshop";
 /** The weeks' sheet: one entry's rows, and the author's own Details (SB58). */
