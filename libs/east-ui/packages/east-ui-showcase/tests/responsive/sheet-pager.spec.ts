@@ -40,7 +40,7 @@ const scrollOf = (card: Locator): Promise<number> => card.evaluate((el) => {
 });
 
 test.describe("A phone's Sheet pager", () => {
-    test("Row number adds the Row column and puts the window back at its start; off again it goes", async ({ page }) => {
+    test("Row number adds the Row column and puts the window back at its start; off again it goes @mobile", async ({ page }) => {
         const card = await openPhone(page);
         const root = card.locator("xpath=ancestor::*[@data-builder-frame][1]");
         const readout = root.locator("[data-slot='pagerReadout']");
@@ -81,7 +81,7 @@ test.describe("A phone's Sheet pager", () => {
         await expect(readout).toContainText(`of ${total}`);
     });
 
-    test("the selected cell's column has its head tinted and its label stronger, and only that one", async ({ page }) => {
+    test("the selected cell's column has its head tinted and its label stronger, and only that one @mobile", async ({ page }) => {
         const card = await openPhone(page);
         const cell = card.locator("[data-slot='row'] [data-slot='cell']").nth(1);
         await cell.click();
@@ -97,7 +97,7 @@ test.describe("A phone's Sheet pager", () => {
         expect(ink).not.toBe(faint);
     });
 
-    test("← and → page the columns while the grid has the focus, the ring where it is, and stop at the ends", async ({ page }) => {
+    test("← and → page the columns while the grid has the focus, the ring where it is, and stop at the ends @mobile", async ({ page }) => {
         const card = await openPhone(page);
         const cell = card.locator("[data-slot='row'] [data-slot='cell']").first();
         await cell.click();
@@ -133,7 +133,7 @@ async function openLibrary(page: Page, card: Locator, tab: string): Promise<Loca
 }
 
 test.describe("A phone's Sheet Library (SH11, R7)", () => {
-    test("a tap on a status sets it on the selected order, the hint naming the order and the row marked current", async ({ page }) => {
+    test("a tap on a status sets it on the selected order, the hint naming the order and the row marked current @mobile", async ({ page }) => {
         const card = await openPhone(page);
         await card.locator("[data-band-row]").first().locator("[data-slot='groupSummary']").click({ position: { x: 80, y: 20 } });
         const drawer = await openLibrary(page, card, "Statuses");
@@ -149,7 +149,7 @@ test.describe("A phone's Sheet Library (SH11, R7)", () => {
         await expect(held).toHaveCount(1);
     });
 
-    test("a tap on a column closes the view and pages to it, its eye still hiding it", async ({ page }) => {
+    test("a tap on a column closes the view and pages to it, its eye still hiding it @mobile", async ({ page }) => {
         const card = await openPhone(page);
         let drawer = await openLibrary(page, card, "Columns");
         await expect(drawer.locator("[data-sheet-phone-hint]:visible")).toContainText("Tap a column to go to it");

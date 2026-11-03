@@ -19,7 +19,7 @@ import { sizeBuilder, visitBuilder } from "./builder-page";
 
 const ROOT = "[data-builder-frame]";
 
-test("every field's row and its editor's controls are 44px or more, inside the view", async ({ page }) => {
+test("every field's row and its editor's controls are 44px or more, inside the view @mobile", async ({ page }) => {
     const entry = await visitBuilder(page, "e3/plan/plan-records/planRecordIndexesMobile", ROOT, "light");
     await sizeBuilder(page, entry, ROOT, 390);
     await entry.locator("[data-rail-phone]").first().click();

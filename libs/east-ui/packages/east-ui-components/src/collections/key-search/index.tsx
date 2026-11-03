@@ -266,6 +266,8 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
 
     const runFind = useCallback((query: DatasetKeyQuery, again = false, standing?: StandingMatch) => {
         const seq = ++findSeqRef.current;
+        // A pick or a step made while the query is out owns the box's place: the answer leaves it be.
+        const shownWhenAsked = shownSeqRef.current;
         queryRef.current = query;
         setLoading(true);
         setItems([]);
@@ -284,7 +286,7 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
                     && await holdsAt(result.row + standing.index, standing.text);
                 if (seq !== findSeqRef.current) return;
                 const moved = standing !== undefined && standing.seq !== shownSeqRef.current;
-                setActiveIdx(stands && !moved ? standing.index : -1);
+                if (shownSeqRef.current === shownWhenAsked) setActiveIdx(stands ? standing.index : -1);
                 if (standing !== undefined && !stands && !moved) showTyped();
             } catch (error) {
                 if (seq !== findSeqRef.current) return;
