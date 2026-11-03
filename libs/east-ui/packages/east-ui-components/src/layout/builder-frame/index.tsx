@@ -59,9 +59,10 @@
  * ruled 3 Nov 2026) — stacks its regions and gives main the frame's whole
  * width:
  *
- * - the toolbar's second row, always shown at 44px: the items that draw one
- *   (`ToolbarItem.secondRow` — the history, and the Elara eye before it) leave
- *   the first row for it, and the footer's loading line takes its start while
+ * - the toolbar's second row, always shown, 56px over its 44px buttons: the
+ *   items that draw one (`ToolbarItem.secondRow` — the history, and the Elara
+ *   eye before it, from a frame of `secondRowFrom` up) leave the first row for
+ *   it, and the footer's loading line takes its start while
  *   it shows, in the place the history counts its drafts otherwise
  *   ({@link SessionRowSlot}); a footer whose line it so takes is not shown,
  *   mounted still (FR1, FR6, R5) — one with no loading line, the query
@@ -484,13 +485,19 @@ export function BuilderFrame(props: BuilderFrameProps) {
 
     // ── A phone's frame: the second row, the strip and the drawers ──────
     const phone = measured !== undefined && measured.width <= NARROW_FRAME;
+    /** Whether an item is the second row's: on a phone, an item that draws one, from the narrowest frame it takes it at. */
+    const inSecondRow = (it: ToolbarItem | false | null | undefined): it is ToolbarItem =>
+        phone && !!it && it.secondRow !== undefined && (measured?.width ?? 0) >= (it.secondRowFrom ?? 0);
+    // Which items the second row takes, by key: what the first row's items are made again by, never the width itself.
+    const secondKeys = toolbar === undefined ? "" : toolbar.filter(inSecondRow).map((it) => it.key).join("\u0000");
     // The first row's items: on a phone, without those the second row draws. The same array while neither moves, so the
     // toolbar draws again only as its items do.
-    const firstRow = useMemo(() => (toolbar === undefined || !phone ? toolbar
-        : toolbar.filter((it) => !it || it.secondRow === undefined)), [toolbar, phone]);
-    const secondRow = phone && toolbar !== undefined
-        ? toolbar.flatMap((it) => (it && it.secondRow !== undefined ? [{ key: it.key, node: it.secondRow }] : []))
-        : [];
+    const firstRow = useMemo(() => {
+        if (toolbar === undefined || secondKeys === "") return toolbar;
+        const moved = new Set(secondKeys.split("\u0000"));
+        return toolbar.filter((it) => !it || !moved.has(it.key));
+    }, [toolbar, secondKeys]);
+    const secondRow = toolbar === undefined ? [] : toolbar.filter(inSecondRow).map((it) => ({ key: it.key, node: it.secondRow }));
     // The row's status slot: where a phone's footer's loading line draws itself.
     const [statusSlot, setStatusSlot] = useState<HTMLElement | null>(null);
     const sessionRow = phone && (secondRow.length > 0 || given(footer));

@@ -119,7 +119,7 @@ Every recommendation below is adopted. R3, R6 with R1–R2 were put to the user 
 | R1 | Discard's confirmation | A centred `<Dialog>` | No dialogs, ever; confirmations are anchored popovers | An anchored popover from Discard, the design's copy and buttons |
 | R2 | Does Discard confirm at all? | Yes | Discard acts at once; Undo cannot bring it back | Confirm on a phone only, where a mis-tap is likely |
 | R3 | Scope of the frame changes (FR1, FR4–FR6) | Drawn on the Sheet | One frame for every builder | Every builder at ≤560 px, so the phone frame is one thing |
-| R4 | Where the Elara eye goes | Not drawn | Before the history item, never out of the toolbar | Into the session row, before Issues |
+| R4 | Where the Elara eye goes | Not drawn | Before the history item, never out of the toolbar | Into the session row, before Issues, a 44 px square like its neighbours — from a 312 px frame up (padding 16 + 12, six 44 px buttons, five 4 px gaps); below that it stays in the first row and folds there as before, into the View where the floor needs its room (ruled 3 Nov 2026) |
 | R5 | Where the loading line goes with no footer | Not drawn | The footer's one live line (CL3) | Into the session row's summary slot while a read is in flight, the change count otherwise |
 | R6 | Where the history goes | A session bar on the bottom edge | Ruled 26 Oct 2026: history and Save never leave the toolbar at a phone's width | The toolbar's second row, always shown, its 44 px buttons in a 56 px row: the 26 Oct ruling stands, and the bottom edge is left to the action bar and the pane strip (ruled 3 Nov 2026, revising the first answer of the same day) |
 

@@ -21,6 +21,12 @@
  * The history and Save stay in the row — a frame a 294px parent holds, with a
  * rail beside them.
  *
+ * In a phone's frame the eye goes with the history into the toolbar's second
+ * row, before Issues (`Mobile Builder Frame Spec.md` R4) — from a frame of
+ * {@link EYE_SECOND_ROW_FROM} up, where the row has the room for six 44px
+ * buttons; on a narrower one it stays in the first row and folds there as
+ * above (ruled 3 Nov 2026).
+ *
  * @packageDocumentation
  */
 
@@ -40,6 +46,12 @@ import { OptimiseButton, type OptimiseButtonProps } from "./button.js";
 export const OPTIMISE_RANK = FLOOR_RANK + 1;
 
 /**
+ * The narrowest frame whose second row takes the eye, in px: its padding (16 + 12), six 44px buttons and their five
+ * 4px gaps — the designer's measures, kept whole. Below it the eye stays in the first row (ruled 3 Nov 2026).
+ */
+export const EYE_SECOND_ROW_FROM = 312;
+
+/**
  * The eye's toolbar item: list it in a builder's toolbar immediately before
  * its history item. It has one form, the eye — a builder whose View takes the
  * eye's entry gives it its step into the View ({@link OPTIMISE_RANK}).
@@ -54,7 +66,8 @@ export function optimiseToolbarItem(props: OptimiseButtonProps): ToolbarItem {
         forms: [<OptimiseButton {...props} />],
         // In a phone's frame the eye goes with the history into the toolbar's second row, before Issues (Mobile Builder
         // Frame Spec R4): it never leaves the toolbar.
-        secondRow: <OptimiseButton {...props} size="md" />,
+        secondRow: <OptimiseButton {...props} size="row" />,
+        secondRowFrom: EYE_SECOND_ROW_FROM,
         // Its one form's width moves with its size alone.
         version: props.size ?? "md",
     };

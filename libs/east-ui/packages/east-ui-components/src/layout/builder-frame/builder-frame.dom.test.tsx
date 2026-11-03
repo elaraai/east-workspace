@@ -631,6 +631,22 @@ describe("BuilderFrame — a phone's frame (Mobile Builder Frame Spec.md FR1, FR
         expect(drawerOf("start").textContent).toContain("PAGES");
     });
 
+    test("an item takes the second row only from its `secondRowFrom` up: the eye below a 312px frame stays in the first row, folding there (ruled 3 Nov 2026)", () => {
+        const items: ToolbarItem[] = [
+            phoneItems[0]!,
+            { ...phoneItems[1]!, secondRowFrom: 312 },
+            phoneItems[2]!,
+        ];
+        mount({ toolbar: items });
+        const firstRow = () => [...slot("toolbar").querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"));
+        frameAt(390);
+        expect([firstRow(), slot("sessionRow").textContent]).toEqual([["name"], "EYE ROWHISTORY ROW"]);
+        frameAt(311);
+        expect([firstRow(), slot("sessionRow").textContent]).toEqual([["name", "optimise"], "HISTORY ROW"]);
+        frameAt(312);
+        expect(firstRow()).toEqual(["name"]);
+    });
+
     test("a pane that never collapses and an { element } pane stay pinned at their sides on a phone, with no strip tab", () => {
         mount({ start: library({ collapsible: false }), end: { element: <aside>OWN PANE</aside> } });
         frameAt(390);

@@ -129,6 +129,10 @@ export interface ToolbarItem {
      *  second row instead, always shown (`Mobile Builder Frame Spec.md` FR6): the history, and the Elara eye before it.
      *  A toolbar outside a frame never draws it. */
     secondRow?: ReactNode;
+    /** The narrowest frame, in px, whose second row takes the item: below it the item stays in the first row, folding
+     *  there as it does on a wider frame — the eye, whose room the second row's 44px buttons leave only from 312px.
+     *  Every phone's frame by default. */
+    secondRowFrom?: number | undefined;
 }
 
 export interface ToolbarProps {

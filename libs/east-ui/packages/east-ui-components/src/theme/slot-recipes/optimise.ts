@@ -15,7 +15,8 @@
  *     colour; the iris's echo, unseen until a run.
  *   - button: an icon-only Default button, 32 × 32 with a 16px mark (`md`),
  *     24 × 24 with 14 (`sm`), or 32 × 28 with 14 in a builder's toolbar row,
- *     whose every control stands 28px (`toolbar`, ruled 23 Oct 2026). Rest:
+ *     whose every control stands 28px (`toolbar`, ruled 23 Oct 2026), or
+ *     44 × 44 with 16 in a phone's second row (`row`). Rest:
  *     ring and iris `--ink-2`. Hover: `--paper-2`, the iris
  *     `elara.ink`. Focus: the focus ring. Running (`data-running`): edge and
  *     ring `elara.ink`, iris `elara`, the echo and the halo on the live-pulse
@@ -257,6 +258,8 @@ export const optimiseSlotRecipe = defineSlotRecipe({
             md: { button: { width: "32px", height: "32px" } },
             sm: { button: { width: "24px", height: "24px" } },
             toolbar: { button: { width: "32px", height: "28px" } },
+            // A phone's second row: the history's 44px squares beside it (`Mobile Builder Frame Spec.md` FR6).
+            row: { button: { width: "44px", height: "44px" } },
         },
     },
     defaultVariants: { size: "md" },
