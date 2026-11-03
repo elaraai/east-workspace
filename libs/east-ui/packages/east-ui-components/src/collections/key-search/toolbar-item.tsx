@@ -31,12 +31,16 @@
  *
  * In a phone's frame its one form is the Search Records button — a 44px ghost,
  * its magnifier and caret (`Mobile Builder Frame Spec.md` FR2), last in the
- * row — which opens the same box.
+ * row — which opens the search as a view over the whole builder, in the
+ * frame's overlay slot, as the rail's Filters view opens (`Mobile Filters
+ * Spec.md` SL10): its own box's phone form, which a pick, Cancel or Esc
+ * closes, the focus back on the button. A frame with no overlay slot opens the
+ * box in its popover.
  *
  * @packageDocumentation
  */
 
-import { useCallback, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Box, chakra, useRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -46,6 +50,7 @@ import { DEFAULT_RANK, type ToolbarItem } from "../../toolbar/index.js";
 import { SliceEditPopover } from "../../slice/edit/index.js";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { useSlotStyles } from "../../theme/slot-styles.js";
+import { FrameOverlaySlot } from "../../layout/builder-frame/overlay-slot.js";
 import { DatasetKeySearch, type DatasetKeyMatchRange, type DatasetKeyQuery, type DatasetKeySearchProps, type KeySearchJump } from "./index.js";
 
 /** The icon a folded box opens from, in its toolbar item. */
@@ -117,6 +122,47 @@ function BoxSlot({ stage, where, css, slot }: {
         if (slot !== undefined) slot.current = el;
     }, [stage, slot]);
     return <Box ref={ref} css={css} data-key-search={where} />;
+}
+
+/** Props of {@link PhoneKeySearch}. */
+interface PhoneKeySearchProps {
+    search: KeySearchSource;
+    label: string;
+    given: string | undefined;
+    active: boolean;
+    /** The popover form, where the frame has no overlay slot. */
+    popover: ReactNode;
+}
+
+/** A phone's Search Records: its button, and the view it opens over the whole builder (SL10) — see the module docs. */
+function PhoneKeySearch({ search, label, given, active, popover }: PhoneKeySearchProps) {
+    const slot = useContext(FrameOverlaySlot);
+    const styles = useSlotStyles("toolbarPhone");
+    const [open, setOpen] = useState(false);
+    const buttonRef = useRef<HTMLButtonElement | null>(null);
+    const wasOpen = useRef(open);
+    // Closed, the focus goes back to the button — which a pick's hand-off takes on to its match (`hand-off.ts`).
+    useEffect(() => {
+        if (wasOpen.current && !open) buttonRef.current?.focus({ preventScroll: true });
+        wasOpen.current = open;
+    }, [open]);
+    if (slot === null) return <>{popover}</>;
+    return (
+        <>
+            <chakra.button ref={buttonRef} type="button" css={styles.search} aria-label={label} aria-expanded={open} data-key-search="icon"
+                data-state={open ? "open" : "closed"} data-active={active ? "" : undefined} onClick={() => setOpen(!open)}>
+                <FontAwesomeIcon icon={faMagnifyingGlass} data-search-icon="" />
+                <FontAwesomeIcon icon={faCaretDown} data-search-caret="" />
+            </chakra.button>
+            {open && createPortal(
+                <DatasetKeySearch key={search.resetKey} label={given} keyType={search.keyType} onFind={search.find}
+                    browseQuery={search.browseQuery} noMatchesText={search.noMatchesText}
+                    onListRange={search.listRange} onJump={search.jump} onClear={search.clear} requery={search.requery} relist={search.relist}
+                    phone={{ onClose: () => setOpen(false) }} />,
+                slot,
+            )}
+        </>
+    );
 }
 
 /** What a key search reads and drives: a keyed source's `seek`, as its host wires it. */
@@ -237,8 +283,8 @@ export function useKeySearchToolbarItem(search: KeySearchSource | undefined, opt
             foldsLast: active,
             // The one box, whatever form the item takes: its slots show it where they place it.
             keep: createPortal(box, stage.container),
-            // A phone's: the Search Records button, last in the row.
-            phone: { form: popup(label, undefined, true), order: 2 },
+            // A phone's: the Search Records button, last in the row, opening its view over the builder.
+            phone: { form: <PhoneKeySearch search={search} label={label} given={given} active={active} popover={popup(label, undefined, true)} />, order: 2 },
         };
     }, [search, side, rank, given, compact, active, open, stage, styles, phoneStyles, chip, initialFocusEl, onInputChange]);
 }

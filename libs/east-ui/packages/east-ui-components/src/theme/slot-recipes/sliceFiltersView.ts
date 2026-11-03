@@ -7,10 +7,10 @@
  * A phone's Filters view (`src/slice/rail/filters-view.tsx`; `Mobile Filters
  * Spec.md` SL3–SL9), as the designer's `FiltersPhone` draws it:
  *
- *   - root: the frame's overlay slot's whole box; strip: the 48px at its left
- *     under `--paper-3` at 60%, taking the pointer; panel: the rest, `--paper`
- *     with a `--rule-strong` left edge, sliding in from the right over
- *     `--dur-base` on `--ease-out` (at once under reduced motion);
+ *   - root: the frame's overlay slot's whole box; panel: all of it, edge to
+ *     edge (ruled 3 Nov 2026, in place of the designer's 48px strip),
+ *     `--paper`, sliding in from the right over `--dur-base` on `--ease-out`
+ *     (at once under reduced motion);
  *   - head: 44 over a `--rule`, padded 0 8 0 0, 8 apart — ← back 44 (its arrow
  *     16 in `--ink-3`), `Filters` DM Sans 16/700 at −0.01em, the active count
  *     mono 10.5 in `--ink-4`, Done a Default 36 (padded 0 12, 12.5/500);
@@ -60,21 +60,17 @@ const COLUMN = { width: "72px", flex: "none" } as const;
 export const sliceFiltersViewSlotRecipe = defineSlotRecipe({
     className: "elara-slice-filters-view",
     slots: [
-        "root", "strip", "panel", "head", "back", "title", "active", "headDone", "body",
+        "root", "panel", "head", "back", "title", "active", "headDone", "body",
         "presets", "presetsLabel", "presetsChips", "group", "groupIcon", "groupLabel", "groupCount",
         "row", "rowLabel", "rowChoice", "applied", "chevron", "editor", "foot", "count", "actions", "action",
         "choices", "choice", "choiceBox", "choiceText", "choiceLabel", "choiceHint", "choiceCount", "choiceError",
     ],
     base: {
         root: { position: "absolute", inset: "0", pointerEvents: "auto" },
-        strip: {
-            position: "absolute", insetInlineStart: "0", top: "0", bottom: "0", width: "48px", padding: "0", border: "none",
-            background: "color-mix(in oklch, var(--chakra-colors-bg-subtle) 60%, transparent)", cursor: "pointer",
-        },
         panel: {
-            position: "absolute", insetInlineStart: "48px", insetInlineEnd: "0", top: "0", bottom: "0",
+            position: "absolute", inset: "0",
             display: "flex", flexDirection: "column", boxSizing: "border-box",
-            background: "bg.surface", borderInlineStartWidth: "1px", borderInlineStartStyle: "solid", borderInlineStartColor: "border.strong",
+            background: "bg.surface",
             animationName: "slide-from-right-full", animationDuration: "normal", animationTimingFunction: "{easings.out}",
             _motionReduce: { animation: "none" },
         },

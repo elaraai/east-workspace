@@ -397,9 +397,8 @@ component, nothing in east-ui.
   under the cold-load cover the line stays in the live footer. A described
   pane that collapses is a tab of the pane strip on the bottom edge — icon,
   label, detail or badge — and opens as the Filters view does (ruled 3 Nov
-  2026): a view from the right over the whole frame, 48px of it showing at
-  the left under a veiled strip (`data-drawer-strip`) that closes it, its
-  `DockPane` a vertical tray: one at a time, Esc and the strip close it, the
+  2026): a view over the whole frame, edge to edge, sliding in from the
+  right, its `DockPane` a vertical tray: one at a time, Esc and its collapse close it, the
   focus moves in and back to its tab, its open tab and bodies kept across the
   width. What the drawer holds hears `FrameDrawer` (`./internal`), so a pane
   draws its phone form there — the Sheet's inspector its head and each field a

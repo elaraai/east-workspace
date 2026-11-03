@@ -47,6 +47,13 @@
  * shows again, its query, its count and its place kept: the Sheet's line for a
  * row its filters hide names them once e3 has said which.
  *
+ * On a phone (`phone`, `Mobile Filters Spec.md` SL10) it is a view over the
+ * whole builder, as the Filters view is: its field row — the magnifier, the
+ * input and Cancel — then an eyebrow saying what to type or what was found,
+ * one 44px row a match (its key, and its note: the hidden pick's line where
+ * the filters hide it), and the hint that a pick jumps to the row and leaves
+ * the filters as they are. A pick closes the view.
+ *
  * The host owns the data: `onFind` locates a query (server fences or a
  * client-side scan), `onListRange` labels a row window for the popup,
  * `onJump` drives the tree's `scrollToRow` contract, and `onClear` clears
@@ -62,7 +69,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, chakra } from '@chakra-ui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faChevronDown, faChevronUp, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { faChevronDown, faChevronUp, faMagnifyingGlass, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { StringType, equalFor, none, some, variant, type EastTypeValue } from '@elaraai/east';
 import {
     parseKeyInput,
@@ -156,6 +163,17 @@ export interface DatasetKeySearchProps {
      * stand until the new ones land.
      */
     relist?: number | undefined;
+    /**
+     * A phone's view (SL10): drawn over the whole builder, its input focused
+     * as it opens; `onClose` is told on Cancel, Esc and a pick, which close it.
+     */
+    phone?: { onClose: () => void } | undefined;
+}
+
+/** A listed row's words split for a phone's row: its key, then what its host says beside it (the hidden pick's line). */
+function phoneWords(label: string): { key: string; note: string } {
+    const at = label.indexOf(' · ');
+    return at < 0 ? { key: label, note: '' } : { key: label.slice(0, at), note: label.slice(at + 3) };
 }
 
 /**
@@ -165,9 +183,12 @@ export interface DatasetKeySearchProps {
  * @returns the search combobox with its match count, range navigation and
  *   clear affordance
  */
-export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind, onListRange, onJump, onClear, onInputChange, requery, relist, label, browseQuery, noMatchesText }: DatasetKeySearchProps) {
+export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind, onListRange, onJump, onClear, onInputChange, requery, relist, label, browseQuery, noMatchesText, phone }: DatasetKeySearchProps) {
     // The combobox's recipe made once for the theme (#1398, CL9): the box is drawn again with its builder's toolbar.
     const styles = useSlotStyles('combobox', { size: 'xs' });
+    const phoneStyles = useSlotStyles('keySearchPhone');
+    /** A phone's input's text: its own field, not the combobox's. */
+    const [phoneText, setPhoneText] = useState('');
     /** Whether the box holds text: typed, or the match a pick or a step shows. */
     const [typed, setTyped] = useState(false);
     const [open, setOpen] = useState(false);
@@ -459,6 +480,55 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
                     ? `${words.number(range.count)} ${range.count === 1 ? 'match' : 'matches'}`
                     : `${words.number(activeIdx + 1)} of ${words.number(range.count)}`;
     const canStep = typed && range !== null && range.found && range.count > 1;
+    // A phone's view opens as the box's popup does: an empty box over a source that browses lists its suggestions.
+    const phoneOpened = useRef(false);
+    useEffect(() => {
+        if (phone === undefined || phoneOpened.current) return;
+        phoneOpened.current = true;
+        handleOpen(true);
+    }, [phone, handleOpen]);
+    if (phone !== undefined) {
+        const title = label ?? 'Search Records';
+        const pick = (row: number) => { commit(row, 'pick'); phone.onClose(); };
+        const hit = range !== null && range.found ? range : undefined;
+        const eyebrow = hint !== null ? hint
+            : loading || listing ? 'Searching…'
+                : listFailure !== null ? listFailure
+                    : !typed && items.length === 0 ? `Type a reference${structKeyFields(keyType) === null ? '' : ` (${structKeyFields(keyType)!.map((f) => f.name).join(', ')})`}`
+                        : hit !== undefined ? `${words.number(hit.count)} ${hit.count === 1 ? 'record' : 'records'}`
+                            : range !== null ? (noMatchesText ?? 'No record matches') : 'Records';
+        return (
+            <Box css={phoneStyles.root} role="region" aria-label={title} data-part="dataset-key-search" data-key-search-phone=""
+                onKeyDown={(e) => {
+                    if (e.key !== 'Escape' || e.defaultPrevented) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    phone.onClose();
+                }}>
+                <Box css={phoneStyles.head}>
+                    <chakra.span css={phoneStyles.icon} aria-hidden="true"><FontAwesomeIcon icon={faMagnifyingGlass} /></chakra.span>
+                    <chakra.input css={phoneStyles.input} value={phoneText} placeholder={title} aria-label={title} autoFocus
+                        autoCapitalize="off" autoCorrect="off" spellCheck={false} enterKeyHint="go"
+                        onChange={(e) => { setPhoneText(e.currentTarget.value); handleInput(e.currentTarget.value); }}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && hit !== undefined) { e.preventDefault(); pick(hit.row + Math.max(0, activeIdx)); } }} />
+                    <chakra.button type="button" css={phoneStyles.cancel} data-key-search-cancel="" onClick={phone.onClose}>Cancel</chakra.button>
+                </Box>
+                <Box css={phoneStyles.body}>
+                    <Box css={phoneStyles.eyebrow} role="status" data-key-search-eyebrow="">{eyebrow}</Box>
+                    {items.map((item) => {
+                        const said = phoneWords(item.label);
+                        return (
+                            <chakra.button key={item.row} type="button" css={phoneStyles.row} data-key-search-row={item.row} onClick={() => pick(item.row)}>
+                                <chakra.span css={phoneStyles.key}>{said.key}</chakra.span>
+                                <chakra.span css={phoneStyles.note}>{said.note}</chakra.span>
+                            </chakra.button>
+                        );
+                    })}
+                    {items.length > 0 && <Box css={phoneStyles.hint}>Jumps to the row. The filters stay as they are.</Box>}
+                </Box>
+            </Box>
+        );
+    }
     const indicators = <>
         {status !== null && <chakra.span css={styles.searchStatus} role="status" title={status}>{status}</chakra.span>}
         {canStep && <>

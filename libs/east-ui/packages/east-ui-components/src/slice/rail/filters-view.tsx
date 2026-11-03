@@ -10,8 +10,8 @@
  * It is drawn from the rail's model, as the popover is: nothing is new for an
  * author (§7).
  *
- * - A 48px strip of the builder stays in view at its left under a veil; a tap
- *   on it closes the view (SL3), as ← and Done do, and Esc.
+ * - It covers the builder edge to edge (ruled 3 Nov 2026, in place of SL3's
+ *   48px strip); ← and Done close it, and Esc.
  * - Its head: ← back, `Filters`, how many fields narrow (`2 active`), Done
  *   (SL4).
  * - The presets first, their chips beside a 72px label (SL5); then one 44px
@@ -43,7 +43,7 @@ export interface SliceFiltersViewProps {
     model: SliceRailModel;
     /** The affordances it holds, in the rail's order. */
     kinds: readonly string[];
-    /** Closes the view: ←, Done, the strip, Esc. */
+    /** Closes the view: ←, Done, Esc. */
     onClose: () => void;
 }
 
@@ -70,7 +70,6 @@ export function SliceFiltersView({ model, kinds, onClose }: SliceFiltersViewProp
     const active = model.activeCount;
     return (
         <Box css={styles.root} data-slice-filters-view="">
-            <chakra.button type="button" css={styles.strip} aria-label="Close filters" tabIndex={-1} data-filters-strip="" onClick={onClose} />
             <Box css={styles.panel} role="region" aria-label="Filters" onKeyDown={onKeyDown}>
                 <Box css={styles.head}>
                     <chakra.button ref={backRef} type="button" css={styles.back} aria-label="Back" data-filters-back="" onClick={onClose}>

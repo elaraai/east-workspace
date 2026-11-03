@@ -20,9 +20,8 @@
  * - FR4: the pane strip is 44px on the frame's bottom edge, one equal tab a
  *   pane, each the strip's height, in `--ink-3` until it is open;
  * - FR5 (as the Filters view opens, ruled 3 Nov 2026): a tab opens its pane
- *   as a view from the right, the frame's full height, 48px of the frame
- *   showing beside it under a veiled strip that closes it; Esc closes it, the
- *   focus back on its tab; one at a time.
+ *   as a view over the whole frame, edge to edge; Esc closes it, the focus
+ *   back on its tab; one at a time.
  *
  * Run: `pnpm exec playwright test builder-frame-phone`.
  */
@@ -114,25 +113,22 @@ function phoneFaults(entry: Locator): Promise<string[]> {
     });
 }
 
-/** A pane's view as the page lays it out, against the frame, and the veiled strip beside it. */
+/** A pane's view as the page lays it out, against the frame. */
 function drawerAt(entry: Locator, side: string) {
     return entry.locator(ROOT).first().evaluate((frame, at) => {
         const drawer = frame.querySelector<HTMLElement>(`[data-frame-drawer][data-frame-slot='${at}']`)!;
         const d = drawer.getBoundingClientRect(), f = frame.getBoundingClientRect();
-        const veil = frame.querySelector<HTMLElement>("[data-drawer-strip]");
-        const v = veil?.getBoundingClientRect();
         return {
             open: drawer.hasAttribute("data-open"),
             height: Math.abs(d.top - f.top) <= 0.5 && Math.abs(d.bottom - f.bottom) <= 0.5,
-            width: Math.abs(d.left - (f.left + 48)) <= 0.5 && Math.abs(d.right - f.right) <= 0.5,
-            strip: v !== undefined && Math.abs(v.left - f.left) <= 0.5 && Math.abs(v.width - 48) <= 0.5,
+            width: Math.abs(d.left - f.left) <= 0.5 && Math.abs(d.right - f.right) <= 0.5,
         };
     }, side);
 }
 
 for (const theme of ["light", "dark"] as const) {
     for (const [name, route] of PHONES) {
-        test(`${name}: a phone's frame stacks its regions, the history the second row's 44px buttons, the panes a strip of views from the right — in its 390px box and a 294px parent (${theme})`, async ({ page }) => {
+        test(`${name}: a phone's frame stacks its regions, the history the second row's 44px buttons, the panes a strip of views over the whole frame — in its 390px box and a 294px parent (${theme})`, async ({ page }) => {
             const faults: Record<string, string[]> = {};
             await test.step(route, async () => {
                 await page.setViewportSize({ width: 1440, height: 900 });
@@ -146,7 +142,7 @@ for (const theme of ["light", "dark"] as const) {
                     const tab = frame.locator(`[data-pane-tab='${side}']`);
                     await tab.click();
                     await settled(page);
-                    expect(await drawerAt(entry, side), `${route}: ${side}'s drawer open`).toEqual({ open: true, height: true, width: true, strip: true });
+                    expect(await drawerAt(entry, side), `${route}: ${side}'s drawer open`).toEqual({ open: true, height: true, width: true });
                     await expect(tab).toHaveAttribute("aria-selected", "true");
                     // One at a time.
                     expect(await frame.locator("[data-frame-drawer][data-open]").count(), route).toBe(1);

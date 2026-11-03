@@ -68,11 +68,11 @@ test("on a phone Filters opens its view over the builder, never a popover: a row
     } finally { restore(); }
 });
 
-test("the strip, ← and Esc each close the view (SL9.6)", async () => {
+test("← and Esc each close the view (SL9.6)", async () => {
     const restore = touchFrame(390, { builder: true });
     try {
         const { container } = await h.mount(ex.sheetActionsPhone);
-        for (const close of ["[data-filters-strip]", "[data-filters-back]"]) {
+        for (const close of ["[data-filters-back]"]) {
             await press(filtersButton(container));
             await press(view(container)!.querySelector(close)!);
             expect(view(container), close).toBeNull();
@@ -81,5 +81,49 @@ test("the strip, ← and Esc each close the view (SL9.6)", async () => {
         await act(async () => { fireEvent.keyDown(view(container)!.querySelector("[data-filters-back]")!, { key: "Escape" }); });
         await settle();
         expect(view(container)).toBeNull();
+    } finally { restore(); }
+});
+
+/** The phone's Search Records view, in the frame's overlay slot. */
+const searchView = (container: HTMLElement) => container.querySelector<HTMLElement>("[data-frame-slot=overlay] [data-key-search-phone]");
+
+test("on a phone Search Records opens its view over the builder, never a popover: a key typed lists its records as 44px rows, and a tap closes the view and goes to the row (SL10, SL10.1)", async () => {
+    const restore = touchFrame(390, { builder: true });
+    try {
+        const { container } = await h.mount(ex.sheetActionsPhone);
+        const button = slot(container, "toolbar")!.querySelector<HTMLButtonElement>('[data-key-search="icon"]')!;
+        await press(button);
+        const opened = searchView(container)!;
+        expect(opened).not.toBeNull();
+        expect(document.querySelector("[data-scope=popover][data-part=content][data-state=open]")).toBeNull();
+        const input = opened.querySelector<HTMLInputElement>("input")!;
+        expect(document.activeElement).toBe(input);
+        await act(async () => { fireEvent.change(input, { target: { value: "WO-1043" } }); });
+        await act(async () => { await new Promise<void>((resolve) => { setTimeout(resolve, 400); }); });
+        await settle();
+        const rows = searchView(container)!.querySelectorAll<HTMLElement>("[data-key-search-row]");
+        expect(rows.length).toBe(1);
+        expect(rows[0]!.textContent).toContain("WO-1043");
+        expect(searchView(container)!.textContent).toContain("Jumps to the row. The filters stay as they are.");
+        await press(rows[0]!);
+        expect(searchView(container)).toBeNull();
+        await settle();
+        expect(slot(container, "main")!.querySelector('[data-row-id="WO-1043"] [data-selected], [data-row-id="WO-1043"][data-selected], [data-group-id="WO-1043"] [data-selected]')).not.toBeNull();
+    } finally { restore(); }
+});
+
+test("Cancel and Esc each close the Search Records view, the focus back on its button (SL10)", async () => {
+    const restore = touchFrame(390, { builder: true });
+    try {
+        const { container } = await h.mount(ex.sheetActionsPhone);
+        const button = () => slot(container, "toolbar")!.querySelector<HTMLButtonElement>('[data-key-search="icon"]')!;
+        await press(button());
+        await press(searchView(container)!.querySelector("[data-key-search-cancel]")!);
+        expect(searchView(container)).toBeNull();
+        expect(document.activeElement).toBe(button());
+        await press(button());
+        await act(async () => { fireEvent.keyDown(searchView(container)!.querySelector("input")!, { key: "Escape" }); });
+        await settle();
+        expect(searchView(container)).toBeNull();
     } finally { restore(); }
 });

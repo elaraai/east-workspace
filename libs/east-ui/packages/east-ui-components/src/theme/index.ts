@@ -163,6 +163,7 @@ import { fieldFormSlotRecipe } from "./slot-recipes/fieldForm.js";
 import { toolbarSlotRecipe } from "./slot-recipes/toolbar.js";
 import { toolbarPhoneSlotRecipe } from "./slot-recipes/toolbarPhone.js";
 import { sliceFiltersViewSlotRecipe } from "./slot-recipes/sliceFiltersView.js";
+import { keySearchPhoneSlotRecipe } from "./slot-recipes/keySearchPhone.js";
 import { builderFrameSlotRecipe } from "./slot-recipes/builderFrame.js";
 import { builderFooterLineSlotRecipe } from "./slot-recipes/builder-footer.js";
 import { loadingSlotRecipe } from "./slot-recipes/loading.js";
@@ -315,6 +316,7 @@ const config = defineConfig({
             toolbar:         toolbarSlotRecipe,
             toolbarPhone:    toolbarPhoneSlotRecipe,
             sliceFiltersView: sliceFiltersViewSlotRecipe,
+            keySearchPhone: keySearchPhoneSlotRecipe,
             builderFrame:    builderFrameSlotRecipe,
             builderFooterLine: builderFooterLineSlotRecipe,
             loading:         loadingSlotRecipe,

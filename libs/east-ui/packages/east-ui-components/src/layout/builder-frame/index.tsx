@@ -70,11 +70,10 @@
  *   stays in its live footer;
  * - no pane at either side: a described pane that collapses is a tab of the pane strip on the
  *   frame's bottom edge — its icon, its label, and its detail or its badge —
- *   and opens as a view over the whole builder from its right edge, as the
- *   Filters view does (ruled 3 Nov 2026, in place of FR5's drawer up from the
- *   strip), its tabs at its head and its collapse there (FR4). 48px of the
- *   builder stay in view beside it, under a veil a tap on which closes it, as
- *   Esc does. One is open at a time, and the focus moves into it as it opens
+ *   and opens as a view over the whole builder, edge to edge, sliding in from
+ *   the right as the Filters view does (ruled 3 Nov 2026, in place of FR5's
+ *   drawer up from the strip), its tabs at its head and its collapse there
+ *   (FR4), which closes it, as Esc does. One is open at a time, and the focus moves into it as it opens
  *   and back to its tab as it closes. Each keeps its open tab and its bodies
  *   mounted across the width, as the pane does; what it holds is told it is
  *   in a phone's drawer ({@link FrameDrawer}), for its phone form.
@@ -559,7 +558,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
     /** The overlay pane that is open, if one is. */
     const openOverlay = SIDES.find((side) => placement[side] === "overlay" && dockOf(side) !== undefined && !collapseOf(side).collapsed);
     const openDock = openOverlay === undefined ? undefined : dockOf(openOverlay);
-    // A phone's open pane, a view over the whole builder: its strip at the left is its scrim.
+    // A phone's open pane, a view over the whole builder: it needs no scrim.
     const phoneDrawer = openOverlay !== undefined && drawn(openOverlay) ? openOverlay : undefined;
     // The scrim: while an overlay pane is open for lack of room — an `auto` pane overlaying, or any at 560px and narrower.
     const scrim = openDock !== undefined && !dragging && phoneDrawer === undefined
@@ -762,9 +761,8 @@ export function BuilderFrame(props: BuilderFrameProps) {
                     <SessionRowSlot.Provider value={sessionRow && !covered ? statusSlot : null}>{footer}</SessionRowSlot.Provider>
                 </Box>
             )}
-            {/* A phone's panes: each a view over the whole builder from its right edge, as the Filters view is, a strip of
-                the builder under a veil at its left, which a tap closes it by (ruled 3 Nov 2026, in place of FR5's drawer). */}
-            {phoneDrawer !== undefined && !dragging && <Box css={styles.drawerStrip} data-drawer-strip="" aria-hidden onClick={onScrim} />}
+            {/* A phone's panes: each a view over the whole builder, edge to edge, as the Filters view is (ruled 3 Nov 2026,
+                in place of FR5's drawer). */}
             {SIDES.map((side) => {
                 const dock = dockOf(side);
                 return dock !== undefined && drawn(side) ? drawer(side, dock) : null;

@@ -508,7 +508,7 @@ test("the inspector's read-only Status says the member's label, as the band's ce
     expect(status.textContent).not.toContain("in_progress");
 });
 
-test("on a phone the inspector opens as a view from the right: its head names the line, its step and its order over the step's title, each field a section of its own at touch size, Good stepped and Done typed as the cell editor does, its cases and its gestures 44 buttons (SH12)", async () => {
+test("on a phone the inspector opens as a view over the whole builder: its head names the line, its step and its order over the step's title, each field a section of its own at touch size, Good stepped and Done typed as the cell editor does, its cases and its gestures 44 buttons (SH12)", async () => {
     const restore = touchFrame(390, { builder: true });
     try {
         const { container } = await h.mount(ex.sheetActionsWorkOrders);
@@ -517,8 +517,6 @@ test("on a phone the inspector opens as a view from the right: its head names th
         await press(container.querySelector('[data-pane-tab="end"]')!);
         const drawer = container.querySelector<HTMLElement>("[data-frame-drawer][data-open]")!;
         expect(drawer).not.toBeNull();
-        // The 48px strip beside it, veiled, closes it as the Filters view's does.
-        expect(container.querySelector("[data-drawer-strip]")).not.toBeNull();
         const details = drawer.querySelector<HTMLElement>('[data-sheet-inspector="line"][data-phone]')!;
         expect(details.querySelector("[data-inspector-what]")?.textContent).toMatch(/· WO-1042$/);
         expect(details.querySelector("[data-inspector-id]")?.textContent).not.toBe("WO-1042");

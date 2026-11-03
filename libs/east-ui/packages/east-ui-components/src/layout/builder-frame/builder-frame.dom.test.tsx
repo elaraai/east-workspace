@@ -408,16 +408,16 @@ describe("BuilderFrame — auto, overlay and the scrim (#1125 F1)", () => {
         expect([paneOf("start"), scrim()]).toEqual([["overlay", true], null]);
     });
 
-    test("an overlay pane open at 560px and narrower is a phone's view, its strip of the builder in the scrim's place — and on a wider frame no scrim at all", () => {
+    test("an overlay pane open at 560px and narrower is a phone's view over the whole builder, needing no scrim — and on a wider frame no scrim at all", () => {
         mount({ start: library({ mode: "overlay" }) });
         frameAt(561);
-        expect([paneOf("start"), scrim(), drawerStrip()]).toEqual([["overlay", false], null, null]);
+        expect([paneOf("start"), scrim()]).toEqual([["overlay", false], null]);
         frameAt(560);
-        expect([scrim(), drawerStrip() !== null]).toEqual([null, true]);
+        expect([scrim(), drawerOf("start").hasAttribute("data-open")]).toEqual([null, true]);
         frameAt(390);
-        expect([scrim(), drawerStrip() !== null]).toEqual([null, true]);
+        expect([scrim(), drawerOf("start").hasAttribute("data-open")]).toEqual([null, true]);
         frameAt(900);
-        expect([scrim(), drawerStrip()]).toEqual([null, null]);
+        expect(scrim()).toBeNull();
     });
 
     test("a tap on the scrim with the focus in the pane puts the focus on its rail", async () => {
@@ -532,8 +532,6 @@ describe("BuilderFrame — a drag (#1125 F1)", () => {
 
 /** A pane's drawer on a phone. */
 const drawerOf = (side: "start" | "end"): HTMLElement => frame().querySelector<HTMLElement>(`[data-frame-drawer][data-frame-slot="${side}"]`)!;
-/** The strip of the builder beside an open drawer, under its veil. */
-const drawerStrip = (): HTMLElement | null => frame().querySelector<HTMLElement>("[data-drawer-strip]");
 /** Which drawers are open. */
 const drawersOpen = () => (["start", "end"] as const).map((side) => drawerOf(side).hasAttribute("data-open"));
 /** A pane's tab on the strip. */
@@ -593,13 +591,13 @@ describe("BuilderFrame — a phone's frame (Mobile Builder Frame Spec.md FR1, FR
         await act(async () => { fireEvent.click(stripTab("start")); });
         expect([drawersOpen(), stripTab("start").getAttribute("aria-selected"), drawerOf("start").getAttribute("role"), drawerOf("start").getAttribute("aria-label")])
             .toEqual([[true, false], "true", "region", "Library"]);
-        // The focus moves in, onto its open tab; a strip of the builder stays in view beside it, veiled (ruled 3 Nov 2026).
-        expect([document.activeElement, drawerStrip() !== null, scrim()]).toEqual([screen.getByRole("tab", { name: "Cards" }), true, null]);
+        // The focus moves in, onto its open tab; the view covers the builder, no scrim (ruled 3 Nov 2026).
+        expect([document.activeElement, scrim()]).toEqual([screen.getByRole("tab", { name: "Cards" }), null]);
         await act(async () => { fireEvent.click(stripTab("start")); });
-        expect([drawersOpen(), document.activeElement, drawerStrip()]).toEqual([[false, false], stripTab("start"), null]);
+        expect([drawersOpen(), document.activeElement]).toEqual([[false, false], stripTab("start")]);
     });
 
-    test("one drawer is open at a time; Esc, the strip beside it and its collapse each close it, the focus back on its tab", async () => {
+    test("one drawer is open at a time; Esc and its collapse each close it, the focus back on its tab", async () => {
         mount({ start: library(), end: properties() });
         frameAt(390);
         await act(async () => { fireEvent.click(stripTab("start")); });
@@ -610,10 +608,6 @@ describe("BuilderFrame — a phone's frame (Mobile Builder Frame Spec.md FR1, FR
 
         fireEvent.keyDown(document.activeElement!, { key: "Escape" });
         expect([drawersOpen(), document.activeElement]).toEqual([[false, false], stripTab("end")]);
-
-        await act(async () => { fireEvent.click(stripTab("start")); });
-        await act(async () => { fireEvent.click(drawerStrip()!); });
-        expect([drawersOpen(), document.activeElement]).toEqual([[false, false], stripTab("start")]);
 
         await act(async () => { fireEvent.click(stripTab("start")); });
         // Its collapse, at its head, points down toward the strip.
