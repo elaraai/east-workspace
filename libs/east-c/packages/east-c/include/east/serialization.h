@@ -327,8 +327,22 @@ const uint8_t *east_beast2_element_writer_header(const Beast2ElementWriter *w, s
 // how a repeated key's values group before they fold, which for a fold over
 // floats decides the output's bytes, and both caps count what every runtime
 // measures alike, so every runtime closes a run at the same element.
+//
+// A fold whose values do not grow — a Dict's merge_fn over a value type whose
+// encoding is bounded (Null, Boolean, Integer, Float, DateTime, and Structs
+// and Variants of those), a Set's union — folds a key's values as they are
+// added, in a fold table in front of the open run (v5/SPEC.md, "Folding as
+// added"). The table holds at most EAST_BEAST2_FOLD_TABLE_MAX_KEYS keys and
+// EAST_BEAST2_FOLD_TABLE_MAX_KEY_BYTES of their canonical bytes. A new key that
+// would take a table holding keys past either spills it — each key as one
+// element of the open run, in the order the keys entered, its values folded
+// pairwise as a run folds them — and at the first spill, a table that absorbed
+// fewer than two elements a key steps aside: every element after goes to the
+// open run. Any other fold, and none, add every element to the open run.
 #define EAST_BEAST2_RUN_MAX_COUNT 131072
 #define EAST_BEAST2_RUN_MAX_BYTES (64u * 1024u * 1024u)
+#define EAST_BEAST2_FOLD_TABLE_MAX_KEYS 65536u
+#define EAST_BEAST2_FOLD_TABLE_MAX_KEY_BYTES (16u * 1024u * 1024u)
 
 // Where the runs go: open() starts run `run` — runs are numbered from 0 in the
 // order they close — write() takes its next bytes, and close() follows its
@@ -361,16 +375,22 @@ void east_beast2_run_sorter_set_parallel(Beast2RunSorter *s, bool parallel);
 // program's, so they keep their lines. Only before the first element.
 void east_beast2_run_sorter_set_source_map(Beast2RunSorter *s, EastSourceMap *source_map);
 // add() takes a Set element, add_pair() a Dict's key and value. An element
-// that fails to encode leaves the sorter as it was; a run that fails as it is
-// written — a key added twice without a fold, the merge function's error, the
-// sink's — ends the sorter. False with the message posted.
+// that fails to encode, or whose fold in the fold table fails, leaves the
+// sorter as it was; a spill or a run that fails as it is written — a key added
+// twice without a fold, the merge function's error, the sink's — ends the
+// sorter. False with the message posted.
 bool east_beast2_run_sorter_add(Beast2RunSorter *s, EastValue *element);
 bool east_beast2_run_sorter_add_pair(Beast2RunSorter *s, EastValue *key, EastValue *value);
-// Writes the open run, if it holds anything. Idempotent.
+// Spills the fold table, and writes the open run, if it holds anything.
+// Idempotent.
 bool east_beast2_run_sorter_finish(Beast2RunSorter *s);
 // Runs written so far; the open one is not counted until a cap or finish()
 // closes it.
 size_t east_beast2_run_sorter_runs(const Beast2RunSorter *s);
+// Whether the fold table takes the elements added, and the keys and canonical
+// key bytes it holds (either out pointer may be NULL): a table that stepped
+// aside, or that the fold never had, is off and holds nothing.
+bool east_beast2_run_sorter_fold_table(const Beast2RunSorter *s, size_t *keys, size_t *key_bytes);
 void east_beast2_run_sorter_free(Beast2RunSorter *s);
 
 // Sequential v5 segment reader over a complete blob (the caller keeps `data`

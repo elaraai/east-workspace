@@ -38,6 +38,7 @@ static int failures = 0;
  * fnv1a64, in hex, joined with ','. */
 #define PERMUTED_DICT_DIGEST "d90d3818c52e31bb"
 #define SET_UNION_DIGEST "a4a7379f0468c2be"
+#define LONG_KEYS_DIGEST "d5b51e634f965575"
 
 /* ----- a sink that keeps each run's bytes ----------------------------- */
 
@@ -138,6 +139,31 @@ static EvalResult concat_invoke(EastCompiledFn *self, EastValue **args, size_t n
     EastValue *v = east_string_len(joined, la + lb);
     free(joined);
     return eval_ok(v);
+}
+
+static EvalResult sum_float_invoke(EastCompiledFn *self, EastValue **args, size_t n)
+{
+    (void)self;
+    if (n != 3) return eval_error("sum: wrong arity");
+    return eval_ok(east_float(args[1]->data.float64 + args[2]->data.float64));
+}
+
+/* A sum that fails on 13. */
+static EvalResult unlucky_invoke(EastCompiledFn *self, EastValue **args, size_t n)
+{
+    (void)self;
+    if (n != 3) return eval_error("unlucky: wrong arity");
+    if (args[2]->data.integer == 13) return eval_error("unlucky");
+    return eval_ok(east_integer(args[1]->data.integer + args[2]->data.integer));
+}
+
+/* The older value — a fold over any type. */
+static EvalResult keep_invoke(EastCompiledFn *self, EastValue **args, size_t n)
+{
+    (void)self;
+    if (n != 3) return eval_error("keep: wrong arity");
+    east_value_retain(args[1]);
+    return eval_ok(args[1]);
 }
 
 /* "(" older newer ")" — shows how a fold grouped its values. */
@@ -525,6 +551,307 @@ static void test_set_union_parity(void)
     east_type_release(type);
 }
 
+/* ----- the fold table ---------------------------------------------------- */
+
+/* `k0000042`, padded with 'x' to `length` characters (at least 8). */
+static char *long_key(int64_t i, size_t length)
+{
+    char *key = malloc(length + 1);
+    snprintf(key, length + 1, "k%07" PRId64, i);
+    memset(key + 8, 'x', length - 8);
+    key[length] = '\0';
+    return key;
+}
+
+static bool add_long_si(Beast2RunSorter *s, int64_t i, size_t length, int64_t value)
+{
+    char *key = long_key(i, length);
+    bool ok = add_pair_si(s, key, value);
+    free(key);
+    return ok;
+}
+
+static bool table_is(Beast2RunSorter *s, bool on, size_t keys, size_t key_bytes)
+{
+    size_t k, b;
+    bool got = east_beast2_run_sorter_fold_table(s, &k, &b);
+    return got == on && k == keys && b == key_bytes;
+}
+
+static void test_fold_table_takes(void)
+{
+    EastType *si = east_dict_type(&east_string_type, &east_integer_type);
+    EastType *ss = east_dict_type(&east_string_type, &east_string_type);
+    const char *option_names[2] = {"none", "some"};
+    EastType *option_cases[2] = {&east_null_type, &east_datetime_type};
+    EastType *option = east_variant_type(option_names, option_cases, 2);
+    const char *names[3] = {"at", "n", "up"};
+    EastType *fields[3] = {option, &east_integer_type, &east_boolean_type};
+    EastType *tally = east_struct_type(names, fields, 3);
+    EastType *st = east_dict_type(&east_string_type, tally);
+    const char *growing_names[2] = {"n", "tag"};
+    EastType *growing_fields[2] = {&east_integer_type, &east_string_type};
+    EastType *growing = east_struct_type(growing_names, growing_fields, 2);
+    EastType *sg = east_dict_type(&east_string_type, growing);
+    EastType *set = east_set_type(&east_string_type);
+    EastValue *sum = fold_fn(sum_invoke, &east_string_type, &east_integer_type);
+    EastValue *keep_s = fold_fn(keep_invoke, &east_string_type, &east_string_type);
+    EastValue *keep_t = fold_fn(keep_invoke, &east_string_type, tally);
+    EastValue *keep_g = fold_fn(keep_invoke, &east_string_type, growing);
+    struct {
+        EastType *type;
+        EastValue *merge;
+        bool union_mode;
+        bool takes;
+        const char *what;
+    } cases[] = {
+        {si, sum, false, true, "a Dict of integers summed"},
+        {st, keep_t, false, true, "a Dict of a bounded struct"},
+        {set, NULL, true, true, "a Set under union"},
+        {ss, keep_s, false, false, "a Dict of strings"},
+        {sg, keep_g, false, false, "a Dict of a struct holding a string"},
+        {si, NULL, false, false, "a Dict without a fold"},
+        {set, NULL, false, false, "a Set without union"},
+    };
+    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+        Runs r;
+        Beast2RunSorter *s = sorter_new(&r, cases[i].type, EAST_BEAST2_CODEC_NONE, cases[i].merge,
+                                        cases[i].union_mode);
+        CHECK(s && east_beast2_run_sorter_fold_table(s, NULL, NULL) == cases[i].takes,
+              "%s: the fold table is %s", cases[i].what, cases[i].takes ? "off" : "on");
+        east_beast2_run_sorter_free(s);
+        runs_free(&r);
+    }
+    east_value_release(keep_g);
+    east_value_release(keep_t);
+    east_value_release(keep_s);
+    east_value_release(sum);
+    east_type_release(set);
+    east_type_release(sg);
+    east_type_release(growing);
+    east_type_release(st);
+    east_type_release(tally);
+    east_type_release(option);
+    east_type_release(ss);
+    east_type_release(si);
+}
+
+static void test_fold_table_few_keys(void)
+{
+    /* Twice the element cap over five keys: one run, of the five. */
+    EastType *type = east_dict_type(&east_string_type, &east_integer_type);
+    EastValue *sum = fold_fn(sum_invoke, &east_string_type, &east_integer_type);
+    const char *regions[5] = {"north", "south", "east", "west", "central"};
+    int64_t totals[5] = {0};
+    Runs r;
+    Beast2RunSorter *s = sorter_new(&r, type, EAST_BEAST2_CODEC_DEFLATE, sum, false);
+    bool ok = s != NULL;
+    for (int64_t i = 0; ok && i < 2 * EAST_BEAST2_RUN_MAX_COUNT + 7; i++) {
+        ok = add_pair_si(s, regions[i % 5], i);
+        totals[i % 5] += i;
+    }
+    ok = s && sorter_finish(s, &r) && ok;
+    EastValue *expected = east_dict_new(&east_string_type, &east_integer_type);
+    for (int i = 0; i < 5; i++) {
+        EastValue *k = east_string(regions[i]), *v = east_integer(totals[i]);
+        east_dict_set(expected, k, v);
+        east_value_release(k);
+        east_value_release(v);
+    }
+    ByteBuffer *paged = east_beast2_encode_paged(expected, type, EAST_BEAST2_CODEC_DEFLATE);
+    CHECK(ok && r.n == 1 && bytes_equal(r.runs[0], paged),
+          "five keys did not fold into one run of the five: %zu runs", r.n);
+    byte_buffer_free(paged);
+    east_value_release(expected);
+    runs_free(&r);
+    east_value_release(sum);
+    east_type_release(type);
+}
+
+static void test_fold_table_bounds(void)
+{
+    EastType *type = east_dict_type(&east_string_type, &east_integer_type);
+    EastValue *sum = fold_fn(sum_invoke, &east_string_type, &east_integer_type);
+
+    /* At most EAST_BEAST2_FOLD_TABLE_MAX_KEYS keys: two elements a key, so the
+     * table stays on once it spills at the next new one. */
+    Runs r;
+    Beast2RunSorter *s = sorter_new(&r, type, EAST_BEAST2_CODEC_NONE, sum, false);
+    bool ok = s != NULL;
+    size_t keys = 0, key_bytes = 0;
+    for (int64_t i = 0; ok && i < EAST_BEAST2_FOLD_TABLE_MAX_KEYS; i++) {
+        ok = add_long_si(s, i, 8, 1) && add_long_si(s, i, 8, 2);
+        east_beast2_run_sorter_fold_table(s, &keys, &key_bytes);
+        if (keys > EAST_BEAST2_FOLD_TABLE_MAX_KEYS) break;
+    }
+    CHECK(ok && table_is(s, true, EAST_BEAST2_FOLD_TABLE_MAX_KEYS,
+                         9 * EAST_BEAST2_FOLD_TABLE_MAX_KEYS),
+          "the table does not hold its most keys");
+    ok = ok && add_long_si(s, EAST_BEAST2_FOLD_TABLE_MAX_KEYS, 8, 1);
+    CHECK(ok && table_is(s, true, 1, 9) && east_beast2_run_sorter_runs(s) == 0,
+          "the table did not spill into the open run at the next new key");
+    east_beast2_run_sorter_free(s);
+    runs_free(&r);
+
+    /* At most EAST_BEAST2_FOLD_TABLE_MAX_KEY_BYTES: keys of 4,094 characters
+     * are 4,096 canonical bytes, so 4,096 of them are the bound exactly. */
+    s = sorter_new(&r, type, EAST_BEAST2_CODEC_NONE, sum, false);
+    ok = s != NULL;
+    const int64_t fit = EAST_BEAST2_FOLD_TABLE_MAX_KEY_BYTES / 4096;
+    for (int64_t i = 0; ok && i < fit; i++) {
+        ok = add_long_si(s, i, 4094, 1) && add_long_si(s, i, 4094, 2);
+        east_beast2_run_sorter_fold_table(s, &keys, &key_bytes);
+        if (key_bytes > EAST_BEAST2_FOLD_TABLE_MAX_KEY_BYTES) break;
+    }
+    CHECK(ok && table_is(s, true, (size_t)fit, EAST_BEAST2_FOLD_TABLE_MAX_KEY_BYTES),
+          "the table does not hold its most key bytes");
+    ok = ok && add_long_si(s, fit, 4094, 1);
+    CHECK(ok && table_is(s, true, 1, 4096), "the table did not spill at the next new key");
+    east_beast2_run_sorter_free(s);
+    runs_free(&r);
+
+    /* A key whose bytes alone pass the byte bound enters the empty table. */
+    s = sorter_new(&r, type, EAST_BEAST2_CODEC_NONE, sum, false);
+    char *big = malloc(EAST_BEAST2_FOLD_TABLE_MAX_KEY_BYTES + 1);
+    memset(big, 'b', EAST_BEAST2_FOLD_TABLE_MAX_KEY_BYTES);
+    big[EAST_BEAST2_FOLD_TABLE_MAX_KEY_BYTES] = '\0';
+    ok = s && add_pair_si(s, big, 1) && add_pair_si(s, big, 2);
+    CHECK(ok && table_is(s, true, 1, EAST_BEAST2_FOLD_TABLE_MAX_KEY_BYTES + 4),
+          "a key past the byte bound did not enter the empty table");
+    ok = ok && add_pair_si(s, "a", 3);
+    CHECK(ok && table_is(s, true, 1, 2), "the next new key did not spill the table");
+    ok = s && sorter_finish(s, &r) && ok;
+    EastValue *run =
+        ok && r.n == 1 ? east_beast2_decode_full(r.runs[0]->data, r.runs[0]->len, type) : NULL;
+    EastValue *k = east_string(big);
+    EastValue *v = run ? east_dict_get(run, k) : NULL;
+    CHECK(run && east_dict_len(run) == 2 && v && v->data.integer == 3,
+          "the run does not hold the big key's sum");
+    east_value_release(k);
+    if (run) east_value_release(run);
+    free(big);
+    runs_free(&r);
+
+    east_value_release(sum);
+    east_type_release(type);
+}
+
+static void test_fold_table_step_aside(void)
+{
+    EastType *type = east_dict_type(&east_string_type, &east_integer_type);
+    EastValue *sum = fold_fn(sum_invoke, &east_string_type, &east_integer_type);
+    Runs r;
+    Beast2RunSorter *s = sorter_new(&r, type, EAST_BEAST2_CODEC_NONE, sum, false);
+    bool ok = s != NULL;
+    for (int64_t i = 0; ok && i < EAST_BEAST2_FOLD_TABLE_MAX_KEYS; i++)
+        ok = add_long_si(s, i, 8, 1);
+    /* 65,537 absorbed for 65,536 keys: fewer than two a key. */
+    ok = ok && add_long_si(s, 0, 8, 1) && add_long_si(s, EAST_BEAST2_FOLD_TABLE_MAX_KEYS, 8, 1);
+    CHECK(ok && table_is(s, false, 0, 0), "the table did not step aside at its first spill");
+    /* Every element after goes into the open run, which closes at the cap. */
+    for (int64_t i = 0; ok && east_beast2_run_sorter_runs(s) == 0; i++)
+        ok = add_long_si(s, i, 8, 1);
+    CHECK(ok && east_beast2_run_sorter_runs(s) == 1, "the open run did not close at the cap");
+    east_beast2_run_sorter_free(s);
+    runs_free(&r);
+    east_value_release(sum);
+    east_type_release(type);
+}
+
+static void test_fold_table_rollback(void)
+{
+    /* A fold that fails leaves the key's partial folds as they were. */
+    EastType *type = east_dict_type(&east_string_type, &east_integer_type);
+    EastValue *unlucky = fold_fn(unlucky_invoke, &east_string_type, &east_integer_type);
+    EastValue *a = east_string("a");
+    Runs r;
+    Beast2RunSorter *s = sorter_new(&r, type, EAST_BEAST2_CODEC_DEFLATE, unlucky, false);
+    bool ok = s && add_pair_si(s, "a", 1) && add_pair_si(s, "a", 2) && add_pair_si(s, "a", 4);
+    CHECK(ok && !add_pair_si(s, "a", 13), "a fold that failed was taken");
+    char *err = east_builtin_get_error();
+    CHECK(err && strstr(err, "unlucky"), "the refusal says %s", err ? err : "nothing");
+    free(err);
+    CHECK(s && table_is(s, true, 1, 2), "a failed fold changed the table");
+    ok = ok && add_pair_si(s, "a", 8);
+    ok = s && sorter_finish(s, &r) && ok;
+    EastValue *run =
+        ok && r.n == 1 ? east_beast2_decode_full(r.runs[0]->data, r.runs[0]->len, type) : NULL;
+    EastValue *v = run ? east_dict_get(run, a) : NULL;
+    CHECK(run && east_dict_len(run) == 1 && v && v->data.integer == 15,
+          "the run does not hold a's sum, 15");
+    if (run) east_value_release(run);
+    runs_free(&r);
+    east_value_release(a);
+    east_value_release(unlucky);
+    east_type_release(type);
+
+    /* An element that fails to encode — a tag its Variant lacks — leaves the
+     * table as it was. */
+    const char *names[2] = {"a", "b"};
+    EastType *cases[2] = {&east_integer_type, &east_null_type};
+    EastType *variant = east_variant_type(names, cases, 2);
+    EastType *tagged = east_dict_type(&east_string_type, variant);
+    EastValue *keep = fold_fn(keep_invoke, &east_string_type, variant);
+    EastValue *one = east_integer(1);
+    EastValue *good = east_variant_new("a", one, variant);
+    EastValue *bad = east_variant_new("zzz", east_null(), variant);
+    EastValue *ka = east_string("a"), *kb = east_string("b");
+    s = sorter_new(&r, tagged, EAST_BEAST2_CODEC_DEFLATE, keep, false);
+    CHECK(s && east_beast2_run_sorter_add_pair(s, kb, good), "a good entry was refused");
+    CHECK(s && !east_beast2_run_sorter_add_pair(s, ka, bad), "an unencodable entry was taken");
+    free(east_builtin_get_error());
+    CHECK(s && table_is(s, true, 1, 2), "an unencodable entry changed the table");
+    CHECK(s && east_beast2_run_sorter_add_pair(s, ka, good), "the sorter refused after a failure");
+    CHECK(s && sorter_finish(s, &r), "finish failed: %s", east_builtin_get_error());
+    run = r.n == 1 ? east_beast2_decode_full(r.runs[0]->data, r.runs[0]->len, tagged) : NULL;
+    CHECK(run && east_dict_len(run) == 2, "the run does not hold the two good entries");
+    if (run) east_value_release(run);
+    runs_free(&r);
+    east_value_release(kb);
+    east_value_release(ka);
+    east_value_release(bad);
+    east_value_release(good);
+    east_value_release(one);
+    east_value_release(keep);
+    east_type_release(tagged);
+    east_type_release(variant);
+}
+
+static void test_long_keys_parity(void)
+{
+    /* 10,000 keys of 4,096 canonical bytes, each added twice, then once more:
+     * the table spills at its byte bound every 4,096 keys, and the open run
+     * reaches the byte cap in the middle of the fourth spill. The floats show
+     * how they grouped. Pinned in TypeScript's runs.spec.ts. */
+    EastType *type = east_dict_type(&east_string_type, &east_float_type);
+    EastValue *sum = fold_fn(sum_float_invoke, &east_string_type, &east_float_type);
+    static const double scales[5] = {0.1, 1e16, -1e16, 3.3, -0.7};
+    Runs r;
+    Beast2RunSorter *s = sorter_new(&r, type, EAST_BEAST2_CODEC_NONE, sum, false);
+    bool ok = s != NULL;
+    for (int64_t i = 0; ok && i < 30000; i++) {
+        char *key = long_key(i < 20000 ? i >> 1 : i - 20000, 4094);
+        EastValue *k = east_string(key);
+        EastValue *v = east_float(scales[i % 5] * (double)((i % 11) + 1));
+        ok = east_beast2_run_sorter_add_pair(s, k, v);
+        east_value_release(k);
+        east_value_release(v);
+        free(key);
+    }
+    ok = s && sorter_finish(s, &r) && ok;
+    CHECK(ok && r.n == 2 && element_count(r.runs[0], type) == 10000 &&
+              element_count(r.runs[1], type) == 3647,
+          "the long keys did not close runs of 10,000 and 3,647 keys");
+    char digest[32];
+    runs_digest(&r, digest, sizeof(digest));
+    CHECK(strcmp(digest, LONG_KEYS_DIGEST) == 0,
+          "the long keys' runs diverge from TypeScript's: %s (expected %s)", digest,
+          LONG_KEYS_DIGEST);
+    runs_free(&r);
+    east_value_release(sum);
+    east_type_release(type);
+}
+
 /* ----- the runs, merged -------------------------------------------------- */
 
 static bool write_file(const char *path, const ByteBuffer *bytes)
@@ -642,6 +969,12 @@ int main(void)
     test_rollback_and_refusals();
     test_permuted_dict_parity();
     test_set_union_parity();
+    test_fold_table_takes();
+    test_fold_table_few_keys();
+    test_fold_table_bounds();
+    test_fold_table_step_aside();
+    test_fold_table_rollback();
+    test_long_keys_parity();
     test_runs_merge_back();
 
     platform_registry_free(platform);

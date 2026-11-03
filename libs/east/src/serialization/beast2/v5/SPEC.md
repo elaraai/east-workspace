@@ -24,9 +24,10 @@ process writes them. Each rule is specified in its own section.
 - **East order decides Set and Dict content** (*Order*).
 - **A manifest** names every object by its SHA-256 and records the collection
   type with canonical recursive ids (*Segment manifests*).
-- **Sorted runs** close at fixed caps and merge in input order, and a
-  **re-cut** writes the canonical writer's segments (*Sorted runs and merges*,
-  *Re-cutting*).
+- **Sorted runs** close at fixed caps and merge in input order, a fold whose
+  values do not grow folds a key's values as they are added, and a **re-cut**
+  writes the canonical writer's segments (*Sorted runs and merges*, *Folding
+  as added*, *Re-cutting*).
 
 Readers accept every form ever released: v4 containers, index-less blobs,
 segments cut by the earlier rules (*Earlier rules*), aliasing scoped per root
@@ -636,6 +637,51 @@ which east-py binds).
   when the collection holds functions, since the parts are written under the
   task's program's map, so the merge writes what one run of the whole would
   have.
+
+### Folding as added
+
+A fold whose values do not grow folds a repeated key's values as they are
+added, in a **fold table** in front of the open run, rather than holding every
+element until the run sorts. For an output with few keys — revenue by region —
+the sort is nearly all wasted work. The table takes:
+
+- a Dict with a merge function whose value type's encoding is bounded: Null,
+  Boolean, Integer, Float, DateTime, and Structs and Variants of those types;
+- a Set under union.
+
+Any other fold — a merge over Strings, Blobs, collections, functions, Refs or
+a recursive type, which grow as they fold — and no fold at all add every
+element to the open run, as *Closing a run* says.
+
+- **Keys.** The table holds keys by East equality: by their canonical bytes,
+  which are equal exactly when the keys are. Each key keeps its values'
+  partial folds as a run keeps a repeated key's: each value added becomes the
+  newest partial, and while the newest two partials cover equally many values
+  they fold into one, `merge(key, older, newer)`, the key being the first one
+  added. A Set's key is kept once, the first added.
+- **Bounds.** The table holds at most 65536 keys, and 16777216 bytes (16 MiB)
+  of their canonical key bytes, each key's counted once, as it enters. Both
+  are constants of the format.
+- **Spilling.** When the table holds a key, and a key it does not hold would
+  take it past either bound, the table spills: each entry, in the order its
+  key entered the table, its partials folded newest into oldest, is added to
+  the open run as one element, counted toward the run's caps as any element
+  is — so a run may close mid-spill — and the table empties. The new key then
+  enters the empty table; a key whose bytes alone pass the byte bound enters it
+  so, and the next new key spills it. When the producer finishes, the table
+  spills before the last run closes.
+- **Stepping aside.** At the first spill, a table that absorbed fewer than two
+  elements for each key it holds is switched off once the spill ends: the key
+  that made it spill, and every element after it, is added to the open run.
+
+Every element a key's spills and the open run hold then folds as a run folds
+it. With an associative merge function, which a run already requires, the
+value is the one a single fold of every value gives, and since the grouping is
+this rule's alone, every runtime writes the same bytes. A Dict whose values
+are Floats groups them differently than a sorter without a table did, so its
+last bits can differ from what releases before the table wrote. The runs
+differ too — fewer, each key in fewer of them — but their merge over an exact
+value type writes the same bytes as before.
 
 ## Re-cutting
 

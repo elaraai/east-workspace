@@ -249,6 +249,13 @@ class Beast2ElementWriter:
 RUN_MAX_COUNT = 131_072
 RUN_MAX_BYTES = 64 * 1024 * 1024
 
+#: The keys a fold table holds, and the bytes of their canonical encoding,
+#: before a new key spills it (v5/SPEC.md, "Folding as added"). Constants of
+#: the format, as the run caps are. Mirrors east-c's
+#: ``EAST_BEAST2_FOLD_TABLE_MAX_*`` and TypeScript's ``FOLD_TABLE_MAX_*``.
+FOLD_TABLE_MAX_KEYS = 65_536
+FOLD_TABLE_MAX_KEY_BYTES = 16 * 1024 * 1024
+
 
 class Beast2RunSorter:
     """Sort a Set's or Dict's elements, given in any order, into sorted
@@ -265,6 +272,16 @@ class Beast2RunSorter:
     the order they close, and each goes to the sink ``open_run(run)`` returns
     — anything with ``write(bytes)`` and ``close()``, a file included. A key
     that repeats across runs is the merge's to fold.
+
+    A fold whose values do not grow — a ``merge`` over a value type whose
+    encoding is bounded (Null, Boolean, Integer, Float, DateTime, and Structs
+    and Variants of those), or ``union`` — folds a key's values as they are
+    added, in a fold table in front of the open run: an output with few keys
+    sorts a few elements rather than every one. The table holds at most
+    :data:`FOLD_TABLE_MAX_KEYS` keys and :data:`FOLD_TABLE_MAX_KEY_BYTES` of
+    their encoding; a new key past either spills it into the open run, each
+    key as one element, and at the first spill a table that absorbed fewer
+    than two elements a key steps aside.
 
     East-c's sorter does every byte of it, so the runs are the ones east-c
     and TypeScript write for the same elements.
@@ -286,13 +303,15 @@ class Beast2RunSorter:
 
     def add(self, element) -> None:
         """Add one element — for a Dict, a ``(key, value)`` pair. An element
-        that fails to encode leaves the sorter as it was; a run that fails as
-        it closes — a key added twice without a fold, the merge function's
-        error, the sink's — ends the sorter."""
+        that fails to encode, or whose fold in the fold table fails, leaves the
+        sorter as it was; a spill or a run that fails as it is written — a key
+        added twice without a fold, the merge function's error, the sink's —
+        ends the sorter."""
         self._core.add(element)
 
     def finish(self) -> None:
-        """Write the open run, if it holds anything. Idempotent."""
+        """Spill the fold table, and write the open run, if it holds
+        anything. Idempotent."""
         self._core.finish()
 
 
@@ -3882,6 +3901,8 @@ __all__ = [
     "Beast2Writer",
     "Beast2ElementWriter",
     "Beast2RunSorter",
+    "FOLD_TABLE_MAX_KEYS",
+    "FOLD_TABLE_MAX_KEY_BYTES",
     "RUN_MAX_COUNT",
     "RUN_MAX_BYTES",
     "encode_beast2_for",

@@ -91,6 +91,8 @@ export {
 export {
   RUN_MAX_COUNT,
   RUN_MAX_BYTES,
+  FOLD_TABLE_MAX_KEYS,
+  FOLD_TABLE_MAX_KEY_BYTES,
   Beast2RunSorter,
   type Beast2RunSink,
   type Beast2RunSorterOptions,

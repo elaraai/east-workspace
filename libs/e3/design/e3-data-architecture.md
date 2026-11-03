@@ -166,7 +166,7 @@ TaskObject = {
 | Primitive | Contract | TypeScript (`east`, `v5/`) | C (`east-c`) |
 |---|---|---|---|
 | Writer | ascending elements → canonical segments: to a blob, or segment by segment as standalone segment blobs | `stream.ts` (`Beast2ElementWriter`) | `v5/stream.c` |
-| RunSorter | elements in any order → sorted canonical runs. It holds encoded elements up to a cap and sorts them stably by (key, emission order). Equal keys fold with `merge` or are refused; a set unions | `runs.ts` (`Beast2RunSorter`) | `v5/runs.c` |
+| RunSorter | elements in any order → sorted canonical runs. It holds encoded elements up to a cap and sorts them stably by (key, emission order). Equal keys fold with `merge` or are refused; a set unions. A fold whose values do not grow (a `merge` over a bounded value type, a set's union) first folds each key's values as they are emitted, in a fold table of at most 65,536 keys and 16 MiB of key bytes that spills into the open run, so an output with few keys sorts a few elements (`v5/SPEC.md`, *Folding as added*) | `runs.ts` (`Beast2RunSorter`) | `v5/runs.c` |
 | Merger | k sorted collections, blobs or manifests → one, optionally over one key range; equal keys fold in input order | `merge.ts` (`mergeBeast2For`) | `merge.c` |
 | Recut | pieces in order → the canonical whole, segment by segment. A segment the whole shares with a piece is carried without being read; only seams and elements are re-cut. Async, because its callers read segments from the store | `recut.ts` (`recutBeast2For`) | none: only e3-core re-cuts |
 | Splice / carve | segments into one blob, or out of one, streamed | `geometry.ts` (`spliceBeast2Segments`, `carveBeast2Ranged`) | east-c's own |
@@ -426,7 +426,7 @@ The recognizer lives in the e3 SDK (`libs/e3/packages/e3/src/parallel.ts`) as on
 |---|---|
 | the segment cut rules' parameters, for Set/Dict and for Array (§3.4) | `-j` cores |
 | the piece rule's sizes, from the input's stored bytes: 16, 64 and 256 MiB within 16 MiB and from 2 GiB, a target of its 32nd part in powers of two between (§3.7); a delivery's intake pieces close at 64 MiB of its bytes (§3.6) | `--memory` |
-| the RunSorter's caps, 131,072 elements or 64 MiB, the second also the cap on a foreign segment and a delivery's | the scratch directory (`E3_SCRATCH_DIR`) |
+| the RunSorter's caps, 131,072 elements or 64 MiB, the second also the cap on a foreign segment and a delivery's; its fold table's bounds, 65,536 keys or 16 MiB of their bytes | the scratch directory (`E3_SCRATCH_DIR`) |
 | merge and fold fan-in, 32; the merge range size, the pieces' target | cgroup use (`E3_CGROUPS`); verbosity |
 
 The left column decides how work, and so floating-point folds, are grouped, which decides output bytes. The right column decides only when work runs.
