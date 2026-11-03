@@ -31,7 +31,7 @@ import {
 import { SplitCallPlanType, type SplitCallPlan, type SplitCallProgress } from "@elaraai/e3-types";
 import { createInMemoryQueryCall, createInMemorySourceStatus, createInMemorySplitCall } from "./in-memory-call.js";
 import { prepareQuery, queryResultOf, queryRoot, type QueryResult } from "./one-shot.js";
-import { planQuery, type QueryPlan } from "./plan.js";
+import { planQuery, type QueryPlan, type SourceWeight } from "./plan.js";
 import { CUSTOMERS, CustomersType, FIXTURE_VALUE, ORDERS, OrdersType } from "./fixture.test-utils.js";
 
 const orders = (FIXTURE_VALUE as Readonly<Record<string, unknown>>)["orders"];
@@ -90,9 +90,16 @@ const BOTH = queryRoot([
 ]);
 const DATASETS = [{ path: ORDERS, type: OrdersType, value: orders }, { path: CUSTOMERS, type: CustomersType, value: customers }];
 
+/**
+ * Both datasets weighed as larger than one piece, their rows not known: a run
+ * that splits is a split call by weight alone, not by its estimates (#1143),
+ * which a few dozen rows would make one call.
+ */
+const LARGE: ReadonlyMap<string, SourceWeight> = new Map([["orders", { bytes: 1 << 30, rows: undefined }], ["customers", { bytes: 1 << 30, rows: undefined }]]);
+
 /** A program's split call, its orders weighed as larger than one piece. */
 function splitOf(program: string, maxBytes?: number): Extract<QueryPlan, { kind: "split" }> {
-    const planned = planQuery(program, BOTH, new Map([["orders", { bytes: 1 << 30, rows: 40 }]]), maxBytes === undefined ? {} : { maxBytes });
+    const planned = planQuery(program, BOTH, new Map([["orders", LARGE.get("orders")!]]), maxBytes === undefined ? {} : { maxBytes });
     if ("result" in planned || planned.plan.kind !== "split") throw new Error(`${program} does not split`);
     return planned.plan;
 }
@@ -196,7 +203,7 @@ describe("createInMemorySplitCall (#941)", () => {
 
     test("an object argument reads an earlier call's output by its hash, as a re-keyed join's second call does; an object no call assembled is refused (#942)", async () => {
         const program = ".customers as $c | .orders | map($c[.customer_id].region) | unique";
-        const planned = planQuery(program, BOTH, new Map([["orders", { bytes: 1 << 30, rows: 40 }], ["customers", { bytes: 1 << 30, rows: 8 }]]));
+        const planned = planQuery(program, BOTH, LARGE);
         if ("result" in planned || planned.plan.kind !== "rekey") throw new Error(`${program} is not re-keyed`);
         const p = planned.plan;
         const call = createInMemorySplitCall(DATASETS, { pieces: 3 });
@@ -270,7 +277,7 @@ describe("createInMemorySplitCall's explain (#1132)", () => {
     test("of arguments partitioned together, it cuts over the heaviest — a re-keyed join's join call over the re-keyed orders, read by their hash, which weigh their beast2 bytes", async () => {
         // The re-key call sends each order as the query reads it (#1141): its customer and its lines, which outweigh the customers.
         const program = ".customers as $c | .orders | map({region: $c[.customer_id].region, lines: (.lines | length)}) | unique";
-        const planned = planQuery(program, BOTH, new Map([["orders", { bytes: 1 << 30, rows: 40 }], ["customers", { bytes: 1 << 30, rows: 8 }]]));
+        const planned = planQuery(program, BOTH, LARGE);
         if ("result" in planned || planned.plan.kind !== "rekey") throw new Error(`${program} is not re-keyed`);
         const call = createInMemorySplitCall(DATASETS, { pieces: 3 });
         const first = await call(planned.plan.first, QUIET);

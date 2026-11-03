@@ -24,7 +24,8 @@
  * - **The repository.** The files taken into a workspace (`datasetAdoptFile`),
  *   kept for the next run too.
  * - **The calls.** Each benchmark query planned as the builder plans it
- *   (`planQuery`, every dataset weighed by its file's bytes), as a split call
+ *   (`planQuery`, every dataset weighed by e3's status — its stored bytes and
+ *   rows — as the builder weighs it), as a split call
  *   on east-c — the first `east-c` on PATH, which the run refuses to start
  *   when e3 would run another: e3 looks a runner up in every
  *   `node_modules/.bin` and the first `.venv` above the data's directory and
@@ -56,6 +57,13 @@
  * the builder would make of it, under the one-shot deadline (120 s unless
  * `E3_QUERY_SCALE_ONE_SHOT_MS` says otherwise): its time, its outcome — at
  * scale it may run out of time or memory — and east-c's peak.
+ *
+ * **The pick** (#1143): the path the planner picks for each query, by its
+ * estimates with the budget's cores to run pieces on and no memory limit —
+ * the split calls above are the ones it would make, which it is made to by
+ * letting one call use no memory — reported beside both paths' estimated and
+ * measured times. With the one-shot calls run, each pick is held to the faster
+ * path, or to within 20% of it.
  */
 
 import { describe, it, before } from 'node:test';
@@ -73,9 +81,9 @@ import {
 import type { ExecuteResult, RunnerValue, SplitCallRequest } from '@elaraai/e3-types';
 import {
     LocalStorage, LocalTaskRunner, datasetAdoptFile, executionGet, executionList, executionListIds, executionReadLog, oneShotExecute, packageImport,
-    pruneHistory, repoInit, resolveBudget, splitCallPrepare, splitCallResult, splitCallRun, workspaceCreate, workspaceDeploy,
+    pruneHistory, repoInit, resolveBudget, splitCallPrepare, splitCallResult, splitCallRun, workspaceCreate, workspaceDeploy, workspaceGetDatasetStatus,
 } from '@elaraai/e3-core';
-import { draftPlan, planQuery, prepareQuery, queryResultOf, type QueryResult } from '@elaraai/e3-ui-components/query';
+import { draftPlan, planQuery, prepareQuery, queryResultOf, type PlanOptions, type QueryPlan, type QueryResult, type SourceWeight } from '@elaraai/e3-ui-components/query';
 import {
     CUSTOMERS, CUSTOMER_COUNT, CustomersType, ORDERS, OrdersType, QUERIES, REGIONS, ROOT, SHIPMENTS, ShipmentsType, THRESHOLD, customerId, customers, orders,
     shipmentOf,
@@ -271,7 +279,7 @@ function ensureData(size: Size): void {
 /** What a size's repository holds, kept beside it once it is whole. */
 interface RepoMark {
     readonly orders: number;
-    /** The orders' file, in bytes: what the planner weighs. */
+    /** The orders' file, in bytes. */
     readonly bytes: number;
     /** The customers' file, in bytes. */
     readonly customersBytes: number;
@@ -311,6 +319,20 @@ async function ensureRepo(size: Size, storage: LocalStorage, runner: LocalTaskRu
     };
     writeFileSync(markFile, JSON.stringify(mark));
     return { repo, mark };
+}
+
+/**
+ * What each data source of the root weighs, as e3's status says it — its
+ * stored bytes and the rows of a stored collection — as the builder weighs it
+ * (its `sourceStatusOf`).
+ */
+async function weightsOf(storage: LocalStorage, repo: string): Promise<Map<string, SourceWeight>> {
+    const weights = new Map<string, SourceWeight>();
+    for (const entry of ROOT.entries) {
+        const status = await workspaceGetDatasetStatus(storage, repo, WS, entry.path, { geometry: true });
+        weights.set(entry.name, { bytes: status.storedBytes ?? status.size ?? undefined, rows: status.rows ?? undefined });
+    }
+    return weights;
 }
 
 // ─── Reading what came back ──────────────────────────────────────────────────
@@ -416,6 +438,30 @@ interface OneShotRow {
     readonly loadAtStart: number;
 }
 
+/** A query's pick (#1143): the path the planner picks, both paths' estimates, and their times as measured. */
+interface PickRow {
+    readonly size: string;
+    readonly query: string;
+    /** The path it picks, and why. */
+    readonly picks: QueryPlan['kind'];
+    readonly why: string;
+    /** Both paths' estimated seconds, when the planner estimated them. */
+    readonly estimatedOneCall: number | null;
+    readonly estimatedSplit: number | null;
+    /** The split calls' seconds, the median of the runs. */
+    readonly split: number;
+    /** The one-shot call's seconds and outcome, when it ran. */
+    readonly oneCall: { readonly seconds: number; readonly outcome: string } | null;
+}
+
+/** The pick's time over the faster path's, or `null` when the one-shot call did not run: one call that did not answer is slower than any split. */
+function pickOverFaster(row: PickRow): number | null {
+    if (row.oneCall === null) return null;
+    const answered = row.oneCall.outcome === 'exact' || row.oneCall.outcome === 'within 1e-9';
+    const one = answered ? row.oneCall.seconds : Infinity;
+    return (row.picks === 'one_shot' ? one : row.split) / Math.min(one, row.split);
+}
+
 /** Every execution the repository records, with its record. */
 async function records(storage: LocalStorage, repo: string) {
     const out = [];
@@ -460,8 +506,8 @@ async function unitLines(storage: LocalStorage, repo: string, task: { taskHash: 
 
 const f = (x: number, digits = 1): string => (Number.isFinite(x) ? x.toFixed(digits) : '-');
 
-/** A size's rows as a markdown table. */
-function table(size: Size, rows: readonly SplitRow[], oneShots: readonly OneShotRow[]): string {
+/** A size's rows as a markdown table, then its one-shot calls' and its picks'. */
+function table(size: Size, rows: readonly SplitRow[], oneShots: readonly OneShotRow[], picks: readonly PickRow[]): string {
     const lines = [
         `#### ${size.label}: ${size.orders.toLocaleString('en-US')} orders`,
         '',
@@ -472,6 +518,15 @@ function table(size: Size, rows: readonly SplitRow[], oneShots: readonly OneShot
     if (oneShots.length > 0) {
         lines.push('', '| query | one-shot s | outcome | east-c peak MiB | load at start |', '|---|---|---|---|---|');
         lines.push(...oneShots.map((r) => `| ${r.query} | ${f(r.seconds, 2)} | ${r.outcome} | ${r.peakMiB === null ? '-' : f(r.peakMiB)} | ${f(r.loadAtStart, 2)} |`));
+    }
+    if (picks.length > 0) {
+        const path = (kind: QueryPlan['kind']): string => (kind === 'one_shot' ? 'one call' : kind === 'rekey' ? 're-keyed join' : 'split call');
+        const ratio = (row: PickRow): string => {
+            const over = pickOverFaster(row);
+            return over === null ? '-' : Number.isFinite(over) ? f(over, 2) : 'inf';
+        };
+        lines.push('', '| query | picks | why | estimated one call / split s | one call s | split s | pick / faster |', '|---|---|---|---|---|---|---|');
+        lines.push(...picks.map((r) => `| ${r.query} | ${path(r.picks)} | ${r.why} | ${r.estimatedOneCall === null ? '-' : f(r.estimatedOneCall, 2)} / ${r.estimatedSplit === null ? '-' : f(r.estimatedSplit, 2)} | ${r.oneCall === null ? '-' : `${f(r.oneCall.seconds, 2)}${r.oneCall.outcome === 'exact' || r.oneCall.outcome === 'within 1e-9' ? '' : ` (${r.oneCall.outcome})`}`} | ${f(r.split, 2)} | ${ratio(r)} |`));
     }
     return lines.join('\n');
 }
@@ -506,31 +561,33 @@ describe('query plans at scale (E3_QUERY_SCALE=1)', { skip: !enabled }, () => {
     for (const size of sizes) {
         describe(`${size.label}: ${size.orders} orders`, () => {
             let repo: string;
-            let mark: RepoMark;
             const runner = new LocalTaskRunner(join(DIR, `repo-${size.label}`), budget);
             const rows: SplitRow[] = [];
             const oneShots: OneShotRow[] = [];
+            const picks: PickRow[] = [];
+            let weights: Map<string, SourceWeight>;
 
             before(async () => {
                 ensureData(size);
-                ({ repo, mark } = await ensureRepo(size, storage, runner));
+                ({ repo } = await ensureRepo(size, storage, runner));
+                weights = await weightsOf(storage, repo);
             });
 
             for (const q of queries) {
                 it(`${q.id}, ${q.label}: each cold run of its split calls answers as the oracle does`, async () => {
                     const type = resultTypeOf(q.program);
                     const oracle = decodeBeast2For(type)(readFileSync(filesOf(size).oracle(q.id)));
-                    // Every dataset weighed by its file, as the builder weighs it by its status: a join of the orders with
-                    // the shipments, both larger than a piece, is re-keyed (#942); the customers, within one, are read whole.
-                    const weights = new Map([
-                        ['orders', { bytes: mark.bytes, rows: mark.orders }],
-                        ['customers', { bytes: mark.customersBytes, rows: CUSTOMER_COUNT }],
-                        ['shipments', { bytes: mark.shipmentsBytes, rows: undefined }],
-                    ]);
-                    const planned = planQuery(q.program, ROOT, weights, { runner: EAST_C, maxBytes: CEILINGS.maxResultBytes });
-                    if ('result' in planned) assert.fail(`${q.program} does not check`);
+                    // Every dataset weighed by its status, as the builder weighs it: a join of the orders with the
+                    // shipments, both larger than a piece, is re-keyed (#942); the customers, within one, are read whole.
+                    // The path the builder picks, with the budget's cores to run the pieces on (#1143); and the split
+                    // calls it would make, which it makes whatever it picks when one call may use no memory.
+                    const options: PlanOptions = { runner: EAST_C, maxBytes: CEILINGS.maxResultBytes, cores: budget.cores };
+                    const picked = planQuery(q.program, ROOT, weights, options);
+                    const planned = planQuery(q.program, ROOT, weights, { ...options, memoryBytes: 0 });
+                    if ('result' in picked || 'result' in planned) assert.fail(`${q.program} does not check`);
                     const plan = planned.plan;
                     if (plan.kind === 'one_shot') assert.fail(`${q.program} planned one call`);
+                    const splitSeconds: number[] = [];
                     const path = plan.explanation.path;
                     const splitsAs = plan.kind === 'split' ? plan.request.output.type : `re-key, then ${path.kind === 'split' ? path.output : '?'}`;
                     for (let run = 1; run <= RUNS; run++) {
@@ -560,6 +617,7 @@ describe('query plans at scale (E3_QUERY_SCALE=1)', { skip: !enabled }, () => {
                             result = plan.answer(first.result, joined);
                         }
                         const seconds = (performance.now() - started) / 1000;
+                        splitSeconds.push(seconds);
                         const cpuAtEnd = cpuSeconds();
                         const answer = decoded(queryResultOf(plan.reading, result), `${q.id}'s split calls`);
                         assert.ok(isTypeEqual(answer.type, type), `${q.id}: the split calls answer at the query's result type`);
@@ -619,7 +677,22 @@ describe('query plans at scale (E3_QUERY_SCALE=1)', { skip: !enabled }, () => {
                         peaks.set(q.id, highest);
                     }
 
-                    if (!ONE_SHOT) return;
+                    const pathOf = picked.plan.explanation.path;
+                    const pick = (oneCall: PickRow['oneCall']): PickRow => ({
+                        size: size.label, query: q.id, picks: picked.plan.kind, why: pathOf.kind === 'split' ? pathOf.why : pathOf.why.kind,
+                        estimatedOneCall: picked.plan.explanation.estimates?.oneCall.seconds ?? null,
+                        estimatedSplit: picked.plan.explanation.estimates?.split.seconds ?? null,
+                        split: median(splitSeconds), oneCall,
+                    });
+                    /** A pick, reported, and its row written to `report.jsonl`. */
+                    const record = (row: PickRow): void => {
+                        picks.push(row);
+                        appendFileSync(join(DIR, 'report.jsonl'), `${JSON.stringify({ at: new Date().toISOString(), pick: true, ...row })}\n`);
+                    };
+                    if (!ONE_SHOT) {
+                        record(pick(null));
+                        return;
+                    }
                     const prepared = prepareQuery(q.program, ROOT, { runner: EAST_C, maxBytes: CEILINGS.maxResultBytes, timeoutMs: ONE_SHOT_MS });
                     if ('result' in prepared) assert.fail(`${q.program} does not check`);
                     const loadAtStart = loadavg()[0]!;
@@ -639,13 +712,20 @@ describe('query plans at scale (E3_QUERY_SCALE=1)', { skip: !enabled }, () => {
                     const row: OneShotRow = { size: size.label, query: q.id, seconds, outcome, peakMiB: peak === null ? null : Number(peak[1]), loadAtStart };
                     oneShots.push(row);
                     appendFileSync(join(DIR, 'report.jsonl'), `${JSON.stringify({ at: new Date().toISOString(), oneShot: true, ...row })}\n`);
+                    record(pick({ seconds, outcome }));
                 });
             }
 
             it('reports what each call took', () => {
-                const text = table(size, rows, oneShots);
+                const text = table(size, rows, oneShots, picks);
                 appendFileSync(join(DIR, 'report.md'), `\n${text}\n`);
                 console.log(text);
+            });
+
+            it('picks the faster path for each query, or one within 20% of it (#1143)', { skip: !ONE_SHOT && 'it needs both paths timed: E3_QUERY_SCALE_ONE_SHOT=1' }, () => {
+                const slow = picks.filter((row) => (pickOverFaster(row) ?? 1) > 1.2)
+                    .map((row) => `${row.query}: picked ${row.picks}, ${f(pickOverFaster(row)!, 2)} times the faster path's time`);
+                assert.deepEqual(slow, [], `at ${size.label}, a pick more than 20% slower than the other path`);
             });
         });
     }
