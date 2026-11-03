@@ -9,6 +9,15 @@ string(REGEX REPLACE "-.*" "" EAST_CMAKE_VERSION "${EAST_VERSION}")
 
 project(east-c VERSION ${EAST_CMAKE_VERSION} LANGUAGES C)
 
+# A build that names no type is an optimised one. CMake's default is no type at
+# all — no -O flag, so -O0 — and the release's Linux and macOS builds named
+# none, so every east-c CLI they published ran unoptimised, about 1.6x slower
+# than east-py's libeast-c (a Release build) on the same IR. A Debug build, as
+# the leak check and the profiler scripts make, still says so.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type: Debug, Release, RelWithDebInfo or MinSizeRel" FORCE)
+endif()
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 

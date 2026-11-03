@@ -628,7 +628,9 @@ jobs:
             cmake --build .
           else
             ARCH_FLAG="${{ matrix.cmake_arch && format('-DCMAKE_OSX_ARCHITECTURES={0}', matrix.cmake_arch) || '' }}"
-            cmake .. $ARCH_FLAG
+            # Release, as on Windows: built with no type, the published CLI ran
+            # unoptimised (-O0) on Linux and macOS through v1.0.101.
+            cmake .. $ARCH_FLAG -DCMAKE_BUILD_TYPE=Release
             cmake --build . -j$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
           fi
       # These binaries are built on the CI image but have to LOAD on older
