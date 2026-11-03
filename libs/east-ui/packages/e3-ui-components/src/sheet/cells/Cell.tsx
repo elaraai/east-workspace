@@ -7,7 +7,9 @@
  * One read-only cell by kind (B§11): text · mono (date, stamped) · num + unit
  * (quantity, integer) · enum dot + word · the split link cell (`LinkCell`)
  * · a custom kind's `print`. A date read at a level (#844) prints `dd/mm/yy`
- * (and its time at the time level) with the resolution as a tag; once its
+ * (and its time at the time level) with the resolution as a tag — unless its
+ * column declares a `format`, which it prints alone, as the author's pattern
+ * says its precision (`HH:mm` is `11:55`); once its
  * actual is known it prints when the work happened instead, the tag saying
  * how that stands against the wanted date. A ghost (a pending fill, P4) draws in
  * `fg.subtle` over the brand hatch; the next Tab target carries the dotted
@@ -87,7 +89,7 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
                 return meta.kind === "stamped" && !rowBlank ? <Box as="span" css={styles.cellGhost} data-op-value={mark}>—</Box> : null;
             }
             // At a level the date prints `dd/mm/yy` (its time at the time level) and the resolution as a tag at the cell's right edge.
-            if (meta.kind === "date" && when !== undefined && shown?.type === "DateTime") {
+            if (meta.kind === "date" && when !== undefined && shown?.type === "DateTime" && meta.dateFormat === undefined) {
                 const w = formatWhen(shown.value, when.level, words);
                 return (
                     <>
