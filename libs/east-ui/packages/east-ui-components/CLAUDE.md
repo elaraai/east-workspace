@@ -383,6 +383,25 @@ component, nothing in east-ui.
   `overlay` on a wider frame floats over a live main. While a drag is under
   way an open overlay pane slides off main and its scrim lifts, so it never
   hides a drop target.
+- **A phone's frame** (560px or narrower, `data-phone`; `Mobile Builder
+  Frame Spec.md` in `libs/east-ui/docs/proposals`, ruled 3 Nov 2026) stacks
+  its regions and gives main the frame's whole width. The items that draw a
+  `secondRow` (`ToolbarItem.secondRow`: the history's phone form,
+  `HistoryBar`'s `phone` — the drafts' count, Issues off at none, the four
+  buttons at 44px, Discard asking first in an anchored popover — and the
+  Elara eye before it) leave the first row for the toolbar's second row,
+  44px, always shown. The footer's `LoadingLine` draws itself at that row's
+  start in its short form (`SessionRowSlot`), the count stepping aside while
+  it shows, and a footer whose line it so takes is not shown, mounted still;
+  a footer with no loading line (the query builder's status line) stays, and
+  under the cold-load cover the line stays in the live footer. A described
+  pane that collapses is a tab of the pane strip on the bottom edge — icon,
+  label, detail or badge — and opens as a drawer up from it, at most 500px,
+  its `DockPane` a vertical tray whose collapse points down: one at a time,
+  Esc and the scrim close it, the focus moves in and back to its tab, its
+  open tab and bodies kept across the width. A pane that never collapses and
+  an `{ element }` pane stay pinned. Every builder has a phone-sized example
+  (a 390px box) that the showcase's `builder-frame-phone.spec.ts` measures.
 - **Styles.** The `builderFrame` slot recipe owns every style the frame has.
   The frame sets data attributes (`data-builder-frame`, `data-frame-slot`,
   `data-pane-mode`, `data-collapsed`, `data-scrim`) and geometry only, and a

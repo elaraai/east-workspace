@@ -177,6 +177,8 @@ export const dockSlotRecipe = defineSlotRecipe({
             _focusVisible: { outline: "none", boxShadow: "focus" },
             /* Touch hit target (#350). */
             ...coarseHitArea({ position: true }),
+            /* A phone's drawer (`BuilderFrame`): its collapse a 44px square, as the strip's tabs are. */
+            "[data-frame-drawer] &": { width: "44px", height: "44px", fontSize: "14px" },
         },
         body: {
             flex: 1,

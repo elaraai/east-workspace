@@ -18,18 +18,29 @@
  * (`editConflicts` draws the popover's body). A host that
  * shows the error in its banners instead (`SessionBanners`) lists an Apply's
  * issues there, one to a line.
+ *
+ * In a phone's frame (`data-history-form=phone`, the toolbar's second row,
+ * `Mobile Builder Frame Spec.md` FR6): the row's width, the drafts' count at
+ * its start (`No changes` mono 11 `fg.subtle`, or a `brandTint` chip mono
+ * 11/600 in `brandPressed`), then 44px outline squares with a 16px icon, Save
+ * filled `brand.solid` while it would save and a live dot in its place while
+ * one is out; Discard's question below it, its title DM Sans 16/700.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 
 export const editHistorySlotRecipe = defineSlotRecipe({
     className: "elara-edit-history",
-    slots: ["root", "actions", "status", "button", "issues", "conflicts", "conflictsCount", "error", "notice", "bannerIssues", "bannerIssue"],
+    slots: ["root", "actions", "status", "button", "issues", "conflicts", "conflictsCount", "error", "notice", "bannerIssues", "bannerIssue",
+        "summary", "changes", "live", "askTitle", "askBody", "askButton"],
     base: {
         root: {
             flexShrink: "0",
             padding: "0",
             background: "transparent",
+            /* A phone's: no box of its own, its parts the session row's items, so the count leads the row and the eye
+             * listed before the history sits before Issues (R4). */
+            "&[data-history-form=phone]": { display: "contents" },
         },
         actions: {
             display: "flex",
@@ -37,6 +48,7 @@ export const editHistorySlotRecipe = defineSlotRecipe({
             alignItems: "center",
             flexWrap: "nowrap",
             gap: "{spacing.2}",
+            "[data-history-form=phone] > &": { display: "contents" },
         },
         status: {
             flex: "none",
@@ -47,6 +59,10 @@ export const editHistorySlotRecipe = defineSlotRecipe({
         },
         button: {
             flexShrink: "0",
+            "[data-history-form=phone] &": {
+                width: "44px", height: "44px", minWidth: "44px", "& svg": { fontSize: "16px" },
+                "&[data-ready]": { background: "brand.solid", borderColor: "brand.solid", color: "brand.contrast" },
+            },
             // Locked while a run of the app's optimiser is out (#1409, R2): the disabled look, the control kept.
             "&[aria-disabled=true]": { color: "fg.muted", cursor: "not-allowed", opacity: 0.5 },
         },
@@ -78,6 +94,31 @@ export const editHistorySlotRecipe = defineSlotRecipe({
             fontSize: "body.sm",
             color: "fg.warning",
         },
+        /* A phone's row: what a Save is doing, else the drafts' count, taking what the buttons leave. */
+        summary: {
+            order: -1, flex: "1 1 auto", minWidth: "0", display: "flex", alignItems: "center", overflow: "hidden",
+            /* The frame's loading line showing at the row's start, the count steps aside for it (R5); a Save's words do not. */
+            "&[data-history-summary=count]": { "[data-frame-slot=sessionRow]:has([data-footer-line]:not([data-idle])) &": { display: "none" } },
+        },
+        changes: {
+            fontFamily: "mono", fontSize: "label.lg", fontWeight: "500", color: "fg.subtle", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums",
+            "&[data-changes]": {
+                height: "24px", display: "inline-flex", alignItems: "center", paddingX: "{spacing.2}", borderRadius: "sm",
+                background: "brandTint", color: "brandPressed", fontWeight: "600",
+            },
+        },
+        /* Save's live dot while it is out: an echo of the dot, as an auto save's. */
+        live: {
+            position: "relative", width: "8px", height: "8px", borderRadius: "full", background: "currentColor",
+            "&::after": {
+                content: '""', position: "absolute", inset: "0", borderRadius: "full", background: "currentColor",
+                animation: "elara-live-pulse calc({durations.slow} * 4) {easings.out} infinite",
+                _motionReduce: { animation: "none" },
+            },
+        },
+        askTitle: { fontFamily: "heading", fontSize: "title.sm", fontWeight: "700", color: "fg", lineHeight: "1.25" },
+        askBody: { fontSize: "body", color: "fg.muted", lineHeight: "1.5" },
+        askButton: { minHeight: "44px" },
         /* An Apply's issues in a banner's body: one to a line, unmarked. */
         bannerIssues: {
             display: "flex",

@@ -52,6 +52,9 @@ export function optimiseToolbarItem(props: OptimiseButtonProps): ToolbarItem {
         key: "optimise",
         side: "end",
         forms: [<OptimiseButton {...props} />],
+        // In a phone's frame the eye goes with the history into the toolbar's second row, before Issues (Mobile Builder
+        // Frame Spec R4): it never leaves the toolbar.
+        secondRow: <OptimiseButton {...props} size="md" />,
         // Its one form's width moves with its size alone.
         version: props.size ?? "md",
     };

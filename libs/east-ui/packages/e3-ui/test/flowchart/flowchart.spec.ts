@@ -76,6 +76,7 @@ const flowsEqual = equalFor(FlowsType);
 describeEast("Flowchart", (test) => {
     Assert.examples(test, {
         flowchartFlows: ex.flowchartFlows,
+        flowchartFlowsMobile: ex.flowchartFlowsMobile,
         flowchartRecordIndexes: ex.flowchartRecordIndexes,
         flowchartVariants: ex.flowchartVariants,
         flowchartLibrary: ex.flowchartLibrary,

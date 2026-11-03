@@ -230,6 +230,22 @@ export const flowchartFlows = example({
     inputs: [],
 });
 
+export const flowchartFlowsMobile = example({
+    keywords: ["Flowchart", "record", "Flows", "mobile", "phone", "pane strip", "drawer", "second row", "history"],
+    description: "The same record of flows in a phone's 390-wide frame: the toolbar over its second row — the history at 44px — the canvas the frame's whole width, and the Flows tab and the inspector a strip of drawers along the bottom edge",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const flows = $.let(Record.bind(depotFlows));
+            return (
+                <Box width="390px" maxWidth="100%" height="720px">
+                    <Flowchart record={flows} name="flowsMobile" flow="Inbound parcels" library={[Flowchart.library.flows()]} />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
 /**
  * THE Flowchart configurator — ONE live flowchart in its frame; every axis is
  * an expression-fed prop on that single instance: the legend, the minimap and

@@ -13,6 +13,7 @@ describeEast("Studio examples (#991–#1000)", (test) => {
         studioComponent: component.studioComponent,
         studioPage: page.studioPage,
         studioBuilder: studio.studioBuilder,
+        studioBuilderMobile: studio.studioBuilderMobile,
         studioLibrary: studio.studioLibrary,
         studioOpsConsole: studio.studioOpsConsole,
         studioConflicts: studio.studioConflicts,

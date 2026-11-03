@@ -56,6 +56,18 @@ export interface EditingMessages {
     discard: () => string;
     /** Discard's tooltip. */
     discardTip: () => string;
+    /** A phone's history row, before its buttons: the drafts' count — `3 changes`, or `No changes`. */
+    historyChanges: (p: { n: number; count: string }) => string;
+    /** Discard's question on a phone, its head: what it cannot do. */
+    discardAskHead: () => string;
+    /** Its title — `Discard 3 draft changes?`. */
+    discardAskTitle: (p: { n: number; count: string }) => string;
+    /** What it does. */
+    discardAskBody: () => string;
+    /** Keep the drafts. */
+    discardAskCancel: () => string;
+    /** Clear them. */
+    discardAskConfirm: () => string;
     /** Ask the source again for the confirmed revision. */
     retryRefresh: () => string;
     /** Send the same request again. */
@@ -203,6 +215,12 @@ export const editingMessages: EditingMessages = {
     redoTip: () => "Redo · Ctrl+Shift+Z / ⌘⇧Z",
     discard: () => "Discard",
     discardTip: () => "Discard changes",
+    historyChanges: ({ n, count }) => (n === 0 ? "No changes" : `${count} ${plural(n, "change", "changes")}`),
+    discardAskHead: () => "Can't be undone",
+    discardAskTitle: ({ n, count }) => `Discard ${count} draft ${plural(n, "change", "changes")}?`,
+    discardAskBody: () => "The drafts and their history go. Everything stays as it was when this session started.",
+    discardAskCancel: () => "Cancel",
+    discardAskConfirm: () => "Discard changes",
     retryRefresh: () => "Retry refresh",
     retryRequest: () => "Retry request",
     apply: () => "Save",

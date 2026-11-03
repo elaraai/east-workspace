@@ -30,6 +30,10 @@
  *   beside the words `aria-hidden` and ticking, so the line is announced once
  *   — and, after Stop, `note` — `Stopped · nothing changed`, its dot still.
  *   Both show at once, whatever the reveal says: a run is not a read.
+ * - **On a phone** (`BuilderFrame` at 560px or narrower, {@link SessionRowSlot})
+ *   the line is the start of the toolbar's second row, in its short form, and
+ *   leaves a marker in the footer, which the frame then does not show
+ *   (`Mobile Builder Frame Spec.md` R5).
  *
  * A builder's footer marks its legend's items `data-footer-unit` — its hints
  * also `data-footer-hints` on the rail — and the fit cuts them whole
@@ -41,10 +45,12 @@
  * @packageDocumentation
  */
 
-import { useCallback, useLayoutEffect, useMemo, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { useCallback, useContext, useLayoutEffect, useMemo, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { Box, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { loadingMessages } from "../../collections/loading/messages.js";
 import { FOOTER_UNFIT, fitFooter, type FooterFit, type FooterFitInput, type LoadingLineForm } from "./footer-fit.js";
+import { SessionRowSlot } from "./session-row.js";
 
 type Styles = Record<string, SystemStyleObject>;
 
@@ -142,7 +148,19 @@ function Form({ form, value, styles, retry }: { form: LoadingLineForm; value: Lo
  * @param props - What it says, whether it shows yet, and its form
  * @returns The line's slot: an empty live region while nothing shows
  */
-export function LoadingLine({ value, shown, form }: LoadingLineProps) {
+export function LoadingLine({ value, shown, form: fitted }: LoadingLineProps) {
+    // On a phone the line is the session row's start, in its short form; the footer keeps a marker of it alone.
+    const row = useContext(SessionRowSlot);
+    const line = <Line value={value} shown={shown} form={row === null ? fitted : "short"} />;
+    if (row === null) return line;
+    return <>
+        <Box as="span" data-footer-line-moved="" hidden />
+        {createPortal(line, row)}
+    </>;
+}
+
+/** The line itself, wherever it is drawn: in the footer's rail, or a phone's session row. */
+function Line({ value, shown, form }: LoadingLineProps) {
     const recipe = useSlotRecipe({ key: "builderFooterLine" });
     const styles = useMemo(() => recipe() as Styles, [recipe]);
     // What it said last: a read in flight, kept through the hold once it has landed (CL4) — state the render adjusts

@@ -1,0 +1,143 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Licensed under AGPL-3.0. See LICENSE file for details.
+ */
+
+/**
+ * A phone's builder frame (`Mobile Builder Frame Spec.md`, ruled 3 Nov 2026),
+ * measured in the page over every builder's phone-sized example — each in a
+ * 390px box — and again in a 294px parent, in both themes, a test a builder
+ * (each area starts a workspace of its own, #1397):
+ *
+ * - FR1: the frame stacks — the toolbar, its second row, main the frame's
+ *   whole width, the pane strip — and no pane takes width at a side;
+ * - FR6: the second row is 44px under the first, the history there and not in
+ *   the first row: Issues, Undo, Redo, Discard and Save each 44 × 44, centred
+ *   on the row and taking the pointer at its centre;
+ * - FR4: the pane strip is 44px on the frame's bottom edge, one equal tab a
+ *   pane, each the strip's height;
+ * - FR5: a tab opens its drawer up from the strip — at most 500px tall, the
+ *   frame's width, its foot on the strip's top — with the scrim over main;
+ *   Esc closes it, the focus back on its tab; one drawer at a time.
+ *
+ * Run: `pnpm exec playwright test builder-frame-phone`.
+ */
+
+import { expect, type Locator } from "playwright/test";
+import { test } from "./kept-page";
+import { sizeBuilder, visitBuilder } from "./builder-page";
+import { settled } from "./settle";
+
+const ROOT = "[data-builder-frame]";
+
+/** Every builder's phone-sized example, by its showcase route. */
+const PHONES: readonly (readonly [name: string, route: string])[] = [
+    ["Sheet", "e3/sheet/sheet-actions/sheetActionsPhone"],
+    ["Plan", "e3/plan/plan-records/planRecordIndexesMobile"],
+    ["Roster", "e3/roster/roster/rosterMobile"],
+    ["Calendar", "e3/calendar/calendar/calendarMobile"],
+    ["Allocation", "e3/allocation/allocation/allocationMobile"],
+    ["Schematic", "e3/schematic/schematic-records/schematicRecordIndexesMobile"],
+    ["Flowchart", "e3/flowchart/flowchart/flowchartFlowsMobile"],
+    ["Studio", "e3/studio/studio/studioBuilderMobile"],
+    ["Query", "e3/query/query/queryBuilderMobile"],
+];
+
+/** What is wrong with a phone's frame, as the page lays it out: each fault, in words. */
+function phoneFaults(entry: Locator): Promise<string[]> {
+    return entry.locator(ROOT).first().evaluate((frame) => {
+        const faults: string[] = [];
+        const round = (n: number) => Math.round(n * 10) / 10;
+        if (!frame.hasAttribute("data-phone")) return ["not a phone's frame"];
+        const f = frame.getBoundingClientRect();
+        const regions = [...frame.children].map((el) => el.getAttribute("data-frame-slot")).filter((slot) => slot !== null);
+        const want = ["toolbar", "sessionRow", "body", "paneStrip"];
+        if (want.some((slot, i) => regions.indexOf(slot) !== regions.indexOf(want[0]!) + i)) faults.push(`regions ${regions.join(", ")}`);
+        const slot = (name: string) => frame.querySelector<HTMLElement>(`:scope > [data-frame-slot='${name}']`);
+        // FR1: main the whole width, no pane at a side.
+        const body = slot("body")!;
+        const main = body.querySelector<HTMLElement>(":scope > [data-frame-slot='main']")!.getBoundingClientRect();
+        if (Math.abs(main.width - f.width) > 0.5) faults.push(`main ${round(main.width)}px of a ${round(f.width)}px frame`);
+        if (body.querySelector(":scope > [data-pane-mode]") !== null) faults.push("a pane at a side");
+        // FR6: the second row, the history there.
+        const second = slot("sessionRow")!;
+        const s = second.getBoundingClientRect();
+        if (Math.abs(s.height - 44) > 0.5) faults.push(`second row ${round(s.height)}px`);
+        if (frame.querySelector("[data-frame-slot='toolbar'] [data-toolbar-item='history']") !== null) faults.push("the history in the first row");
+        const history = second.querySelector("[data-slot='history'][data-history-form='phone']");
+        if (history === null) faults.push("no history in the second row");
+        for (const button of history?.querySelectorAll<HTMLElement>("button") ?? []) {
+            const b = button.getBoundingClientRect();
+            const name = button.getAttribute("aria-label") ?? "?";
+            if (b.width === 0) continue;
+            if (Math.abs(b.width - 44) > 0.5 || Math.abs(b.height - 44) > 0.5) faults.push(`${name} ${round(b.width)} × ${round(b.height)}`);
+            if (Math.abs(b.top + b.height / 2 - (s.top + s.height / 2)) > 0.5) faults.push(`${name} off the row's centre`);
+            if (b.left < s.left - 0.5 || b.right > s.right + 0.5) faults.push(`${name} past the row`);
+            const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+            if (hit === null || !button.contains(hit)) faults.push(`${name} does not take the pointer`);
+        }
+        // FR4: the strip on the bottom edge, its tabs equal.
+        const strip = slot("paneStrip");
+        if (strip === null) return [...faults, "no pane strip"];
+        const p = strip.getBoundingClientRect();
+        if (Math.abs(p.height - 44) > 0.5) faults.push(`strip ${round(p.height)}px`);
+        if (Math.abs(p.bottom - f.bottom) > 0.5) faults.push("the strip off the frame's bottom edge");
+        const tabs = [...strip.querySelectorAll<HTMLElement>("[data-pane-tab]")].map((tab) => tab.getBoundingClientRect());
+        if (tabs.some((t) => Math.abs(t.width - tabs[0]!.width) > 1 || Math.abs(t.height - p.height) > 2.5)) faults.push(`tabs ${tabs.map((t) => `${round(t.width)} × ${round(t.height)}`).join(", ")}`);
+        return faults;
+    });
+}
+
+/** A drawer as the page lays it out, beside the strip, the frame and the scrim. */
+function drawerAt(entry: Locator, side: string) {
+    return entry.locator(ROOT).first().evaluate((frame, at) => {
+        const drawer = frame.querySelector<HTMLElement>(`[data-frame-drawer][data-frame-slot='${at}']`)!;
+        const d = drawer.getBoundingClientRect(), f = frame.getBoundingClientRect();
+        const strip = frame.querySelector("[data-frame-slot='paneStrip']")!.getBoundingClientRect();
+        return {
+            open: drawer.hasAttribute("data-open"),
+            height: d.height <= 500.5,
+            width: Math.abs(d.width - f.width) <= 0.5,
+            foot: Math.abs(d.bottom - strip.top) <= 0.5,
+            scrim: frame.querySelector("[data-scrim]") !== null,
+        };
+    }, side);
+}
+
+for (const theme of ["light", "dark"] as const) {
+    for (const [name, route] of PHONES) {
+    test(`${name}: a phone's frame stacks its regions, the history the second row's at 44px, the panes a strip of drawers — in its 390px box and a 294px parent (${theme})`, async ({ page }) => {
+        const faults: Record<string, string[]> = {};
+        {
+            await test.step(route, async () => {
+                await page.setViewportSize({ width: 1440, height: 900 });
+                const entry = await visitBuilder(page, route, ROOT, theme);
+                const found = await phoneFaults(entry);
+                if (found.length > 0) faults[`${route} in its box`] = found;
+                const frame = entry.locator(ROOT).first();
+                const tabs = frame.locator("[data-pane-tab]");
+                const sides = await tabs.evaluateAll((els) => els.map((el) => el.getAttribute("data-pane-tab")!));
+                for (const side of sides) {
+                    const tab = frame.locator(`[data-pane-tab='${side}']`);
+                    await tab.click();
+                    await settled(page);
+                    expect(await drawerAt(entry, side), `${route}: ${side}'s drawer open`).toEqual({ open: true, height: true, width: true, foot: true, scrim: true });
+                    await expect(tab).toHaveAttribute("aria-selected", "true");
+                    // One at a time.
+                    expect(await frame.locator("[data-frame-drawer][data-open]").count(), route).toBe(1);
+                    await page.keyboard.press("Escape");
+                    await settled(page);
+                    expect((await drawerAt(entry, side)).open, `${route}: Esc closed ${side}'s drawer`).toBe(false);
+                    await expect(tab).toBeFocused();
+                }
+                await sizeBuilder(page, entry, ROOT, 294);
+                const narrow = await phoneFaults(entry);
+                if (narrow.length > 0) faults[`${route} in a 294px parent`] = narrow;
+                await entry.locator(ROOT).first().locator("xpath=..").evaluate((box) => { (box as HTMLElement).style.width = ""; });
+                await settled(page);
+            });
+        }
+        expect(faults).toEqual({});
+    });
+    }
+}

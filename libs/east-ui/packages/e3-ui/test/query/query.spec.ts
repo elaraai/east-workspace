@@ -22,6 +22,7 @@ import * as ex from "./query.examples.js";
 describeEast("Query examples (#940)", (test) => {
     Assert.examples(test, {
         queryBuilder: ex.queryBuilder,
+        queryBuilderMobile: ex.queryBuilderMobile,
         queryBuilderBom: ex.queryBuilderBom,
         queryBuilderModel: ex.queryBuilderModel,
         queryBuilderEmpty: ex.queryBuilderEmpty,

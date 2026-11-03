@@ -55,15 +55,39 @@
  * toolbar, the panes, the selection and Save stay live — and main, the region
  * being read, is `aria-busy` (CL12).
  *
+ * **A phone's frame** — 560px wide or narrower (`Mobile Builder Frame Spec.md`,
+ * ruled 3 Nov 2026) — stacks its regions and gives main the frame's whole
+ * width:
+ *
+ * - the toolbar's second row, always shown at 44px: the items that draw one
+ *   (`ToolbarItem.secondRow` — the history, and the Elara eye before it) leave
+ *   the first row for it, and the footer's loading line takes its start while
+ *   it shows, in the place the history counts its drafts otherwise
+ *   ({@link SessionRowSlot}); a footer whose line it so takes is not shown,
+ *   mounted still (FR1, FR6, R5) — one with no loading line, the query
+ *   builder's status line, stays, and under the cold-load cover the line
+ *   stays in its live footer;
+ * - no pane at either side: a described pane that collapses is a tab of the pane strip on the
+ *   frame's bottom edge — its icon, its label, and its detail or its badge —
+ *   and opens as a drawer up from it, at most 500px tall, its tabs at its head
+ *   and its collapse there (FR4, FR5). One drawer is open at a time, Esc or the
+ *   scrim over main closes it, and the focus moves into it as it opens and back
+ *   to its tab as it closes. Each keeps its open tab and its bodies mounted
+ *   across the width, as the pane does.
+ *
  * @packageDocumentation
  */
 
 import {
-    useCallback, useLayoutEffect, useMemo, useRef, useState,
+    Fragment, useCallback, useLayoutEffect, useMemo, useRef, useState,
     type CSSProperties, type KeyboardEvent, type MutableRefObject, type ReactNode, type Ref,
 } from "react";
 import { flushSync } from "react-dom";
-import { Box, Skeleton, type SystemStyleObject } from "@chakra-ui/react";
+import { Box, chakra, Skeleton, type SystemStyleObject } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import type { IconName } from "@fortawesome/fontawesome-svg-core";
+import { useFormatters } from "../../format/index.js";
+import { SessionRowSlot } from "./session-row.js";
 import { useSlotStyles } from "../../theme/slot-styles.js";
 import { kept, keptFlag } from "../../platform/kept.js";
 import { DockPane, type DockRailMark } from "../dock/index.js";
@@ -72,6 +96,8 @@ import { useDragLayerOptional } from "../../dnd/drag-layer";
 import {
     MIN_MAIN, NARROW_FRAME, paneWidths, placePanes, type PaneMode, type PanePlacement, type PanePlacements, type PaneWeight, type PaneWidths,
 } from "./place.js";
+
+export { SessionRowSlot } from "./session-row.js";
 
 export {
     MIN_MAIN, MIN_SCRIM, NARROW_FRAME, paneWidths, placePanes,
@@ -337,6 +363,7 @@ function unmeasured(start: BuilderFramePane | undefined, end: BuilderFramePane |
  */
 export function BuilderFrame(props: BuilderFrameProps) {
     const { children, toolbar, banners, start, end, footer, storageKey, label, ref, rootCss, rootProps, toolbarRef, onKeyDown, loading, busy, liveFooter } = props;
+    const formatters = useFormatters();
     const minMain = props.minMain ?? MIN_MAIN;
     const loadingPitch = props.loadingPitch ?? DEFAULT_LOADING_PITCH;
     const styles = useSlotStyles("builderFrame") as Styles;
@@ -455,6 +482,21 @@ export function BuilderFrame(props: BuilderFrameProps) {
         observed.current = now;
     });
 
+    // ── A phone's frame: the second row, the strip and the drawers ──────
+    const phone = measured !== undefined && measured.width <= NARROW_FRAME;
+    // The first row's items: on a phone, without those the second row draws. The same array while neither moves, so the
+    // toolbar draws again only as its items do.
+    const firstRow = useMemo(() => (toolbar === undefined || !phone ? toolbar
+        : toolbar.filter((it) => !it || it.secondRow === undefined)), [toolbar, phone]);
+    const secondRow = phone && toolbar !== undefined
+        ? toolbar.flatMap((it) => (it && it.secondRow !== undefined ? [{ key: it.key, node: it.secondRow }] : []))
+        : [];
+    // The row's status slot: where a phone's footer's loading line draws itself.
+    const [statusSlot, setStatusSlot] = useState<HTMLElement | null>(null);
+    const sessionRow = phone && (secondRow.length > 0 || given(footer));
+    /** Whether a side's pane is a drawer: a described pane that collapses, on a phone — one that never does stays pinned. */
+    const drawn = (side: Side) => phone && dockOf(side) !== undefined && dockOf(side)?.collapsible !== false;
+
     // ── Where each pane sits, and how wide it is open ───────────────────
     const startWeight = measured === undefined ? undefined : weightOf(start, measured.start, startCollapse.collapsed);
     const endWeight = measured === undefined ? undefined : weightOf(end, measured.end, endCollapse.collapsed);
@@ -508,8 +550,25 @@ export function BuilderFrame(props: BuilderFrameProps) {
         const side = railFocus.current;
         if (side === undefined) return;
         railFocus.current = undefined;
-        slotRefs[side].current?.querySelector<HTMLElement>(":scope > * > [data-collapsed] > :first-child > button")?.focus();
+        if (drawn(side)) rootRef.current?.querySelector<HTMLElement>(`[data-pane-tab="${side}"]`)?.focus();
+        else slotRefs[side].current?.querySelector<HTMLElement>(":scope > * > [data-collapsed] > :first-child > button")?.focus();
     });
+    // A drawer opened from its tab takes the focus: its open tab, or its first control.
+    const drawerFocus = useRef<Side | undefined>(undefined);
+    useLayoutEffect(() => {
+        const side = drawerFocus.current;
+        if (side === undefined) return;
+        drawerFocus.current = undefined;
+        const drawer = slotRefs[side].current;
+        (drawer?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? drawer?.querySelector<HTMLElement>("button, [href], input, [tabindex]"))?.focus();
+    });
+    /** A strip tab: its drawer opens, or, open, closes. */
+    const onPaneTab = (side: Side) => {
+        const open = !collapseOf(side).collapsed;
+        if (open) railFocus.current = side;
+        else drawerFocus.current = side;
+        toggled(side, open);
+    };
 
     // Esc closes the open overlay pane before anything else in the frame hears it. A drag's
     // Esc is the drag's, and a layer portaled out of the frame's regions — a popover, a menu —
@@ -587,30 +646,96 @@ export function BuilderFrame(props: BuilderFrameProps) {
         );
     };
 
+    /** A described pane on a phone: a drawer up from the strip, mounted closed so its tab and bodies keep. */
+    const drawer = (side: Side, dock: BuilderFrameDock) => {
+        const open = !collapseOf(side).collapsed;
+        return (
+            <Box key={side} ref={slotRefs[side]} css={styles.drawer} id={`${storageKey}.${side}.drawer`} data-frame-slot={side} data-frame-drawer=""
+                data-open={open ? "" : undefined} data-aside={open && dragging ? "" : undefined} role="region" aria-label={dock.label}
+                inert={!open} aria-hidden={open ? undefined : true}>
+                {/* A tray whose collapse points down, toward the strip; it is drawn collapsed only while the drawer is closed. */}
+                <DockPane
+                    storageKey={`${storageKey}.${side}`}
+                    orientation="vertical"
+                    side="end"
+                    surface="shell"
+                    expandedSize="100%"
+                    railSize="100%"
+                    label={dock.label}
+                    icon={dock.icon}
+                    tabs={dock.tabs}
+                    body={dock.body}
+                    tab={dock.tab}
+                    onTabChange={dock.onTabChange}
+                    collapsed={!open}
+                    onCollapsedChange={(next) => { if (next) { railFocus.current = side; toggled(side, true); } }}
+                />
+            </Box>
+        );
+    };
+    const paneTab = (side: Side, dock: BuilderFrameDock) => {
+        const open = !collapseOf(side).collapsed;
+        const meta = dock.detail ?? (dock.badge === undefined || dock.badge === "" ? undefined
+            : typeof dock.badge === "number" ? formatters.compact(dock.badge) : dock.badge);
+        return (
+            <chakra.button key={side} type="button" role="tab" css={styles.paneTab} data-pane-tab={side} aria-selected={open}
+                aria-controls={`${storageKey}.${side}.drawer`} data-active={dock.active === true ? "" : undefined} onClick={() => onPaneTab(side)}>
+                {dock.icon !== undefined && <Box as="span" css={styles.paneTabIcon}><FontAwesomeIcon icon={dock.icon as IconName} /></Box>}
+                <Box as="span" css={styles.paneTabLabel}>{dock.label}</Box>
+                {meta !== undefined && <>{" "}<Box as="span" css={styles.paneTabMeta}>{meta}</Box></>}
+                {dock.mark !== undefined && <Box as="span" css={styles.paneTabMark} role="img" aria-label={dock.mark.label} data-tone={dock.mark.tone}>
+                    <FontAwesomeIcon icon={dock.mark.icon as IconName} />
+                </Box>}
+            </chakra.button>
+        );
+    };
+    const strip = SIDES.flatMap((side) => {
+        const dock = dockOf(side);
+        return dock !== undefined && drawn(side) ? [paneTab(side, dock)] : [];
+    });
+
     return (
         <Box ref={setRoot} css={rootCss === undefined ? styles.root : [styles.root, rootCss]} {...rootProps}
-            data-builder-frame="" data-loading={covered ? "" : undefined} aria-busy={loading === undefined ? undefined : covered}
+            data-builder-frame="" data-phone={phone ? "" : undefined} data-loading={covered ? "" : undefined} aria-busy={loading === undefined ? undefined : covered}
             {...(label !== undefined ? { role: "group", "aria-label": label } : {})}
             onKeyDownCapture={onKeyDownCapture} onKeyDown={onKeyDown}>
             {toolbar !== undefined && (
                 <Box ref={toolbarRef} css={styles.toolbar} data-frame-slot="toolbar" inert={covered} aria-hidden={covered ? true : undefined}>
-                    <Toolbar items={toolbar} />
+                    <Toolbar items={firstRow ?? toolbar} />
+                </Box>
+            )}
+            {/* A phone's second row: the frame's status, then each item's own, in item order (FR6). */}
+            {sessionRow && (
+                <Box css={styles.sessionRow} data-frame-slot="sessionRow" inert={covered} aria-hidden={covered ? true : undefined}>
+                    <Box ref={setStatusSlot} css={styles.sessionStatus} data-session-status="" />
+                    {secondRow.map(({ key, node }) => <Fragment key={key}>{node}</Fragment>)}
                 </Box>
             )}
             {given(banners) && <Box css={styles.banners} data-frame-slot="banners" inert={covered} aria-hidden={covered ? true : undefined}>{banners}</Box>}
             <Box css={styles.body} data-frame-slot="body" inert={covered} aria-hidden={covered ? true : undefined}>
-                {start !== undefined && pane("start", start)}
+                {start !== undefined && !drawn("start") && pane("start", start)}
                 {/* The region a read after cold load is in flight for (#1398, CL12): nothing covered, main busy. */}
                 <Box css={styles.main} data-frame-slot="main" aria-busy={busy === undefined ? undefined : busy && !covered}>
                     {children}
                     {scrim && <Box css={styles.scrim} data-scrim="" aria-hidden onClick={onScrim} />}
                 </Box>
-                {end !== undefined && pane("end", end)}
+                {end !== undefined && !drawn("end") && pane("end", end)}
+                {SIDES.map((side) => {
+                    const dock = dockOf(side);
+                    return dock !== undefined && drawn(side) ? drawer(side, dock) : null;
+                })}
             </Box>
+            {strip.length > 0 && (
+                <Box css={styles.paneStrip} data-frame-slot="paneStrip" role="tablist" aria-label={label === undefined ? "Panes" : `${label} panes`}
+                    inert={covered} aria-hidden={covered ? true : undefined}>
+                    {strip}
+                </Box>
+            )}
             {given(footer) && (
                 <Box ref={footerRef} css={styles.footer} data-frame-slot="footer" data-frame-live={footerLive ? "" : undefined}
                     inert={covered && !footerLive} aria-hidden={covered && !footerLive ? true : undefined}>
-                    {footer}
+                    {/* Under the cold-load cover the line stays in the live footer, the row covered with the rest. */}
+                    <SessionRowSlot.Provider value={sessionRow && !covered ? statusSlot : null}>{footer}</SessionRowSlot.Provider>
                 </Box>
             )}
             {covered && <Box css={styles.loading} data-builder-loading="" role="status" aria-label={label === undefined ? "Loading builder" : `Loading ${label}`}

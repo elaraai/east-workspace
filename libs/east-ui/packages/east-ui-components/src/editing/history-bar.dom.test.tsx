@@ -8,7 +8,7 @@
  * collection to run — here over a projection that is not a sheet's.
  */
 
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { IntegerType, StringType, StructType, none, some, variant } from "@elaraai/east";
@@ -22,8 +22,19 @@ import { EditSession, type EditIssue, type EntryVersion } from "./session.js";
 import { keepDrafts, keptDraftsKey } from "./keep.js";
 import { resetKept } from "../platform/kept.js";
 
+/** Ark positioners observe sizes; jsdom has no ResizeObserver. */
+class ResizeObserverStub {
+    observe(): void { /* noop */ }
+    unobserve(): void { /* noop */ }
+    disconnect(): void { /* noop */ }
+}
+
+beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+});
 afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
 });
 
@@ -36,7 +47,7 @@ const WORDS: EditingWords = { ...formatters("en-US"), m: MARKED };
 const start = some(variant("ordered", variant("start", null)));
 const version = (end: bigint): EntryVersion<string> => ({ draft: liftDraft(Draft, { id: "a", end }), wire: `a to ${end}`, place: start });
 
-function setup(locked = false) {
+function setup(locked = false, phone = false) {
     const session = new EditSession<string>({
         sourceId: "runs", entryType: Run, draftType: Draft, idField: "id", auto: false,
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
@@ -44,7 +55,9 @@ function setup(locked = false) {
     session.observeBase(variant("snapshot", [{ id: "a", end: 1n }]));
     const onAction = vi.fn<(action: HistoryAction) => void>();
     const onIssue = vi.fn<(issue: EditIssue) => void>();
-    const bar = () => <ChakraProvider value={system}><HistoryBar session={session} words={WORDS} editing={false} onAction={onAction} onIssue={onIssue} locked={locked} /></ChakraProvider>;
+    const bar = () => <ChakraProvider value={system}>
+        <HistoryBar session={session} words={WORDS} editing={false} onAction={onAction} onIssue={onIssue} locked={locked} phone={phone} />
+    </ChakraProvider>;
     const utils = render(bar());
     return { ...utils, session, onAction, onIssue, refresh: () => utils.rerender(bar()) };
 }
@@ -128,4 +141,36 @@ test("drafts a reload would lose are said under the buttons, where the bar says 
         <HistoryBar session={session} words={WORDS} editing={false} onAction={() => undefined} onIssue={() => undefined} />
     </ChakraProvider>);
     expect(container.querySelector("[data-history-keeping]")!.textContent).toBe(`⟦${editingMessages.bannerUnkept({ reason: "full" })}`);
+});
+
+test("a phone's form (Mobile Builder Frame Spec.md FR6): the drafts' count first, the issues there at none and off, then Undo, Redo, Discard and Save, Save filled while it would save", () => {
+    const ui = setup(false, true);
+    const root = ui.container.querySelector('[data-slot="history"]')!;
+    expect(root.getAttribute("data-history-form")).toBe("phone");
+    expect(ui.getByRole("status").textContent).toBe(`⟦${editingMessages.historyChanges({ n: 0, count: "0" })}`);
+    const issues = ui.getByRole("button", { name: `⟦${editingMessages.issues({ n: 0, count: "0" })}` }) as HTMLButtonElement;
+    expect([issues.disabled, ui.container.querySelector('[data-slot="historyIssues"]')]).toEqual([true, null]);
+    expect([...root.querySelectorAll("button")].map((b) => b.getAttribute("aria-label")))
+        .toEqual([`⟦${editingMessages.issues({ n: 0, count: "0" })}`, "⟦Undo", "⟦Redo", "⟦Discard", "⟦Save"]);
+    expect(ui.getByRole("button", { name: "⟦Save" }).hasAttribute("data-ready")).toBe(false);
+    ui.session.record([{ id: "a", before: version(1n), after: version(4n) }], "resize", "Resize a");
+    ui.refresh();
+    const changes = ui.getByRole("status").firstElementChild!;
+    expect([changes.textContent, changes.hasAttribute("data-changes")]).toEqual([`⟦${editingMessages.historyChanges({ n: 1, count: "1" })}`, true]);
+    expect(ui.getByRole("button", { name: "⟦Save" }).hasAttribute("data-ready")).toBe(true);
+});
+
+test("a phone's Discard asks first, in a popover hanging from it (FR8, never a dialog): Cancel keeps the drafts, Discard changes is the collection's to run", async () => {
+    const ui = setup(false, true);
+    ui.session.record([{ id: "a", before: version(1n), after: version(4n) }], "resize", "Resize a");
+    ui.refresh();
+    await act(async () => { fireEvent.click(ui.getByRole("button", { name: "⟦Discard" })); });
+    expect(ui.onAction).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain(`⟦${editingMessages.discardAskTitle({ n: 1, count: "1" })}`);
+    expect(document.querySelector('[role="dialog"][aria-modal="true"]')).toBeNull();
+    await act(async () => { fireEvent.click(ui.getByRole("button", { name: "⟦Cancel" })); });
+    expect(ui.onAction).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.click(ui.getByRole("button", { name: "⟦Discard" })); });
+    await act(async () => { fireEvent.click(document.querySelector<HTMLElement>("[data-history-discard-confirm]")!); });
+    expect(ui.onAction.mock.calls.map(([action]) => action)).toEqual(["discard"]);
 });

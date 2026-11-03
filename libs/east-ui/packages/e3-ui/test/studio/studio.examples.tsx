@@ -435,6 +435,24 @@ export const studioBuilder = example({
     inputs: [],
 });
 
+export const studioBuilderMobile = example({
+    keywords: ["Studio", "Studio.Builder", "builder", "mobile", "phone", "pane strip", "drawer", "palette", "inspector", "second row", "history"],
+    description: "The same builder over the pages record in a phone's 390-wide frame: the toolbar over its second row — the history at 44px — the canvas the frame's whole width, and the palette and the inspector a strip of drawers along the bottom edge",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const components = $.let([kpiRail, breakdownBars, revenueTrend, ordersByWeek, visitsSparkline, assignmentBoard, shiftRoster]);
+            const pages = $.let(Record.bind(studioPages));
+            return (
+                <Box width="390px" maxWidth="100%" height="760px">
+                    <Studio.Builder pages={pages} components={components} project="Ops console" id="studioMobile"
+                        env="Staging" audience="Field ops · 24 users" rollout="Immediate" />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
 /** A page's tiles each a column narrower, one three columns wide or less as it was: what someone else's save changes. */
 const tilesNarrower = East.function([Studio.Types.Page], Studio.Types.Page, (_$, page) => ({
     title: page.title,

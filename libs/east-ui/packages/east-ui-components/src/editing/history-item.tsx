@@ -29,7 +29,7 @@ export const HISTORY_RANK = DEFAULT_RANK;
  *
  * @typeParam W - The collection's projection of an entry
  * @param props - The bar's props: the session, the collection's words, and its callbacks
- * @returns The item, keyed `history`, on the end side
+ * @returns The item, keyed `history`, on the end side; in a phone's frame, the toolbar's second row
  */
 export function historyToolbarItem<W>(props: HistoryBarProps<W>): ToolbarItem {
     const { session } = props;
@@ -40,6 +40,8 @@ export function historyToolbarItem<W>(props: HistoryBarProps<W>): ToolbarItem {
         key: "history",
         side: "end",
         forms: [<HistoryBar {...props} buttonsOnly={false} />, <HistoryBar {...props} buttonsOnly />],
+        // A phone's frame gives the history the toolbar's second row, at touch size (Mobile Builder Frame Spec FR6).
+        secondRow: <HistoryBar {...props} phone />,
         rank: HISTORY_RANK,
         // The full form's width moves with its status line, its issue count and its error, when it shows one; each form's
         // with the conflicts still to choose, and with what it says of drafts a reload would lose.

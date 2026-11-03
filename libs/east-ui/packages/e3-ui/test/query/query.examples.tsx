@@ -410,6 +410,28 @@ export const queryBuilder = example({
     inputs: [],
 });
 
+export const queryBuilderMobile = example({
+    keywords: ["Query", "Query.Builder", "query builder", "mobile", "phone", "pane strip", "drawer", "second row", "history", "Run"],
+    description: "The same builder open on Top shipped orders, 2026 in a phone's 390-wide frame: the toolbar over its second row — the history at 44px — the results the frame's whole width, and the Query tab a drawer up from the strip on the bottom edge",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const saved = $.let(Record.bind(queries));
+            const orderRows = $.let(Data.bind(orders));
+            const customerRows = $.let(Data.bind(customers));
+            const weekly = $.let(Data.bind(forecast));
+            const demand = $.let(Data.bind(model));
+            const parts = $.let(Data.bind(bom));
+            return (
+                <Box width="390px" maxWidth="100%" height="760px">
+                    <Query.Builder queries={saved} query="Top shipped orders, 2026" id="topMobile"
+                        datasets={{ orders: orderRows, customers: customerRows, forecast: weekly, model: demand, bom: parts }} />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
 export const queryBuilderBom = example({
     keywords: ["Query", "Query.Builder", "tree", "recursive", "bill of materials", "List every part in the tree", "Group and total", "Value tree"],
     description: "The same builder open on Pump parts cost: every part of the PUMP-A bill of materials, walked, then totalled — its cost, its part count and its dearest part, one value shown as a Value tree",

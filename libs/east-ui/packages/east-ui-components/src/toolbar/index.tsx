@@ -125,6 +125,10 @@ export interface ToolbarItem {
     /** Changes when the item's content does: the widths its other forms were
      *  measured at are then forgotten, and measured again when next rendered. */
     version?: unknown;
+    /** In a phone's frame (560 px or narrower, `BuilderFrame`) the item leaves the row and draws this in the toolbar's
+     *  second row instead, always shown (`Mobile Builder Frame Spec.md` FR6): the history, and the Elara eye before it.
+     *  A toolbar outside a frame never draws it. */
+    secondRow?: ReactNode;
 }
 
 export interface ToolbarProps {

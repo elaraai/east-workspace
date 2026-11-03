@@ -37,6 +37,16 @@
  *     rule rather than `--paper-3`, the darkest paper, ruled 26 Oct 2026 so
  *     the rows read as rows on every screen). A live footer
  *     (`data-frame-live`) stays out from under it.
+ *   - A phone's frame (`data-phone`, 560px or narrower; `Mobile Builder
+ *     Frame Spec.md`): the session row, the toolbar's second row — 44px, a
+ *     rule between it and the first, padded 0 4 0 16, its controls 4px
+ *     apart, the status (the loading line) leading it; the pane strip on
+ *     the bottom edge — 44px, one equal tab a pane split by a rule, its icon
+ *     14, its label the mono caps, its meta mono `fg.subtle`, the open one
+ *     in ink over a 2px underline; and a drawer — absolute at the body's
+ *     foot, at most 500px tall, `--r-lg` top corners over a `border.strong`
+ *     rule, sliding up over `--dur-base` on `--ease-out` (at once under
+ *     reduced motion), down off main while a drag is under way.
  *
  * @packageDocumentation
  */
@@ -52,7 +62,8 @@ const TOGGLE_MOTION = {
 
 export const builderFrameSlotRecipe = defineSlotRecipe({
     className: "elara-builder-frame",
-    slots: ["root", "toolbar", "banners", "body", "pane", "sheet", "probe", "main", "scrim", "footer", "loading", "loadingBar", "loadingBody", "loadingRow", "loadingLine", "loadingCell", "loadingFooter"],
+    slots: ["root", "toolbar", "banners", "body", "pane", "sheet", "probe", "main", "scrim", "footer", "loading", "loadingBar", "loadingBody", "loadingRow", "loadingLine", "loadingCell", "loadingFooter",
+        "sessionRow", "sessionStatus", "paneStrip", "paneTab", "paneTabIcon", "paneTabLabel", "paneTabMeta", "paneTabMark", "drawer"],
     base: {
         loading: { position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: "bg.surface", overflow: "hidden" },
         loadingBar: { gap: "{spacing.4}", "& > :last-child": { marginInlineStart: "auto" } },
@@ -165,6 +176,102 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             display: "flex",
             flexDirection: "column",
             minWidth: "0",
+            /* A phone's footer whose loading line the session row took is not shown (FR1, R5). */
+            "&:has([data-footer-line-moved])": { "[data-phone] > &": { display: "none" } },
+        },
+        /* A phone's second row of the toolbar: the status, the drafts' count, then the eye and the history. */
+        sessionRow: {
+            flex: "none",
+            display: "flex",
+            alignItems: "center",
+            gap: "{spacing.1}",
+            height: "44px",
+            paddingInlineStart: "{spacing.4}",
+            paddingInlineEnd: "{spacing.1}",
+            background: "bg.surface",
+            borderBottomWidth: "1px",
+            borderBottomStyle: "solid",
+            borderBottomColor: "border.subtle",
+            overflow: "clip",
+            /* A row of no item of its own whose footer's line is idle: none. */
+            "&:has(> [data-session-status]:only-child):not(:has([data-footer-line]:not([data-idle])))": { display: "none" },
+        },
+        sessionStatus: {
+            order: -2, flex: "1 1 auto", minWidth: "0", display: "flex", alignItems: "center", overflow: "hidden",
+            "&:not(:has([data-footer-line]:not([data-idle])))": { display: "none" },
+        },
+        /* A phone's panes: one tab each along the frame's bottom edge, over the safe area. */
+        paneStrip: {
+            flex: "none",
+            display: "flex",
+            height: "calc(44px + env(safe-area-inset-bottom, 0px))",
+            paddingBottom: "env(safe-area-inset-bottom, 0px)",
+            background: "bg.surface",
+            borderTopWidth: "1px",
+            borderTopStyle: "solid",
+            borderTopColor: "border.subtle",
+        },
+        paneTab: {
+            flex: "1 1 0",
+            minWidth: "0",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "{spacing.2}",
+            paddingX: "{spacing.3}",
+            background: "transparent",
+            border: "none",
+            borderBottomWidth: "2px",
+            borderBottomStyle: "solid",
+            borderBottomColor: "transparent",
+            color: "fg.subtle",
+            cursor: "pointer",
+            "& + &": { borderInlineStartWidth: "1px", borderInlineStartStyle: "solid", borderInlineStartColor: "border.subtle" },
+            _hover: { color: "fg" },
+            _focusVisible: { outline: "none", boxShadow: "focusInset" },
+            "&[aria-selected=true]": { color: "fg", borderBottomColor: "fg" },
+        },
+        paneTabIcon: { display: "inline-flex", flexShrink: 0, fontSize: "14px", "[data-active] > &": { color: "brand.solid" } },
+        paneTabLabel: {
+            minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            fontFamily: "mono", fontSize: "label.lg", fontWeight: "600", letterSpacing: "0.16em", textTransform: "uppercase",
+        },
+        paneTabMeta: {
+            flexShrink: 1, minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            fontFamily: "mono", fontSize: "label.md", fontWeight: "500", color: "fg.subtle", fontVariantNumeric: "tabular-nums",
+        },
+        paneTabMark: {
+            display: "inline-flex", flexShrink: 0, fontSize: "12px",
+            "&[data-tone=warning]": { color: "status.warn" },
+            "&[data-tone=danger]": { color: "status.neg" },
+        },
+        /* A phone's pane, up from the strip over main; closed, below the body's foot, unseen. */
+        drawer: {
+            position: "absolute",
+            insetInline: "0",
+            bottom: "0",
+            zIndex: "docked",
+            display: "flex",
+            flexDirection: "column",
+            height: "min(500px, 100%)",
+            minHeight: "0",
+            background: "bg.surface",
+            borderTopWidth: "1px",
+            borderTopStyle: "solid",
+            borderTopColor: "border.strong",
+            borderTopLeftRadius: "lg",
+            borderTopRightRadius: "lg",
+            overflow: "hidden",
+            transform: "translateY(100%)",
+            visibility: "hidden",
+            transitionProperty: "transform, visibility",
+            transitionDuration: "{durations.normal}",
+            transitionTimingFunction: "{easings.out}",
+            _motionReduce: { transition: "none" },
+            "&[data-open]": { transform: "none", visibility: "visible" },
+            "&[data-open][data-aside]": { transform: "translateY(100%)" },
+            /* The tray's own rule toward main is the drawer's edge. */
+            "& > *": { flex: "1", minHeight: "0", borderTopWidth: "0" },
         },
     },
 });
