@@ -4,7 +4,7 @@
  */
 
 /** Shared Slice rail presentation: local and record adapters use one ladder. */
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import { Accordion, Box, chakra, useRecipe } from "@chakra-ui/react";
 import { useSlotStyles, type SlotStyles } from "../../theme/slot-styles.js";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -165,6 +165,7 @@ interface RailForm {
  */
 export function useSliceRailItems(model: SliceRailModel | undefined, clusters: ReadonlyArray<SliceRailClusterSpec>): ToolbarItem[] {
     const styles = useSlotStyles("sliceFrame");
+    const phoneStyles = useSlotStyles("toolbarPhone");
     const chip = useRecipe({ key: "chip" });
     const btn = useRecipe({ key: "button" });
     // Every slice change can move what the rail shows — the chips, their words.
@@ -177,7 +178,7 @@ export function useSliceRailItems(model: SliceRailModel | undefined, clusters: R
     // The clusters as what they hold: a host's new array of the same clusters makes nothing again.
     const shape = clusters.map((cluster) => `${cluster.key}\u0001${cluster.side ?? ""}\u0001${cluster.kinds.join("\u0002")}`).join("\u0000");
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the clusters are read by `shape`, what they hold
-    return useMemo(() => railItems(model, clusters, open, setOpen, styles, chip, btn), [model, shape, open, styles, chip, btn]);
+    return useMemo(() => railItems(model, clusters, open, setOpen, styles, phoneStyles, chip, btn), [model, shape, open, styles, phoneStyles, chip, btn]);
 }
 
 /** The rail's items, made from its model — what {@link useSliceRailItems} keeps while they hold. */
@@ -187,6 +188,7 @@ function railItems(
     open: { key: string; chips: number } | null,
     setOpen: (open: { key: string; chips: number } | null) => void,
     styles: SlotStyles,
+    phoneStyles: SlotStyles,
     chip: ReturnType<typeof useRecipe>,
     btn: ReturnType<typeof useRecipe>,
 ): ToolbarItem[] {
@@ -263,7 +265,7 @@ function railItems(
             return summaryChip("all", { kind: "all", label: "Filters", icon, text: "Filters", active: anyActive });
         };
 
-        const editor = (form: RailForm): ReactNode => (
+        const editor = (form: RailForm, button?: ReactElement): ReactNode => (
             <SliceEditPopover
                 open={held}
                 onOpenChange={(o) => setOpen(o ? { key: cluster.key, chips: liveChips } : null)}
@@ -275,14 +277,14 @@ function railItems(
                         Done
                     </chakra.button>
                 }
-                trigger={
+                trigger={button ?? (
                     // One button, named for what it folds (#1231) — the icon alone draws no words.
                     <chakra.button type="button" css={styles.railTrigger} data-slot="railTrigger"
                         aria-label={`Filters: ${folded(form).map((d) => d.text).join(" · ")}`}>
                         {trigger(form)}
                         {form.show !== "bare" && <FontAwesomeIcon icon={faChevronDown} data-rail-caret="" />}
                     </chakra.button>
-                }
+                )}
             >
                 <SliceDensityContext.Provider value="editor">
                     <Box css={styles.railSections}>
@@ -323,6 +325,22 @@ function railItems(
             );
         };
 
+        // A phone's (`Mobile Filters Spec.md` SL2): the Filters button — the filter icon and, while any field is set, how
+        // many — named by every field it holds, after the views and the count and before Search Records.
+        const every: RailForm = { folded: kinds.length, chips: chipCount, show: "bare" };
+        const set = folded(every).filter((d) => d.active).length;
+        const phone = (
+            <Box css={styles.railCluster} data-slice-rail={cluster.key}>
+                {editor(every, (
+                    <chakra.button type="button" css={phoneStyles.filters} data-slot="railTrigger" data-rail-phone=""
+                        data-active={set > 0 ? "" : undefined} aria-label={`Filters: ${folded(every).map((d) => d.text).join(" · ")}`}>
+                        <FontAwesomeIcon icon={faFilter} />
+                        {set > 0 && <Box as="span" data-rail-set="">{set}</Box>}
+                    </chakra.button>
+                ))}
+            </Box>
+        );
+
         return {
             key: cluster.key,
             side: cluster.side,
@@ -330,6 +348,7 @@ function railItems(
             rank: ranks,
             version,
             held,
+            phone: { form: phone, order: 1 },
         };
     });
 }

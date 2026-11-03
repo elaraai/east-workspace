@@ -14,7 +14,11 @@
  *     so a control's focus ring and its tap halo still show.
  *   - Item: its own width (`flex: none`), whatever form it is in; the first
  *     item of the end cluster takes the row's slack before it.
- *   - Gap: `md` 10px (the Plan's band), `lg` 12px.
+ *   - Item: one that grows (`data-toolbar-grow`) takes the row's slack, and
+ *     may shrink to nothing — a phone's view tabs, which scroll inside it.
+ *   - Gap: `md` 10px (the Plan's band), `lg` 12px, `none` with no padding
+ *     either — a phone's row, whose items carry their own (`Mobile Builder
+ *     Frame Spec.md` FR2).
  *
  * @packageDocumentation
  */
@@ -43,12 +47,14 @@ export const toolbarSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             flex: "none",
             "&[data-toolbar-end]": { marginInlineStart: "auto" },
+            "&[data-toolbar-grow]": { flex: "1 1 auto", minWidth: "0", alignSelf: "stretch" },
         },
     },
     variants: {
         gap: {
             md: { root: { gap: "10px" } },
             lg: { root: { gap: "{spacing.3}" } },
+            none: { root: { gap: "0", paddingInline: "0", alignSelf: "stretch" } },
         },
     },
     defaultVariants: { gap: "lg" },

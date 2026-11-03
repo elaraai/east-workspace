@@ -29,13 +29,18 @@
  * has a key search, the chip folds last into the key search's popover
  * (#1345): every view a choice over the search box, then `+ TAB` and the open
  * view's close. Renaming and reordering wait for a row with room for the tabs.
+ *
+ * In a phone's frame (`strip: "phone"`, `Mobile Builder Frame Spec.md` FR2)
+ * the strip is every tab inline at 44px, scrolling sideways in the row's
+ * slack, each with its count and no ×, and `+ TAB` only while the narrowing is
+ * one no tab holds — the whole sheet's narrowed, or the open view's drifted.
  */
 
 import { memo, useEffect, useLayoutEffect, useRef, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { Box, Button, chakra, Menu as ChakraMenu, Portal, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
-import { SliceChoiceGroup, SliceClearButton } from "@elaraai/east-ui-components/internal";
+import { SliceChoiceGroup, SliceClearButton, useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { foldTabs } from "./lens.js";
 import { useSheetWords } from "./words.js";
 
@@ -62,8 +67,8 @@ export interface SheetTabsFold {
      *  holds every view, `+ TAB` and the open view's close; and `search`
      *  (#1345) is the views as the key search's popover holds them, once the
      *  chip folds into it: every view a choice, then `+ TAB` and the open
-     *  view's close. */
-    strip?: "compact" | "capped" | "closed" | "menu" | "search" | undefined;
+     *  view's close; `phone` is a phone's frame's strip (see the module docs). */
+    strip?: "compact" | "capped" | "closed" | "menu" | "search" | "phone" | undefined;
     /** In the key search's popover: closes it once a view is picked, made or closed there, as the chip's menu closes. */
     onDone?: (() => void) | undefined;
 }
@@ -111,6 +116,7 @@ export interface SheetTabsProps {
 export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
     const { styles, views, wholeCount, active, dirty, hasQuery, renaming, renameVal, panelId, fold, flash } = props;
     const menuStyles = useSlotRecipe({ key: "menu" })() as unknown as Styles;
+    const phone = useSlotStyles("toolbarPhone");
     // The tabs' words and counts, in the app's locale (#850, #861).
     const words = useSheetWords();
     const { m } = words;
@@ -214,6 +220,30 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
                     </Button>
                     {open !== undefined && <SliceClearButton label={m.tabCloseView({ name: open.name })} onClick={done(() => props.onClose(open.id))} />}
                 </Box>
+            </Box>
+        );
+    }
+
+    // A phone's (FR2): every tab inline, scrolling sideways; `+ TAB` while the narrowing is one no tab holds.
+    if (fold?.strip === "phone") {
+        const canAdd = active === null ? hasQuery : dirty;
+        const tab = (key: string, label: string, count: number | undefined, on: boolean, title: string) => (
+            <chakra.button key={key} ref={tabRef(key)} type="button" css={phone.view} data-slot="tab" data-tab={key}
+                data-active={on ? "" : undefined} data-dirty={on && dirty && key !== ALL ? "" : undefined}
+                role="tab" aria-selected={on} aria-controls={panelId} tabIndex={current === key ? 0 : -1} title={title}
+                onClick={() => { if (!on) props.onSwitch(key === ALL ? null : key); }} onKeyDown={onTabKey(key)}>
+                <Box as="span" css={phone.viewLabel} data-slot="tabLabel">{label}</Box>
+                <Box as="span" css={phone.viewCount} data-slot="tabCount" data-opn={flash === true && on ? "" : undefined}>{count === undefined ? "…" : words.number(count)}</Box>
+            </chakra.button>
+        );
+        return (
+            <Box css={phone.views} data-slot="tabs" data-strip="phone">
+                <Box display="contents" role="tablist" aria-label={m.tabList()}>
+                    {tab(ALL, m.tabAll(), wholeCount, active === null, m.tabAllTitle())}
+                    {views.map((v) => tab(v.id, v.name, v.count, active === v.id, v.title))}
+                </Box>
+                {canAdd && <chakra.button type="button" css={phone.viewAdd} data-slot="tabAdd" aria-label={m.tabAddName()}
+                    title={m.tabAddTitle({ query: hasQuery })} onClick={props.onCreate}>+ {m.tabAdd()}</chakra.button>}
             </Box>
         );
     }

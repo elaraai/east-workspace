@@ -25,6 +25,7 @@ import { useSliceRailItems, type SliceRailDescriptor } from "../rail/toolbar.js"
 import { SUMMARY_RANK } from "../rail/ranks.js";
 import { useSliceReactivity, useSlicesReactivity } from "../use-slice-reactivity.js";
 import { useSliceDensity } from "../density.js";
+import { useSlotStyles } from "../../theme/slot-styles.js";
 import { PRESETS, presetAnchor, presetWindow } from "../range/presets.js";
 import { printRecordChoice, readRecordChoice, recordChoiceLabel, recordValueLabel } from "./value.js";
 
@@ -111,11 +112,15 @@ type SourceCounts = { ok: true; count: option<bigint>; total: option<bigint>; na
  * @param nouns - The host's noun counting each source, by its name
  * @param except - Sources counted elsewhere — each in its heading in the rail's editor — and so not on this line
  */
-export function RecordSlicesSummary({ slices, nouns, except }: {
+export function RecordSlicesSummary({ slices, nouns, except, whole = false }: {
     slices: Product; nouns?: Readonly<Record<string, string>> | undefined; except?: readonly string[] | undefined;
+    /** While no narrowing hides rows of any source, the first source's whole count (`3 orders`): a phone's count line
+     *  (`Mobile Builder Frame Spec.md` FR2), which always says what the view holds. */
+    whole?: boolean | undefined;
 }) {
     const styles = useSlotRecipe({ key: "sliceEdit" })();
-    const { locale } = useFormatters();
+    const words = useFormatters();
+    const { locale } = words;
     // Where it is drawn: in the Filters editor its line wraps within the panel; in the toolbar it is one line, whole.
     const density = useSliceDensity();
     // The sources it counts, kept while the product and the sources skipped are the same: `except` is keyed by its names.
@@ -141,7 +146,17 @@ export function RecordSlicesSummary({ slices, nouns, except }: {
             }
         });
     }
-    if (named.length === 0) return null;
+    if (named.length === 0) {
+        const first = result.ok ? result.value[0] : undefined;
+        const part = parts[0];
+        if (!whole || part === undefined || first === undefined || !first.ok) return null;
+        const total = first.total.type === "some" ? first.total.value : undefined;
+        return <Box as="span" css={styles.choiceCounts} data-record-slices-summary="" data-density={density}>
+            <Box as="span" role="status" aria-busy={total === undefined}>
+                <span>{total === undefined ? "…" : words.number(total)}</span>{" "}<span>{recordSliceNoun(part, nouns, locale)}</span>
+            </Box>
+        </Box>;
+    }
     return <Box as="span" css={styles.choiceCounts} data-record-slices-summary="" data-density={density}>
         {named.map((shown, i) => <Fragment key={shown.part.source}>
             {i > 0 && <Box as="span" css={styles.choiceCountsGap} aria-hidden="true">·</Box>}
@@ -440,9 +455,12 @@ export function useRecordSliceToolbarItems(slice: Bind | undefined, options: { p
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the slice's state is its version; the options are read by what they hold
     }, [slice, version, words, noun, affordancesAt, excludeAt, resolutionsAt]);
     const items = useSliceRailItems(made.model, made.clusters);
-    // The summary folds after every step of the rail, whose editor keeps it, and before the host's own items.
+    const phoneStyles = useSlotStyles("toolbarPhone");
+    // The summary folds after every step of the rail, whose editor keeps it, and before the host's own items; a phone's
+    // row draws it as its count line, after the views (`Mobile Builder Frame Spec.md` FR2).
     return useMemo(() => (made.summary === undefined ? items
-        : [...items, { key: "record-summary", side: "end" as const, rank: SUMMARY_RANK, forms: [made.summary, null] }]), [items, made.summary]);
+        : [...items, { key: "record-summary", side: "end" as const, rank: SUMMARY_RANK, forms: [made.summary, null],
+            phone: { form: <Box as="span" css={phoneStyles.count} data-toolbar-count="">{made.summary}</Box> } }]), [items, made.summary, phoneStyles]);
 }
 
 /** A preset over several records: selected when every part holds it; a pick is the product's own toggle. */
@@ -503,6 +521,7 @@ export function useRecordSlicesToolbarItems(slices: Product | undefined, options
         // heading counts on a line under the fields; on the toolbar, every source a narrowing hides rows of.
         const counted = slices !== undefined && affordances.includes("summary");
         const summary = counted ? <RecordSlicesSummary slices={slices} nouns={nouns} /> : undefined;
+        const phoneSummary = counted ? <RecordSlicesSummary slices={slices} nouns={nouns} whole /> : undefined;
         const status = counted ? <RecordSlicesSummary slices={slices} nouns={nouns} except={headed ? headings : []} /> : undefined;
         const model = slices === undefined ? undefined : {
             // The rail's own choices: each field it lists that holds one — never a source's window, which the host's
@@ -534,11 +553,13 @@ export function useRecordSlicesToolbarItems(slices: Product | undefined, options
                 return entry === undefined ? <ProductPresets slices={slices} /> : <FieldChip slice={entry.part.slice} field={entry.field} source={entry.part.source} />;
             },
         };
-        return { model, clusters: [{ key: "record-slices", kinds }], summary };
+        return { model, clusters: [{ key: "record-slices", kinds }], summary, phoneSummary };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the sources' state is the version; the options are read by what they hold
     }, [slices, version, words, nounsAt, affordancesAt, excludeAt]);
     const items = useSliceRailItems(made.model, made.clusters);
-    // As one record's: after every step of the rail, before the host's own items.
+    const phoneStyles = useSlotStyles("toolbarPhone");
+    // As one record's: after every step of the rail, before the host's own items; a phone's row's count line.
     return useMemo(() => (made.summary === undefined ? items
-        : [...items, { key: "record-summary", side: "end" as const, rank: SUMMARY_RANK, forms: [made.summary, null] }]), [items, made.summary]);
+        : [...items, { key: "record-summary", side: "end" as const, rank: SUMMARY_RANK, forms: [made.summary, null],
+            phone: { form: <Box as="span" css={phoneStyles.count} data-toolbar-count="">{made.phoneSummary}</Box> } }]), [items, made.summary, made.phoneSummary, phoneStyles]);
 }

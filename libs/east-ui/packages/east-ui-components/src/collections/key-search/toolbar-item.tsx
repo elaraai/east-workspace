@@ -29,6 +29,10 @@
  * A host's key for its search (the Sheet's ⌘F) reaches it in either form
  * through {@link focusKeySearch} (#1221).
  *
+ * In a phone's frame its one form is the Search Records button — a 44px ghost,
+ * its magnifier and caret (`Mobile Builder Frame Spec.md` FR2), last in the
+ * row — which opens the same box.
+ *
  * @packageDocumentation
  */
 
@@ -170,6 +174,7 @@ export interface KeySearchToolbarOptions {
  */
 export function useKeySearchToolbarItem(search: KeySearchSource | undefined, options: KeySearchToolbarOptions = {}): ToolbarItem | undefined {
     const chip = useRecipe({ key: "chip" });
+    const phoneStyles = useSlotStyles("toolbarPhone");
     // The box's places draw no box of their own: the combobox recipe's slot for them.
     const styles = useSlotStyles("combobox", { size: "xs" });
     // The text typed, and the search it was typed into: a box keyed afresh starts empty.
@@ -197,16 +202,23 @@ export function useKeySearchToolbarItem(search: KeySearchSource | undefined, opt
                 onListRange={search.listRange} onJump={search.jump} onClear={search.clear} requery={search.requery} relist={search.relist}
                 onInputChange={onInputChange} />
         );
-        const popup = (heading: string, controls?: ReactNode | ((close: () => void) => ReactNode)) => (
+        const popup = (heading: string, controls?: ReactNode | ((close: () => void) => ReactNode), phone = false) => (
             <SliceEditPopover open={open} onOpenChange={setOpen} label={heading} size="lg" initialFocusEl={initialFocusEl}
-                trigger={
+                trigger={phone ? (
+                    // A phone's: the 44px ghost Search Records button.
+                    <chakra.button type="button" css={phoneStyles.search} aria-label={heading} data-key-search="icon" data-state={open ? "open" : "closed"}
+                        data-active={active ? "" : undefined}>
+                        <FontAwesomeIcon icon={faMagnifyingGlass} data-search-icon="" />
+                        <FontAwesomeIcon icon={faCaretDown} data-search-caret="" />
+                    </chakra.button>
+                ) : (
                     // A 44px touch target on a coarse pointer (#346).
                     <chakra.button type="button" css={[chip({ tone: active ? "brand" : "neutral", numeric: true }), coarseHitArea({ position: true })]}
                         aria-label={heading} data-key-search="icon" data-state={open ? "open" : "closed"}>
                         <FontAwesomeIcon icon={faMagnifyingGlass} data-chip-icon="" />
                         <FontAwesomeIcon icon={faCaretDown} data-chip-caret="" />
                     </chakra.button>
-                }>
+                )}>
                 {typeof controls === "function" ? controls(() => setOpen(false)) : controls}
                 <BoxSlot stage={stage} where="popover" css={styles.searchSlot} slot={popoverSlot} />
             </SliceEditPopover>
@@ -225,8 +237,10 @@ export function useKeySearchToolbarItem(search: KeySearchSource | undefined, opt
             foldsLast: active,
             // The one box, whatever form the item takes: its slots show it where they place it.
             keep: createPortal(box, stage.container),
+            // A phone's: the Search Records button, last in the row.
+            phone: { form: popup(label, undefined, true), order: 2 },
         };
-    }, [search, side, rank, given, compact, active, open, stage, styles, chip, initialFocusEl, onInputChange]);
+    }, [search, side, rank, given, compact, active, open, stage, styles, phoneStyles, chip, initialFocusEl, onInputChange]);
 }
 
 /**

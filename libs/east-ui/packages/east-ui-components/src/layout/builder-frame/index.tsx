@@ -490,13 +490,18 @@ export function BuilderFrame(props: BuilderFrameProps) {
         phone && !!it && it.secondRow !== undefined && (measured?.width ?? 0) >= (it.secondRowFrom ?? 0);
     // Which items the second row takes, by key: what the first row's items are made again by, never the width itself.
     const secondKeys = toolbar === undefined ? "" : toolbar.filter(inSecondRow).map((it) => it.key).join("\u0000");
-    // The first row's items: on a phone, without those the second row draws. The same array while neither moves, so the
-    // toolbar draws again only as its items do.
+    // The first row's items: on a phone, without those the second row draws, and each with a phone form drawing that
+    // alone, in its order (FR2). The same array while neither moves, so the toolbar draws again only as its items do.
     const firstRow = useMemo(() => {
-        if (toolbar === undefined || secondKeys === "") return toolbar;
-        const moved = new Set(secondKeys.split("\u0000"));
-        return toolbar.filter((it) => !it || !moved.has(it.key));
-    }, [toolbar, secondKeys]);
+        if (toolbar === undefined || !phone) return toolbar;
+        const moved = new Set(secondKeys === "" ? [] : secondKeys.split("\u0000"));
+        const items = toolbar.filter((it): it is ToolbarItem => !!it && !moved.has(it.key));
+        const phoned = items.map((it): ToolbarItem => it.phone === undefined ? it
+            // One cluster, in the phone forms' order: the views, the count, Filters, Search Records.
+            : { key: it.key, forms: [it.phone.form], keep: it.keep, held: it.held, version: it.version, grow: it.phone.grow });
+        const order = (it: ToolbarItem) => it.phone?.order ?? 0;
+        return phoned.map((it, i) => ({ it, at: order(items[i]!), i })).sort((a, b) => a.at - b.at || a.i - b.i).map(({ it }) => it);
+    }, [toolbar, secondKeys, phone]);
     const secondRow = toolbar === undefined ? [] : toolbar.filter(inSecondRow).map((it) => ({ key: it.key, node: it.secondRow }));
     // The row's status slot: where a phone's footer's loading line draws itself.
     const [statusSlot, setStatusSlot] = useState<HTMLElement | null>(null);
@@ -708,7 +713,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
             onKeyDownCapture={onKeyDownCapture} onKeyDown={onKeyDown}>
             {toolbar !== undefined && (
                 <Box ref={toolbarRef} css={styles.toolbar} data-frame-slot="toolbar" inert={covered} aria-hidden={covered ? true : undefined}>
-                    <Toolbar items={firstRow ?? toolbar} />
+                    <Toolbar items={firstRow ?? toolbar} gap={phone ? "none" : undefined} />
                 </Box>
             )}
             {/* A phone's second row: the frame's status, then each item's own, in item order (FR6). */}

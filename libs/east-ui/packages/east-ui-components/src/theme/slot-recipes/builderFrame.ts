@@ -112,6 +112,8 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             borderBottomStyle: "solid",
             borderBottomColor: "border.subtle",
             overflow: "clip",
+            /* A phone's: its items carry their own padding, the views' 16 at its start (FR2). */
+            "[data-phone] > &": { paddingX: "0", alignItems: "stretch" },
         },
         banners: {
             flex: "none",

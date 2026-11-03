@@ -161,6 +161,7 @@ import { jqEditorSlotRecipe } from "./slot-recipes/jqEditor.js";
 import { stepperSlotRecipe } from "./slot-recipes/stepper.js";
 import { fieldFormSlotRecipe } from "./slot-recipes/fieldForm.js";
 import { toolbarSlotRecipe } from "./slot-recipes/toolbar.js";
+import { toolbarPhoneSlotRecipe } from "./slot-recipes/toolbarPhone.js";
 import { builderFrameSlotRecipe } from "./slot-recipes/builderFrame.js";
 import { builderFooterLineSlotRecipe } from "./slot-recipes/builder-footer.js";
 import { loadingSlotRecipe } from "./slot-recipes/loading.js";
@@ -311,6 +312,7 @@ const config = defineConfig({
             stepper:         stepperSlotRecipe,
             fieldForm:       fieldFormSlotRecipe,
             toolbar:         toolbarSlotRecipe,
+            toolbarPhone:    toolbarPhoneSlotRecipe,
             builderFrame:    builderFrameSlotRecipe,
             builderFooterLine: builderFooterLineSlotRecipe,
             loading:         loadingSlotRecipe,
