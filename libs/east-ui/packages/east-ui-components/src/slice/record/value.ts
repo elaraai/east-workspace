@@ -54,6 +54,23 @@ export function recordValueLabel(field: Field, text: string, words: Formatters):
     }
 }
 
+/**
+ * One field's narrowing alone, as a phone's Filters view says it beside the field's name (`Mobile Filters Spec.md`
+ * SL6): its values (`Ready`), a date range (`Nov 2 – Nov 8`), a number range (`100 to 2,400`), a prefix (`Starts with
+ * "Cut"`).
+ *
+ * @param field - The field
+ * @param choice - Its choice
+ * @param words - The app's formatters
+ * @returns The choice in words
+ */
+export function recordChoiceSummary(field: Field, choice: Choice, words: Formatters): string {
+    const show = (text: string) => recordValueLabel(field, text, words);
+    if (choice.type === "values") return choice.value.map(show).join(", ");
+    if (choice.type === "prefix") return `Starts with “${choice.value}”`;
+    return `${show(choice.value.from)}${field.kind === "datetime" ? " – " : " to "}${show(choice.value.to)}`;
+}
+
 /** Human summary of one field's active narrowing. */
 export function recordChoiceLabel(field: Field, choice: Choice | undefined, words: Formatters): string {
     if (choice === undefined) return field.label;

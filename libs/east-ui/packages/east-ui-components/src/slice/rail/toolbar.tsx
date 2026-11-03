@@ -4,7 +4,8 @@
  */
 
 /** Shared Slice rail presentation: local and record adapters use one ladder. */
-import { Fragment, useMemo, useState, type ReactElement, type ReactNode } from "react";
+import { Fragment, useContext, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode, type Ref } from "react";
+import { createPortal } from "react-dom";
 import { Accordion, Box, chakra, useRecipe } from "@chakra-ui/react";
 import { useSlotStyles, type SlotStyles } from "../../theme/slot-styles.js";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -14,6 +15,8 @@ import { FLOOR_RANK, type ToolbarItem } from "../../toolbar/index.js";
 import { SliceDensityContext } from "../density.js";
 import { SliceEditPopover } from "../edit/index.js";
 import { SliceClearButton } from "../choice.js";
+import { FrameOverlaySlot } from "../../layout/builder-frame/overlay-slot.js";
+import { SliceFiltersView } from "./filters-view.js";
 
 /** One affordance's display, independent of its query engine. */
 export interface SliceRailDescriptor {
@@ -23,6 +26,8 @@ export interface SliceRailDescriptor {
     label: string;
     text: string;
     active: boolean;
+    /** Its choice alone, while it holds one (`Ready`, `Nov 2 – Nov 8`): what a phone's Filters view says beside its label; `text` where none is given. */
+    choice?: string;
     /** Optional position in the shared ladder; host items still fold after it. */
     rank?: number;
     /** Data attributes naming what its section edits; a record field's by default. */
@@ -61,6 +66,8 @@ export interface SliceRailModel {
     clear?: () => void;
     /** Status the editor keeps under its fields, as its toolbar item folds away: the counts no group's heading carries. */
     status?: ReactNode;
+    /** What a phone's Filters view counts at its foot, whatever narrows (`16,667 of 50,000 rows`); `status` where none is given. */
+    footStatus?: ReactNode;
 }
 
 /**
@@ -101,6 +108,42 @@ function RailSections({ model, kinds }: { model: SliceRailModel; kinds: readonly
             </Fragment>;
         })}
     </Accordion.Root>;
+}
+
+/** Props of {@link RailPhoneFilters}. */
+interface RailPhoneFiltersProps {
+    model: SliceRailModel;
+    kinds: readonly string[];
+    /** Whether the rail's editor is open. */
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    /** The Filters button: given a click, the view's opener. */
+    button: (onClick?: () => void, ref?: Ref<HTMLButtonElement>) => ReactElement;
+    /** The editor's popover around the button: what it opens with no phone's frame around it. */
+    popover: ReactNode;
+}
+
+/**
+ * A phone's Filters button (`Mobile Filters Spec.md` SL2, SL3): in a phone's
+ * frame it opens the Filters view in the frame's overlay slot, over the whole
+ * builder, and the focus comes back to it as the view closes; with no phone's
+ * frame around it, the editor's popover.
+ */
+function RailPhoneFilters({ model, kinds, open, onOpenChange, button, popover }: RailPhoneFiltersProps) {
+    const slot = useContext(FrameOverlaySlot);
+    const buttonRef = useRef<HTMLButtonElement | null>(null);
+    const wasOpen = useRef(open);
+    useEffect(() => {
+        if (wasOpen.current && !open) buttonRef.current?.focus({ preventScroll: true });
+        wasOpen.current = open;
+    }, [open]);
+    if (slot === null) return <>{popover}</>;
+    return (
+        <>
+            {button(() => onOpenChange(!open), buttonRef)}
+            {open && createPortal(<SliceFiltersView model={model} kinds={kinds} onClose={() => onOpenChange(false)} />, slot)}
+        </>
+    );
 }
 
 /**
@@ -326,18 +369,22 @@ function railItems(
         };
 
         // A phone's (`Mobile Filters Spec.md` SL2): the Filters button — the filter icon and, while any field is set, how
-        // many — named by every field it holds, after the views and the count and before Search Records.
+        // many — named by every field it holds, after the views and the count and before Search Records. In a phone's
+        // frame it opens the Filters view over the whole builder (SL3, R1); with no frame around it, the editor's popover.
         const every: RailForm = { folded: kinds.length, chips: chipCount, show: "bare" };
         const set = folded(every).filter((d) => d.active).length;
+        const button = (onClick?: () => void, ref?: Ref<HTMLButtonElement>) => (
+            <chakra.button ref={ref} type="button" css={phoneStyles.filters} data-slot="railTrigger" data-rail-phone=""
+                data-active={set > 0 ? "" : undefined} aria-label={`Filters: ${folded(every).map((d) => d.text).join(" · ")}`}
+                aria-expanded={onClick === undefined ? undefined : held} onClick={onClick}>
+                <FontAwesomeIcon icon={faFilter} />
+                {set > 0 && <Box as="span" data-rail-set="">{set}</Box>}
+            </chakra.button>
+        );
         const phone = (
             <Box css={styles.railCluster} data-slice-rail={cluster.key}>
-                {editor(every, (
-                    <chakra.button type="button" css={phoneStyles.filters} data-slot="railTrigger" data-rail-phone=""
-                        data-active={set > 0 ? "" : undefined} aria-label={`Filters: ${folded(every).map((d) => d.text).join(" · ")}`}>
-                        <FontAwesomeIcon icon={faFilter} />
-                        {set > 0 && <Box as="span" data-rail-set="">{set}</Box>}
-                    </chakra.button>
-                ))}
+                <RailPhoneFilters model={model} kinds={kinds} open={held} button={button} popover={editor(every, button())}
+                    onOpenChange={(o) => setOpen(o ? { key: cluster.key, chips: liveChips } : null)} />
             </Box>
         );
 

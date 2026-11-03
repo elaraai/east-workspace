@@ -89,6 +89,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { useFormatters } from "../../format/index.js";
 import { SessionRowSlot } from "./session-row.js";
+import { FrameOverlaySlot } from "./overlay-slot.js";
 import { useSlotStyles } from "../../theme/slot-styles.js";
 import { kept, keptFlag } from "../../platform/kept.js";
 import { DockPane, type DockRailMark } from "../dock/index.js";
@@ -99,6 +100,7 @@ import {
 } from "./place.js";
 
 export { SessionRowSlot } from "./session-row.js";
+export { FrameOverlaySlot } from "./overlay-slot.js";
 
 export {
     MIN_MAIN, MIN_SCRIM, NARROW_FRAME, paneWidths, placePanes,
@@ -505,6 +507,8 @@ export function BuilderFrame(props: BuilderFrameProps) {
     const secondRow = toolbar === undefined ? [] : toolbar.filter(inSecondRow).map((it) => ({ key: it.key, node: it.secondRow }));
     // The row's status slot: where a phone's footer's loading line draws itself.
     const [statusSlot, setStatusSlot] = useState<HTMLElement | null>(null);
+    // The slot a toolbar item's full-height view draws itself in, over every region: the rail's Filters view (FR7).
+    const [overlaySlot, setOverlaySlot] = useState<HTMLElement | null>(null);
     const sessionRow = phone && (secondRow.length > 0 || given(footer));
     /** Whether a side's pane is a drawer: a described pane that collapses, on a phone — one that never does stays pinned. */
     const drawn = (side: Side) => phone && dockOf(side) !== undefined && dockOf(side)?.collapsible !== false;
@@ -713,7 +717,9 @@ export function BuilderFrame(props: BuilderFrameProps) {
             onKeyDownCapture={onKeyDownCapture} onKeyDown={onKeyDown}>
             {toolbar !== undefined && (
                 <Box ref={toolbarRef} css={styles.toolbar} data-frame-slot="toolbar" inert={covered} aria-hidden={covered ? true : undefined}>
-                    <Toolbar items={firstRow ?? toolbar} gap={phone ? "none" : undefined} />
+                    <FrameOverlaySlot.Provider value={phone && !covered ? overlaySlot : null}>
+                        <Toolbar items={firstRow ?? toolbar} gap={phone ? "none" : undefined} />
+                    </FrameOverlaySlot.Provider>
                 </Box>
             )}
             {/* A phone's second row: the frame's status, then each item's own, in item order (FR6). */}
@@ -750,6 +756,8 @@ export function BuilderFrame(props: BuilderFrameProps) {
                     <SessionRowSlot.Provider value={sessionRow && !covered ? statusSlot : null}>{footer}</SessionRowSlot.Provider>
                 </Box>
             )}
+            {/* A phone's view over the whole builder, a toolbar item's (FR7): empty, it takes no pointer. */}
+            {phone && <Box ref={setOverlaySlot} css={styles.overlay} data-frame-slot="overlay" />}
             {covered && <Box css={styles.loading} data-builder-loading="" role="status" aria-label={label === undefined ? "Loading builder" : `Loading ${label}`}
                 style={{ "--builder-loading-pitch": `${loadingPitch}px`, ...(footerLive ? { bottom: `${footerHeight ?? 0}px` } : {}) } as CSSProperties}>
                 {toolbar !== undefined && <Box css={[styles.toolbar, styles.loadingBar]} aria-hidden>

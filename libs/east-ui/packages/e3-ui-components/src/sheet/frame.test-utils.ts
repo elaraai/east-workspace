@@ -118,18 +118,30 @@ export function frameScrolls(): () => void {
  * coarse)` matches, nothing else does — and the frame the rows scroll in
  * `width` px wide, its box and inside it alike, watched as a browser watches
  * it (a `ResizeObserver` where the page has none). The frame is the rows'
- * scroll element.
+ * scroll element. With `builder`, the `BuilderFrame` around the sheet is as
+ * wide too, so it lays itself out as a phone's (`Mobile Builder Frame
+ * Spec.md`) — its first row's phone forms, its second row, its overlay slot.
  *
  * @param width - The frame's width (px)
+ * @param options - `builder`: the builder's frame that wide as well
  * @returns The restore
  */
-export function touchFrame(width: number): () => void {
+export function touchFrame(width: number, options: { builder?: boolean } = {}): () => void {
     const saved = {
         resizeObserver: Object.getOwnPropertyDescriptor(globalThis, "ResizeObserver"),
         matchMedia: Object.getOwnPropertyDescriptor(window, "matchMedia"),
         offsetWidth: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth")!,
         clientWidth: Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth")!,
+        rect: Element.prototype.getBoundingClientRect,
     };
+    if (options.builder === true) {
+        Element.prototype.getBoundingClientRect = function (this: Element) {
+            const box = saved.rect.call(this);
+            return this.hasAttribute("data-builder-frame")
+                ? { x: 0, y: 0, top: 0, left: 0, right: width, bottom: box.height, width, height: box.height, toJSON: () => ({}) } as DOMRect
+                : box;
+        };
+    }
     const isFrame = (el: Element) => el.getAttribute("data-virtual-rows") === "bounded";
     if (saved.resizeObserver === undefined) {
         Object.defineProperty(globalThis, "ResizeObserver", {
@@ -156,6 +168,7 @@ export function touchFrame(width: number): () => void {
         else delete (window as { matchMedia?: unknown }).matchMedia;
         Object.defineProperty(HTMLElement.prototype, "offsetWidth", saved.offsetWidth);
         Object.defineProperty(Element.prototype, "clientWidth", saved.clientWidth);
+        if (options.builder === true) Element.prototype.getBoundingClientRect = saved.rect;
     };
 }
 

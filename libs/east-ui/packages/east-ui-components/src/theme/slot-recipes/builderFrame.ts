@@ -48,7 +48,10 @@
  *     absolute at the body's foot, at most 500px tall, `--r-lg` top corners,
  *     a `border.strong` rule on its top and sides, sliding up over
  *     `--dur-base` on `--ease-out` (at once under reduced motion), down off
- *     main while a drag is under way, over a veil of `--paper-3` at 72%.
+ *     main while a drag is under way, over a veil of `--paper-3` at 72%; and
+ *     the overlay — a slot over every region where a toolbar item draws a
+ *     full-height view (the rail's Filters view), taking the pointer only
+ *     where a view draws itself.
  *
  * @packageDocumentation
  */
@@ -65,7 +68,7 @@ const TOGGLE_MOTION = {
 export const builderFrameSlotRecipe = defineSlotRecipe({
     className: "elara-builder-frame",
     slots: ["root", "toolbar", "banners", "body", "pane", "sheet", "probe", "main", "scrim", "footer", "loading", "loadingBar", "loadingBody", "loadingRow", "loadingLine", "loadingCell", "loadingFooter",
-        "sessionRow", "sessionStatus", "paneStrip", "paneTab", "paneTabIcon", "paneTabLabel", "paneTabMeta", "paneTabMark", "drawer"],
+        "sessionRow", "sessionStatus", "paneStrip", "paneTab", "paneTabIcon", "paneTabLabel", "paneTabMeta", "paneTabMark", "drawer", "overlay"],
     base: {
         loading: { position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: "bg.surface", overflow: "hidden" },
         loadingBar: { gap: "{spacing.4}", "& > :last-child": { marginInlineStart: "auto" } },
@@ -284,5 +287,8 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             /* The tray's own rule toward main is the drawer's edge. */
             "& > *": { flex: "1", minHeight: "0", borderTopWidth: "0" },
         },
+        /* A phone's view over the whole builder, a toolbar item's (FR7): over every region, taking the pointer only where
+         * a view draws itself. */
+        overlay: { position: "absolute", inset: "0", zIndex: "overlay", pointerEvents: "none", overflow: "hidden" },
     },
 });

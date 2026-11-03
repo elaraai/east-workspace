@@ -4,7 +4,7 @@
  */
 
 /** Record narrowing controls on the existing Slice popover and toolbar ladder. */
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Box, Button, Skeleton, useSlotRecipe } from "@chakra-ui/react";
 import { faCalendar, faFilter, faMagnifyingGlass, faUsers } from "@fortawesome/free-solid-svg-icons";
 import type { IconName, IconPrefix, IconProp } from "@fortawesome/fontawesome-svg-core";
@@ -12,7 +12,7 @@ import { DateTimeType, IntegerType, FloatType, lessFor, parseFor, printFor, none
 import { recordChoiceNeeds, recordChoiceWhere, type RecordSliceBindType, type RecordSliceFieldType, type RecordSliceChoiceType, type RecordSlicesBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import { SliceSearchInput } from "../search/input.js";
-import { SliceChoiceGroup, SliceCountSummary, SliceFieldActions, SliceFieldChip } from "../choice.js";
+import { SliceChoiceGroup, SliceCountSummary, SliceFieldActions, SliceFieldChip, SliceFiltersViewContext } from "../choice.js";
 import { SliceRangeEditor, type SliceRangeKind } from "../range/editor.js";
 import { ResolutionSeg, type ResolutionTag } from "../range/index.js";
 import { useFormatters, type Formatters } from "../../format/index.js";
@@ -27,7 +27,7 @@ import { useSliceReactivity, useSlicesReactivity } from "../use-slice-reactivity
 import { useSliceDensity } from "../density.js";
 import { useSlotStyles } from "../../theme/slot-styles.js";
 import { PRESETS, presetAnchor, presetWindow } from "../range/presets.js";
-import { printRecordChoice, readRecordChoice, recordChoiceLabel, recordValueLabel } from "./value.js";
+import { printRecordChoice, readRecordChoice, recordChoiceLabel, recordChoiceSummary, recordValueLabel } from "./value.js";
 
 type Bind = ValueTypeOf<RecordSliceBindType>;
 type Product = ValueTypeOf<RecordSlicesBindType>;
@@ -215,6 +215,8 @@ function proposalFor(slice: Bind, field: Field, choice: Choice, words: ReturnTyp
 
 function KnownValues({ slice, field, run }: { slice: Bind; field: Field; run: (action: () => unknown) => void }) {
     const words = useFormatters();
+    // In a phone's Filters view, its values are 44px rows (`Mobile Filters Spec.md` SL7).
+    const rows = useContext(SliceFiltersViewContext);
     const read = useCallback(() => slice.values(field.fieldId), [slice, field.fieldId]);
     const { result } = useTrackedEvaluation(read);
     if (!result.ok) return <RecordSliceFailure slice={slice} />;
@@ -230,7 +232,7 @@ function KnownValues({ slice, field, run }: { slice: Bind; field: Field; run: (a
             ...(!proposal.disabled ? { count: value.count.type === "some" ? value.count.value : null } : {}),
             ...(value.error.type === "some" && !proposal.disabled ? { error: `Could not count ${value.label}` } : {}),
             ...proposal };
-    })} onPick={value => run(() => slice.choose(field.fieldId, nextValues(value)))} onRetry={() => slice.retry()} />;
+    })} onPick={value => run(() => slice.choose(field.fieldId, nextValues(value)))} onRetry={() => slice.retry()} rows={rows} />;
 }
 
 function StringSearch({ slice, field, run }: { slice: Bind; field: Field; run: (action: () => unknown) => void }) {
@@ -378,6 +380,7 @@ function fieldDescriptor(slice: Bind, field: Field, kind: string, words: Formatt
     const search = field.kind === "string" && !hasStringHints(field) && slice.config.search.includes(field.fieldId);
     return { kind, label: field.label, icon: range ? faCalendar : search ? faMagnifyingGlass : faFilter,
         text: recordChoiceLabel(field, choice, words), active: choice !== undefined, rank: range ? 2 : search ? 1 : 3,
+        ...(choice === undefined ? {} : { choice: recordChoiceSummary(field, choice, words) }),
         ...(attributes === undefined ? {} : { attributes }) };
 }
 
@@ -429,12 +432,14 @@ export function useRecordSliceToolbarItems(slice: Bind | undefined, options: { p
             // The rail's own choices: each field it offers that holds one — never a field it leaves out, a window among them.
             version, activeCount: fields.filter(field => state.where.has(field.fieldId)).length, clear: () => { slice.clearAll(); },
             status: summary,
+            footStatus: summary,
             describe: (kind: string): SliceRailDescriptor => {
                 if (kind === "resolution") return { kind, label: "Resolution", icon: faCalendar, text: state.resolution.type === "some" ? `Resolution: ${state.resolution.value.type}` : "Auto", active: state.resolution.type === "some", rank: 2 };
                 const field = byKind.get(kind);
                 if (field === undefined) {
                     const selected = state.preset.type === "some" ? slice.config.presets.find(p => p.id === state.preset.value) : undefined;
-                    return { kind, label: "Presets", icon: faUsers, text: selected === undefined ? "Presets" : `Presets: ${selected.name}`, active: selected !== undefined, rank: 3 };
+                    return { kind, label: "Presets", icon: faUsers, text: selected === undefined ? "Presets" : `Presets: ${selected.name}`, active: selected !== undefined, rank: 3,
+                        ...(selected === undefined ? {} : { choice: selected.name }) };
                 }
                 return fieldDescriptor(slice, field, kind, words);
             },
@@ -529,12 +534,14 @@ export function useRecordSlicesToolbarItems(slices: Product | undefined, options
             version, activeCount: entries.filter(entry => entry.part.slice.read().where.has(entry.field.fieldId)).length,
             clear: () => { slices.clearAll(); },
             status,
+            footStatus: phoneSummary,
             describe: (kind: string): SliceRailDescriptor => {
                 const entry = byKind.get(kind);
                 if (entry === undefined) {
                     const id = productPreset(slices);
                     const selected = id === undefined ? undefined : slices.presets.find(p => p.id === id);
                     return { kind, label: "Presets", icon: faUsers, text: selected === undefined ? "Presets" : `Presets: ${selected.name}`, active: selected !== undefined, rank: 3,
+                        ...(selected === undefined ? {} : { choice: selected.name }),
                         ...(headed ? { group: { key: "presets", label: "Presets" } } : {}) };
                 }
                 const field = fieldDescriptor(entry.part.slice, entry.field, kind, words,

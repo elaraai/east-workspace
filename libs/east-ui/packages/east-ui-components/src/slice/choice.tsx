@@ -3,12 +3,13 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { createContext, forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Box, Button, Skeleton, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCaretDown, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faCaretDown, faCheck, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { useCoarsePointer } from "../contracts/adaptive.js";
 import { useFormatters } from "../format/index.js";
+import { useSlotStyles } from "../theme/slot-styles.js";
 
 /** Shared field chip. The enclosing editor owns focus transfer after removal. */
 export const SliceFieldChip = forwardRef<HTMLButtonElement, Omit<ButtonHTMLAttributes<HTMLButtonElement>, "color"> & {
@@ -32,14 +33,42 @@ export interface SliceChoice {
     id: string; label: string; active: boolean; dashed?: boolean; disabled?: boolean;
     count?: bigint | null; error?: string; hint?: string;
 }
-/** Render the shared choice chips, including authoritative async count states. */
-export function SliceChoiceGroup({ choices, onPick, onRetry }: {
-    choices: readonly SliceChoice[]; onPick: (id: string) => void; onRetry?: () => void;
+/**
+ * Whether a Slice's editor is drawn in a phone's Filters view (`Mobile Filters Spec.md` SL7): its known values then as
+ * 44px rows, each a checkbox, its label and its count.
+ */
+export const SliceFiltersViewContext = createContext(false);
+
+/**
+ * Render the shared choice chips, including authoritative async count states — or, as `rows`, one 44px row a choice:
+ * a checkbox, its label (and its hint under it), its count at the end (`…` while it is read, none while it cannot be
+ * picked), as a phone's Filters view draws a field's values (`Mobile Filters Spec.md` SL7, SL9.3–SL9.5).
+ */
+export function SliceChoiceGroup({ choices, onPick, onRetry, rows = false }: {
+    choices: readonly SliceChoice[]; onPick: (id: string) => void; onRetry?: () => void; rows?: boolean;
 }) {
     const chip = useRecipe({ key: "chip" });
     const frame = useSlotRecipe({ key: "sliceFrame" })();
     const styles = useSlotRecipe({ key: "sliceEdit" })();
+    const view = useSlotStyles("sliceFiltersView");
     const words = useFormatters();
+    if (rows) {
+        return <Box css={view.choices} data-slice-choice-rows="">{choices.map(choice => <Box key={choice.id}>
+            <chakra.button type="button" role="checkbox" css={view.choice} aria-checked={choice.active} disabled={choice.disabled}
+                data-slice-choice={choice.id} onClick={() => onPick(choice.id)}>
+                <Box as="span" css={view.choiceBox} aria-hidden="true">{choice.active && <FontAwesomeIcon icon={faCheck} />}</Box>
+                <Box as="span" css={view.choiceText}>
+                    <Box as="span" css={view.choiceLabel}>{choice.label}</Box>
+                    {choice.hint && <Box as="span" css={view.choiceHint}>{choice.hint}</Box>}
+                </Box>
+                {choice.count !== undefined && !choice.error && <Box as="span" css={view.choiceCount}>
+                    {choice.count === null ? <Box as="span" role="status" aria-busy="true" aria-label="Count loading">…</Box> : words.number(choice.count)}
+                </Box>}
+            </chakra.button>
+            {choice.error && <Box css={[styles.hintRow, view.choiceError]} role="alert"><Box as="span" css={styles.hintError}>{choice.error}</Box>
+                {onRetry && <Button size="xs" variant="ghost" onClick={onRetry}>Retry</Button>}</Box>}
+        </Box>)}</Box>;
+    }
     return <Box css={styles.controlRow}>{choices.map(choice => <Box key={choice.id} css={styles.choiceList}>
         <chakra.button type="button" css={[frame.railTrigger, chip({ tone: choice.active ? "brand" : choice.dashed ? "dashed" : "neutral" })]}
             aria-pressed={choice.active} disabled={choice.disabled} title={choice.hint} onClick={() => onPick(choice.id)}>
