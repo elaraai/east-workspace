@@ -34,7 +34,7 @@ from east.query.jq.shapes import (
 )
 from east.query.jq.spans import JqNode, child_path, jq_children
 from east.query.jq.strftime import format_tokens
-from east.query.jq.translate import is_root
+from east.query.jq.translate import is_root, is_rows
 from east.serialization.east_printer import print_type
 from east.types.types import (
     ArrayType,
@@ -185,7 +185,9 @@ def _first(t: Translator, c: CallSite) -> None:
             _arg(t, c, 0, b, c.x, each)
         t.once(c.block, run, c.path)
         return
-    t.index_of(c.block, _input(t, c), t.int_(0), False, c.path, c.emit)
+    # A stage's rows (#1140): the first, kept as it is made.
+    t.index_of(c.block, t.first_rows(c.block, c.x, 1, c.path) if is_rows(c.x) else _input(t, c),  # type: ignore[arg-type]
+               t.int_(0), False, c.path, c.emit)
 
 
 rule("first", _first)
@@ -968,6 +970,12 @@ rule("transpose", _transpose)
 
 
 def _length(t: Translator, c: CallSite) -> None:
+    if is_rows(c.x):
+        # A stage's rows, counted as they are made (#1140).
+        count = t.declare(c.block, t.int_(0), "count")
+        c.x.each(c.block, lambda b, _v: t.assign(b, count, t.add(count, t.int_(1), c.path)))  # type: ignore[union-attr]
+        c.emit(c.block, count)
+        return
     x = t.open(_input(t, c))
 
     def length(b: Block, v: A, emit: Emit) -> None:
@@ -1199,10 +1207,15 @@ def _add_into(t: Translator, c: CallSite, b: Block, acc: A, v: A, typ: EastType)
 
 def _add(t: Translator, c: CallSite) -> None:
     typ = _output_type(t, c)
+    # A stage's rows, added as they are made (#1140).
+    rows = c.x if len(c.args) == 0 and is_rows(c.x) else None
     if typ.type == "Null":
         # The values' type has no identity to add: jq's null.
         if len(c.args) == 1:
             _arg(t, c, 0, c.block, c.x, lambda _b, _v: None)
+        # The rows are made all the same, as the array's were, when making one may raise.
+        elif rows is not None and not rows.stops:  # type: ignore[union-attr]
+            rows.each(c.block, lambda _b, _v: None)  # type: ignore[union-attr]
         c.emit(c.block, t.null(c.path))
         return
     kind = typ.type
@@ -1224,6 +1237,8 @@ def _add(t: Translator, c: CallSite) -> None:
         _add_into(t, c, b, acc, v, typ)
     if len(c.args) == 1:
         _arg(t, c, 0, c.block, c.x, each)
+    elif rows is not None:
+        rows.each(c.block, each)  # type: ignore[union-attr]
     else:
         t.iterate(c.block, _input(t, c), False, c.path, each)
     c.emit(c.block, acc)
@@ -1237,13 +1252,24 @@ def _any_all(t: Translator, c: CallSite) -> None:
     # any: true at the first true; all: false at the first false.
     result = t.declare(c.block, t.bool_(not is_any), "result")
 
-    def test(b: Block, v: A, label: Label) -> None:
+    def test(b: Block, v: A, label: Label | None) -> None:
         truth = t.truthy(v, c.path)
 
         def decided(b2: Block) -> None:
             t.assign(b2, result, t.bool_(is_any))
-            t.brk(b2, label)
+            if label is not None:
+                t.brk(b2, label)
         t.branch(b, truth if is_any else _negate(t, truth, c.path), decided, _nothing, c.path)
+    if len(c.args) == 0 and is_rows(c.x):
+        # A stage's rows, tested as they are made (#1140): the stage stops at the answer, unless making a row may raise.
+        rows = c.x
+        if rows.stops:  # type: ignore[union-attr]
+            t.once(c.block, lambda b, label: rows.each(b, lambda b2, row: test(b2, row, label)),  # type: ignore[union-attr]
+                   c.path)
+        else:
+            rows.each(c.block, lambda b, row: test(b, row, None))  # type: ignore[union-attr]
+        c.emit(c.block, result)
+        return
 
     def run(b: Block, label: Label) -> None:
         if len(c.args) == 2:
@@ -1457,22 +1483,27 @@ rule("unique", _unique)
 
 
 def _min_max(t: Translator, c: CallSite) -> None:
-    array = _elements_of(t, c, c.block)
-    if array is None:
+    # A stage's rows, compared as they are made (#1140), or an array's elements.
+    rows = c.x if is_rows(c.x) else None
+    array = _elements_of(t, c, c.block) if rows is None else None
+    if rows is None and array is None:
         _cannot(t, c, c.block, _input(t, c), "an array")
         return
-    element = array.type.value
+    element = (array.type if rows is None else rows.type).value  # type: ignore[union-attr]
     option = OptionType(element)
     best = t.declare(c.block, t.none(option), "best")
 
-    def each(b: Block, item: A, _k: A | None, _l: Label) -> None:
+    def each(b: Block, item: A) -> None:
         def against(_b2: Block, current: A) -> A:
             if c.name == "min":
                 return t.lt(item, current, c.path)
             return t.b("GreaterEqual", [element], [item, current], BooleanType, c.path)
         better = t.match_value(best, {"none": lambda _b2, _p: t.bool_(True), "some": against}, BooleanType, c.path)
         t.if_else(b, better, lambda b2: t.assign(b2, best, t.some(item, option)), None, c.path)
-    t.for_each(c.block, array, each, c.path)
+    if rows is not None:
+        rows.each(c.block, each)  # type: ignore[union-attr]
+    else:
+        t.for_each(c.block, array, lambda b, item, _k, _l: each(b, item), c.path)
     out = _output_type(t, c)
     if nullable_payload(option) is not None:
         c.emit(c.block, t.widen_to(c.block, best, out, c.path))
