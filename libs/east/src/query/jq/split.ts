@@ -79,11 +79,13 @@ export type JqSplit = JqSplitCall | JqWhole;
  *
  * @remarks
  * A split call's arguments are the query's inputs, in {@link JqSplitCall.inputs}'
- * order, the one named {@link JqSplitCall.over} partitioned. Each piece runs
- * {@link JqSplitCall.piece} over its piece of that dataset and the other inputs
- * whole, emitting into {@link JqSplitCall.output}'s kind; {@link JqSplitCall.then}
- * runs once over the assembled output and then the inputs, and gives the
- * query's result, exactly as `translateJq`'s translation gives it.
+ * order, the one named {@link JqSplitCall.over} partitioned, and with it each
+ * of {@link JqSplitCall.copartitioned}. Each piece runs {@link JqSplitCall.piece}
+ * over its piece of those and the other inputs whole, emitting into
+ * {@link JqSplitCall.output}'s kind; {@link JqSplitCall.then} runs once over the
+ * assembled output and then the inputs not partitioned, as e3 gives it them
+ * (#1107), and gives the query's result, exactly as `translateJq`'s
+ * translation gives it.
  */
 export interface JqSplitCall {
   readonly kind: "split";
@@ -103,8 +105,10 @@ export interface JqSplitCall {
    */
   piece(): FunctionExpr<any[], any>;
   /**
-   * The final function, of the assembled output and then the inputs, which
-   * gives the query's result; `null` when the assembled output is the result.
+   * The final function, of the assembled output and then the inputs not
+   * partitioned — every one but `over` and `copartitioned` — in their order,
+   * which gives the query's result; `null` when the assembled output is the
+   * result.
    *
    * @returns the function, or `null`
    */
@@ -116,7 +120,8 @@ export interface JqSplitCall {
   /**
    * The root fields bound before the stream that the pieces read only at the
    * row's key: dicts keyed as the dataset is, which a split call partitions
-   * with it, cut at the same keys (#942).
+   * with it, cut at the same keys (#942). One the final function reads too is
+   * not among them: it is given only the inputs not partitioned (#1107).
    */
   readonly copartitioned: readonly string[];
   /**
@@ -171,7 +176,8 @@ export interface JqRekey {
   joinPiece(): FunctionExpr<any[], any>;
   /**
    * The join call's final function: the split's, of the assembled output and
-   * then the join call's inputs; `null` when the assembled output is the
+   * then the join call's inputs not partitioned — every one but the re-keyed
+   * rows and `name` — in their order; `null` when the assembled output is the
    * result.
    *
    * @returns the function, or `null`
@@ -1712,7 +1718,10 @@ function splitCall(checked: CheckJqResult, plan: Plan, options: SplitJqOptions, 
   const rangeEnd = plan.rest.length === 0 ? null : spanning(checked, plan.rest[0]!.path, plan.rest[plan.rest.length - 1]!.path);
   // The assembled rows are the result when nothing follows them and they are its type.
   const thenNeeded = !(plan.combine.kind === "concat" && plan.rest.length === 0 && multiplicity === "one" && isTypeEqual(output.type, resultType));
-  const copartitioned = copartitionedOf(plan, inputs);
+  // The final function is given only the inputs not partitioned (#1107), so a dict it reads is not.
+  const thenReads = thenNeeded ? finalRootReads(plan) : new Set<string>();
+  const copartitioned = copartitionedOf(plan, inputs).filter(name => !thenReads.has(name));
+  const thenInputs = inputs.filter(i => i.name !== plan.rows.source.over && !copartitioned.includes(i.name));
   return {
     kind: "split",
     over: plan.rows.source.over,
@@ -1720,7 +1729,7 @@ function splitCall(checked: CheckJqResult, plan: Plan, options: SplitJqOptions, 
     resultType,
     output,
     piece: () => pieceProgram(checked, plan, inputs, output, options),
-    then: () => thenNeeded ? thenProgram(checked, plan, inputs, output, resultType, options) : null,
+    then: () => thenNeeded ? thenProgram(checked, plan, thenInputs, output, resultType, options) : null,
     stages: {
       piece: spanning(checked, plan.rows.start, plan.rows.end),
       combine: combineOf(checked, plan),
@@ -1728,7 +1737,7 @@ function splitCall(checked: CheckJqResult, plan: Plan, options: SplitJqOptions, 
     },
     broadcast: [...new Set(plan.rows.binds.flatMap(bind => rootFieldsRead(bind.node.value.source)))].filter(name => !copartitioned.includes(name)),
     copartitioned,
-    rekey: copartitioned.length > 0 ? null : rekeyOf(checked, plan, inputs, output, resultType, thenNeeded, options),
+    rekey: copartitioned.length > 0 ? null : rekeyOf(checked, plan, inputs, output, resultType, thenNeeded, thenReads, options),
     pruning,
   };
 }
@@ -1738,11 +1747,12 @@ function splitCall(checked: CheckJqResult, plan: Plan, options: SplitJqOptions, 
  * piece (#942): the one dict, bound before the stream, that the pieces read
  * only at one field of the row as the dataset gives it — of the dict's key
  * type — when the combine is order-blind; `null` when there is none, or more
- * than one.
+ * than one. A dict the final function reads is none: the join call partitions
+ * it, and its final function is given only the inputs not partitioned (#1107).
  */
 function rekeyOf(
   checked: CheckJqResult, plan: Plan, inputs: readonly { name: string; type: EastType }[], output: JqSplitOutput,
-  resultType: EastType, thenNeeded: boolean, options: SplitJqOptions,
+  resultType: EastType, thenNeeded: boolean, thenReads: ReadonlySet<string>, options: SplitJqOptions,
 ): JqRekey | null {
   const source = plan.rows.source;
   if (source.entries !== undefined || !orderBlind(plan)) return null;
@@ -1753,7 +1763,7 @@ function rekeyOf(
   const joins: { name: string; fields: readonly string[]; key: EastType; range: JqRange }[] = [];
   for (const dataset of new Set(plan.rows.binds.flatMap(b => rootFieldsRead(b.node.value.source)))) {
     const B = inputs.find(i => i.name === dataset);
-    if (dataset === source.over || B === undefined) continue;
+    if (dataset === source.over || B === undefined || thenReads.has(dataset)) continue;
     const t = unwrap(B.type);
     if (t.type !== "Dict") continue;
     const lookups = joinedAt(plan, dataset);
@@ -1778,7 +1788,7 @@ function rekeyOf(
     piece: () => rekeyPiece(checked, A.type, R, join.fields, join.key, source, options),
     inputs: joinInputs,
     joinPiece: () => pieceProgram(checked, plan, joinInputs, output, options, rekeyed),
-    joinThen: () => thenNeeded ? thenProgram(checked, plan, joinInputs, output, resultType, options) : null,
+    joinThen: () => thenNeeded ? thenProgram(checked, plan, joinInputs.filter(i => i.name !== source.over && i.name !== join.name), output, resultType, options) : null,
   };
 }
 
@@ -2310,14 +2320,29 @@ function pieceTable(t: SplitTranslator, $: Block, key: EastType, value: { type: 
 
 // ─── The final function ─────────────────────────────────────────────────────
 
-/** The final function: the value the combine gives, the rest of the query on it, and the query's sink. */
-function thenProgram(checked: CheckJqResult, plan: Plan, inputs: readonly { name: string; type: EastType }[], output: JqSplitOutput, resultType: EastType, options: SplitJqOptions): FunctionExpr<any[], any> {
+/** The variables the final function reads: in what follows the combine, and in the expression its totals make. */
+function finalVariables(plan: Plan): Set<string> {
   const c = plan.combine;
   const reads = new Set<string>();
   for (const step of plan.rest) variablesIn(step.node, reads);
   if (c.kind === "totals") variablesIn(c.node, reads);
   if (c.kind === "group") variablesIn(c.body.node, reads);
-  const binds = bindsFor(plan.rows.binds, reads);
+  return reads;
+}
+
+/** The root fields the final function reads: those the bindings it needs read. */
+function finalRootReads(plan: Plan): Set<string> {
+  return new Set(bindsFor(plan.rows.binds, finalVariables(plan)).flatMap(bind => rootFieldsRead(bind.node.value.source)));
+}
+
+/**
+ * The final function: the value the combine gives, the rest of the query on
+ * it, and the query's sink. It takes the assembled output, then `inputs`: the
+ * inputs not partitioned, each of the root fields it reads among them.
+ */
+function thenProgram(checked: CheckJqResult, plan: Plan, inputs: readonly { name: string; type: EastType }[], output: JqSplitOutput, resultType: EastType, options: SplitJqOptions): FunctionExpr<any[], any> {
+  const c = plan.combine;
+  const binds = bindsFor(plan.rows.binds, finalVariables(plan));
   const element = checked.elementType!;
   const multiplicity = checked.multiplicity!;
   return withLocationCapture(false, () => func([output.type, ...inputs.map(i => i.type)], resultType, ($, assembled, ...values) => {

@@ -22,7 +22,9 @@
  * elevated grant could launch. Whoever may poll a split call may cancel it: a
  * running one answers `cancelled` from then on, and one that has ended is left
  * as it ended. One whose value is over its result limit answers `too_large`
- * and names its output, which its reader reads a window at a time.
+ * and names its output, which its reader reads a window at a time. A split
+ * call's `then` takes the assembled output and then each argument not
+ * partitioned, and one that takes any other count is `invalid`.
  */
 
 import { describe, it } from 'node:test';
@@ -784,6 +786,40 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       if (again.report === null) assert.fail('the call again reported nothing');
       assert.deepEqual([again.report.pieces, again.report.ran, again.report.cached], [first.report.pieces, 0n, 0n]);
       assertValue(again.result, ArrayType(IntegerType), [1n, 2n, 3n]);
+    });
+
+    it('a split call\'s then takes the assembled output and then each argument not partitioned, and one that takes any other count is invalid', async (t) => {
+      const ctx = await withFunctions(t);
+      const reader = await ctx.readerOpts();
+
+      await ctx.createWorkspace('split-then-ws');
+      await ctx.deployPackage('split-then-ws', `${PKG}@${VERSION}`);
+      // `prices` is {a: 1, b: 2, c: 3}, cut into pieces; 100, a value, is not.
+      const request: SplitCallRequest = {
+        ...splitOf(
+          East.function([PricesType, IntegerType, FunctionType([IntegerType], NullType)], NullType, ($, prices, _scale, emit) => {
+            $.for(prices, ($, price) => {
+              $(emit(price));
+            });
+          }),
+          [PRICES_PIECES, { arg: variant('value', encodeInt(100n)), partition: none }],
+          variant('array', null),
+        ),
+        then: some(encodeEastIR(East.function([ArrayType(IntegerType), IntegerType], IntegerType, ($, prices, scale) =>
+          prices.reduce(($, sum, price) => sum.add(price), 0n).multiply(scale)).toIR())),
+      };
+      const scaled = await splitCall(ctx.config.baseUrl, ctx.repoName, 'split-then-ws', request, reader);
+      assertValue(scaled.result, IntegerType, 600n);
+
+      // Given `prices` too, it would read what the pieces read.
+      const refused = await splitCall(ctx.config.baseUrl, ctx.repoName, 'split-then-ws', {
+        ...request,
+        then: some(encodeEastIR(East.function([ArrayType(IntegerType), PricesType, IntegerType], IntegerType, ($, _prices, all, scale) =>
+          all.size().multiply(scale)).toIR())),
+      }, reader);
+      if (refused.result.outcome.type !== 'invalid') assert.fail(`the call answered ${refused.result.outcome.type}`);
+      assert.equal(refused.result.outcome.value.diagnostics[0]?.message,
+        'then takes 3 arguments, and the call gives it 2 arguments: the assembled output, then each argument not partitioned, in order');
     });
 
     it('a split call over its result limit answers too_large and names its output, which its reader opens and reads a window at a time', async (t) => {

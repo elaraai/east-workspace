@@ -1345,7 +1345,11 @@ export const SplitCallArgType = VariantType({
  * not partitioned reaches every piece whole. `output` is how the pieces'
  * outputs combine, as a task's output kinds do, with its programs and its zero
  * inline. `then`, when given, runs once over the assembled output and then the
- * arguments, and its value is the call's.
+ * arguments not partitioned, in their order, and its value is the call's. The
+ * partitioned arguments are the pieces' to read: `then` reads what the pieces
+ * made. A `then` that takes any other count is `invalid`, and nothing runs. A
+ * plan that needs a partitioned dataset again after the combine runs another
+ * split call over it, given this call's output as an `object` argument.
  *
  * SECURITY: a caller whose one-shot grant is `platform_free` may launch one
  * only when it is platform-free: a stock runtime given no platform package,

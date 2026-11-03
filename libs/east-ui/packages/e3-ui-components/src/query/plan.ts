@@ -452,7 +452,9 @@ function splitCallOf(draft: PlanDraft, split: JqSplitCall, rekey: boolean): { re
  *
  * @remarks
  * - `bodyIr` is the piece program, and `then` the final function, when there
- *   is one: each `encodeEastIR(fn.toIR())`, as a one-shot call's body is.
+ *   is one: each `encodeEastIR(fn.toIR())`, as a one-shot call's body is. The
+ *   final function takes the assembled output, then the arguments not
+ *   partitioned, as e3 gives it them (#1107).
  * - `args` is one `dataset` argument per input of the split, in its order —
  *   the root fields the query reads, as the translation takes them — at its
  *   data source's path; the one the pieces are cut from, `over`, is

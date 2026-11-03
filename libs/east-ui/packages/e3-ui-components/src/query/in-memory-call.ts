@@ -15,7 +15,8 @@
  *   the partitioned dataset cut into pieces — datasets partitioned together
  *   cut at the same keys — each piece's program run, the pieces' outputs
  *   assembled by the output kind and kept by their hash, which a later call's
- *   `object` argument reads, and the final function run once — through a
+ *   `object` argument reads, and the final function run once over them and
+ *   the arguments not partitioned (#1107) — through a
  *   `QuerySplitCallProvider`; and its explain, the pieces it cuts with none
  *   run (#1132).
  * - **A data source's status** ({@link createInMemorySourceStatus}): what each
@@ -290,7 +291,8 @@ function progress(phase: "partition" | "merge" | "combine", done: number, units:
  * platform-free — the partitioned dataset cut into a given number of pieces,
  * each piece's program run with an `emit` that collects what it emits, the
  * pieces' outputs assembled by the output kind, and the final function run
- * once over the assembled output and the arguments.
+ * once over the assembled output and then the arguments not partitioned, in
+ * their order, as e3 gives them (#1107).
  *
  * @param datasets - The datasets a call may read
  * @param options - How many pieces the partitioned dataset is cut into
@@ -317,8 +319,10 @@ function progress(phase: "partition" | "merge" | "combine", done: number, units:
  * one-shot call's: beast2 at the value's type with each dataset argument
  * pinned at its hash, `failed` for an East error with its places on stderr,
  * `invalid` for an argument naming nothing here — a dataset, or an object no
- * call of this stand-in assembled — or for arguments that cannot be cut
- * together, and `too_large` over the request's `maxResultBytes`. It reports
+ * call of this stand-in assembled — for arguments that cannot be cut
+ * together, or for a final function that takes any other count than the
+ * assembled output and the arguments not partitioned, and `too_large` over the
+ * request's `maxResultBytes`. It reports
  * each piece done, then the merge or the fold, to `onProgress`, yielding
  * between pieces, and rejects with the signal's reason once abandoned. The
  * time limit is not kept, and its answer has no `report`: e3's says how its
@@ -371,6 +375,13 @@ export function createInMemorySplitCall(datasets: readonly InMemoryDataset[], op
             }
         }
         if (partitioned.length === 0) return "a split call partitions at least one of its arguments: its pieces are cut from it";
+        if (request.then.type === "some") {
+            // The assembled output, then each argument the pieces do not cut, as e3 gives them (#1107).
+            const arity = compiled(request.then.value, "final function").inputs.length;
+            const given = 1 + request.args.length - partitioned.length;
+            const count = (n: number): string => `${n} argument${n === 1 ? "" : "s"}`;
+            if (arity !== given) return `then takes ${count(arity)}, and the call gives it ${count(given)}: the assembled output, then each argument not partitioned, in order`;
+        }
         return { values, weights, inputs, partitioned };
     };
 
@@ -461,7 +472,8 @@ export function createInMemorySplitCall(datasets: readonly InMemoryDataset[], op
             hash = sha256Hex(bytes);
             stored.set(hash, { value: assembled, bytes: bytes.length });
             if (then === undefined) return { result: answer(type, assembled, request.limits, inputs), output: hash, report: null };
-            return { result: answer(then.output, then.fn(assembled, ...values), request.limits, inputs), output: hash, report: null };
+            const unpartitioned = values.filter((_, i) => !partitioned.includes(i));
+            return { result: answer(then.output, then.fn(assembled, ...unpartitioned), request.limits, inputs), output: hash, report: null };
         } catch (err) {
             if (!(err instanceof EastError)) throw err;
             return { result: raised(err, inputs), output: hash, report: null };
