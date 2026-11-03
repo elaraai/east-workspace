@@ -127,3 +127,49 @@ export function toolbarFaults(frame: Locator): Promise<string[]> {
         return faults;
     });
 }
+
+/**
+ * What is wrong with a phone's bottom panel (FR9), open in a frame: none open,
+ * a popover open with it, not in the flow at the foot of what holds it — main
+ * giving way above it, the pane strip under it — not the frame's width, a
+ * control under 44px (a number's steppers share their field's), or a control
+ * in view that something else covers or that its field cuts.
+ *
+ * @param frame - The builder's root, which holds the frame
+ * @returns Each fault, in words; none when it holds
+ */
+export function bottomPanelFaults(frame: Locator): Promise<string[]> {
+    return frame.evaluate((root) => {
+        const panels = root.querySelectorAll("[data-frame-panel]");
+        if (panels.length !== 1) return [`${panels.length} panels open`];
+        const panel = panels[0]!, slot = panel.parentElement!;
+        // Wholly in view, clear of what the page keeps at its top: a point is hit only there.
+        panel.scrollIntoView({ block: "end", behavior: "instant" });
+        const p = panel.getBoundingClientRect();
+        const builder = root.matches("[data-builder-frame]") ? root : root.querySelector("[data-builder-frame]")!;
+        const out: string[] = [];
+        if (document.querySelector('[data-scope="popover"][data-part="content"][data-state="open"]') !== null) out.push("a popover is open too");
+        if (slot.getAttribute("data-frame-slot") !== "bottomPanel") out.push("not in the frame's slot");
+        const b = builder.getBoundingClientRect();
+        if (Math.abs(p.left - b.left) > 0.5 || Math.abs(p.right - b.right) > 0.5) out.push(`${Math.round(p.width)} wide in a ${Math.round(b.width)}px frame`);
+        if (p.height > 420.5) out.push(`${Math.round(p.height)} tall`);
+        const above = slot.previousElementSibling!.getBoundingClientRect();
+        if (Math.abs(above.bottom - p.top) > 0.5) out.push(`${Math.round(p.top - above.bottom)}px from what gives way above it`);
+        if (slot.parentElement === builder) {
+            const strip = builder.querySelector('[data-frame-slot="paneStrip"]');
+            if (strip !== null && strip.getBoundingClientRect().top < p.bottom - 0.5) out.push("over the pane strip");
+        }
+        for (const el of panel.querySelectorAll("button, input")) {
+            const c = el.getBoundingClientRect();
+            if (c.width === 0) continue;
+            const stepper = el.getAttribute("data-scope") === "number-input";
+            if (el.getAttribute("role") !== "checkbox" && el.getAttribute("role") !== "radio" && !stepper && c.height < 43.5) out.push(`${el.textContent || el.tagName} is ${Math.round(c.height)} tall`);
+            const x = c.left + c.width / 2, y = c.top + c.height / 2;
+            const seen = panel.getBoundingClientRect(), body = el.closest("[data-frame-panel] > *")!.getBoundingClientRect();
+            if (y < Math.max(seen.top, body.top, 0) || y > Math.min(seen.bottom, body.bottom, window.innerHeight)) continue;
+            const hit = document.elementFromPoint(x, y);
+            if (hit === null || !(el.contains(hit) || hit.contains(el) && hit.tagName === "LABEL")) out.push(`${el.getAttribute("aria-label") ?? el.textContent ?? el.tagName} is covered by ${hit === null ? "nothing" : `${hit.tagName} ${hit.getAttribute("data-part") ?? hit.textContent?.slice(0, 20) ?? ""}`}`);
+        }
+        return out;
+    });
+}

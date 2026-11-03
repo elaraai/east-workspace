@@ -5,7 +5,7 @@
 /** Roster against the real in-page e3: the mock's geometry and shared builder behavior. */
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
-import { frameAt, toolbarFaults } from "./builder-frame";
+import { bottomPanelFaults, frameAt, toolbarFaults } from "./builder-frame";
 import { leaveBuilder } from "./builder-page";
 import { settled } from "./settle";
 import { LAYOUT_THEMES } from "./themes";
@@ -188,8 +188,9 @@ for (const theme of LAYOUT_THEMES) {
         await card.getByRole('button', { name: 'Edit', exact: true }).click();
         const dialog = page.getByRole('dialog');
         await expect(dialog).toBeVisible();
-        const b = (await dialog.boundingBox())!;
-        expect(b.x).toBeGreaterThanOrEqual(0); expect(b.x + b.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
+        // The bottom panel, above the pane strip, the card it edits still in view above it.
+        expect(await bottomPanelFaults(frame)).toEqual([]);
+        expect((await card.boundingBox())!.y).toBeLessThan((await dialog.boundingBox())!.y);
         // C. Clover's duty moves from Putaway to Unloading, another of Inbound's skills.
         const activity = dialog.locator('[data-field="activity"] [data-scope="select"][data-part="trigger"]');
         await activity.click();

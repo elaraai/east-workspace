@@ -6,7 +6,7 @@
 /** Calendar against the real in-page e3: responsive geometry, explicit phone edits and desktop drag. */
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
-import { frameAt, toolbarFaults } from "./builder-frame";
+import { bottomPanelFaults, frameAt, toolbarFaults } from "./builder-frame";
 import { leaveBuilder } from "./builder-page";
 import { settled } from "./settle";
 import { LAYOUT_THEMES } from "./themes";
@@ -100,11 +100,11 @@ for (const theme of LAYOUT_THEMES) {
         }
         await frame.locator('[data-library-item]').filter({ hasText: "Torque-test fixtures" }).click();
         await frame.getByRole("button", { name: "Schedule", exact: true }).click();
-        // The popover, over the pane's own view.
+        // The bottom panel, at the foot of the pane's own view.
         const dialog = page.getByRole("dialog").last();
         await expect(dialog).toBeVisible();
-        const box = await dialog.boundingBox();
-        expect(box!.x).toBeGreaterThanOrEqual(0); expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
+        expect(await bottomPanelFaults(frame)).toEqual([]);
+        await settled(page);
         await dialog.getByRole("button", { name: "Schedule", exact: true }).click();
         const collapse = frame.getByRole("button", { name: "Collapse Library" });
         if (await collapse.isVisible()) await collapse.click();

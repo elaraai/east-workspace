@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { cloneElement, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, type KeyboardEvent, type MouseEvent, type ReactElement, type ReactNode } from "react";
+import { cloneElement, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, type KeyboardEvent, type MouseEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Popover as ChakraPopover, Portal, Box, chakra, usePopoverContext } from "@chakra-ui/react";
 import { useSliceDensity } from "../density";
@@ -12,9 +12,10 @@ import { POPOVER_GUTTER } from "../../overlays/popover/gutter.js";
 import { frameBounds } from "../../overlays/popover/frame-bounds.js";
 import { FOCUSABLE } from "../../primitives/focusable.js";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowLeft, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faArrowLeft, faChevronDown, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { FrameOverlaySlot } from "../../layout/builder-frame/overlay-slot.js";
-import { useViewEscape } from "../../layout/builder-frame/view-escape.js";
+import { FrameBottomPanel } from "../../layout/builder-frame/bottom-panel.js";
+import { layerOpen, useViewEscape } from "../../layout/builder-frame/view-escape.js";
 
 /** What a {@link SliceEditPopover} hangs from: its trigger, or an anchor. */
 export type SliceEditPopoverAnchor =
@@ -134,6 +135,10 @@ function Rehang({ from }: { from: unknown }) {
  * view over the whole builder instead, in the frame's overlay slot, as the
  * rail's Filters view is (ruled 3 Nov 2026): ← back and its label at its
  * head, the same body, its foot's actions at its end ({@link FramePhoneView}).
+ * One that main or an open pane opens, in a frame that takes it (`phonePanel`:
+ * the cards of actions of the Calendar, the Roster and the Allocation), is the
+ * bottom panel over the pane strip, as the Sheet's action bar is, what is above
+ * giving way to it ({@link FramePanelView}).
  */
 export function SliceEditPopover({
     open, onOpenChange, trigger, anchor, label, size = "sm", flush, footLeft, footActions, initialFocusEl, keepOnFocusOut = false, hangFrom, still = false, children,
@@ -144,6 +149,8 @@ export function SliceEditPopover({
     const density = useSliceDensity();
     // A phone's frame's overlay slot, where its toolbar's popovers open as views over the builder.
     const overlay = useContext(FrameOverlaySlot);
+    // A phone's frame's bottom panel, where main's and a pane's popovers open.
+    const panel = useContext(FrameBottomPanel);
     const anchored = trigger === undefined;
     const anchorRef = useRef<HTMLDivElement | null>(null);
     const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -221,6 +228,14 @@ export function SliceEditPopover({
             </FramePhoneView>
         );
     }
+    if (panel !== null) {
+        return (
+            <FramePanelView slot={panel} open={open} onOpenChange={onOpenChange} toggle={trigger === undefined ? anchor : trigger} anchored={anchored}
+                label={label} flush={flush === true} footLeft={footLeft} footActions={footActions} initialFocusEl={initialFocusEl}>
+                {children}
+            </FramePanelView>
+        );
+    }
     return (
         <ChakraPopover.Root
             open={open}
@@ -287,19 +302,17 @@ interface FramePhoneViewProps {
 }
 
 /**
- * A toolbar's popover in a phone's frame (ruled 3 Nov 2026): a view over the
- * whole builder in the frame's overlay slot — ← back and its label at its
- * head, its body, its foot's actions at its end. Its trigger toggles it, as
- * the popover's does; ←, Esc and the foot's actions close it; the focus moves
- * in as it opens and back to its trigger, or its anchor's first control, as
- * it closes.
+ * What a phone view's trigger keeps: the trigger, toggling it and saying so, or
+ * the anchor as it is, held in an element of no box; and the focus, moved into
+ * the view as it opens and back to the trigger, or the anchor's first control,
+ * as it closes.
+ *
+ * @param view - What it moves the focus into, and the trigger's and its props
+ * @returns The hold's ref, and the trigger to draw in it
  */
-function FramePhoneView({ slot, open, onOpenChange, toggle, anchored, label, footLeft, footActions, initialFocusEl, children }: FramePhoneViewProps) {
-    const styles = useSlotStyles("frameView");
+function useViewTrigger({ open, onOpenChange, toggle, anchored, initialFocusEl, viewRef }: Pick<FramePhoneViewProps, "open" | "onOpenChange" | "toggle" | "anchored" | "initialFocusEl"> & { viewRef: RefObject<HTMLDivElement | null> }) {
     const holdRef = useRef<HTMLSpanElement | null>(null);
-    const viewRef = useRef<HTMLDivElement | null>(null);
     const wasOpen = useRef(open);
-    useViewEscape(open, () => onOpenChange(false));
     useEffect(() => {
         const opened = wasOpen.current;
         wasOpen.current = open;
@@ -313,7 +326,7 @@ function FramePhoneView({ slot, open, onOpenChange, toggle, anchored, label, foo
             }
         });
         return () => cancelAnimationFrame(frame);
-    }, [open, initialFocusEl]);
+    }, [open, initialFocusEl, viewRef]);
     const own = anchored ? undefined : toggle as ReactElement<DisclosureTriggerProps>;
     const trigger = own === undefined ? toggle : cloneElement(own, {
         "aria-expanded": open,
@@ -322,6 +335,22 @@ function FramePhoneView({ slot, open, onOpenChange, toggle, anchored, label, foo
             onOpenChange(!open);
         },
     });
+    return { holdRef, trigger };
+}
+
+/**
+ * A toolbar's popover in a phone's frame (ruled 3 Nov 2026): a view over the
+ * whole builder in the frame's overlay slot — ← back and its label at its
+ * head, its body, its foot's actions at its end. Its trigger toggles it, as
+ * the popover's does; ←, Esc and the foot's actions close it; the focus moves
+ * in as it opens and back to its trigger, or its anchor's first control, as
+ * it closes.
+ */
+function FramePhoneView({ slot, open, onOpenChange, toggle, anchored, label, footLeft, footActions, initialFocusEl, children }: FramePhoneViewProps) {
+    const styles = useSlotStyles("frameView");
+    const viewRef = useRef<HTMLDivElement | null>(null);
+    useViewEscape(open, () => onOpenChange(false));
+    const { holdRef, trigger } = useViewTrigger({ open, onOpenChange, toggle, anchored, initialFocusEl, viewRef });
     const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
         if (event.key !== "Escape" || event.defaultPrevented) return;
         event.preventDefault();
@@ -342,6 +371,73 @@ function FramePhoneView({ slot, open, onOpenChange, toggle, anchored, label, foo
                     <Box css={styles.body}>{children}</Box>
                     {(footLeft !== undefined || footActions !== undefined) && (
                         <Box css={styles.foot}>
+                            {footLeft}
+                            <Box css={styles.footActions}>{footActions}</Box>
+                        </Box>
+                    )}
+                </Box>,
+                slot,
+            )}
+        </>
+    );
+}
+
+/**
+ * A popover main or an open pane opens in a phone's frame that takes the bottom
+ * panel (FR9): in the flow above the pane strip, as the Sheet's action bar
+ * stands — its label and ⌄ close at its head, its body, its foot's actions —
+ * the trigger scrolled back into what gives way to it. ⌄, Esc, the foot's
+ * actions and a press anywhere else close it; a scroll of main does not, nor a
+ * press in a list one of its fields portals. Esc is heard ahead of the view it
+ * lies in, which closes after it.
+ */
+function FramePanelView({ slot, open, onOpenChange, toggle, anchored, label, flush, footLeft, footActions, initialFocusEl, children }: FramePhoneViewProps & { flush: boolean }) {
+    const styles = useSlotStyles("frameView");
+    const viewRef = useRef<HTMLDivElement | null>(null);
+    const { holdRef, trigger } = useViewTrigger({ open, onOpenChange, toggle, anchored, initialFocusEl, viewRef });
+    const close = useRef(onOpenChange);
+    close.current = onOpenChange;
+    useEffect(() => {
+        if (!open) return undefined;
+        const onKeyDown = (event: globalThis.KeyboardEvent) => {
+            if (event.key !== "Escape" || layerOpen()) return;
+            event.preventDefault();
+            event.stopPropagation();
+            close.current(false);
+        };
+        const onClick = (event: globalThis.MouseEvent) => {
+            const path = event.composedPath();
+            const within = (el: Element | null) => el !== null && path.includes(el);
+            if (within(viewRef.current) || within(holdRef.current)) return;
+            if (event.target instanceof Element && event.target.closest('[data-part="positioner"]') !== null) return;
+            close.current(false);
+        };
+        document.addEventListener("keydown", onKeyDown, true);
+        // After the press that opened it, which is still on its way to the document.
+        const later = setTimeout(() => document.addEventListener("click", onClick));
+        // What gave way to it may have taken its trigger out of sight.
+        const frame = requestAnimationFrame(() => holdRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.scrollIntoView({ block: "nearest" }));
+        return () => {
+            clearTimeout(later);
+            cancelAnimationFrame(frame);
+            document.removeEventListener("keydown", onKeyDown, true);
+            document.removeEventListener("click", onClick);
+        };
+    }, [open, holdRef]);
+    return (
+        <>
+            <chakra.span ref={holdRef} css={styles.hold}>{trigger}</chakra.span>
+            {open && createPortal(
+                <Box ref={viewRef} css={styles.panel} role="dialog" aria-label={typeof label === "string" ? label : undefined} data-frame-panel="">
+                    <Box css={styles.panelHead}>
+                        <Box as="span" css={styles.panelTitle}>{label}</Box>
+                        <chakra.button type="button" css={styles.panelClose} aria-label="Close" data-frame-panel-close="" onClick={() => onOpenChange(false)}>
+                            <FontAwesomeIcon icon={faChevronDown} aria-hidden />
+                        </chakra.button>
+                    </Box>
+                    <Box css={styles.panelBody} data-flush={flush ? "" : undefined}>{children}</Box>
+                    {(footLeft !== undefined || footActions !== undefined) && (
+                        <Box css={styles.panelFoot}>
                             {footLeft}
                             <Box css={styles.footActions}>{footActions}</Box>
                         </Box>

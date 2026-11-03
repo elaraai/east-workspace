@@ -405,7 +405,12 @@ component, nothing in east-ui.
   width. What the drawer holds hears `FrameDrawer` (`./internal`), so a pane
   draws its phone form there — the Sheet's inspector its head and each field a
   section of its own at touch size (`Mobile Sheet Spec.md` SH12). A pane that never collapses and
-  an `{ element }` pane stay pinned. Every builder has a phone-sized example
+  an `{ element }` pane stay pinned. A frame given `phonePanel` (the Calendar,
+  the Roster, the Allocation: FR9) hears what main and an open pane open
+  through `FrameBottomPanel`: `SliceEditPopover` draws in a slot in the flow
+  over the strip, as the Sheet's action bar stands, what is above giving way,
+  rather than in a popover; the toolbar's stay views and Discard's stays
+  anchored. Every builder has a phone-sized example
   (a 390px box) that the showcase's `builder-frame-phone.spec.ts` measures.
 - **Styles.** The `builderFrame` slot recipe owns every style the frame has.
   The frame sets data attributes (`data-builder-frame`, `data-frame-slot`,

@@ -713,7 +713,7 @@ function CalendarFrame(props: HostProps) {
         <LoadingReveal waiting={line?.kind === "loading"}>
         <CalendarChooserContext.Provider value={chooser}>
         <BuilderFrame storageKey={`${storageKey}.frame`} label="Calendar" loading={(!data.ready && data.loading && data.error === undefined) || cold} loadingPitch={pitch}
-            busy={reading || resourcesBusy || pages?.reading === true || cellsReading} liveFooter toolbar={toolbar} start={start} end={end}
+            busy={reading || resourcesBusy || pages?.reading === true || cellsReading} liveFooter phonePanel toolbar={toolbar} start={start} end={end}
             onKeyDown={event => {
                 // The keys, never while typing; each the Calendar acts on goes no further than the Calendar (#1398), so a
                 // shortcut of the page around it on the same key — the showcase's `[`, which folds its sidebar — never hears

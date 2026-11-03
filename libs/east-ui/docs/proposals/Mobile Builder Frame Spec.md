@@ -76,6 +76,15 @@ Versus production: the start and end panes are 44 px side rails that open as 320
 
 **FR7.** The Filters view is a full-height overlay from the right edge, below the safe area, with a 48 px strip of main left showing under a `--paper-3` veil (60 %); a tap on the strip closes it. This is the frame's existing overlay-pane geometry (`MIN_SCRIM` 48), used for the slice's editor. Contents: `Mobile Filters Spec.md`.
 
+## 5a · The bottom panel (FR9)
+
+**FR9.** A builder whose phone form is cards of actions (the Calendar, the Roster, the Allocation; `BuilderFrame`'s `phonePanel`) opens what its main and an open pane's body open in the bottom container of §2, not in a popover (ruled 3 Nov 2026, from the iPhone: "the actions trigger popovers, not a bottom panel like Sheet action cells"). It is drawn as the Sheet's action bar is (`Mobile Sheet Spec.md` SH9): in the flow, over the pane strip, `--paper-2` under a 1 px `--rule-strong`, padded 0 16 12, at most 420 tall and at most 70 % of the frame, the body scrolling while head and foot stay.
+
+- Head 44: the label in mono caps, ⌄ close 44 at its end. Body at touch size; a list edge to edge. Foot: the actions, 44 tall, at its end.
+- **FR9.1** Main, or the pane open over the builder, gives way above it, and the trigger is scrolled back into view. A pane's panel lies at the foot of the pane's own view.
+- **FR9.2** ⌄, Esc, an action and a tap anywhere else close it; so one is open at a time. A scroll of main does not. Esc closes the panel, not the pane under it.
+- **FR9.3** The toolbar's popovers stay views (FR7), Discard's stays anchored (FR8), and past 560 px every one stays the popover it was. The Sheet's own bar, Studio and the query builder do not take the frame's panel.
+
 ## 6 · Session row (FR6) and Discard (FR8)
 
 **FR6. Session row.** Production's history buttons, as the toolbar's second row, always shown (ruled 3 Nov 2026, after review: the designer drew a session bar on the bottom edge; it moves to the top, under the first row).

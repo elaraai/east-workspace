@@ -450,7 +450,7 @@ function RosterFrame(props: FrameProps) {
     return <Box ref={root} css={[styles.root, landingStyles.main]} data-roster-frame="" data-roster-readonly={readOnly ? "" : undefined} {...landing.attributes}>
         <RosterDataReader value={source} span={span} pickerDates={pickerDates} holds={holds} onData={setData} />
         <LoadingReveal waiting={line?.kind === "loading"}>
-        <BuilderFrame storageKey={`${key}.frame`} label="Roster" loading={cold} loadingPitch={loadingPitch} busy={busy} liveFooter start={library} end={inspector} toolbar={toolbar} onKeyDown={event => {
+        <BuilderFrame storageKey={`${key}.frame`} label="Roster" loading={cold} loadingPitch={loadingPitch} busy={busy} liveFooter phonePanel start={library} end={inspector} toolbar={toolbar} onKeyDown={event => {
             // Each key the frame acts on goes no further than the Roster (#1398); Esc with nothing to let go of goes on.
             if (event.defaultPrevented || typedInto(event.target)) return;
             const action = historyShortcut(event);

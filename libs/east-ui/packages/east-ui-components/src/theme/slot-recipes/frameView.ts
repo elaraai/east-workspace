@@ -18,6 +18,18 @@
  *   - foot: its actions, padded 12 16 (and the safe area), over a
  *     `--rule-strong`, 8 apart at its end.
  *
+ * And what a phone's main or pane opens instead, in a frame that takes it
+ * (`Mobile Builder Frame Spec.md` FR9): the bottom panel, the Sheet's bottom
+ * container (`sheetAction`'s `bar`, `Mobile Sheet Spec.md` SH9) —
+ *
+ *   - panel: `--paper-2`, a `--rule-strong` above, padded 0 16 12 (and the safe
+ *     area), its parts 8 apart;
+ *   - panelHead: 44 — the label in mono caps, ⌄ close 44 at its end, 12 into the
+ *     padding, its chevron 14 in `--ink-3`;
+ *   - panelBody: what the popover holds, scrolling while head and foot stay, at
+ *     touch size; a list (`data-flush`) edge to edge;
+ *   - panelFoot: its actions, 44 tall, 8 apart at its end.
+ *
  * @packageDocumentation
  */
 
@@ -25,7 +37,7 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 
 export const frameViewSlotRecipe = defineSlotRecipe({
     className: "elara-frame-view",
-    slots: ["hold", "root", "head", "back", "title", "body", "foot", "footActions"],
+    slots: ["hold", "root", "head", "back", "title", "body", "foot", "footActions", "panel", "panelHead", "panelTitle", "panelClose", "panelBody", "panelFoot"],
     base: {
         /* What holds the trigger: no box of its own. */
         hold: { display: "contents" },
@@ -52,8 +64,8 @@ export const frameViewSlotRecipe = defineSlotRecipe({
         body: {
             flex: "1", minHeight: "0", overflowY: "auto", scrollbarWidth: "none",
             display: "flex", flexDirection: "column", gap: "12px", paddingY: "12px", paddingX: "16px",
-            /* Its controls at touch size: every field and button 44 tall. */
-            "& input, & button:not([role=checkbox]):not([role=radio])": { minHeight: "44px" },
+            /* Its controls at touch size: every field and button 44 tall, but a number's two steppers, which share its field's height. */
+            "& input, & button:not([role=checkbox]):not([role=radio]):not([data-scope=number-input])": { minHeight: "44px" },
             /* Its segment strips across the view, each segment an equal 44 target. */
             "& [data-slot=seg]": { display: "flex", width: "100%", height: "auto", "& > [role=radio]": { flex: "1 1 0", minHeight: "44px", justifyContent: "center" } },
         },
@@ -64,5 +76,30 @@ export const frameViewSlotRecipe = defineSlotRecipe({
             "& button": { minHeight: "44px" },
         },
         footActions: { marginInlineStart: "auto", display: "flex", alignItems: "center", gap: "8px" },
+        panel: {
+            flex: "0 1 auto", minHeight: "0", display: "flex", flexDirection: "column", gap: "8px", boxSizing: "border-box",
+            paddingTop: "0", paddingX: "16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))",
+            background: "bg.canvas", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.strong",
+        },
+        panelHead: { flex: "none", height: "44px", display: "flex", alignItems: "center", gap: "8px", marginInlineEnd: "-12px" },
+        panelTitle: {
+            flex: "1", minWidth: "0", fontFamily: "mono", fontSize: "label.sm", fontWeight: 600, lineHeight: "1.4", letterSpacing: "0.14em", textTransform: "uppercase",
+            color: "fg", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+        },
+        panelClose: {
+            flex: "none", width: "44px", height: "44px", display: "inline-flex", alignItems: "center", justifyContent: "center",
+            border: "none", padding: "0", borderRadius: "md", background: "transparent", color: "fg.muted", cursor: "pointer", "& svg": { fontSize: "14px" },
+            _hover: { background: "bg.subtle", color: "fg" },
+            _focusVisible: { outline: "none", boxShadow: "focusInset" },
+        },
+        panelBody: {
+            flex: "0 1 auto", minHeight: "0", overflowY: "auto", scrollbarWidth: "none", display: "flex", flexDirection: "column", gap: "12px",
+            "& input, & button:not([role=checkbox]):not([role=radio]):not([data-scope=number-input])": { minHeight: "44px" },
+            "& [data-slot=seg]": { display: "flex", width: "100%", height: "auto", "& > [role=radio]": { flex: "1 1 0", minHeight: "44px", justifyContent: "center" } },
+            "&[data-flush]": { gap: "0", marginX: "-16px", marginTop: "-8px" },
+            /* A select on the field's paper, as the dates and numbers beside it are, the panel being `--paper-2`. */
+            "& [data-scope=select][data-part=trigger]": { background: "bg.surface" },
+        },
+        panelFoot: { flex: "none", display: "flex", alignItems: "center", gap: "8px", "& button": { minHeight: "44px" } },
     },
 });

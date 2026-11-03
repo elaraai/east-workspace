@@ -166,7 +166,10 @@ function phoneFaults(entry: Locator, name: string): Promise<string[]> {
         // The first row's controls reach its end, past the count's slack.
         const row = slot("toolbar")?.querySelector("[data-toolbar]");
         const last = row === null || row === undefined ? undefined : [...row.querySelectorAll("button")].filter((b) => b.getBoundingClientRect().width > 0).at(-1);
-        if (row && last !== undefined && row.getBoundingClientRect().right - last.getBoundingClientRect().right > 8) faults.push("the first row's controls short of its end");
+        const clear = row && last !== undefined ? row.getBoundingClientRect().right - last.getBoundingClientRect().right : 4;
+        if (clear > 8) faults.push("the first row's controls short of its end");
+        // Studio's and the query builder's rows are not yet a phone's either.
+        if (clear < 3.5 && builder !== "Studio" && builder !== "Query") faults.push(`the first row's last control ${round(clear)}px from its end`);
         // A Filters button that is set: a 44px target, its fill clear of the row's edges.
         const set = frame.querySelector<HTMLElement>("[data-rail-phone][data-active]");
         if (set !== null) {

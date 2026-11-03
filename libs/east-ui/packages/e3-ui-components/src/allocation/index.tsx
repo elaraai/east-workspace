@@ -588,7 +588,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         data-allocation-readonly={readOnly ? "" : undefined} onPointerDownCapture={dropBinFocus} onKeyDownCapture={dropBinFocus} {...landing.attributes}>
         <AllocationDataReader value={value} day={day} pickerDays={picker} choices={binChoices} onData={setData} />
         <LoadingReveal waiting={line?.kind === "loading"}>
-        <BuilderFrame storageKey={`${key}.frame`} label={value.settings.title} loading={cold} loadingPitch={ROW_H} busy={busy} liveFooter toolbar={toolbar}
+        <BuilderFrame storageKey={`${key}.frame`} label={value.settings.title} loading={cold} loadingPitch={ROW_H} busy={busy} liveFooter phonePanel toolbar={toolbar}
             start={start} end={end} onKeyDown={event => {
             // The keys, never while typing (A6); each it acts on goes no further than the board (#1398).
             if (event.defaultPrevented || typedInto(event.target)) return;

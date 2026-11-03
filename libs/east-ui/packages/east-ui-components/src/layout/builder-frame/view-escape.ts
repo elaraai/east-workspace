@@ -25,6 +25,15 @@ const OPEN_CONTENT = '[data-part="content"][data-state="open"]:is([data-scope="c
 const SEARCH_INPUT = '[data-scope="combobox"][data-part="input"]';
 
 /**
+ * Whether a layer portaled out of every frame is open over a view: the Esc is its own.
+ *
+ * @returns Whether one is open
+ */
+export function layerOpen(): boolean {
+    return [...document.querySelectorAll(OPEN_CONTENT)].some((el) => el.closest("[data-builder-frame]") === null);
+}
+
+/**
  * Closes a view on an Esc from anywhere while it shows.
  *
  * @param open - Whether the view shows
@@ -38,7 +47,7 @@ export function useViewEscape(open: boolean, onClose: () => void): void {
         // Read before anything hears the key: by the time it bubbles, the layer it closed is closed.
         let layered = false;
         const beforeAll = (event: KeyboardEvent) => {
-            if (event.key === "Escape") layered = [...document.querySelectorAll(OPEN_CONTENT)].some((el) => el.closest("[data-builder-frame]") === null);
+            if (event.key === "Escape") layered = layerOpen();
         };
         const onKeyDown = (event: KeyboardEvent) => {
             if (event.key !== "Escape" || layered) return;

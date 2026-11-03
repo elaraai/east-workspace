@@ -76,7 +76,11 @@
  *   (FR4), which closes it, as Esc does. One is open at a time, and the focus moves into it as it opens
  *   and back to its tab as it closes. Each keeps its open tab and its bodies
  *   mounted across the width, as the pane does; what it holds is told it is
- *   in a phone's drawer ({@link FrameDrawer}), for its phone form.
+ *   in a phone's drawer ({@link FrameDrawer}), for its phone form;
+ * - in a frame given `phonePanel`, what main's popovers and an open pane's open
+ *   draws in the bottom panel, in the flow above the strip, as the Sheet's
+ *   action bar stands ({@link FrameBottomPanel}, FR9): main, or the pane, gives
+ *   way to it. The toolbar's stay views, and Discard's stays anchored.
  *
  * @packageDocumentation
  */
@@ -94,6 +98,7 @@ import { SessionRowSlot } from "./session-row.js";
 import { useViewEscape } from "./view-escape.js";
 import { FrameOverlaySlot } from "./overlay-slot.js";
 import { FrameDrawer } from "./drawer-context.js";
+import { FrameBottomPanel } from "./bottom-panel.js";
 import { useSlotStyles } from "../../theme/slot-styles.js";
 import { kept, keptFlag } from "../../platform/kept.js";
 import { DockPane, type DockRailMark } from "../dock/index.js";
@@ -109,6 +114,7 @@ export { SessionRowSlot } from "./session-row.js";
 const PHONE_FORM = "phone";
 export { FrameOverlaySlot } from "./overlay-slot.js";
 export { FrameDrawer } from "./drawer-context.js";
+export { FrameBottomPanel } from "./bottom-panel.js";
 
 export {
     MIN_MAIN, MIN_SCRIM, NARROW_FRAME, paneWidths, placePanes,
@@ -178,6 +184,13 @@ export interface BuilderFrameProps {
      * covered with the rest. `false` unless given.
      */
     liveFooter?: boolean | undefined;
+    /**
+     * Whether, in a phone's frame, what main and an open pane open draws in the
+     * bottom panel over the pane strip, rather than in a popover (FR9): a builder
+     * whose phone form is cards of actions. Wider frames are as they are.
+     * `false` unless given.
+     */
+    phonePanel?: boolean | undefined;
     /** Where each pane keeps its open tab, and its collapsed state when it persists. */
     storageKey: string;
     /** The narrowest main may get beside pinned panes before an `auto` pane overlays it: 480 (px) by default. */
@@ -373,7 +386,7 @@ function unmeasured(start: BuilderFramePane | undefined, end: BuilderFramePane |
  * @returns The frame
  */
 export function BuilderFrame(props: BuilderFrameProps) {
-    const { children, toolbar, banners, start, end, footer, storageKey, label, ref, rootCss, rootProps, toolbarRef, onKeyDown, loading, busy, liveFooter } = props;
+    const { children, toolbar, banners, start, end, footer, storageKey, label, ref, rootCss, rootProps, toolbarRef, onKeyDown, loading, busy, liveFooter, phonePanel } = props;
     const formatters = useFormatters();
     const minMain = props.minMain ?? MIN_MAIN;
     const loadingPitch = props.loadingPitch ?? DEFAULT_LOADING_PITCH;
@@ -517,6 +530,11 @@ export function BuilderFrame(props: BuilderFrameProps) {
     const [statusSlot, setStatusSlot] = useState<HTMLElement | null>(null);
     // The slot a toolbar item's full-height view draws itself in, over every region: the rail's Filters view (FR7).
     const [overlaySlot, setOverlaySlot] = useState<HTMLElement | null>(null);
+    // The bottom panel's slots, where main's popovers and an open pane's draw (FR9): main's, and each pane's own.
+    const [mainPanel, setMainPanel] = useState<HTMLElement | null>(null);
+    const [startPanel, setStartPanel] = useState<HTMLElement | null>(null);
+    const [endPanel, setEndPanel] = useState<HTMLElement | null>(null);
+    const panelOf = (slot: HTMLElement | null) => (phone && phonePanel === true && !covered ? slot : null);
     const sessionRow = phone && (secondRow.length > 0 || given(footer));
     /** Whether a side's pane is a drawer: a described pane that collapses, on a phone — one that never does stays pinned. */
     const drawn = (side: Side) => phone && dockOf(side) !== undefined && dockOf(side)?.collapsible !== false;
@@ -688,6 +706,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
                 {/* A tray whose collapse points down, toward the strip; it is drawn collapsed only while the drawer is closed.
                     What it holds is told it is in a phone's drawer: a pane's phone form (SH12). */}
                 <FrameDrawer.Provider value={true}>
+                <FrameBottomPanel.Provider value={panelOf(side === "start" ? startPanel : endPanel)}>
                 <DockPane
                     storageKey={`${storageKey}.${side}`}
                     orientation="vertical"
@@ -704,7 +723,9 @@ export function BuilderFrame(props: BuilderFrameProps) {
                     collapsed={!open}
                     onCollapsedChange={(next) => { if (next) { railFocus.current = side; toggled(side, true); } }}
                 />
+                </FrameBottomPanel.Provider>
                 </FrameDrawer.Provider>
+                {phonePanel === true && <Box ref={side === "start" ? setStartPanel : setEndPanel} css={styles.bottomPanel} data-frame-slot="bottomPanel" />}
             </Box>
         );
     };
@@ -753,11 +774,12 @@ export function BuilderFrame(props: BuilderFrameProps) {
                 {start !== undefined && !drawn("start") && pane("start", start)}
                 {/* The region a read after cold load is in flight for (#1398, CL12): nothing covered, main busy. */}
                 <Box css={styles.main} data-frame-slot="main" aria-busy={busy === undefined ? undefined : busy && !covered}>
-                    {children}
+                    <FrameBottomPanel.Provider value={panelOf(mainPanel)}>{children}</FrameBottomPanel.Provider>
                     {scrim && <Box css={styles.scrim} data-scrim="" aria-hidden onClick={onScrim} />}
                 </Box>
                 {end !== undefined && !drawn("end") && pane("end", end)}
             </Box>
+            {phone && phonePanel === true && <Box ref={setMainPanel} css={styles.bottomPanel} data-frame-slot="bottomPanel" />}
             {strip.length > 0 && (
                 <Box css={styles.paneStrip} data-frame-slot="paneStrip" role="tablist" aria-label={label === undefined ? "Panes" : `${label} panes`}
                     inert={covered} aria-hidden={covered ? true : undefined}>

@@ -49,6 +49,9 @@
  *     (ruled 3 Nov 2026), `--paper`, sliding in from the right over
  *     `--dur-base` on `--ease-out` (at once under reduced motion), off to the
  *     right while a drag is under way; and
+ *     the bottom panel's slot — in the flow over the strip, nothing while
+ *     nothing is open in it, at most 420 tall and never so tall it takes the
+ *     frame (`frameView`'s panel draws in it); and
  *     the overlay — a slot over every region where a toolbar item draws a
  *     full-height view (the rail's Filters view), taking the pointer only
  *     where a view draws itself.
@@ -69,7 +72,7 @@ const TOGGLE_MOTION = {
 export const builderFrameSlotRecipe = defineSlotRecipe({
     className: "elara-builder-frame",
     slots: ["root", "toolbar", "banners", "body", "pane", "sheet", "probe", "main", "scrim", "footer", "loading", "loadingBar", "loadingBody", "loadingRow", "loadingLine", "loadingCell", "loadingFooter",
-        "sessionRow", "sessionStatus", "paneStrip", "paneTab", "paneTabIcon", "paneTabLabel", "paneTabMeta", "paneTabMark", "drawer", "overlay"],
+        "sessionRow", "sessionStatus", "paneStrip", "paneTab", "paneTabIcon", "paneTabLabel", "paneTabMeta", "paneTabMark", "drawer", "bottomPanel", "overlay"],
     base: {
         loading: { position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: "bg.surface", overflow: "hidden" },
         loadingBar: { gap: "{spacing.4}", "& > :last-child": { marginInlineStart: "auto" } },
@@ -123,6 +126,8 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
                 paddingX: "0", alignItems: "stretch",
                 /* With nothing in it, no row at all: its history is the second row's. */
                 "&:not(:has([data-toolbar-item]))": { display: "none" },
+                /* A chip that ends the row stands 4 clear of its end, as Filters and Search Records do: the Calendar's overlaps. */
+                "& [data-toolbar-item]:last-child:has([data-chip-icon])": { paddingInlineEnd: "{spacing.1}" },
             },
         },
         banners: {
@@ -309,7 +314,12 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             "&[data-open]": { transform: "none" },
             "&[data-open][data-aside]": { transform: "translateX(100%)" },
             /* The tray's own rules are the view's: none on its own edges. */
-            "& > *": { flex: "1", minHeight: "0", borderWidth: "0" },
+            "& > :not([data-frame-slot=bottomPanel])": { flex: "1", minHeight: "0", borderWidth: "0" },
+        },
+        /* Where main's popovers and a pane's draw (FR9): what is above gives way to it, never it to what is above. */
+        bottomPanel: {
+            flex: "none", display: "flex", flexDirection: "column", minHeight: "0", maxHeight: "min(420px, 70%)",
+            "&:empty": { display: "none" },
         },
         /* A phone's view over the whole builder, a toolbar item's (FR7): over every region, taking the pointer only where
          * a view draws itself. */

@@ -603,7 +603,7 @@ export const allocationWindowed = example({
 });
 
 export const allocationMobile = example({
-    description: "The kiln yard in a 390px container: a card per kiln (or per slot in the Table) with Book, Reserve, Allocate, Unlink and Back to Arrivals in anchored popovers; no drag source or target.",
+    description: "The kiln yard in a 390px container: a card per kiln (or per slot in the Table) with Book, Reserve, Allocate, Unlink and Back to Arrivals in the bottom panel over the pane strip; no drag source or target.",
     keywords: ["Allocation", "mobile", "narrow", "cards", "Schedule.events", "Record.bind"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const bins = $.let(Record.bind(kilnBins));
