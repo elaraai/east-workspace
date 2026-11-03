@@ -122,24 +122,13 @@ for (const theme of ["light", "dark"] as const) {
                 await expect(cell.locator("[data-slot=actionState]")).toHaveAttribute("data-case", "started");
                 await expect(cell.locator("[data-slot=actionNext]")).toHaveCount(0);
             });
-            await test.step("the action column in view at the frame's right edge, as wide as its state (X4)", async () => {
+            await test.step("the action column a slot of the two a phone shows, none pinned (ruled 3 Nov 2026)", async () => {
                 const frame = (await entry.locator("[data-frame-slot=main] [data-sheet-card]").boundingBox())!;
+                await cell.scrollIntoViewIfNeeded();
                 const box = (await cell.boundingBox())!;
-                expect(Math.round(box.width)).toBe(112);
-                expect(box.x).toBeGreaterThanOrEqual(frame.x);
+                expect(Math.abs(box.width - frame.width / 2)).toBeLessThanOrEqual(1);
+                expect(box.x).toBeGreaterThanOrEqual(frame.x - 1);
                 expect(box.x + box.width).toBeLessThanOrEqual(frame.x + frame.width + 1);
-                // At the end of a sideways scroll it is still at the right edge, clear of the gutter: scroll the rows' own
-                // scroller — the cell's nearest ancestor that scrolls sideways — to its end.
-                await cell.evaluate((el) => {
-                    let s = el.parentElement;
-                    while (s !== null && s.scrollWidth <= s.clientWidth) s = s.parentElement;
-                    if (s !== null) s.scrollLeft = s.scrollWidth;
-                });
-                await settled(page);
-                const end = (await cell.boundingBox())!;
-                const gutter = (await cell.locator("xpath=..").locator("[data-slot=gutter]").boundingBox())!;
-                expect(end.x).toBeGreaterThanOrEqual(gutter.x + gutter.width - 1);
-                expect(end.x + end.width).toBeLessThanOrEqual(frame.x + frame.width + 1);
             });
             const bar = entry.locator("[data-sheet-action-bar]");
             await test.step("the action bar (X5, X6): the first full width, every target 44 tall", async () => {

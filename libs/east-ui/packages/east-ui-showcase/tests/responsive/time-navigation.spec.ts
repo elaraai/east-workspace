@@ -5,6 +5,7 @@
 /** The shared date picker in all three time builders, against their live e3 examples. */
 import { expect, test, type Locator, type Page } from "playwright/test";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 const DAY = 86_400_000;
 async function open(page: Page, scope: "calendar" | "roster" | "plan", theme: "light" | "dark") {
     const name = scope === "calendar" ? "calendarOperations" : "rosterWarehouse";
@@ -31,7 +32,7 @@ async function chooseView(page: Page, frame: Locator, name: string) {
     }
     await settled(page);
 }
-for (const theme of ['light', 'dark'] as const) {
+for (const theme of LAYOUT_THEMES) {
     for (const scope of ['calendar', 'roster', 'plan'] as const) {
         test(`${scope} shared date navigation and popup Today at every width (${theme})`, async ({ page }) => {
             await page.clock.setFixedTime(new Date('2028-03-16T12:00:00Z'));

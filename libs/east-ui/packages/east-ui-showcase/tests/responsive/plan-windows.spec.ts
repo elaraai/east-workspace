@@ -28,6 +28,7 @@ import { test, expect, type Locator, type Page } from "playwright/test";
 import { heldE3, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { openExample, rowId, rowSel } from "./plan-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 /** The windows example's file in the catalog. */
 const WINDOWS = "e3/plan/plan-windows";
@@ -181,7 +182,7 @@ test.describe("a Plan read a window at a time (#1199)", () => {
     });
 });
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`planWindows key search: unloaded suggestions, exact jumps and contained field controls — ${theme} @narrow`, async ({ page }) => {
         const entry = await openExample(page, "planWindows", WINDOWS, theme);
         const icon = entry.locator('[data-key-search="icon"]');
@@ -237,7 +238,7 @@ for (const theme of ["light", "dark"] as const) {
 /** The jobs' record, as the page's requests of its e3 name it. */
 const JOBS = "records.plan_window_jobs";
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`planWindows: presses scrolled into view whose cells are still on their way are washed across their plot and busy, on the reveal clock, the footer's line reading the jobs — never an empty row; landed, their bars draw and nothing is washed (#1398, CL2) — ${theme} @desktop`, async ({ page }) => {
         await installE3Faults(page);
         const entry = await openExample(page, "planWindows", WINDOWS, theme);

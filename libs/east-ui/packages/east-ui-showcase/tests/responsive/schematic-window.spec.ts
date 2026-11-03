@@ -217,8 +217,6 @@ function overflow(root: Locator): Promise<string[]> {
 }
 
 test("fitted, the floor's density: the footer says how many racks it shades and that zooming in draws them, its one live notice, nothing past the rail's edge; the minimap draws the floor's density (#1393)", async ({ page, isMobile }) => {
-    // A phone's frame has no footer.
-    test.skip(isMobile, "a footer's");
     const root = await openSchematic(page, RECORD_INDEXES);
     await expect(notice(root)).toHaveText("Density: 20,000 racks — zoom in to draw them");
     await expect(root.locator("[data-schematic-notices] > *")).toHaveCount(1);
@@ -227,6 +225,16 @@ test("fitted, the floor's density: the footer says how many racks it shades and 
     expect(await minimapCells(root)).toBeGreaterThan(0);
     await expect(minimap(root)).toHaveAttribute("data-minimap-items", "0");
     expect(await minimapShare(root)).toBeLessThanOrEqual(0.25);
+    if (!isMobile) return;
+    // On a phone the footer is this band alone, over the pane tabs, the notice whole in it: no legend, no loading line.
+    const band = await root.locator("[data-builder-frame]").first().evaluate((frame) => {
+        const foot = frame.querySelector(":scope > [data-frame-slot='footer']")!.getBoundingClientRect();
+        const strip = frame.querySelector(":scope > [data-frame-slot='paneStrip']")?.getBoundingClientRect();
+        const main = frame.querySelector("[data-frame-slot='main']")!.getBoundingClientRect();
+        return { shows: foot.height >= 28, underMain: Math.abs(foot.top - main.bottom) <= 0.5, overTabs: strip === undefined || Math.abs(foot.bottom - strip.top) <= 0.5 };
+    });
+    expect(band).toEqual({ shows: true, underMain: true, overTabs: true });
+    await expect(notice(root)).toBeVisible();
 });
 
 test.describe("A tap on the density (#1393)", () => {

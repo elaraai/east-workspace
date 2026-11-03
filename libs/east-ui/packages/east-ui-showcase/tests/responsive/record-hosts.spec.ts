@@ -5,10 +5,13 @@
 import { expect, test } from "playwright/test";
 import { containedRecordEditor, recordField } from "./record-slice";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
-for (const theme of ["light", "dark"] as const) for (const host of ["roster", "sheet", "plan"] as const) {
+for (const theme of LAYOUT_THEMES) for (const host of ["roster", "sheet", "plan"] as const) {
     test(`${host} bound record controls (${theme}) @narrow`, async ({ page }, info) => {
-        const mobile = info.project.name !== "desktop";
+        // A phone's Filters are a view with no popover to hold still; `calendar-records` and `sheet-narrowing` take them through e3.
+        test.skip(info.project.name !== "desktop", "a popover's");
+        const mobile = false;
         const name = `${host}RecordIndexes${mobile ? "Mobile" : ""}`;
         const route = `e3/${host}/${host}-records/${name}`;
         const errors: string[] = [];

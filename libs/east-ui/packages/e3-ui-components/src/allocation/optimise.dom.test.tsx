@@ -196,11 +196,16 @@ describe("the eye in the Allocation", () => {
         const container = await mounted();
         await press(eye(container));
         await landed(container, WAITING.length);
-        // The drafts are the next run's input (O5): with every load booked, the optimiser changes nothing.
+        // The drafts are the next run's input (O5): with every load booked, the optimiser changes nothing. The blink lasts
+        // 560ms, which a slow machine can spend before the banner is read: what it did is watched, not looked at after.
+        let blinked = false;
+        const watching = new MutationObserver(() => { blinked ||= eye(container)!.hasAttribute("data-blink"); });
+        watching.observe(container, { subtree: true, attributes: true, attributeFilter: ["data-blink"] });
         await press(eye(container));
         await said(container, "none");
+        watching.disconnect();
         expect(words(banner(container, "none")!)).toEqual(["No changes", `Elara found nothing to improve in ${period(container)}.`]);
-        expect([banner(container, "none")!.querySelector("[role=status]") !== null, eye(container)!.hasAttribute("data-blink"), calls.requests().length]).toEqual([true, true, 2]);
+        expect([banner(container, "none")!.querySelector("[role=status]") !== null, blinked, calls.requests().length]).toEqual([true, true, 2]);
         expect(added(container)).toHaveLength(WAITING.length);
         const restore = calls.fail();
         await press(eye(container));

@@ -52,7 +52,7 @@ const BUTTON = {
 
 export const toolbarPhoneSlotRecipe = defineSlotRecipe({
     className: "elara-toolbar-phone",
-    slots: ["filters", "search", "views", "view", "viewLabel", "viewCount", "viewAdd", "count"],
+    slots: ["filters", "search", "searchGroup", "views", "view", "viewLabel", "viewCount", "viewAdd", "count"],
     base: {
         filters: {
             ...BUTTON,
@@ -74,6 +74,7 @@ export const toolbarPhoneSlotRecipe = defineSlotRecipe({
             "& svg[data-search-caret]": { fontSize: "10px" },
             _hover: { background: "bg.subtle", color: "fg" },
         },
+        searchGroup: { display: "flex", alignItems: "center" },
         views: {
             flex: "1 1 auto",
             minWidth: "0",

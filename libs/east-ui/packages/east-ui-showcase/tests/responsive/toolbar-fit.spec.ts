@@ -44,6 +44,7 @@ import { test } from "./kept-page";
 import { sizeBuilder, visitBuilder } from "./builder-page";
 import { holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 /** An area's builder examples, by their showcase routes: the builder's own, and its optimiser's where it has one. */
 const AREAS: readonly { readonly name: string; readonly routes: readonly string[] }[] = [
@@ -353,7 +354,7 @@ async function checkEye(page: Page, entry: Locator, named: string, at: string): 
     else await checkNarrowEye(page, entry, named, at);
 }
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     for (const area of AREAS) {
         test(`${area.name}: the toolbar row holds what it shows, the history and Save in it and taking the pointer, at 1440 / 1024 / 768 / 390 / 360 and in a ${PARENT}px parent (${theme})`, async ({ page }) => {
             const faults: Record<string, string[]> = {};

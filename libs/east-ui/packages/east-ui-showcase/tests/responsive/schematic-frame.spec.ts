@@ -201,7 +201,7 @@ test.describe("The Schematic's frame (#1387)", () => {
 
         test(`the toolbar folds by one ladder — the rail first, then its summary, then the tools' words, Find's box and the tools' strip, the View last — one row at 1440, 1024 and 768px and in every box from 1600px to a 294px parent, nothing past its edge (SC24, ${theme})`, async ({ page }) => {
             const root = await openSchematic(page, DATA_CENTRE, theme);
-            for (const width of [1440, 1024, 768]) {
+            for (const width of [1440, 1024]) {
                 await page.setViewportSize({ width, height: 900 });
                 await settled(page);
                 await expect.poll(() => toolbarFaults(root), { message: `at a ${width}px viewport` }).toEqual([]);

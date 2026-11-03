@@ -494,7 +494,7 @@ async function openPrintWorks(page: Page, theme: "light" | "dark", phone: boolea
         await settled(page);
     }
     const frame = entry.locator("[data-builder-frame]").first();
-    return { entry, frame, pane: frame.locator(":scope > [data-frame-slot='body'] > [data-frame-slot='end']") };
+    return { entry, frame, pane: frame.locator("[data-frame-slot='end']") };
 }
 
 /** The spring catalogue's run on Press A1, and the press's other runs. */
@@ -800,7 +800,7 @@ async function openDataCentre(page: Page, theme: "light" | "dark", phone: boolea
 async function fitFloor(page: Page, root: Locator, phone: boolean): Promise<void> {
     const toolbar = root.locator("[data-frame-slot='toolbar']");
     if (phone) {
-        await toolbar.locator("[data-toolbar-item='seek'] [data-key-search='icon']").tap();
+        await toolbar.locator("[data-phone-view]").tap();
         const fit = page.locator("[data-schematic-view]").getByRole("button", { name: "Fit" });
         await fit.tap();
         await page.keyboard.press("Escape");

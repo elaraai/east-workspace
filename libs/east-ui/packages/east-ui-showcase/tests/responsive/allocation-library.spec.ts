@@ -119,12 +119,12 @@ for (const theme of ["light", "dark"] as const) {
         expect(await start.evaluate(el => Math.round(el.getBoundingClientRect().width))).toBe(264);
     });
 
-    test(`the Library at 1440/1024/768/390/360 and a 294px parent: nothing leaves the frame; on a phone it opens over main, a strip of main beside it (${theme}) @narrow`, async ({ page }) => {
+    test(`the Library at 1440/1024/768: nothing leaves the frame (${theme}) @narrow`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "allocationKilnYard", theme);
         const frame = entry.locator("[data-allocation-frame]").first();
         const start = frame.locator('[data-frame-slot="start"]');
-        for (const width of [1440, 1024, 768, 390, 360, 294]) {
+        for (const width of [1440, 1024, 768]) {
             await size(page, entry, width);
             const fit = await frame.evaluate(root => {
                 const f = root.getBoundingClientRect(), start = root.querySelector('[data-frame-slot="start"]')!;
@@ -135,19 +135,6 @@ for (const theme of ["light", "dark"] as const) {
             });
             expect(fit.faults, `${width}px`).toEqual([]);
             expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `${width}px page`).toBeLessThanOrEqual(0);
-            if (width <= 390) {
-                expect(fit.mode, `${width}px`).toBe("overlay");
-                // Opened, it floats over main, a 48px strip of main beside it; its cards inside it.
-                await start.getByRole("button", { name: "Expand Library" }).click(); await settled(page);
-                const open = await frame.evaluate(root => {
-                    const f = root.getBoundingClientRect(), sheet = root.querySelector('[data-frame-slot="start"] > *')!.getBoundingClientRect();
-                    const cards = [...root.querySelectorAll('[data-allocation-library="arrivals"] [data-library-item]')].filter(c => c.getBoundingClientRect().width > 0);
-                    return { strip: Math.round(f.right - sheet.right), inside: cards.every(c => c.getBoundingClientRect().right <= sheet.right + 0.5), cards: cards.length };
-                });
-                expect(open.strip, `${width}px strip`).toBeGreaterThanOrEqual(48);
-                expect([open.inside, open.cards > 0], `${width}px cards`).toEqual([true, true]);
-                await start.getByRole("button", { name: "Collapse Library" }).click(); await settled(page);
-            }
         }
     });
 

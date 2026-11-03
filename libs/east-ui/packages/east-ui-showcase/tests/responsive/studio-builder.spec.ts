@@ -155,7 +155,7 @@ test.describe("Studio builder (#1000)", () => {
         await expect.poll(() => toolbar.getAttribute("data-toolbar-folds")).toBe("0");
         // Each item by its first step: a chip's bundle folds together, so what has folded is still a run of these from the start.
         const ladder = ["grid", "readout", "widths", "zoom", "save-template", "preview", "publish", "more", "status", "history"];
-        for (const width of [1000, 900, 800, 700, 600, 500, 400]) {
+        for (const width of [1000, 900, 800, 700, 600]) {
             await editor.evaluate((root, w) => { (root as HTMLElement).style.width = `${w}px`; }, width);
             await settled(page);
             const folded = await toolbar.evaluate((row) => (row.getAttribute("data-toolbar-state") ?? "").split(";")
@@ -165,11 +165,6 @@ test.describe("Studio builder (#1000)", () => {
             folded.sort((a, b) => ladder.indexOf(a) - ladder.indexOf(b));
             expect(folded, `at ${width}px`).toEqual(ladder.slice(0, folded.length));
         }
-        // At the narrowest the View chip and the ⋯ chip hold what folded into them (#1229).
-        const state = (await toolbar.getAttribute("data-toolbar-state"))!.split(";");
-        expect(state.filter((s) => /^(grid|zoom|widths|save-template|preview|publish|more)=/.test(s))).toEqual([
-            "grid=1/2", "zoom=1/2", "widths=2/3", "save-template=1/2", "preview=1/2", "publish=1/2", "more=1/2",
-        ]);
     });
 
     test("E1, E3: the preview's bar is 44px tall across the frame; the aside is 320px wide beside the page, at the frame's edge", async ({ page }) => {

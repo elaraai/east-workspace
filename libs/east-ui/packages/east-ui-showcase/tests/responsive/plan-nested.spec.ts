@@ -35,6 +35,7 @@ import * as ex from "@elaraai/e3-ui/examples/plan/plan-nested";
 import { e3Requests, heldE3, holdE3, installE3Faults, mutateE3, releaseE3 } from "./e3-faults";
 import { drawnSel, openExample } from "./plan-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 /** The nested series examples file, in the catalog. */
 const NESTED = "e3/plan/plan-nested";
@@ -229,7 +230,7 @@ async function crowd(page: Page): Promise<void> {
         [encodeBeast2For(PatchType(type))(diffFor(type)(keyed(works), keyed({ ...works, jobs })))]);
 }
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test.describe(`${theme}: a Plan reading its rows' nested series a cell at a time (#1438)`, () => {
         test.use({ viewport: { width: 1440, height: 900 } });
         defineChecks(theme, "@desktop");

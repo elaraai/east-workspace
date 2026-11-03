@@ -347,7 +347,7 @@ export function captionOf(page: Page): Promise<{ text: string; refused: boolean 
  * @returns The button
  */
 export function discard(root: Locator): Locator {
-    return root.locator("[data-frame-slot='toolbar']").getByRole("button", { name: editingMessages.discard(), exact: true });
+    return root.locator("[data-frame-slot='toolbar'], [data-frame-slot='sessionRow']").getByRole("button", { name: editingMessages.discard(), exact: true });
 }
 
 /**
@@ -357,7 +357,7 @@ export function discard(root: Locator): Locator {
  * @returns The button
  */
 export function save(root: Locator): Locator {
-    return root.locator("[data-frame-slot='toolbar']").getByRole("button", { name: editingMessages.apply(), exact: true });
+    return root.locator("[data-frame-slot='toolbar'], [data-frame-slot='sessionRow']").getByRole("button", { name: editingMessages.apply(), exact: true });
 }
 
 /**

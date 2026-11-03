@@ -249,7 +249,7 @@ export function useSchematicToolbarItems(props: SchematicToolbarProps): Readonly
     // Find: its box, its icon, then the View popover holding the tools, the zoom, Fit and the steps over its box.
     const seek = useKeySearchToolbarItem(find, {
         rank: SCHEMATIC_RANK.seek, label: words.m.findLabel(),
-        compact: { label: words.m.viewLabel(), controls: (close) => <ViewControls props={props} close={close} /> },
+        compact: { label: words.m.viewLabel(), controls: (close) => <ViewControls props={props} close={close} />, phoneView: true },
     });
     // What the tools' forms show moves with the tool held and what is offered: their widths are measured again.
     const toolsVersion = `${held.tool}|${held.link ?? ""}|${tools.join(",")}|${links.map((link) => link.key).join(",")}`;

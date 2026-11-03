@@ -498,9 +498,14 @@ test.describe("the Plan's library on a phone (#1195)", { tag: "@mobile" }, () =>
         await frame.locator("[data-pane-tab='start']").tap();
         await settled(page);
         const pane = frame.locator("[data-frame-drawer][data-frame-slot='start']");
-        await pane.locator("[data-dock-more]").tap();
-        await page.getByRole("menuitem", { name: /^Series/ }).tap();
-        await expect(page.locator('[role="menu"]')).toHaveCount(0);
+        // On the row, or folded into +n where the tabs run short.
+        const series = pane.getByRole("tab", { name: /^Series/ });
+        if (await series.isVisible()) await series.tap();
+        else {
+            await pane.locator("[data-dock-more]").tap();
+            await page.getByRole("menuitem", { name: /^Series/ }).tap();
+            await expect(page.locator('[role="menu"]')).toHaveCount(0);
+        }
         await settled(page);
         const search = frame.locator("[data-slot='pickSearch'] input");
         await search.evaluate((el) => el.scrollIntoView({ block: "center" }));

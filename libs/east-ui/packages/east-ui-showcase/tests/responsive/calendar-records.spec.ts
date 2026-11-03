@@ -27,20 +27,20 @@ for (const theme of ["light", "dark"] as const) {
 
         const editor = await recordField(page, frame, "status");
         // Multi-value chips count and query disjoint runs, preserving overlaps.
-        await editor.getByRole("button", { name: /^Done/ }).click();
+        await editor.getByRole(mobile ? "checkbox" : "button", { name: /^Done/ }).click();
         await settled(page);
         await expect(events).toHaveCount(4);
-        await editor.getByRole("button", { name: /^Ready/ }).click();
+        await editor.getByRole(mobile ? "checkbox" : "button", { name: /^Ready/ }).click();
         await settled(page);
         await expect(events).toHaveCount(1);
         await expect(events).toContainText("Completed proof");
         await expect(page.getByRole("dialog")).toHaveCount(1);
         expect(await page.getByRole("dialog").evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
-        const font = await editor.getByRole("button", { name: /^Ready/ }).evaluate(el => getComputedStyle(el).fontFamily);
+        const font = await editor.getByRole(mobile ? "checkbox" : "button", { name: /^Ready/ }).evaluate(el => getComputedStyle(el).fontFamily);
         expect(font).toContain("Inter Tight");
         // Return to Ready and close the one editor using the keyboard.
-        await editor.getByRole("button", { name: /^Ready/ }).click();
-        await editor.getByRole("button", { name: /^Done/ }).click();
+        await editor.getByRole(mobile ? "checkbox" : "button", { name: /^Ready/ }).click();
+        await editor.getByRole(mobile ? "checkbox" : "button", { name: /^Done/ }).click();
         await page.keyboard.press("Escape");
         await expect(page.getByRole("dialog")).toHaveCount(0);
         await settled(page);

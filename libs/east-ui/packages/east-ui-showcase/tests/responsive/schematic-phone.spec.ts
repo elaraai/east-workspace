@@ -44,19 +44,22 @@ const inspector = (root: Locator): Locator => root.locator("[data-frame-slot='en
 
 /** Opens a pane from its rail where it is collapsed, by its name — `Library`, `Inspector` — with a tap. */
 async function expand(page: Page, slot: Locator, name: string): Promise<void> {
-    if (await slot.getAttribute("data-collapsed") !== null) {
-        await slot.getByRole("button", { name: `Expand ${name}` }).tap();
-        await expect(slot).not.toHaveAttribute("data-collapsed", "");
-    }
+    const side = name === "Library" ? "start" : "end";
+    const tab = slot.page().locator(`[data-pane-tab='${side}']`).first();
+    // One view at a time, over the tabs: the other's closed first.
+    const other = slot.page().locator(`[data-pane-tab='${side === "start" ? "end" : "start"}']`).first();
+    if (await other.getAttribute("aria-selected") === "true") { await page.keyboard.press("Escape"); await settled(page); }
+    if (await tab.getAttribute("aria-selected") !== "true") await tab.tap();
+    await expect(tab).toHaveAttribute("aria-selected", "true");
     await settled(page);
 }
 
-/** Collapses a pane to its rail where it is open, by its name, with a tap. */
+/** Closes a pane's view where it is open: Esc, as its back does. */
 async function collapse(page: Page, slot: Locator, name: string): Promise<void> {
-    if (await slot.getAttribute("data-collapsed") === null) {
-        await slot.getByRole("button", { name: `Collapse ${name}` }).tap();
-        await expect(slot).toHaveAttribute("data-collapsed", "");
-    }
+    const side = name === "Library" ? "start" : "end";
+    const tab = slot.page().locator(`[data-pane-tab='${side}']`).first();
+    if (await tab.getAttribute("aria-selected") === "true") await page.keyboard.press("Escape");
+    await expect(tab).toHaveAttribute("aria-selected", "false");
     await settled(page);
 }
 
@@ -155,16 +158,16 @@ async function phoneAt(page: Page, root: Locator, at: string, rack: { readonly x
     await centred(page, root);
     await expect(root, at).toHaveAttribute("data-schematic-layout", "narrow");
     // The row: the rail's icon, the View and the history, no tool or zoom of its own.
-    await expect(root.locator("[data-toolbar-item='record-slices'] [data-rail-rung='icon']"), at).toBeVisible();
-    await expect(root.locator("[data-toolbar-item='seek'] [data-key-search='icon']"), at).toHaveAttribute("aria-label", "View");
-    await expect(root.locator("[data-toolbar-item='history']"), at).toBeVisible();
+    await expect(root.locator("[data-toolbar-item='record-slices'] [data-rail-phone]"), at).toBeVisible();
+    await expect(root.locator("[data-phone-view]"), at).toHaveAttribute("aria-label", "View");
+    await expect(root.locator("[data-frame-slot='sessionRow'] [data-slot='history']"), at).toBeVisible();
     await expect(root.locator("[data-frame-slot='toolbar'] [data-schematic-tools], [data-frame-slot='toolbar'] [data-schematic-zoom]"), at).toHaveCount(0);
     // Nothing to drag, the library open.
     await expand(page, pane(root), "Library");
     await expect(root.locator(DRAG), at).toHaveCount(0);
     await collapse(page, pane(root), "Library");
     // The View's tools: no Move or Connect, the inspector's here.
-    const view = root.locator("[data-toolbar-item='seek'] [data-key-search='icon']");
+    const view = root.locator("[data-phone-view]");
     await view.tap();
     const tools = page.locator("[data-schematic-view] [data-schematic-seg='tools'] [role='radio']");
     await expect(tools.first(), at).toBeVisible();
@@ -319,13 +322,15 @@ test.describe("The Schematic on a phone (#1394)", () => {
         })).toEqual([true, true]);
         await expect(details(root)).toHaveAttribute("data-schematic-inspector", "unplaced");
         await expect(discard(root)).toBeDisabled();
-        // Fit, from the View, the inspector open still: the camera home, and Place lands at the view's centre, the words gone.
-        const view = root.locator("[data-toolbar-item='seek'] [data-key-search='icon']");
+        // Fit, from the View, the inspector's view closed for it: the camera home, and Place lands at the view's centre, the words gone.
+        await collapse(page, inspector(root), "Inspector");
+        const view = root.locator("[data-phone-view]");
         await view.tap();
         await page.locator("[data-schematic-view] [data-schematic-zoom]").getByRole("button", { name: "Fit" }).tap();
         await page.keyboard.press("Escape");
         await expect(view).toHaveAttribute("data-state", "closed");
         await restsOn(root, { minX: 0, minY: 0, maxX: 28, maxY: 14 });
+        await expand(page, inspector(root), "Inspector");
         await expect(details(root).locator("[data-inspector-title]")).toHaveText("A06");
         await place.tap();
         await expect(details(root)).toHaveAttribute("data-schematic-inspector", "item");

@@ -35,6 +35,7 @@ import { PLAN_EVENT_EXAMPLES, openExample, rowSel, sizePlanFrame } from "./plan-
 import { expectSourceCounts } from "./record-counts";
 import { recordField } from "./record-slice";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 /** The rail, in the toolbar's row. */
 const RAIL = '[data-frame-slot="toolbar"] [data-slice-rail="record-slices"]';
@@ -131,7 +132,7 @@ const editorCounts = (dialog: Locator) => dialog.evaluate((popover) => {
     return { heads, line };
 });
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`the Filters popover counts each source in its heading, on its line — the total, or N of M while narrowed — and a line under the fields names only what no heading counts and a narrowing hides rows of (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1080 });
         const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES, theme);

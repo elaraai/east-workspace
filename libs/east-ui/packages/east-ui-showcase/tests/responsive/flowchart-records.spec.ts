@@ -107,7 +107,8 @@ test("Flowchart indexed records page, search and retain drafts @narrow", async (
     await count.getByRole("textbox", { name: "State count from", exact: true }).fill("4");
     await count.getByRole("textbox", { name: "State count until", exact: true }).fill("5");
     await count.getByRole("button", { name: "Apply", exact: true }).click();
-    await page.keyboard.press("Escape");
+    // Out of the editor, then its Filters view on a phone.
+    for (let i = 0; i < 3 && await page.getByRole("dialog").count() > 0; i++) { await page.keyboard.press("Escape"); await settled(page); }
     await pane(root, "Library");
     await expect(cards.first()).toHaveAttribute("data-library-item", "FLOW-10001");
     await cards.first().click();

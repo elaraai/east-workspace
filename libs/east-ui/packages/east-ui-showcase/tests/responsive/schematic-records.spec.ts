@@ -45,7 +45,7 @@ const HALL_10_CORNER: WorldBox = { minX: 306.5, minY: 128.5, maxX: 313.0, maxY: 
 const DRAG = "[data-draggable], [data-drag-cell]";
 
 /** A button of the toolbar's, by its name. */
-const toolbarButton = (root: Locator, name: string): Locator => root.locator("[data-frame-slot='toolbar']").getByRole("button", { name, exact: true });
+const toolbarButton = (root: Locator, name: string): Locator => root.locator("[data-frame-slot='toolbar'], [data-frame-slot='sessionRow']").getByRole("button", { name, exact: true });
 
 /** A locator's centre on the page. */
 async function centreOf(locator: Locator): Promise<Point> {

@@ -248,7 +248,7 @@ test.describe("the Sheet's row on a phone (#1345)", () => {
             // A view of the narrowing: the orders on hold, or the jobs ready the record example opens on.
             if (narrow !== undefined) {
                 const editor = await recordField(page, frame, narrow.field);
-                await editor.getByRole("button", { name: narrow.value }).first().tap();
+                await editor.getByRole("checkbox", { name: narrow.value }).first().tap();
                 await closeOverlays(page);
             }
             await expect(row(hidden)).toHaveCount(0);

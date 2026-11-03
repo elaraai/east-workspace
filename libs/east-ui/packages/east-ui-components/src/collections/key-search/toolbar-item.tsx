@@ -44,7 +44,7 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState, type Mut
 import { createPortal } from "react-dom";
 import { Box, chakra, useRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCaretDown, faMagnifyingGlass } from "@fortawesome/free-solid-svg-icons";
+import { faCaretDown, faMagnifyingGlass, faSliders } from "@fortawesome/free-solid-svg-icons";
 import type { EastTypeValue } from "@elaraai/east";
 import { DEFAULT_RANK, type ToolbarItem } from "../../toolbar/index.js";
 import { SliceEditPopover } from "../../slice/edit/index.js";
@@ -170,6 +170,22 @@ function PhoneKeySearch({ search, label, given, active, popover }: PhoneKeySearc
     );
 }
 
+/** A phone's View button beside Search Records, for the controls its host folded into the box's View: a view of its own over the builder. */
+function PhoneView({ label, controls }: { label: string; controls: ReactNode | ((close: () => void) => ReactNode) }) {
+    const styles = useSlotStyles("toolbarPhone");
+    const [open, setOpen] = useState(false);
+    return (
+        <SliceEditPopover open={open} onOpenChange={setOpen} label={label} size="lg"
+            trigger={
+                <chakra.button type="button" css={styles.search} aria-label={label} data-phone-view="" data-state={open ? "open" : "closed"}>
+                    <FontAwesomeIcon icon={faSliders} data-search-icon="" />
+                </chakra.button>
+            }>
+            {typeof controls === "function" ? controls(() => setOpen(false)) : controls}
+        </SliceEditPopover>
+    );
+}
+
 /** What a key search reads and drives: a keyed source's `seek`, as its host wires it. */
 export interface KeySearchSource {
     /** Keys the search: when it changes — the source moved to another
@@ -213,7 +229,12 @@ export interface KeySearchToolbarOptions {
      * Given as a function, the controls take the popover's close: a control
      * that does what it is for and moves the focus away (a Sheet's view
      * picked, #1345) closes it, as a menu's item closes its menu. */
-    compact?: { label: string; controls: ReactNode | ((close: () => void) => ReactNode) } | undefined;
+    compact?: {
+        label: string;
+        controls: ReactNode | ((close: () => void) => ReactNode);
+        /** On a phone, whose Search Records opens its own view, these controls keep a View button of their own beside it: a host with no other way to reach them. */
+        phoneView?: boolean | undefined;
+    } | undefined;
 }
 
 /**
@@ -289,7 +310,15 @@ export function useKeySearchToolbarItem(search: KeySearchSource | undefined, opt
             // The one box, whatever form the item takes: its slots show it where they place it.
             keep: createPortal(box, stage.container),
             // A phone's: the Search Records button, last in the row, opening its view over the builder.
-            phone: { form: <PhoneKeySearch search={search} label={label} given={given} active={active} popover={popup(label, undefined, true)} />, order: 2 },
+            phone: {
+                form: (
+                    <Box css={phoneStyles.searchGroup}>
+                        {compact?.phoneView === true && <PhoneView label={compact.label} controls={compact.controls} />}
+                        <PhoneKeySearch search={search} label={label} given={given} active={active} popover={popup(label, undefined, true)} />
+                    </Box>
+                ),
+                order: 2,
+            },
         };
     }, [search, side, rank, given, compact, active, open, stage, styles, phoneStyles, chip, initialFocusEl, onInputChange]);
 }

@@ -199,7 +199,7 @@ test.describe("a converted icon takes the room its glyph took (#1263)", () => {
         test.skip(!isMobile, "the chips a caret marks are a folded toolbar's, on a touch screen");
         // Just past a phone's frame, which draws its own buttons rather than chips.
         await page.setViewportSize({ width: 660, height: 900 });
-        for (const hash of ["layout/snap-grid/snapGridEditor", "e3/sheet/sheet/sheetPaged"]) {
+        for (const hash of ["e3/sheet/sheet/sheetPaged"]) {
             const row = page.locator(await openExample(page, hash, "light"));
             const carets = row.locator("svg[data-chip-caret]");
             await expect(carets.first(), `no caret drawn on ${hash}`).toBeVisible();

@@ -91,6 +91,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { useFormatters } from "../../format/index.js";
 import { SessionRowSlot } from "./session-row.js";
+import { useViewEscape } from "./view-escape.js";
 import { FrameOverlaySlot } from "./overlay-slot.js";
 import { FrameDrawer } from "./drawer-context.js";
 import { useSlotStyles } from "../../theme/slot-styles.js";
@@ -610,6 +611,12 @@ export function BuilderFrame(props: BuilderFrameProps) {
         railFocus.current = openOverlay;
         toggled(openOverlay, true);
     };
+    // A phone's pane is a view over the builder: Esc closes it wherever the focus is, as the Filters view's does.
+    useViewEscape(phone && openOverlay !== undefined && !dragging, () => {
+        if (openOverlay === undefined) return;
+        railFocus.current = openOverlay;
+        toggled(openOverlay, true);
+    });
     // A tap on the scrim closes the pane; the focus, if it was in the pane, goes back to its rail.
     const onScrim = () => {
         if (openOverlay === undefined) return;

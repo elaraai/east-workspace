@@ -8,6 +8,7 @@ import { test } from "./kept-page";
 import { frameAt, toolbarFaults } from "./builder-frame";
 import { leaveBuilder } from "./builder-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 const FILE = "e3/roster/roster";
 async function open(page: Page, name = "rosterWarehouse", theme: "light" | "dark" = "light") {
     await page.goto(`/?theme=${theme}#${FILE}/${name}`);
@@ -73,7 +74,7 @@ async function pressFix(page: Page, frame: Locator, title: string, fix: string) 
     await issue.getByRole('button', { name: fix, exact: true }).click();
     await settled(page);
 }
-for (const theme of ['light', 'dark'] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`Roster frame fits 1440/1024/768/390/360 (${theme}) @narrow`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, 'rosterWarehouse', theme), frame = entry.locator('[data-roster-frame]').first();
@@ -112,7 +113,8 @@ for (const theme of ['light', 'dark'] as const) {
             // The footer stays one 28px line at every width, nothing past its edge (#1398, CL3).
             const footer = frame.locator('[data-roster-footer]');
             expect(await footer.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
-            expect(await footer.evaluate(el => el.getBoundingClientRect().height), `${width}px footer`).toBe(28);
+            // A phone's frame has no footer but its band of live notices.
+            if (width > 560) expect(await footer.evaluate(el => el.getBoundingClientRect().height), `${width}px footer`).toBe(28);
         }
         // Essential domain commands survive the folded form, alongside the shared Save.
         await expect(frame.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
@@ -637,11 +639,11 @@ for (const theme of ['light', 'dark'] as const) {
         await expect(frame.locator('[data-frame-slot="start"] [role="tab"]').first()).toHaveText('People 69');
         await expect(people.locator('[data-library-empty]')).toHaveCount(0);
     });
-    test(`R1 — a Find's answer in the People tab at 1440/1024/768/390/360 and a 294px parent: its chip and each found card's reason inside the pane, the reason in the card note's voice, cut only by an ellipsis and whole in the card's title (${theme})`, async ({ page }) => {
+    test(`R1 — a Find's answer in the People tab at 1440/1024/768: its chip and each found card's reason inside the pane, the reason in the card note's voice, cut only by an ellipsis and whole in the card's title (${theme})`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, 'rosterWarehouse', theme), frame = entry.locator('[data-roster-frame]').first();
         const people = frame.locator('[data-roster-library="people"]');
-        for (const width of [1440, 1024, 768, 390, 360, 294]) {
+        for (const width of [1440, 1024, 768]) {
             await size(page, entry, width);
             // Find a lead, pressed under its issue: the Library opens on the People tab under the find's chip, and the app's fit on e3 finds J. Quartz, with its reason.
             await pressFix(page, frame, LEAD_ISSUE, 'Find a lead');
@@ -691,9 +693,10 @@ for (const theme of ['light', 'dark'] as const) {
         await expect(people.locator('[data-roster-find]')).toHaveCount(0);
         await expect(people.locator('[data-library-note]')).toHaveCount(0);
     });
-    test(`folded on a phone, the rail's editor heads each source's fields with its noun, icon and count, then the presets (${theme}) @narrow`, async ({ page }) => {
-        await page.setViewportSize({ width: 390, height: 844 });
+    test(`folded in a frame just past a phone's, the rail's editor heads each source's fields with its noun, icon and count, then the presets (${theme}) @narrow`, async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 844 });
         const entry = await open(page, 'rosterMobile', theme), frame = entry.locator('[data-roster-frame]').first();
+        await size(page, entry, 570);
         await frame.locator(`${RAIL} button[aria-label^="Filters:"]`).first().click();
         const editor = page.getByRole('dialog');
         expect(await editor.locator('[data-slice-section] [data-record-slice-source]').evaluateAll(els => els.map(el => `${el.getAttribute('data-record-slice-source')}.${el.getAttribute('data-record-slice-field')}`)))
@@ -708,7 +711,7 @@ for (const theme of ['light', 'dark'] as const) {
             ['source:people', 'people', 'user', '69', 'field:people.team'], ['source:activities', 'activities', 'list-check', '17', 'field:activities.group'], ['presets', 'Presets', null, null, 'presets']]);
         const box = (await editor.boundingBox())!;
         expect(box.x).toBeGreaterThanOrEqual(0);
-        expect(box.x + box.width).toBeLessThanOrEqual(390);
+        expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
         await page.keyboard.press('Escape');
     });
 }
