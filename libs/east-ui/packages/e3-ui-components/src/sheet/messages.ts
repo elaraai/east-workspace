@@ -539,6 +539,8 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     inspectorTab: (p: { tab: SheetInspectorTabWord }) => string;
     /** What the inspector shows — `row 3`, `line 2 of WO-2201`, `order 4` — over its fields, and on the collapsed rail (#1188, SB46). */
     inspectorWhat: (p: { what: SheetInspectWord; number: string; title: string | undefined; noun: string }) => string;
+    /** A phone's Details' eyebrow names what is selected alone — `line 2`, `row 3`, `order 4` — its group by its id after it (SH12). */
+    inspectorPhoneWhat: (p: { what: SheetInspectWord; number: string; noun: string }) => string;
     /** A draft's chip: changed since the record held it, or never saved (SB47). */
     inspectorChip: (p: { state: "pending" | "new" }) => string;
     /** The lock on a row the upstream system owns, and its title. */
@@ -920,6 +922,7 @@ export const sheetMessages: SheetMessages = {
     inspectorTab: ({ tab }) => (tab === "details" ? "Details" : "Issues"),
     inspectorWhat: ({ what, number, title, noun }) => (what === "row" ? `row ${number}`
         : what === "line" ? `line ${number} of ${title ?? `the ${noun}`}` : `${noun} ${number}`),
+    inspectorPhoneWhat: ({ what, number, noun }) => (what === "row" ? `row ${number}` : what === "line" ? `line ${number}` : `${noun} ${number}`),
     inspectorChip: ({ state }) => (state === "pending" ? "Pending" : "New"),
     inspectorOwned: () => "Owned upstream — its stamped cells are read only",
     inspectorSection: ({ section, n, count }) => (section === "issues" ? `${count} ${plural(n, "issue", "issues")}`

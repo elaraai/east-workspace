@@ -9,18 +9,20 @@
  * offered — off, with why, while it may not act — and under them, inline, a
  * choice's reasons or a form's fields through `FieldForm`, its consequence,
  * Cancel and the verb. Every case is taken through the same command as the
- * grid's, one transaction (T1).
+ * grid's, one transaction (T1). In a phone's drawer (`Mobile Sheet Spec.md`
+ * SH12) the state stands 44 tall and the cases are the action bar's Default
+ * 44 buttons, two to a line.
  *
  * @packageDocumentation
  */
 
-import { memo, useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useContext, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { chakra, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { variant } from "@elaraai/east";
 import { FieldForm, type FieldOption } from "@elaraai/east-ui-components";
-import { useSlotStyles } from "@elaraai/east-ui-components/internal";
+import { FrameDrawer, useSlotStyles } from "@elaraai/east-ui-components/internal";
 import type { FieldSpecValue } from "@elaraai/east-ui/internal";
 import { useSheetWords } from "../words.js";
 import type { SheetRegisterIndex } from "../model.js";
@@ -29,6 +31,7 @@ import { ActionCell } from "./ActionCell.js";
 import { canTake, verbOf, type ActionCase, type ActionColumn } from "./model.js";
 import { emptyRequired, getAt, setAt } from "./form-check.js";
 import type { SheetActionHost } from "./host.js";
+import { useSheetInspect } from "../index.js";
 
 /** What the inspector's action field takes beyond the cell's host. */
 export interface ActionPanelApi {
@@ -56,6 +59,7 @@ export interface ActionPanelProps {
 export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, column, cell, summary, registers }: ActionPanelProps) {
     const styles = useSlotStyles("sheetAction");
     const button = useRecipe({ key: "button" });
+    const phone = useContext(FrameDrawer);
     const { m } = useSheetWords();
     const seq = useSyncExternalStore(host.subscribe, host.version, host.version);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `seq` is the host's say that what the offer reads moved
@@ -68,7 +72,12 @@ export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, 
     // The inline form's element, whose inputs say a required field was emptied (F3 of the hand test), and that field.
     const formRef = useRef<HTMLDivElement | null>(null);
     const [emptied, setEmptied] = useState<FieldSpecValue | undefined>(undefined);
-    const controls = host.controls(r, columnKey);
+    // A phone's cells draw no controls (X4), but its drawer's field takes the cases as the grid's would: while the sheet
+    // takes an edit, the column is editable and the row is not owned upstream (SH12).
+    const inspect = useSheetInspect();
+    const meta = inspect.columnAt(r, columnKey);
+    const owned = inspect.selected.kind === "one" && inspect.selected.place.owned;
+    const controls = host.controls(r, columnKey) || (phone && inspect.writable && meta?.editable === true && !owned);
     const choose = (c: ActionCase) => {
         if (c.kind === "button") { api.take(r, columnKey, c, null); return; }
         const form = c.take.type === "form" ? c.take.value : undefined;
@@ -104,14 +113,15 @@ export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, 
     };
     return (
         <chakra.div css={styles.panel} data-inspector-action-field={columnKey}>
-            <chakra.div css={styles.panelState}>
+            <chakra.div css={styles.panelState} data-phone={phone ? "" : undefined}>
                 <ActionCell column={column} summary={summary} offer={offer} controls={false} dirty={host.dirty(r, columnKey)}
                     selected={false} held={undefined} live={host.live(r, columnKey)} onNext={() => undefined} onMore={() => undefined} />
             </chakra.div>
             {controls && offer.offered.length > 0 && (
-                <chakra.div css={styles.panelActions} data-inspector-actions-offered="">
+                <chakra.div css={phone ? styles.barRest : styles.panelActions} data-inspector-actions-offered=""
+                    style={phone ? { ["--action-rest" as string]: "2" } : undefined}>
                     {offer.offered.map((c) => (
-                        <chakra.button key={c.name} type="button" css={button({ variant: "outline", size: "xs" })} disabled={!may}
+                        <chakra.button key={c.name} type="button" css={phone ? [button({ variant: "outline", size: "md" }), styles.barButton] : button({ variant: "outline", size: "xs" })} disabled={!may}
                             data-inspector-take={c.name} aria-expanded={c.kind === "button" ? undefined : open?.name === c.name} title={may ? undefined : why}
                             onClick={() => choose(c)}>
                             {c.icon !== undefined && <FontAwesomeIcon icon={["fas", c.icon as IconName]} aria-hidden />}

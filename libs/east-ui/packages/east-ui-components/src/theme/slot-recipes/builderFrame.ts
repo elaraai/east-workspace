@@ -44,11 +44,12 @@
  *     line) leading it; the pane strip on the bottom edge — 44px over a
  *     `--rule`, one equal tab a pane split by a rule inset 10px top and
  *     bottom, its icon 14, its label the mono caps, its meta mono
- *     `fg.subtle`, the open one in ink over a 2px underline; and a drawer —
- *     absolute at the body's foot, at most 500px tall, `--r-lg` top corners,
- *     a `border.strong` rule on its top and sides, sliding up over
- *     `--dur-base` on `--ease-out` (at once under reduced motion), down off
- *     main while a drag is under way, over a veil of `--paper-3` at 72%; and
+ *     `fg.subtle`, the open one in ink over a 2px underline; a pane open — a
+ *     view over the whole builder from its right edge, as the Filters view
+ *     is (ruled 3 Nov 2026): 48px of the builder beside it under `--paper-3`
+ *     at 60%, the view `--paper` with a `border.strong` left edge, sliding in
+ *     over `--dur-base` on `--ease-out` (at once under reduced motion), off
+ *     to the right while a drag is under way; and
  *     the overlay — a slot over every region where a toolbar item draws a
  *     full-height view (the rail's Filters view), taking the pointer only
  *     where a view draws itself.
@@ -68,7 +69,7 @@ const TOGGLE_MOTION = {
 export const builderFrameSlotRecipe = defineSlotRecipe({
     className: "elara-builder-frame",
     slots: ["root", "toolbar", "banners", "body", "pane", "sheet", "probe", "main", "scrim", "footer", "loading", "loadingBar", "loadingBody", "loadingRow", "loadingLine", "loadingCell", "loadingFooter",
-        "sessionRow", "sessionStatus", "paneStrip", "paneTab", "paneTabIcon", "paneTabLabel", "paneTabMeta", "paneTabMark", "drawer", "overlay"],
+        "sessionRow", "sessionStatus", "paneStrip", "paneTab", "paneTabIcon", "paneTabLabel", "paneTabMeta", "paneTabMark", "drawer", "drawerStrip", "overlay"],
     base: {
         loading: { position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: "bg.surface", overflow: "hidden" },
         loadingBar: { gap: "{spacing.4}", "& > :last-child": { marginInlineStart: "auto" } },
@@ -258,34 +259,40 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             "&[data-tone=warning]": { color: "status.warn" },
             "&[data-tone=danger]": { color: "status.neg" },
         },
-        /* A phone's pane, up from the strip over main; closed, below the body's foot, unseen. */
+        /* A phone's pane: a view over the whole builder from its right edge, 48px of the builder left in view beside it,
+         * as the Filters view is (ruled 3 Nov 2026) — `--paper` with a `--rule-strong` left edge, sliding in over
+         * `--dur-base` on `--ease-out` (at once under reduced motion), and off to the right while a drag is under way;
+         * closed, off the frame's right edge, unseen. */
         drawer: {
             position: "absolute",
-            insetInline: "0",
+            top: "0",
             bottom: "0",
-            zIndex: "docked",
+            insetInlineStart: "48px",
+            insetInlineEnd: "0",
+            zIndex: "overlay",
             display: "flex",
             flexDirection: "column",
-            height: "min(500px, 100%)",
             minHeight: "0",
             background: "bg.surface",
-            borderWidth: "1px",
-            borderBottomWidth: "0",
-            borderStyle: "solid",
-            borderColor: "border.strong",
-            borderTopLeftRadius: "lg",
-            borderTopRightRadius: "lg",
+            borderInlineStartWidth: "1px",
+            borderInlineStartStyle: "solid",
+            borderInlineStartColor: "border.strong",
             overflow: "hidden",
-            transform: "translateY(100%)",
+            transform: "translateX(100%)",
             visibility: "hidden",
             transitionProperty: "transform, visibility",
             transitionDuration: "{durations.normal}",
             transitionTimingFunction: "{easings.out}",
             _motionReduce: { transition: "none" },
             "&[data-open]": { transform: "none", visibility: "visible" },
-            "&[data-open][data-aside]": { transform: "translateY(100%)" },
-            /* The tray's own rule toward main is the drawer's edge. */
-            "& > *": { flex: "1", minHeight: "0", borderTopWidth: "0" },
+            "&[data-open][data-aside]": { transform: "translateX(100%)" },
+            /* The tray's own rules are the view's: none on its own edges. */
+            "& > *": { flex: "1", minHeight: "0", borderWidth: "0" },
+        },
+        /* The 48px of the builder beside an open pane, under `--paper-3` at 60%; a tap on it closes the pane. */
+        drawerStrip: {
+            position: "absolute", insetInlineStart: "0", top: "0", bottom: "0", width: "48px", zIndex: "overlay",
+            background: "color-mix(in oklch, var(--chakra-colors-bg-subtle) 60%, transparent)", cursor: "pointer",
         },
         /* A phone's view over the whole builder, a toolbar item's (FR7): over every region, taking the pointer only where
          * a view draws itself. */

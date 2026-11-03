@@ -19,9 +19,10 @@
  *   `--ink-5`, never faded;
  * - FR4: the pane strip is 44px on the frame's bottom edge, one equal tab a
  *   pane, each the strip's height, in `--ink-3` until it is open;
- * - FR5: a tab opens its drawer up from the strip — at most 500px tall, the
- *   frame's width, its foot on the strip's top — with the scrim over main;
- *   Esc closes it, the focus back on its tab; one drawer at a time.
+ * - FR5 (as the Filters view opens, ruled 3 Nov 2026): a tab opens its pane
+ *   as a view from the right, the frame's full height, 48px of the frame
+ *   showing beside it under a veiled strip that closes it; Esc closes it, the
+ *   focus back on its tab; one at a time.
  *
  * Run: `pnpm exec playwright test builder-frame-phone`.
  */
@@ -55,7 +56,9 @@ function phoneFaults(entry: Locator): Promise<string[]> {
         const f = frame.getBoundingClientRect();
         const regions = [...frame.children].map((el) => el.getAttribute("data-frame-slot")).filter((slot) => slot !== null);
         const want = ["toolbar", "sessionRow", "body", "paneStrip"];
-        if (want.some((slot, i) => regions.indexOf(slot) !== regions.indexOf(want[0]!) + i)) faults.push(`regions ${regions.join(", ")}`);
+        // In this order, each there — the banners, while a session has one, between the rows and the body.
+        const at = want.map((slot) => regions.indexOf(slot));
+        if (at.some((i, k) => i < 0 || (k > 0 && i < at[k - 1]!))) faults.push(`regions ${regions.join(", ")}`);
         const slot = (name: string) => frame.querySelector<HTMLElement>(`:scope > [data-frame-slot='${name}']`);
         // FR1: main the whole width, no pane at a side.
         const body = slot("body")!;
@@ -111,25 +114,25 @@ function phoneFaults(entry: Locator): Promise<string[]> {
     });
 }
 
-/** A drawer as the page lays it out, beside the strip, the frame and the scrim. */
+/** A pane's view as the page lays it out, against the frame, and the veiled strip beside it. */
 function drawerAt(entry: Locator, side: string) {
     return entry.locator(ROOT).first().evaluate((frame, at) => {
         const drawer = frame.querySelector<HTMLElement>(`[data-frame-drawer][data-frame-slot='${at}']`)!;
         const d = drawer.getBoundingClientRect(), f = frame.getBoundingClientRect();
-        const strip = frame.querySelector("[data-frame-slot='paneStrip']")!.getBoundingClientRect();
+        const veil = frame.querySelector<HTMLElement>("[data-drawer-strip]");
+        const v = veil?.getBoundingClientRect();
         return {
             open: drawer.hasAttribute("data-open"),
-            height: d.height <= 500.5,
-            width: Math.abs(d.width - f.width) <= 0.5,
-            foot: Math.abs(d.bottom - strip.top) <= 0.5,
-            scrim: frame.querySelector("[data-scrim]") !== null,
+            height: Math.abs(d.top - f.top) <= 0.5 && Math.abs(d.bottom - f.bottom) <= 0.5,
+            width: Math.abs(d.left - (f.left + 48)) <= 0.5 && Math.abs(d.right - f.right) <= 0.5,
+            strip: v !== undefined && Math.abs(v.left - f.left) <= 0.5 && Math.abs(v.width - 48) <= 0.5,
         };
     }, side);
 }
 
 for (const theme of ["light", "dark"] as const) {
     for (const [name, route] of PHONES) {
-        test(`${name}: a phone's frame stacks its regions, the history the second row's 44px buttons, the panes a strip of drawers — in its 390px box and a 294px parent (${theme})`, async ({ page }) => {
+        test(`${name}: a phone's frame stacks its regions, the history the second row's 44px buttons, the panes a strip of views from the right — in its 390px box and a 294px parent (${theme})`, async ({ page }) => {
             const faults: Record<string, string[]> = {};
             await test.step(route, async () => {
                 await page.setViewportSize({ width: 1440, height: 900 });
@@ -143,7 +146,7 @@ for (const theme of ["light", "dark"] as const) {
                     const tab = frame.locator(`[data-pane-tab='${side}']`);
                     await tab.click();
                     await settled(page);
-                    expect(await drawerAt(entry, side), `${route}: ${side}'s drawer open`).toEqual({ open: true, height: true, width: true, foot: true, scrim: true });
+                    expect(await drawerAt(entry, side), `${route}: ${side}'s drawer open`).toEqual({ open: true, height: true, width: true, strip: true });
                     await expect(tab).toHaveAttribute("aria-selected", "true");
                     // One at a time.
                     expect(await frame.locator("[data-frame-drawer][data-open]").count(), route).toBe(1);

@@ -396,10 +396,14 @@ component, nothing in east-ui.
   a footer with no loading line (the query builder's status line) stays, and
   under the cold-load cover the line stays in the live footer. A described
   pane that collapses is a tab of the pane strip on the bottom edge — icon,
-  label, detail or badge — and opens as a drawer up from it, at most 500px,
-  its `DockPane` a vertical tray whose collapse points down: one at a time,
-  Esc and the scrim close it, the focus moves in and back to its tab, its
-  open tab and bodies kept across the width. A pane that never collapses and
+  label, detail or badge — and opens as the Filters view does (ruled 3 Nov
+  2026): a view from the right over the whole frame, 48px of it showing at
+  the left under a veiled strip (`data-drawer-strip`) that closes it, its
+  `DockPane` a vertical tray: one at a time, Esc and the strip close it, the
+  focus moves in and back to its tab, its open tab and bodies kept across the
+  width. What the drawer holds hears `FrameDrawer` (`./internal`), so a pane
+  draws its phone form there — the Sheet's inspector its head and each field a
+  section of its own at touch size (`Mobile Sheet Spec.md` SH12). A pane that never collapses and
   an `{ element }` pane stay pinned. Every builder has a phone-sized example
   (a 390px box) that the showcase's `builder-frame-phone.spec.ts` measures.
 - **Styles.** The `builderFrame` slot recipe owns every style the frame has.

@@ -158,3 +158,5 @@ export {
     type FooterMoreProps, type LoadingLineProps, type LoadingLineText, type LoadingLineValue,
 } from "./layout/builder-frame/loading-line.js";
 export { FOOTER_UNFIT, fitFooter, type FooterFit, type FooterFitInput, type LoadingLineForm } from "./layout/builder-frame/footer-fit.js";
+// Whether a pane's body is drawn in a phone's drawer: a builder's inspector draws its phone form there (SH12).
+export { FrameDrawer } from "./layout/builder-frame/drawer-context.js";

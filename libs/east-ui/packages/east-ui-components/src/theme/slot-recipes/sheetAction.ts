@@ -318,6 +318,12 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             borderColor: "border.subtle",
             borderRadius: "md",
             background: "bg.surface",
+            /* A phone's Details (SH12): the state alone at the end of the field's label row, as the designer draws it. */
+            "&[data-phone]": {
+                position: "absolute", top: "16px", right: "20px", width: "50%", height: "18px",
+                border: "none", borderRadius: "0", background: "transparent",
+                "& [data-slot=actionZone]": { justifyContent: "flex-end", paddingX: "0" },
+            },
         },
         /* The inspector's field: inside the pane's width, as the form it holds (#1478, F8 of the hand retest). */
         panel: { minWidth: 0, maxWidth: "100%" },

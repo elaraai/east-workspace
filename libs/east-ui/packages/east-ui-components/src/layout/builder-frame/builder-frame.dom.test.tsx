@@ -408,16 +408,16 @@ describe("BuilderFrame — auto, overlay and the scrim (#1125 F1)", () => {
         expect([paneOf("start"), scrim()]).toEqual([["overlay", true], null]);
     });
 
-    test("the scrim covers main while any overlay pane is open at 560px and narrower — and not on a wider frame", () => {
+    test("an overlay pane open at 560px and narrower is a phone's view, its strip of the builder in the scrim's place — and on a wider frame no scrim at all", () => {
         mount({ start: library({ mode: "overlay" }) });
         frameAt(561);
-        expect([paneOf("start"), scrim()]).toEqual([["overlay", false], null]);
+        expect([paneOf("start"), scrim(), drawerStrip()]).toEqual([["overlay", false], null, null]);
         frameAt(560);
-        expect(scrim()).not.toBeNull();
+        expect([scrim(), drawerStrip() !== null]).toEqual([null, true]);
         frameAt(390);
-        expect(scrim()).not.toBeNull();
+        expect([scrim(), drawerStrip() !== null]).toEqual([null, true]);
         frameAt(900);
-        expect(scrim()).toBeNull();
+        expect([scrim(), drawerStrip()]).toEqual([null, null]);
     });
 
     test("a tap on the scrim with the focus in the pane puts the focus on its rail", async () => {
@@ -532,6 +532,8 @@ describe("BuilderFrame — a drag (#1125 F1)", () => {
 
 /** A pane's drawer on a phone. */
 const drawerOf = (side: "start" | "end"): HTMLElement => frame().querySelector<HTMLElement>(`[data-frame-drawer][data-frame-slot="${side}"]`)!;
+/** The strip of the builder beside an open drawer, under its veil. */
+const drawerStrip = (): HTMLElement | null => frame().querySelector<HTMLElement>("[data-drawer-strip]");
 /** Which drawers are open. */
 const drawersOpen = () => (["start", "end"] as const).map((side) => drawerOf(side).hasAttribute("data-open"));
 /** A pane's tab on the strip. */
@@ -552,8 +554,9 @@ describe("BuilderFrame — a phone's frame (Mobile Builder Frame Spec.md FR1, FR
         expect([...slot("toolbar").querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"))).toEqual(["name", "optimise", "history"]);
         frameAt(560);
         expect(frame().hasAttribute("data-phone")).toBe(true);
-        // No status given: the footer stays, its loading line has no other home.
-        expect([regions(), across()]).toEqual([["toolbar", "sessionRow", "body", "paneStrip", "footer"], ["main", "start", "end"]]);
+        // No status given: the footer stays, its loading line has no other home. Each pane is a view over the whole
+        // builder, at the frame's root, and the overlay slot over every region.
+        expect([regions(), across()]).toEqual([["toolbar", "sessionRow", "body", "paneStrip", "footer", "start", "end", "overlay"], ["main"]]);
         expect([...slot("toolbar").querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"))).toEqual(["name"]);
         expect(slot("sessionRow").textContent).toBe("EYE ROWHISTORY ROW");
         frameAt(561);
@@ -576,7 +579,7 @@ describe("BuilderFrame — a phone's frame (Mobile Builder Frame Spec.md FR1, FR
     test("a footer with no loading line stays a phone's, and the row is drawn for the footer's line even with no item of its own", () => {
         mount({ footer: <div>STATUS</div> });
         frameAt(390);
-        expect([regions(), slot("footer").querySelector("[data-footer-line-moved]")]).toEqual([["sessionRow", "body", "footer"], null]);
+        expect([regions(), slot("footer").querySelector("[data-footer-line-moved]")]).toEqual([["sessionRow", "body", "footer", "overlay"], null]);
     });
 
     test("each described pane is a tab of the strip — its icon, its label and its detail or badge — and opens as a drawer from it; again, it closes, the focus back on the tab", async () => {
@@ -590,13 +593,13 @@ describe("BuilderFrame — a phone's frame (Mobile Builder Frame Spec.md FR1, FR
         await act(async () => { fireEvent.click(stripTab("start")); });
         expect([drawersOpen(), stripTab("start").getAttribute("aria-selected"), drawerOf("start").getAttribute("role"), drawerOf("start").getAttribute("aria-label")])
             .toEqual([[true, false], "true", "region", "Library"]);
-        // The focus moves in, onto its open tab; the scrim covers main.
-        expect([document.activeElement, scrim() !== null]).toEqual([screen.getByRole("tab", { name: "Cards" }), true]);
+        // The focus moves in, onto its open tab; a strip of the builder stays in view beside it, veiled (ruled 3 Nov 2026).
+        expect([document.activeElement, drawerStrip() !== null, scrim()]).toEqual([screen.getByRole("tab", { name: "Cards" }), true, null]);
         await act(async () => { fireEvent.click(stripTab("start")); });
-        expect([drawersOpen(), document.activeElement, scrim()]).toEqual([[false, false], stripTab("start"), null]);
+        expect([drawersOpen(), document.activeElement, drawerStrip()]).toEqual([[false, false], stripTab("start"), null]);
     });
 
-    test("one drawer is open at a time; Esc, the scrim and the drawer's collapse each close it, the focus back on its tab", async () => {
+    test("one drawer is open at a time; Esc, the strip beside it and its collapse each close it, the focus back on its tab", async () => {
         mount({ start: library(), end: properties() });
         frameAt(390);
         await act(async () => { fireEvent.click(stripTab("start")); });
@@ -609,7 +612,7 @@ describe("BuilderFrame — a phone's frame (Mobile Builder Frame Spec.md FR1, FR
         expect([drawersOpen(), document.activeElement]).toEqual([[false, false], stripTab("end")]);
 
         await act(async () => { fireEvent.click(stripTab("start")); });
-        await act(async () => { fireEvent.click(scrim()!); });
+        await act(async () => { fireEvent.click(drawerStrip()!); });
         expect([drawersOpen(), document.activeElement]).toEqual([[false, false], stripTab("start")]);
 
         await act(async () => { fireEvent.click(stripTab("start")); });

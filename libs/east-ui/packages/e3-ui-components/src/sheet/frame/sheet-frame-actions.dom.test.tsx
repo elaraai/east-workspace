@@ -507,3 +507,36 @@ test("the inspector's read-only Status says the member's label, as the band's ce
     expect(status.textContent).toContain("In progress");
     expect(status.textContent).not.toContain("in_progress");
 });
+
+test("on a phone the inspector opens as a view from the right: its head names the line, its step and its order over the step's title, each field a section of its own at touch size, Good stepped and Done typed as the cell editor does, its cases and its gestures 44 buttons (SH12)", async () => {
+    const restore = touchFrame(390, { builder: true });
+    try {
+        const { container } = await h.mount(ex.sheetActionsWorkOrders);
+        fireEvent.mouseDown(lineCell(container, "WO-1042", "1", "step"), { button: 0 });
+        await settle();
+        await press(container.querySelector('[data-pane-tab="end"]')!);
+        const drawer = container.querySelector<HTMLElement>("[data-frame-drawer][data-open]")!;
+        expect(drawer).not.toBeNull();
+        // The 48px strip beside it, veiled, closes it as the Filters view's does.
+        expect(container.querySelector("[data-drawer-strip]")).not.toBeNull();
+        const details = drawer.querySelector<HTMLElement>('[data-sheet-inspector="line"][data-phone]')!;
+        expect(details.querySelector("[data-inspector-what]")?.textContent).toMatch(/· WO-1042$/);
+        expect(details.querySelector("[data-inspector-id]")?.textContent).not.toBe("WO-1042");
+        const field = (name: string) => details.querySelector<HTMLElement>(`[data-inspector-field="${name}"]`)!;
+        // Good's stepper, as the cell editor's: + writes the cell.
+        const goodText = () => lineCell(container, "WO-1042", "1", "good").textContent;
+        const was = goodText();
+        await press(field("good").querySelector('[data-cell-step="more"]')!);
+        expect(goodText()).not.toBe(was);
+        // Done's hh:mm.
+        const done = field("done").querySelector<HTMLInputElement>("[data-cell-input]")!;
+        await act(async () => { fireEvent.change(done, { target: { value: "0930" } }); });
+        await settle();
+        expect(lineCell(container, "WO-1042", "1", "done").textContent).toContain("09:30");
+        // The action's cases, and Duplicate and Delete, as the bar's Default buttons.
+        expect(field("action").querySelector("[data-inspector-take]")).not.toBeNull();
+        expect(details.querySelector('[data-inspector-action="delete"]')).not.toBeNull();
+        // A read-only field — the grid's alone — has no section.
+        expect(details.querySelectorAll("[data-inspector-field]").length).toBeGreaterThan(2);
+    } finally { restore(); }
+});

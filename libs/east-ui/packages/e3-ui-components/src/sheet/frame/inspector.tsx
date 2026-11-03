@@ -47,7 +47,7 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faLock, faMinus, faPlus } from "@fortawesome/free-solid-svg-icons";
@@ -60,7 +60,7 @@ import { Sheet, type sheetKeys } from "@elaraai/e3-ui/internal";
 import {
     EastChakraComponent, FieldForm, fieldFormMessages, getSomeorUndefined, useDataStable, type BuilderFrameDock, type EditIssue, type FieldOption,
 } from "@elaraai/east-ui-components";
-import { useSlotStyles } from "@elaraai/east-ui-components/internal";
+import { FrameDrawer, useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { useSheetInspect, type SheetCellEditorAt, type SheetInspect, type SheetInspectPlace, type SheetInspectTarget, type SheetInspectWrite } from "../index.js";
 import { formatTime, splitTimeToken, todayUtc, withTime } from "../parse/date.js";
 import { NULL_CELL, cellText, indexRegisters, type SheetColumnMeta } from "../model.js";
@@ -465,6 +465,11 @@ function TargetView(props: TargetProps) {
 
     const subRows = target.subRows;
     const can = inspect.can;
+    // In a phone's drawer (SH12): its head, each field a section of its own at touch size, and its gestures at 44.
+    const phone = useContext(FrameDrawer);
+    if (phone && own === undefined && target.value !== undefined) {
+        return <PhoneTarget {...props} edit={edit} issues={issues} isNew={isNew} ownId={ownId as string | undefined} />;
+    }
     return (
         <Box css={styles.root} data-sheet-inspector={target.kind}>
             <Box css={styles.head}>
@@ -537,6 +542,150 @@ function TargetView(props: TargetProps) {
                     {m.inspectorAction({ action: "delete", header: undefined, withLines: band })}
                 </chakra.button>
             </Box>
+        </Box>
+    );
+}
+
+/** Props of {@link PhoneTarget}. */
+interface PhoneTargetProps extends TargetProps {
+    edit: ReturnType<typeof useTargetForm>;
+    issues: TargetIssue[];
+    isNew: boolean;
+    ownId: string | undefined;
+}
+
+/**
+ * One row, line or band in a phone's drawer (`Mobile Sheet Spec.md` SH12, the
+ * designer's `WorkOrdersPhone`): its head — the eyebrow naming its line, its
+ * action's name and its entry, then its title (the action column's, else its
+ * id) and a draft's chip — its issues, each field it edits a section of its
+ * own (its label over its name, then its control: a number's stepper and a
+ * time's field as the cell editor draws them, an action's state and cases, and
+ * every other kind its form's own input at touch size), its sub rows, and its
+ * gestures as Default 44 buttons.
+ */
+function PhoneTarget({ value, words, hidden, styles, inspect, target, form, noun, edit, issues, isNew, ownId }: PhoneTargetProps) {
+    const { m } = words;
+    const button = useRecipe({ key: "button" });
+    const bar = useSlotStyles("sheetAction");
+    const r = target.r;
+    const band = target.kind === "band";
+    const byPath = useMemo(() => new Map(form.fields.map((f) => [pathKey(f.spec.path), f])), [form.fields]);
+    // Its action column's name and title — `step 20`, `Weld frame` — as the grid's action cell reads them.
+    const action = form.fields.map((f) => getSomeorUndefined(f.column)).map((key) => (key === undefined ? undefined : actionColumnOf(inspect.columnAt(r, key))))
+        .find((c) => c !== undefined);
+    const ruleText = (key: string | undefined): string | undefined => {
+        const cell = key === undefined ? undefined : inspect.cellAt(r, key);
+        return cell?.type === "String" && cell.value !== "" ? cell.value : undefined;
+    };
+    const actionName = ruleText(action?.name);
+    const title = ruleText(action?.title);
+    const id = ownId ?? target.entry;
+    const where = m.inspectorPhoneWhat({ what: target.kind, number: words.number(target.number), noun });
+    const eyebrow = [where, actionName, stringEqual(id, title ?? "") ? undefined : id].filter((t): t is string => t !== undefined && t !== "").join(" · ");
+    const chip = isNew ? "new" : target.presentation.pending ? "pending" : undefined;
+    // The fields it edits: every field but those the grid alone shows — an action's, which its cases write, among them.
+    const specs = edit.specs.filter((spec) => {
+        if (spec.editor.type !== "readonly") return true;
+        const key = getSomeorUndefined(byPath.get(pathKey(spec.path))?.column ?? none);
+        return key !== undefined && inspect.columnAt(r, key)?.kind === "action";
+    });
+    const can = inspect.can;
+    return (
+        <Box css={styles.root} data-sheet-inspector={target.kind} data-phone="">
+            <Box css={styles.phoneHead}>
+                <Box as="span" css={styles.phoneEyebrow} data-inspector-what="">{eyebrow}</Box>
+                <Box as="span" css={styles.phoneName} data-inspector-id="">{title ?? id}</Box>
+                {chip !== undefined && <Box as="span" css={styles.phoneChip} data-state={chip}>{m.inspectorChip({ state: chip })}</Box>}
+                {target.owned && (
+                    <Box as="span" css={styles.lock} data-inspector-lock=""><FontAwesomeIcon icon={faLock} aria-hidden />{m.inspectorOwned()}</Box>
+                )}
+            </Box>
+            {issues.length > 0 && (
+                <Box css={styles.issues} data-inspector-issues="">
+                    <Box css={styles.sectionHead}>{m.inspectorSection({ section: "issues", n: issues.length, count: words.number(issues.length) })}</Box>
+                    {issues.map((issue) => (
+                        <Box key={issue.key} css={styles.issue}>
+                            {issue.field !== undefined && <Box as="span" css={styles.issueField}>{issue.field}</Box>}
+                            <Box as="span" css={styles.issueText} data-kind={issue.kind}>{issue.text}</Box>
+                        </Box>
+                    ))}
+                </Box>
+            )}
+            <Box data-inspector-fields="phone">
+                {specs.map((spec) => {
+                    const f = byPath.get(pathKey(spec.path));
+                    const key = f === undefined ? undefined : getSomeorUndefined(f.column);
+                    return <PhoneField key={pathKey(spec.path)} words={words} hidden={hidden} styles={styles} bar={bar} inspect={inspect} r={r} columnKey={key} spec={spec} edit={edit} value={value} />;
+                })}
+            </Box>
+            {target.subRows.length > 0 && (
+                <Box css={styles.subRows} data-inspector-sub-rows="">
+                    <Box css={styles.sectionHead}>{m.inspectorSection({ section: "subRows", n: target.subRows.length, count: words.number(target.subRows.length) })}</Box>
+                    {target.subRows.map((sub, i) => (
+                        <Box key={`${sub.id}\u001f${i}`} css={styles.subRow} data-inspector-sub-row="">
+                            {sub.code !== "" && <Box as="span" css={styles.subRowCode}>{sub.code}</Box>}
+                            <Box as="span" css={styles.subRowName}>{sub.name}</Box>
+                        </Box>
+                    ))}
+                </Box>
+            )}
+            <Box css={styles.phoneActions} data-inspector-actions="">
+                {band && (
+                    <chakra.button type="button" css={[button({ variant: "outline", size: "md" }), styles.phoneButton]} disabled={!can.insertRows}
+                        data-inspector-action="addLine" onClick={() => inspect.addLine(r)}>
+                        {m.inspectorAction({ action: "addLine", header: undefined, withLines: false })}
+                    </chakra.button>
+                )}
+                <chakra.button type="button" css={[button({ variant: "outline", size: "md" }), styles.phoneButton]} disabled={band ? !can.insertGroups : !can.insertRows}
+                    data-inspector-action="duplicate" onClick={() => inspect.duplicate([r])}>
+                    {m.inspectorAction({ action: "duplicate", header: undefined, withLines: band })}
+                </chakra.button>
+                <chakra.button type="button" css={[button({ variant: "outline", size: "md" }), styles.phoneButton]} disabled={band ? !can.removeGroups : !can.removeRows}
+                    data-inspector-action="delete" onClick={() => { if (band) inspect.removeGroup(r); else inspect.remove(r, r); }}>
+                    {m.inspectorAction({ action: "delete", header: undefined, withLines: band })}
+                </chakra.button>
+            </Box>
+        </Box>
+    );
+}
+
+/** Props of {@link PhoneField}. */
+interface PhoneFieldProps {
+    value: SheetValue;
+    words: SheetWords;
+    hidden: ReadonlySet<string>;
+    styles: Styles;
+    bar: Styles;
+    inspect: SheetInspect;
+    r: number;
+    columnKey: string | undefined;
+    spec: FieldSpecValue;
+    edit: ReturnType<typeof useTargetForm>;
+}
+
+/** One field of a phone's Details (SH12): a section of its own, its label over its name, then its control at touch size. */
+function PhoneField({ words, styles, bar, inspect, r, columnKey, spec, edit }: PhoneFieldProps) {
+    const specs = useMemo(() => [spec], [spec]);
+    const dirty = useDirty(spec, edit.formValue, edit.baseline);
+    const meta = columnKey === undefined ? undefined : inspect.columnAt(r, columnKey);
+    const header = meta?.header ?? spec.label;
+    const touch = columnKey === undefined ? undefined : touchKind(inspect, r, columnKey, spec);
+    return (
+        <Box css={styles.phoneField} data-inspector-field={pathKey(spec.path)}>
+            <Box css={styles.phoneFieldHead}>
+                <Box as="span" css={styles.phoneLabel}>
+                    {spec.label}
+                    {/* An action's state stands where its name would, at the row's end. */}
+                    {meta?.kind !== "action" && <Box as="span" css={styles.phoneKey}>{spec.path.join(".")}</Box>}
+                </Box>
+            </Box>
+            {columnKey !== undefined && meta?.kind === "action"
+                ? inspect.drawAction(r, columnKey)
+                : columnKey !== undefined && touch !== undefined
+                    ? <TouchControl inspect={inspect} words={words} bar={bar} r={r} columnKey={columnKey} spec={spec} header={header} dirty={dirty} joins={undefined} />
+                    : <FieldForm specs={specs} value={edit.formValue} baseline={edit.baseline} options={edit.options}
+                        onChange={edit.onChange} readOnly={!inspect.writable} renderControl={edit.renderControl} />}
         </Box>
     );
 }
@@ -643,32 +792,79 @@ interface CellEditorFieldProps {
 
 /** The field a phone's cell editor holds — see {@link SheetCellEditor}. */
 function CellEditorField({ value, words, hidden, styles, bar, inspect, target, form, field, at, header }: CellEditorFieldProps) {
-    const { m } = words;
     // One run while the editor is open: its edits are one step (SH10.1).
     const [joins] = useState(() => `cellEditor:${++cellEditorRuns}`);
     const edit = useTargetForm({ value, words, hidden, styles, inspect, target, form, joins });
     const spec = edit.specs.find((s) => stringEqual(pathKey(s.path), pathKey(field.spec.path))) ?? field.spec;
     const specs = useMemo(() => [spec], [spec]);
-    const meta = inspect.columnAt(at.r, at.columnKey);
-    const cell = inspect.cellAt(at.r, at.columnKey);
     const writable = inspect.writable;
-    const name = spec.path[0]!;
-    // Tinted while the drafts hold it otherwise than the record does.
+    const dirty = useDirty(spec, edit.formValue, edit.baseline);
+    if (touchKind(inspect, at.r, at.columnKey, spec) !== undefined) {
+        return <TouchControl inspect={inspect} words={words} bar={bar} r={at.r} columnKey={at.columnKey} spec={spec} header={header} dirty={dirty} joins={joins} />;
+    }
+    // Every other kind (R9): the form's own input, at touch size.
+    return (
+        <chakra.div css={bar.cellForm} data-cell-form="">
+            <FieldForm specs={specs} value={edit.formValue} baseline={edit.baseline} options={edit.options}
+                onChange={edit.onChange} readOnly={!writable} renderControl={edit.renderControl} live />
+        </chakra.div>
+    );
+}
+
+/** Whether a field's value as the drafts hold it differs from what the record holds: the field tinted. */
+function useDirty(spec: FieldSpecValue, formValue: Record<string, unknown>, baseline: Record<string, unknown>): boolean {
     const fieldType = useMemo(() => fromEastTypeValue(spec.type) as EastType, [spec.type]);
     const same = useMemo(() => equalFor(fieldType), [fieldType]);
-    const now = edit.formValue[name];
-    const was = edit.baseline[name];
-    const dirty = now === undefined || was === undefined ? now !== was : !same(now as never, was as never);
-    const writeCell = useCallback((next: SheetCellValue) => inspect.write([{ r: at.r, cells: new Map([[at.columnKey, next]]) }], joins), [inspect, at.r, at.columnKey, joins]);
-    const writeText = useCallback((text: string) => inspect.write([{ r: at.r, texts: new Map([[at.columnKey, text]]) }], joins), [inspect, at.r, at.columnKey, joins]);
+    const name = spec.path[0]!;
+    const now = formValue[name];
+    const was = baseline[name];
+    return now === undefined || was === undefined ? now !== was : !same(now as never, was as never);
+}
+
+/** Which touch control a field takes at a row (SH10): a number's stepper, a time of day's field, or none. */
+function touchKind(inspect: SheetInspect, r: number, columnKey: string, spec: FieldSpecValue): "number" | "time" | undefined {
+    const meta = inspect.columnAt(r, columnKey);
+    if ((meta?.kind === "integer" || meta?.kind === "quantity") && spec.editor.type === "number") return "number";
+    if (meta?.kind === "date" && inspect.levelAt(r, columnKey) === "time") return "time";
+    return undefined;
+}
+
+/** Props of {@link TouchControl}. */
+interface TouchControlProps {
+    inspect: SheetInspect;
+    words: SheetWords;
+    bar: Styles;
+    r: number;
+    columnKey: string;
+    spec: FieldSpecValue;
+    header: string;
+    dirty: boolean;
+    /** The key a run of edits joins under as one step, if it is one (SH10.1). */
+    joins: string | undefined;
+}
+
+/**
+ * A field's touch control, as a phone's cell editor and a phone's Details draw
+ * it (SH10, SH12): a number − · the field · its unit · + (digits only), a time
+ * of day its `hh:mm` field, filled as digits are typed, and Clear — or `null`
+ * for every other kind, which its form's own input edits.
+ */
+function TouchControl({ inspect, words, bar, r, columnKey, spec, header, dirty, joins }: TouchControlProps) {
+    const { m } = words;
+    const kind = touchKind(inspect, r, columnKey, spec);
+    const cell = inspect.cellAt(r, columnKey);
+    const writable = inspect.writable;
+    const fieldType = useMemo(() => fromEastTypeValue(spec.type) as EastType, [spec.type]);
+    const writeCell = useCallback((next: SheetCellValue) => inspect.write([{ r, cells: new Map([[columnKey, next]]) }], joins), [inspect, r, columnKey, joins]);
+    const writeText = useCallback((text: string) => inspect.write([{ r, texts: new Map([[columnKey, text]]) }], joins), [inspect, r, columnKey, joins]);
     // A number (SH10): − · the field · its unit · +, digits only, held to its editor's bounds.
-    if ((meta?.kind === "integer" || meta?.kind === "quantity") && spec.editor.type === "number") {
+    if (kind === "number" && spec.editor.type === "number") {
         const number = spec.editor.value;
         // An Option's input edits its value's type, as the form's does.
         const inner = spec.optional && fieldType.type === "Variant" ? (fieldType.cases as Record<string, EastType>)["some"]! : fieldType;
         const integer = isTypeEqual(inner, IntegerType);
         const held = cell?.type === "Integer" || cell?.type === "Float" ? cell.value : undefined;
-        const unit = getSomeorUndefined(number.unit) ?? inspect.unitAt(at.r, at.columnKey);
+        const unit = getSomeorUndefined(number.unit) ?? inspect.unitAt(r, columnKey);
         const min = getSomeorUndefined(number.min);
         const max = getSomeorUndefined(number.max);
         const step = getSomeorUndefined(number.step) ?? 1;
@@ -710,7 +906,7 @@ function CellEditorField({ value, words, hidden, styles, bar, inspect, target, f
         );
     }
     // A time of day (SH10): its `hh:mm`, filled as digits are typed, on the day the cell holds — today, where it holds none — and Clear.
-    if (meta?.kind === "date" && inspect.levelAt(at.r, at.columnKey) === "time") {
+    if (kind === "time") {
         const held = cell?.type === "DateTime" ? cell.value : undefined;
         const printed = held === undefined ? "" : formatTime(held);
         const fill = (typed: string): string => {
@@ -734,13 +930,7 @@ function CellEditorField({ value, words, hidden, styles, bar, inspect, target, f
             </>
         );
     }
-    // Every other kind (R9): the form's own input, at touch size.
-    return (
-        <chakra.div css={bar.cellForm} data-cell-form="">
-            <FieldForm specs={specs} value={edit.formValue} baseline={edit.baseline} options={edit.options}
-                onChange={edit.onChange} readOnly={!writable} renderControl={edit.renderControl} live />
-        </chakra.div>
-    );
+    return null;
 }
 
 /** Props of {@link TypedInput}. */

@@ -70,11 +70,14 @@
  *   stays in its live footer;
  * - no pane at either side: a described pane that collapses is a tab of the pane strip on the
  *   frame's bottom edge — its icon, its label, and its detail or its badge —
- *   and opens as a drawer up from it, at most 500px tall, its tabs at its head
- *   and its collapse there (FR4, FR5). One drawer is open at a time, Esc or the
- *   scrim over main closes it, and the focus moves into it as it opens and back
- *   to its tab as it closes. Each keeps its open tab and its bodies mounted
- *   across the width, as the pane does.
+ *   and opens as a view over the whole builder from its right edge, as the
+ *   Filters view does (ruled 3 Nov 2026, in place of FR5's drawer up from the
+ *   strip), its tabs at its head and its collapse there (FR4). 48px of the
+ *   builder stay in view beside it, under a veil a tap on which closes it, as
+ *   Esc does. One is open at a time, and the focus moves into it as it opens
+ *   and back to its tab as it closes. Each keeps its open tab and its bodies
+ *   mounted across the width, as the pane does; what it holds is told it is
+ *   in a phone's drawer ({@link FrameDrawer}), for its phone form.
  *
  * @packageDocumentation
  */
@@ -90,6 +93,7 @@ import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { useFormatters } from "../../format/index.js";
 import { SessionRowSlot } from "./session-row.js";
 import { FrameOverlaySlot } from "./overlay-slot.js";
+import { FrameDrawer } from "./drawer-context.js";
 import { useSlotStyles } from "../../theme/slot-styles.js";
 import { kept, keptFlag } from "../../platform/kept.js";
 import { DockPane, type DockRailMark } from "../dock/index.js";
@@ -101,6 +105,7 @@ import {
 
 export { SessionRowSlot } from "./session-row.js";
 export { FrameOverlaySlot } from "./overlay-slot.js";
+export { FrameDrawer } from "./drawer-context.js";
 
 export {
     MIN_MAIN, MIN_SCRIM, NARROW_FRAME, paneWidths, placePanes,
@@ -554,8 +559,10 @@ export function BuilderFrame(props: BuilderFrameProps) {
     /** The overlay pane that is open, if one is. */
     const openOverlay = SIDES.find((side) => placement[side] === "overlay" && dockOf(side) !== undefined && !collapseOf(side).collapsed);
     const openDock = openOverlay === undefined ? undefined : dockOf(openOverlay);
+    // A phone's open pane, a view over the whole builder: its strip at the left is its scrim.
+    const phoneDrawer = openOverlay !== undefined && drawn(openOverlay) ? openOverlay : undefined;
     // The scrim: while an overlay pane is open for lack of room — an `auto` pane overlaying, or any at 560px and narrower.
-    const scrim = openDock !== undefined && !dragging
+    const scrim = openDock !== undefined && !dragging && phoneDrawer === undefined
         && (modeOf(openDock) === "auto" || (measured !== undefined && measured.width <= NARROW_FRAME));
 
     // ── The focus, back on a closed pane's rail ─────────────────────────
@@ -669,7 +676,9 @@ export function BuilderFrame(props: BuilderFrameProps) {
             <Box key={side} ref={slotRefs[side]} css={styles.drawer} id={`${storageKey}.${side}.drawer`} data-frame-slot={side} data-frame-drawer=""
                 data-open={open ? "" : undefined} data-aside={open && dragging ? "" : undefined} role="region" aria-label={dock.label}
                 inert={!open} aria-hidden={open ? undefined : true}>
-                {/* A tray whose collapse points down, toward the strip; it is drawn collapsed only while the drawer is closed. */}
+                {/* A tray whose collapse points down, toward the strip; it is drawn collapsed only while the drawer is closed.
+                    What it holds is told it is in a phone's drawer: a pane's phone form (SH12). */}
+                <FrameDrawer.Provider value={true}>
                 <DockPane
                     storageKey={`${storageKey}.${side}`}
                     orientation="vertical"
@@ -686,6 +695,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
                     collapsed={!open}
                     onCollapsedChange={(next) => { if (next) { railFocus.current = side; toggled(side, true); } }}
                 />
+                </FrameDrawer.Provider>
             </Box>
         );
     };
@@ -738,10 +748,6 @@ export function BuilderFrame(props: BuilderFrameProps) {
                     {scrim && <Box css={styles.scrim} data-scrim="" aria-hidden onClick={onScrim} />}
                 </Box>
                 {end !== undefined && !drawn("end") && pane("end", end)}
-                {SIDES.map((side) => {
-                    const dock = dockOf(side);
-                    return dock !== undefined && drawn(side) ? drawer(side, dock) : null;
-                })}
             </Box>
             {strip.length > 0 && (
                 <Box css={styles.paneStrip} data-frame-slot="paneStrip" role="tablist" aria-label={label === undefined ? "Panes" : `${label} panes`}
@@ -756,6 +762,13 @@ export function BuilderFrame(props: BuilderFrameProps) {
                     <SessionRowSlot.Provider value={sessionRow && !covered ? statusSlot : null}>{footer}</SessionRowSlot.Provider>
                 </Box>
             )}
+            {/* A phone's panes: each a view over the whole builder from its right edge, as the Filters view is, a strip of
+                the builder under a veil at its left, which a tap closes it by (ruled 3 Nov 2026, in place of FR5's drawer). */}
+            {phoneDrawer !== undefined && !dragging && <Box css={styles.drawerStrip} data-drawer-strip="" aria-hidden onClick={onScrim} />}
+            {SIDES.map((side) => {
+                const dock = dockOf(side);
+                return dock !== undefined && drawn(side) ? drawer(side, dock) : null;
+            })}
             {/* A phone's view over the whole builder, a toolbar item's (FR7): empty, it takes no pointer. */}
             {phone && <Box ref={setOverlaySlot} css={styles.overlay} data-frame-slot="overlay" />}
             {covered && <Box css={styles.loading} data-builder-loading="" role="status" aria-label={label === undefined ? "Loading builder" : `Loading ${label}`}
