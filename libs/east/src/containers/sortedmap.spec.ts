@@ -204,6 +204,82 @@ describe('SortedMap', () => {
         assert.deepEqual(priorities, [3, 2, 1]);
     });
 
+    describe('getOrInsert', () => {
+        test('sets and returns the value when the key is absent', () => {
+            const map = new SortedMap<string, number>();
+            assert.equal(map.getOrInsert('a', 1), 1);
+            assert.equal(map.get('a'), 1);
+            assert.equal(map.size, 1);
+        });
+
+        test('returns the value held and sets nothing when the key is present', () => {
+            const map = new SortedMap<string, number>([['a', 1]]);
+            assert.equal(map.getOrInsert('a', 2), 1);
+            assert.equal(map.get('a'), 1);
+            assert.equal(map.size, 1);
+        });
+
+        test('keeps a falsy value and an undefined value held for a key', () => {
+            const map = new SortedMap<string, number | undefined>([['zero', 0], ['none', undefined]]);
+            assert.equal(map.getOrInsert('zero', 5), 0);
+            assert.equal(map.getOrInsert('none', 5), undefined);
+            assert.equal(map.size, 2);
+        });
+
+        test('finds a key by the comparison function, not by identity', () => {
+            const byId = (a: { id: number }, b: { id: number }) => a.id - b.id;
+            const held = { id: 1 };
+            const map = new SortedMap<{ id: number }, string>([[held, 'held']], byId);
+            assert.equal(map.getOrInsert({ id: 1 }, 'other'), 'held');
+            assert.equal(map.size, 1);
+            assert.equal(map.minKey(), held);
+            assert.equal(map.getOrInsert({ id: 0 }, 'first'), 'first');
+            assert.deepEqual([...map.values()], ['first', 'held']);
+        });
+
+        test('throws on a frozen map only when it would set', () => {
+            const map = Object.freeze(new SortedMap<string, number>([['a', 1]]));
+            assert.equal(map.getOrInsert('a', 2), 1);
+            assert.throws(() => map.getOrInsert('b', 2), /frozen/);
+            assert.equal(map.has('b'), false);
+        });
+    });
+
+    describe('getOrInsertComputed', () => {
+        test('computes from the key and sets when the key is absent', () => {
+            const map = new SortedMap<string, number>();
+            assert.equal(map.getOrInsertComputed('abc', key => key.length), 3);
+            assert.equal(map.get('abc'), 3);
+        });
+
+        test('does not call the callback when the key is present, undefined value included', () => {
+            const map = new SortedMap<string, number | undefined>([['a', 1], ['none', undefined]]);
+            const never = () => assert.fail('callback called');
+            assert.equal(map.getOrInsertComputed('a', never), 1);
+            assert.equal(map.getOrInsertComputed('none', never), undefined);
+        });
+
+        test('finds a key by the comparison function, reversed order kept', () => {
+            const map = new SortedMap<number, string>([[1, 'one']], (a, b) => b - a);
+            assert.equal(map.getOrInsertComputed(1, () => assert.fail('callback called')), 'one');
+            assert.equal(map.getOrInsertComputed(2, key => `#${key}`), '#2');
+            assert.deepEqual([...map.keys()], [2, 1]);
+        });
+
+        test('leaves the computed value when the callback sets the same key', () => {
+            const map = new SortedMap<string, number>();
+            assert.equal(map.getOrInsertComputed('a', () => { map.set('a', 1); return 2; }), 2);
+            assert.equal(map.get('a'), 2);
+            assert.equal(map.size, 1);
+        });
+
+        test('throws on a frozen map before the callback when it would set', () => {
+            const map = Object.freeze(new SortedMap<string, number>([['a', 1]]));
+            assert.equal(map.getOrInsertComputed('a', () => assert.fail('callback called')), 1);
+            assert.throws(() => map.getOrInsertComputed('b', () => assert.fail('callback called')), /frozen/);
+        });
+    });
+
     test('should handle falsy values', () => {
         const map = new SortedMap<string, number | boolean | null>();
         map.set('zero', 0);

@@ -41,11 +41,7 @@ export default defineConfig({
     build: {
         outDir: path.resolve(APP_ROOT, '../dist/app'),
         emptyOutDir: true,
-        commonjsOptions: {
-            defaultIsModuleExports: true,
-            include: [/sorted-btree/, /node_modules/],
-        },
-        rollupOptions: {
+        rolldownOptions: {
             external: (id: string) => id.startsWith('node:'),
         },
     },

@@ -172,7 +172,7 @@ export function recordRows(record: unknown, options: SheetRecordRowsOptions<East
     checkIdField(element, id, rows);
     const rowsType = ArrayType(element);
     const key = East.value(options.entry.key as SubtypeExprOrValue<EastType>, keyType) as ExprType<EastType>;
-    const get = East.function([entryType], rowsType, (_$, entry) => (entry as unknown as Record<string, ExprType<EastType>>)[rows]!);
+    const get = East.function([entryType], rowsType, (_$, entry) => (entry as unknown as Record<string, ExprType<typeof rowsType>>)[rows]!);
     const set = East.function([entryType, rowsType], entryType, (_$, entry, next) => {
         const held = entry as unknown as Record<string, ExprType<EastType>>;
         return Object.fromEntries(Object.keys(fields).map((f) => [f, f === rows ? next : held[f]!])) as never;

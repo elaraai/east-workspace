@@ -63,13 +63,14 @@
     "eslint": "^9.34.0",
     "eslint-plugin-headers": "^1.3.3",
     "tsx": "^4.19.2",
-    "typescript": "~5.9.2"
+    "typescript": "npm:@typescript/typescript6@6.0.2",
+    "typescript-7": "npm:typescript@7.0.2"
   },
   "dependencies": {
     "sorted-btree": "^1.8.1"
   },
   "peerDependencies": {
-    "typescript": ">=5.0.0 <7"
+    "typescript": ">=5.0.0"
   },
   "peerDependenciesMeta": {
     "typescript": {

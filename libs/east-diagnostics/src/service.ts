@@ -58,12 +58,20 @@ function findNearestTsconfig(fromPath: string): string | undefined {
   }
 }
 
+/** The compiler the project uses, else the one beside this package. TypeScript
+ * 7's package carries no compiler API, so a project's that is TypeScript 7 counts
+ * as none: the compiler API lives in 6 and earlier, which a project keeps as
+ * `"typescript": "npm:@typescript/typescript6"` beside `typescript@7`'s `tsc`. */
 function loadTypeScript(projectDir: string): TsModule {
-  try {
-    return createRequire(join(projectDir, "_.js"))("typescript") as TsModule;
-  } catch {
-    return createRequire(import.meta.url)("typescript") as TsModule;
+  for (const from of [join(projectDir, "_.js"), import.meta.url]) {
+    try {
+      const found = createRequire(from)("typescript") as Partial<TsModule>;
+      if (typeof found.createLanguageService === "function") return found as TsModule;
+    } catch {
+      // none here: try the next
+    }
   }
+  throw new Error(`East diagnostics need TypeScript's compiler API, which no \`typescript\` found from ${projectDir} carries (TypeScript 7's has none): install it as "typescript": "npm:@typescript/typescript6", beside "typescript-7": "npm:typescript@7" for tsc`);
 }
 
 function toCategory(t: TsModule, category: ts.DiagnosticCategory): EastDiagnosticCategory {

@@ -354,7 +354,7 @@ export function from(value: any, type?: EastType): Expr<any> {
  * A closure is a function defined within another function that "captures", or refers to, one or more variables from an outer function.
  * Functions without captures are called free functions and can be compiled and executed.
  */
-export function func<const I extends EastType[], O extends EastType>(input_types: I, output_type: O, body: ($: BlockBuilder<O>, ...inputs: { [K in keyof I]: ExprType<I[K]> }) => SubtypeExprOrValue<O> | void): CallableFunctionExpr<I, O>
+export function func<const I extends EastType[], O extends EastType>(input_types: I, output_type: O, body: ($: BlockBuilder<O>, ...inputs: { [K in keyof I]: ExprType<I[K]> }) => SubtypeExprOrValue<NoInfer<O>> | void): CallableFunctionExpr<I, O>
 /** @internal */
 export function func<const I extends EastType[], F extends ($: BlockBuilder<NeverType>, ...inputs: { [K in keyof I]: ExprType<I[K]> }) => any>(input_types: I, output_type: undefined, body: F): CallableFunctionExpr<I, TypeOf<ReturnType<F> extends void ? NeverType : ReturnType<F>>>
 export function func(input_types: EastType[], output_type: EastType | undefined, body: ($: BlockBuilder<any>, ...inputs: Expr[]) => any): Expr<FunctionType<any[], any>> {
@@ -453,7 +453,7 @@ export function func(input_types: EastType[], output_type: EastType | undefined,
  * A closure is a function defined within another function that "captures", or refers to, one or more variables from an outer function.
  * Functions without captures are called free functions and can be compiled and executed.
  */
-export function asyncFunction<const I extends EastType[], O extends EastType>(input_types: I, output_type: O, body: ($: BlockBuilder<O>, ...inputs: { [K in keyof I]: ExprType<I[K]> }) => SubtypeExprOrValue<O> | void): CallableAsyncFunctionExpr<I, O>
+export function asyncFunction<const I extends EastType[], O extends EastType>(input_types: I, output_type: O, body: ($: BlockBuilder<O>, ...inputs: { [K in keyof I]: ExprType<I[K]> }) => SubtypeExprOrValue<NoInfer<O>> | void): CallableAsyncFunctionExpr<I, O>
 /** @internal */
 export function asyncFunction<const I extends EastType[], F extends ($: BlockBuilder<NeverType>, ...inputs: { [K in keyof I]: ExprType<I[K]> }) => any>(input_types: I, output_type: undefined, body: F): CallableAsyncFunctionExpr<I, TypeOf<ReturnType<F> extends void ? NeverType : ReturnType<F>>>
 export function asyncFunction(input_types: EastType[], output_type: EastType | undefined, body: ($: BlockBuilder<any>, ...inputs: Expr[]) => any): Expr<AsyncFunctionType<any[], any>> {

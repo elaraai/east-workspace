@@ -43,7 +43,7 @@ build:
 ## on it; `build-checked` and `check-apps` type-check every package beside them.
 build-js:
 	pnpm --filter @elaraai/east-ui --filter @elaraai/e3-ui run build
-	EAST_UI_DECLARATIONS=0 pnpm --filter @elaraai/east-ui-components --filter @elaraai/e3-ui-components exec vite build
+	pnpm --filter @elaraai/east-ui-components --filter @elaraai/e3-ui-components exec vite build
 
 ## Every package a test or lint reads built as `build` builds it, type-checked
 ## and its declarations written: all but the showcase, which `check-apps`

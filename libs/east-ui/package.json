@@ -33,6 +33,6 @@
     "@elaraai/e3": "workspace:*",
     "@elaraai/east-node-std": "workspace:*",
     "playwright": "^1.49.0",
-    "vite": "^6.0.0"
+    "vite": "^8.3.5"
   }
 }

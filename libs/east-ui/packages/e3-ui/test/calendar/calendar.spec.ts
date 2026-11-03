@@ -32,9 +32,9 @@ describe("Calendar's thin e3-ui contract", () => {
             const jobs = $.let(Record.bind(ex.calendarJobs));
             const presets = $.let(Record.bind(ex.calendarServiceTemplates, []));
             return createCalendarPayload({ events: { job: Calendar.events(jobs, {
-                name: "Jobs", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" },
+                name: "Jobs", icon: "industry", title: "title", start: "start", end: "end",
                 // @ts-expect-error Templates from another row are rejected by both TypeScript and the factory.
-                templates: Calendar.templates(presets.read(), { name: row => row.name, duration: row => variant("hours", row.hours), values: row => row.values }),
+                resource: { field: "machine", of: "machines" }, templates: Calendar.templates(presets.read(), { name: row => row.name, duration: row => variant("hours", row.hours), values: row => row.values }),
             }) } });
         }), /templates.values.*expected/);
     });

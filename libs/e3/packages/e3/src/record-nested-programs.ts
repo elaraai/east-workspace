@@ -297,7 +297,7 @@ function placedItem(decl: NestedDeclaration, collection: NestedCollection, itemT
 
 /** The empty collection a lean node holds in place of a listed one: `(N) → Dict<…>`, empty. */
 function emptied(nodeType: EastType, type: EastType): FunctionExpr<[EastType], EastType> {
-  return East.function([nodeType], type, () => new Map());
+  return East.function([nodeType], type, () => new Map() as never);
 }
 
 /**
@@ -1871,7 +1871,7 @@ export function nestedFill(decl: NestedDeclaration, keyType: EastType, rowType: 
       fields.push({ field: child.field, fill: East.function([group.type, KeysType, byPlace], rowsType, ($, node, keys, entries) => {
         const rows = $.const(rowsOf);
         const fill = $.const(rowsFill);
-        return fill(rows(node), keys, entries);
+        return fill(rows(node), keys, entries) as never;
       }) });
     }
     const own = fields.reduce<FunctionExpr<[EastType, typeof KeysType, typeof byPlace], EastType>>(
@@ -1956,7 +1956,7 @@ export function nestedLean(decl: NestedDeclaration, keyType: EastType, rowType: 
       fields[child.field] = East.function([group.type], rowsType, ($, node) => {
         const rows = $.const(rowsOf);
         const lean = $.const(leanRows);
-        return lean(rows(node));
+        return lean(rows(node)) as never;
       });
     }
     const own = rebuiltNode(group.type, fields);

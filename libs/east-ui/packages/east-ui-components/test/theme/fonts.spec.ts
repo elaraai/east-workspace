@@ -11,12 +11,12 @@
  * manifest beside the entry's built files, and the fontsource packages it
  * depends on beside it. The app is then built and served.
  *
- * - `vite build` — Rollup reads the package's `sideEffects`, and drops an
+ * - `vite build` — Rolldown reads the package's `sideEffects`, and drops an
  *   import of a module it does not list, stylesheets and all. The CSS the
  *   build emits must hold every face, each pointing at a file the build
  *   emits or embeds.
  * - `vite` (dev) — the dependency optimiser pre-bundles the entry with
- *   esbuild, which leaves an import for the page to load only when its
+ *   Rolldown, which leaves an import for the page to load only when its
  *   specifier names a stylesheet; otherwise it bundles the stylesheet into a
  *   file of its own that nothing loads. The pre-bundled entry must import
  *   the stylesheets, and they must hold every face.

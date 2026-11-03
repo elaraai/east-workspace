@@ -27,6 +27,7 @@ type BTree<K, T> = sorted_btree.default<K, T>;
  * - Provides range-based iteration starting from any key
  * - Respects frozen state and throws errors on modification attempts
  * - Includes static {@link groupBy} method for aggregation operations
+ * - {@link getOrInsert} and {@link getOrInsertComputed} find a key by the comparison function, as every lookup does
  *
  * Used to implement East's {@link DictType} with total ordering semantics.
  */
@@ -117,6 +118,47 @@ export class SortedMap<K, T> implements Map<K, T> {
      */
     has(value: K): boolean {
         return this.btree.has(value);
+    }
+
+    /**
+     * Returns the value of a key, first setting it to a given value if the key is absent.
+     *
+     * @param key - The key to look up, compared with this map's comparison function
+     * @param value - The value to set when the key is absent
+     * @returns The value already held for the key, or `value` when there was none
+     * @throws {TypeError} When the key is absent and the map is frozen
+     *
+     * @remarks
+     * A key held with the value `undefined` is present, as in `Map`: its `undefined`
+     * is returned and nothing is set. A frozen map answers for a key it holds.
+     */
+    getOrInsert(key: K, value: T): T {
+        if (this.btree.has(key)) return this.btree.get(key) as T;
+        this.set(key, value);
+        return value;
+    }
+
+    /**
+     * Returns the value of a key, first setting it to a computed value if the key is absent.
+     *
+     * @param key - The key to look up, compared with this map's comparison function
+     * @param callbackfn - Computes the value from the key, called only when the key is absent
+     * @returns The value already held for the key, or the value computed for it
+     * @throws {TypeError} When the key is absent and the map is frozen, before the callback is called
+     *
+     * @remarks
+     * As in `Map`, the key given is the one stored. The key is looked up again after
+     * the callback, so a callback that sets the key leaves the computed value in its
+     * place, as `Map`'s does.
+     */
+    getOrInsertComputed(key: K, callbackfn: (key: K) => T): T {
+        if (this.btree.has(key)) return this.btree.get(key) as T;
+        if (Object.isFrozen(this)) {
+            throw new TypeError("Cannot modify frozen SortedMap");
+        }
+        const value = callbackfn(key);
+        this.btree.set(key, value);
+        return value;
     }
 
     /**

@@ -6,7 +6,7 @@
   "description": "E3 Ui Showcase",
   "type": "module",
   "scripts": {
-    "build": "node --max-old-space-size=16000 ./node_modules/typescript/bin/tsc",
+    "build": "tsc",
     "test": "node --enable-source-maps --test 'dist/**/*.spec.js'",
     "test:export": "rm -rf \"${E3_UI_SHOWCASE_TEST_IR:?is unset: run make -C libs/east-ui/packages/e3-ui-showcase test}\" && EXPORT_TEST_IR=\"$E3_UI_SHOWCASE_TEST_IR\" node --enable-source-maps --test 'dist/**/*.spec.js' 2>&1 | grep 'Exported test IR'",
     "lint": "eslint ."
@@ -24,7 +24,8 @@
     "@elaraai/east-node-cli": "workspace:*",
     "@elaraai/east-c-cli": "workspace:*",
     "@types/node": "^22",
-    "typescript": "^5",
+    "typescript": "npm:@typescript/typescript6@6.0.2",
+    "typescript-7": "npm:typescript@7.0.2",
     "eslint": "^9",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8"
