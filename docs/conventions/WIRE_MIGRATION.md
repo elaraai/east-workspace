@@ -688,3 +688,24 @@ Each wire changed under this rule, with the kind it is.
   `FunctionCallStateType` and `FunctionCallStatusType` are kept forms: a case
   either gains is named to sort after every case before it, so its tag is the
   last.
+- **e3's split calls gain `first`, a cancel, and a report of how they ran
+  (#1104, #1105, #1110)** — neither package-borne nor stored in a repository:
+  the split-call routes' request and answer, and a transfer store's record of
+  a call's job. `SplitCallRequestType`'s output gains `first`, a call that
+  stops once it has its first `limit` elements; `SplitCallStatusType` gains
+  `cancelled`, and its `completed` gains `report`, how the call ran
+  (`SplitCallReportType`); and e3-core's job record (`SplitCallJobType`) gains
+  `first`, its status (`SplitCallJobStatusType`) `cancelled`, and its outcome
+  `report`. `first` sorts between `dict` and `fold`, and `cancelled` before
+  every case. A struct that gains a field reads under neither type whatever
+  its variants' cases are named, so with `completed`'s struct changed no
+  naming would keep an answer readable, and the cases keep the names that say
+  them: a request or an answer of either release does not decode as the
+  other's. A server refuses a client's request of the other release, and a
+  client the server's answer, naming both types, as each refuses any type it
+  does not read — so `e3`, the query builder and the server they call are of
+  one release, as the function routes' are (#1514). A store keeps a job's
+  record while its call runs and for minutes after it ends, and no upgrade
+  step ships: a split call in flight as its server's release changes is lost
+  — its record no longer decodes, and its poll fails — and a relaunch is
+  served the units it finished from the execution cache.

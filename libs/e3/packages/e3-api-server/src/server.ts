@@ -229,12 +229,14 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   };
 
   // Transfer backend for presigned URL object transfer, and the jobs that
-  // outlast a request, which it runs in this process
+  // outlast a request, which it runs in this process: a `first` split call
+  // keeps as many units running as the budget has cores
   const transferBackend: TransferBackend = new InMemoryTransferBackend({
     baseUrl: '',
     storage,
     getRepoPath,
     getRunner,
+    splitCallWidth: budget.cores,
     ...(transferPartBytes !== undefined && { partBytes: transferPartBytes }),
   });
 

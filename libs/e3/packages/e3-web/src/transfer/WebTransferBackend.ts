@@ -290,6 +290,9 @@ interface TransferHost {
   readonly getRunner: (repo: string) => TaskRunner;
   /** How long what finished, and what did not, is kept */
   readonly retention: Retention;
+  /** How many units a `first` split call's job keeps running at once, when
+   *  set */
+  readonly splitCallWidth: number | undefined;
 }
 
 /**
@@ -1209,7 +1212,10 @@ class WebSplitCallStore extends JobStore<SplitCallJob, SplitRecord> implements S
 
   protected work(id: string, record: SplitRecord): Promise<void> {
     const repo = record.job.repo;
-    return handleProcessSplitCall({ storage: this.host.storage, splitCallStore: this, runner: this.host.getRunner(repo) }, { id, repo });
+    const width = this.host.splitCallWidth;
+    return handleProcessSplitCall({
+      storage: this.host.storage, splitCallStore: this, runner: this.host.getRunner(repo), ...(width !== undefined && { width }),
+    }, { id, repo });
   }
 }
 
@@ -1243,6 +1249,9 @@ export interface WebTransferBackendOptions {
    * milliseconds, unless set
    */
   readonly retention?: { readonly resultTtlMs?: number; readonly recordMs?: number; readonly intervalMs?: number };
+  /** How many units a `first` split call's job keeps running at once (#1110):
+   *  the pool's width, which lets that many run; 4 unless set */
+  readonly splitCallWidth?: number;
 }
 
 /**
@@ -1320,6 +1329,7 @@ export class WebTransferBackend implements TransferBackend {
       storage,
       getRunner,
       retention: this.retention,
+      splitCallWidth: options.splitCallWidth,
     };
     const running = new Running();
     this.datasetUpload = new WebDatasetUploadStore(host, BigInt(partBytes));

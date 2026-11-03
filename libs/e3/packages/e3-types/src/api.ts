@@ -1366,6 +1366,14 @@ export const SplitCallArgType = VariantType({
  * plan that needs a partitioned dataset again after the combine runs another
  * split call over it, given this call's output as an `object` argument.
  *
+ * `first` (#1110) is an `array` whose call stops once it has its first `limit`
+ * elements, at least 1: the body emits as an array's does, and the value is an
+ * Array of the first `limit` elements in input order, or of every element when
+ * there are fewer. Its pieces run in input order, a few at a time, and once the
+ * pieces finished from the first hold `limit` elements no piece after them
+ * starts. Its pieces are an `array` call's, so the two share them in the
+ * cache. `then` is given the first `limit` elements as its output.
+ *
  * SECURITY: a caller whose one-shot grant is `platform_free` may launch one
  * only when it is platform-free: a stock runtime given no platform package,
  * and none of `bodyIr`, `then`, `merge` or `combine` calling a platform
@@ -1380,6 +1388,7 @@ export const SplitCallRequestType = StructType({
   output: VariantType({
     array: NullType,
     dict:  StructType({ merge: OptionType(BlobType) }),
+    first: StructType({ limit: IntegerType }),
     fold:  StructType({ combine: BlobType, zero: BlobType }),
     set:   NullType,
   }),

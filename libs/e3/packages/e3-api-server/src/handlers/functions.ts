@@ -360,6 +360,7 @@ export async function startSplitCall(
         inputs: [],
         objects: [],
         then: none,
+        first: none,
         limits: { timeoutMs: BigInt(limits.timeoutMs), maxResultBytes: BigInt(limits.maxResultBytes), maxLogBytes: BigInt(limits.maxLogBytes) },
         read: [],
         status: variant('completed', splitCallInvalid(launched)),
@@ -372,6 +373,7 @@ export async function startSplitCall(
       inputs: [...launched.inputs],
       objects: launched.objects.map((index) => BigInt(index)),
       then: launched.then === null ? none : some(launched.then),
+      first: launched.first === null ? none : some(BigInt(launched.first)),
       limits: {
         timeoutMs: BigInt(launched.limits.timeoutMs),
         maxResultBytes: BigInt(launched.limits.maxResultBytes),

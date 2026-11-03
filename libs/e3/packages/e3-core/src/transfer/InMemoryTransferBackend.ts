@@ -524,6 +524,7 @@ class InMemorySplitCallStore implements SplitCallStore {
     private readonly storage?: StorageBackend,
     private readonly getRepoPath?: (repo: string) => string,
     private readonly getRunner?: (repoPath: string) => TaskRunner,
+    private readonly width?: number,
   ) {}
 
   async create(id: string, record: SplitCallJob): Promise<void> {
@@ -568,7 +569,7 @@ class InMemorySplitCallStore implements SplitCallStore {
     // The job runs in this process, on the runner every task of the server
     // runs on, and outlives the request that launched it.
     void handleProcessSplitCall(
-      { storage: this.storage, splitCallStore: this, runner },
+      { storage: this.storage, splitCallStore: this, runner, ...(this.width !== undefined && { width: this.width }) },
       { id, repo: repoPath },
     ).catch(() => {
       // Error already recorded in job status by handleProcessSplitCall
@@ -633,6 +634,11 @@ export interface InMemoryTransferBackendOptions {
    */
   commitAs?: UploadCommitForm;
   /**
+   * How many units a `first` split call's job keeps running at once (#1110),
+   * 4 by default: a server passes its budget's cores.
+   */
+  splitCallWidth?: number;
+  /**
    * How often a running function call reads its record for a request to
    * cancel it, in ms (default a second). A request made through this backend's
    * dispatch stops the call at once whatever this is.
@@ -662,7 +668,7 @@ export class InMemoryTransferBackend implements TransferBackend {
     this.packageExport = new InMemoryPackageExportStore(baseUrl, options.storage, options.getRepoPath);
     this.workspaceDeploy = new InMemoryWorkspaceDeployStore(options.storage, options.getRepoPath, options.getRunner);
     this.repoGc = new InMemoryRepoGcStore(options.storage, options.getRepoPath, options.getRunner);
-    this.splitCall = new InMemorySplitCallStore(options.storage, options.getRepoPath, options.getRunner);
+    this.splitCall = new InMemorySplitCallStore(options.storage, options.getRepoPath, options.getRunner, options.splitCallWidth);
     // A call runs in this process, on the runner every task of the server runs
     // on, and outlives the request that filed it
     const { storage, getRepoPath, getRunner, functionCallWatchMs } = options;

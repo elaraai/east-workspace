@@ -225,6 +225,9 @@ export const SplitCallJobType = StructType({
    *  each names before it runs, which the launch never reads. */
   objects: ArrayType(IntegerType),
   then: OptionType(StringType),
+  /** A `first` call's limit (#1110): the job runs the `array` task's pieces in
+   *  input order until they hold that many elements; `none` for any other. */
+  first: OptionType(IntegerType),
   limits: StructType({ timeoutMs: IntegerType, maxResultBytes: IntegerType, maxLogBytes: IntegerType }),
   read: ArrayType(StructType({ path: TreePathType, hash: StringType })),
   /** Whether the job is an explain's: it plans the call's pieces as the run

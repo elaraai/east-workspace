@@ -398,6 +398,18 @@ export interface TaskRunner {
   readonly wholeIntakeLimit: number | null;
 
   /**
+   * How the stages of a split task whose units this runner runs start
+   * (`ExecuteOptions.firstWave`), which a caller that runs the units itself —
+   * a `first` split call's job (`runFirstPieces`) — starts them by:
+   * `estimate`, every unit at once, each expecting an estimate, where
+   * something stops a unit that outgrows its share — a local runner under a
+   * budget whose guard runs, a cloud runner whose functions stop it; or
+   * `measure`, one unit alone and the rest once it has settled. Absent,
+   * `measure`.
+   */
+  readonly firstWave?: 'measure' | 'estimate';
+
+  /**
    * Take a delivered collection in, or a run of its segments, through an
    * `intake` unit, and store what it wrote through the store's door.
    *
