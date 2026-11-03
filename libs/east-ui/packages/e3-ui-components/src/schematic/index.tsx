@@ -148,6 +148,7 @@ import { LoadingReveal, loadingLineText, schematicColorTokens, type LoadingLineT
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import type { SourceHiding } from "../shared/schedule/hidden.js";
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
+import { openFramePane } from "../shared/schedule/open-pane.js";
 import { rowCodec } from "../shared/schedule/records.js";
 import { sourcePart, type KeyVisibilityWords, type SourcesChrome } from "../shared/schedule/visibility.js";
 import { kindPlural } from "../shared/schedule/words.js";
@@ -1016,7 +1017,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const inspectorName = words.m.inspectorPane();
     const openDetails = useCallback(() => {
         setInspectorTab({ tab: "details" });
-        frameRef.current?.querySelector<HTMLButtonElement>(`button[aria-label="Expand ${inspectorName}"]`)?.click();
+        openFramePane(frameRef.current, inspectorName, "end");
     }, [setInspectorTab, inspectorName]);
     // What Details and Issues name, selected through the canvas — and flown to.
     const revealEntity = useCallback((id: string | undefined, at?: NetLeg) => canvasRef.current?.reveal(id, at), []);

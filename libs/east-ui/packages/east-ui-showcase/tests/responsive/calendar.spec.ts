@@ -120,6 +120,18 @@ for (const theme of LAYOUT_THEMES) {
         await settled(page);
         await expect(entry.locator('[data-calendar-card]').filter({ hasText: "Torque-test fixtures" }).first()).toBeVisible();
     });
+    test(`in a phone's frame wide enough for a time grid, Enter on an event opens its Details: the Inspector's view, over the frame (${theme}) @mobile`, async ({ page }) => {
+        const entry = await open(page, "calendarOperations", theme);
+        await size(page, entry, 530);
+        const frame = entry.locator("[data-calendar-frame]").first();
+        await viewChoice(page, frame, "Timeline");
+        const event = frame.locator("[data-calendar-event]").first();
+        await expect(event).toBeVisible();
+        await event.focus();
+        await page.keyboard.press("Enter");
+        await expect(frame.locator("[data-pane-tab='end']")).toHaveAttribute("aria-selected", "true");
+        await expect(frame.locator("[data-frame-drawer][data-frame-slot='end']")).toHaveAttribute("data-open", "");
+    });
     test(`desktop views preserve geometry, selection and view through resize (${theme})`, async ({ page }, info) => {
         test.skip(info.project.name !== "desktop", "Desktop geometry; explicit actions cover the phone projects.");
         await page.setViewportSize({ width: 1920, height: 1080 });

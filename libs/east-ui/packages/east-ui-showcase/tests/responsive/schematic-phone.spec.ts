@@ -241,6 +241,16 @@ test.describe("The Schematic on a phone (#1394)", () => {
         expect(await discard(root).isDisabled()).toBe(true);
     });
 
+    test("a double tap on a rack opens its Details: the Inspector's view, over the frame", async ({ page }) => {
+        await page.setViewportSize({ width: 390, height: 844 });
+        const root = await openSchematic(page, DATA_CENTRE);
+        await centred(page, root);
+        const at = await screenPoint(root, 16.8, 2.9);
+        await page.mouse.dblclick(at.x, at.y);
+        await expect(root.locator("[data-pane-tab='end']")).toHaveAttribute("aria-selected", "true");
+        await expect(root.locator("[data-frame-drawer][data-frame-slot='end']")).toHaveAttribute("data-open", "");
+    });
+
     test("the inspector's actions through Save and a remount: a run from A05 to MMR-1 by Connect to…, and A06 placed from the Backlog by its Place, at the canvas's centre — each read back from e3 (SC25, SC13)", async ({ page }) => {
         await page.setViewportSize({ width: 390, height: 844 });
         let root = await openSchematic(page, DATA_CENTRE);

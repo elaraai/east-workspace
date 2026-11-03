@@ -96,6 +96,7 @@ import type { ScheduleCellNotice, ScheduleCellResources } from "../shared/schedu
 import { scheduleIssueName, useScheduleEditing, type ScheduleEditing, type ScheduleEventDraftsValue, type ScheduleHeldRows, type ScheduleRowRead } from "../shared/schedule/editing.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
+import { openFramePane } from "../shared/schedule/open-pane.js";
 import { scheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { useNow } from "../shared/time/now-line.js";
@@ -406,9 +407,7 @@ function CalendarFrame(props: HostProps) {
         requestAnimationFrame(() => clearOfPanes(element));
     }, []);
     // Enter on an event opens its Details, as the Schematic's Enter does (retest C5): the Inspector, folded, opened on it.
-    const openDetails = useCallback(() => {
-        root.current?.querySelector<HTMLButtonElement>('[data-builder-frame] button[aria-label="Expand Inspector"]')?.click();
-    }, []);
+    const openDetails = useCallback(() => { openFramePane(root.current, "Inspector", "end"); }, []);
     useEffect(() => {
         if (reveal === undefined || main.current === null) return;
         const key = CSS.escape(eventKey(reveal));

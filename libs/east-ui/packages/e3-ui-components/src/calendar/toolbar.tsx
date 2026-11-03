@@ -171,11 +171,12 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
         select([firstPair.first, firstPair.second].map(item => ({ kind: item.kind, key: item.key })));
         if (firstPair.first.start.type === "some") setView({ ...view, layout: "resources", date: dayStart(firstPair.first.start.value).getTime() });
     };
+    const overlapNoun = (n: number) => n === 1 ? "overlap" : "overlaps";
     const warning = (short: boolean) => <OverlapsCount overlaps={overlaps} visible={visible}>{n =>
         <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]}
-            aria-label={`${n} overlaps`} data-calendar-overlaps="" onClick={showOverlaps}><span data-chip-icon=""><FontAwesomeIcon icon={faTriangleExclamation} /></span><span data-chip-label="">{n}{!short && " overlaps"}</span></chakra.button>}
+            aria-label={`${n} ${overlapNoun(n)}`} data-calendar-overlaps="" onClick={showOverlaps}><span data-chip-icon=""><FontAwesomeIcon icon={faTriangleExclamation} /></span><span data-chip-label="">{n}{!short && ` ${overlapNoun(n)}`}</span></chakra.button>}
     </OverlapsCount>;
-    const overlapsWords = <OverlapsCount overlaps={overlaps} visible={visible}>{n => `${n} overlaps`}</OverlapsCount>;
+    const overlapsWords = <OverlapsCount overlaps={overlaps} visible={visible}>{n => `${n} ${overlapNoun(n)}`}</OverlapsCount>;
     const viewMenu = <ChipMenu label="View" icon={faCalendarWeek} data="data-calendar-view-menu" onSelect={key => {
         const layout = LAYOUTS.find(layout => layout.key === key); const picked = PERIODS.find(period => period.key === key);
         if (layout !== undefined) setView({ ...view, layout: layout.key });
