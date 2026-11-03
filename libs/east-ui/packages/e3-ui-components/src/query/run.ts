@@ -31,8 +31,9 @@
  *   failed, for the builder remounting;
  * - **what came back** ({@link runOutput}): the result's type and value, the
  *   counts, and whether the rows were cut; or a result too large for one
- *   answer, the output of a split call with no final step, opened to be read
- *   a page at a time (`paged-result.ts`, #1113);
+ *   answer, the output of a split call with no final step — the run's own, or
+ *   the one a run whose one call answered too large goes on as — opened to be
+ *   read a page at a time (`paged-result.ts`, #1113);
  * - **fresh or stale** ({@link canonicalProgram}): a result is fresh while
  *   the query's canonical program is the one it ran.
  *
@@ -301,6 +302,32 @@ async function weigh(draft: PlanDraft, source: string | undefined, root: QueryRo
 }
 
 /**
+ * The split call a run goes on as when its one call, which the estimates
+ * chose, answered too large for one answer (#1113): one with no final step,
+ * whose output is read a page at a time.
+ *
+ * @param planned - the run's one call
+ * @param draft - its query, checked and split
+ * @param weights - what its datasets weigh
+ * @returns the split call; `undefined` when the estimates did not choose the
+ *   one call, or the run has no such split call to make — it does not split,
+ *   or its split has a final step, which answers inline as one call does
+ */
+function pagedInstead(
+    planned: Extract<QueryPlan, { kind: "one_shot" }>, draft: PlanDraft, weights: ReadonlyMap<string, SourceWeight>,
+): Extract<QueryPlan, { kind: "split" }> | undefined {
+    const path = planned.explanation.path;
+    if (path.kind !== "one_shot" || path.why.kind !== "faster") return undefined;
+    try {
+        const again = weighPlan(draft, weights, { tooLarge: true });
+        return "plan" in again && again.plan.kind === "split" && again.plan.request.then.type === "none" ? again.plan : undefined;
+    } catch {
+        // A split program the translator cannot express: the one call's answer stands.
+        return undefined;
+    }
+}
+
+/**
  * Runs the open query: each run planned in the browser and sent as one
  * one-shot call, or as a split call over the dataset it works through; one
  * run in flight at a time, a new run abandoning the old.
@@ -334,7 +361,10 @@ async function weigh(draft: PlanDraft, source: string | undefined, root: QueryRo
  * A split call with no final step whose answer was too large for one has its
  * output — the hash the answer names — opened (`collection`), and the run's
  * result is read a page at a time (#1113). An output that can't be opened
- * leaves the answer too large.
+ * leaves the answer too large. A one call's answer too large for one names no
+ * output: a run whose estimates chose one call, and whose split call has no
+ * final step, goes on as that split call (`weighPlan`'s `tooLarge`), so its
+ * result is read a page at a time too.
  *
  * A new run gives the one before up by its signal, and so does the builder
  * going — unmounted, or hidden: its split call stops polling, its job is
@@ -453,8 +483,15 @@ export function useQueryRun(
                     return;
                 }
                 if (!live()) return;
-                answered(planned, planned.prepared, answer, (result) => runOutput(plan, result), undefined, undefined);
-                return;
+                // Too large for one answer, a one call's result is never read a page at a time, and a split call's output is.
+                const instead = answer.outcome.type === "too_large" && split !== undefined && collection !== undefined
+                    ? pagedInstead(planned, draft, weights) : undefined;
+                if (instead === undefined) {
+                    answered(planned, planned.prepared, answer, (result) => runOutput(plan, result), undefined, undefined);
+                    return;
+                }
+                planned = instead;
+                setState({ status: "running", n, plan, reads, planned, progress: undefined, pieces: undefined });
             }
 
             if (split === undefined) {

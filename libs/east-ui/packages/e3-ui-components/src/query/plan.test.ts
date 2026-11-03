@@ -8,7 +8,12 @@
  * golden explanation of every combine kind, every reason a query runs as one
  * unit, every read that prunes, and every reason a query that splits is still
  * one call; the path by what the dataset weighs, against e3's smallest piece
- * or the options' own; the split call's request, decoded back — each
+ * or the options' own; the path by its estimated time and memory (#1143) — a
+ * dataset within one piece, or a little over it with cheap rows, one call; a
+ * split chosen for time over 1 GB, and one call estimated to hold more than
+ * the memory it may use split; no rows known, or the options' own piece, by
+ * weight; a re-keyed join's two calls; what one call holds; and the estimates
+ * and what they assumed in words; the split call's request, decoded back — each
  * argument's partition, the output kind, its programs and a fold's zero, the
  * runner and the limits — its answer at the type the one-shot translation
  * gives; the visual view's split program, its sort's first rows kept in the
@@ -33,7 +38,9 @@ import { formatters } from "@elaraai/east-ui-components";
 import { createInMemoryQueryCall, createInMemorySplitCall } from "./in-memory-call.js";
 import { planBadge, planWords, queryWords } from "./model/words.js";
 import { prepareQuery, queryResultOf, queryRoot, type QueryResult, type QueryRootEntry } from "./one-shot.js";
-import { planQuery, splitCallRequest, type PlanExplanation, type QueryPlan, type SourceWeight } from "./plan.js";
+import {
+    PLAN_COSTS, draftPlan, planQuery, splitCallRequest, weighPlan, type PlanExplanation, type PlanOptions, type QueryPlan, type SourceWeight,
+} from "./plan.js";
 
 // ─── The fixture as a root ───────────────────────────────────────────────────
 
@@ -60,8 +67,12 @@ const words = queryWords(formatters("en-US"));
 /** 1.5 GiB: a dataset far larger than one piece. */
 const LARGE = 1_610_612_736;
 
-/** Every dataset the fixture's queries split over, weighed as large. */
-const HEAVY: ReadonlyMap<string, SourceWeight> = new Map([["orders", { bytes: LARGE, rows: 40 }], ["byId", { bytes: LARGE, rows: 40 }], ["cells", { bytes: LARGE, rows: 9 }]]);
+/**
+ * Every dataset the fixture's queries split over, weighed as large, their rows
+ * not known: each path is by weight alone, as before the estimates (#1143),
+ * whose own tests weigh rows too.
+ */
+const HEAVY: ReadonlyMap<string, SourceWeight> = new Map([["orders", { bytes: LARGE, rows: undefined }], ["byId", { bytes: LARGE, rows: undefined }], ["cells", { bytes: LARGE, rows: undefined }]]);
 
 /** A program's plan; the test fails when the program does not check. */
 function plan(program: string, weights: ReadonlyMap<string, SourceWeight> = HEAVY, pieceBytes?: number): QueryPlan {
@@ -263,6 +274,7 @@ describe("N1: golden explanations, at the words level", () => {
         const explanation: PlanExplanation = {
             program: ".orders | map(.total) | add",
             path: { kind: "one_shot", why: { kind: "unsplit", over: "orders", message: "the run's split program splits otherwise than the query: fold over orders" } },
+            estimates: null,
             pruning: [],
         };
         expect(explained(explanation)).toBe("One call: the split call couldn't be made — the run's split program splits otherwise than the query: fold over orders");
@@ -273,7 +285,8 @@ describe("N1: golden explanations, at the words level", () => {
 
 describe("the path, by what the dataset weighs", () => {
     const program = ".orders | group_by(.customer_id) | map({customer: .[0].customer_id, n: length})";
-    const weighing = (bytes: number | undefined) => new Map([["orders", { bytes, rows: 40 }]]);
+    // Its rows not known: by weight alone (#1143).
+    const weighing = (bytes: number | undefined) => new Map([["orders", { bytes, rows: undefined }]]);
 
     test("e3's smallest piece by default: within it one call, over it a split call", () => {
         expect(PIECE_SIZES.min).toBe(16 * 2 ** 20);
@@ -324,6 +337,178 @@ describe("the path, by what the dataset weighs", () => {
         const prepared = prepareQuery(".orders | map(.totl)", ROOT);
         if (!("result" in planned) || !("result" in prepared)) throw new Error("expected a refusal");
         expect(planned.result).toEqual(prepared.result);
+    });
+});
+
+// ─── The path, by estimated time and memory (#1143) ──────────────────────────
+
+describe("the path, by estimated time and memory (#1143)", () => {
+    /** The orders weighed: their stored bytes, and the rows e3's status counts. */
+    const orders = (bytes: number, rows: number | undefined) => new Map([["orders", { bytes, rows }]]);
+    /** A program's plan, its explanation in words, and its estimates. */
+    const planned = (program: string, weights: ReadonlyMap<string, SourceWeight>, options: PlanOptions = {}) => {
+        const p = planQuery(program, ROOT, weights, options);
+        if ("result" in p) throw new Error(`${program} does not check`);
+        return { kind: p.plan.kind, words: explained(p.plan.explanation), estimates: p.plan.explanation.estimates };
+    };
+
+    test("a dataset within one piece stays one call, its rows known or not: one piece is all a split call could cut", () => {
+        for (const rows of [466_000, undefined]) {
+            const p = planned(".orders | map(.total) | add", orders(PIECE_SIZES.min, rows));
+            expect([p.kind, p.words, p.estimates]).toEqual(["one_shot", "One call: orders weighs 16 MB, within one piece (16 MB).", null]);
+        }
+    });
+
+    test("a small dataset a little over one piece stays one call: a cheap row is done sooner than a split call's pieces start", () => {
+        const p = planned(".orders | map(.id)", orders(20 * 2 ** 20, 580_000));
+        expect(p.kind).toBe("one_shot");
+        expect(p.words).toBe([
+            "One call: estimated faster than a split call over orders.",
+            "As one call: about 430 ms, holding about 10 MB.",
+            "As a split call: about 500 ms, 5 pieces, 8 at a time, each holding about 10 MB.",
+            "Assumed: 580,000 rows of orders, each about 0.65 µs in one call and 0.9 µs in a piece.",
+        ].join("\n"));
+    });
+
+    test("a one call the estimates chose whose answer was too large for one goes on as its split call, whose output is read a page at a time (#1113)", () => {
+        const drafted = draftPlan(".orders | map(.id)", ROOT);
+        if ("result" in drafted) throw new Error("expected a draft");
+        const weights = orders(20 * 2 ** 20, 580_000);
+        const once = weighPlan(drafted.draft, weights);
+        expect("plan" in once && once.plan.kind).toBe("one_shot");
+        const again = weighPlan(drafted.draft, weights, { tooLarge: true });
+        if ("result" in again || again.plan.kind !== "split") throw new Error("expected a split call");
+        // No final function: its assembled output is its answer, which names it by its hash.
+        expect(again.plan.request.then.type).toBe("none");
+        expect(explained(again.plan.explanation).split("\n").slice(0, 3)).toEqual([
+            "Split call over orders: one call's answer was too large for one, and a split call's is read a page at a time.",
+            "As one call: about 430 ms, holding about 10 MB.",
+            "As a split call: about 500 ms, 5 pieces, 8 at a time, each holding about 10 MB.",
+        ]);
+        // A split the estimates chose stays the one they chose it for.
+        const big = weighPlan(drafted.draft, orders(2 ** 30, 30_000_000), { tooLarge: true });
+        expect("plan" in big && big.plan.explanation.path.kind === "split" && big.plan.explanation.path.why).toBe("time");
+    });
+
+    test("a stream's first rows stop both paths, so one call is estimated faster for them however large the dataset (#1113)", () => {
+        const weights = orders(2 ** 30, 30_000_000);
+        const first = planned("first(.orders[] | select(.total > 0)) | .id", weights);
+        expect(first.kind).toBe("one_shot");
+        expect(first.words).toBe([
+            "One call: estimated faster than a split call over orders.",
+            "As one call: about 50 ms, holding about 10 MB.",
+            "As a split call: about 1.5 s, 32 pieces, 8 at a time, each holding about 10 MB.",
+            "Assumed: 30,000,000 rows of orders, each about 0.65 µs in one call and 0.9 µs in a piece; both paths stop after the first.",
+        ].join("\n"));
+        expect(first.estimates?.firstRows).toBe(1);
+        const some = planned("limit(500; .orders[] | select(.total > 0) | .id)", weights);
+        expect([some.kind, some.estimates?.firstRows, some.words.split("\n")[3]]).toEqual(["one_shot", 500,
+            "Assumed: 30,000,000 rows of orders, each about 0.65 µs in one call and 0.9 µs in a piece; both paths stop after the first 500."]);
+        // A `many` query's first rows past what it keeps are no more than its most outputs and one more (#1113).
+        expect(planned("limit(1000000; .orders[] | .id)", weights).estimates?.firstRows).toBe(1_001);
+        // Every row read, the paths are estimated as before.
+        expect(planned(".orders | map(.total) | add", weights).estimates?.firstRows).toBeNull();
+    });
+
+    test("a split chosen for time over 1 GB: its pieces run side by side; with one core to run them on, one call is faster", () => {
+        const program = ".orders | map(.total) | add";
+        const p = planned(program, orders(2 ** 30, 30_000_000));
+        expect(p.kind).toBe("split");
+        expect(p.words).toBe([
+            "Split call over orders: estimated faster than one call.",
+            "As one call: about 24 s, holding about 10 MB.",
+            "As a split call: about 4.7 s, 32 pieces, 8 at a time, each holding about 14 MB.",
+            "Assumed: 30,000,000 rows of orders, each about 0.8 µs in one call and 1 µs in a piece.",
+            "Each piece of orders runs: «.orders | map(.total)»",
+            "Their totals combine, each by its rule:",
+            "Added up: «add»",
+        ].join("\n"));
+        // e3's piece sizes for 1 GiB cut it into 32 pieces of 32 MiB.
+        expect([p.estimates?.pieces, pieceSizesFor(2 ** 30).target]).toEqual([32, 32 * 2 ** 20]);
+        const one = planned(program, orders(2 ** 30, 30_000_000), { cores: 1 });
+        expect([one.kind, one.words.split("\n")[0], one.estimates?.cores]).toEqual(["one_shot", "One call: estimated faster than a split call over orders.", 1]);
+    });
+
+    test("a one-call path estimated over memoryBytes is split instead, however fast one call would be", () => {
+        const program = ".orders | map(.customer_id) | unique";
+        const weights = orders(100_000_000, 2_900_000);
+        // With one core to run the pieces on, one call is estimated faster: by time alone, one call.
+        const byTime = planned(program, weights, { cores: 1 });
+        expect([byTime.kind, byTime.words.split("\n").slice(0, 2)]).toEqual(["one_shot", [
+            "One call: estimated faster than a split call over orders.",
+            "As one call: about 7.9 s, holding about 300 MB.",
+        ]]);
+        // It holds every customer id it keeps distinct: more than 256 MiB, so it is split; within 512 MiB it stays one call.
+        const p = planned(program, weights, { cores: 1, memoryBytes: 256 * 2 ** 20 });
+        expect(p.kind).toBe("split");
+        expect(p.words).toBe([
+            "Split call over orders: one call would hold more memory than it may use.",
+            "As one call: about 7.9 s, holding about 300 MB, more than the 256 MB it may use.",
+            "As a split call: about 10 s, 24 pieces, 1 at a time, each holding about 30 MB.",
+            "Assumed: 2,900,000 rows of orders, each about 2.7 µs in one call and 2.3 µs in a piece, one call holding every row at about 105 B each.",
+            "Each piece of orders runs: «.orders | map(.customer_id)»",
+            "Their distinct rows are kept: «unique»",
+        ].join("\n"));
+        const within = planned(program, weights, { cores: 1, memoryBytes: 512 * 2 ** 20 });
+        expect([within.kind, within.words.split("\n")[1]]).toEqual(["one_shot", "As one call: about 7.9 s, holding about 300 MB, within the 512 MB it may use."]);
+    });
+
+    test("a dataset with no rows known keeps the rule by weight, and so does the options' own piece: there is nothing to estimate", () => {
+        const program = ".orders | map(.total) | add";
+        const unknown = planned(program, orders(2 ** 30, undefined), { memoryBytes: 1 });
+        expect([unknown.kind, unknown.words.split("\n")[0], unknown.estimates]).toEqual(["split", "Split call over orders: it weighs 1 GB, more than one piece (16 MB).", null]);
+        expect(planned(program, orders(4_096, undefined)).words).toBe("One call: orders weighs 4 KB, within one piece (16 MB).");
+        // A server cutting pieces of its own size is not one the estimates are of, its rows known or not.
+        const own = planned(program, orders(64 * 1024, 40), { pieceBytes: 32 * 1024 });
+        expect([own.kind, own.words.split("\n")[0], own.estimates]).toEqual(["split", "Split call over orders: it weighs 64 KB, more than one piece (32 KB).", null]);
+    });
+
+    test("a re-keyed join is estimated as its two calls, each cutting the orders' pieces", () => {
+        const p = planned(REKEYED[1]!, new Map([["orders", { bytes: LARGE, rows: 45_000_000 }], ["customers", { bytes: LARGE, rows: undefined }]]));
+        expect(p.kind).toBe("rekey");
+        expect(p.words).toBe([
+            "Split call over orders: estimated faster than one call.",
+            "As one call: about 3.8 min, holding about 18 GB.",
+            "As a re-keyed join: about 48 s, two calls of 48 pieces, 8 at a time, each holding about 30 MB.",
+            "Assumed: 45,000,000 rows of orders, each about 5 µs in one call and 7.7 µs in a piece, one call holding every row at about 440 B each.",
+            "Re-key: both sides large and unaligned — customers weighs more than one piece too.",
+            "First, orders is re-keyed by this, about 1.5 GB, and each piece then reads customers cut at the same keys: «.customer_id»",
+            "Each piece of orders runs: «.orders | map($c[.customer_id].region)»",
+            "Their distinct rows are kept: «unique»",
+        ].join("\n"));
+    });
+
+    test("what one call holds: every row for a sort, a group, the distinct rows, the last row or the distinct values; none for a folded total, a reduce, rows answered or a stream's first", () => {
+        const weights = orders(2 ** 30, 30_000_000);
+        const holds = (program: string): boolean | undefined => planned(program, weights).estimates?.holdsRows;
+        for (const program of [
+            ".orders | group_by(.customer_id) | map({customer: .[0].customer_id, revenue: map(.total) | add})",
+            ".orders | map(.customer_id) | unique",
+            ".orders | unique_by(.customer_id) | map(.id)",
+            ".orders | map(select(.total > 500)) | sort_by(-.total) | .[:5]",
+            ".orders | map(.total) | .[-1]",
+            ".orders | {customers: (map(.customer_id) | unique | length)}",
+        ]) expect(holds(program), program).toBe(true);
+        for (const program of [
+            ".orders | map(.total) | add",
+            ".orders | {n: length, mean: (map(.total) | add / length)}",
+            "reduce .orders[] as $o ({}; .[$o.customer_id] += $o.total)",
+            ".orders | map(.id)",
+            "limit(3; .orders[] | select(.total > 100) | .id)",
+        ]) expect(holds(program), program).toBe(false);
+        // What it holds of each row is its kind's, beside what any unit holds.
+        const group = planned(".orders | group_by(.customer_id) | map({customer: .[0].customer_id, n: length})", weights).estimates!;
+        expect(group.oneCall.peakBytes).toBe(PLAN_COSTS.unitBytes + 30_000_000 * PLAN_COSTS.rows.dict.heldBytes);
+        expect(planned(".orders | map(.total) | add", weights).estimates!.oneCall.peakBytes).toBe(PLAN_COSTS.unitBytes);
+    });
+
+    test("the cores the options give, else the table's; memoryBytes and cores whole numbers", () => {
+        const weights = orders(2 ** 30, 30_000_000);
+        expect(planned(".orders | map(.total) | add", weights).estimates?.cores).toBe(PLAN_COSTS.cores);
+        expect(planned(".orders | map(.total) | add", weights, { cores: 14 }).estimates?.cores).toBe(14);
+        expect(() => planQuery(".orders | map(.total) | add", ROOT, weights, { memoryBytes: -1 })).toThrow(new RangeError("planQuery: memoryBytes is -1, not a whole number of bytes"));
+        expect(() => planQuery(".orders | map(.total) | add", ROOT, weights, { cores: 0 })).toThrow(new RangeError("planQuery: cores is 0, not a whole number of at least 1"));
+        expect(() => planQuery(".orders | map(.total) | add", ROOT, weights, { cores: 1.5 })).toThrow(new RangeError("planQuery: cores is 1.5, not a whole number of at least 1"));
     });
 });
 
@@ -571,8 +756,8 @@ const STOCK_IN_MEMORY = (() => {
     return [{ path: pathOf("stock"), type: StockType as EastType, value: stock }, { path: pathOf("prices"), type: PricesType as EastType, value: prices }];
 })();
 
-/** Both dicts weighed as large, the prices the heavier: e3 cuts the pieces at their keys. */
-const STOCK_HEAVY: ReadonlyMap<string, SourceWeight> = new Map([["stock", { bytes: LARGE, rows: 37 }], ["prices", { bytes: 2 * LARGE, rows: 56 }]]);
+/** Both dicts weighed as large, the prices the heavier: e3 cuts the pieces at their keys. Their rows not known: by weight alone. */
+const STOCK_HEAVY: ReadonlyMap<string, SourceWeight> = new Map([["stock", { bytes: LARGE, rows: undefined }], ["prices", { bytes: 2 * LARGE, rows: undefined }]]);
 
 /** Joins of the stock with the prices, read only at the stock's own SKU: cut at the same keys. */
 const COPARTITIONED: readonly string[] = [

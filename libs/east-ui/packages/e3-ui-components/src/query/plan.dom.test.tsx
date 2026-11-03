@@ -58,7 +58,7 @@ import { datasetGetStatus, splitCall, splitCallExplain, splitCallStatus } from "
 import * as ex from "@elaraai/e3-ui/examples/query/query";
 import { formatters } from "@elaraai/east-ui-components";
 import { EXAMPLES_PIECE_MIN, type E3Dataset } from "../e3-web.test-utils.js";
-import { QueryPlanOptionsProvider, QuerySplitCallProvider, sourceStatusOf, type QuerySplitCall } from "./hooks.js";
+import { QueryPlanOptionsProvider, QuerySplitCallProvider, sourceStatusOf, useQueryPlanOptions, type QuerySplitCall } from "./hooks.js";
 import { createInMemorySplitCall } from "./in-memory-call.js";
 import { byteWords, queryWords } from "./model/words.js";
 import { prepareQuery, type QueryRoot } from "./one-shot.js";
@@ -614,6 +614,15 @@ describe("<Query.Builder> — one call, and when a split run can't be made (#941
         // e3 cuts no piece smaller than its own: the fixture's forty orders are one.
         expect(await piecesOf(h.splitCalls()[0]!)).toBe(1);
         expect([footer().count, footer().plan]).toEqual(["10 orders", "Split call · 1 piece"]);
+    });
+
+    test("the plan's options, as their provider gives them: its piece, the memory one call may use and the cores it runs pieces on (#1143)", () => {
+        const wrapper = ({ children }: { children?: ReactNode }) => (
+            <QueryPlanOptionsProvider memoryBytes={2 ** 30} cores={14}>{children}</QueryPlanOptionsProvider>
+        );
+        expect(renderHook(() => useQueryPlanOptions(), { wrapper }).result.current).toEqual({ memoryBytes: 2 ** 30, cores: 14 });
+        // None given: the planner's own.
+        expect(renderHook(() => useQueryPlanOptions()).result.current).toEqual({});
     });
 
     test("a status that can't be read leaves the dataset's weight unknown: one call, which says so", async () => {

@@ -199,7 +199,9 @@ e3-api-client's `oneShotExecute`, and a run's plan (#941: `planQuery` and `split
   data source's status** — what a run weighs before it plans — goes through `useQuerySourceStatus`: a host's
   `QuerySourceStatusProvider`, else e3's dataset status through the TanStack Query cache the Datasets tab
   polls. Each goes through the `E3Provider`'s token and `fetch`, as the one-shot call does. **The plan's
-  options** — the most a dataset may weigh and still be read by one call — are a `QueryPlanOptionsProvider`'s.
+  options** — the most a dataset may weigh and still be read by one call, and what the estimates take of the
+  server: the memory one call may use and how many pieces it runs at once (#1143) — are a
+  `QueryPlanOptionsProvider`'s.
   The tests answer each in memory (`createInMemoryQueryCall`, `createInMemorySplitCall` and its `explain`,
   `createInMemorySourceStatus`); the showcase's runs are real calls on the e3 it runs in the page (§8, #1132).
 - **A host in Node** — a CLI, an agent, a test against e3 — makes a query's calls itself through
@@ -639,9 +641,15 @@ is the builder's (e3-ui-components `src/query/plan.ts`); the split is east's.
 - **The path** (`planQuery`, or `draftPlan` then `weighPlan`): a query that splits runs as a split call only
   when the dataset it would cut weighs more than one piece — e3's smallest, `PIECE_SIZES.min` (16 MiB, from
   e3-types), unless a `QueryPlanOptionsProvider` sets `pieceBytes` — so a small dataset keeps a one-shot call's
-  latency. A query that runs as one unit is one call however large its data; so is one whose dataset's weight
-  isn't known, and one whose split call cannot be made, which says why. The weight is the dataset's stored
-  bytes, from its status on e3, read when the run starts.
+  latency. Over one piece the planner estimates both paths (#1143): each one's time and the most one of its
+  units holds, from the rows the dataset's status counts, what a row of the split's output kind costs in one
+  call and in a piece (`PLAN_COSTS`, from the scale test's report), the pieces e3 would cut and how many it
+  runs at once. It takes the path estimated faster, but splits a query whose one call is estimated to hold
+  more than the memory one call may use. A dataset whose rows aren't known, or a host's own `pieceBytes`, is
+  planned by weight alone: a split call over one piece. A query that runs as one unit is one call however
+  large its data; so is one whose dataset's weight isn't known, and one whose split call cannot be made,
+  which says why. The weight is the dataset's stored bytes and rows, from its status on e3, read when the run
+  starts.
 - **The split call** (`splitCallRequest`): the piece program; one `dataset` argument per data source the query
   reads, at its path — the one cut partitioned with no `by`, the others reaching each piece whole; the output
   kind, with its merge or combine and a fold's zero; the final function; a one-shot call's runner, so a
@@ -658,10 +666,15 @@ is the builder's (e3-ui-components `src/query/plan.ts`); the split is east's.
   units e3's cache served: "· 20 units cached", or "· all cached" when it served the whole call. A click
   opens the design system's popover (`SliceEditPopover`, as the save popover is), "How this run reads its
   data", with the **explanation**, a line per sentence and the jq each is about:
-  - the path and why — "Split call over orders: it weighs 1.5 GB, more than one piece (16 MB).", "One call:
-    orders weighs 4 KB, within one piece (16 MB).", "One call: what orders weighs isn't known.", or the
-    reason the query runs as one unit: "One call: a step needs every row at once, and no work is done row by
-    row before it:" `sort_by(.total)`;
+  - the path and why — "Split call over orders: estimated faster than one call.", "Split call over orders:
+    one call would hold more memory than it may use.", "One call: estimated faster than a split call over
+    orders.", "Split call over orders: it weighs 1.5 GB, more than one piece (16 MB)." when its rows aren't
+    known, "One call: orders weighs 4 KB, within one piece (16 MB).", "One call: what orders weighs isn't
+    known.", or the reason the query runs as one unit: "One call: a step needs every row at once, and no work
+    is done row by row before it:" `sort_by(.total)`;
+  - the estimates beside it, when they chose the path (#1143) — "As one call: about 24 s, holding about 10
+    MB.", "As a split call: about 4.7 s, 32 pieces, 8 at a time, each holding about 14 MB.", and what they
+    assumed: "Assumed: 30,000,000 rows of orders, each about 0.8 µs in one call and 1 µs in a piece.";
   - for a split: "Each piece of orders runs:" and its jq; how they combine — "Their rows are joined in
     order.", "Their totals combine, each by its rule:" then each total, "Added up:" `map(.total) | add`, "The
     first 5 rows, in input order, are kept: each piece stops once it has 5, …"; "Then, once, over what they
