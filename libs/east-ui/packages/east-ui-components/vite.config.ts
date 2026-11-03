@@ -1,10 +1,14 @@
-import { defineConfig } from 'vite';
+import { defineConfig, esmExternalRequirePlugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
 
 // Library build configuration for @elaraai/east-ui-components
 export default defineConfig({
-  plugins: [react()],
+  // A CommonJS dependency bundled here requires React (`__require("react")`), which
+  // Rolldown leaves as a `require` in the ES output, where Node and a browser have
+  // none: the plugin makes each such `require` of an external an import. These are
+  // external through it alone: named in `external` as well, it never sees them.
+  plugins: [react(), esmExternalRequirePlugin({ external: ['react', 'react-dom', 'react/jsx-runtime', '@chakra-ui/react'] })],
   build: {
     lib: {
       entry: {
@@ -34,10 +38,6 @@ export default defineConfig({
     },
     rolldownOptions: {
       external: (id) => [
-        'react',
-        'react-dom',
-        'react/jsx-runtime',
-        '@chakra-ui/react',
         // The locale's context, as React's and Chakra's: one for every
         // renderer package. The sibling packages' renderers (e3-ui-components'
         // Plan) read it too, and the host's one `I18nProvider` must reach them

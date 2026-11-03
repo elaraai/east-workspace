@@ -85,7 +85,11 @@ if [[ "${SKIP_BUILD:-}" != "1" ]]; then
   fi
   if [[ "${SKIP_EAST_UI_BUILD:-}" != "1" ]]; then
     log "Building TS packages: east-ui"
-    NODE_OPTIONS=--max-old-space-size=4096 make -C libs/east-ui build
+    # Every package that publishes, type-checked, its declarations written. Not
+    # the showcase: it is private and publishes nothing, its bundle took two of
+    # this build's three and a half minutes, and Test east-ui builds, type-checks
+    # and browser-tests it on every change that touches it.
+    NODE_OPTIONS=--max-old-space-size=4096 make -C libs/east-ui build-checked
   else
     log "SKIP_EAST_UI_BUILD=1 — reusing east-ui's dist/"
   fi
