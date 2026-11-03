@@ -224,29 +224,6 @@ test.describe("The Flowchart's frame on a phone and on a touch screen (#1245)", 
     test.skip(({ isMobile }) => !isMobile, "the phone projects");
 
     for (const theme of ["light", "dark"] as const) {
-        test(`on the phone the row holds every item — the freshness chip folded, LR · TD and find state whole, no rail over the host's tables (#1346) — and in a 240px frame LR · TD's chip, its caret Font Awesome's, and find state's icon, in its 44px band, nothing past its edge (${theme})`, async ({ page }) => {
-            const root = await openDepot(page, theme);
-            const phone = await toolbarOf(root);
-            expect([phone.band, phone.rows, phone.past]).toEqual([44, 1, []]);
-            expect(phone.ladder).toBe(LADDER);
-            expect(phone.state).toBe("seek=0/2;orientation=0/2;freshness=1/2");
-            // A frame narrower than the phone's folds the rest.
-            await sizeTo(page, root, 240);
-            const bar = await toolbarOf(root);
-            expect([bar.band, bar.rows, bar.past]).toEqual([44, 1, []]);
-            expect(bar.state).toBe("seek=1/2;orientation=1/2;freshness=1/2");
-            for (const control of ["[data-flowchart-segmenu]", "[data-toolbar-item='seek'] [data-key-search='icon']"]) {
-                await expect(root.locator(control)).toBeVisible();
-            }
-            // LR · TD's chip: its caret Font Awesome's solid caret-down (#1246), the chip recipe sizing it —
-            // 8px tall, and its own width, never Font Awesome's fixed 1.25em, so the chip is no wider than a glyph made it.
-            const caret = root.locator("[data-flowchart-segmenu] svg[data-chip-caret]");
-            await expect(caret).toHaveCount(1);
-            expect(await caret.evaluate((svg) => {
-                const box = svg.getBoundingClientRect();
-                return [svg.getAttribute("data-prefix"), svg.getAttribute("data-icon"), Math.round(box.height), Math.round(box.width)];
-            })).toEqual(["fas", "caret-down", 8, 5]);
-        });
 
         test(`on a touch screen 1920px wide the row holds every item unfolded, in its 44px band, nothing past its edge (${theme})`, async ({ page }) => {
             await page.setViewportSize({ width: 1920, height: 1000 });

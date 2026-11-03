@@ -184,6 +184,11 @@ function isEmptyForm(form: ReactNode): boolean {
     return form === null || form === undefined || form === false;
 }
 
+/** The width an item counts for in the row. One that gives way counts whole, whatever it has given: the row folds the rest first, and cuts it only where they cannot. */
+function weigh(el: HTMLElement): number {
+    return el.hasAttribute("data-toolbar-shrink") ? Math.max(el.scrollWidth, el.firstElementChild?.scrollWidth ?? 0) : el.getBoundingClientRect().width;
+}
+
 /** An item's per-step ranks. */
 function ranksOf(it: ToolbarItem): number[] {
     const steps = Math.max(0, it.forms.length - 1);
@@ -244,9 +249,9 @@ export const Toolbar = memo(function Toolbar({ items, gap }: ToolbarProps) {
                 const key = el.dataset["toolbarItem"];
                 if (key === undefined) continue;
                 // An item that grows takes the slack the rest leave: weighed at no width, it moves nothing the toolbar chooses by.
-                if (el.hasAttribute("data-toolbar-grow") || el.hasAttribute("data-toolbar-shrink")) continue;
+                if (el.hasAttribute("data-toolbar-grow")) continue;
                 const known = measured.current.get(key)?.widths.get(Number(el.dataset["toolbarForm"]));
-                if (known === undefined || Math.abs(known - el.getBoundingClientRect().width) > MOVED_PX) itemMoved = true;
+                if (known === undefined || Math.abs(known - weigh(el)) > MOVED_PX) itemMoved = true;
             }
             // A width change is taken before this frame paints: the frame
             // shows the configuration for the width it is painted at.
@@ -307,9 +312,7 @@ export const Toolbar = memo(function Toolbar({ items, gap }: ToolbarProps) {
             if (key === undefined || m === undefined) continue;
             const form = Number(el.dataset["toolbarForm"]);
             // An item that grows is weighed at no width: it takes the slack the rest leave, never a width of its own.
-            // One that gives way is weighed whole, whatever it has given: the row folds the rest first, and cuts it only where they cannot.
-            const px = el.hasAttribute("data-toolbar-grow") ? 0
-                : el.hasAttribute("data-toolbar-shrink") ? Math.max(el.scrollWidth, el.firstElementChild?.scrollWidth ?? 0) : el.getBoundingClientRect().width;
+            const px = el.hasAttribute("data-toolbar-grow") ? 0 : weigh(el);
             const was = m.widths.get(form);
             // Its content moved: what the other forms measured is not known any more.
             if (was !== undefined && Math.abs(was - px) > MOVED_PX) m.widths.clear();

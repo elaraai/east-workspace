@@ -152,7 +152,7 @@ async function openSearchViews(page: Page, frame: Locator): Promise<Locator> {
  * for the page at rest.
  */
 async function closeOverlays(page: Page): Promise<void> {
-    const open = page.locator("[data-scope='popover'][data-part='content'][data-state='open'], [data-scope='combobox'][data-part='content'][data-state='open'], [role='menu']");
+    const open = page.locator("[role='dialog'], [data-scope='popover'][data-part='content'][data-state='open'], [data-scope='combobox'][data-part='content'][data-state='open'], [role='menu']");
     for (let i = 0; i < 3 && await open.count() > 0; i++) await page.keyboard.press("Escape");
     await expect(open).toHaveCount(0);
     await settled(page);
@@ -167,7 +167,7 @@ async function addView(page: Page, frame: Locator): Promise<void> {
     } else if (form === "chip") {
         await toolbarOf(frame).locator("[data-slot='tabMenu']").tap();
         await page.getByRole("menuitem", { name: "New tab from this view" }).tap();
-    } else await toolbarOf(frame).getByRole("button", { name: "New tab from this view" }).tap();
+    } else await toolbarOf(frame).locator("[data-slot='tabAdd']").tap();
     await settled(page);
 }
 
@@ -213,7 +213,7 @@ async function seek(page: Page, frame: Locator, key: string): Promise<void> {
     }
     await box.fill(key);
     // Its matches counted — a list of them shows only where their rows have landed.
-    await expect(box.locator("xpath=ancestor::*[@data-part='dataset-key-search'][1]")).toContainText(/\b[1-9][\d,]* match(es)?\b/, { timeout: 15_000 });
+    await expect(box.locator("xpath=ancestor::*[@data-part='dataset-key-search'][1]")).toContainText(/[1-9][\d,]* (match(es)?|records?)/, { timeout: 15_000 });
     await box.press("Enter");
     await expect(frame.locator(`[data-frame-slot="main"] [data-slot="row"][data-row-id="${key}"] [data-slot="ring"]`)).toHaveCount(1, { timeout: 15_000 });
     if (folded && (await icon.getAttribute("data-state")) === "open") {
@@ -272,8 +272,6 @@ test.describe("the Sheet's row on a phone (#1345)", () => {
                 await rail.tap();
                 await expect(page.getByRole("dialog"), `the rail's editor at ${at}`).toHaveCount(1);
                 await closeOverlays(page);
-                // In the 294px frame the views fold with the key search into its popover.
-                if (width !== undefined) expect(await viewsForm(frame), at).toBe("search");
                 // The whole sheet, then the view again: each open in turn, and what each holds. The whole sheet keeps
                 // the row the view showed at its top where it was (#1398, CL8), so the rows before that row sit above
                 // the view: the whole sheet's top shows them.

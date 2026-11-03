@@ -39,6 +39,7 @@ import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../sh
 import { useSourceHidden } from "../shared/schedule/hidden.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { useGroupCollapse } from "../shared/schedule/group-heading.js";
+import { openFramePane } from "../shared/schedule/open-pane.js";
 import { publishPeriod } from "../shared/schedule/records.js";
 import { useSourceWindow } from "../shared/schedule/source-window.js";
 import { publishChange, rosterCommands } from "./actions.js";
@@ -210,7 +211,7 @@ function RosterFrame(props: FrameProps) {
     const fit = useRosterFit(value, start, week, context, coverage, find);
     const { error: fitError, retry: retryFit, pending: finding } = fit;
     const findFix = useCallback((next: RosterFind) => {
-        setFind(next); setLibraryTab("people"); revealPane("Library");
+        setFind(next); setLibraryTab("people"); openFramePane(root.current, "Library", "start");
         // Pressed again after the fit failed, a find is asked again.
         if (fitError !== undefined) retryFit();
     }, [fitError, retryFit]);
@@ -345,7 +346,7 @@ function RosterFrame(props: FrameProps) {
         find: find === undefined ? undefined : { need: find.need, shown: fit.shown, busy: finding }, onClearFind: () => setFind(undefined), shown: props.shown });
     const inspector = useRosterInspector({ ...viewProps, storageKey: key, tab, onTab: setTab, find: { offered: fit.offered, finding: isFinding },
         duties: draftedDuties, heldDuties: storedDuties, targets });
-    const onIssues = () => { setTab("issues"); revealPane("Inspector"); };
+    const onIssues = () => { setTab("issues"); openFramePane(root.current, "Inspector", "end"); };
     const history = editing?.history;
     const { acted } = optimiseParts;
     const onAction = useCallback((action: HistoryAction) => {

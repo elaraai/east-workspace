@@ -43,6 +43,16 @@ const leaves = (sheet: Element) => {
     }
     return out;
 };
+/** Opens the Inspector where it is closed: a phone's from its tab, else from its rail. */
+async function openInspector(page: Page, frame: Locator): Promise<void> {
+    const tab = frame.locator("[data-pane-tab='end']");
+    if (await tab.count() > 0) {
+        // One view at a time, over the tabs: the Library's, a Find a fit opened, closed first.
+        if (await frame.locator("[data-pane-tab='start']").getAttribute("aria-selected") === "true") { await page.keyboard.press("Escape"); await settled(page); }
+        if (await tab.getAttribute("aria-selected") !== "true") await tab.click();
+    } else if (await endPane(frame).getAttribute("data-collapsed") !== null) await endPane(frame).getByRole("button", { name: "Expand Inspector" }).click();
+    await settled(page);
+}
 /** The page scrolls sideways by this much: nothing may. */
 const pageOverflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
@@ -149,7 +159,7 @@ for (const theme of ["light", "dark"] as const) {
             await size(page, entry, width);
             // The fix, pressed under its issue in the Inspector — opened over main where it overlays it.
             const end = endPane(frame);
-            if (await end.getAttribute("data-collapsed") !== null) { await end.getByRole("button", { name: "Expand Inspector" }).click(); await settled(page); }
+            await openInspector(page, frame);
             await end.getByRole("tab", { name: /^Issues/ }).click(); await settled(page);
             await end.locator('[data-allocation-issue-group="unallocated"]').getByRole("button", { name: "Find a fit", exact: true }).click(); await settled(page);
             await expect(resources.locator("[data-allocation-find] button"), `${width}px`).toHaveText("Find · LD-2232 · 4 m³");
@@ -202,7 +212,7 @@ for (const theme of ["light", "dark"] as const) {
         await card.click(); await settled(page);
         for (const width of [1440, 1024, 768, 390, 360, 294]) {
             await size(page, entry, width);
-            if (await end.getAttribute("data-collapsed") !== null) { await end.getByRole("button", { name: "Expand Inspector" }).click(); await settled(page); }
+            await openInspector(page, frame);
             await expect(details(frame).locator("[data-allocation-parts] [data-field]"), `${width}px`).toHaveCount(2);
             expect(await end.locator(":scope > *").first().evaluate(leaves), `${width}px`).toEqual([]);
             expect(await frame.evaluate(root => root.scrollWidth - root.clientWidth), `${width}px frame`).toBeLessThanOrEqual(1);

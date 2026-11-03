@@ -402,15 +402,14 @@ test.describe("Plan moves (#825)", () => {
 test.describe("Plan's palette on a phone (#1259)", () => {
     test.skip(({ isMobile }) => !isMobile, "a coarse pointer: the phone projects");
 
-    test("planRowDrop: the library opens from its rail over the narrow layout, every card inside the pane — and, with no row there to drop on, none drags", async ({ page }) => {
+    test("planRowDrop: the library opens from its tab over the narrow layout, every card inside the pane — and, with no row there to drop on, none drags", async ({ page }) => {
         const entry = await openExample(page, "planRowDrop");
         const frame = entry.locator("[data-builder-frame]").first();
         // The canvas is the narrow layout's: no row takes a card.
         await expect(entry.locator("[data-plan-body][data-plan-narrow]")).toHaveCount(1);
-        await frame.getByRole("button", { name: "Expand Library" }).tap();
+        await frame.locator("[data-pane-tab='start']").tap();
         await settled(page);
-        const pane = panelOf(entry);
-        await expect(pane).toHaveAttribute("data-pane-mode", "overlay");
+        const pane = frame.locator("[data-frame-drawer][data-frame-slot='start']");
         await expect(pane.locator("[data-library-item]")).toHaveCount(6);
         // Every card inside the pane's box.
         const outside = await pane.evaluate((slot) => {

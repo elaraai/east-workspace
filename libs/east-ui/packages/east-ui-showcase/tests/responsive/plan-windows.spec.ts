@@ -188,6 +188,20 @@ for (const theme of LAYOUT_THEMES) {
         const icon = entry.locator('[data-key-search="icon"]');
         const narrow = await icon.isVisible();
         if (narrow) await icon.click();
+        // A phone's Search Records: a view of its own, each match a row whose tap lands it and closes the view.
+        const view = page.locator("[data-key-search-phone]");
+        if (await view.isVisible()) {
+            await view.getByRole("textbox").fill("P-287");
+            const match = view.locator("[data-key-search-row]", { hasText: "P-2870" });
+            await expect(match).toBeVisible();
+            await expect(entry.locator(rowSel("presses.span", "P-2870"))).toHaveCount(0);
+            await expect(view.getByRole("status")).toContainText("10");
+            await match.click();
+            await expect(view).toHaveCount(0);
+            await settled(page);
+            await expect(entry.locator('[data-plan-card]').filter({ hasText: "P-2870" })).toBeInViewport();
+            return;
+        }
         const search = page.locator('[data-part="dataset-key-search"]:visible');
         const input = search.getByRole("combobox");
         await input.fill("P-287");

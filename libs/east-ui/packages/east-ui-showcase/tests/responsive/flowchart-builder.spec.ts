@@ -11,7 +11,7 @@
  *   (`flowchartVariants`), an inspector (`flowchartDepot`) and both
  *   (`flowchartFlows`): the frame holds the panes it is given and no other,
  *   main the room they leave — pinned open beside main at the desktop width,
- *   rails on a phone — in both themes;
+ *   tabs of the pane strip on a phone — in both themes;
  * - **the depot's flows saved** (FB39, `flowchartLibrary`): a step's card
  *   dropped on a lane, a transition's card on a transition and a state
  *   dragged across lanes, then Save — one commit to the record, the drafts
@@ -43,9 +43,6 @@ import { boxOf, boxesOf, captionOf, cardOf, carryTo, midLine, openFlowchart, ope
 const INSPECTOR = 320;
 /** The library's open width (§8). */
 const LIBRARY = 272;
-/** A collapsed pane's rail. */
-const RAIL = 44;
-
 /** Each pane combination, and the example that has it. */
 const COMBINATIONS = [
     { name: "flowchartHandover", library: false, inspector: false },
@@ -102,15 +99,16 @@ test.describe("Every pane combination on a phone (#1251, FB40)", () => {
     test.skip(({ isMobile }) => !isMobile, "the phone projects");
 
     for (const theme of ["light", "dark"] as const) {
-        test(`each pane it is given a 44px rail over main's edge, and none it is not; main the room between (${theme})`, async ({ page }) => {
+        test(`each pane it is given a tab of the pane strip, and none it is not; main the frame's whole width (${theme})`, async ({ page }) => {
             for (const { name, library, inspector } of COMBINATIONS) {
                 const { root } = await openFlowchart(page, name, theme);
-                await expect.poll(() => panesOf(root), name).toEqual({
-                    start: library ? { mode: "overlay", collapsed: true, width: RAIL } : null,
-                    end: inspector ? { mode: "overlay", collapsed: true, width: RAIL } : null,
-                    before: 0,
-                    after: 0,
+                await expect(root.locator("[data-pane-tab='start']"), name).toHaveCount(library ? 1 : 0);
+                await expect(root.locator("[data-pane-tab='end']"), name).toHaveCount(inspector ? 1 : 0);
+                const wide = () => root.evaluate((el) => {
+                    const frame = el.querySelector("[data-builder-frame]") ?? el;
+                    return Math.round(frame.getBoundingClientRect().width - frame.querySelector("[data-frame-slot='main']")!.getBoundingClientRect().width);
                 });
+                await expect.poll(wide, name).toBe(0);
             }
         });
     }
@@ -267,8 +265,8 @@ test.describe("The Flowchart configurator (#1251, FB40)", () => {
     for (const theme of ["light", "dark"] as const) {
         test(`its switches: the minimap drawn over the canvas, inside main, clear of the legend and framed as the recipe frames it; the legend taken away; read only, no gesture and no history item (${theme})`, async ({ page }) => {
             const { entry, root } = await openFlowchart(page, "flowchartVariants", theme);
-            // A box narrower than the flow: the canvas scrolls inside main.
-            await root.evaluate((el) => { (el as HTMLElement).style.width = "560px"; });
+            // A box narrower than the flow, just past a phone's frame: the canvas scrolls inside main.
+            await root.evaluate((el) => { (el as HTMLElement).style.width = "600px"; });
             await settled(page);
             await expect(root.locator("[data-flowchart-legend]")).toHaveCount(1);
             await expect(root.locator("[data-flowchart-minimap]")).toHaveCount(0);

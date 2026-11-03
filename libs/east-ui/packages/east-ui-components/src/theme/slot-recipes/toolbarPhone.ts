@@ -30,6 +30,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 /** What both buttons share: 44px tall and at least as wide, centred on the row, on `--r-md`. */
 const BUTTON = {
@@ -113,6 +114,8 @@ export const toolbarPhoneSlotRecipe = defineSlotRecipe({
         viewLabel: { maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis" },
         viewCount: { fontWeight: "500", letterSpacing: "0.04em", color: "fg.subtle", fontVariantNumeric: "tabular-nums" },
         viewAdd: {
+            /* 34 tall as the designer draws it; a tap anywhere on the row's height takes it. */
+            ...coarseHitArea({ axis: "block", position: true }),
             alignSelf: "center",
             flex: "none",
             height: "34px",

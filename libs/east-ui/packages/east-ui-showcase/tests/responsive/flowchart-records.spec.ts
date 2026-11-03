@@ -21,8 +21,13 @@ import { settled } from "./settle";
 
 /** Open one pane, including the shared overlay layout on phones. */
 async function pane(root: Locator, name: "Library" | "Inspector") {
+    // A phone's Filters view lies over the tabs: closed first.
+    const page = root.page();
+    for (let i = 0; i < 3 && await page.getByRole("dialog").count() > 0; i++) { await page.keyboard.press("Escape"); await settled(page); }
     const tab = root.locator(`[data-pane-tab='${name === "Library" ? "start" : "end"}']`);
     if (await tab.isVisible()) {
+        // One view at a time, over the tabs: the other pane's closed first.
+        if (await root.locator(`[data-pane-tab='${name === "Library" ? "end" : "start"}']`).getAttribute("aria-selected") === "true") { await page.keyboard.press("Escape"); await settled(page); }
         if (await tab.getAttribute("aria-selected") !== "true") await tab.click();
         return;
     }
@@ -154,10 +159,13 @@ test("Flowchart indexed records page, search and retain drafts @narrow", async (
     await description.fill("Returns");
     await description.press("Tab");
     await expect(save).toBeEnabled();
+    // Save stands in the toolbar's second row, under a phone's pane view.
+    if (phone) { await page.keyboard.press("Escape"); await settled(page); }
     await save.click();
     await expect(save).toBeDisabled();
     await expect(root.locator("[data-record-save-notice]")).toHaveText("1 flow left this view");
     await expect(root.locator("[data-flowchart-flow]")).toHaveText("FLOW-10000");
+    await pane(root, "Inspector");
     await expect(description).toHaveValue("Returns");
 
     await search(page, root, "Returns");

@@ -152,8 +152,11 @@ for (const theme of ["light", "dark"] as const) {
                     await expect(tab).toHaveAttribute("aria-selected", "true");
                     // One at a time.
                     expect(await frame.locator("[data-frame-drawer][data-open]").count(), route).toBe(1);
-                    await page.keyboard.press("Escape");
-                    await settled(page);
+                    // A tooltip the view's first control raised as it took the focus takes the first Esc, as any layer does.
+                    for (let i = 0; i < 2 && (await drawerAt(entry, side)).open; i++) {
+                        await page.keyboard.press("Escape");
+                        await settled(page);
+                    }
                     expect((await drawerAt(entry, side)).open, `${route}: Esc closed ${side}'s drawer`).toBe(false);
                     await expect(tab).toBeFocused();
                 }

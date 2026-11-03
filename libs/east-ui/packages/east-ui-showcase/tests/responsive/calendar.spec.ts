@@ -90,7 +90,7 @@ for (const theme of ["light", "dark"] as const) {
         const frame = entry.locator("[data-calendar-frame]").first();
         await expect(frame.locator("[data-calendar-agenda]")).toBeVisible();
         expect(await toolbarFaults(entry.locator("[data-calendar-frame]").first())).toEqual([]);
-        await frame.getByRole("button", { name: "Expand Library" }).click();
+        await frame.locator("[data-pane-tab='start']").click();
         const backlog = frame.getByRole("tab", { name: "Backlog" });
         if (await backlog.isVisible()) await backlog.click();
         else {
@@ -99,7 +99,8 @@ for (const theme of ["light", "dark"] as const) {
         }
         await frame.locator('[data-library-item]').filter({ hasText: "Torque-test fixtures" }).click();
         await frame.getByRole("button", { name: "Schedule", exact: true }).click();
-        const dialog = page.getByRole("dialog");
+        // The popover, over the pane's own view.
+        const dialog = page.getByRole("dialog").last();
         await expect(dialog).toBeVisible();
         const box = await dialog.boundingBox();
         expect(box!.x).toBeGreaterThanOrEqual(0); expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
@@ -234,8 +235,8 @@ for (const theme of ["light", "dark"] as const) {
         await expect(frame.locator('[data-calendar-footer] > [data-footer-line]')).toHaveAttribute('data-idle', '');
         expect(calendarFooter.height).toBe(28);
         expect(calendarFooter.background).not.toBe('rgba(0, 0, 0, 0)');
-        await size(page, entry, 390);
-        // The rail never wraps (CL3): one 28px line at 390px, nothing past its edge, no legend item cut inside a word.
+        await size(page, entry, 600);
+        // The rail never wraps (CL3): one 28px line just past a phone's frame, which shows no footer at rest, nothing past its edge, no legend item cut inside a word.
         const footer = frame.locator('[data-calendar-footer]');
         expect(await footer.evaluate(el => ({ wrap: getComputedStyle(el).flexWrap, height: el.getBoundingClientRect().height }))).toEqual({ wrap: 'nowrap', height: 28 });
         expect(await footer.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);

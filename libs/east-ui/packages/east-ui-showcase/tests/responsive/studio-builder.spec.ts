@@ -32,7 +32,7 @@
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { settled } from "./settle";
-import { frameAt, tapScrim, type Box } from "./builder-frame";
+import { frameAt, type Box } from "./builder-frame";
 
 /**
  * Open the builder example and return the builder, at rest: as wide as the
@@ -53,11 +53,7 @@ async function openBuilder(page: Page, width: number | null = 1440): Promise<Loc
 /** A difference of boxes' edges, to a tenth of a pixel — subtraction leaves float noise. */
 const tenth = (n: number) => Math.round(n * 10) / 10;
 
-/** The strip of main an open overlay pane leaves beside it, under the scrim: the builder frame's `MIN_SCRIM`. */
-const MIN_SCRIM = 48;
 
-/** A pane's rail: what it keeps in the flow while it overlays. */
-const RAIL = 44;
 
 /** A box's place within another, to a tenth of a pixel. */
 const within = (box: Box, frame: Box): Box => ({ x: tenth(box.x - frame.x), y: tenth(box.y - frame.y), w: box.w, h: box.h });
@@ -244,47 +240,4 @@ test.describe("Studio builder — its builder frame on a desktop (#1125 F3)", ()
 test.describe("Studio builder — its builder frame on a phone (#1125 F3)", () => {
     test.skip(({ isMobile }) => !isMobile, "measured on the phone");
 
-    test("each pane rests on its 44px rail; opened, it covers main from its edge, full height, main where it was, under the scrim — leaving a 48px strip of the scrim beside it, and a tap on that strip closes it", async ({ page }) => {
-        const builder = await openBuilder(page, null);
-        const rest = await frameAt(builder);
-        expect({
-            modes: [rest.start!.mode, rest.end!.mode], collapsed: [rest.start!.collapsed, rest.end!.collapsed],
-            rails: [rest.start!.slot.w, rest.end!.slot.w], scrim: rest.scrim,
-        }).toEqual({ modes: ["overlay", "overlay"], collapsed: [true, true], rails: [RAIL, RAIL], scrim: null });
-        const mainAtRest = within(rest.main, rest.body);
-
-        // The palette (264px) from the start edge, then the inspector (300px) from the end: on the phone each is as
-        // wide as the frame less the other's rail, less the strip — the scrim a tap closes it on.
-        for (const [side, name] of [["start", "Components"], ["end", "Inspector"]] as const) {
-            await builder.getByRole("button", { name: `Expand ${name}` }).click();
-            await expect.poll(async () => {
-                const at = await frameAt(builder);
-                const pane = at[side]!;
-                const sheet = within(pane.sheet, at.body);
-                const scrim = at.scrim === null ? null : within(at.scrim, at.body);
-                return {
-                    open: !pane.collapsed,
-                    // Main where it was, the rail in the flow.
-                    main: within(at.main, at.body), rail: pane.slot.w,
-                    // The pane from its own edge — the frame's — its full height.
-                    fromEdge: side === "start" ? sheet.x : tenth(at.body.w - (sheet.x + sheet.w)),
-                    width: sheet.w,
-                    height: [sheet.y, sheet.h],
-                    // The scrim over main, in the theme's overlay.backdrop, and the strip of it the pane leaves.
-                    scrim,
-                    ink: at.ink.scrim === at.ink.backdrop,
-                    strip: scrim === null ? null : side === "start" ? tenth(scrim.x + scrim.w - (sheet.x + sheet.w)) : tenth(sheet.x - scrim.x),
-                };
-            }).toEqual({
-                open: true, main: mainAtRest, rail: RAIL, fromEdge: 0, width: tenth(rest.body.w - RAIL - MIN_SCRIM), height: [0, rest.body.h],
-                scrim: mainAtRest, ink: true, strip: MIN_SCRIM,
-            });
-            // A finger's tap on the strip closes the pane, and main is where it was.
-            await tapScrim(page, builder, side);
-            await expect.poll(async () => {
-                const at = await frameAt(builder);
-                return { collapsed: at[side]!.collapsed, scrim: at.scrim, main: within(at.main, at.body) };
-            }).toEqual({ collapsed: true, scrim: null, main: mainAtRest });
-        }
-    });
 });

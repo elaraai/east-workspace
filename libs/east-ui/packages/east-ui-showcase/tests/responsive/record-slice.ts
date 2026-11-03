@@ -17,6 +17,9 @@ export async function recordField(page: Page, frame: Locator, name: string, sour
         if (await trigger.getAttribute("aria-expanded") !== "true") await trigger.click();
     }
     else {
+        // A phone's pane view lies over the toolbar: closed first, as one view at a time is.
+        const pane = frame.locator("[data-pane-tab][aria-selected='true']");
+        if (await pane.count() > 0) { await page.keyboard.press("Escape"); await expect(pane).toHaveCount(0); await settled(page); }
         await frame.getByRole("button", { name: /^Filters:/ }).click();
         const disclosure = page.getByRole("dialog").locator(field);
         // The shared editor retains its disclosure when closed and reopened.

@@ -49,7 +49,7 @@ async function expand(page: Page, slot: Locator, name: string): Promise<void> {
     // One view at a time, over the tabs: the other's closed first.
     const other = slot.page().locator(`[data-pane-tab='${side === "start" ? "end" : "start"}']`).first();
     if (await other.getAttribute("aria-selected") === "true") { await page.keyboard.press("Escape"); await settled(page); }
-    if (await tab.getAttribute("aria-selected") !== "true") await tab.tap();
+    if (await tab.getAttribute("aria-selected") !== "true") await tab.click();
     await expect(tab).toHaveAttribute("aria-selected", "true");
     await settled(page);
 }
@@ -296,12 +296,13 @@ test.describe("The Schematic on a phone (#1394)", () => {
         await page.setViewportSize({ width: 390, height: 844 });
         const root = await openSchematic(page, DATA_CENTRE);
         await centred(page, root);
-        // A drag over the bare floor pans the drawing 120px to the left: the view's centre, 14 m in at Fit, past its 28 m. By
-        // the mouse: a finger's flick leaves the browser's fling running, which takes the next tap as its stop, never a click.
+        // A drag over the bare floor pans the drawing 170px to the left: the view's centre, 14 m in at Fit, past its 28 m at
+        // the phone's scale. By the mouse: a finger's flick leaves the browser's fling running, which takes the next tap as its
+        // stop, never a click.
         const from = await screenPoint(root, 26.0, 13.3);
         await page.mouse.move(from.x, from.y);
         await page.mouse.down();
-        await page.mouse.move(from.x - 120, from.y, { steps: 8 });
+        await page.mouse.move(from.x - 170, from.y, { steps: 8 });
         await page.mouse.up();
         await settled(page);
         // A06, from the Backlog: its Place refused, the footer saying what to do; A06 still Details', nothing recorded.
@@ -355,7 +356,8 @@ test.describe("The Schematic narrowed in a wide window (#1394)", () => {
         // A03, clicked where it stands — beside both panes its rack draws as its pin: its owner retyped in Details, one
         // change waiting on Save.
         const end = inspector(root);
-        if (await end.getAttribute("data-collapsed") !== null) await end.getByRole("button", { name: "Expand Inspector" }).click();
+        if (await root.locator("[data-pane-tab='end']").count() > 0) await expand(page, end, "Inspector");
+        else if (await end.getAttribute("data-collapsed") !== null) await end.getByRole("button", { name: "Expand Inspector" }).click();
         const a03 = await screenPoint(root, 9.6, 2.9);
         await page.mouse.click(a03.x, a03.y);
         await settled(page);
@@ -370,7 +372,8 @@ test.describe("The Schematic narrowed in a wide window (#1394)", () => {
         await sizeTo(page, root, 294);
         await expect(root).toHaveAttribute("data-schematic-layout", "narrow");
         await expect(root.locator(DRAG)).toHaveCount(0);
-        if (await end.getAttribute("data-collapsed") !== null) await end.getByRole("button", { name: "Expand Inspector" }).click();
+        if (await root.locator("[data-pane-tab='end']").count() > 0) await expand(page, end, "Inspector");
+        else if (await end.getAttribute("data-collapsed") !== null) await end.getByRole("button", { name: "Expand Inspector" }).click();
         await expect(details(root).locator("[data-inspector-title]")).toHaveText("A03");
         expect(await standing()).toEqual(["A03", "Pending"]);
         await expect(discard(root)).toBeEnabled();
@@ -378,7 +381,8 @@ test.describe("The Schematic narrowed in a wide window (#1394)", () => {
         await sizeTo(page, root, 1440);
         await expect(root).toHaveAttribute("data-schematic-layout", "wide");
         await expect(root.locator(DRAG)).not.toHaveCount(0);
-        if (await end.getAttribute("data-collapsed") !== null) await end.getByRole("button", { name: "Expand Inspector" }).click();
+        if (await root.locator("[data-pane-tab='end']").count() > 0) await expand(page, end, "Inspector");
+        else if (await end.getAttribute("data-collapsed") !== null) await end.getByRole("button", { name: "Expand Inspector" }).click();
         await expect(details(root).locator("[data-inspector-title]")).toHaveText("A03");
         expect(await standing()).toEqual(["A03", "Pending"]);
         await expect(discard(root)).toBeEnabled();

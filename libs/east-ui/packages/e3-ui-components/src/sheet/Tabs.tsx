@@ -94,6 +94,8 @@ export interface SheetTabsProps {
     dirty: boolean;
     /** Whether a query is set — the `+ TAB` title. */
     hasQuery: boolean;
+    /** Whether any choice narrows the sheet — a query, a value, a range: what a phone's strip offers `+ TAB` over on the whole sheet. */
+    narrowed?: boolean | undefined;
     renaming: string | null;
     renameVal: string;
     /** The element the tabs switch — the sheet's grid (`aria-controls`). */
@@ -114,7 +116,7 @@ export interface SheetTabsProps {
 
 /** Renders the tab strip. */
 export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
-    const { styles, views, wholeCount, active, dirty, hasQuery, renaming, renameVal, panelId, fold, flash } = props;
+    const { styles, views, wholeCount, active, dirty, hasQuery, narrowed, renaming, renameVal, panelId, fold, flash } = props;
     const menuStyles = useSlotRecipe({ key: "menu" })() as unknown as Styles;
     const phone = useSlotStyles("toolbarPhone");
     // The tabs' words and counts, in the app's locale (#850, #861).
@@ -226,7 +228,7 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
 
     // A phone's (FR2): every tab inline, scrolling sideways; `+ TAB` while the narrowing is one no tab holds.
     if (fold?.strip === "phone") {
-        const canAdd = active === null ? hasQuery : dirty;
+        const canAdd = active === null ? narrowed === true : dirty;
         const tab = (key: string, label: string, count: number | undefined, on: boolean, title: string) => (
             <chakra.button key={key} ref={tabRef(key)} type="button" css={phone.view} data-slot="tab" data-tab={key}
                 data-active={on ? "" : undefined} data-dirty={on && dirty && key !== ALL ? "" : undefined}

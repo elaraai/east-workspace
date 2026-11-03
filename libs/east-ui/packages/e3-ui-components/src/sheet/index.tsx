@@ -2955,10 +2955,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         return { folded: groups.length > 0 && groups.every((row) => foldedOf(row)), count: groups.length, noun, onFoldAll };
     }, [group, noun, rows, foldedOf, onFoldAll]);
     const hasQuery = narrowing !== undefined && narrowingQuery(narrowing).trim() !== "";
+    // Whether any source holds a choice: what a phone's strip offers `+ TAB` over, on the whole sheet (FR2).
+    const narrowed = narrowing !== undefined && narrowingScope(narrowing) !== "none";
     // The view tabs, as the toolbar folds them (#952): the strip in each of
     // its forms, how far it can fold, and what it shows — so a change of it
     // has the strip measured again.
-    const tabsVersion = `${tabViews.map((v) => `${v.id}:${v.name}:${v.count}`).join("|")}|${tabWholeCount}|${ui.tabs.active ?? ""}|${dirty}|${hasQuery}`;
+    const tabsVersion = `${tabViews.map((v) => `${v.id}:${v.name}:${v.count}`).join("|")}|${tabWholeCount}|${ui.tabs.active ?? ""}|${dirty}|${hasQuery}|${narrowed}`;
     // The view tabs show while the slice narrows the rows: each view is every source's narrowing.
     const tabs: SheetToolbarTabs | undefined = rowsPart !== undefined
         ? {
@@ -2973,6 +2975,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     active={ui.tabs.active}
                     dirty={dirty}
                     hasQuery={hasQuery}
+                    narrowed={narrowed}
                     renaming={ui.tabs.renaming}
                     renameVal={ui.tabs.renameVal}
                     fold={fold}

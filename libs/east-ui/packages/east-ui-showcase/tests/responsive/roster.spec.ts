@@ -695,7 +695,7 @@ for (const theme of LAYOUT_THEMES) {
     });
     test(`folded in a frame just past a phone's, the rail's editor heads each source's fields with its noun, icon and count, then the presets (${theme}) @narrow`, async ({ page }) => {
         await page.setViewportSize({ width: 1440, height: 844 });
-        const entry = await open(page, 'rosterMobile', theme), frame = entry.locator('[data-roster-frame]').first();
+        const entry = await open(page, 'rosterWarehouse', theme), frame = entry.locator('[data-roster-frame]').first();
         await size(page, entry, 570);
         await frame.locator(`${RAIL} button[aria-label^="Filters:"]`).first().click();
         const editor = page.getByRole('dialog');

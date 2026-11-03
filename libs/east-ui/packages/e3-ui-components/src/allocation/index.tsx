@@ -40,6 +40,7 @@ import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { publishPeriod } from "../shared/schedule/records.js";
+import { openFramePane } from "../shared/schedule/open-pane.js";
 import { readRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
 import { useSourceShown } from "../shared/schedule/source-tab.js";
 import { useSourceWindow } from "../shared/schedule/source-window.js";
@@ -414,7 +415,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     // Find a fit opens the Library's Resources tab, where its result is: with no such tab, nothing offers it.
     const findable = value.library.some(tab => tab.type === "resources");
     const onFind = (bin: string) => {
-        setFind(bin); setLibraryTab({ tab: "resources" }); revealPane("Library");
+        setFind(bin); setLibraryTab({ tab: "resources" }); openFramePane(root.current, "Library", "start");
         // Pressed again after the fit failed, a find is asked again.
         if (fit.error !== undefined) fit.retry();
     };
@@ -460,7 +461,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         if (asked !== undefined) askFit(asked.ask);
     }, [selectedBin, plan, askFit]);
     // The issues chip opens Inspector › Issues (A64).
-    const onIssues = () => { setInspectorTab({ tab: "issues" }); revealPane("Inspector"); };
+    const onIssues = () => { setInspectorTab({ tab: "issues" }); openFramePane(root.current, "Inspector", "end"); };
     const history = editing?.history;
     const { acted } = optimiseParts;
     const onAction = useCallback((action: HistoryAction) => {

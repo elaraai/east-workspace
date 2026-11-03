@@ -169,11 +169,11 @@ export const sliceFiltersViewSlotRecipe = defineSlotRecipe({
         choiceCount: { flex: "none", fontFamily: "mono", fontVariantNumeric: "tabular-nums", fontSize: "body", fontWeight: 500, color: "fg.strong" },
         choiceError: { paddingX: "16px" },
         foot: {
-            flex: "none", display: "grid", gap: "8px", boxSizing: "border-box",
+            flex: "none", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "8px", boxSizing: "border-box",
             paddingTop: "12px", paddingX: "16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))",
             background: "bg.surface", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.strong",
         },
-        count: { fontFamily: "mono", fontSize: "label.lg", fontVariantNumeric: "tabular-nums", color: "fg.muted", minHeight: "16px" },
+        count: { minWidth: "0", overflowWrap: "anywhere", "& *": { whiteSpace: "normal" }, fontFamily: "mono", fontSize: "label.lg", fontVariantNumeric: "tabular-nums", color: "fg.muted", minHeight: "16px" },
         actions: { display: "flex", gap: "8px" },
         action: { ...DEFAULT_BUTTON, flex: "1", height: "44px", "&[data-primary]": { fontWeight: 600 } },
     },
