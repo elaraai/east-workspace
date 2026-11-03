@@ -191,9 +191,29 @@ test("Flowchart: a phone shows two lanes across main, and the pager's steps move
     const width = await scroll.evaluate((el) => el.clientWidth);
     await next.click();
     await expect(readout).toHaveText("Lanes 2–3 of 3");
+    await expect.poll(() => scroll.evaluate((el) => el.scrollLeft)).toBe(Math.floor(width / 2));
+    // One more goes on to "+ LANE", past the last lane, as a swipe does; its end is the step's.
+    await next.click();
     await expect(next).toHaveAttribute("aria-disabled", "true");
+    const add = frame.locator("[data-flowchart-addlane]");
+    const [addBox, scrollBox] = await Promise.all([add.boundingBox(), scroll.boundingBox()]);
+    expect(addBox!.x + addBox!.width).toBeLessThanOrEqual(scrollBox!.x + scrollBox!.width + 1);
+    await expect(readout).toHaveText("Lanes 2–3 of 3");
+    await previous.click();
     await expect.poll(() => scroll.evaluate((el) => el.scrollLeft)).toBe(Math.floor(width / 2));
     await previous.click();
     await expect(readout).toHaveText("Lanes 1–2 of 3");
     await expect.poll(() => scroll.evaluate((el) => el.scrollLeft)).toBe(0);
+    await expect(previous).toHaveAttribute("aria-disabled", "true");
+});
+
+test("Flowchart: a frame too narrow for the lanes it is told to show shows as many whole lanes as it holds, the readout saying so", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const entry = await visitBuilder(page, "e3/flowchart/flowchart/flowchartFlowsMobile", ROOT, "light");
+    await sizeBuilder(page, entry, ROOT, 220);
+    const frame = entry.locator(ROOT).first();
+    await expect(frame.locator("[data-flowchart-lane-pager] [data-slot='pagerReadout']")).toHaveText("Lanes 1 of 3");
+    const scroll = frame.locator("[data-flowchart-scroll]");
+    const [node, box] = await Promise.all([frame.locator("[data-flowchart-node]").first().boundingBox(), scroll.boundingBox()]);
+    expect(node!.x + node!.width).toBeLessThanOrEqual(box!.x + box!.width);
 });

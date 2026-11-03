@@ -454,11 +454,13 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
     }, []);
 
     // A phone's window of lanes, left to right: as many across main's width as the canvas's `narrow.lanes` says, which
-    // its pager steps through. Top down, the lanes stack and the view scrolls down them.
+    // its pager steps through — as many whole lanes as main holds at their least width, so none is cut however many it
+    // is told to show, and the readout says what shows. Top down, the lanes stack and the view scrolls down them.
     const narrow = getSomeorUndefined(canvas.narrow);
     const narrowLanes = narrow === undefined ? undefined : getSomeorUndefined(narrow.lanes);
-    const lanesInView = narrowLanes === undefined ? PHONE_LANES : Number(narrowLanes);
+    const lanesAsked = narrowLanes === undefined ? PHONE_LANES : Number(narrowLanes);
     const windowed = size !== null && size.w > 0 && size.w <= PHONE_MAIN && orientation === "LR";
+    const lanesInView = windowed ? Math.max(1, Math.min(lanesAsked, Math.floor(size.w / PHONE_LANE_MIN))) : lanesAsked;
     const laneWidth = windowed ? Math.max(PHONE_LANE_MIN, Math.floor(size.w / lanesInView)) : undefined;
     const layout: FlowchartLayout | null = useMemo(
         () => (size === null ? null : computeLayout(model, {

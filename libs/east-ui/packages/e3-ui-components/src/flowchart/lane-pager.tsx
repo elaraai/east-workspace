@@ -8,8 +8,9 @@
  * canvas, as the Sheet's column pager is — the readout `Lanes 1–2 of 3`, and
  * ‹ › stepping the window a lane. The window is the canvas's own sideways
  * scroll: the pager reads where it rests and moves it — smoothly, at once
- * under reduced motion — so a swipe and a step are one window. Its looks are
- * the Sheet's pager's, in the `sheet` recipe.
+ * under reduced motion — so a swipe and a step are one window, and › reaches
+ * what stands past the last lane, `+ LANE`, as a swipe does. Its looks are the
+ * Sheet's pager's, in the `sheet` recipe.
  *
  * @packageDocumentation
  */
@@ -44,21 +45,25 @@ function reducedMotion(): boolean {
 export const FlowchartLanePager = memo(function FlowchartLanePager({ frame, total, inView, slotPx, words }: FlowchartLanePagerProps) {
     const styles = useSlotStyles("sheet");
     const last = Math.max(0, total - inView);
-    // The first lane in view: where the window rests, read off the canvas as it scrolls.
+    // The first lane in view, and whether the view is at the canvas's end: where the window rests, read off the canvas as it scrolls.
     const [first, setFirst] = useState(0);
+    const [atEnd, setAtEnd] = useState(false);
     useEffect(() => {
         if (frame === null || slotPx <= 0) return undefined;
-        const read = () => setFirst(Math.min(last, Math.max(0, Math.round(frame.scrollLeft / slotPx))));
+        const read = () => {
+            setFirst(Math.min(last, Math.max(0, Math.round(frame.scrollLeft / slotPx))));
+            setAtEnd(frame.scrollLeft + frame.clientWidth >= frame.scrollWidth - 1);
+        };
         read();
         frame.addEventListener("scroll", read, { passive: true });
         return () => frame.removeEventListener("scroll", read);
     }, [frame, slotPx, last]);
+    // The canvas's end holds it past the last lane's start; the browser stops the scroll there.
     const go = (to: number) => {
-        if (frame === null) return;
-        const target = Math.min(last, Math.max(0, to));
-        frame.scrollTo({ left: target * slotPx, behavior: reducedMotion() ? "auto" : "smooth" });
-        setFirst(target);
+        if (frame !== null) frame.scrollTo({ left: Math.max(0, to) * slotPx, behavior: reducedMotion() ? "auto" : "smooth" });
     };
+    // Past the last lane's start, at what stands after it: a step back comes to that lane first.
+    const pastLast = atEnd && frame !== null && frame.scrollLeft > first * slotPx + 1;
     const from = words.number(first + 1);
     const to = words.number(Math.min(total, first + inView));
     const range = inView === 1 ? from : `${from}–${to}`;
@@ -66,11 +71,11 @@ export const FlowchartLanePager = memo(function FlowchartLanePager({ frame, tota
         <Box css={styles.pager} data-slot="pager" data-flowchart-lane-pager="">
             <Box as="span" css={styles.pagerReadout} data-slot="pagerReadout" role="status">{words.m.lanePager({ range, total: words.number(total) })}</Box>
             <chakra.button type="button" css={styles.pagerStep} data-slot="pagerPrevious" aria-label={words.m.laneStep({ more: false })}
-                aria-disabled={first <= 0 ? true : undefined} onClick={() => { if (first > 0) go(first - 1); }}>
+                aria-disabled={first <= 0 && !pastLast ? true : undefined} onClick={() => { go(pastLast ? first : first - 1); }}>
                 <FontAwesomeIcon icon={faChevronLeft} />
             </chakra.button>
             <chakra.button type="button" css={styles.pagerStep} data-slot="pagerNext" aria-label={words.m.laneStep({ more: true })}
-                aria-disabled={first >= last ? true : undefined} onClick={() => { if (first < last) go(first + 1); }}>
+                aria-disabled={atEnd ? true : undefined} onClick={() => { if (!atEnd) go(first >= last ? total : first + 1); }}>
                 <FontAwesomeIcon icon={faChevronRight} />
             </chakra.button>
         </Box>
