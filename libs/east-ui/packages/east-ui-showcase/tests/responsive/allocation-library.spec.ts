@@ -123,7 +123,6 @@ for (const theme of ["light", "dark"] as const) {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "allocationKilnYard", theme);
         const frame = entry.locator("[data-allocation-frame]").first();
-        const start = frame.locator('[data-frame-slot="start"]');
         for (const width of [1440, 1024, 768]) {
             await size(page, entry, width);
             const fit = await frame.evaluate(root => {
