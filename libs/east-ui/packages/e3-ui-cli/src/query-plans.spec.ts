@@ -170,10 +170,15 @@ const SPLITS: readonly (readonly [program: string, output: string])[] = [
     ['.orders | map(.lines | length) | add', 'fold'],
 ];
 
-/** Joins re-keyed when both sides are large (#942): the orders with the customers, read only at the order's customer. */
+/**
+ * Joins re-keyed when both sides are large (#942): the orders with the
+ * customers, read only at the order's customer. Each reads its orders' totals
+ * and lines: the re-key call sends each order as the query reads it (#1141),
+ * and its customer and total alone would be one piece's worth, not many.
+ */
 const REKEYED: readonly string[] = [
-    REVENUE_BY_REGION,
-    '.customers as $c | .orders | map($c[.customer_id].region) | unique',
+    '.customers as $c | .orders | map(. + {region: $c[.customer_id].region}) | group_by(.region) | map({region: .[0].region, revenue: map(.total) | add, lines: map(.lines | length) | add, n: length})',
+    '.customers as $c | .orders | map({region: $c[.customer_id].region, big: (.total > 25), lines: (.lines | length)}) | unique',
 ];
 
 /** A join of two dicts keyed alike, the credit read only at the customer's own key: cut at the same keys (#942). */

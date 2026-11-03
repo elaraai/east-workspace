@@ -24,7 +24,7 @@ import assert from "node:assert/strict";
 
 import {
   ArrayType, DictType, EastError, EastTypeType, FloatType, IntegerType, SortedMap, SortedSet, StringType, StructType,
-  checkJq, compareFor, decodeEastIR, encodeEastIR, equalFor, printFor, splitJq, toEastTypeValue, translateJq,
+  checkJq, compareFor, decodeEastIR, encodeEastIR, equalFor, isTypeEqual, printFor, printType, splitJq, toEastTypeValue, translateJq,
   type EastType, type FunctionExpr, type JqSplit, type JqSplitCall, type JqRange, type SplitJqOptions, type ValueTypeOf,
 } from "../src/index.js";
 import { FixtureRoot, Order, queryFixture } from "./query.fixture.js";
@@ -554,6 +554,8 @@ const REKEYED: readonly string[] = [
   ".customers as $c | .orders | map(select($c[.customer_id].tier.type == \"gold\") | .total) | add",
   ".customers as $c | reduce .orders[] as $o ({}; .[$c[$o.customer_id].region // \"?\"] += $o.total)",
   ".customers as $c | .orders | map({tier: $c[.customer_id].tier.type, total}) | group_by(.tier) | map({tier: .[0].tier, hi: (map(.total) | max), n: length})",
+  // A stage that passes its rows on, which #1141 narrows to the fields read after it: still the orders' own.
+  ".customers as $c | .orders | map(select(.status.type == \"shipped\")) | map(. + {region: $c[.customer_id].region}) | group_by(.region) | map({region: .[0].region, revenue: map(.total) | add, n: length})",
 ];
 
 /** Joins that are not re-keyed: a combine that keeps the rows' order, a lookup not at a field of the row, the dict read whole. */
@@ -562,6 +564,8 @@ const NOT_REKEYED: readonly string[] = [
   ".customers as $c | .orders | map(. + {name: $c[.customer_id].name}) | group_by(.name) | map(.[0].id)",
   ".customers as $c | .orders | map($c[.customer_id + \"\"].region) | unique",
   ".customers as $c | .orders | map({n: ($c | length), r: $c[.customer_id].region}) | unique",
+  // A field kept under another name is not one the orders give.
+  ".customers as $c | .orders | map({cid: .customer_id, total}) | map({total, region: $c[.cid].region}) | group_by(.region) | map({region: .[0].region, revenue: map(.total) | add})",
 ];
 
 describe("joins: cut at the same keys, or re-keyed (#942)", () => {
@@ -633,16 +637,19 @@ describe("joins: cut at the same keys, or re-keyed (#942)", () => {
   test("the re-key call's rows are each key's in input order, whatever its table does", () => {
     const s = split(REKEYED[0]!);
     assert.ok(s.kind === "split" && s.rekey !== null);
+    // Each order as the query reads it, its customer and total (#1141): no two of the fixture's are alike.
+    const Sent = StructType({ customer_id: StringType, total: FloatType });
+    const Rekeyed = DictType(StringType, ArrayType(Sent));
+    assert.ok(isTypeEqual(s.rekey.output.type, Rekeyed), `the re-key call sends ${printType(s.rekey.output.type)}`);
     const orders = fixture.orders as ValueTypeOf<typeof Order>[];
-    const expected = new SortedMap<string, bigint[]>([], compareFor(StringType));
-    for (const order of orders) expected.set(order.customer_id, [...(expected.get(order.customer_id) ?? []), order.id]);
+    const expected = new SortedMap<string, ValueTypeOf<typeof Sent>[]>([], compareFor(StringType));
+    for (const { customer_id, total } of orders) expected.set(customer_id, [...(expected.get(customer_id) ?? []), { customer_id, total }]);
     for (const flushes of FLUSHES) {
       const r = splitJq(checked(REKEYED[0]!), flushes);
       assert.ok(r.kind === "split" && r.rekey !== null);
       for (const pieces of [1, 3, 64]) {
-        const rekeyed = runCall({ inputs: [r.inputs.find(i => i.name === "orders")!], output: r.rekey.output, piece: r.rekey.piece, then: () => null }, fixture, ["orders"], pieces) as SortedMap<string, ValueTypeOf<typeof Order>[]>;
-        const ids = new SortedMap([...rekeyed.entries()].map(([k, rows]) => [k, rows.map(row => row.id)] as const), compareFor(StringType));
-        assert.ok(equalFor(DictType(StringType, ArrayType(IntegerType)))(ids, expected), `flushRows ${flushes.flushRows ?? "default"}, bypassRatio ${flushes.bypassRatio ?? "default"}, ${pieces} pieces`);
+        const rekeyed = runCall({ inputs: [r.inputs.find(i => i.name === "orders")!], output: r.rekey.output, piece: r.rekey.piece, then: () => null }, fixture, ["orders"], pieces);
+        assert.ok(equalFor(Rekeyed)(rekeyed as never, expected), `flushRows ${flushes.flushRows ?? "default"}, bypassRatio ${flushes.bypassRatio ?? "default"}, ${pieces} pieces`);
       }
     }
   });

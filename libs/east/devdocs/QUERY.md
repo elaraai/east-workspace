@@ -1345,6 +1345,22 @@ translation.fn();         // East.function([Array<Order>], Float, …)
   once, and the array between them is never built. `.orders | map(.total) |
   add` holds one total at a time. Any other step, a step a `def` names, and a
   stage bound to a variable collect their rows as written.
+- **A row holds only the fields read after it (#1141).** An object a step
+  builds, `{a: f, b: g}` or `. + {c: h}` on a struct, keeps the fields the
+  steps after it read. A field none reads is left out where making it neither
+  raises nor gives other than one value: `{a: .x, b: (.y / .z)} | .a` makes
+  `b`, whose division may raise. Checked as an e3 root, a stage over a
+  dataset's rows that passes them on, `map(select(p))`, ends by building each
+  row of the fields read after it, and a paged dataset's loop then decodes
+  those fields alone (#1112). A row read whole is built whole: one that
+  reaches the output, or meets `keys`, `tojson`, `length` of an object,
+  `==`, a variable bound to it, or any step not known to read fields apart;
+  so is every value in a `try`'s body, and a program with a `def` runs as
+  written. The translation runs the narrowed program checked again, each
+  node at the text it came from, so a runtime error names the query as
+  written; the `Query` builtin carries the program as written (§15.7).
+  `.customers as $c | .orders | map(. + {region: $c[.customer_id].region}) |
+  group_by(.region) | …` builds each order of its total and region alone.
 - **Every value has the checker's type.** Each node's outputs are converted to
   the type the checker gave it: Integer widened to Float, `T` and `null` to
   `Option<T>`, arrays, dicts, structs and variants part by part. Narrowing is
@@ -1938,7 +1954,10 @@ the engine groups the additions.
   builder re-keys only when the joined dict weighs more than one piece too
   (`Query Editor Spec.md` §4.15). A dict the final function reads too is
   never re-keyed: the join call partitions it, and its final function is
-  given only the inputs not partitioned (#1107).
+  given only the inputs not partitioned (#1107). The re-key call sends each
+  row as the query reads it, of the fields read (#1141), the join key's
+  among them: revenue by carrier, `map({carrier: $s[.id].carrier, total})`,
+  sends each order's id and total, and its join call's pieces read those.
 
 - **A piece's table** (#1093). A piece whose output combines by key — a
   grouping by totals, `unique`, `unique_by`, a `reduce` — folds its rows into

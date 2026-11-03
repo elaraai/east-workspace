@@ -22,10 +22,11 @@ import {
   ArrayType, BlobType, DictType, EastError, EastIR, East, Expr, FloatType, FunctionType, IRType, IntegerType, NeverType, NullType, OptionType, QueryCallType, RecursiveType,
   SortedMap, StringType, StructType, SummaryLeafType, SummaryType, checkJq, compareFor, constValueOf, decodeBeast2For, encodeBeast2For, equalFor, evaluateJq, none,
   printFor, printJq, QueryError, some, QueryErrorType, QuerySpanType, runtimeErrorAt, summaryProgram, toSource, translateJq, variant, walkIR,
-  type ArrayExpr, type EastType, type IR, type ValueTypeOf,
+  splitJq, type ArrayExpr, type CheckJqResult, type EastType, type IR, type ValueTypeOf,
 } from "../src/index.js";
 import { canonicalDifference, canonicalIR } from "../src/codegen/canonical.js";
 import { BUILTINS } from "../src/query/jq/catalog.js";
+import { narrowRows } from "../src/query/jq/narrow.js";
 import { BUILTIN_RULES, FORMATS } from "../src/query/jq/translate-builtins.js";
 import { inExportSubdirectory } from "./export-subdirectory.js";
 import { describeEast, assertEast } from "./platforms.spec.js";
@@ -722,5 +723,114 @@ describe("a stage's rows folded as they are made (#1140)", () => {
     ]) {
       assert.ok(arrayPushes(translateJq(checkJq(program, FixtureRoot)).fn().toIR().ir).all > 0, program);
     }
+  });
+});
+
+// ─── A query's rows narrowed to the fields its later steps read (#1141) ──
+
+/** The fields of each struct a translation builds, each struct's joined. */
+function structsBuilt(ir: IR): string[] {
+  const built: string[] = [];
+  walkIR(ir, node => { if (node.type === "Struct") built.push(node.value.fields.map(f => f.name).join(",")); });
+  return built;
+}
+
+describe("a query's rows narrowed to the fields its later steps read (#1141)", () => {
+  const fixture = queryFixture();
+  /** The program as written: one that defines a function, which is never narrowed, and never calls it. */
+  const written = (program: string): string => `def unread: .; ${program}`;
+  /** A program checked as an e3 root over the fixture's datasets. */
+  const checked = (program: string): CheckJqResult => {
+    const c = checkJq(program, FixtureRoot, { root: true });
+    assert.ok(c.program !== null, `${program} checks`);
+    return c;
+  };
+  /** What a program gives over the fixture: its answer, printed, or the message it raised and the text it raised at. */
+  const outcome = (program: string): string => {
+    const c = checked(program);
+    try {
+      return printFor(translateJq(c).resultType)(evaluateJq(c, fixture) as never);
+    } catch (e) {
+      if (!(e instanceof QueryError)) throw e;
+      return `raised ${e.diagnostics.map(d => `${d.message} at ${d.span.type === "some" ? program.slice(Number(d.span.value.offset), Number(d.span.value.offset + d.span.value.length)) : "-"}`).join("; ")}`;
+    }
+  };
+  /** Rows built or kept with fields no later step reads: each is narrowed. */
+  const NARROWED: readonly string[] = [
+    ".customers as $c | .orders | map(. + {region: $c[.customer_id].region}) | group_by(.region) | map({region: .[0].region, revenue: map(.total) | add, n: length})",
+    ".orders | map(. + {big: (.total > 1000)}) | group_by(.big) | map({big: .[0].big, n: length})",
+    ".orders | map(. + {total: (.total * 2)}) | map(.total) | add",
+    ".orders | map(. + {id: \"s\"}) | map(.id)",
+    ".orders | map({id, total, n: (.lines | length)}) | map(.id + .n)",
+    ".orders | map(select(.total > 1000)) | sort_by(-.total) | .[:3] | map(.id)",
+    ".orders | [.[] | select(.total > 100)] | map(.id)",
+    ".orders | map(if .total > 1000 then . else empty end) | map(.id)",
+    ".orders | map(select(.discount != null)) | map(.discount + 1)",
+    ".orders | map(select(.status.type == \"shipped\")) | map(.status.value)",
+    ".orders | map(. + {x: .total}) | unique_by(.customer_id) | map(.x)",
+    ".orders | map(. + {x: .total}) | max_by(.x) | {id, x}",
+    ".orders | map(. + {x: .total}) | reverse | .[2:5] | map(.x)",
+    ".orders | map(. + {x: .total}) | first(.[] | select(.x > 1000)) | .id",
+    ".orders | map(. + {x: .total}) | map(\"\\(.id)-\\(.x)\")",
+    ".orders | map(. + {x: .total}) | map(try .x catch 0) | add",
+    "[.orders[] | {a: .id, b: .total} | .a]",
+    ".orders | map({a: .id, $__loc__}) | map(.a)",
+    // A field none reads that raises, or gives no value or many, is made all the same.
+    ".orders | map(. + {x: error(\"refused\")}) | map(.id)",
+    ".orders | map(. + {x: (1 / (.id - 1040))}) | map(.id)",
+    ".orders | map(. + {x: (.lines[] | .qty)}) | map(.id) | length",
+    ".orders | map(. + {x: empty}) | map(.id)",
+  ];
+  /** Rows read whole, or with nothing left out but what may raise or give other than one value: each runs as written. */
+  const WRITTEN: readonly string[] = [
+    ".orders | map(. + {x: 1})",
+    ".orders | map(select(.total > 1000)) | .[0]",
+    ".orders | map(select(.total > 1000)) | map(keys)",
+    ".orders | map(. + {x: 1}) | map(tojson) | length",
+    ".orders | map(. + {x: 1}) | map(length)",
+    ".orders | map(. + {x: 1}) | map(has(\"id\"))",
+    ".orders | map(. + {x: 1}) | map(. == .)",
+    ".orders | map(. + {x: .total}) | . as $all | $all | map(.x) | add",
+    ".orders | map(. + {x: .total}) | reduce .[] as $o (0; . + $o.x)",
+    ".orders | map({id, qty: .lines[].qty}) | map(.id) | length",
+    ".orders | map({id, r: (.total / 0)}) | map(.id)",
+    "[.orders[] | try ({a: .id, b: .total} | .a)]",
+    ".orders | map(. * {x: 1}) | map(.x)",
+    ".orders | map(select(.total > 1000)) | length",
+    // Leaving `b` out would leave a dataset unread: the program's inputs are what it reads.
+    "{a: (.orders | length), b: (.customers | length)} | .a",
+    "def unread: .; .orders | map(. + {x: 1}) | map(.x)",
+  ];
+
+  test("each builds and keeps only the fields read after it, and answers as the program as written does", () => {
+    for (const program of NARROWED) {
+      const c = checked(program);
+      assert.notEqual(narrowRows(c), c, `${program} is narrowed`);
+      assert.equal(outcome(program), outcome(written(program)), program);
+    }
+    for (const program of WRITTEN) {
+      const c = checked(program);
+      assert.equal(narrowRows(c), c, `${program}: ${printJq(narrowRows(c).program!).text}`);
+    }
+  });
+
+  test("a field none reads that raises is made, and its error names the query as written", () => {
+    assert.equal(outcome(NARROWED[19]!), "raised runtime: Division by zero at 1 / (.id - 1040)");
+    assert.match(outcome(NARROWED[18]!), /^raised runtime: refused at error\("refused"\)/);
+  });
+
+  test("revenue by region builds no struct of an order's unread fields, as one unit or in its pieces", () => {
+    const program = NARROWED[0]!;
+    // The order's fields that revenue by region never reads.
+    const unread = ["discount", "id", "lines", "status"];
+    const holdsUnread = (fields: string): boolean => fields.split(",").some(f => unread.includes(f));
+    const one = structsBuilt(translateJq(checked(program)).fn().toIR().ir);
+    assert.ok(one.length > 0 && !one.some(holdsUnread), JSON.stringify(one));
+    const s = splitJq(checked(program));
+    assert.ok(s.kind === "split");
+    const piece = structsBuilt(s.piece().toIR().ir);
+    assert.ok(piece.length > 0 && !piece.some(holdsUnread), JSON.stringify(piece));
+    // As written, each order widened is built of all its fields.
+    assert.ok(structsBuilt(translateJq(checked(written(program))).fn().toIR().ir).some(holdsUnread));
   });
 });

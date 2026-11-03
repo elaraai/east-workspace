@@ -17,11 +17,11 @@
  *
  * The benchmark's piece programs each run inside a function that collects what
  * they emit, over the shared fixture's datasets opened lazily. Their loops
- * project, but for three that build or keep the whole row: revenue by region
- * widens every order (`. + {region: …}`) and keeps each group's first order,
- * the sorted top 100 keeps each row it may emit, and a re-keyed join's pieces
- * send each order whole. Each decodes whole until the translator builds and
- * keeps only the fields later steps read (#1141, #1142).
+ * project, those that build or keep a row too, since the translator builds and
+ * keeps only the fields later steps read (#1141): revenue by region builds each
+ * order of its total and region (`. + {region: …}`), the sorted top 100 keeps
+ * each row it may emit as its id and total, and a re-keyed join's pieces send
+ * each order's id and total. A join piece's rows, a key's orders, decode whole.
  *
  * Under EXPORT_TEST_IR (`make test-export`) the cases are written beside the
  * compliance IR, to <dir>/loop_projection/, where east-c's
@@ -493,12 +493,11 @@ const QUERIES: readonly { id: string; program: string; whole?: string }[] = [
   { id: "q2", program: ".orders | {n: length, total: (map(.total) | add), any_big: any(.total > 2000), all_lines: all(.lines | length > 0)}" },
   {
     id: "q3", program: ".customers as $c | .orders | map(. + {region: $c[.customer_id].region}) | group_by(.region) | map({region: .[0].region, revenue: map(.total) | add, n: length})",
-    whole: "it widens every order, and keeps each group's first (#1141, #1142)",
   },
   { id: "q4", program: ".orders | map(.customer_id) | unique" },
   { id: "q5", program: "reduce .orders[] as $o ({}; .[$o.customer_id] += $o.total)" },
   { id: "q6", program: `.orders | map(select(.total > ${THRESHOLD})) | map(.id)` },
-  { id: "q6t", program: `.orders | map(select(.total > ${THRESHOLD})) | sort_by(-.total) | .[:100] | map(.id)`, whole: "it keeps each row it may emit whole (#1141)" },
+  { id: "q6t", program: `.orders | map(select(.total > ${THRESHOLD})) | sort_by(-.total) | .[:100] | map(.id)` },
   { id: "q7", program: ".shipments as $s | .orders | map({carrier: $s[.id].carrier, total}) | group_by(.carrier) | map({carrier: .[0].carrier, revenue: map(.total) | add, n: length})" },
 ];
 
@@ -540,7 +539,7 @@ describe("loop projection corpus — the benchmark's piece programs", () => {
     ];
     if (split.rekey !== null) {
       const rekey = split.rekey;
-      programs.push({ name: `${q.id} re-key piece`, piece: rekey.piece(), names: [split.over], data: bench, whole: "it sends each order whole under its key (#1141)" });
+      programs.push({ name: `${q.id} re-key piece`, piece: rekey.piece(), names: [split.over], data: bench });
       // The join call's dataset: each key's orders, as the re-key call assembles what its pieces send.
       const sent = (collecting(rekey.piece()).fn.toIR().compile([]) as (...args: unknown[]) => { key: unknown; value: unknown[] }[])(bench[split.over]);
       const rekeyed = new SortedMap<unknown, unknown[]>([], compareFor(rekey.keyType));

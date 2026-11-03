@@ -28,6 +28,12 @@ A stage that collects rows before a step that reads them one at a time —
 and `.[:n]` stop the stage once they have their rows, unless a later row could
 raise (QUERY.md §15.1–15.2).
 
+A row a stage builds or keeps holds only the fields the steps after it read:
+`map(. + {region: …}) | group_by(.region) | map(… .total …)` builds each row of
+its region and total, and over an e3 root `map(select(p))` keeps each row as
+the fields read after it, so a paged dataset decodes those alone. A row read
+whole — the output, `keys`, `tojson`, `==` — is built whole (QUERY.md §15.1).
+
 | Signature | Description | Example |
 |-----------|-------------|---------|
 | **In an East body** |
