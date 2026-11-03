@@ -348,7 +348,7 @@ export const sheetActionsReadOnly = example({
 
 export const sheetActionsPhone = example({
     keywords: ["Sheet", "Sheet.column.action", "action", "phone", "mobile", "touch", "action bar", "cell editor", "Sheet.field.number", "applyMode", "auto"],
-    description: "Example 2's work orders in a phone's 390-wide box: each action cell shows its state alone, and a tap on an Action cell turns the docked strip into its action bar — the first action full width, the rest in one line, a menu or a form opening inside the bar — while a tap on Good or Done edits it there, the inspector's field at touch size; each change saved as it is made",
+    description: "Example 2's work orders in a phone's box, 390 wide or the screen's width: each action cell shows its state alone, and a tap on an Action cell turns the docked strip into its action bar — the first action full width, the rest in one line, a menu or a form opening inside the bar — while a tap on Good or Done edits it there, the inspector's field at touch size; each change saved as it is made",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const orders = $.let(Record.bind(sheetWorkOrders));
@@ -369,7 +369,7 @@ export const sheetActionsPhone = example({
             const finished = $.const(East.function([Step], BooleanType, (_$2, step) =>
                 step.action.match({ some: (_$3, a) => a.hasTag("completed").or(() => a.hasTag("verified")) }, () => false)));
             return (
-                <Box width="390px" height="620px">
+                <Box width="390px" maxWidth="100%" height="620px">
                     <Sheet
                         slice={{ slice }}
                         name="sheetActionsPhone"
