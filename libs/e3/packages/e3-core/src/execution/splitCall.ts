@@ -15,7 +15,7 @@
  * its program and its inputs. So a relaunch is served from the cache, and a
  * call after an append reruns only the pieces whose rows changed. With `then`,
  * the job then runs that function once, detached, over the assembled output
- * and the arguments.
+ * and the arguments not partitioned: the pieces read the others.
  *
  * What a caller may launch is one-shot's grant: `platform_free` launches only a
  * platform-free call ({@link splitCallPlatformUse}). The whole call goes
@@ -44,7 +44,7 @@ import { workspaceGetDatasetHash } from '../trees.js';
 import { workspaceGetPackage } from '../workspaces.js';
 import type { TaskResult, TaskRunner } from './interfaces.js';
 import {
-  invalidExecuteResult, programPlatformUse, resolveJobLimits, runnerPlatformUse,
+  invalidExecuteResult, programArity, programPlatformUse, resolveJobLimits, runnerPlatformUse,
   type ExecuteCeilings, type OneShotGrant, type ResolvedLimits,
 } from './oneShot.js';
 import { pieceSizes, planPieces } from './pieces.js';
@@ -197,16 +197,20 @@ export function splitCallPlatformFree(request: SplitCallRequest, grant: OneShotG
  * 1. **Grant.** `none` is refused, and so is `platform_free` with a call that
  *    is not platform-free, before anything is read or written. A
  *    `platform_free` caller's program that does not decode is `invalid`.
- * 2. **Pin.** Each dataset argument is pinned at the hash it holds, and an
+ * 2. **Shape.** A call on the custom runtime, one that partitions no argument,
+ *    and one whose `then` does not take the assembled output and then each
+ *    argument not partitioned — or does not decode — are `invalid`, naming
+ *    what is wrong: `then`'s arity and the count it is given.
+ * 3. **Pin.** Each dataset argument is pinned at the hash it holds, and an
  *    `object` argument's own object must be in the store; a partitioned
  *    argument must be a stored collection. What an `object` argument names —
  *    an earlier call's output, say, a collection of thousands of segments —
  *    is the job's to re-reference before it runs ({@link splitCallReference}):
  *    the launch answers a request, and reads nothing of it but its own object.
- * 3. **Write.** The value arguments go through the store's door, so a
+ * 4. **Write.** The value arguments go through the store's door, so a
  *    partitioned one is a collection the pieces are cut from; the programs and
  *    a fold's zero are stored as objects.
- * 4. **Task.** The task object: the program as its body, on the call's runner,
+ * 5. **Task.** The task object: the program as its body, on the call's runner,
  *    an input per argument with its partition and no path, as an index build's
  *    are, and the call's output kind.
  *
@@ -246,6 +250,20 @@ export async function splitCallPrepare(
   }
   if (!request.args.some((arg) => arg.partition.type === 'some')) {
     return invalidExecuteResult('a split call partitions at least one of its arguments: its pieces are cut from it');
+  }
+  if (request.then.type === 'some') {
+    // The assembled output, then each argument the pieces do not cut.
+    const given = 1 + request.args.filter((arg) => arg.partition.type === 'none').length;
+    let arity: number;
+    try {
+      arity = programArity(request.then.value);
+    } catch (err) {
+      return invalidExecuteResult(`then does not decode as a function: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (arity !== given) {
+      return invalidExecuteResult(`then takes ${argumentCount(arity)}, and the call gives it ${argumentCount(given)}: ` +
+        'the assembled output, then each argument not partitioned, in order');
+    }
   }
   await workspaceGetPackage(storage, repo, workspace);
 
@@ -387,6 +405,11 @@ function progressOf(progress: PartitionProgress): SplitCallProgress {
   return { phase, done: BigInt(progress.completed), units: BigInt(progress.total) };
 }
 
+/** `n` arguments, as a refusal counts them. */
+function argumentCount(n: number): string {
+  return `${n} argument${n === 1 ? '' : 's'}`;
+}
+
 /** A text's UTF-8 bytes. */
 const utf8Bytes = new TextEncoder();
 
@@ -410,7 +433,9 @@ function tail(text: string, limit: number): { text: string; truncated: boolean }
  * engine's pieces and merges, each a unit on the runner, under the budget, and
  * served from the execution cache when it ran before. With `then`, the
  * function then runs once, detached, over the assembled output and the
- * arguments, and the value it returns is stored through the store's door.
+ * arguments not partitioned, and the value it returns is stored through the
+ * store's door. A partitioned argument is the pieces' to read, and is never
+ * staged for `then`.
  *
  * Before any unit runs, the job re-references what the call's `object`
  * arguments name ({@link splitCallReference}): an argument the store no longer
@@ -505,10 +530,12 @@ export async function splitCallRun(
     const remaining = left();
     if (remaining <= 0) return timedOut(output, report);
     const task = decodeTaskObject(await storage.objects.read(repo, call.task));
+    // The assembled output, then the arguments not partitioned, each by the
+    // object it is.
+    const unpartitioned = call.inputs.filter((_, i) => task.inputs[i]!.partition.type === 'none');
     const detached = await runner.runDetached({
       bodyIr: await storage.objects.read(repo, call.then),
-      // The assembled output, then the arguments, each by the object it is.
-      args: [output, ...call.inputs].map((dataset) => ({ dataset })),
+      args: [output, ...unpartitioned].map((dataset) => ({ dataset })),
       runner: task.runner,
       limits: { ...call.limits, timeoutMs: remaining },
     }, {

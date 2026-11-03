@@ -926,7 +926,7 @@ export const SplitCallRequestType = StructType({
     fold:  StructType({ combine: BlobType, zero: BlobType }),
     set:   NullType,
   }),
-  then:   OptionType(BlobType),                       // a final function: the assembled output, then the args
+  then:   OptionType(BlobType),                       // a final function: the assembled output, then the args not partitioned (#1107)
   runner: RunnerType,
   limits: OptionType(ExecuteLimitsType),
 });
@@ -940,6 +940,21 @@ At least one argument is partitioned, and the pieces follow the task's rules
 most, the other partitioned arguments are cut at the same keys, and an argument
 not partitioned reaches every piece whole.
 
+**What `then` gets** (#1107): the assembled output, then the arguments **not**
+partitioned, in argument order. The partitioned arguments are what the pieces
+read; `then` reads what the pieces produced. Staging a partitioned argument for
+`then` was the whole of a cached 16 GB rerun with a final step — 396,534
+segment links on the local runner, the argument copied whole into e3-web's
+unit worker, its manifest downloaded on e3-cloud — 7.7–9.5 s against 0.3 s
+without one. A plan that needs a partitioned dataset again after the combine
+runs another split call over it, given the first call's output as an `object`
+argument, which is how plans already chain; the jq split reads a dict its
+final function reads whole in every piece, never cut with the rows. The launch
+refuses a `then` whose arity is not 1 plus the count of arguments not
+partitioned, `invalid`, naming both, and nothing runs. Client and server move
+together: a client of this release and a server of an earlier one disagree on
+what `then` is given.
+
 **The launch** (e3-core `splitCallPrepare`, `execution/splitCall.ts`) applies
 the caller's grant, pins each dataset argument by hash as a one-shot does,
 stores the value arguments through the store's door (so a partitioned one is a
@@ -948,8 +963,9 @@ objects, and writes the task object: `body: east { program }`, the call's
 runner, one input per argument with its partition and no path, as an index
 build's are, the output kind, `role: data`, `environment: none`. A request
 found wrong — no partitioned argument, a `custom` runner (a split task runs on
-a stock runner), a partitioned argument that is not a collection, an unassigned
-dataset, an object the store does not hold — is `invalid`, and the route files
+a stock runner), a `then` that does not take the assembled output and the
+arguments not partitioned, a partitioned argument that is not a collection, an
+unassigned dataset, an object the store does not hold — is `invalid`, and the route files
 it as a job already `completed`, so every result comes back through the poll.
 Of an `object` argument the launch reads only its own object: what it names —
 an earlier call's output, say, a collection of thousands of segments — is the
@@ -970,8 +986,8 @@ job does the same before it plans. Then
 `runner.execute(storage, task, inputs, { signal, onPartitionProgress })` —
 `executeSplitTask`'s pieces and merges, each a unit cached on its program and
 inputs — and then, with `then`, `runner.runDetached` over the assembled output
-and the arguments, each as `{ dataset: hash }`, whose value is stored through
-the door. The job's timeout is `limits.timeoutMs`, by default and at most
+and the arguments not partitioned, each as `{ dataset: hash }`, whose value is
+stored through the door. The job's timeout is `limits.timeoutMs`, by default and at most
 one-shot's ceiling of 10 minutes (`resolveJobLimits`: a job has no sync
 deadline), which a local server sets with `--job-timeout` (§7.1). It is one
 budget for the whole job, counted from its launch (the
@@ -1175,8 +1191,10 @@ paths.
     - e3-core `execution/splitCall.spec.ts`, over a local repository with
       `E3_TEST_PIECE_BYTES` so a small dataset is many pieces: `array`, `set`,
       `dict` with a merge and `fold` calls give what one unit over the whole
-      dataset gives; `then` runs over the assembled output and the arguments; an
-      argument not partitioned reaches every piece whole; an `object` argument
+      dataset gives; `then` runs over the assembled output and the arguments
+      not partitioned, in their order, staging no object of a partitioned one,
+      and one of another arity is `invalid` (#1107); an argument not
+      partitioned reaches every piece whole; an `object` argument
       chains one call's output into the next; the launch of a call whose
       `object` argument is a collection of many segments asks the store about
       none of them, and its job touches every one before its first unit; an

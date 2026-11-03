@@ -1005,7 +1005,8 @@ export const runnerCases: readonly AdapterCase<RunnerSetup>[] = [
         })),
         args: [{ arg: variant('dataset', inputPath('sales')), partition: some({ by: [] }) }],
         output: variant('dict', { merge: some(ir(East.function([IntegerType, IntegerType, IntegerType], IntegerType, ($, _key, a, b) => a.add(b)))) }),
-        then: some(ir(East.function([IntDictType, SalesType], IntegerType, ($, counts, _sales) => counts.size()))),
+        // The assembled output alone: the sales are cut, so the pieces read them (#1107).
+        then: some(ir(East.function([IntDictType], IntegerType, ($, counts) => counts.size()))),
         runner: PLATFORM_FREE,
         limits: none,
       };

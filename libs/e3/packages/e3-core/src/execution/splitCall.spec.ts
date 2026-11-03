@@ -5,7 +5,8 @@
 
 /**
  * Split calls (#1032): a caller's program over a dataset's pieces, run as a
- * split task on the engine and assembled by its output kind, then `then`.
+ * split task on the engine and assembled by its output kind, then `then`,
+ * over the assembled output and the arguments not partitioned (#1107).
  * `E3_TEST_PIECE_BYTES` makes the pieces small, so a few thousand rows are
  * many pieces; the units run on east-node.
  */
@@ -69,6 +70,22 @@ const countByRemainder = call(
   [partitioned(dataset('sales'))],
   variant('dict', { merge: some(ir(East.function([IntegerType, IntegerType, IntegerType], IntegerType, ($, _key, a, b) => a.add(b)))) }),
 );
+
+/** `storage`, with the hash of every object its object store is asked about
+ *  recorded in `asked`. */
+function counting(storage: StorageBackend, asked: Set<string>): StorageBackend {
+  const objects = new Proxy(storage.objects, {
+    get(target, key, receiver) {
+      const member: unknown = Reflect.get(target, key, receiver);
+      if (typeof member !== 'function') return member;
+      return (...args: unknown[]) => {
+        if (typeof args[1] === 'string') asked.add(args[1]);
+        return (member as (...a: unknown[]) => unknown).apply(target, args);
+      };
+    },
+  });
+  return new Proxy(storage, { get: (target, key, receiver) => (key === 'objects' ? objects : Reflect.get(target, key, receiver)) });
+}
 
 /** The local runner, with every unit's progress heard. */
 function tapped(inner: TaskRunner, heard: PartitionProgress[]): TaskRunner {
@@ -222,14 +239,55 @@ describe('split calls', () => {
     });
   });
 
-  it('runs `then` over the assembled output, and then the arguments', async () => {
-    const counted = await run({
-      ...countByRemainder,
-      then: some(ir(East.function([CountsType, SalesType], IntegerType, ($, counts, sales) =>
-        counts.size().multiply(100_000n).add(sales.size())))),
-    });
-    await assertValue(counted, IntegerType, 97n * 100_000n + 8000n);
+  it('runs `then` over the assembled output, and then the arguments not partitioned, in their order (#1107)', async () => {
+    const counted = await run(call(
+      ir(East.function([IntegerType, SalesType, IntegerType, EmitEntry], NullType, ($, _offset, sales, _seven, emit) => {
+        $.for(sales, ($, _amount, key) => {
+          $(emit(key.remainder(97n), 1n));
+        });
+      })),
+      [whole(dataset('offset')), partitioned(dataset('sales')), whole(variant('value', encodeBeast2For(IntegerType)(7n)))],
+      countByRemainder.output,
+      {
+        then: some(ir(East.function([CountsType, IntegerType, IntegerType], IntegerType, ($, counts, offset, seven) =>
+          counts.size().multiply(100_000n).add(offset.multiply(10n)).add(seven)))),
+      },
+    ));
+    await assertValue(counted, IntegerType, 97n * 100_000n + 1000n * 10n + 7n);
     assert.equal(counted.outcome.output.type, 'some', 'the result names the assembled output');
+  });
+
+  it('stages for `then` no object of a partitioned argument, which the pieces read (#1107)', async () => {
+    const staged = new Set<string>();
+    const inner = runner;
+    runner = {
+      ...inner,
+      runDetached: (spec, options) => inner.runDetached(spec, options?.storage === undefined ? options : { ...options, storage: counting(options.storage, staged) }),
+    };
+    const launched = await splitCallPrepare(storage, repo, WS, call(
+      ir(East.function([SalesType, IntegerType, EmitEntry], NullType, ($, sales, _offset, emit) => {
+        $.for(sales, ($, _amount, key) => {
+          $(emit(key.remainder(97n), 1n));
+        });
+      })),
+      [partitioned(dataset('sales')), whole(dataset('offset'))],
+      countByRemainder.output,
+      { then: some(ir(East.function([CountsType, IntegerType], IntegerType, ($, counts, offset) => counts.size().add(offset)))) },
+    ), { grant: 'any' });
+    if ('outcome' in launched) assert.fail('the call was refused');
+    const outcome = await splitCallRun(storage, runner, repo, launched);
+    assert.equal(outcome.outcome.type, 'success', outcome.stderr);
+    if (outcome.output.type !== 'some') assert.fail('the call assembled no output');
+
+    const [sales, offset] = launched.inputs;
+    const manifest = await readManifest(storage, repo, sales!);
+    if (manifest === null) assert.fail('sales is stored as a manifest');
+    assert.ok(manifest.entries.length > 4, `sales is ${manifest.entries.length} segments`);
+    // Its header is any collection's of its type: the assembled output's too.
+    const salesObjects = [sales!, ...manifest.entries.map((entry) => entry.hash)];
+    assert.deepEqual(salesObjects.filter((hash) => staged.has(hash)), [], 'no object of sales was asked for');
+    assert.ok(staged.has(offset!), 'offset was');
+    assert.ok(staged.has(outcome.output.value), 'and so was the assembled output');
   });
 
   it('names the argument its pieces are cut over in its log by its position, as it has no path (#1102)', async () => {
@@ -486,7 +544,7 @@ describe('split calls', () => {
           $(emit(key, amount));
         });
       })), [partitioned(dataset('sales'))], variant('dict', { merge: none }))],
-      ['its then', { ...countByRemainder, then: some(ir(East.function([CountsType, SalesType], IntegerType, ($, counts) => {
+      ['its then', { ...countByRemainder, then: some(ir(East.function([CountsType], IntegerType, ($, counts) => {
         const message = $.const('then');
         $(log(message));
         return counts.size();
@@ -511,6 +569,12 @@ describe('split calls', () => {
       ['a partitioned scalar', { ...countByRemainder, args: [partitioned(dataset('offset'))] }, /not a collection/],
       ['an unassigned dataset', { ...countByRemainder, args: [partitioned(dataset('unset'))] }, /not assigned/],
       ['an object the store does not hold', { ...countByRemainder, args: [partitioned(variant('object', '0'.repeat(64)))] }, /does not hold/],
+      // `then` takes the assembled output, then the arguments not partitioned (#1107).
+      ['a then given a partitioned argument', {
+        ...countByRemainder,
+        then: some(ir(East.function([CountsType, SalesType], IntegerType, ($, counts) => counts.size()))),
+      }, /^then takes 2 arguments, and the call gives it 1 argument: the assembled output, then each argument not partitioned, in order$/],
+      ['a then that is no function', { ...countByRemainder, then: some(Uint8Array.from([1, 2, 3])) }, /^then does not decode as a function: /],
     ];
     for (const [what, request, message] of invalid) {
       const launched = await splitCallPrepare(storage, repo, WS, request, { grant: 'any' });

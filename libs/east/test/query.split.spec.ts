@@ -95,7 +95,7 @@ interface Call {
  * assembled by the output kind — an array concatenated, a set united in
  * East's order, a dict's equal keys merged in input order, a fold combined
  * from its zero, a piece at a time and then across them — and the final
- * function over the assembled output and the inputs.
+ * function over the assembled output and the inputs not partitioned (#1107).
  */
 function runCall(call: Call, values: Readonly<Record<string, unknown>>, partitioned: readonly string[], pieces: number, fencesBy = partitioned[0]!): unknown {
   const args = call.inputs.map(input => values[input.name]);
@@ -134,7 +134,7 @@ function runCall(call: Call, values: Readonly<Record<string, unknown>>, partitio
     }
   }
   const then = call.then();
-  return then === null ? assembled : asRun(then)(assembled, ...args);
+  return then === null ? assembled : asRun(then)(assembled, ...call.inputs.flatMap((input, i) => parts.has(input.name) ? [] : [args[i]]));
 }
 
 /** A split over some data — the shared fixture's by default — cut into pieces, with what it partitions with its dataset cut at the same keys, the fences `fencesBy`'s. */
@@ -562,6 +562,25 @@ describe("joins: cut at the same keys, or re-keyed (#942)", () => {
     });
   }
 
+  // The final function is given only the inputs not partitioned (#1107).
+  for (const [program, root, data, dict] of [
+    [".prices as $p | .stock | to_entries | map(.value * ($p[.key] // 0)) | add | . / ($p | length)", StockRoot, stockData, "prices"],
+    [".customers as $c | .orders | map($c[.customer_id].region) | unique | map(. + ($c | length | tostring))", FixtureRoot, fixture, "customers"],
+  ] as const) {
+    test(`read whole, as its final function reads it too (#1107): ${program}`, () => {
+      const c = checked(program, root);
+      const s = splitJq(c, c.multiplicity === "many" ? { maxOutputs: 1000 } : {});
+      assert.ok(s.kind === "split", s.kind === "whole" ? `${s.reason.code} ${s.reason.name}` : "");
+      assert.deepEqual([s.copartitioned, s.broadcast, s.rekey], [[], [dict], null], "neither cut at the same keys nor re-keyed");
+      const translation = translateJq(c, c.multiplicity === "many" ? { maxOutputs: 1000 } : {});
+      const expected = asRun(translation.fn())(...translation.inputs.map(i => data[i.name!]));
+      for (const pieces of [1, 2, 3, 7, 64]) {
+        const got = runSplit(s, pieces, data);
+        assert.ok(close(translation.resultType, got, expected), `${pieces} pieces: ${printFor(translation.resultType)(got as never)} is not ${printFor(translation.resultType)(expected as never)}`);
+      }
+    });
+  }
+
   test("the re-key call's rows are each key's in input order, whatever its table does", () => {
     const s = split(REKEYED[0]!);
     assert.ok(s.kind === "split" && s.rekey !== null);
@@ -591,6 +610,11 @@ describe("the programs", () => {
       assert.deepEqual(encodeEastIR(a.piece().toIR()), encodeEastIR(b.piece().toIR()), `${program}: the piece program`);
       const [ta, tb] = [a.then(), b.then()];
       assert.deepEqual(ta === null ? null : encodeEastIR(ta.toIR()), tb === null ? null : encodeEastIR(tb.toIR()), `${program}: the final function`);
+      // Of the assembled output and then the inputs not partitioned (#1107).
+      if (ta !== null) {
+        assert.equal(ta.toIR().ir.value.parameters.length, 1 + a.inputs.filter(i => i.name !== a.over && !a.copartitioned.includes(i.name)).length,
+          `${program}: the final function's parameters`);
+      }
       if (a.output.kind === "dict" && b.output.kind === "dict") assert.deepEqual(encodeEastIR(a.output.merge().toIR()), encodeEastIR(b.output.merge().toIR()), `${program}: the merge`);
       if (a.output.kind === "fold" && b.output.kind === "fold") assert.deepEqual(encodeEastIR(a.output.combine().toIR()), encodeEastIR(b.output.combine().toIR()), `${program}: the combine`);
     }
@@ -604,6 +628,11 @@ describe("the programs", () => {
       assert.deepEqual(encodeEastIR(a.rekey.joinPiece().toIR()), encodeEastIR(b.rekey.joinPiece().toIR()), `${program}: the join piece program`);
       const [ta, tb] = [a.rekey.joinThen(), b.rekey.joinThen()];
       assert.deepEqual(ta === null ? null : encodeEastIR(ta.toIR()), tb === null ? null : encodeEastIR(tb.toIR()), `${program}: the join's final function`);
+      if (ta !== null) {
+        const rekey = a.rekey;
+        assert.equal(ta.toIR().ir.value.parameters.length, 1 + rekey.inputs.filter(i => i.name !== a.over && i.name !== rekey.name).length,
+          `${program}: the join's final function's parameters`);
+      }
     }
   });
 

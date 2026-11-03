@@ -1843,7 +1843,7 @@ split call runs a program (`libs/e3/design/e3-data-architecture.md` §3.7):
   output kind;
 - e3 combines the pieces' outputs by that kind;
 - a final function runs the rest of the query once, over the combined result
-  and the inputs.
+  and the inputs not partitioned (#1107): e3 gives it those alone.
 
 The result is the translation's (`translateJq`), of its `resultType`. Floats
 added up in pieces may differ from the one unit's in their last bits, since
@@ -1883,7 +1883,8 @@ the engine groups the additions.
   `copartitioned`: partitioned with the dataset, so e3 cuts both at the same
   keys, those of whichever weighs more, and each piece reads only its own
   keys of it. Read any other way — at another key, or whole — it is
-  `broadcast`.
+  `broadcast`, and so is one the final function reads too, which is given
+  only the inputs not partitioned (#1107).
 - **A re-keyed join** (#942). Where the rows are an array's, or a set's, a
   dict bound before the stream which the pieces read only at one field of
   the row, of the dict's key type (`$c[.customer_id]`, `$c[$o.customer_id]`
@@ -1903,7 +1904,9 @@ the engine groups the additions.
   adds numbers. A Float sum is added in another grouping, as any split's is.
   Whether to re-key is the caller's, by what the datasets weigh: the query
   builder re-keys only when the joined dict weighs more than one piece too
-  (`Query Editor Spec.md` §4.15).
+  (`Query Editor Spec.md` §4.15). A dict the final function reads too is
+  never re-keyed: the join call partitions it, and its final function is
+  given only the inputs not partitioned (#1107).
 
 - **A piece's table** (#1093). A piece whose output combines by key — a
   grouping by totals, `unique`, `unique_by`, a `reduce` — folds its rows into
@@ -1934,8 +1937,10 @@ the engine groups the additions.
   stands for: the totals finished and their expression generated over them,
   the groups in key order (`group_by`'s order), the set's rows in order, or
   the dict's values. It runs the rest of the pipeline on that value, then the
-  query's sink (§15.1), `maxOutputs` included. A query whose combined rows are
-  its result has no final function.
+  query's sink (§15.1), `maxOutputs` included. It takes the combined result,
+  then the inputs not partitioned, in their order, as e3 gives them (#1107):
+  never the dataset the pieces are cut from, nor a dict cut with it. A query
+  whose combined rows are its result has no final function.
 - **The programs are the translator's.** Each is generated from the checked
   program, a total's node standing for its finished value. So a piece
   computes what the one unit computes on its rows, and a runtime error names
