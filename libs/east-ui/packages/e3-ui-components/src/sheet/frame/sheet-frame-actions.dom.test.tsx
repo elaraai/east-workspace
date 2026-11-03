@@ -288,6 +288,76 @@ test("on a phone a choice opens inside the bar, never floating: ← back, its re
     } finally { restore(); }
 });
 
+/** A phone's cell editor, in the bottom container. */
+const cellEditor = (container: HTMLElement) => slot(container, "main")!.querySelector<HTMLElement>("[data-sheet-cell-editor]");
+
+test("on a phone a tap on Good edits it in the bottom container: − and + step it and digits type it, its edits while it stays open one Undo; a read-only column opens nothing (SH10, SH10.1, SH10.2, R10)", async () => {
+    const restore = touchFrame(390);
+    try {
+        const { container } = await h.mount(ex.sheetActionsWorkOrders);
+        // The step's name takes no edit: nothing opens, and the strip stays (SH10.2).
+        fireEvent.mouseDown(lineCell(container, "WO-1042", "1", "step"), { button: 0 });
+        await settle();
+        expect(cellEditor(container)).toBeNull();
+        fireEvent.mouseDown(lineCell(container, "WO-1042", "1", "good"), { button: 0 });
+        await settle();
+        const editor = cellEditor(container)!;
+        expect(editor.getAttribute("data-sheet-cell-editor")).toBe("good");
+        // The strip gives the bottom container to it.
+        expect(slot(container, "main")!.querySelector('[data-slot="stripLabel"]')).toBeNull();
+        expect(editor.querySelector("[data-cell-editor-eyebrow]")?.textContent).toMatch(/^Good · /);
+        const input = () => cellEditor(container)!.querySelector<HTMLInputElement>("[data-cell-input]")!;
+        const was = input().value;
+        const goodText = () => lineCell(container, "WO-1042", "1", "good").textContent;
+        const wasText = goodText();
+        await press(cellEditor(container)!.querySelector('[data-cell-step="more"]')!);
+        await press(cellEditor(container)!.querySelector('[data-cell-step="more"]')!);
+        expect(input().value).not.toBe(was);
+        expect(input().getAttribute("data-dirty")).toBe("");
+        // Digits type it, a key at a time; anything else is not taken.
+        await act(async () => { fireEvent.change(input(), { target: { value: "17x" } }); });
+        await settle();
+        expect(input().value).toBe("17");
+        expect(goodText()).toContain("17");
+        // Its edits while it stayed open are one step (SH10.1, R10).
+        await press(within(slot(container, "toolbar")!).getByRole("button", { name: "Undo" }));
+        fireEvent.blur(input());
+        await settle();
+        expect(input().value).toBe(was);
+        expect(goodText()).toBe(wasText);
+        // ⌄ closes it until a cell is pressed again.
+        await press(cellEditor(container)!.querySelector("[data-cell-editor-close]")!);
+        expect(cellEditor(container)).toBeNull();
+        fireEvent.mouseDown(lineCell(container, "WO-1042", "1", "good"), { button: 0 });
+        await settle();
+        expect(cellEditor(container)).not.toBeNull();
+    } finally { restore(); }
+});
+
+test("on a phone a tap on Done edits its time in the bottom container: digits fill hh then mm on the day it holds, and Clear empties it (SH10)", async () => {
+    const restore = touchFrame(390);
+    try {
+        const { container } = await h.mount(ex.sheetActionsWorkOrders);
+        fireEvent.mouseDown(lineCell(container, "WO-1042", "1", "done"), { button: 0 });
+        await settle();
+        const editor = cellEditor(container)!;
+        expect(editor.getAttribute("data-sheet-cell-editor")).toBe("done");
+        expect(editor.querySelector("[data-cell-help]")?.textContent).toBe("24-hour time · digits fill a segment");
+        const input = () => cellEditor(container)!.querySelector<HTMLInputElement>("[data-cell-input]")!;
+        await act(async () => { fireEvent.change(input(), { target: { value: "14" } }); });
+        await settle();
+        expect(input().value).toBe("14");
+        await act(async () => { fireEvent.change(input(), { target: { value: "1405" } }); });
+        await settle();
+        expect(input().value).toBe("14:05");
+        expect(lineCell(container, "WO-1042", "1", "done").textContent).toContain("14:05");
+        fireEvent.blur(input());
+        await press(cellEditor(container)!.querySelector("[data-cell-clear]")!);
+        expect(lineCell(container, "WO-1042", "1", "done").textContent).not.toContain("14:05");
+        expect(input().value).toBe("");
+    } finally { restore(); }
+});
+
 /** Opens WO-1042 step 20's Report… form from its ▾, and waits for its focus. */
 async function openReport(container: HTMLElement) {
     await press(lineCell(container, "WO-1042", "1", "action").querySelector('[data-slot="actionMore"]')!);

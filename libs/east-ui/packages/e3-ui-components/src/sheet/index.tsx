@@ -591,6 +591,27 @@ export interface SheetHost {
      * the sheet has no eye.
      */
     optimise?: { readonly name: string } | undefined;
+    /**
+     * A phone's cell editor (`Mobile Sheet Spec.md` SH10, R9): what the bottom
+     * container shows for the ring's cell — the inspector's form at touch size,
+     * that cell's field — in the docked strip's place. Absent, or answering
+     * `undefined` for a cell its form has no field for, the strip shows.
+     */
+    cellEditor?: ((at: SheetCellEditorAt) => ReactNode | undefined) | undefined;
+}
+
+/** The cell a phone's bottom container edits ({@link SheetHost.cellEditor}). */
+export interface SheetCellEditorAt {
+    /** Its row-space row: a row, a line or a band. */
+    r: number;
+    /** Its column's key — on a band, its band cell's. */
+    columnKey: string;
+    /** On a group's band: its group's form. */
+    band: boolean;
+    /** How the row names itself where an action column names it — `step 10 · Cut tube stock`, as its action bar's head does; else `undefined`. */
+    name: string | undefined;
+    /** ⌄ close: the container goes until a cell is pressed again. */
+    onClose: () => void;
 }
 
 /** Where a gesture's new entry comes from when it is not the sheet's own: a dropped template's seeds, and its origin (#1187). */
@@ -875,7 +896,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     });
     const ui = store.ui;
     const folds = ui.folds;
-    // A phone's action bar ⌄ closed at a cell (SH9): it stays closed there until a press on a cell — that one or another.
+    // A phone's bottom container — its action bar or its cell editor — ⌄ closed at a cell (SH9, SH10): it stays closed
+    // there until a press on a cell, that one or another.
     const [barClosedAt, setBarClosedAt] = useState<{ r: number; c: number } | undefined>(undefined);
     const foldedOf = useCallback((row: SheetRowValue): boolean => folds.get(row.id) ?? getSomeorUndefined(row.band)?.folded ?? false, [folds]);
     // A line's sub rows fold under its id like a group under its own: `false` open, `true` closed, absent untouched.
@@ -3903,6 +3925,25 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         : <ActionBar key={barRow.lg !== undefined ? lineId(barRow.lg.row.id, barRow.lg.key) : barRow.it.row.id} host={actionHost} api={panelApi} r={ui.sel.r} columnKey={barKey}
             name={barHead.name} title={barHead.title} registers={registers} writable={actionWritable(ui.sel.r, barKey)}
             summary={ruleText(barRow.it.row, barRow.column.summary) ?? ""} onClose={() => setBarClosedAt({ r: ui.sel.r, c: ui.sel.c })} />;
+    // A phone's cell editor (`Mobile Sheet Spec.md` SH10, R9): the ring's cell of every other kind edits in the same
+    // bottom container — the inspector's form at touch size, its field alone, the frame's — opened by a press on the cell
+    // and ⌄ closed as the bar is. A column that takes no edit opens nothing (SH10.2); a sheet read only opens nothing.
+    const hostEditor = host.cellEditor;
+    // Its eyebrow names the row as the action bar's does — its action column's name and title — where it has one.
+    const rowActionName = (r: number): string | undefined => {
+        const key = allColumns.list.find((col) => col.kind === "action")?.key;
+        if (key === undefined || actionAt(r, key) === undefined) return undefined;
+        const head = actionHead(r, key);
+        const named = [head.name, head.title].filter((t): t is string => t !== undefined && t !== "");
+        return named.length === 0 ? undefined : named.join(" · ");
+    };
+    const ringMeta = metaAt(ui.sel.r, ui.sel.c);
+    const ringRow = rowAt(ui.sel.r);
+    const ringR = ui.sel.r;
+    const ringC = ui.sel.c;
+    const cellEditor = !phoneFrame || hostEditor === undefined || ui.selEnd !== null || barClosed || readOnly || ringMeta === undefined
+        || !ringMeta.editable || ringMeta.kind === "action" || ringMeta.kind === "stamped" || (ringRow?.kind !== "real" && ringRow?.kind !== "group") ? undefined
+        : hostEditor({ r: ringR, columnKey: ringMeta.key, band: ringRow.kind === "group", name: rowActionName(ringR), onClose: () => setBarClosedAt({ r: ringR, c: ringC }) });
     // What the runs of the optimiser left on each row (#1409, R25), by the row's id — a line's by its line id — while the
     // drafts hold it: each row is handed its own marks, held still until a run touches it again.
     const marks: ReadonlyMap<string, SheetRowMarks> | undefined = optimised?.rows;
@@ -4164,7 +4205,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         }
         return { kind: "several", rs, r0: rect.r0, r1: rect.r1 };
     }, [selSel, selEnd, rowAt, placeAt]);
-    const inspectWrite = useCallback((writes: readonly SheetInspectWrite[]) => {
+    const inspectWrite = useCallback((writes: readonly SheetInspectWrite[], joins?: string) => {
         if (!canEdit || !editingState.available) return;
         gestureEvents.current = [];
         const cellWrites: CellWrite[] = [];
@@ -4207,7 +4248,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             });
         }
         if (cellWrites.length > 0) writeCells(cellWrites, "typed");
-        try { recordGesture(gestureEvents.current, undefined, "typed", draftEdits); }
+        try { recordGesture(gestureEvents.current, undefined, "typed", draftEdits, undefined, undefined, joins); }
         catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } }); }
         finally { gestureEvents.current = []; }
         // The copilot asks again for a row whose trigger column changed, as typing in it does.
@@ -4920,7 +4961,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 below={canInsertRows && (group === undefined || loose || rows.length > 0) ? () => onInsert("row", wr?.r1 ?? ui.sel.r, "after") : undefined}
                 group={canInsertGroups ? () => onInsert("group", wr?.r1 ?? ui.sel.r, "after") : undefined}
                 noun={noun.singular} />}
-            {actionBar ?? <SheetStrip styles={styles} model={actionApi.current?.strip() ?? strip} onAction={onStripAction} />}
+            {cellEditor ?? actionBar ?? <SheetStrip styles={styles} model={actionApi.current?.strip() ?? strip} onAction={onStripAction} />}
             {actionOverlayNode}
         </>
     );
@@ -5007,8 +5048,11 @@ export interface SheetInspect {
     issues: readonly EditIssue[];
     /** What an issue refuses its entry for: a field still missing, or one refused — an Apply's conflicts and refusals among them. */
     kindOf: (issue: EditIssue) => "incomplete" | "invalid";
-    /** Write rows: every cell, text and field as one transaction, the copilot asked again for a row whose trigger column changed. */
-    write: (writes: readonly SheetInspectWrite[]) => void;
+    /**
+     * Write rows: every cell, text and field as one transaction, the copilot asked again for a row whose trigger column
+     * changed. A write that `joins` the last one — given the same key — is one step of the history with it.
+     */
+    write: (writes: readonly SheetInspectWrite[], joins?: string) => void;
     /** Put the ring on a row's cell under a column the grid shows, and focus the grid; `false` when the grid does not show it. */
     editInSheet: (r: number, key: string) => boolean;
     /** Delete the rows (or lines) from `r0` to `r1`, as ⌫ on them does. */

@@ -50,17 +50,19 @@
 import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faLock } from "@fortawesome/free-solid-svg-icons";
+import { faChevronDown, faLock, faMinus, faPlus } from "@fortawesome/free-solid-svg-icons";
 import {
-    NullType, StringType, VariantType, decodeBeast2For, defaultValue, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, none, some,
+    FloatType, IntegerType, NullType, StringType, VariantType, compareFor, decodeBeast2For, defaultValue, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, none, printFor, some,
     toEastTypeValue, variant, type EastType, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import type { FieldSpecValue } from "@elaraai/east-ui/internal";
 import { Sheet, type sheetKeys } from "@elaraai/e3-ui/internal";
 import {
-    EastChakraComponent, FieldForm, getSomeorUndefined, useDataStable, type BuilderFrameDock, type EditIssue, type FieldOption,
+    EastChakraComponent, FieldForm, fieldFormMessages, getSomeorUndefined, useDataStable, type BuilderFrameDock, type EditIssue, type FieldOption,
 } from "@elaraai/east-ui-components";
-import { useSheetInspect, type SheetInspect, type SheetInspectPlace, type SheetInspectTarget, type SheetInspectWrite } from "../index.js";
+import { useSlotStyles } from "@elaraai/east-ui-components/internal";
+import { useSheetInspect, type SheetCellEditorAt, type SheetInspect, type SheetInspectPlace, type SheetInspectTarget, type SheetInspectWrite } from "../index.js";
+import { formatTime, splitTimeToken, todayUtc, withTime } from "../parse/date.js";
 import { NULL_CELL, cellText, indexRegisters, type SheetColumnMeta } from "../model.js";
 import type { SheetCellValue } from "../values.js";
 import { issueText, type SheetWords } from "../words.js";
@@ -239,12 +241,15 @@ function TargetDetails({ place, ...props }: PlaceProps) {
  * this row: a quantity's unit and a date's level from its row, a select's
  * members as its column's options rule offers them, a custom column's text
  * by its print and a read-only column's value from its cell, and each edit
- * written as typing in the grid writes it.
+ * written as typing in the grid writes it — each one step of the history, or,
+ * given `joins`, one step with the edits before it under that key (a phone's
+ * cell editor, SH10.1).
  */
-function useTargetForm({ value, words, hidden, styles, inspect, target, form }: TargetProps) {
+function useTargetForm({ value, words, hidden, styles, inspect, target, form, joins }: Pick<TargetProps, "value" | "words" | "hidden" | "styles" | "inspect" | "target" | "form"> & { joins?: string | undefined }) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
     const r = target.r;
+    const write = useCallback((writes: readonly SheetInspectWrite[]) => inspect.write(writes, joins), [inspect, joins]);
     const struct = useMemo(() => fromEastTypeValue(form.type) as StructType, [form.type]);
     const encodePatch = useMemo(() => encodeBeast2For(Sheet.Types.Patch(struct)), [struct]);
     const registers = useMemo(() => indexRegisters(value.sheet.registers), [value.sheet.registers]);
@@ -329,27 +334,27 @@ function useTargetForm({ value, words, hidden, styles, inspect, target, form }: 
             // A custom column reads its text with its own parse, as typing in its cell does.
             if (meta.kind === "custom") {
                 const text = f.spec.optional ? getSomeorUndefined(next as option<string>) ?? "" : next as string;
-                inspect.write([{ r, texts: new Map([[key, text]]) }]);
+                write([{ r, texts: new Map([[key, text]]) }]);
                 return;
             }
             // Emptied, a field is the blank cell, as typing nothing in the cell is.
             const held = f.spec.optional ? getSomeorUndefined(next as option<unknown>) : next;
             if (held === undefined || (f.spec.editor.type === "text" && stringEqual(held as string, ""))) {
-                inspect.write([{ r, cells: new Map([[key, NULL_CELL]]) }]);
+                write([{ r, cells: new Map([[key, NULL_CELL]]) }]);
                 return;
             }
             // The cells a patch of the one field sets, through the column's projection.
-            inspect.write([{ r, cells: form.encode(encodePatch(patchOne(struct, name, next) as never)) }]);
+            write([{ r, cells: form.encode(encodePatch(patchOne(struct, name, next) as never)) }]);
             return;
         }
         // No column: the field on the draft — a nested field rebuilt under its struct, from its type's default when the struct has none yet.
-        if (path.length === 1) { inspect.write([{ r, fields: new Map([[name, next]]) }]); return; }
+        if (path.length === 1) { write([{ r, fields: new Map([[name, next]]) }]); return; }
         const fieldType = (struct.fields as Record<string, EastType>)[name]!;
         const top = target.value?.[name] ?? defaultValue(fieldType);
         const rebuild = (at: Record<string, unknown>, rest: readonly string[]): Record<string, unknown> =>
             ({ ...at, [rest[0]!]: rest.length === 1 ? next : rebuild(at[rest[0]!] as Record<string, unknown>, rest.slice(1)) });
-        inspect.write([{ r, fields: new Map([[name, rebuild(top as Record<string, unknown>, path.slice(1))]]) }]);
-    }, [byPath, inspect, r, struct, form, encodePatch, target.value]);
+        write([{ r, fields: new Map([[name, rebuild(top as Record<string, unknown>, path.slice(1))]]) }]);
+    }, [byPath, inspect, r, struct, form, encodePatch, target.value, write]);
 
     // A link or set field: its halves as the grid draws them, and Edit in sheet (SB48).
     const renderControl = useCallback((spec: FieldSpecValue): ReactNode | undefined => {
@@ -533,6 +538,235 @@ function TargetView(props: TargetProps) {
                 </chakra.button>
             </Box>
         </Box>
+    );
+}
+
+// ============================================================================
+// A phone's cell editor (`Mobile Sheet Spec.md` SH10, R9, R10)
+// ============================================================================
+
+/** The runs of a phone's cell editor: each editor opened is one, its edits one step of the history (SH10.1). */
+let cellEditorRuns = 0;
+
+const printInteger = printFor(IntegerType);
+const printFloat = printFor(FloatType);
+const compareIntegers = compareFor(IntegerType);
+const compareFloats = compareFor(FloatType);
+
+/**
+ * A phone's cell editor for a sheet given an inspector (SH10, R9): what the
+ * Sheet's bottom container shows for the ring's cell — the pane's form at
+ * touch size, the field the cell's column writes — or `undefined` where the
+ * sheet has no inspector, or its form no field for that column, and the
+ * docked strip shows.
+ *
+ * @param value - The payload: its inspector's forms
+ * @param words - The sheet's words
+ * @param hidden - The columns this viewer hides
+ * @returns The editor for a cell, as `SheetHost.cellEditor` takes it
+ */
+export function sheetCellEditor(value: SheetValue, words: SheetWords, hidden: ReadonlySet<string>): (at: SheetCellEditorAt) => ReactNode | undefined {
+    const pane = getSomeorUndefined(value.inspector);
+    const noun = nounOf(value, words);
+    return (at) => {
+        if (pane === undefined) return undefined;
+        const form = at.band ? getSomeorUndefined(pane.forms.group) : pane.forms.row;
+        const field = form?.fields.find((f) => { const key = getSomeorUndefined(f.column); return key !== undefined && stringEqual(key, at.columnKey); });
+        if (form === undefined || field === undefined || field.spec.editor.type === "readonly") return undefined;
+        return <SheetCellEditor key={`${at.r}\u001f${at.columnKey}`} value={value} words={words} hidden={hidden} at={at} form={form} field={field} noun={noun} />;
+    };
+}
+
+/** Props of {@link SheetCellEditor}. */
+interface CellEditorProps {
+    value: SheetValue;
+    words: SheetWords;
+    hidden: ReadonlySet<string>;
+    at: SheetCellEditorAt;
+    form: FormValue;
+    field: FormField;
+    noun: string;
+}
+
+/**
+ * A phone's cell editor (SH10): in the bottom container, under its head — the
+ * eyebrow naming the column and the row, and ⌄ close — the field the cell's
+ * column writes. A number is − · the field · its unit · + (digits only), a
+ * time of day its `hh:mm` field, filled as digits are typed, and Clear; every
+ * other kind its form's own input at touch size (R9). Its edits while it stays
+ * open are one step of the history (SH10.1), each written as the inspector
+ * writes it.
+ */
+function SheetCellEditor({ value, words, hidden, at, form, field, noun }: CellEditorProps) {
+    const inspect = useSheetInspect();
+    const styles = useSlotRecipe({ key: "sheetInspector" })() as Styles;
+    const bar = useSlotStyles("sheetAction");
+    const { m } = words;
+    const targetAt = inspect.targetAt;
+    const target = useMemo(() => targetAt(at.r), [targetAt, at.r]);
+    const meta = inspect.columnAt(at.r, at.columnKey);
+    const header = meta?.header ?? field.spec.label;
+    const head = (
+        <chakra.div css={bar.barHead}>
+            <chakra.span css={bar.barEyebrow} data-cell-editor-eyebrow="">
+                {target === undefined && at.name === undefined ? header : m.cellEditorEyebrow({ header, what: at.name ?? whatOf(target!, words, noun) })}
+            </chakra.span>
+            <chakra.button type="button" css={bar.barClose} aria-label={m.cellEditorClose()} data-cell-editor-close="" onClick={at.onClose}>
+                <FontAwesomeIcon icon={faChevronDown} aria-hidden />
+            </chakra.button>
+        </chakra.div>
+    );
+    return (
+        <chakra.div css={bar.bar} data-sheet-cell-editor={at.columnKey} role="group" aria-label={header}>
+            {head}
+            {target === undefined || target.value === undefined
+                ? <chakra.span css={bar.cellHelp}>{m.inspectorReading()}</chakra.span>
+                : <CellEditorField value={value} words={words} hidden={hidden} styles={styles} bar={bar} inspect={inspect} target={target} form={form} field={field} at={at} header={header} />}
+        </chakra.div>
+    );
+}
+
+/** Props of {@link CellEditorField}. */
+interface CellEditorFieldProps {
+    value: SheetValue;
+    words: SheetWords;
+    hidden: ReadonlySet<string>;
+    styles: Styles;
+    bar: Styles;
+    inspect: SheetInspect;
+    target: SheetInspectTarget;
+    form: FormValue;
+    field: FormField;
+    at: SheetCellEditorAt;
+    header: string;
+}
+
+/** The field a phone's cell editor holds — see {@link SheetCellEditor}. */
+function CellEditorField({ value, words, hidden, styles, bar, inspect, target, form, field, at, header }: CellEditorFieldProps) {
+    const { m } = words;
+    // One run while the editor is open: its edits are one step (SH10.1).
+    const [joins] = useState(() => `cellEditor:${++cellEditorRuns}`);
+    const edit = useTargetForm({ value, words, hidden, styles, inspect, target, form, joins });
+    const spec = edit.specs.find((s) => stringEqual(pathKey(s.path), pathKey(field.spec.path))) ?? field.spec;
+    const specs = useMemo(() => [spec], [spec]);
+    const meta = inspect.columnAt(at.r, at.columnKey);
+    const cell = inspect.cellAt(at.r, at.columnKey);
+    const writable = inspect.writable;
+    const name = spec.path[0]!;
+    // Tinted while the drafts hold it otherwise than the record does.
+    const fieldType = useMemo(() => fromEastTypeValue(spec.type) as EastType, [spec.type]);
+    const same = useMemo(() => equalFor(fieldType), [fieldType]);
+    const now = edit.formValue[name];
+    const was = edit.baseline[name];
+    const dirty = now === undefined || was === undefined ? now !== was : !same(now as never, was as never);
+    const writeCell = useCallback((next: SheetCellValue) => inspect.write([{ r: at.r, cells: new Map([[at.columnKey, next]]) }], joins), [inspect, at.r, at.columnKey, joins]);
+    const writeText = useCallback((text: string) => inspect.write([{ r: at.r, texts: new Map([[at.columnKey, text]]) }], joins), [inspect, at.r, at.columnKey, joins]);
+    // A number (SH10): − · the field · its unit · +, digits only, held to its editor's bounds.
+    if ((meta?.kind === "integer" || meta?.kind === "quantity") && spec.editor.type === "number") {
+        const number = spec.editor.value;
+        // An Option's input edits its value's type, as the form's does.
+        const inner = spec.optional && fieldType.type === "Variant" ? (fieldType.cases as Record<string, EastType>)["some"]! : fieldType;
+        const integer = isTypeEqual(inner, IntegerType);
+        const held = cell?.type === "Integer" || cell?.type === "Float" ? cell.value : undefined;
+        const unit = getSomeorUndefined(number.unit) ?? inspect.unitAt(at.r, at.columnKey);
+        const min = getSomeorUndefined(number.min);
+        const max = getSomeorUndefined(number.max);
+        const step = getSomeorUndefined(number.step) ?? 1;
+        const stepBy = (more: boolean) => {
+            if (integer) {
+                const by = BigInt(Math.max(1, Math.round(step)));
+                let n = ((held as bigint | undefined) ?? 0n) + (more ? by : -by);
+                if (min !== undefined && compareIntegers(n, BigInt(Math.ceil(min))) < 0) n = BigInt(Math.ceil(min));
+                if (max !== undefined && compareIntegers(n, BigInt(Math.floor(max))) > 0) n = BigInt(Math.floor(max));
+                writeCell(variant("Integer", n));
+                return;
+            }
+            let f = ((held as number | undefined) ?? 0) + (more ? step : -step);
+            if (min !== undefined && compareFloats(f, min) < 0) f = min;
+            if (max !== undefined && compareFloats(f, max) > 0) f = max;
+            writeCell(variant("Float", f));
+        };
+        const printed = held === undefined ? "" : integer ? printInteger(held as bigint) : printFloat(held as number);
+        // Its help, and its bounds as the form words them (`Min 0`).
+        const bounds = min === undefined && max === undefined ? undefined : fieldFormMessages.numberHelp({
+            min: min === undefined ? undefined : words.number(min), max: max === undefined ? undefined : words.number(max), unit: undefined, step: undefined,
+        });
+        const help = [bounds, getSomeorUndefined(spec.help)].filter((part): part is string => part !== undefined && part !== "");
+        return (
+            <>
+                <chakra.div css={bar.cellLine}>
+                    <chakra.button type="button" css={bar.cellStep} aria-label={m.cellEditorStep({ header, more: false })} disabled={!writable} data-cell-step="fewer" onClick={() => stepBy(false)}>
+                        <FontAwesomeIcon icon={faMinus} aria-hidden />
+                    </chakra.button>
+                    <TypedInput css={bar.cellInput} printed={printed} dirty={dirty} label={header} disabled={!writable} inputMode={integer ? "numeric" : "decimal"}
+                        accept={(typed) => (integer ? typed.replace(/[^\d-]/g, "") : typed.replace(/[^\d.,-]/g, ""))} onTyped={writeText} />
+                    {unit !== undefined && <chakra.span css={bar.cellUnit} data-cell-unit="">{unit}</chakra.span>}
+                    <chakra.button type="button" css={bar.cellStep} aria-label={m.cellEditorStep({ header, more: true })} disabled={!writable} data-cell-step="more" onClick={() => stepBy(true)}>
+                        <FontAwesomeIcon icon={faPlus} aria-hidden />
+                    </chakra.button>
+                </chakra.div>
+                {help.length > 0 && <chakra.span css={bar.cellHelp} data-cell-help="">{help.join(" · ")}</chakra.span>}
+            </>
+        );
+    }
+    // A time of day (SH10): its `hh:mm`, filled as digits are typed, on the day the cell holds — today, where it holds none — and Clear.
+    if (meta?.kind === "date" && inspect.levelAt(at.r, at.columnKey) === "time") {
+        const held = cell?.type === "DateTime" ? cell.value : undefined;
+        const printed = held === undefined ? "" : formatTime(held);
+        const fill = (typed: string): string => {
+            const digits = typed.replace(/\D/g, "").slice(0, 4);
+            return digits.length <= 2 ? digits : `${digits.slice(0, 2)}:${digits.slice(2)}`;
+        };
+        const onTyped = (text: string) => {
+            const split = splitTimeToken(text);
+            if (text.length === 5 && split.time !== undefined) writeCell(variant("DateTime", withTime(held ?? todayUtc(), split.time.hh, split.time.mm)));
+        };
+        return (
+            <>
+                <chakra.div css={bar.cellLine}>
+                    <TypedInput css={bar.cellInput} printed={printed} dirty={dirty} label={header} disabled={!writable} inputMode="numeric"
+                        placeholder={m.editorTimePlaceholder()} accept={fill} onTyped={onTyped} />
+                    <chakra.button type="button" css={bar.cellClear} disabled={!writable || held === undefined} data-cell-clear="" onClick={() => writeCell(NULL_CELL)}>
+                        {m.cellEditorClear()}
+                    </chakra.button>
+                </chakra.div>
+                <chakra.span css={bar.cellHelp} data-cell-help="">{m.cellEditorTimeHelp()}</chakra.span>
+            </>
+        );
+    }
+    // Every other kind (R9): the form's own input, at touch size.
+    return (
+        <chakra.div css={bar.cellForm} data-cell-form="">
+            <FieldForm specs={specs} value={edit.formValue} baseline={edit.baseline} options={edit.options}
+                onChange={edit.onChange} readOnly={!writable} renderControl={edit.renderControl} live />
+        </chakra.div>
+    );
+}
+
+/** Props of {@link TypedInput}. */
+interface TypedInputProps {
+    css: SystemStyleObject | undefined;
+    /** The cell's value as the field shows it, while it is not being typed into. */
+    printed: string;
+    dirty: boolean;
+    label: string;
+    disabled: boolean;
+    inputMode: "numeric" | "decimal";
+    placeholder?: string | undefined;
+    /** What the field holds of what was typed: the characters it takes, in its form. */
+    accept: (typed: string) => string;
+    /** Told what the field holds after each keystroke. */
+    onTyped: (text: string) => void;
+}
+
+/** A phone's cell editor's field: what is typed into it stands while it is typed, and the cell's value otherwise. */
+function TypedInput({ css, printed, dirty, label, disabled, inputMode, placeholder, accept, onTyped }: TypedInputProps) {
+    const [typed, setTyped] = useState<string | undefined>(undefined);
+    return (
+        <chakra.input css={css} value={typed ?? printed} aria-label={label} disabled={disabled} inputMode={inputMode} placeholder={placeholder}
+            data-dirty={dirty ? "" : undefined} data-cell-input=""
+            onChange={(e) => { const next = accept(e.currentTarget.value); setTyped(next); onTyped(next); }}
+            onBlur={() => setTyped(undefined)} />
     );
 }
 

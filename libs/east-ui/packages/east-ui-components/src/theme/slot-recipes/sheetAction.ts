@@ -4,9 +4,10 @@
  */
 
 /**
- * Sheet action slot recipe — an action column's cell, its popover form and a
- * phone's action bar (#1475–#1479, `Sheet Action Column - Behaviour Spec.md`
- * §1, §6, §12).
+ * Sheet action slot recipe — an action column's cell, its popover form, and a
+ * phone's bottom container: its action bar and its cell editor (#1475–#1479,
+ * `Sheet Action Column - Behaviour Spec.md` §1, §6, §12; `Mobile Sheet
+ * Spec.md` SH9, SH10).
  *
  * The cell fills the grid's cell inside its rules: the left zone (the state's
  * word and dot, its summary, or the absent value), then the next half and the
@@ -65,6 +66,7 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
         "form", "formHead", "formLabel", "formEyebrow", "formMeta", "formClose", "formBody", "formError", "formFoot", "formConsequence", "formButton",
         "panel", "panelState", "panelActions", "panelChoices", "panelForm",
         "bar", "barHead", "barEyebrow", "barState", "barFirst", "barRest", "barButton", "barConsequence", "barBack", "barChoice", "barClose", "barWhy",
+        "cellLine", "cellStep", "cellInput", "cellUnit", "cellHelp", "cellClear", "cellForm",
     ],
     base: {
         /* The cell's content, filling it inside its rules; the ring the grid draws after it paints over. */
@@ -366,6 +368,7 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             fontFamily: "mono",
             fontSize: "label.sm",
             fontWeight: 600,
+            lineHeight: "1.4",
             letterSpacing: "0.14em",
             textTransform: "uppercase",
             color: "fg",
@@ -416,6 +419,50 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
         barChoice: {
             minHeight: "44px", height: "44px", width: "100%", justifyContent: "flex-start", paddingX: "12px",
             borderColor: "border.strong", borderRadius: "md", background: "bg.surface", fontSize: "body", fontWeight: 400, color: "fg",
+        },
+        /* A phone's cell editor (SH10), in the same bottom container under the same head: its controls on one line, 8 apart. */
+        cellLine: { display: "flex", alignItems: "center", gap: "8px" },
+        /* A number's − and + : 44 squares on `--r-md`, outlined in `--rule-strong` on the paper, the icon 16 in ink. */
+        cellStep: {
+            flex: "none", width: "44px", height: "44px", boxSizing: "border-box", padding: "0",
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            borderWidth: "1px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "md",
+            background: "bg.surface", color: "fg", cursor: "pointer", "& svg": { fontSize: "16px" },
+            _hover: { background: "bg.canvas" },
+            _focusVisible: { outline: "2px solid {colors.brand.solid}", outlineOffset: "2px" },
+            _disabled: { color: "fg.faint", borderColor: "border.subtle", cursor: "default", _hover: { background: "bg.surface" } },
+        },
+        /* The field: 44 tall, padded 0 12, mono 13/500 in tabular figures at its end; a drafted value on the brand's tint. */
+        cellInput: {
+            flex: "1", minWidth: 0, height: "44px", boxSizing: "border-box", paddingX: "12px",
+            borderWidth: "1px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "md",
+            background: "bg.surface", color: "fg",
+            fontFamily: "mono", fontSize: "body", fontWeight: 500, fontVariantNumeric: "tabular-nums", textAlign: "right",
+            outline: "none",
+            "&[data-dirty]": { background: "brandTint", color: "brandPressed" },
+            _focusVisible: { borderColor: "brand.solid", boxShadow: "inset 0 0 0 1px {colors.brand.solid}" },
+            _placeholder: { color: "fg.faint" },
+        },
+        /* A number's unit after the field: mono 10.5/500 in `--ink-4`. */
+        cellUnit: { flex: "none", fontFamily: "mono", fontSize: "label.md", fontWeight: 500, lineHeight: "1.4", color: "fg.subtle" },
+        /* The help line under the field: mono 10.5 in `--ink-4`. */
+        cellHelp: { fontFamily: "mono", fontSize: "label.md", lineHeight: "1.4", color: "fg.subtle" },
+        /* A time's Clear: a Default 44 button, padded 0 16, 12.5/500 in ink. */
+        cellClear: {
+            flex: "none", height: "44px", boxSizing: "border-box", paddingX: "16px",
+            display: "inline-flex", alignItems: "center",
+            borderWidth: "1px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "md",
+            background: "bg.surface", fontFamily: "body", fontSize: "body.sm", fontWeight: 500, color: "fg", cursor: "pointer",
+            _hover: { background: "bg.canvas" },
+            _focusVisible: { outline: "2px solid {colors.brand.solid}", outlineOffset: "2px" },
+            _disabled: { color: "fg.faint", borderColor: "border.subtle", cursor: "default", _hover: { background: "bg.surface" } },
+        },
+        /* Every other kind (R9): the inspector's form at touch size, its field's label the eyebrow's, its controls 44 tall. */
+        cellForm: {
+            minWidth: 0,
+            "& [data-field-form], & [data-field], & [data-field-line]": { minWidth: 0, maxWidth: "100%" },
+            "& [data-field] label": { display: "none" },
+            "& [data-field-line] input, & [data-field-line] button, & [data-field-line] [data-part=trigger]": { minHeight: "44px" },
         },
     },
 });

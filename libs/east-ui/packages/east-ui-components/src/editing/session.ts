@@ -284,6 +284,8 @@ interface History<W> {
     origin: Origin;
     before: Map<string, EntryVersion<W>>;
     after: Map<string, EntryVersion<W>>;
+    /** What a gesture recorded with the same key joins, while it is the last step and nothing is redone past it ({@link EditSession.record}). */
+    joins?: string | undefined;
     /** What both began from, for each entry a settling moved it for: before and after the step, `undefined` for none. */
     ancestors?: { readonly before: ReadonlyMap<string, option<unknown> | undefined>; readonly after: ReadonlyMap<string, option<unknown> | undefined> } | undefined;
     /** The conflicts a settling settled, by entry and path: before and after the step, `undefined` for none. */
@@ -1297,13 +1299,20 @@ export class EditSession<W> {
      * Record one gesture — one call per gesture, irrespective of its cell or
      * entry count — as one undoable transaction.
      *
+     * A gesture that `joins` the last step — recorded with the same key, that
+     * step the last and nothing redone past it — is that step: one Undo takes
+     * both back (a phone's cell editor, its edits to one cell while it stays
+     * open, `Mobile Sheet Spec.md` SH10.1). A step the joins bring back to
+     * where it began goes.
+     *
      * @param updates - Each entry the gesture changed, once
      * @param origin - The gesture
      * @param label - Its label in the history
+     * @param joins - The key of the run of gestures it is one step with; none by default
      * @returns Whether anything changed
      * @throws {Error} When an entry appears twice
      */
-    record(updates: readonly EntryUpdate<W>[], origin: Origin, label: string): boolean {
+    record(updates: readonly EntryUpdate<W>[], origin: Origin, label: string, joins?: string): boolean {
         if (!this.writable || this.base === undefined) return false;
         const before = new Map<string, EntryVersion<W>>();
         const after = new Map<string, EntryVersion<W>>();
@@ -1317,7 +1326,15 @@ export class EditSession<W> {
         for (const [id, entry] of before) if (!this.baseline.has(id)) this.baseline.set(id, entry);
         for (const [id, entry] of after) this.current.set(id, entry);
         this.draftsChanged();
-        this.history.splice(this.cursor); this.history.push({ label, origin, before, after }); this.cursor++;
+        const last = this.cursor > 0 && this.cursor === this.history.length ? this.history[this.cursor - 1] : undefined;
+        if (joins !== undefined && last?.joins !== undefined && stringEqual(last.joins, joins) && last.ancestors === undefined && last.settled === undefined) {
+            // One step with the last: it begins where that one began, and ends here.
+            for (const [id, entry] of before) if (!last.before.has(id)) last.before.set(id, entry);
+            for (const [id, entry] of after) last.after.set(id, entry);
+            if (this.changes(last.before, last.after, true).length === 0) { this.history.pop(); this.cursor--; }
+        } else {
+            this.history.splice(this.cursor); this.history.push({ label, origin, before, after, joins }); this.cursor++;
+        }
         this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
         this.emit(before, after, origin, label);
         this.changed(); this.maybeAutoApply(origin !== "discard");

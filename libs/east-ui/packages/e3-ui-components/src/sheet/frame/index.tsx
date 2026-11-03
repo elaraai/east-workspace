@@ -32,7 +32,9 @@
  *   author's tab the source it names, each counting what it shows (#1345) —
  *   and **the inspector**, the end pane, when the sheet is given one —
  *   Details for what is selected, its every field through the pane's form or
- *   the author's own Details, and the batch's Issues (#1188): `BuilderFrame`'s
+ *   the author's own Details, and the batch's Issues (#1188) — whose form, at
+ *   touch size, is a phone's cell editor in the grid's bottom container
+ *   (`Mobile Sheet Spec.md` SH10): `BuilderFrame`'s
  *   panes, whose open tab and collapsed state persist under the sheet's
  *   `name`. The library's Columns tab hides columns from the grid, per viewer,
  *   under the sheet's `name` too (SB36); a sheet whose library lists no
@@ -81,7 +83,7 @@ import {
 import { todayUtc } from "../parse/date.js";
 import { authorOf } from "../../shared/records/author.js";
 import { issueText, useSheetWords, type SheetWords } from "../words.js";
-import { useSheetInspector, type SheetLastCommit } from "./inspector.js";
+import { sheetCellEditor, useSheetInspector, type SheetLastCommit } from "./inspector.js";
 import { tabLibrary, templateCardKey, templatesLibrary, useSheetLibrary } from "./library.js";
 import { followedNouns, followedSources } from "./sources.js";
 
@@ -198,8 +200,11 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const nouns = useMemo(() => followedNouns(value, words), [value, words]);
     // The app's optimiser (#1409): its binding, which the Elara eye calls by name.
     const optimise = value.optimise.type === "some" ? value.optimise.value.name : undefined;
-    // What the frame hands the parts: the columns the viewer hid, the drops the sheet takes, the sources' nouns, and the optimiser.
-    const host = useMemo((): SheetHost => ({ hidden, drop, nouns, optimise: optimise === undefined ? undefined : { name: optimise } }), [hidden, drop, nouns, optimise]);
+    // A phone's cell editor (`Mobile Sheet Spec.md` SH10, R9): the inspector's form at touch size, in the bottom container.
+    const cellEditor = useMemo(() => sheetCellEditor(value, words, hidden), [value, words, hidden]);
+    // What the frame hands the parts: the columns the viewer hid, the drops the sheet takes, the sources' nouns, the
+    // optimiser, and a phone's cell editor.
+    const host = useMemo((): SheetHost => ({ hidden, drop, nouns, optimise: optimise === undefined ? undefined : { name: optimise }, cellEditor }), [hidden, drop, nouns, optimise, cellEditor]);
     return (
         <SheetProvider value={value.sheet} storageKey={storageKey} host={host}>
             <SheetFrame value={value} keys={keys} hidden={hidden} onToggleColumn={onToggleColumn} nouns={nouns} />

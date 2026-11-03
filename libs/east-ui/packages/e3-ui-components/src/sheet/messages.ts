@@ -653,6 +653,18 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     pagerNext: () => string;
     /** The jump menu's eyebrow. */
     pagerMenu: () => string;
+
+    // ── A phone's cell editor (`Mobile Sheet Spec.md` SH10) ────────────────
+    /** Its eyebrow: the column and the row — `Good · step 20 · Weld frame` as its action column names it, else `Good · line 2 of Frame assembly`. */
+    cellEditorEyebrow: (p: { header: string; what: string }) => string;
+    /** Its ⌄ close. */
+    cellEditorClose: () => string;
+    /** A number's − and + (SH10) — `Fewer Good`, `More Good`. */
+    cellEditorStep: (p: { header: string; more: boolean }) => string;
+    /** A time's Clear (SH10). */
+    cellEditorClear: () => string;
+    /** A time's help line (SH10). */
+    cellEditorTimeHelp: () => string;
 }
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
@@ -1016,6 +1028,12 @@ export const sheetMessages: SheetMessages = {
     pagerPrevious: () => "Previous column",
     pagerNext: () => "Next column",
     pagerMenu: () => "Go to column",
+
+    cellEditorEyebrow: ({ header, what }) => `${header} · ${what}`,
+    cellEditorClose: () => "Close editor",
+    cellEditorStep: ({ header, more }) => `${more ? "More" : "Fewer"} ${header}`,
+    cellEditorClear: () => "Clear",
+    cellEditorTimeHelp: () => "24-hour time · digits fill a segment",
 };
 
 const SheetMessagesContext = createContext<SheetMessages>(sheetMessages);

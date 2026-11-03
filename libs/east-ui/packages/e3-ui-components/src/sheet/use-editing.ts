@@ -74,9 +74,10 @@ export interface SheetEditingResult {
      * Aggregate a gesture's wire edits, the draft edits beside them (by
      * entry), and the seeds its new entries take, into one transaction.
      * Answers whether the session recorded it. A gesture that names itself — an action taken (#1477), `Mark Done` —
-     * gives its `label`; else the label is the origin's.
+     * gives its `label`; else the label is the origin's. A gesture that `joins` the last one — recorded with the same
+     * key — is one step with it (a phone's cell editor, `Mobile Sheet Spec.md` SH10.1).
      */
-    record: (events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds, label?: string) => boolean;
+    record: (events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds, label?: string, joins?: string) => boolean;
     /**
      * Record entry versions a gesture computed whole — the optimiser's answer
      * (#1409), each entry's draft and wire row given — as one transaction of
@@ -141,7 +142,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         useEditSession<SheetRowValue>(editing, pinned, currentRows, currentPositions, storageKey, { idOf: sheetRowId, ready, prepare, wireOf, wireType: Sheet.Types.Row });
 
     /** Aggregate the renderer's writes — the draft edits beside them, its new entries seeded as it says — into one transaction at the effect boundary. */
-    const record = useCallback((events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds, named?: string): boolean => {
+    const record = useCallback((events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds, named?: string, joins?: string): boolean => {
         if (replacing || retained || (!events.length && !draftEdits?.size) || !observed || !session.writable) return false;
         session.observeBase(observed.base);
         // A dropped template's new entry starts as its seed says, in place of the constructors' (#1187).
@@ -182,7 +183,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         const gestureOrigin = originOverride ?? origin;
         const label = named !== undefined ? named : gestureOrigin === "insert" ? "Insert row" : gestureOrigin === "drop" ? "Drop" : gestureOrigin === "move" ? "Move"
             : origin === "pasted" ? "Paste cells" : origin === "remove" ? "Remove rows" : origin === "pattern" ? "Accept proposed rows" : events.length === 0 ? "Edit fields" : "Edit cells";
-        return session.record([...updates.values()], gestureOrigin, label);
+        return session.record([...updates.values()], gestureOrigin, label, joins);
     }, [session, observed, original, codecs, editing, draftType, mint, replacing, retained]);
     const recordVersions = useCallback((updates: readonly EntryUpdate[], origin: Origin, label: string): boolean => {
         if (replacing || updates.length === 0 || !observed || !session.writable) return false;

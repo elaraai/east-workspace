@@ -347,8 +347,8 @@ export const sheetActionsReadOnly = example({
 // ============================================================================
 
 export const sheetActionsPhone = example({
-    keywords: ["Sheet", "Sheet.column.action", "action", "phone", "mobile", "touch", "action bar", "applyMode", "auto"],
-    description: "Example 2's work orders in a phone's 390-wide box: each action cell shows its state alone, and a tap on a row turns the docked strip into its action bar — the first action full width, the rest in one line, a menu or a form opening inside the bar — each action saved as it is taken",
+    keywords: ["Sheet", "Sheet.column.action", "action", "phone", "mobile", "touch", "action bar", "cell editor", "Sheet.field.number", "applyMode", "auto"],
+    description: "Example 2's work orders in a phone's 390-wide box: each action cell shows its state alone, and a tap on an Action cell turns the docked strip into its action bar — the first action full width, the rest in one line, a menu or a form opening inside the bar — while a tap on Good or Done edits it there, the inspector's field at touch size; each change saved as it is made",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const orders = $.let(Record.bind(sheetWorkOrders));
@@ -449,6 +449,8 @@ export const sheetActionsPhone = example({
                             done: Sheet.column.date(Step, { header: "Done", width: "64px", level: () => "time", format: "HH:mm" }),
                         }}
                         inspector
+                        // Good's field, as a tap on its cell edits it under the grid: counted in parts, never below none.
+                        fields={{ good: Sheet.field.number({ unit: "pcs", min: 0n, help: "empty until reported" }) }}
                         onApply={Record.onApply(orders, { keyed: true })}
                         applyMode="auto"
                     />
