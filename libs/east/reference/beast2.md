@@ -69,3 +69,12 @@ openBeast2PagesFor(Rows)(blob).element(4_000_000);  // one row: decodes ONE segm
   `$.for` cost one segment, mutation is refused (`.copy()` first), and the
   header type is checked against `T` first. `East.Blob.encodeBeast` writes no
   index, so a paged blob comes from the writers above or a runner's output.
+- **A `$.for` over a lazy input decodes each segment to the fields its body
+  reads** of each row — an Array's element, a Dict's value — on every runtime:
+  read through field accesses (`row.total`, `row.address.city`), inner loops
+  over its arrays and dicts (`$.for(row.lines, …)`), their sizes, and functions
+  called on the row or its fields. Binding the row (`$.let(row)`), putting it in
+  a container or passing it to a function value decodes every field, as does a
+  Set's loop. Every runner's `-v` says `paged loops: N segments decoded to the
+  fields read, M in full`; in process, `beast2PagedLoopStats()` counts
+  them. The bytes are read either way: a dropped field is only not built.

@@ -59,13 +59,17 @@ describe("blob.openBeast — the lazy paged open at the expression level", () =>
     });
     const compiled = East.compile(fn, []);
     let segments = 0;
+    let projected = 0;
     const keyed = countCalls(Beast2Pages.prototype, "get", () => {
-      segments = countCalls(Beast2Pages.prototype, "segmentDisjoint", () => {
-        assert.equal(compiled(paged), 37n + 435n);
+      projected = countCalls(Beast2Pages.prototype, "segmentProjected", () => {
+        segments = countCalls(Beast2Pages.prototype, "segmentDisjoint", () => {
+          assert.equal(compiled(paged), 37n + 435n);
+        });
       });
     });
     assert.equal(keyed, 1, "one keyed read reaches the pager");
-    assert.equal(segments, 3, "the for loop streams each segment exactly once, checked against the next");
+    assert.equal(segments + projected, 3, "the for loop streams each segment exactly once, checked against the next");
+    assert.equal(projected, 3, "each segment decoded to the one field the loop reads (#1112)");
   });
 
   test("the opened value is frozen and stays un-hydrated after served reads", () => {
