@@ -12,7 +12,9 @@
  * from the decoded result.
  *
  * The Table and the CSV download read the same rows ({@link resultRows}) and
- * word a cell through the same {@link cellText}, so the two never differ.
+ * word a cell through the same {@link cellText}, so the two never differ. A
+ * result too large for one answer is the Table's paged source, read a window
+ * at a time ({@link pagedResultTable}, #1113).
  *
  * @packageDocumentation
  */
@@ -385,6 +387,31 @@ function caseText(type: VariantType, value: unknown, words: QueryWords): string 
 // ─── The Table ───────────────────────────────────────────────────────────────
 
 /**
+ * A result's rows read a window at a time (#1113): what
+ * {@link pagedResultTable} serves the Table from.
+ *
+ * @property id - The result's identity: its collection's hash
+ * @property total - How many rows it holds
+ * @property rows - Its rows in a window, or `undefined` while they are read
+ */
+export interface ResultWindows {
+    /** The result's identity, the same rows for as long as it is shown: its collection's hash. */
+    readonly id: string;
+    /** How many rows it holds. */
+    readonly total: number;
+    /**
+     * Its rows `[offset, offset + limit)`, fewer at its end, each as
+     * {@link resultRows} gives a row.
+     *
+     * @param offset - The first row
+     * @param limit - The most rows
+     * @returns The rows; `undefined` while they are being read
+     * @throws {Error} When they cannot be read.
+     */
+    rows(offset: number, limit: number): readonly unknown[] | undefined;
+}
+
+/**
  * A run's result as the value east-ui-components' Table renderer shows
  * (`EastChakraTable`, `Query Editor Spec.md` §4.11): its rows inline,
  * virtualised, under a sticky header, filling the height of the box it is
@@ -416,12 +443,46 @@ function caseText(type: VariantType, value: unknown, words: QueryWords): string 
  */
 export function resultTable(result: DecodedResult, words: QueryWords): TableRootValue {
     const { columns, rows } = resultRows(result);
+    return tableRoot(columns, variant("inline", rows.map(row => tableRow(columns, row, words))), words);
+}
+
+/**
+ * A result too large for one answer as the Table's value (#1113): its rows a
+ * window at a time, east-ui's paged row source, which the Table walks from the
+ * first row, a window at a time, and reads `none` for while a window is read;
+ * otherwise as {@link resultTable}'s.
+ *
+ * @param type - The result's type: an Array or a Set of the rows
+ * @param windows - Its rows a window at a time
+ * @param words - The words: the message table, and the viewer's formatters
+ * @returns The Table's value
+ */
+export function pagedResultTable(type: EastType, windows: ResultWindows, words: QueryWords): TableRootValue {
+    const columns = columnsOf(type);
+    return tableRoot(columns, variant("paged", {
+        id: windows.id,
+        page: (offset: bigint, limit: bigint): option<TableRow[]> => {
+            const rows = windows.rows(Number(offset), Number(limit));
+            return rows === undefined ? none : some(rows.map(row => tableRow(columns, row, words)));
+        },
+        total: () => some(BigInt(windows.total)),
+        seek: none,
+    }), words);
+}
+
+/** A row of the Table: its cells by column key, at the top, open. */
+function tableRow(columns: readonly ResultColumn[], row: unknown, words: QueryWords): TableRow {
     return {
-        rows: variant("inline", rows.map((row): TableRow => ({
-            cells: new SortedMap(columns.map((column): [string, TableCell] => [column.key, cellOf(column, row, words)]), compareKeys),
-            depth: 0n,
-            collapsed: false,
-        }))),
+        cells: new SortedMap(columns.map((column): [string, TableCell] => [column.key, cellOf(column, row, words)]), compareKeys),
+        depth: 0n,
+        collapsed: false,
+    };
+}
+
+/** The Table's value over its rows: their columns, virtualised, under a sticky header, filling its box. */
+function tableRoot(columns: readonly ResultColumn[], rows: TableRootValue["rows"], words: QueryWords): TableRootValue {
+    return {
+        rows,
         columns: columns.map(column => tableColumn(column, words)),
         frozen: [],
         columnGroups: none,

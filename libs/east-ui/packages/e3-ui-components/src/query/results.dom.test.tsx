@@ -236,7 +236,7 @@ function bannerFor(outcome: ExecuteResult["outcome"], stderr = ""): string {
     const prepared = prepareQuery(plan.program, ROOT);
     if ("result" in prepared) throw new Error(`${program} does not check`);
     const result = queryResultOf(prepared.prepared, { outcome, stdout: "", stderr, stdoutTruncated: false, stderrTruncated: false, inputs: [] });
-    const failure = runFailure({ status: "done", n: 1, plan, result, output: undefined, at: new Date(0), ms: 0, planned: undefined, pieces: undefined }, words);
+    const failure = runFailure({ status: "done", n: 1, plan, result, output: undefined, at: new Date(0), ms: 0, planned: undefined, pieces: undefined, report: undefined }, words);
     if (failure === undefined) throw new Error(`a run answered ${outcome.type} gave a result`);
     return `${failure.title}${failure.message}`;
 }

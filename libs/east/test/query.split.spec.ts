@@ -132,6 +132,11 @@ function runCall(call: Call, values: Readonly<Record<string, unknown>>, partitio
       assembled = partials.reduce((acc: unknown, value) => combine(acc, value), output.zero);
       break;
     }
+    case "first":
+      // The first rows in input order, as e3 keeps them (#1110): no piece emits more.
+      assert.ok(emitted.every(part => part.length <= output.limit), "a piece emits no more than the first output's limit");
+      assembled = emitted.flatMap(part => part.map(([row]) => row)).slice(0, output.limit);
+      break;
   }
   const then = call.then();
   return then === null ? assembled : asRun(then)(assembled, ...call.inputs.flatMap((input, i) => parts.has(input.name) ? [] : [args[i]]));
@@ -290,6 +295,17 @@ const SPLITS: readonly string[] = [
   ".byId | to_entries | map(select(.value.total > 1000) | .key)",
   "[.customers | to_entries[] | {id: .key, name: .value.name}]",
   ".byId | to_entries | map(.value.total) | add",
+  // The first outputs of a stream, in input order (#1113): the match in a late piece, none, and more than the rows.
+  "first(.orders[] | select(.total > 1000)) | .id",
+  "first(.orders[] | select(.customer_id == \"C8\" and .total > 100))",
+  "first(.orders[] | select(.total > 1e12))",
+  "limit(3; .orders[] | select(.total > 100)) | .id",
+  "limit(1000; .orders[] | .id)",
+  "limit(4; .orders[] | .lines[] | select(.qty > 1)) | {sku, qty}",
+  ".customers as $c | limit(5; .orders[] | {id, region: $c[.customer_id].region})",
+  "limit(3; .orders | .[] | .id) | . * 2",
+  "limit(2; .byId | to_entries[] | select(.value.total > 500) | .key)",
+  "first(.orders[] | .id as $id | .lines[] | select(.qty > 3) | {id: $id, sku})",
 ];
 
 describe("a split query gives what the one unit gives (N1)", () => {
@@ -332,6 +348,39 @@ describe("a split query gives what the one unit gives (N1)", () => {
     // `[.orders[] | .lines[] | {sku, qty}] | sort_by(.qty) | .[:3]`, above, keeps 3: one piece of every line cuts back at 70.
     const lines = (fixture.orders as ValueTypeOf<typeof Order>[]).flatMap(order => order.lines);
     assert.ok(lines.length > 2 * 3 + 64, `${lines.length} lines`);
+  });
+
+  test("a stream's first rows are a first output, and a piece stops once it has sent them (#1113)", () => {
+    const s = split("limit(3; .orders[] | select(.total > 100)) | .id");
+    assert.ok(s.kind === "split" && s.output.kind === "first");
+    assert.equal(s.output.limit, 3);
+    // One piece of every order sends its first three, and reads no further.
+    assert.deepEqual(sent(s, fixture.orders).length, 3);
+    const one = split("first(.orders[] | select(.total > 1000))");
+    assert.ok(one.kind === "split" && one.output.kind === "first" && one.output.limit === 1);
+    assert.equal(sent(one, fixture.orders).length, 1);
+  });
+
+  test("a stream's first rows, no more than a many query keeps, are its result: no final function", () => {
+    const s = split("limit(3; .orders[] | .id)");
+    assert.ok(s.kind === "split" && s.output.kind === "first");
+    assert.equal(s.then(), null);
+    // More than the query keeps, and one more: the final function cuts them back, as the translation does.
+    const more = split("limit(10; .orders[] | .id)", 5);
+    assert.ok(more.kind === "split" && more.output.kind === "first" && more.then() !== null);
+    const ids = runSplit(more, 3) as bigint[];
+    assert.equal(ids.length, 6);
+    const translation = translateJq(checked("limit(10; .orders[] | .id)"), { maxOutputs: 5 });
+    assert.ok(close(translation.resultType, ids, asRun(translation.fn())(fixture.orders)));
+  });
+
+  test("a count the query computes, or one below 1, stays one unit: the one unit reads it", () => {
+    for (const program of ["limit(0; .orders[] | .id)", "limit(-1; .orders[] | .id)", "limit(.orders | length; .orders[] | .id)", "limit(2.5; .orders[] | .id)"]) {
+      const c = checkJq(program, FixtureRoot, { root: true });
+      if (c.program === null) continue;
+      const s = splitJq(c, c.multiplicity === "many" ? { maxOutputs: 1000 } : {});
+      assert.equal(s.kind, "whole", program);
+    }
   });
 });
 
@@ -669,6 +718,7 @@ function explained(program: string, root: EastType = FixtureRoot): string {
     : c.kind === "distinct" ? "distinct"
     : c.kind === "distinct_by" ? `first of each ${text(c.key)}`
     : c.kind === "reduce" ? `reduce by ${text(c.key)}, ${c.update}`
+    : c.kind === "first" ? `first ${c.rows} in input order, ${text(c.range)}`
     : `first ${c.rows} of ${text(c.range)} by ${c.key === null ? "the row" : text(c.key)}`;
   const broadcast = s.broadcast.length === 0 ? "" : ` · whole in every piece: ${s.broadcast.join(", ")}`;
   const copartitioned = s.copartitioned.length === 0 ? "" : ` · cut at the same keys: ${s.copartitioned.join(", ")}`;
@@ -715,6 +765,12 @@ const GOLDEN: readonly (readonly [program: string, explanation: string])[] = [
     "split orders into array: piece «.orders | map({id, region: $c[.customer_id].region})» · concat · then - · whole in every piece: customers"],
   [".byId | to_entries | map(select(.value.total > 1000) | .key)", "split byId into array: piece «.byId | to_entries | map(select(.value.total > 1000) | .key)» · concat · then -"],
   [".orders | map(.lines) | flatten | map(.qty) | add", "split orders into fold: piece «.orders | map(.lines) | flatten | map(.qty)» · totals [add «add»] · then -"],
+  // A stream's first outputs, in input order: a first output, which e3 stops for (#1110, #1113).
+  ["first(.orders[] | select(.total > 1000)) | .id",
+    "split orders into first: piece «.orders[] | select(.total > 1000)» · first 1 in input order, «first(.orders[] | select(.total > 1000))» · then «.id»"],
+  ["limit(3; .orders[] | select(.total > 100)) | .id",
+    "split orders into first: piece «.orders[] | select(.total > 100)» · first 3 in input order, «limit(3; .orders[] | select(.total > 100))» · then «.id»"],
+  ["limit(3; .orders[] | .id)", "split orders into first: piece «.orders[] | .id» · first 3 in input order, «limit(3; .orders[] | .id)» · then -"],
   // Each reason a query stays one unit.
   [".orders | length", "whole: no_stream orders - · pruning count orders «.orders | length»"],
   [".byId[1010] | .total", "whole: no_stream - · pruning seek byId «.byId[1010]»"],
@@ -722,9 +778,8 @@ const GOLDEN: readonly (readonly [program: string, explanation: string])[] = [
   [".forecast", "whole: no_stream forecast -"],
   ["{revenue: (.orders | map(.total) | add)}", "whole: nested «.orders | map(.total) | add»"],
   [".orders[] | .id", "whole: stops_early orders - · pruning stop orders «.orders[]»"],
-  // Ordered early stop stays one lazy unit until e3 can cancel a split call's units (#942).
-  ["first(.orders[] | select(.total > 1000)) | .id", "whole: stops_early first «first(.orders[] | select(.total > 1000))»"],
-  ["limit(3; .orders[] | select(.total > 100)) | .id", "whole: stops_early limit «limit(3; .orders[] | select(.total > 100))»"],
+  // A count the query computes is the one unit's to read; a stream's first rows collected, nested.
+  ["limit(.orders | length; .orders[] | .id)", "whole: stops_early limit «limit(.orders | length; .orders[] | .id)»"],
   ["[limit(3; .orders[])]", "whole: nested «.orders[]»"],
   [".orders | .[0:3]", "whole: position slice «.[0:3]»"],
   [".orders | first", "whole: position first «first»"],

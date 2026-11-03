@@ -22,8 +22,10 @@
  *   done of all (#941); a result as a Table (east-ui's Table renderer, over
  *   `results-table.ts`'s rows) or as a Value tree (east-ui's ValueTree
  *   renderer, read-only). Rows open as a Table and one value as a tree; the
- *   toolbar's switch overrides it until the next run. A stale result's body
- *   is dashed;
+ *   toolbar's switch overrides it until the next run. A result too large for
+ *   one answer is read a page at a time, as either (`paged-result.ts`,
+ *   #1113): the Table's paged source, or the Tree's paging over every row. A
+ *   stale result's body is dashed;
  * - **the footer**: the result's read-outs — its count in words and its
  *   fields, or how many of how many it shows; how the run reads its data, its
  *   plan's explanation on a click (`plan-popover.tsx`, #941); the run's
@@ -33,17 +35,22 @@
  * @packageDocumentation
  */
 
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Box, Button, CloseButton, Menu as ChakraMenu, Portal, Skeleton, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, faCircleExclamation, faCircleInfo, faDownload, faSitemap, faTableList, faXmark } from "@fortawesome/free-solid-svg-icons";
-import { describeJqType, none, some } from "@elaraai/east";
+import { describeJqType, none, some, toEastTypeValue } from "@elaraai/east";
 import { ValueTree } from "@elaraai/east-ui";
-import { EastChakraTable, EastChakraValueTree, EmptyStateView, Toolbar, type ToolbarItem, type ValueTreeValue } from "@elaraai/east-ui-components";
+import {
+    EastChakraTable, EastChakraValueTree, EmptyStateView, Toolbar,
+    type ToolbarItem, type ValueTreePagedRow, type ValueTreePaging, type ValueTreeValue,
+} from "@elaraai/east-ui-components";
+import { pageRows } from "../components/PagedDatasetPreview.js";
 import { byteWords, countWords, fieldLabels, planProgressWords, shapeWords, type QueryWords } from "./model/words.js";
 import { Tip, type Styles } from "./parts.js";
+import { RESULT_PAGE_ROWS, resultWindows, usePagedResult, type PagedResult } from "./paged-result.js";
 import { QueryPlanReadout } from "./plan-popover.js";
-import { resultTable } from "./results-table.js";
+import { pagedResultTable, resultTable } from "./results-table.js";
 import type { RunOutput, RunState } from "./run.js";
 import { unwrapRecursive } from "./steps/shape.js";
 
@@ -79,8 +86,9 @@ export function pickedView(output: RunOutput): ResultView {
     return t.type === "Array" || t.type === "Set" || t.type === "Vector" ? "table" : "tree";
 }
 
-/** How many rows a result of rows holds; `undefined` for one value. */
+/** How many rows a result of rows holds — all of them, for one read a page at a time; `undefined` for one value. */
 function rowCount(output: RunOutput): number | undefined {
+    if (output.paged !== undefined) return output.paged.total;
     const t = unwrapRecursive(output.type);
     if (t.type === "Array" || t.type === "Vector") return (output.value as readonly unknown[]).length;
     if (t.type === "Set") return (output.value as ReadonlySet<unknown>).size;
@@ -222,12 +230,14 @@ export const QueryResults = memo(function QueryResults({ state, stale, view, wor
     const output = state.status === "done" ? state.output : undefined;
     const footer = resultFooter(state, words);
     const n = state.status === "idle" ? 0 : state.n;
-    const table = useMemo(() => (output === undefined || view !== "table" ? undefined : resultTable({ type: output.type, value: output.value }, words)), [output, view, words]);
-    const tree = useMemo((): ValueTreeValue | undefined => (output === undefined || view !== "tree" ? undefined : {
-        root: ValueTree.materialize(output.type, output.value),
+    // A result in hand: a result read a page at a time is its own body's.
+    const held = output?.paged === undefined ? output : undefined;
+    const table = useMemo(() => (held === undefined || view !== "table" ? undefined : resultTable({ type: held.type, value: held.value }, words)), [held, view, words]);
+    const tree = useMemo((): ValueTreeValue | undefined => (held === undefined || view !== "tree" ? undefined : {
+        root: ValueTree.materialize(held.type, held.value),
         onEdit: none, onInsert: none, onRemove: none, onTag: none,
         style: some({ height: some("100%"), maxHeight: none, openDepth: some(1n), toolbar: some(false) }),
-    }), [output, view]);
+    }), [held, view]);
 
     let body: ReactNode;
     if (state.status === "idle") {
@@ -260,6 +270,8 @@ export const QueryResults = memo(function QueryResults({ state, stale, view, wor
                 ))}
             </Box>
         );
+    } else if (output?.paged !== undefined) {
+        body = <PagedResultBody key={n} paged={output.paged} view={view} words={words} storageKey={storageKey} />;
     } else if (table !== undefined) {
         body = <EastChakraTable key={n} value={table} storageKey={`${storageKey}.result.table`} />;
     } else if (tree !== undefined) {
@@ -280,7 +292,8 @@ export const QueryResults = memo(function QueryResults({ state, stale, view, wor
                 {state.status !== "idle" && state.planned !== undefined && (
                     <QueryPlanReadout planned={state.planned} words={words}
                         progress={state.status === "running" ? state.progress : undefined}
-                        pieces={state.status === "failed" ? undefined : state.pieces} />
+                        pieces={state.status === "failed" ? undefined : state.pieces}
+                        report={state.status === "done" ? state.report : undefined} />
                 )}
                 {footer.run !== "" && (
                     <Tip label={footer.type}>
@@ -291,6 +304,51 @@ export const QueryResults = memo(function QueryResults({ state, stale, view, wor
             </Box>
         </Box>
     );
+});
+
+/** Props of {@link PagedResultBody}. */
+interface PagedResultBodyProps {
+    /** The result, read a page at a time. */
+    readonly paged: PagedResult;
+    /** How it shows. */
+    readonly view: ResultView;
+    /** The words. */
+    readonly words: QueryWords;
+    /** The builder's storage key: the renderers keep their state under it. */
+    readonly storageKey: string;
+}
+
+/**
+ * A result too large for one answer, read a page at a time (#1113): as a
+ * Table, east-ui's paged row source over its pages, which the Table walks from
+ * its first row; as a Tree, the ValueTree's paging, its scrollbar over every
+ * row and each page read as it comes into view. Mounted once a run, so its
+ * pages are the run's.
+ *
+ * @param props - The result, the view, the words and the storage key ({@link PagedResultBodyProps})
+ * @returns The Table or the Tree
+ */
+const PagedResultBody = memo(function PagedResultBody({ paged, view, words, storageKey }: PagedResultBodyProps) {
+    const read = usePagedResult(paged);
+    const table = useMemo(() => (view === "table" ? pagedResultTable(paged.type, resultWindows(paged, read), words) : undefined), [view, paged, read, words]);
+    const type = useMemo(() => toEastTypeValue(paged.type), [paged]);
+    // The Tree's root: the collection's kind, its rows the pages'.
+    const tree = useMemo((): ValueTreeValue => ({
+        root: ValueTree.materialize(type, type.type === "Set" ? new Set() : []),
+        onEdit: none, onInsert: none, onRemove: none, onTag: none,
+        style: some({ height: some("100%"), maxHeight: none, openDepth: some(1n), toolbar: some(false) }),
+    }), [type]);
+    const treePages = useMemo(() => new Map([...read.pages].map(([p, value]): [number, readonly ValueTreePagedRow[]] => [p, pageRows(type, value, p * RESULT_PAGE_ROWS)])), [read.pages, type]);
+    const { need, keep } = read;
+    const onNeedRows = useCallback((startRow: number, endRow: number) => {
+        const first = Math.floor(startRow / RESULT_PAGE_ROWS);
+        const last = Math.max(first, Math.ceil(endRow / RESULT_PAGE_ROWS) - 1);
+        keep(first, last);
+        need(first, last);
+    }, [need, keep]);
+    const paging = useMemo((): ValueTreePaging => ({ totalRows: paged.total, pageSize: RESULT_PAGE_ROWS, pages: treePages, onNeedRows }), [paged, treePages, onNeedRows]);
+    if (table !== undefined) return <EastChakraTable value={table} storageKey={`${storageKey}.result.table`} />;
+    return <EastChakraValueTree value={tree} storageKey={`${storageKey}.result.tree`} paging={paging} />;
 });
 
 /** Props of {@link ResultStrips}. */
@@ -361,6 +419,8 @@ export const ResultStrips = memo(function ResultStrips({ state, stale, note, onD
 export interface ResultToolbarOptions {
     /** The view shown; `undefined` without a result. */
     readonly view: ResultView | undefined;
+    /** Whether the result can be downloaded: one in hand, not one read a page at a time (#1113). */
+    readonly downloadable: boolean;
     /** The view the run picked. */
     readonly picked: ResultView | undefined;
     /** Shows a view. */
@@ -379,15 +439,16 @@ export interface ResultToolbarOptions {
  * The result's controls, the items of the results' band (`Query Editor
  * Spec.md` §4.11): **Table · Tree**, the `seg` strip, folding to its icons;
  * and **Download ▾**, a menu of CSV and BEAST2, folding to its icon. Both are
- * off without a result.
+ * off without a result, and Download for a result read a page at a time.
  *
  * @param options - The view, the picked view, the downloads and the words ({@link ResultToolbarOptions})
  * @returns The items, in their order along the row
  */
 export function resultToolbarItems(options: ResultToolbarOptions): ToolbarItem[] {
-    const { view, picked, onView, onDownload, words, styles, seg } = options;
+    const { view, downloadable, picked, onView, onDownload, words, styles, seg } = options;
     const m = words.messages;
     const off = view === undefined;
+    const noDownload = off || !downloadable;
     const views = (iconsOnly: boolean) => (
         <Box css={seg.root} role="group" aria-label={m.resultViewLabel()} data-query-result-view={view}>
             {(["table", "tree"] as const).map((v) => {
@@ -409,7 +470,7 @@ export function resultToolbarItems(options: ResultToolbarOptions): ToolbarItem[]
     const download = (iconOnly: boolean) => (
         <ChakraMenu.Root positioning={{ placement: "bottom-end" }}>
             <ChakraMenu.Trigger asChild>
-                <Button size="sm" variant="outline" disabled={off} data-query-download="" {...(iconOnly ? { "aria-label": m.download() } : {})}>
+                <Button size="sm" variant="outline" disabled={noDownload} data-query-download="" {...(iconOnly ? { "aria-label": m.download() } : {})}>
                     <FontAwesomeIcon icon={faDownload} />{!iconOnly && <>{m.download()}<FontAwesomeIcon icon={faCaretDown} /></>}
                 </Button>
             </ChakraMenu.Trigger>
@@ -429,7 +490,7 @@ export function resultToolbarItems(options: ResultToolbarOptions): ToolbarItem[]
     );
     return [
         { key: "result-view", side: "end", forms: [views(false), views(true)], rank: RANK_VIEW, version: `${view ?? ""}|${picked ?? ""}` },
-        { key: "download", side: "end", forms: [download(false), download(true)], rank: RANK_DOWNLOAD, version: off ? "off" : "on" },
+        { key: "download", side: "end", forms: [download(false), download(true)], rank: RANK_DOWNLOAD, version: noDownload ? "off" : "on" },
     ];
 }
 

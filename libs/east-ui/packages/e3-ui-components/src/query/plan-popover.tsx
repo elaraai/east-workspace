@@ -7,10 +7,12 @@
  * The plan's read-out (#941), beside a run's read-outs in the results'
  * footer (`Query Editor Spec.md` §4.11): how the run reads its data, in a
  * word — "One call", "Split call · 3 of 12 pieces done" while it goes,
- * "Split call · 12 pieces" once it has — and, on a click, the plan's
- * explanation (`planWords`) in the design system's popover
+ * "Split call · 12 pieces" once it has, and the units the cache served —
+ * "Split call · 12 pieces · 11 units cached" (#1105) — and, on a click, the
+ * plan's explanation (`planWords`) in the design system's popover
  * (`SliceEditPopover`, as the builder's save popover is): the path and why, a
- * split's stages with the jq each is about, and the reads that prune.
+ * split's stages with the jq each is about, how its units ran, and the reads
+ * that prune.
  *
  * Its parts are the `queryResults` recipe's: the read-out's `footerPlan`, its
  * `data-state` open while the popover is, and the explanation's `planLines` of
@@ -23,7 +25,7 @@
 
 import { memo, useMemo, useState } from "react";
 import { Box, chakra, useSlotRecipe } from "@chakra-ui/react";
-import type { SplitCallProgress } from "@elaraai/e3-types";
+import type { SplitCallProgress, SplitCallReport } from "@elaraai/e3-types";
 import { SliceEditPopover } from "@elaraai/east-ui-components";
 import { planBadge, planWords, type QueryWords } from "./model/words.js";
 import type { Styles } from "./parts.js";
@@ -37,6 +39,8 @@ export interface QueryPlanReadoutProps {
     readonly progress: SplitCallProgress | undefined;
     /** How many pieces a split call cut, once e3 says. */
     readonly pieces: number | undefined;
+    /** How a split call ran, once it answered (#1105): the units it ran, and those the cache served. */
+    readonly report: SplitCallReport | undefined;
     /** The words. */
     readonly words: QueryWords;
 }
@@ -44,14 +48,14 @@ export interface QueryPlanReadoutProps {
 /**
  * Renders the plan's read-out — see the module docs.
  *
- * @param props - The plan, a split call's progress and pieces, and the words ({@link QueryPlanReadoutProps})
+ * @param props - The plan, a split call's progress, pieces and report, and the words ({@link QueryPlanReadoutProps})
  * @returns The read-out, and its popover while open
  */
-export const QueryPlanReadout = memo(function QueryPlanReadout({ planned, progress, pieces, words }: QueryPlanReadoutProps) {
+export const QueryPlanReadout = memo(function QueryPlanReadout({ planned, progress, pieces, report, words }: QueryPlanReadoutProps) {
     const styles = useSlotRecipe({ key: "queryResults" })() as Styles;
     const [open, setOpen] = useState(false);
-    const badge = useMemo(() => planBadge(planned, words, { progress, pieces }), [planned, words, progress, pieces]);
-    const lines = useMemo(() => planWords(planned.explanation, words, { progress, pieces }), [planned, words, progress, pieces]);
+    const badge = useMemo(() => planBadge(planned, words, { progress, pieces, report }), [planned, words, progress, pieces, report]);
+    const lines = useMemo(() => planWords(planned.explanation, words, { progress, pieces, report }), [planned, words, progress, pieces, report]);
     return (
         <SliceEditPopover open={open} onOpenChange={setOpen} size="lg" label={words.messages.planTitle()}
             trigger={
