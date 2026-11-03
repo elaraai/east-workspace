@@ -136,7 +136,7 @@ const SORTER_BYTES = 64 * 2 ** 20;
  * @param taskHash - Hash of the task object
  * @returns The peak, in bytes
  */
-async function previousPeak(storage: StorageBackend, repo: string, taskHash: string): Promise<number | undefined> {
+export async function previousPeak(storage: StorageBackend, repo: string, taskHash: string): Promise<number | undefined> {
   let latest: Awaited<ReturnType<StorageBackend['refs']['executionListLatest']>>;
   try {
     latest = await storage.refs.executionListLatest(repo, taskHash);
@@ -256,6 +256,101 @@ async function rowWeight(opened: DatasetSegments): Promise<number> {
     rows += elements.length;
   }
   return rows === 0 ? 0 : weight / rows;
+}
+
+/**
+ * What the largest of a split task's pieces holds of its inputs, as its
+ * program reads them ({@link inputReads}): an input it only loops over, two
+ * segments of it; one it reads by key, the segments its pager keeps, at most;
+ * any other, all of its rows — each at what a row of that input weighs decoded
+ * ({@link rowWeight}). A value that is not a collection counts at its stored
+ * bytes, and the runner's own memory and, for a Set or Dict output, its
+ * sorter's buffer are added. A runner that decodes its inputs whole, and a
+ * program that cannot be read, read every input whole.
+ *
+ * @remarks
+ * The estimate the pieces' stage starts with the first time its task runs,
+ * where a stage starts with one (`ExecuteOptions.firstWave`): the engine's, and
+ * a `first` split call's pieces too (`runFirstPieces`).
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param task - The task
+ * @param inputHashes - Its input hashes
+ * @param units - Its pieces
+ * @param planned - The partitioned inputs the planning opened, by position,
+ *   read rather than their manifests decoded again
+ * @returns The bytes the largest piece is expected to hold
+ */
+export async function piecesWeight(
+  storage: StorageBackend,
+  repo: string,
+  task: TaskObject,
+  inputHashes: readonly string[],
+  units: readonly SplitUnit[],
+  planned: ReadonlyMap<number, DatasetSegments> = new Map(),
+): Promise<number> {
+  const reads = await taskInputReads(storage, repo, task);
+  /** What an input of `rows` rows of `row` bytes each, in segments of
+   *  `segmentRows` rows, holds as it is read. */
+  const held = (read: InputRead, rows: number, row: number, segmentRows: number): number => {
+    const segments = Math.min(rows, 2 * segmentRows) * row;
+    if (read === 'none') return 0;
+    if (read === 'scan') return segments;
+    if (read === 'keyed') return Math.min(rows * row, PAGER_CACHE_BYTES + segments);
+    return rows * row;
+  };
+  const partitioned: { index: number; read: InputRead; row: number; segmentRows: number }[] = [];
+  let shared = RUNNER_BYTES + (task.output.kind.type === 'set' || task.output.kind.type === 'dict' ? SORTER_BYTES : 0);
+  for (const [index, input] of task.inputs.entries()) {
+    const read = reads[index]!;
+    if (read === 'none') continue;
+    const hash = inputHashes[index]!;
+    let opened: DatasetSegments;
+    try {
+      opened = planned.get(index) ?? await DatasetSegments.open(storage, repo, hash);
+    } catch {
+      shared += (await storage.objects.stat(repo, hash)).size;
+      continue;
+    }
+    const row = await rowWeight(opened);
+    const segmentRows = opened.elementCount / Math.max(1, opened.segmentCount);
+    if (input.partition.type === 'some') partitioned.push({ index, read, row, segmentRows });
+    else shared += held(read, opened.elementCount, row, segmentRows);
+  }
+  let largest = 0;
+  // A few manifests at a time: a stage may have hundreds of pieces.
+  for (let at = 0; at < units.length; at += ESTIMATE_READS) {
+    const weights = await Promise.all(units.slice(at, at + ESTIMATE_READS).map(async (unit) => {
+      let bytes = 0;
+      for (const { index, read, row, segmentRows } of partitioned) {
+        const rows = (await DatasetSegments.open(storage, repo, unit.inputs[index]!)).elementCount;
+        bytes += held(read, rows, row, segmentRows);
+      }
+      return bytes;
+    }));
+    largest = Math.max(largest, ...weights);
+  }
+  return Math.ceil(shared + largest);
+}
+
+/** How the task's program reads each of its inputs: whole, every one, on a
+ *  runner that decodes them so, or when the program cannot be read. */
+async function taskInputReads(storage: StorageBackend, repo: string, task: TaskObject): Promise<InputRead[]> {
+  const whole = task.inputs.map((): InputRead => 'whole');
+  if (task.body.type !== 'east' || task.runner.type === 'custom' || task.runner.value.decode.type === 'whole') return whole;
+  try {
+    const bytes = await storage.objects.read(repo, task.body.value.program);
+    let program: FunctionIR | AsyncFunctionIR;
+    try {
+      program = decodeEastIR(bytes).ir;
+    } catch {
+      program = decodeAsyncEastIR(bytes).ir;
+    }
+    return inputReads(program, task.inputs.length);
+  } catch {
+    return whole;
+  }
 }
 
 /**
@@ -874,85 +969,9 @@ export class SplitTask {
     if (this.previousPeak !== undefined) return { bytes: this.previousPeak, from: 'previous' };
     if (this.current.merge !== null) return this.peakBytes === undefined ? null : { bytes: this.peakBytes, from: 'run' };
     try {
-      return { bytes: await this.piecesWeight(units), from: 'rows' };
+      return { bytes: await piecesWeight(this.storage, this.repo, this.task, this.inputHashes, units, this.opened), from: 'rows' };
     } catch {
       return null;
-    }
-  }
-
-  /**
-   * What the largest piece holds of its inputs, as its program reads them
-   * ({@link inputReads}): an input it only loops over, two segments of it; one
-   * it reads by key, the segments its pager keeps, at most; any other, all of
-   * its rows — each at what a row of that input weighs decoded
-   * ({@link rowWeight}). A value that is not a collection counts at its stored
-   * bytes, and the runner's own memory and, for a Set or Dict output, its
-   * sorter's buffer are added. A runner that decodes its inputs whole, and a
-   * program that cannot be read, read every input whole.
-   */
-  private async piecesWeight(units: readonly SplitUnit[]): Promise<number> {
-    const { task } = this;
-    const reads = await this.inputReads();
-    /** What an input of `rows` rows of `row` bytes each, in segments of
-     *  `segmentRows` rows, holds as it is read. */
-    const held = (read: InputRead, rows: number, row: number, segmentRows: number): number => {
-      const segments = Math.min(rows, 2 * segmentRows) * row;
-      if (read === 'none') return 0;
-      if (read === 'scan') return segments;
-      if (read === 'keyed') return Math.min(rows * row, PAGER_CACHE_BYTES + segments);
-      return rows * row;
-    };
-    const partitioned: { index: number; read: InputRead; row: number; segmentRows: number }[] = [];
-    let shared = RUNNER_BYTES + (task.output.kind.type === 'set' || task.output.kind.type === 'dict' ? SORTER_BYTES : 0);
-    for (const [index, input] of task.inputs.entries()) {
-      const read = reads[index]!;
-      if (read === 'none') continue;
-      const hash = this.inputHashes[index]!;
-      let opened: DatasetSegments;
-      try {
-        opened = this.opened.get(index) ?? await DatasetSegments.open(this.storage, this.repo, hash);
-      } catch {
-        shared += (await this.storage.objects.stat(this.repo, hash)).size;
-        continue;
-      }
-      const row = await rowWeight(opened);
-      const segmentRows = opened.elementCount / Math.max(1, opened.segmentCount);
-      if (input.partition.type === 'some') partitioned.push({ index, read, row, segmentRows });
-      else shared += held(read, opened.elementCount, row, segmentRows);
-    }
-    let largest = 0;
-    // A few manifests at a time: a stage may have hundreds of pieces.
-    for (let at = 0; at < units.length; at += ESTIMATE_READS) {
-      const weights = await Promise.all(units.slice(at, at + ESTIMATE_READS).map(async (unit) => {
-        let bytes = 0;
-        for (const { index, read, row, segmentRows } of partitioned) {
-          const rows = (await DatasetSegments.open(this.storage, this.repo, unit.inputs[index]!)).elementCount;
-          bytes += held(read, rows, row, segmentRows);
-        }
-        return bytes;
-      }));
-      largest = Math.max(largest, ...weights);
-    }
-    return Math.ceil(shared + largest);
-  }
-
-  /** How the task's program reads each of its inputs: whole, every one, on a
-   *  runner that decodes them so, or when the program cannot be read. */
-  private async inputReads(): Promise<InputRead[]> {
-    const { task } = this;
-    const whole = task.inputs.map((): InputRead => 'whole');
-    if (task.body.type !== 'east' || task.runner.type === 'custom' || task.runner.value.decode.type === 'whole') return whole;
-    try {
-      const bytes = await this.storage.objects.read(this.repo, task.body.value.program);
-      let program: FunctionIR | AsyncFunctionIR;
-      try {
-        program = decodeEastIR(bytes).ir;
-      } catch {
-        program = decodeAsyncEastIR(bytes).ir;
-      }
-      return inputReads(program, task.inputs.length);
-    } catch {
-      return whole;
     }
   }
 

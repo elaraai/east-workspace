@@ -323,6 +323,7 @@ function answerType(request: SplitCallRequest): EastType {
     const emitted = emit.inputs as EastType[];
     switch (request.output.type) {
         case "array": return ArrayType(emitted[0]!);
+        case "first": return ArrayType(emitted[0]!);
         case "set": return SetType(emitted[0]!);
         case "dict": return DictType(emitted[0]!, emitted[1]!);
         case "fold": return emitted[0]!;

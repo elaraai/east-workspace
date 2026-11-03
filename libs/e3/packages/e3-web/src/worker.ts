@@ -268,6 +268,8 @@ async function start(options: ServeE3Options): Promise<Running> {
     const transfer = new WebTransferBackend({
       storage,
       getRunner,
+      // A `first` split call keeps as many units running as the pool runs at once.
+      splitCallWidth: pool.width,
       ...(options.transferPartBytes !== undefined && { partBytes: options.transferPartBytes }),
       ...(options.transferExportRoundBytes !== undefined && { exportRoundBytes: options.transferExportRoundBytes }),
     });

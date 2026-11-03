@@ -923,6 +923,7 @@ export const SplitCallRequestType = StructType({
   output: VariantType({                               // a task's output kinds, the programs and zero inline
     array: NullType,
     dict:  StructType({ merge: OptionType(BlobType) }),
+    first: StructType({ limit: IntegerType }),        // an array's first `limit` elements, stopping once it has them (#1110)
     fold:  StructType({ combine: BlobType, zero: BlobType }),
     set:   NullType,
   }),
@@ -954,6 +955,39 @@ refuses a `then` whose arity is not 1 plus the count of arguments not
 partitioned, `invalid`, naming both, and nothing runs. Client and server move
 together: a client of this release and a server of an earlier one disagree on
 what `then` is given.
+
+**A call that stops once it has its first `n`** (#1110). `output: first {
+limit }` answers an Array of the first `limit` elements in input order —
+every element when there are fewer — of what the body emits, as an `array`
+call's body emits it, `limit` at least 1 (`invalid` below it). A query such
+as `first(.orders[] | select(…))` over a rare match wants exactly that, and
+an `array` call would scan every piece for it.
+- **No new task kind.** The launch writes the task with the `array` kind, so
+  `TaskOutputKind` is unchanged, and its pieces are cached as an `array`
+  call's are: the two kinds of call share units. The job record holds the
+  limit (`SplitCallJobType.first`).
+- **How it runs.** `splitCallRun` runs a `first` call itself, not through
+  `runner.execute` (`runFirstPieces`, `execution/splitFirst.ts`): it plans the
+  pieces (`planPieces`), and runs them through `runner.executeUnit` — which
+  probes the cache — in input order, at most `width` at once, each within
+  `width` of the first piece not finished, so while piece `k` runs none past
+  `k + width` starts. As each finishes it reads the piece's element count from
+  its manifest. Once the pieces finished in an unbroken run from the first
+  hold `limit` elements, it stops the units still running and starts none
+  after them, and stores the first `limit` elements through the store's door:
+  the whole pieces by reference, and the first elements of the last, its
+  whole segments by reference too. A piece that fails ends the call as the
+  task's lowest failing unit would, when the answer needs it.
+- **What it records.** No execution of the task, whose whole output it never
+  assembled. Every piece it ran is cached. `then` is given the first `limit`
+  elements as its output.
+- **Width.** `ProcessSplitCallDeps.width` (4 by default) is how many units the
+  job keeps running: the local server passes its budget's cores, e3-web its
+  pool's width, e3-cloud its `splitCalls.width`.
+- **Rounds.** A job handed over between rounds resumes nothing: the next round
+  plans again, which #1100 made cheap, and finds the finished pieces cached.
+  A running Lambda unit cannot be stopped, so on e3-cloud fewer than `width`
+  pieces past the end run to their end, and stay cached.
 
 **The launch** (e3-core `splitCallPrepare`, `execution/splitCall.ts`) applies
 the caller's grant, pins each dataset argument by hash as a one-shot does,
@@ -1193,7 +1227,10 @@ paths.
       `dict` with a merge and `fold` calls give what one unit over the whole
       dataset gives; `then` runs over the assembled output and the arguments
       not partitioned, in their order, staging no object of a partitioned one,
-      and one of another arity is `invalid` (#1107); an argument not
+      and one of another arity is `invalid` (#1107); a `first` call answers
+      the first `limit` elements of the matching `array` call's value, starts
+      no piece past `k + width` when piece `k` holds its one match, and leaves
+      the pieces it ran cached for an `array` call (#1110); an argument not
       partitioned reaches every piece whole; an `object` argument
       chains one call's output into the next; the launch of a call whose
       `object` argument is a collection of many segments asks the store about

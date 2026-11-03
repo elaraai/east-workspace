@@ -164,6 +164,7 @@ describe('a split call\'s job cancelled (#1104)', () => {
       inputs: [...launched.inputs],
       objects: launched.objects.map((index) => BigInt(index)),
       then: launched.then === null ? none : some(launched.then),
+      first: launched.first === null ? none : some(BigInt(launched.first)),
       limits: {
         timeoutMs: BigInt(launched.limits.timeoutMs),
         maxResultBytes: BigInt(launched.limits.maxResultBytes),

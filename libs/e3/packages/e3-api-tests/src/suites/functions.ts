@@ -30,7 +30,8 @@
  * as it ended. One whose value is over its result limit answers `too_large`
  * and names its output, which its reader reads a window at a time. A split
  * call's `then` takes the assembled output and then each argument not
- * partitioned, and one that takes any other count is `invalid`.
+ * partitioned, and one that takes any other count is `invalid`. A `first`
+ * split call answers the first `limit` elements in input order.
  */
 
 import { describe, it } from 'node:test';
@@ -962,6 +963,23 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       if (refused.result.outcome.type !== 'invalid') assert.fail(`the call answered ${refused.result.outcome.type}`);
       assert.equal(refused.result.outcome.value.diagnostics[0]?.message,
         'then takes 3 arguments, and the call gives it 2 arguments: the assembled output, then each argument not partitioned, in order');
+    });
+
+    it('a first split call answers the first limit elements in input order, every one when there are fewer, and a limit below 1 is invalid', async (t) => {
+      const ctx = await withFunctions(t);
+      const reader = await ctx.readerOpts();
+
+      await ctx.createWorkspace('split-first-ws');
+      await ctx.deployPackage('split-first-ws', `${PKG}@${VERSION}`);
+      // `prices` is {a: 1, b: 2, c: 3}: each piece emits its prices in key order.
+      const first = (limit: bigint) => splitCall(ctx.config.baseUrl, ctx.repoName, 'split-first-ws',
+        splitOf(emitEachPrice, [PRICES_PIECES], variant('first', { limit })), reader);
+      for (const [limit, expected] of [[1n, [1n]], [2n, [1n, 2n]], [3n, [1n, 2n, 3n]], [10n, [1n, 2n, 3n]]] as const) {
+        assertValue((await first(limit)).result, ArrayType(IntegerType), [...expected]);
+      }
+      const refused = await first(0n);
+      if (refused.result.outcome.type !== 'invalid') assert.fail(`a limit of 0 answered ${refused.result.outcome.type}`);
+      assert.equal(refused.result.outcome.value.diagnostics[0]?.message, `a first call answers from 1 to ${Number.MAX_SAFE_INTEGER} elements: its limit is 0`);
     });
 
     it('a split call over its result limit answers too_large and names its output, which its reader opens and reads a window at a time', async (t) => {

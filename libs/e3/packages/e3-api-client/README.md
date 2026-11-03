@@ -225,7 +225,7 @@ its value and its logs, by hash, which `objectGet` reads.
 
 ```typescript
 import { collectionOpen, splitCall, splitCallCancel, splitCallLaunch, splitCallStatus } from '@elaraai/e3-api-client';
-import { decodeBeast2For } from '@elaraai/east';
+import { decodeBeast2For, variant } from '@elaraai/east';
 
 // Run a program over a dataset's pieces as a job, polled to its end. Aborting
 // the signal stops polling and cancels the job, so the server stops its units;
@@ -239,6 +239,11 @@ const { result, output, report } = await splitCall(url, 'my-repo', 'production',
 // into, the units this call ran and the cache served it, and the highest peak
 // a unit reached. A call the cache served whole ran 0 and was served 0, and
 // still names its pieces and peak.
+
+// An array's first `limit` elements, in input order: the body emits as an
+// array call's does, and the pieces run in order, a few at a time, stopping
+// once they hold that many. The pieces are shared with an array call's.
+const firstMatch = await splitCall(url, 'my-repo', 'production', { ...request, output: variant('first', { limit: 1n }) }, { token });
 
 // A value over the call's result limit is answered too_large, naming the
 // stored output instead: open it, and read it a window at a time. Each window

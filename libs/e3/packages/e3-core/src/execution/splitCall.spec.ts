@@ -6,7 +6,9 @@
 /**
  * Split calls (#1032): a caller's program over a dataset's pieces, run as a
  * split task on the engine and assembled by its output kind, then `then`,
- * over the assembled output and the arguments not partitioned (#1107).
+ * over the assembled output and the arguments not partitioned (#1107). A
+ * `first` call (#1110) runs the pieces in input order until they hold its
+ * limit, and shares them with an `array` call of the same program.
  * `E3_TEST_PIECE_BYTES` makes the pieces small, so a few thousand rows are
  * many pieces; the units run on east-node.
  */
@@ -20,10 +22,11 @@ import {
   type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import type { ExecuteResult, PartitionProgress, SplitCallRequest } from '@elaraai/e3-types';
-import { readManifest } from '../dataset-open.js';
+import { decodeTaskObject, type ExecuteResult, type PartitionProgress, type SplitCallRequest } from '@elaraai/e3-types';
+import { readDatasetWhole, readManifest } from '../dataset-open.js';
 import { PermissionDeniedError } from '../errors.js';
 import { executionReadLog, inputsHash } from '../executions.js';
+import { repoGc } from '../gc.js';
 import { packageImport } from '../package-files.js';
 import { datasetWrite, workspaceSetDataset } from '../trees.js';
 import { workspaceDeploy } from '../workspace-files.js';
@@ -33,6 +36,7 @@ import type { StorageBackend } from '../storage/interfaces.js';
 import type { TaskResult, TaskRunner } from './interfaces.js';
 import { LocalTaskRunner } from './LocalTaskRunner.js';
 import type { OneShotGrant } from './oneShot.js';
+import { planPieces } from './pieces.js';
 import { splitCallExplain, splitCallPrepare, splitCallResult, splitCallRun, type SplitCallOutcome } from './splitCall.js';
 
 const WS = 'ws';
@@ -86,6 +90,24 @@ function counting(storage: StorageBackend, asked: Set<string>): StorageBackend {
   });
   return new Proxy(storage, { get: (target, key, receiver) => (key === 'objects' ? objects : Reflect.get(target, key, receiver)) });
 }
+
+/** Each sale's key that leaves 4 over 13, in order: 616 of 8000 sales. */
+const everyThirteenth = ir(East.function([SalesType, EmitInteger], NullType, ($, sales, emit) => {
+  $.for(sales, ($, _amount, key) => {
+    $.if(East.equal(key.remainder(13n), 4n), ($) => {
+      $(emit(key));
+    });
+  });
+}));
+
+/** The key 1500 alone. */
+const only1500 = ir(East.function([SalesType, EmitInteger], NullType, ($, sales, emit) => {
+  $.for(sales, ($, _amount, key) => {
+    $.if(East.equal(key, 1500n), ($) => {
+      $(emit(key));
+    });
+  });
+}));
 
 /** The local runner, with every unit's progress heard. */
 function tapped(inner: TaskRunner, heard: PartitionProgress[]): TaskRunner {
@@ -460,6 +482,171 @@ describe('split calls', () => {
     const ran = settled.filter((progress) => progress.cached !== true);
     assert.ok(settled.length > 4, 'the input is many pieces');
     assert.ok(ran.length >= 1 && ran.length <= 3, `only the pieces around the append ran: ${ran.length} of ${settled.length}`);
+  });
+
+  describe('a first call: the first limit elements, in input order (#1110)', () => {
+    const args = [partitioned(dataset('sales'))];
+    const firstOf = (body: Uint8Array, limit: number): SplitCallRequest => call(body, args, variant('first', { limit: BigInt(limit) }));
+
+    /** The units the runner runs, each with what it came to, by the inputs
+     *  that name it. */
+    function unitsRun(): Map<string, TaskResult> {
+      const ran = new Map<string, TaskResult>();
+      const inner = runner;
+      runner = {
+        ...inner,
+        executeUnit: async (store, taskHash, unit, options) => {
+          const result = await inner.executeUnit(store, taskHash, unit, options);
+          ran.set(unit.inputs.join(','), result);
+          return result;
+        },
+      };
+      return ran;
+    }
+
+    /** The pieces the engine cuts a launched call's task into, each by the
+     *  inputs that name its unit. */
+    async function piecesOf(launched: { task: string; inputs: readonly string[] }): Promise<string[]> {
+      const task = decodeTaskObject(await storage.objects.read(repo, launched.task));
+      return (await planPieces(storage, repo, task.inputs, launched.inputs)).pieces.map((piece) => piece.join(','));
+    }
+
+    it('answers the first limit elements of the matching array call\'s value, or every one when there are fewer', async () => {
+      const matching = Array.from({ length: 616 }, (_, i) => BigInt(4 + 13 * i));
+      for (const limit of [1, 5, 100, 616, 10_000]) {
+        await assertValue(await run(firstOf(everyThirteenth, limit)), ArrayType(IntegerType), matching.slice(0, limit));
+      }
+      await assertValue(await run(call(everyThirteenth, args, variant('array', null))), ArrayType(IntegerType), matching);
+      assert.ok(pieces() > 4, 'over many pieces');
+    });
+
+    it('starts no piece past the one that holds its first match by more than its width', async () => {
+      const launched = await splitCallPrepare(storage, repo, WS, firstOf(only1500, 1), { grant: 'any' });
+      if ('outcome' in launched) assert.fail('the call was refused');
+      const cut = await piecesOf(launched);
+      const holds = await Promise.all(cut.map(async (piece) =>
+        (decodeBeast2For(SalesType)(await readDatasetWhole(storage, repo, piece.split(',')[0]!))).has(1500n)));
+      const k = holds.indexOf(true);
+      const width = 2;
+      assert.ok(k >= 0 && k + width + 1 < cut.length, `1500 is in piece ${k} of ${cut.length}, with pieces past ${k + width}`);
+
+      const ran = unitsRun();
+      const outcome = await splitCallRun(storage, runner, repo, launched, { width });
+      if (outcome.outcome.type !== 'success') assert.fail(`the call ended ${outcome.outcome.type}: ${outcome.stderr}`);
+      const value = decodeBeast2For(ArrayType(IntegerType))(await readDatasetWhole(storage, repo, outcome.outcome.value.value));
+      assert.ok(equalFor(ArrayType(IntegerType))(value, [1500n]), `the value is ${printFor(ArrayType(IntegerType))(value)}`);
+      const started = [...ran.keys()].map((unit) => cut.indexOf(unit)).sort((a, b) => a - b);
+      assert.ok(started.includes(k), `piece ${k} ran`);
+      assert.deepEqual(started.filter((index) => index > k + width), [], `no piece past ${k + width} started: ${started.join(', ')}`);
+      assert.equal(outcome.report.type === 'some' && outcome.report.value.pieces, BigInt(cut.length), 'it reports the pieces it cut');
+    });
+
+    it('leaves the pieces it ran cached, which an array call of the same program is served', async () => {
+      const launched = await splitCallPrepare(storage, repo, WS, firstOf(everyThirteenth, 50), { grant: 'any' });
+      if ('outcome' in launched) assert.fail('the call was refused');
+      const cut = await piecesOf(launched);
+      const ran = unitsRun();
+      const outcome = await splitCallRun(storage, runner, repo, launched);
+      assert.equal(outcome.outcome.type, 'success', outcome.stderr);
+      const finished = [...ran].filter(([, result]) => result.state === 'success').map(([unit]) => cut.indexOf(unit));
+      assert.ok(finished.length > 0 && finished.length < cut.length, `it ran ${finished.length} of ${cut.length} pieces`);
+
+      heard.length = 0;
+      await run(call(everyThirteenth, args, variant('array', null)));
+      const served = heard.filter((progress) => progress.phase === 'partition' && progress.state === 'completed' && progress.cached === true)
+        .map((progress) => progress.index);
+      assert.deepEqual(finished.filter((index) => !served.includes(index)), [], 'each piece the first call ran was served from the cache');
+      assert.ok(served.length < cut.length, 'and the rest ran');
+    });
+
+    it('keeps its elements, and then\'s value, through a gc: each is recorded as an execution of its own', async () => {
+      const counted = ir(East.function([ArrayType(IntegerType)], IntegerType, ($, keys) => keys.size()));
+      const launched = await splitCallPrepare(storage, repo, WS, { ...firstOf(everyThirteenth, 50), then: some(counted) }, { grant: 'any' });
+      if ('outcome' in launched) assert.fail('the call was refused');
+      const outcome = await splitCallRun(storage, runner, repo, launched);
+      if (outcome.outcome.type !== 'success' || outcome.output.type !== 'some') assert.fail(`the call ended ${outcome.outcome.type}: ${outcome.stderr}`);
+      const elements = outcome.output.value;
+      const value = outcome.outcome.value.value;
+
+      // Nothing else names either: no workspace, and no execution of the task.
+      await repoGc(storage, repo, { minAge: 0 });
+      assert.ok(await storage.objects.exists(repo, elements), 'the elements outlived the gc');
+      assert.ok(await storage.objects.exists(repo, value), 'and so did then\'s value');
+      const keys = decodeBeast2For(ArrayType(IntegerType))(await readDatasetWhole(storage, repo, elements));
+      const matching = Array.from({ length: 50 }, (_, i) => BigInt(4 + 13 * i));
+      assert.ok(equalFor(ArrayType(IntegerType))(keys, matching), `the elements are ${printFor(ArrayType(IntegerType))(keys)}`);
+      await assertValue({ outcome, result: await splitCallResult(storage, repo, outcome, launched.read, 64 * 1024 * 1024) }, IntegerType, 50n);
+    });
+
+    describe('expects each piece to need what a unit of the engine\'s pieces stage does, by how its runner\'s stages start', () => {
+      /** A unit as it started: how many were running then, and what it was
+       *  expected to need, and whether that was a guess. */
+      interface Start {
+        readonly running: number;
+        readonly expected: number | undefined;
+        readonly guessed: boolean | undefined;
+      }
+
+      /** Each unit the runner is asked to run, as it started. */
+      function unitStarts(): Start[] {
+        const starts: Start[] = [];
+        let running = 0;
+        const inner = runner;
+        runner = {
+          ...inner,
+          executeUnit: async (store, taskHash, unit, options) => {
+            starts.push({ running, expected: options?.expectedPeakBytes, guessed: options?.expectedPeakGuessed });
+            running++;
+            try {
+              return await inner.executeUnit(store, taskHash, unit, options);
+            } finally {
+              running--;
+            }
+          },
+        };
+        return starts;
+      }
+
+      /** Runs a first call of every match, four at a time, as each unit started. */
+      async function everyMatch(): Promise<Start[]> {
+        const launched = await splitCallPrepare(storage, repo, WS, firstOf(everyThirteenth, 616), { grant: 'any' });
+        if ('outcome' in launched) assert.fail('the call was refused');
+        const starts = unitStarts();
+        const outcome = await splitCallRun(storage, runner, repo, launched, { width: 4 });
+        assert.equal(outcome.outcome.type, 'success', outcome.stderr);
+        assert.ok(starts.length > 4, `several pieces ran, not ${starts.length}`);
+        return starts;
+      }
+
+      it('measures where they measure: one piece alone, and the rest expecting the largest peak the pieces reached, whatever ran before', async () => {
+        const starts = await everyMatch();
+        assert.deepEqual(starts[0], { running: 0, expected: undefined, guessed: undefined }, 'the first piece ran alone, expecting nothing');
+        assert.equal(starts[1]!.running, 0, 'the next started once it had settled');
+        assert.deepEqual(starts.slice(1).filter((start) => start.expected === undefined), [], 'each after it expected the peak the pieces reached');
+        assert.ok(starts.some((start) => start.running > 0), 'and then several ran at once');
+        // A stage that measures takes no estimate: the task's previous peak among them.
+        const again = await everyMatch();
+        assert.deepEqual(again[0], { running: 0, expected: undefined, guessed: undefined }, 'measured again');
+      });
+
+      it('starts every piece at once where they start with an estimate: a guess from the rows the first time, and then the task\'s previous peak', async () => {
+        runner = { ...runner, firstWave: 'estimate' };
+        const first = await everyMatch();
+        assert.deepEqual(first.slice(0, 4).map((start) => start.running), [0, 1, 2, 3], 'the first four started at once');
+        assert.ok(first[0]!.expected !== undefined && first[0]!.expected > 0 && first[0]!.guessed === true,
+          `the first expected what the largest piece holds of its rows, a guess: ${JSON.stringify(first[0])}`);
+        const again = await everyMatch();
+        assert.deepEqual(again.slice(0, 4).map((start) => start.running), [0, 1, 2, 3], 'and again, four at once');
+        assert.ok(again[0]!.expected !== undefined && again[0]!.expected > 0 && again[0]!.guessed === undefined,
+          `then the peak the task's pieces reached, measured: ${JSON.stringify(again[0])}`);
+      });
+    });
+
+    it('answers invalid for a limit below 1, and runs nothing', async () => {
+      const launched = await splitCallPrepare(storage, repo, WS, firstOf(everyThirteenth, 0), { grant: 'any' });
+      if (!('outcome' in launched) || launched.outcome.type !== 'invalid') assert.fail('launched');
+      assert.equal(launched.outcome.value.diagnostics[0]!.message, `a first call answers from 1 to ${Number.MAX_SAFE_INTEGER} elements: its limit is 0`);
+    });
   });
 
   it('reports how it ran: the pieces, the units it ran and was served, and its peak; served whole, the pieces its record names (#1105)', async () => {

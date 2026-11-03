@@ -684,9 +684,12 @@ export async function oneShotExecute(
  * grant any other. A request found wrong is answered by the poll, as an
  * `invalid` result.
  *
- * The final function, `then`, runs once over the assembled output and then the
- * arguments not partitioned, in their order: the partitioned ones are the
- * pieces' to read, and are never staged for it. One that takes any other count
+ * The output kinds are a task's — `array`, `set`, `dict`, `fold` — and
+ * `first`, an array's first `limit` elements in input order, whose pieces run
+ * in order and stop once they hold them (#1110). The final function, `then`,
+ * runs once over the assembled output and then the arguments not partitioned,
+ * in their order: the partitioned ones are the pieces' to read, and are never
+ * staged for it. One that takes any other count
  * is `invalid`, naming its count and the call's. A client of this release and
  * a server of an earlier one disagree on what `then` is given: keep them in
  * step.

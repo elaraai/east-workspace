@@ -306,6 +306,8 @@ function progress(phase: "partition" | "merge" | "combine", done: number, units:
  * - `dict`: by key, a key emitted again folded with `merge(key, a, b)` in
  *   emission order — within a piece, then across the pieces; without `merge`,
  *   a key emitted twice fails, naming it;
+ * - `first` (#1110): the first `limit` rows an `array` would hold, in input
+ *   order — every piece run, where e3 stops once it has them;
  * - `fold`: every value a piece emits folded with `combine`, starting from
  *   `zero`; then the pieces' partials folded the same way.
  *
@@ -375,6 +377,9 @@ export function createInMemorySplitCall(datasets: readonly InMemoryDataset[], op
             }
         }
         if (partitioned.length === 0) return "a split call partitions at least one of its arguments: its pieces are cut from it";
+        if (request.output.type === "first" && (request.output.value.limit < 1n || request.output.value.limit > BigInt(Number.MAX_SAFE_INTEGER))) {
+            return `a first call answers from 1 to ${Number.MAX_SAFE_INTEGER} elements: its limit is ${request.output.value.limit}`;
+        }
         if (request.then.type === "some") {
             // The assembled output, then each argument the pieces do not cut, as e3 gives them (#1107).
             const arity = compiled(request.then.value, "final function").inputs.length;
@@ -423,6 +428,11 @@ export function createInMemorySplitCall(datasets: readonly InMemoryDataset[], op
                 case "array":
                     type = ArrayType(emitted[0]!);
                     assembled = outputs.flatMap(out => out.map(([row]) => row));
+                    break;
+                case "first":
+                    // The first rows in input order, as e3 answers them (#1110): this stand-in runs every piece.
+                    type = ArrayType(emitted[0]!);
+                    assembled = outputs.flatMap(out => out.map(([row]) => row)).slice(0, Number(output.value.limit));
                     break;
                 case "set": {
                     const key = emitted[0]!;

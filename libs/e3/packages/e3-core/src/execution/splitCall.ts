@@ -15,7 +15,12 @@
  * its program and its inputs. So a relaunch is served from the cache, and a
  * call after an append reruns only the pieces whose rows changed. With `then`,
  * the job then runs that function once, detached, over the assembled output
- * and the arguments not partitioned: the pieces read the others.
+ * and the arguments not partitioned: the pieces read the others. A `first`
+ * call (#1110) is an `array` call whose job runs the pieces itself, in input
+ * order, and stops once it has its first `limit` elements. What a job stores
+ * beyond the task's output — those elements, or `then`'s value — is recorded
+ * as an execution of the task under an identity of its own, which gc keeps it
+ * by, as it keeps the task's output.
  *
  * What a caller may launch is one-shot's grant: `platform_free` launches only a
  * platform-free call ({@link splitCallPlatformUse}). The whole call goes
@@ -41,6 +46,7 @@ import { withRunningWork } from '../running-work.js';
 import { storeDatasetBytes } from '../store-collection.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { workspaceGetDatasetHash } from '../trees.js';
+import { uuidv7 } from '../uuid.js';
 import { workspaceGetPackage } from '../workspaces.js';
 import type { TaskResult, TaskRunner } from './interfaces.js';
 import {
@@ -48,6 +54,7 @@ import {
   type ExecuteCeilings, type OneShotGrant, type ResolvedLimits,
 } from './oneShot.js';
 import { pieceSizes, planPieces } from './pieces.js';
+import { FIRST_CALL_WIDTH, runFirstPieces } from './splitFirst.js';
 
 const encodeTaskObject = encodeBeast2For(TaskObjectType);
 
@@ -96,6 +103,9 @@ export interface SplitCallTask {
   readonly objects: readonly number[];
   /** The hash of `then`'s IR bundle, or `null` when the call has none. */
   readonly then: string | null;
+  /** A `first` call's limit: its task is an `array` call's, whose pieces the
+   *  job runs until they hold this many elements; `null` for any other. */
+  readonly first: number | null;
   /** The call's limits; its timeout is the job's. */
   readonly limits: ResolvedLimits;
   /** Each dataset argument's path and the hash it was pinned at, in argument
@@ -134,6 +144,9 @@ export interface SplitCallRunOptions {
   /** Reads the time, in epoch milliseconds, which the job's timeout is counted
    *  by. Default: `Date.now`. */
   now?: () => number;
+  /** How many units a `first` call keeps running at once (default
+   *  {@link FIRST_CALL_WIDTH}): the host's cores, say, or its pool's width. */
+  width?: number;
 }
 
 /**
@@ -198,9 +211,10 @@ export function splitCallPlatformFree(request: SplitCallRequest, grant: OneShotG
  *    is not platform-free, before anything is read or written. A
  *    `platform_free` caller's program that does not decode is `invalid`.
  * 2. **Shape.** A call on the custom runtime, one that partitions no argument,
- *    and one whose `then` does not take the assembled output and then each
- *    argument not partitioned — or does not decode — are `invalid`, naming
- *    what is wrong: `then`'s arity and the count it is given.
+ *    a `first` call whose limit is below 1, and one whose `then` does not take
+ *    the assembled output and then each argument not partitioned — or does
+ *    not decode — are `invalid`, naming what is wrong: `then`'s arity and the
+ *    count it is given.
  * 3. **Pin.** Each dataset argument is pinned at the hash it holds, and an
  *    `object` argument's own object must be in the store; a partitioned
  *    argument must be a stored collection. What an `object` argument names —
@@ -212,7 +226,8 @@ export function splitCallPlatformFree(request: SplitCallRequest, grant: OneShotG
  *    a fold's zero are stored as objects.
  * 5. **Task.** The task object: the program as its body, on the call's runner,
  *    an input per argument with its partition and no path, as an index build's
- *    are, and the call's output kind.
+ *    are, and the call's output kind: an `array` for a `first` call, whose
+ *    limit the job is given.
  *
  * Nothing names what this writes until the job's executions do, so it is
  * written holding the repository's running work.
@@ -250,6 +265,12 @@ export async function splitCallPrepare(
   }
   if (!request.args.some((arg) => arg.partition.type === 'some')) {
     return invalidExecuteResult('a split call partitions at least one of its arguments: its pieces are cut from it');
+  }
+  if (request.output.type === 'first') {
+    const limit = request.output.value.limit;
+    if (limit < 1n || limit > BigInt(Number.MAX_SAFE_INTEGER)) {
+      return invalidExecuteResult(`a first call answers from 1 to ${Number.MAX_SAFE_INTEGER} elements: its limit is ${limit}`);
+    }
   }
   if (request.then.type === 'some') {
     // The assembled output, then each argument the pieces do not cut.
@@ -301,6 +322,8 @@ export async function splitCallPrepare(
     let kind: TaskOutputKind;
     switch (request.output.type) {
       case 'array':
+      // A `first` call's pieces are an `array` call's, which it shares.
+      case 'first':
         kind = variant('array', null);
         break;
       case 'set':
@@ -327,7 +350,8 @@ export async function splitCallPrepare(
       role: variant('data', null),
       environment: none,
     }));
-    return { task, inputs, objects, then, limits: resolveJobLimits(request.limits, options.ceilings), read };
+    const first = request.output.type === 'first' ? Number(request.output.value.limit) : null;
+    return { task, inputs, objects, then, first, limits: resolveJobLimits(request.limits, options.ceilings), read };
   });
 }
 
@@ -425,6 +449,58 @@ function tail(text: string, limit: number): { text: string; truncated: boolean }
   return { text: utf8Text.decode(bytes.subarray(bytes.length - limit)), truncated: true };
 }
 
+/** The first of the identity a `first` call's elements are recorded under —
+ *  then its limit, and the task's inputs — so they share no identity with the
+ *  task's whole output, nor with a unit's. */
+const FIRST_ANSWER = 'first';
+
+/** The first of the identity `then`'s value is recorded under — then `then`'s
+ *  program, the assembled output and the arguments not partitioned. */
+const THEN_ANSWER = 'then';
+
+/**
+ * Records what a split call's job stored beyond the task's own output — a
+ * `first` call's first elements, or `then`'s value — as an execution of the
+ * call's task, under an identity of its own, that succeeded with it.
+ *
+ * @remarks
+ * The job's record names what it stored only while the store keeps the record,
+ * and roots nothing, so this is what gc keeps it by: an execution's output, as
+ * the task's own output is kept, for as long as the history keeps the
+ * execution. The identity is no input's hash, and so roots nothing more.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param call - The call, whose task the execution is of
+ * @param identity - The execution's inputs: the answer's kind, then what it
+ *   was made from
+ * @param outputHash - What the job stored
+ * @param startedAt - When the job began to make it, in epoch milliseconds
+ * @param peakBytes - The largest peak its runners reached, when they reported
+ *   one
+ */
+async function recordAnswer(
+  storage: StorageBackend,
+  repo: string,
+  call: SplitCallTask,
+  identity: string[],
+  outputHash: string,
+  startedAt: number,
+  peakBytes: number | undefined,
+): Promise<void> {
+  const executionId = uuidv7();
+  await storage.refs.executionWrite(repo, call.task, inputsHash(identity), executionId, variant('success', {
+    executionId,
+    inputHashes: identity,
+    outputHash,
+    startedAt: new Date(startedAt),
+    completedAt: new Date(),
+    peakBytes: peakBytes === undefined ? none : some(BigInt(peakBytes)),
+    plan: none,
+    unit: false,
+  }));
+}
+
 /**
  * Runs a split call's job: the task over its pieces, and then `then`.
  *
@@ -436,6 +512,16 @@ function tail(text: string, limit: number): { text: string; truncated: boolean }
  * arguments not partitioned, and the value it returns is stored through the
  * store's door. A partitioned argument is the pieces' to read, and is never
  * staged for `then`.
+ *
+ * A `first` call's job runs its `array` task's pieces itself, in input order,
+ * at most `options.width` at once ({@link runFirstPieces}): once the pieces
+ * finished from the first hold its limit, the units still running are
+ * stopped and none after them starts, and its output is the first `limit`
+ * elements, which `then` is given. Those elements, which no execution of the
+ * task holds, are recorded as an execution of their own: the task over its
+ * inputs and the limit. So is `then`'s value, over `then`'s program and what it
+ * was given. gc keeps each by its execution, as it keeps a task's output, and
+ * every piece the call ran is cached.
  *
  * Before any unit runs, the job re-references what the call's `object`
  * arguments name ({@link splitCallReference}): an argument the store no longer
@@ -486,7 +572,7 @@ export async function splitCallRun(
   const timer = setTimeout(() => deadline.abort(), left());
   const signal = options.signal === undefined ? deadline.signal : AbortSignal.any([options.signal, deadline.signal]);
   try {
-    const result = await runner.execute(storage, call.task, [...call.inputs], {
+    const execution = {
       signal,
       ...(options.verbose !== undefined && { verbose: options.verbose }),
       onPartitionProgress: (progress: PartitionProgress) => {
@@ -497,7 +583,11 @@ export async function splitCallRun(
         }
         options.onProgress?.(progressOf(progress));
       },
-    });
+    };
+    const started = Date.now();
+    const result = call.first === null
+      ? await runner.execute(storage, call.task, [...call.inputs], execution)
+      : await runFirstPieces(storage, runner, repo, call.task, call.inputs, call.first, { ...execution, width: options.width ?? FIRST_CALL_WIDTH });
     options.signal?.throwIfAborted();
     // How the task ran. Served whole from the cache it consulted no unit, and
     // its pieces are read from the execution that served it, as they are for
@@ -525,6 +615,11 @@ export async function splitCallRun(
       };
     }
     const output = result.outputHash;
+    // A `first` call's elements are a collection of their own, which no
+    // execution of the task holds.
+    if (call.first !== null) {
+      await recordAnswer(storage, repo, call, [FIRST_ANSWER, String(call.first), ...call.inputs], output, started, result.peakBytes);
+    }
     if (call.then === null) return { outcome: variant('success', { value: output }), output: some(output), ...quiet, report };
 
     const remaining = left();
@@ -533,6 +628,7 @@ export async function splitCallRun(
     // The assembled output, then the arguments not partitioned, each by the
     // object it is.
     const unpartitioned = call.inputs.filter((_, i) => task.inputs[i]!.partition.type === 'none');
+    const thenStarted = Date.now();
     const detached = await runner.runDetached({
       bodyIr: await storage.objects.read(repo, call.then),
       args: [output, ...unpartitioned].map((dataset) => ({ dataset })),
@@ -551,8 +647,11 @@ export async function splitCallRun(
       stderrTruncated: detached.stderrTruncated,
     };
     switch (detached.kind) {
-      case 'success':
-        return { outcome: variant('success', { value: await storeDatasetBytes(storage, repo, detached.value) }), output: some(output), ...streams, report };
+      case 'success': {
+        const value = await storeDatasetBytes(storage, repo, detached.value);
+        await recordAnswer(storage, repo, call, [THEN_ANSWER, call.then, output, ...unpartitioned], value, thenStarted, undefined);
+        return { outcome: variant('success', { value }), output: some(output), ...streams, report };
+      }
       case 'failed':
         // Stopped at the deadline, a detached run answers failed.
         if (deadline.signal.aborted) return { ...timedOut(output, report), ...streams };

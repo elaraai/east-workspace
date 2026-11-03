@@ -394,7 +394,7 @@ describe('one-shot access', () => {
     // reader could launch, and one only an elevated grant could.
     for (const [id, platformFree] of [['free', true], ['elevated', false]] as const) {
       await store.create(id, {
-        repo: 'r', workspace: 'w', task: '', inputs: [], objects: [], then: none,
+        repo: 'r', workspace: 'w', task: '', inputs: [], objects: [], then: none, first: none,
         limits: { timeoutMs: 1000n, maxResultBytes: 1024n, maxLogBytes: 1024n },
         read: [], explain: true, platformFree, status: variant('planned', plan), createdAt: new Date(),
       });
@@ -424,7 +424,7 @@ describe('one-shot access', () => {
       ['planned', true, variant('planned', plan)],
     ] as const) {
       await store.create(id, {
-        repo: 'r', workspace: 'w', task: '', inputs: [], objects: [], then: none,
+        repo: 'r', workspace: 'w', task: '', inputs: [], objects: [], then: none, first: none,
         limits: { timeoutMs: 1000n, maxResultBytes: 1024n, maxLogBytes: 1024n },
         read: [], explain: true, platformFree, status, createdAt: new Date(),
       });
