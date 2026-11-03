@@ -197,12 +197,14 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             },
             /* A pane's view lies over the band: what a gesture in it was refused for stays in sight, over the view's foot. */
             "[data-phone]:has(> [data-frame-drawer][data-open]) > &": {
-                position: "absolute",
-                insetInline: "0",
-                bottom: "0",
-                /* Above the view (`drawer`, on the overlay layer), under what a view's own controls open. */
-                zIndex: "modal",
-                background: "bg.surface",
+                "&:has([data-footer-live])": {
+                    position: "absolute",
+                    insetInline: "0",
+                    bottom: "0",
+                    /* Above the view (`drawer`, on the overlay layer), under what a view's own controls open. */
+                    zIndex: "modal",
+                    background: "bg.surface",
+                },
             },
         },
         /* A phone's second row of the toolbar: the status, the drafts' count, then the eye and the history. */

@@ -54,8 +54,8 @@ const COMBINATIONS = [
 /** A frame wide enough to pin both panes beside main's 480px. */
 const WIDE = 1200;
 
-/** The history item's last button: Save. */
-const saveOf = (root: Locator): Locator => root.locator("[data-toolbar-item='history'] [data-slot='history'] button").last();
+/** The history item's last button: Save, in the toolbar's row or, in a phone's frame, its second row. */
+const saveOf = (root: Locator): Locator => root.locator("[data-slot='history'] button").last();
 
 /**
  * Where each region's box meets the next: main's start against the library's

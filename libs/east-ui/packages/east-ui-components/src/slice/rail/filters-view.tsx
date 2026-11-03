@@ -100,7 +100,7 @@ export function SliceFiltersView({ model, kinds, onClose }: SliceFiltersViewProp
                                         <Box css={styles.group} data-slice-group={group.key}>
                                             {group.icon !== undefined && <Box as="span" css={styles.groupIcon} aria-hidden="true"><FontAwesomeIcon icon={group.icon} /></Box>}
                                             <Box as="span" css={styles.groupLabel}>{group.label}</Box>
-                                            {group.count !== undefined && <Box as="span" css={styles.groupCount}>{group.count}</Box>}
+                                            {group.count !== undefined && <Box as="span" css={styles.groupCount} data-rail-group-count="">{group.count}</Box>}
                                         </Box>
                                     )}
                                     <chakra.button type="button" css={styles.row} aria-expanded={shown} data-slice-section={kind}
