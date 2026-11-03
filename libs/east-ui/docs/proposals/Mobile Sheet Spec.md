@@ -1,6 +1,6 @@
 # Mobile Sheet: the grid on a phone
 
-**Status:** proposal from the designer, reviewed. Rulings and the DX (§9) needed before it is built.
+**Status:** ruled 3 Nov 2026: every recommendation in §8 adopted, and the DX in §9 approved. To be built on PR #1481.
 **Visual source:** `Mobile Sheet Spec.html` (self-contained), the designer's canvas trimmed to the Sheet: production at 402 px beside the proposal, and spec cards 05 Column pager, 06 Grid, 07 Action bar and 08 Cell editors.
 **Example it is drawn on:** `sheetActionsWorkOrders` (e3-ui `test/sheet/sheet-actions.examples.tsx`), three orders and their steps, starting with one draft so the session bar is live.
 **Applies at:** a frame 560 px wide or narrower (the Sheet's `phoneFrame`). The frame around the grid is `Mobile Builder Frame Spec.md`; Filters and Search Records are `Mobile Filters Spec.md`.
@@ -94,7 +94,7 @@ The frame's drawers (`Mobile Builder Frame Spec.md` FR4–FR5) hold the Sheet's 
 
 ## 8 · Versus what this PR built, and the rules
 
-| # | Point | The design | Today | Recommendation |
+| # | Point | The design | Today | Ruled |
 |---|---|---|---|---|
 | R1 | The action column | A paged column like the others | Pinned at the right, 112 wide, last in the row (`7e22dd4ea`) | The design's: the pager replaces the pin |
 | R2 | The action cell's summary | On a second line at 44 px rows | Hidden on a phone (X4) | The design's |
@@ -108,7 +108,7 @@ The frame's drawers (`Mobile Builder Frame Spec.md` FR4–FR5) hold the Sheet's 
 | R10 | Consecutive edits, one undo | One step a cell | A step an edit | Coalesce while the editor stays open on one cell |
 | R11 | The Plan column | Optional in the canvas | Not in the example | Leave the example as it is |
 
-## 9 · DX (for sign-off)
+## 9 · DX (approved 3 Nov 2026)
 
 The pager needs to know which column to pin and how many to show. Proposed, on `<Sheet>`:
 

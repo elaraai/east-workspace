@@ -1,6 +1,6 @@
 # Mobile Filters: the slice on a phone
 
-**Status:** proposal from the designer, reviewed. Rulings needed before it is built (§6).
+**Status:** ruled 3 Nov 2026 (§6): every recommendation adopted. To be built on PR #1481.
 **Visual source:** `Mobile Filters Spec.html` (self-contained), the designer's canvas trimmed to the Filters section: four phones (the toolbar, Filters with Status open, Filters with Due open, Search Records), the rules beside them, and spec cards 03 Search Records and 04 Filters view.
 **Example it is drawn on:** `sheetRecordIndexes` / `sheetRecordIndexesMobile` (e3-ui `test/sheet/sheet-records.examples.tsx`): 50,000 work orders narrowed through the record's indexes, with one field of every kind.
 **Applies at:** a frame 560 px wide or narrower. Above it, the rail and its popover are unchanged.
@@ -76,9 +76,11 @@ Versus production: today the same contents open in the 380 px `SliceEditPopover`
 
 **SL11.** A narrowing that leaves no row: a `☐` mark, `No rows match these filters` (DM Sans 18/700), then two hints, `Open Filters and clear a field.` and `Or Clear all to see the 50,000 rows.` Only once a completed read says so (CL13).
 
-## 6 · Rulings needed
+## 6 · Rulings (3 Nov 2026)
 
-| # | Question | The design | Production / rule | Recommendation |
+Every recommendation below is adopted. R2 and R5 were put to the user and ruled so; the rest stand as recommended.
+
+| # | Question | The design | Production / rule | Ruled |
 |---|---|---|---|---|
 | R1 | Container on a phone | Full-height view, 48 px strip | 380 px anchored popover | The view: it is the frame's overlay pane, never a dialog |
 | R2 | A hidden record in Search Records | Disabled, does nothing | The shared hidden pick: the line names the filters that hide it and a pick clears them and goes to the row (every builder) | Keep production's: it is ruled and shared; show the line in the design's 44 row |

@@ -1,6 +1,6 @@
 # Mobile Builder Frame: phone layout spec
 
-**Status:** proposal from the designer, reviewed. Rulings needed before it is built (§6).
+**Status:** ruled 3 Nov 2026 (§9): every recommendation adopted. To be built on PR #1481.
 **Visual source:** `Mobile Builder Frame Spec.html` (self-contained). It is the designer's "Mobile sheet view improvements" canvas trimmed to the frame: the Sheet section (production at 402 px beside the proposal) and spec cards 01 Frame, 02 Toolbar, 09 Pane strip and drawers, 10 Edit session bar and 11 Discard dialog.
 **Siblings:** `Mobile Filters Spec.md` (the slice on a phone), `Mobile Sheet Spec.md` (the grid, pager, action bar and editors).
 **Applies at:** a frame 560 px wide or narrower, the width at which `BuilderFrame` already overlays its panes (`placePanes`). Above 560 nothing changes.
@@ -110,9 +110,11 @@ The design draws this as a centred `<Dialog>` over a veil. **East has no dialogs
 - The strip's tabs are a tablist; a drawer is a region named by its pane, focus moving into it as it opens and back to its tab as it closes.
 - The drawers and the Filters view slide over `--dur-base`; under `prefers-reduced-motion` they appear at once.
 
-## 9 · Rulings needed
+## 9 · Rulings (3 Nov 2026)
 
-| # | Question | The design | Production / rule | Recommendation |
+Every recommendation below is adopted. R3, R6 with R1–R2 were put to the user and ruled so; the rest stand as recommended.
+
+| # | Question | The design | Production / rule | Ruled |
 |---|---|---|---|---|
 | R1 | Discard's confirmation | A centred `<Dialog>` | No dialogs, ever; confirmations are anchored popovers | An anchored popover from Discard, the design's copy and buttons |
 | R2 | Does Discard confirm at all? | Yes | Discard acts at once; Undo cannot bring it back | Confirm on a phone only, where a mis-tap is likely |
