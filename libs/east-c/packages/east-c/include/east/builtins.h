@@ -42,6 +42,13 @@ void east_register_all_builtins(BuiltinRegistry *reg);
 // funnel) apply the same gate the evaluator's IR_BUILTIN case does.
 bool east_builtin_serves_paged(const char *name);
 
+// The element comparisons the Array diffs on this thread have made so far:
+// the common start and end they trim, the shortest edit script they search
+// the middle for, and, past the search's bound, the middle paired by position
+// (#1425). For tests and diagnostics: a diff's work is pinned by this count,
+// never by a clock.
+size_t east_diff_array_compares(void);
+
 // Individual module registration
 void east_register_integer_builtins(BuiltinRegistry *reg);
 void east_register_float_builtins(BuiltinRegistry *reg);
