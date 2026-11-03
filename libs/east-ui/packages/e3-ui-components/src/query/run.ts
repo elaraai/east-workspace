@@ -18,16 +18,21 @@
  *   does not parse is never sent, its run being the checker's refusal;
  * - **how it runs** ({@link useQueryRun}): the query checked and split; the
  *   dataset it would cut weighed, by its status; then the plan's call, a
- *   split call's progress told as it goes — and a split call that answered
- *   before e3 told how many pieces it cut explained once it has (#1132);
- * - **one at a time**: a new run abandons the one before by its signal, and
- *   an abandoned run's answer is dropped when it lands; while it goes, the run
- *   names the data sources it reads. The builder going abandons the run in
+ *   split call's progress told as it goes, and how it ran once it answered —
+ *   its pieces, and the units it ran and the cache served (#1105); a host's
+ *   split call that reports none has its pieces counted by its explain once
+ *   it has answered (#1132);
+ * - **one at a time**: a new run gives the one before up by its signal, which
+ *   cancels its split call's job, so e3 stops its units (#1104), and a run
+ *   given up has its answer dropped when it lands; while it goes, the run
+ *   names the data sources it reads. The builder going gives up the run in
  *   flight too, and its coming back — React's mount → unmount → mount, a
  *   hidden builder shown again — starts it again: a run is never lost, or
  *   failed, for the builder remounting;
  * - **what came back** ({@link runOutput}): the result's type and value, the
- *   counts, and whether the rows were cut;
+ *   counts, and whether the rows were cut; or a result too large for one
+ *   answer, the output of a split call with no final step, opened to be read
+ *   a page at a time (`paged-result.ts`, #1113);
  * - **fresh or stale** ({@link canonicalProgram}): a result is fresh while
  *   the query's canonical program is the one it ran.
  *
@@ -42,9 +47,10 @@ import {
     type CheckJqResult, type EastType, type option,
 } from "@elaraai/east";
 import { ApiError, AuthError } from "@elaraai/e3-api-client";
-import type { ExecuteResult, SplitCallProgress, SplitCallRequest } from "@elaraai/e3-types";
-import type { QueryCall, QuerySourceStatus, QuerySplitCall, QuerySplitExplain } from "./hooks.js";
+import type { ExecuteResult, SplitCallProgress, SplitCallReport, SplitCallRequest } from "@elaraai/e3-types";
+import type { QueryCall, QueryCollection, QuerySourceStatus, QuerySplitCall, QuerySplitExplain } from "./hooks.js";
 import { queryResultOf, type QueryReading, type QueryResult, type QueryRoot } from "./one-shot.js";
+import { pagedResultOf, type PagedResult } from "./paged-result.js";
 import { draftPlan, weighPlan, type PlanDraft, type PlanOptions, type QueryPlan, type SourceWeight } from "./plan.js";
 import type { QueryHeader } from "./session.js";
 import type { CheckedSteps } from "./steps/check.js";
@@ -159,7 +165,7 @@ export function planRun(editor: RunEditor, root: QueryRoot): RunPlan {
 export interface RunOutput {
     /** The result's type: `T`, `Option<T>` or `Array<T>` by the query's multiplicity. */
     readonly type: EastType;
-    /** The result. */
+    /** The result; `undefined` for one read a page at a time, whose rows are its pages'. */
     readonly value: unknown;
     /** The rows each stage gave, by step id (`SOURCE_COUNT` for the source's): a visual run's. */
     readonly counts: ReadonlyMap<string, number> | undefined;
@@ -167,6 +173,12 @@ export interface RunOutput {
     readonly total: number | undefined;
     /** Whether the answer was cut at the call's most outputs, its total unknown: a jq run's. */
     readonly truncated: boolean;
+    /**
+     * A result too large for one answer, read a page at a time (#1113): the
+     * output of a split call with no final step, opened by its hash;
+     * `undefined` for a result in hand.
+     */
+    readonly paged: PagedResult | undefined;
 }
 
 /** No counts known before a run answers. */
@@ -191,7 +203,7 @@ export function runOutput(
     const decoded = decodeBeast2(bytes);
     const type = fromEastTypeValue(decoded.type);
     const counted = program.counted;
-    if (counted === undefined) return { type, value: decoded.value, counts: known.size === 0 ? undefined : known, total: undefined, truncated };
+    if (counted === undefined) return { type, value: decoded.value, counts: known.size === 0 ? undefined : known, total: undefined, truncated, paged: undefined };
     if (type.type !== "Struct") throw new Error("runOutput: a counting run answers {counts, result}");
     const read = readCounts(decoded.value as { counts: bigint[]; result: unknown }, counted);
     const resultType = (type.fields as Record<string, EastType>)["result"]!;
@@ -199,7 +211,7 @@ export function runOutput(
     const shown = resultType.type === "Array" ? (read.value as readonly unknown[]).length : undefined;
     const total = last !== undefined && shown !== undefined && last > shown ? last : undefined;
     const counts = known.size === 0 ? read.counts : new Map([...known, ...read.counts]);
-    return { type: resultType, value: read.value, counts, total, truncated: false };
+    return { type: resultType, value: read.value, counts, total, truncated: false, paged: undefined };
 }
 
 /** Where the builder's run stands. */
@@ -216,14 +228,16 @@ export type RunState =
     }
     /**
      * A run answered — a result, or the checker's, the runner's or e3's
-     * refusal — how it read its data, and how many pieces it cut, once e3
-     * says: for a split call that answered before it did, after the answer,
-     * from its explain (#1132).
+     * refusal — how it read its data; how many pieces it cut, once e3 says —
+     * its report, or for a host's split call that reports none, its explain,
+     * after the answer (#1132); and how its split call ran, as e3 reports it,
+     * for a call that gave its output: the units it ran and the cache served
+     * (#1105) — the join call's, for a re-keyed join.
      */
     | {
         readonly status: "done"; readonly n: number; readonly plan: RunPlan; readonly result: QueryResult;
         readonly output: RunOutput | undefined; readonly at: Date; readonly ms: number;
-        readonly planned: QueryPlan | undefined; readonly pieces: number | undefined;
+        readonly planned: QueryPlan | undefined; readonly pieces: number | undefined; readonly report: SplitCallReport | undefined;
     }
     /** A call that never answered: unreachable, or refused by the server — and how it was to read its data. */
     | {
@@ -237,8 +251,10 @@ export interface QueryRunSeams {
     readonly call: QueryCall | undefined;
     /** How a split call is made; `undefined` when there is no server. */
     readonly split: QuerySplitCall | undefined;
-    /** How a split call's pieces are counted when it answered before e3 reported them; `undefined` when there is none to ask, and they go uncounted. */
+    /** How a split call's pieces are counted when its answer reported none (a host's); `undefined` when there is none to ask, and they go uncounted. */
     readonly explain: QuerySplitExplain | undefined;
+    /** How a split call's output is opened, when its answer was too large for one (#1113); `undefined` when there is none to open, and the answer stays too large. */
+    readonly collection: QueryCollection | undefined;
     /** How a data source's status is read; `undefined` when there is none to read, and every dataset's weight is unknown. */
     readonly status: QuerySourceStatus | undefined;
     /** How the run plans: the most a dataset may weigh and still be read by one call. */
@@ -305,20 +321,29 @@ async function weigh(draft: PlanDraft, source: string | undefined, root: QueryRo
  * split visual run counts the source from its dataset's stored rows, and a
  * rows result's rows from the call; nothing between.
  *
- * A split call that answered before e3 reported its pieces — one that ended
- * between two polls, or one served whole from e3's cache — has them counted
- * once it has answered, by e3's explain of the call, which plans them as the
+ * Once a split call answers, its report says how it ran (#1105): its pieces —
+ * which a call that ended between two polls, or one the cache served whole,
+ * never said as it went — and the units it ran and the cache served. A host's
+ * split call that reports none, and answered before it said its pieces, has
+ * them counted once it has answered, by its explain, which plans them as the
  * run did and runs no unit (#1132): the answer shows at once, and the count
  * lands after it. An explain is work in proportion to the dataset, so a call
- * whose progress named its pieces is never explained. An explain that fails
- * leaves the count unknown; a new run abandons it with the run.
+ * whose progress or report named its pieces is never explained. An explain
+ * that fails leaves the count unknown; a new run gives it up with the run.
  *
- * The builder going — unmounted, or hidden — abandons the run in flight: its
- * split call stops polling, and its answer is dropped when it lands. Its
- * coming back starts that run again, under its number: React's development
- * check of a component's effects, which mounts it, unmounts it and mounts it
- * again, would otherwise fail the run a saved query starts as it opens, with
- * the abandoned call's "signal is aborted".
+ * A split call with no final step whose answer was too large for one has its
+ * output — the hash the answer names — opened (`collection`), and the run's
+ * result is read a page at a time (#1113). An output that can't be opened
+ * leaves the answer too large.
+ *
+ * A new run gives the one before up by its signal, and so does the builder
+ * going — unmounted, or hidden: its split call stops polling, its job is
+ * cancelled, so e3 stops its units (#1104), and its answer is dropped when it
+ * lands. The builder's coming back starts that run again, under its number:
+ * React's development check of a component's effects, which mounts it,
+ * unmounts it and mounts it again, would otherwise fail the run a saved query
+ * starts as it opens, with the given-up call's "signal is aborted"; the units
+ * the cancelled job finished are cached, and serve the run started again.
  */
 export function useQueryRun(
     root: QueryRoot | string, seams: QueryRunSeams, onRan?: (result: QueryResult, plan: RunPlan) => void,
@@ -332,7 +357,7 @@ export function useQueryRun(
     const inFlight = useRef<{ readonly n: number; readonly plan: RunPlan } | undefined>(undefined);
     // The run the builder's going abandoned in flight: what its coming back starts again, under its number.
     const resume = useRef<{ readonly n: number; readonly plan: RunPlan } | undefined>(undefined);
-    const { call, split, explain, status, options } = seams;
+    const { call, split, explain, collection, status, options } = seams;
     // Starts run `n`: a new one, or one the builder's going abandoned, started again.
     const start = useCallback((plan: RunPlan, n: number) => {
         abandon.current?.abort();
@@ -360,7 +385,7 @@ export function useQueryRun(
             return;
         }
         if ("result" in drafted) {
-            ended({ status: "done", n, plan, result: drafted.result, output: undefined, at: new Date(), ms: 0, planned: undefined, pieces: undefined });
+            ended({ status: "done", n, plan, result: drafted.result, output: undefined, at: new Date(), ms: 0, planned: undefined, pieces: undefined, report: undefined });
             return;
         }
         const draft = drafted.draft;
@@ -369,7 +394,10 @@ export function useQueryRun(
         const started = performance.now();
 
         /** The run answered: its result read, its output, and the recent queries told. Whether its answer could be read. */
-        const answered = (planned: QueryPlan, reading: QueryReading, answer: ExecuteResult, read: (result: QueryResult) => RunOutput | undefined, pieces: number | undefined): boolean => {
+        const answered = (
+            planned: QueryPlan, reading: QueryReading, answer: ExecuteResult, read: (result: QueryResult) => RunOutput | undefined,
+            pieces: number | undefined, report: SplitCallReport | undefined,
+        ): boolean => {
             let result: QueryResult;
             let output: RunOutput | undefined;
             try {
@@ -379,12 +407,12 @@ export function useQueryRun(
                 failed("refused", messageOf(err), planned);
                 return false;
             }
-            ended({ status: "done", n, plan, result, output, at: new Date(), ms: performance.now() - started, planned, pieces });
+            ended({ status: "done", n, plan, result, output, at: new Date(), ms: performance.now() - started, planned, pieces, report });
             if (onRan !== undefined) queueMicrotask(() => onRan(result, plan));
             return true;
         };
 
-        /** Counts an answered run's pieces by e3's explain of its call, abandoned with the run: the count lands in its read-out. */
+        /** Counts an answered run's pieces by the explain of its call, given up with the run: the count lands in its read-out. */
         const countPieces = (request: SplitCallRequest): void => {
             if (explain === undefined) return;
             void explain(request, { signal: controller.signal }).then(({ pieces: count }) => {
@@ -402,7 +430,7 @@ export function useQueryRun(
             try {
                 const weighed = weighPlan(draft, weights);
                 if ("result" in weighed) {
-                    ended({ status: "done", n, plan, result: weighed.result, output: undefined, at: new Date(), ms: 0, planned: undefined, pieces: undefined });
+                    ended({ status: "done", n, plan, result: weighed.result, output: undefined, at: new Date(), ms: 0, planned: undefined, pieces: undefined, report: undefined });
                     return;
                 }
                 planned = weighed.plan;
@@ -425,7 +453,7 @@ export function useQueryRun(
                     return;
                 }
                 if (!live()) return;
-                answered(planned, planned.prepared, answer, (result) => runOutput(plan, result), undefined);
+                answered(planned, planned.prepared, answer, (result) => runOutput(plan, result), undefined, undefined);
                 return;
             }
 
@@ -436,6 +464,9 @@ export function useQueryRun(
             let pieces: number | undefined;
             // The call whose pieces the read-out names: the split call, or a re-keyed join's join call.
             let counted: SplitCallRequest | undefined;
+            // How it ran, when it reports so (#1105), and its assembled output's hash.
+            let report: SplitCallReport | undefined;
+            let output: string | null = null;
             /** A split call, its progress told as it goes. */
             const send = (request: SplitCallRequest) => split(request, {
                 signal: controller.signal,
@@ -449,7 +480,9 @@ export function useQueryRun(
             try {
                 if (planned.kind === "split") {
                     counted = planned.request;
-                    answer = (await send(counted)).result;
+                    const done = await send(counted);
+                    ({ result: answer, output } = done);
+                    report = done.report ?? undefined;
                 } else {
                     // A re-keyed join (#942): the re-key call, then the join call over its output, by its hash.
                     const first = await send(planned.first);
@@ -459,7 +492,10 @@ export function useQueryRun(
                         answer = planned.answer(first.result, undefined);
                     } else {
                         counted = planned.join(first.output);
-                        answer = planned.answer(first.result, (await send(counted)).result);
+                        const joined = await send(counted);
+                        answer = planned.answer(first.result, joined.result);
+                        output = joined.output;
+                        report = joined.report ?? undefined;
                     }
                 }
             } catch (err) {
@@ -467,14 +503,30 @@ export function useQueryRun(
                 return;
             }
             if (!live()) return;
+            // The pieces its report says it cut: which a call that never said them as it went says once it answered (#1105).
+            if (report !== undefined) pieces = Number(report.pieces);
             // The source's count is its dataset's stored rows; a rows result's, the call's.
             const rows = plan.split.source === undefined ? undefined : weights.get(plan.split.source)?.rows;
             const known: ReadonlyMap<string, number> = rows === undefined ? NO_COUNTS : new Map([[SOURCE_COUNT, rows]]);
-            const read = answered(planned, planned.reading, answer, (result) => runOutput(plan.split, result, known), pieces);
-            // A call that answered before e3 said how many pieces it cut, and cut some — one e3 found wrong cut none.
+            // An answer too large for one, which no final step made — the assembled output itself — is read a page at a time (#1113).
+            let paged: PagedResult | undefined;
+            if (answer.outcome.type === "too_large" && counted?.then.type === "none" && output !== null && collection !== undefined) {
+                try {
+                    paged = pagedResultOf(await collection(output));
+                } catch {
+                    // Not opened: the answer stays too large.
+                }
+                if (!live()) return;
+            }
+            const readOutput = (result: QueryResult): RunOutput | undefined => (paged === undefined ? runOutput(plan.split, result, known)
+                : { type: paged.type, value: undefined, counts: known.size === 0 ? undefined : known, total: undefined, truncated: false, paged });
+            // How its units ran, for a call that gave its output: a unit that failed is neither run nor served (#1105).
+            const gave = answer.outcome.type === "success" || answer.outcome.type === "too_large";
+            const read = answered(planned, planned.reading, answer, readOutput, pieces, gave ? report : undefined);
+            // A call that answered with no report — a host's — before it said how many pieces it cut, and cut some: one e3 found wrong cut none.
             if (read && pieces === undefined && counted !== undefined && answer.outcome.type !== "invalid") countPieces(counted);
         })();
-    }, [root, call, split, explain, status, options, onRan]);
+    }, [root, call, split, explain, collection, status, options, onRan]);
     const run = useCallback((plan: RunPlan) => start(plan, ++seq.current), [start]);
     // The latest `start`: what the builder's coming back starts an abandoned run with.
     const latest = useRef(start);
@@ -485,7 +537,7 @@ export function useQueryRun(
         resume.current = undefined;
         if (again !== undefined && seq.current === again.n) latest.current(again.plan, again.n);
         return () => {
-            // Going abandons the run in flight: its split call stops polling, and its answer is dropped.
+            // Going gives up the run in flight: its split call stops polling, its job is cancelled, and its answer is dropped.
             const going = inFlight.current;
             if (going === undefined) return;
             inFlight.current = undefined;

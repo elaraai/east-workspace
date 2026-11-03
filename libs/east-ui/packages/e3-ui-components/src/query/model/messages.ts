@@ -650,7 +650,7 @@ export interface QueryMessages {
     /**
      * The plan's read-out in the results' footer — `One call`, `Split call ·
      * 12 pieces`, `Split call · 3 of 12 pieces done`, `Re-keyed join · 12
-     * pieces` (#942).
+     * pieces` (#942), `Split call · 12 pieces · 11 units cached` (#1105).
      */
     planBadge: (p: { kind: "one_shot" | "split" | "rekey"; detail: string }) => string;
     /** The plan's popover's title, and the read-out's name for a screen reader. */
@@ -710,6 +710,8 @@ export interface QueryMessages {
     planRekeyStage: (p: { over: string; name: string; bytes: string }) => string;
     /** The first rows of a sort, kept in each piece then together (#942), before the key's jq — `The first 10 rows of the sort are kept, each piece's and then theirs together, by:`. */
     planTop: (p: { count: string; n: number }) => string;
+    /** A stream's first rows, in input order (#1113), before the `first` or `limit` that keeps them — `The first 3 rows, in input order, are kept: each piece stops once it has 3, and the call once the pieces before the rest have them:`. */
+    planFirst: (p: { count: string; n: number }) => string;
     /** One call: it would split over a dataset within one piece — `One call: orders weighs 4 KB, within one piece (16 MB).` */
     planSmall: (p: { over: string; bytes: string; piece: string }) => string;
     /** One call: it would split over a dataset whose weight is not known. */
@@ -736,6 +738,14 @@ export interface QueryMessages {
     planPieces: (p: { over: string; count: string; n: number; size: string }) => string;
     /** How many pieces, for the read-out — `12 pieces`. */
     planPieceCount: (p: { count: string; n: number }) => string;
+    /** How many of a split call's units the cache served, for the read-out (#1105) — `11 units cached`; `all cached` for a call it served whole. */
+    planCachedCount: (p: { count: string; n: number; whole: boolean }) => string;
+    /**
+     * How a split call's units ran, once it answered (#1105) — `The cache
+     * served 11 of its 14 units, and 3 ran.`; `The cache served the whole
+     * call: no unit ran.`; `All 14 of its units ran: the cache held none.`
+     */
+    planUnits: (p: { kind: "whole" | "some" | "none"; cached: string; ran: string; units: string; n: number }) => string;
     /** How far a split run has got — `3 of 12 pieces done`, `1 of 3 merges done`. */
     planProgress: (p: { phase: "partition" | "merge" | "combine"; done: string; units: string; n: number }) => string;
     /** A read that skips what it doesn't need, before its jq — `Reads the count from orders's index, and no segment:`. */
@@ -1421,6 +1431,9 @@ export const queryMessages: QueryMessages = {
     planTop: ({ count, n }) => (n === 1
         ? "The first row of the sort is kept, each piece's and then theirs together, by:"
         : `The first ${count} rows of the sort are kept, each piece's and then theirs together, by:`),
+    planFirst: ({ count, n }) => (n === 1
+        ? "The first row, in input order, is kept: each piece stops at its first, and the call once the pieces before the rest have one:"
+        : `The first ${count} rows, in input order, are kept: each piece stops once it has ${count}, and the call once the pieces before the rest have them:`),
     planSmall: ({ over, bytes, piece }) => `One call: ${over} weighs ${bytes}, within one piece (${piece}).`,
     planUnweighed: ({ over }) => `One call: what ${over} weighs isn't known.`,
     planUnsplit: ({ message }) => `One call: the split call couldn't be made — ${message}`,
@@ -1452,6 +1465,14 @@ export const queryMessages: QueryMessages = {
     planBroadcast: ({ names }) => `Every piece reads ${names} whole.`,
     planPieces: ({ over, count, n, size }) => `${capital(over)} is cut into ${count} ${n === 1 ? "piece" : "pieces"}, about ${size} each.`,
     planPieceCount: ({ count, n }) => `${count} ${n === 1 ? "piece" : "pieces"}`,
+    planCachedCount: ({ count, n, whole }) => (whole ? "all cached" : `${count} ${n === 1 ? "unit" : "units"} cached`),
+    planUnits: ({ kind, cached, ran, units, n }) => {
+        switch (kind) {
+            case "whole": return "The cache served the whole call: no unit ran.";
+            case "some": return `The cache served ${cached} of its ${units} ${n === 1 ? "unit" : "units"}, and ${ran} ran.`;
+            case "none": return n === 1 ? "Its one unit ran: the cache didn't hold it." : `All ${units} of its units ran: the cache held none.`;
+        }
+    },
     planProgress: ({ phase, done, units, n }) => `${done} of ${units} ${PLAN_UNITS[phase][n === 1 ? 0 : 1]} done`,
     planPruning: ({ kind, name }) => (kind === "count" ? `Reads the count from the index of ${name}, and no segment:`
         : kind === "seek" ? `Reads only the segment of ${name} that holds the key:`

@@ -53,7 +53,11 @@
  *   assembled output, call by call, and the answer. A unit is cached by its
  *   task and inputs, and a task names its runner, so each runner runs its own
  *   units; each `-j` has a repository of its own, so no unit is served from
- *   another's cache.
+ *   another's cache. A `first` call (`first(f)`, `limit(n; f)`, #1110, #1113)
+ *   runs its pieces in input order and stops those past the ones that hold its
+ *   first rows, which depends on the `-j` and on the pieces the cache holds:
+ *   the units it stopped are its own, and of its units, those both runs ran
+ *   give identical bytes.
  *
  * What ran is read from e3's execution records, as `query-plans.spec.ts` reads
  * them: every unit that runs writes one. The calls run on every stock runner
@@ -523,9 +527,14 @@ async function pairsOf(storage: LocalStorage, repo: string): Promise<Set<string>
     return new Set((await executionList(storage, repo)).map(({ taskHash, inputsHash }) => `${taskHash}/${inputsHash}`));
 }
 
-/** The units recorded under pairs `before` does not hold — the ones a call ran — each output by its inputs, and any that did not succeed. */
-async function unitsSince(storage: LocalStorage, repo: string, before: ReadonlySet<string>): Promise<{ units: Map<string, string>; failures: string[] }> {
+/**
+ * The units recorded under pairs `before` does not hold — the ones a call ran
+ * — each output by its inputs; those e3 stopped; and any that did not succeed
+ * otherwise.
+ */
+async function unitsSince(storage: LocalStorage, repo: string, before: ReadonlySet<string>): Promise<{ units: Map<string, string>; stopped: string[]; failures: string[] }> {
     const units = new Map<string, string>();
+    const stopped: string[] = [];
     const failures: string[] = [];
     for (const { taskHash, inputsHash } of await executionList(storage, repo)) {
         if (before.has(`${taskHash}/${inputsHash}`)) continue;
@@ -533,6 +542,10 @@ async function unitsSince(storage: LocalStorage, repo: string, before: ReadonlyS
             const status = await executionGet(storage, repo, taskHash, inputsHash, id);
             // The split task's own execution is not one of its units.
             if (status === null || !status.value.unit) continue;
+            if (status.type === 'cancelled') {
+                stopped.push(`a unit over inputs ${inputsHash} ended cancelled`);
+                continue;
+            }
             if (status.type !== 'success') {
                 failures.push(`a unit over inputs ${inputsHash} ended ${status.type}`);
                 continue;
@@ -542,18 +555,24 @@ async function unitsSince(storage: LocalStorage, repo: string, before: ReadonlyS
             units.set(inputsHash, status.value.outputHash);
         }
     }
-    return { units, failures };
+    return { units, stopped, failures };
 }
 
 /** A plan this suite runs as split calls: one, or a re-keyed join's two (#942). */
 type CallPlan = Exclude<QueryPlan, { readonly kind: 'one_shot' }>;
 
-/** One split call of a query's: what it is, the pieces e3 cut, the assembled output's hash, each unit's output by its inputs, and any unit that did not succeed. */
+/**
+ * One split call of a query's: what it is, whether it is a `first` call, the
+ * pieces e3 cut, the assembled output's hash, each unit's output by its
+ * inputs, the units e3 stopped, and any other unit that did not succeed.
+ */
 interface Stage {
     readonly what: 'split call' | 're-key call' | 'join call';
+    readonly first: boolean;
     readonly pieces: number;
     readonly output: string | null;
     readonly units: Map<string, string>;
+    readonly stopped: string[];
     readonly failures: string[];
 }
 
@@ -646,8 +665,8 @@ describe('query plans answer as one unit does (E3_UI_INTEGRATION=1)', { skip: !e
                     throw new Error(`${asked.label}: the ${what} on ${name} at -j ${repo.jobs} failed: ${err instanceof Error ? err.message : String(err)}`);
                 });
                 ms += performance.now() - started;
-                const { units, failures } = await unitsSince(storage, repo.path, before);
-                stages.push({ what, pieces: explained[at]!, output: answer.output, units, failures });
+                const { units, stopped, failures } = await unitsSince(storage, repo.path, before);
+                stages.push({ what, first: request.output.type === 'first', pieces: explained[at]!, output: answer.output, units, stopped, failures });
                 return answer;
             };
             let answer: ExecuteResult;
@@ -671,19 +690,24 @@ describe('query plans answer as one unit does (E3_UI_INTEGRATION=1)', { skip: !e
         return printFor(type)(value).slice(0, 400);
     }
 
-    /** Every way the units of one split call differ from another's: inputs one ran and the other did not, and outputs that differ. */
+    /**
+     * Every way the units of one split call differ from another's: inputs one
+     * ran and the other did not, and outputs that differ. Of a `first` call's,
+     * only the outputs of the units both ran: which pieces it runs depends on
+     * the `-j` and on the cache.
+     */
     async function unitDifferences(reference: SplitRun, theirs: Stage, call: SplitRun, mine: Stage): Promise<string[]> {
         const out: string[] = [];
         for (const [inputs, output] of theirs.units) {
             const other = mine.units.get(inputs);
             if (other === undefined) {
-                out.push(`no unit over inputs ${inputs}, which ${reference.runner} at -j ${reference.jobs} ran`);
+                if (!theirs.first) out.push(`no unit over inputs ${inputs}, which ${reference.runner} at -j ${reference.jobs} ran`);
             } else if (other !== output) {
                 out.push(`the unit over inputs ${inputs} wrote ${other}, not ${output}:\n      ${call.runner}: ${await unitOutput(call, other)}\n      ${reference.runner}: ${await unitOutput(reference, output)}`);
             }
         }
         for (const inputs of mine.units.keys()) {
-            if (!theirs.units.has(inputs)) out.push(`a unit over inputs ${inputs}, which ${reference.runner} at -j ${reference.jobs} did not run`);
+            if (!theirs.first && !theirs.units.has(inputs)) out.push(`a unit over inputs ${inputs}, which ${reference.runner} at -j ${reference.jobs} did not run`);
         }
         return out;
     }
@@ -692,7 +716,11 @@ describe('query plans answer as one unit does (E3_UI_INTEGRATION=1)', { skip: !e
     async function equivalence(t: TestContext, asked: Asked): Promise<void> {
         assert.ok(FOUND.length > 0, 'e3 finds no stock runner');
         const plans = FOUND.map(({ name, runner }) => ({ name, runner, plan: callPlan(asked, runner) }));
-        const runs = await Promise.all(repos.map((repo) => runOn(repo, asked, plans, repo.jobs === JOBS[JOBS.length - 1])));
+        // Every repository's calls end before the query does, so a query that fails leaves none running into the next.
+        const settled = await Promise.allSettled(repos.map((repo) => runOn(repo, asked, plans, repo.jobs === JOBS[JOBS.length - 1])));
+        const refused = settled.find((run): run is PromiseRejectedResult => run.status === 'rejected');
+        if (refused !== undefined) throw refused.reason;
+        const runs = settled.flatMap((run) => (run.status === 'fulfilled' ? [run.value] : []));
         const calls = runs.flatMap((run) => run.calls);
 
         // Every runner, at every -j, makes the same calls: one split call, or a re-keyed join's two.
@@ -701,7 +729,9 @@ describe('query plans answer as one unit does (E3_UI_INTEGRATION=1)', { skip: !e
             assert.deepEqual(call.stages.map((stage) => stage.what), made, `${asked.label}: on ${call.runner} at -j ${call.jobs}, the calls made`);
             for (const stage of call.stages) {
                 assert.ok(stage.pieces > 1, `${asked.label}: on ${call.runner} at -j ${call.jobs}, e3 cut its ${stage.what} into ${stage.pieces} piece, not several`);
-                assert.deepEqual(stage.failures, [], `${asked.label}: on ${call.runner} at -j ${call.jobs}, a unit of its ${stage.what} did not succeed`);
+                // A `first` call stops the units past the pieces that hold its first rows (#1110): those are its own.
+                const failed = stage.first ? stage.failures : [...stage.stopped, ...stage.failures];
+                assert.deepEqual(failed, [], `${asked.label}: on ${call.runner} at -j ${call.jobs}, a unit of its ${stage.what} did not succeed`);
             }
         }
         if (made.length > 1) t.diagnostic(`a re-keyed join: ${calls[0]!.stages.map((stage) => `its ${stage.what}, ${stage.pieces} pieces`).join(', then ')}`);
@@ -710,6 +740,9 @@ describe('query plans answer as one unit does (E3_UI_INTEGRATION=1)', { skip: !e
         // task, served whole from the cache: no unit runs, on any runner at any -j, and each assembles what that
         // query's units did. Those units were compared when that query ran. Each of a query's calls is its own task.
         for (const [s, what] of made.entries()) {
+            // A `first` call records no execution of its task, and the pieces it runs and the cache serves depend on
+            // the -j and on the queries before it (#1110): its output and its answer are compared below.
+            if (calls[0]!.stages[s]!.first) continue;
             const cached = calls.filter((call) => call.stages[s]!.units.size === 0);
             if (cached.length > 0) {
                 assert.equal(cached.length, calls.length, `${asked.label}: ${cached.length} of its ${calls.length} ${what}s ran no unit, and a task is served whole from the cache or not at all`);

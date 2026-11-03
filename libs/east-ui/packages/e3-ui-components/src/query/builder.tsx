@@ -66,7 +66,7 @@ import { SlotAutocomplete } from "./autocomplete.js";
 import { DatasetsTab, type SourceRole } from "./datasets-tab.js";
 import { QueryDropTarget } from "./drops.js";
 import {
-    useQueryCall, useQueryPlanOptions, useQueryRoot, useQuerySourceStatus, useQuerySplitCall, useQuerySplitExplain, useQuerySummaries, useRecentQueries,
+    useQueryCall, useQueryCollection, useQueryPlanOptions, useQueryRoot, useQuerySourceStatus, useQuerySplitCall, useQuerySplitExplain, useQuerySummaries, useRecentQueries,
 } from "./hooks.js";
 import { downloadResult } from "./downloads.js";
 import { describeQuery, type QueryWords } from "./model/words.js";
@@ -253,13 +253,14 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
         setPane({ collapsed: false });
     }, [setPane]);
 
-    // ── Runs and summaries: one-shot calls, and a run's split call (#941) and its explain (#1132) ──
+    // ── Runs and summaries: one-shot calls, and a run's split call (#941), its explain (#1132) and its output (#1113) ──
     const call = useQueryCall();
     const split = useQuerySplitCall();
     const explain = useQuerySplitExplain();
+    const collection = useQueryCollection();
     const status = useQuerySourceStatus();
     const planOptions = useQueryPlanOptions();
-    const seams = useMemo(() => ({ call, split, explain, status, options: planOptions }), [call, split, explain, status, planOptions]);
+    const seams = useMemo(() => ({ call, split, explain, collection, status, options: planOptions }), [call, split, explain, collection, status, planOptions]);
     // Each run that answers is one of this viewer's recent queries: the query's own program checked — a visual
     // run sends the counting program, which is not the query — its name and what it read.
     const { recent, remember } = useRecentQueries(recentKey);
@@ -515,7 +516,9 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     const openedNotice = phone && arrival !== undefined && (open.type === "saved" || open.value.from.type === "some")
         ? editor.notices.find((notice) => notice.text === arrival.text) : undefined;
     // A phone's one notice over the strip (QP16): the newest of a download's, a save's and the query opened's.
-    const controls = resultToolbarItems({ view: output === undefined ? undefined : view, picked, onView, views: resultViews, onDownload, words, styles, seg });
+    const controls = resultToolbarItems({
+        view: output === undefined ? undefined : view, downloadable: output?.paged === undefined, picked, onView, views: resultViews, onDownload, words, styles, seg,
+    });
     const tabs = (["query", "datasets", "library"] as const).map((key) => ({
         key,
         label: m.tab({ tab: key }),

@@ -85,10 +85,11 @@ export function resultBeast2(output: RunOutput): Uint8Array {
  * @param format - CSV or BEAST2
  * @param name - the query's name: the file's
  * @param words - the words
- * @returns the note the results show after it; `undefined` when the run has no result
+ * @returns the note the results show after it; `undefined` when the run has no
+ *   result in hand — none, or one read a page at a time (#1113)
  */
 export function downloadResult(run: RunState, format: DownloadFormat, name: string, words: QueryWords): string | undefined {
-    if (run.status !== "done" || run.output === undefined) return undefined;
+    if (run.status !== "done" || run.output === undefined || run.output.paged !== undefined) return undefined;
     const output = run.output;
     const file = `${resultFileName(name)}.${format === "csv" ? "csv" : "beast2"}`;
     if (format === "csv") downloadFile(file, "text/csv;charset=utf-8", resultCsv(output, words));

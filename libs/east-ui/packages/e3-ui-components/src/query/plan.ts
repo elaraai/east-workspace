@@ -11,7 +11,9 @@
  *
  * - **The split** is east's (`splitJq`): the stage of the query that works row
  *   by row, the program each piece runs, how the pieces' outputs combine and
- *   what runs once after them — or why the query runs as one unit.
+ *   what runs once after them — or why the query runs as one unit. A stream's
+ *   first rows, `first(f)` and `limit(n; f)`, are a `first` split call, which
+ *   e3 stops once the pieces before the rest hold them (#1110, #1113).
  * - **The path**: a query that splits runs as a split call only when the
  *   datasets it would cut weigh more than one piece — `PIECE_SIZES.min`
  *   (16 MiB), unless the options name another — so a small dataset keeps a
@@ -462,7 +464,8 @@ function splitCallOf(draft: PlanDraft, split: JqSplitCall, rekey: boolean): { re
  *   `copartitioned`, which e3 cuts at the same keys (#942); every other
  *   argument reaches each piece whole.
  * - `output` is the split's output kind: a dict's merge and a fold's combine
- *   encoded as the programs are, and a fold's zero as beast2 at its type.
+ *   encoded as the programs are, and a fold's zero as beast2 at its type; a
+ *   stream's first rows a `first` output of their count (#1113).
  * - `runner` is a one-shot call's (`QueryOptions`): east-c given no platform
  *   package, and no program calls a platform function, so a caller who may
  *   read the workspace may launch it.
@@ -570,5 +573,8 @@ function outputOf(output: JqSplitCall["output"]): SplitCallRequest["output"] {
             return variant("dict", { merge: some(encodeEastIR(output.merge().toIR())) });
         case "fold":
             return variant("fold", { combine: encodeEastIR(output.combine().toIR()), zero: encodeBeast2For(output.type)(output.zero as never) });
+        case "first":
+            // A stream's first rows, in input order: e3 stops once the pieces before the rest hold them (#1110, #1113).
+            return variant("first", { limit: BigInt(output.limit) });
     }
 }

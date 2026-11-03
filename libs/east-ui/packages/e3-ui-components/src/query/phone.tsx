@@ -60,6 +60,8 @@ const QueryPhoneBar = memo(function QueryPhoneBar({ state, view, keptCount, onVi
     const hasResult = state.status === "done" || state.status === "failed";
     const icons = width < SEG_WORDS_FROM;
     const off = view === undefined;
+    // A result read a page at a time is not in the browser to download (#1113).
+    const noDownload = off || output(state)?.paged !== undefined;
     const planned = state.status === "idle" ? undefined : state.planned;
     const pieces = state.status === "done" ? state.pieces : undefined;
     const progress = running ? state.progress : undefined;
@@ -117,7 +119,7 @@ const QueryPhoneBar = memo(function QueryPhoneBar({ state, view, keptCount, onVi
                         <Box css={styles.resultHead}>{m.thisResultDownload()}</Box>
                         <Box css={styles.resultActions}>
                             {(["csv", "beast2"] as const).map((format) => (
-                                <Button key={format} size="md" variant="outline" css={styles.resultAction} disabled={off} data-query-download-format={format}
+                                <Button key={format} size="md" variant="outline" css={styles.resultAction} disabled={noDownload} data-query-download-format={format}
                                     onClick={() => onDownload(format)}><FontAwesomeIcon icon={faDownload} />{m.downloadFormat({ format })}</Button>
                             ))}
                         </Box>
