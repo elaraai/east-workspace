@@ -177,11 +177,6 @@ for (const theme of LAYOUT_THEMES) {
             let wider: RailAt | undefined;
             for (const width of WIDTHS) {
                 await sizeBuilder(page, entry, root, width);
-                // A phone's frame: its line stands in the session row, and a footer with nothing live is not shown.
-                if (width <= 560) {
-                    await expect(rail, `${builder} at ${width}px`).toBeHidden();
-                    continue;
-                }
                 const at = await railAt(rail);
                 const where = `${builder} at ${width}px`;
                 widest ??= at;

@@ -33,7 +33,7 @@ design / snapshot workflow:
 | `make design` | Serves the design system's download (`app_design_system/`, read-only) on :5174. |
 | `make east-ui-examples-html-all` | Snapshots every east-ui example to standalone HTML. |
 | `make east-ui-examples-html-<key>` | Snapshots a single example (e.g. `east-ui-examples-html-disclosure/tabs`). |
-| `make build-js` | The JavaScript the tests run, and no more: east-ui and e3-ui compiled by tsc with no type-check (`build-js-ir`), and side by side the renderers bundled with no type-check and no declarations (`build-js-renderers`). CI's test jobs run on it, each half restored from a cache keyed by its sources where they stand. |
+| `make build-js` | The JavaScript the tests run, and no more: east-ui and e3-ui compiled by tsc (`build-js-ir`), and side by side the renderers bundled with no type-check and no declarations (`build-js-renderers`). CI's test jobs run on it, each half restored from a cache keyed by its sources where they stand. |
 | `make build-checked` | Every package a test or lint reads, as `make build` builds it, type-checked and its declarations written: all but the showcase. CI runs it beside the tests. |
 | `make check-apps` | Over what `build-checked` built: the showcase type-checked. With `build-js` and `build-checked` it checks what `make build` does. |
 | `make build-showcase-js` | The showcase's bundle alone, over what `build-js` built: what CI's browser jobs serve. |

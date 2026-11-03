@@ -150,14 +150,14 @@ for (const theme of LAYOUT_THEMES) {
         expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
     });
 
-    test(`A74 — Find a fit at 1440/768/600: its chip and each found card's reason inside the Library's pane, the reason in the card note's voice and whole in the card's title (${theme}) @desktop`, async ({ page }) => {
+    test(`A74 — Find a fit at 1440/768/600 and in a phone's frames of 390 and 294: its chip and each found card's reason inside the Library's pane, the reason in the card note's voice and whole in the card's title (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "allocationSplit", theme);
         const frame = entry.locator("[data-allocation-frame]").first();
         const resources = frame.locator('[data-allocation-library="resources"]');
         // A found card's line is the fit's reason in the note's voice: ink-4, or warn-text when the fit warns (`under min`).
         const voices = [await token(page, "fg-subtle"), await token(page, "fg-warning")];
-        for (const width of [1440, 768, 600]) {
+        for (const width of [1440, 768, 600, 390, 294]) {
             await size(page, entry, width);
             // The fix, pressed under its issue in the Inspector — opened over main where it overlays it.
             const end = endPane(frame);
@@ -203,7 +203,7 @@ for (const theme of LAYOUT_THEMES) {
         }
     });
 
-    test(`the split bin at 1440/768/600: its parts and Split… inside the Inspector, beside main or over it; Split…'s popover inside the window; nothing leaves the frame (${theme}) @desktop`, async ({ page }) => {
+    test(`the split bin at 1440/768/600 and in a phone's frames of 390 and 294: its parts and Split… inside the Inspector, beside main or over it; Split…'s popover inside the window; nothing leaves the frame (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "allocationSplit", theme);
         const frame = entry.locator("[data-allocation-frame]").first();
@@ -212,7 +212,7 @@ for (const theme of LAYOUT_THEMES) {
         const card = frame.locator('[data-allocation-timeline] [data-allocation-card="3201"]');
         await card.scrollIntoViewIfNeeded();
         await card.click(); await settled(page);
-        for (const width of [1440, 768, 600]) {
+        for (const width of [1440, 768, 600, 390, 294]) {
             await size(page, entry, width);
             await openInspector(page, frame);
             await expect(details(frame).locator("[data-allocation-parts] [data-field]"), `${width}px`).toHaveCount(2);

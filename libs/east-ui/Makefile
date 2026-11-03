@@ -38,8 +38,8 @@ build:
 	pnpm -r $(PACKAGES) run build
 
 ## The JavaScript the tests run, and no more (#1466): east-ui and e3-ui compile
-## with tsc unchecked (e3-ui against east-ui's declarations, its specs into dist),
-## and the renderers bundle with no type-check and no declarations, the two side
+## with tsc (e3-ui against east-ui's declarations, its specs into dist), and the
+## renderers bundle with no type-check and no declarations, the two side
 ## by side: the renderers keep every @elaraai package external, so neither reads
 ## what the other writes. CI's test jobs run on it, restoring either half from
 ## its cache while its sources stand; `build-checked` and `check-apps` type-check
@@ -47,10 +47,10 @@ build:
 build-js:
 	$(MAKE) --no-print-directory -j2 build-js-ir build-js-renderers
 
-## east-ui, then e3-ui against its declarations, compiled with no type-check.
+## east-ui, then e3-ui against its declarations, compiled and type-checked.
 build-js-ir:
-	pnpm --filter @elaraai/east-ui exec tsc --noCheck
-	pnpm --filter @elaraai/e3-ui exec tsc --noCheck
+	pnpm --filter @elaraai/east-ui exec tsc
+	pnpm --filter @elaraai/e3-ui exec tsc
 
 ## The two renderers bundled, side by side.
 build-js-renderers:
