@@ -19,8 +19,13 @@
  *   (16 MiB), unless the options name another — so a small dataset keeps a
  *   one-shot call's latency. e3 sizes the pieces by what the dataset weighs
  *   (`pieceSizesFor`, #1108): one of at most 16 MiB is one piece, and a larger
- *   one is cut into several, however much larger it is. A query that runs as one unit is
- *   one call, and so is one whose datasets' weight is not known. A join both of
+ *   one is cut into several, however much larger it is. Over one piece, the
+ *   path is the one estimated faster, from the rows e3's status counts and
+ *   what a row of the split's output kind costs ({@link PLAN_COSTS}, #1143);
+ *   one whose one call is estimated to hold more than the options'
+ *   `memoryBytes` is split. A query that runs as one unit is one call, and so
+ *   is one whose datasets' weight is not known; one whose rows are not known
+ *   is planned by weight alone. A join both of
  *   whose sides weigh more than one piece is re-keyed (#942): two split calls,
  *   the first re-keying the rows by the join key, the second joining its
  *   output and the other side cut at the same keys.
@@ -31,7 +36,8 @@
  *   call's runner, so a caller who may read the workspace may run it, and its
  *   limits, which name no time limit unless the options do: e3 gives a split
  *   call's job the server's. A re-keyed join's two ({@link rekeyCallRequests}).
- * - **The explanation** ({@link PlanExplanation}): the path and why; for a
+ * - **The explanation** ({@link PlanExplanation}): the path and why; both
+ *   paths' estimated time and memory, and what the estimates assumed; for a
  *   split, what each piece runs, how the pieces combine, what runs once after
  *   them, what every piece reads whole and what it reads cut at the same keys,
  *   and a re-key and what it is estimated to weigh; and the reads that skip
@@ -49,9 +55,9 @@
 
 import {
     checkJq, encodeBeast2For, encodeEastIR, none, some, splitJq, variant,
-    type CheckJqResult, type JqPruning, type JqRange, type JqSplit, type JqSplitCall, type JqSplitStages, type JqWholeReason,
+    type CheckJqResult, type JqCombine, type JqPruning, type JqRange, type JqSplit, type JqSplitCall, type JqSplitStages, type JqWholeReason,
 } from "@elaraai/east";
-import { PIECE_SIZES, type ExecuteResult, type SplitCallRequest } from "@elaraai/e3-types";
+import { PIECE_SIZES, pieceSizesFor, type ExecuteResult, type SplitCallRequest } from "@elaraai/e3-types";
 import {
     entryNamed, prepareCheckedQuery, prepareQuery, programChecks, queryLimits,
     type PreparedQuery, type QueryOptions, type QueryReading, type QueryResult, type QueryRoot,
@@ -61,17 +67,31 @@ import {
 
 /**
  * Options for planning a run: a call's limits and runner, as a one-shot call's
- * ({@link QueryOptions}), and the most a dataset may weigh and still be read
- * by one call.
+ * ({@link QueryOptions}); the most a dataset may weigh and still be read by
+ * one call; and what the estimates take of the server (#1143): the memory one
+ * call may use, and how many pieces it runs at once.
  */
 export interface PlanOptions extends QueryOptions {
     /**
      * The most a dataset may weigh, in stored bytes, and still be read by one
      * call: by default `PIECE_SIZES.min` (16 MiB), the most e3 cuts into one
      * piece (`pieceSizesFor`). A test against a server whose pieces are small
-     * sets it small too.
+     * sets it small too, and its runs are planned by weight alone: the
+     * estimates are of the pieces e3 cuts by its own sizes.
      */
     readonly pieceBytes?: number;
+    /**
+     * The memory one call may use, in bytes (#1143): a query whose one call is
+     * estimated to hold more is split, however fast one call would be. When
+     * not given, the path is the one estimated faster.
+     */
+    readonly memoryBytes?: number;
+    /**
+     * How many of a split call's pieces the server runs at once — its
+     * budget's cores (`DataflowBudgetType`): by default
+     * {@link PLAN_COSTS}' `cores`.
+     */
+    readonly cores?: number;
 }
 
 /** What a data source weighs, as e3's status says: its stored bytes, and the rows of a stored collection. */
@@ -114,12 +134,28 @@ export interface PlanPrograms {
  * - `unsplit`: it would split, and the split call could not be made — what
  *   went wrong, so it shows rather than hides. `over` is `null` when the split
  *   itself failed.
+ * - `faster`: it would split over a dataset larger than one piece, and one
+ *   call is estimated no slower (#1143), as the explanation's estimates say.
  */
 export type OneCallWhy =
     | { readonly kind: "whole"; readonly reason: JqWholeReason }
     | { readonly kind: "small"; readonly over: string; readonly bytes: number; readonly pieceBytes: number }
     | { readonly kind: "unweighed"; readonly over: string }
-    | { readonly kind: "unsplit"; readonly over: string | null; readonly message: string };
+    | { readonly kind: "unsplit"; readonly over: string | null; readonly message: string }
+    | { readonly kind: "faster"; readonly over: string };
+
+/**
+ * Why a run that splits over a dataset larger than one piece is a split call
+ * (#1143).
+ *
+ * @remarks
+ * - `time`: it is estimated faster than one call.
+ * - `memory`: one call is estimated to hold more than the options'
+ *   `memoryBytes`.
+ * - `weight`: the dataset's rows are not known, or the options name their own
+ *   piece, so there is nothing to estimate: it weighs more than one piece.
+ */
+export type SplitWhy = "time" | "memory" | "weight";
 
 /** How a run reads its data, as its explanation says it. */
 export type PlanPath =
@@ -127,6 +163,8 @@ export type PlanPath =
     | { readonly kind: "one_shot"; readonly why: OneCallWhy }
     | {
         readonly kind: "split";
+        /** Why it splits (#1143). */
+        readonly why: SplitWhy;
         /** The dataset the pieces work through, by its data source's name. */
         readonly over: string;
         /** The dataset e3 cuts the pieces by, the heaviest of those partitioned: `over`, or one cut at the same keys with it. */
@@ -161,8 +199,57 @@ export interface PlanExplanation {
     readonly program: string;
     /** The path, and why. */
     readonly path: PlanPath;
+    /**
+     * Both paths' estimates, and what they assumed (#1143); `null` when the
+     * path was not chosen by them — a query that runs as one unit, a dataset
+     * within one piece or of a weight or rows not known, a split call that
+     * could not be made, or the options' own piece.
+     */
+    readonly estimates: PlanEstimates | null;
     /** The reads that skip what they don't need: a count from the index, a key seek, a stream that stops. */
     readonly pruning: readonly JqPruning[];
+}
+
+/** What a path is estimated to take (#1143). */
+export interface PathEstimate {
+    /** Its time, in seconds: from its launch to its answer. */
+    readonly seconds: number;
+    /** The most one of its units holds at once, in bytes: the one call's, or a piece's. */
+    readonly peakBytes: number;
+}
+
+/**
+ * A run's two paths as the planner estimates them, and what the estimates
+ * assumed (#1143): the rows e3's status counts, the costs a row of the
+ * split's output kind is taken at ({@link PLAN_COSTS}), the pieces e3 would
+ * cut and how many run at once.
+ */
+export interface PlanEstimates {
+    /** As one call. */
+    readonly oneCall: PathEstimate;
+    /** As a split call, or a re-keyed join's two (#942). */
+    readonly split: PathEstimate;
+    /** The dataset the pieces would work through, by its data source's name. */
+    readonly over: string;
+    /** The rows they would work through: `over`'s, as e3's status counts them. */
+    readonly rows: number;
+    /** The kind a row's costs are taken at: the split's output kind, or a re-keyed join. */
+    readonly kind: PlanCostKind;
+    /** What a row of that kind costs ({@link PLAN_COSTS}). */
+    readonly row: RowCosts;
+    /**
+     * Whether one call holds every row it works through: a sort, a group, the
+     * distinct rows, the last row or the distinct values of a total hold them
+     * all; a total folds each row as it is made (#1140), a reduce holds its
+     * keys and a stream's first rows stop it.
+     */
+    readonly holdsRows: boolean;
+    /** The pieces e3 would cut, by its piece sizes for what the heaviest dataset cut weighs (`pieceSizesFor`, #1108); a re-keyed join cuts as many in each of its calls. */
+    readonly pieces: number;
+    /** How many pieces run at once: the options' `cores`, else {@link PLAN_COSTS}'. */
+    readonly cores: number;
+    /** The memory one call may use, as the options give it; `null` when they don't. */
+    readonly memoryBytes: number | null;
 }
 
 /** A run's plan: the call it makes, what reading the call's answer needs, and its explanation. */
@@ -229,6 +316,143 @@ export interface PlanDraft {
     readonly split: JqSplit | { readonly kind: "failed"; readonly message: string };
 }
 
+// ─── What a path costs (#1143) ───────────────────────────────────────────────
+
+/** The costs a row is taken at: a split's output kind's, or a re-keyed join's (#942). */
+export type PlanCostKind = JqSplitCall["output"]["kind"] | "rekey";
+
+/** What a row of one kind costs, and what holding it takes (#1143). */
+export interface RowCosts {
+    /** A row's time in one call, in microseconds. */
+    readonly oneCallUs: number;
+    /** A row's time in a piece, in microseconds, the pieces running side by side. */
+    readonly pieceUs: number;
+    /** What one call holds of each row, in bytes, when it holds every row ({@link PlanEstimates.holdsRows}). */
+    readonly heldBytes: number;
+    /** The most a piece holds, in bytes: e3's pieces weigh at most a few of its piece sizes, so a piece's peak does not grow with the dataset. */
+    readonly pieceBytes: number;
+    /** A split call's time after its last piece, in seconds: its output merged and read — a dict's or a set's keys, which may be many. */
+    readonly finishSeconds: number;
+}
+
+/** What the planner takes a run to cost ({@link PLAN_COSTS}). */
+export interface PlanCosts {
+    /** A one-shot call's own time, in seconds: east-c starting, reading its program and answering. */
+    readonly oneCallSeconds: number;
+    /** A split call's own time, in seconds: e3 launching and ending it, and the builder polling it. */
+    readonly splitSeconds: number;
+    /** e3's time planning a split call, in seconds, for each piece it cuts. */
+    readonly planSecondsPerPiece: number;
+    /** A piece's own time, in seconds: east-c starting and reading its program. */
+    readonly pieceSeconds: number;
+    /** How many pieces the server runs at once, when the options don't say. */
+    readonly cores: number;
+    /** What one call holds before it holds a row, in bytes: east-c, its program and the buffers it reads through. */
+    readonly unitBytes: number;
+    /** What a row costs, by the kind it is taken at. */
+    readonly rows: Readonly<Record<PlanCostKind, RowCosts>>;
+}
+
+const MiB = 2 ** 20;
+
+/**
+ * What the planner takes a run to cost (#1143): the scale test's measures
+ * (`E3_QUERY_SCALE=1` with `E3_QUERY_SCALE_ONE_SHOT=1`, #1093) of its
+ * benchmark's queries over 0.5 to 29 million orders (18 MB to 1 GB), each as
+ * a split call and as the builder's one-shot call, on a Release east-c with
+ * 14 cores to run on.
+ *
+ * @remarks
+ * A run's estimates ({@link PlanEstimates}) are, for `R` rows taken at kind
+ * `k`, cut into `P` pieces run `C` at a time:
+ * - **one call**: `oneCallSeconds + R × oneCallUs[k]`, holding `unitBytes`,
+ *   and `R × heldBytes[k]` more when it holds every row;
+ * - **a split call**: `splitSeconds + finishSeconds[k] + P × planSecondsPerPiece
+ *   + ⌈P / C⌉ × (pieceSeconds + R / P × pieceUs[k])`, each piece holding
+ *   `pieceBytes[k]`. A re-keyed join is two calls of `P` pieces each, a row's
+ *   cost its two calls'.
+ *
+ * Each kind's costs lie between those of the benchmark's queries that split
+ * into it: a fold's the total of the orders, several totals at once and the
+ * top 100 (0.6 to 1.9 µs a row in one call); a dict's revenue by region, by
+ * customer and by carrier (2.2 to 7.3 µs); a set's the distinct customers
+ * (2.7 µs); an array's the ids of the orders over a total (0.65 µs); a
+ * re-keyed join's revenue by carrier's (5 µs in one call, 7.7 µs over its two
+ * calls' pieces). A row costs less in a piece than in one call where one call
+ * sorts every row and a piece folds it. One call held about 440 B of each
+ * order it grouped or joined and 105 B of each customer id it kept distinct,
+ * and a piece 10 to 50 MB, whatever the size. A dataset every piece reads
+ * whole is not counted apart: its cost is in the measures of the queries that
+ * read one, revenue by region the customers.
+ */
+export const PLAN_COSTS: PlanCosts = {
+    oneCallSeconds: 0.05,
+    splitSeconds: 0.15,
+    planSecondsPerPiece: 0.009,
+    pieceSeconds: 0.1,
+    cores: 8,
+    unitBytes: 10 * MiB,
+    rows: {
+        array: { oneCallUs: 0.65, pieceUs: 0.9, heldBytes: 0, pieceBytes: 10 * MiB, finishSeconds: 0.1 },
+        set: { oneCallUs: 2.7, pieceUs: 2.3, heldBytes: 105, pieceBytes: 30 * MiB, finishSeconds: 1 },
+        dict: { oneCallUs: 5, pieceUs: 3.5, heldBytes: 440, pieceBytes: 50 * MiB, finishSeconds: 1 },
+        fold: { oneCallUs: 0.8, pieceUs: 1, heldBytes: 440, pieceBytes: 14 * MiB, finishSeconds: 0.1 },
+        first: { oneCallUs: 0.65, pieceUs: 0.9, heldBytes: 0, pieceBytes: 10 * MiB, finishSeconds: 0.1 },
+        rekey: { oneCallUs: 5, pieceUs: 7.7, heldBytes: 440, pieceBytes: 30 * MiB, finishSeconds: 1.2 },
+    },
+};
+
+/**
+ * Whether one call holds every row the pieces' stage makes, by how the
+ * pieces' outputs combine ({@link PlanEstimates.holdsRows}).
+ */
+function holdsEveryRow(combine: JqCombine): boolean {
+    switch (combine.kind) {
+        case "group": case "distinct": case "distinct_by": case "top":
+            // A sort, a group or the distinct rows need every row at once.
+            return true;
+        case "totals":
+            // A total folds each row as it is made (#1140), but for the last row and the distinct values.
+            return combine.totals.some(total => total.rule === "last" || total.rule === "union");
+        case "concat": case "reduce": case "first":
+            // The rows a run answers with, which its limits hold small; a reduce's keys; a stream's first rows.
+            return false;
+    }
+}
+
+/**
+ * A draft's two paths estimated (#1143), by {@link PLAN_COSTS}.
+ *
+ * @param split - the query's split
+ * @param rekeyed - whether the split call is a re-keyed join's two
+ * @param rows - the rows the pieces work through
+ * @param bytes - what the heaviest dataset cut weighs, which e3 cuts the pieces by
+ * @param cores - how many pieces run at once
+ * @param memoryBytes - the memory one call may use, if the options say
+ * @returns the estimates
+ */
+function estimatesOf(split: JqSplitCall, rekeyed: boolean, rows: number, bytes: number, cores: number, memoryBytes: number | null): PlanEstimates {
+    const kind: PlanCostKind = rekeyed ? "rekey" : split.output.kind;
+    const row = PLAN_COSTS.rows[kind];
+    const holdsRows = holdsEveryRow(split.stages.combine);
+    const pieces = Math.max(1, Math.ceil(bytes / pieceSizesFor(bytes).target));
+    // A re-keyed join is two calls, each cutting as many pieces, each row passing through both.
+    const calls = rekeyed ? 2 : 1;
+    const units = calls * pieces;
+    return {
+        oneCall: {
+            seconds: PLAN_COSTS.oneCallSeconds + rows * row.oneCallUs / 1e6,
+            peakBytes: PLAN_COSTS.unitBytes + (holdsRows ? rows * row.heldBytes : 0),
+        },
+        split: {
+            seconds: calls * (PLAN_COSTS.splitSeconds + row.finishSeconds) + units * PLAN_COSTS.planSecondsPerPiece
+                + Math.ceil(units / cores) * (PLAN_COSTS.pieceSeconds + rows / units * row.pieceUs / 1e6),
+            peakBytes: row.pieceBytes,
+        },
+        over: split.over, rows, kind, row, holdsRows, pieces, cores, memoryBytes,
+    };
+}
+
 // ─── Planning ────────────────────────────────────────────────────────────────
 
 /**
@@ -244,6 +468,25 @@ function pieceBytesOf(options: PlanOptions): number {
     return bytes;
 }
 
+/**
+ * What the estimates take of the server, from the options (#1143): the memory
+ * one call may use, and how many pieces run at once.
+ *
+ * @param options - the options
+ * @returns `memoryBytes`, or `null`; and `cores`, or {@link PLAN_COSTS}'
+ * @throws {RangeError} When `memoryBytes` is not a whole number of bytes, or
+ *   `cores` not a whole number of at least 1.
+ */
+function serverOf(options: PlanOptions): { memoryBytes: number | null; cores: number } {
+    const memoryBytes = options.memoryBytes ?? null;
+    if (memoryBytes !== null && (!Number.isSafeInteger(memoryBytes) || memoryBytes < 0)) {
+        throw new RangeError(`planQuery: memoryBytes is ${memoryBytes}, not a whole number of bytes`);
+    }
+    const cores = options.cores ?? PLAN_COSTS.cores;
+    if (!Number.isSafeInteger(cores) || cores < 1) throw new RangeError(`planQuery: cores is ${cores}, not a whole number of at least 1`);
+    return { memoryBytes, cores };
+}
+
 /** An error's message. */
 function messageOf(err: unknown): string {
     return err instanceof Error ? err.message : String(err);
@@ -256,10 +499,12 @@ function messageOf(err: unknown): string {
  * @param programs - the query, and what each kind of call runs of it; a
  *   string is all three
  * @param root - the root its data sources make
- * @param options - a call's limits and runner, and `pieceBytes`
+ * @param options - a call's limits and runner, `pieceBytes`, and what the
+ *   estimates take of the server
  * @returns the draft; or, for a query that does not check, the `error` result
  *   a run of it gives, as {@link prepareQuery} gives it
- * @throws {RangeError} When a limit, or `pieceBytes`, is not a whole number.
+ * @throws {RangeError} When a limit, `pieceBytes`, `memoryBytes` or `cores`
+ *   is not a whole number.
  *
  * @remarks
  * The query is checked once, against the whole root, as a one-shot call's is.
@@ -274,6 +519,7 @@ export function draftPlan(programs: PlanPrograms | string, root: QueryRoot, opti
         : { query: programs.query, oneShot: programs.oneShot ?? programs.query, split: programs.split ?? programs.query };
     const { maxOutputs } = queryLimits(options);
     pieceBytesOf(options);
+    serverOf(options);
     const checked = checkJq(all.query, root.type, { root: true });
     if (checked.program === null) {
         const refused = prepareCheckedQuery(checked, root, options);
@@ -307,30 +553,40 @@ export function draftPlan(programs: PlanPrograms | string, root: QueryRoot, opti
  *   translator cannot express.
  *
  * @remarks
- * A query that runs as one unit is one call. One that splits is a split call
- * when the datasets it cuts weigh more than `pieceBytes` — the heaviest of
+ * A query that runs as one unit is one call. One that splits is one call when
+ * the datasets it cuts weigh no more than `pieceBytes` — the heaviest of
  * them, which e3 cuts the pieces by, when others are cut at the same keys —
- * and one call when they weigh no more, or a weight is not known. A join
- * whose other side weighs more than `pieceBytes` too is re-keyed (#942),
- * rather than read whole by every piece: both sides large and unaligned. A
- * split call's request is built from the split program — in the visual view,
- * the query wrapped to count its rows — which must split as the query does:
- * over the same dataset, into the same output kind, cut at the same keys with
- * the same datasets and re-keying the same join; one that cannot be built is
- * one call, and its explanation says why.
+ * or a weight is not known. A join whose other side weighs more than
+ * `pieceBytes` too is re-keyed (#942), rather than read whole by every piece:
+ * both sides large and unaligned.
+ *
+ * Over one piece, the path is chosen by its estimates (#1143,
+ * {@link PlanEstimates}): a split call when it is estimated faster than one
+ * call, or when one call is estimated to hold more than the options'
+ * `memoryBytes`, and one call otherwise. With nothing to estimate — the rows
+ * of the dataset the pieces work through not known, or the options' own
+ * `pieceBytes`, a server whose pieces are not e3's own sizes — it is a split
+ * call, by weight, as before.
+ *
+ * A split call's request is built from the split program — in the visual
+ * view, the query wrapped to count its rows — which must split as the query
+ * does: over the same dataset, into the same output kind, cut at the same
+ * keys with the same datasets and re-keying the same join; one that cannot be
+ * built is one call, and its explanation says why.
  */
 export function weighPlan(draft: PlanDraft, weights: ReadonlyMap<string, SourceWeight>): { plan: QueryPlan } | { result: QueryResult } {
     const { checked, split, programs, root, options } = draft;
     const program = checked.source.text;
-    const oneCall = (why: OneCallWhy, pruning: readonly JqPruning[]): { plan: QueryPlan } | { result: QueryResult } => {
+    const oneCall = (why: OneCallWhy, pruning: readonly JqPruning[], estimates: PlanEstimates | null = null): { plan: QueryPlan } | { result: QueryResult } => {
         // The query's own check serves its call when the call runs the query.
         const prepared = programs.oneShot === programs.query ? prepareCheckedQuery(checked, root, options) : prepareQuery(programs.oneShot, root, options);
         if ("result" in prepared) return prepared;
-        return { plan: { kind: "one_shot", prepared: prepared.prepared, explanation: { program, path: { kind: "one_shot", why }, pruning } } };
+        return { plan: { kind: "one_shot", prepared: prepared.prepared, explanation: { program, path: { kind: "one_shot", why }, estimates, pruning } } };
     };
     if (split.kind === "failed") return oneCall({ kind: "unsplit", over: null, message: split.message }, []);
     if (split.kind === "whole") return oneCall({ kind: "whole", reason: split.reason }, split.pruning);
     const pieceBytes = pieceBytesOf(options);
+    const server = serverOf(options);
     // e3 cuts the pieces by the heaviest of the datasets partitioned together.
     let heaviest = split.over;
     let bytes = -1;
@@ -343,6 +599,17 @@ export function weighPlan(draft: PlanDraft, weights: ReadonlyMap<string, SourceW
     // Both sides large and unaligned: the join is re-keyed.
     const joined = split.rekey === null ? undefined : weights.get(split.rekey.name)?.bytes;
     const rekey = split.rekey !== null && joined !== undefined && joined > pieceBytes ? split.rekey : null;
+    // The estimates are of the pieces e3 cuts by its own sizes, over the rows its status counts.
+    const rows = weights.get(split.over)?.rows;
+    const estimates = options.pieceBytes === undefined && rows !== undefined
+        ? estimatesOf(split, rekey !== null, rows, bytes, server.cores, server.memoryBytes)
+        : null;
+    let why: SplitWhy = "weight";
+    if (estimates !== null) {
+        if (estimates.memoryBytes !== null && estimates.oneCall.peakBytes > estimates.memoryBytes) why = "memory";
+        else if (estimates.split.seconds < estimates.oneCall.seconds) why = "time";
+        else return oneCall({ kind: "faster", over: split.over }, split.pruning, estimates);
+    }
     let call: { request: SplitCallRequest; reading: QueryReading } | ({ reading: QueryReading } & RekeyCalls);
     try {
         call = splitCallOf(draft, split, rekey !== null);
@@ -352,12 +619,13 @@ export function weighPlan(draft: PlanDraft, weights: ReadonlyMap<string, SourceW
     const explanation: PlanExplanation = {
         program,
         path: {
-            kind: "split", over: split.over, heaviest, bytes, pieceBytes, output: split.output.kind, stages: split.stages,
+            kind: "split", why, over: split.over, heaviest, bytes, pieceBytes, output: split.output.kind, stages: split.stages,
             // A re-keyed join reads its other side cut at the same keys, not whole.
             broadcast: rekey === null ? split.broadcast : split.broadcast.filter(name => name !== rekey.name),
             copartitioned: split.copartitioned,
             rekey: rekey === null ? null : { name: rekey.name, key: rekey.key, bytes },
         },
+        estimates,
         pruning: split.pruning,
     };
     return { plan: "request" in call ? { kind: "split", ...call, explanation } : { kind: "rekey", ...call, explanation } };
@@ -372,11 +640,13 @@ export function weighPlan(draft: PlanDraft, weights: ReadonlyMap<string, SourceW
  * @param root - the root its data sources make
  * @param weights - what each data source weighs, by name; one not given is
  *   not known
- * @param options - a call's limits and runner, and `pieceBytes`
+ * @param options - a call's limits and runner, `pieceBytes`, and what the
+ *   estimates take of the server: `memoryBytes` and `cores`
  * @returns the plan: one call, a split call or a re-keyed join's two, what
  *   reading its answer needs, and its explanation; or, for a query that does
  *   not check, the `error` result a run of it gives
- * @throws {RangeError} When a limit, or `pieceBytes`, is not a whole number.
+ * @throws {RangeError} When a limit, `pieceBytes`, `memoryBytes` or `cores`
+ *   is not a whole number.
  *
  * @example
  * ```ts

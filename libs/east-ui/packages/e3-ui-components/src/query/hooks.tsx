@@ -27,7 +27,9 @@
  *   dataset status, through the query the Datasets tab polls; or a host's own
  *   ({@link QuerySourceStatusProvider}).
  * - **The plan's options** (`useQueryPlanOptions`, #941): the most a dataset
- *   may weigh and still be read by one call ({@link QueryPlanOptionsProvider}).
+ *   may weigh and still be read by one call, and what the estimates take of
+ *   the server — the memory one call may use and the pieces it runs at once
+ *   (#1143) ({@link QueryPlanOptionsProvider}).
  * - **Summaries** (`useQuerySummaries`): #934's summary programs, run the same
  *   way, kept by prefix and the hashes of what they read.
  * - **Recent runs** (`useRecentQueries`): this viewer's last ten, kept in the
@@ -467,22 +469,37 @@ export interface QueryPlanOptionsProviderProps {
      * The most a dataset may weigh, in stored bytes, and still be read by one
      * call: e3's smallest piece (`PIECE_SIZES.min`, 16 MiB) when omitted. A
      * host over a server that cuts small pieces (`E3_TEST_PIECE_BYTES`) sets
-     * it small, so its runs split.
+     * it small, so its runs split: a run it plans is by weight alone.
      */
     pieceBytes?: number;
+    /**
+     * The memory one call may use, in bytes (#1143): a run whose one call is
+     * estimated to hold more is split. When omitted, a run takes the path
+     * estimated faster.
+     */
+    memoryBytes?: number;
+    /** How many pieces the server runs at once — its budget's cores (#1143): the planner's assumption when omitted. */
+    cores?: number;
     /** The subtree. */
     children?: ReactNode;
 }
 
 /**
  * Sets how the query builder plans its runs for a subtree: the most a dataset
- * may weigh and still be read by one call.
+ * may weigh and still be read by one call, and what the estimates take of the
+ * server (#1143).
  *
  * @param props - The options and the subtree
  * @returns The provider
  */
-export function QueryPlanOptionsProvider({ pieceBytes, children }: QueryPlanOptionsProviderProps) {
-    const value = useMemo((): PlanOptions => (pieceBytes === undefined ? NO_PLAN_OPTIONS : { pieceBytes }), [pieceBytes]);
+export function QueryPlanOptionsProvider({ pieceBytes, memoryBytes, cores, children }: QueryPlanOptionsProviderProps) {
+    const value = useMemo((): PlanOptions => (pieceBytes === undefined && memoryBytes === undefined && cores === undefined
+        ? NO_PLAN_OPTIONS
+        : {
+            ...(pieceBytes === undefined ? {} : { pieceBytes }),
+            ...(memoryBytes === undefined ? {} : { memoryBytes }),
+            ...(cores === undefined ? {} : { cores }),
+        }), [pieceBytes, memoryBytes, cores]);
     return createElement(QueryPlanOptionsContext.Provider, { value }, children);
 }
 

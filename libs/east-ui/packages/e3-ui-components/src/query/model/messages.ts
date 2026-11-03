@@ -642,6 +642,8 @@ export interface QueryMessages {
     oneValue: () => string;
     /** A size — `1.4 MB`. */
     byteSize: (p: { value: string; unit: "B" | "KB" | "MB" | "GB" }) => string;
+    /** A duration — `420 ms`, `2.9 s`, `2.5 min` (#1143). */
+    duration: (p: { value: string; unit: "ms" | "s" | "min" }) => string;
 
     // ── Plans (#941) ─────────────────────────────────────────────────────
     /**
@@ -672,6 +674,31 @@ export interface QueryMessages {
     planSmall: (p: { over: string; bytes: string; piece: string }) => string;
     /** One call: it would split over a dataset whose weight is not known. */
     planUnweighed: (p: { over: string }) => string;
+    /**
+     * A split call chosen by its estimates (#1143) — `Split call over orders:
+     * estimated faster than one call.`; `Split call over orders: one call
+     * would hold more memory than it may use.`
+     */
+    planSplitBy: (p: { over: string; why: "time" | "memory" }) => string;
+    /** One call: it would split over a dataset larger than one piece, and one call is estimated no slower (#1143). */
+    planFaster: (p: { over: string }) => string;
+    /**
+     * One call's estimate (#1143) — `As one call: about 17 s, holding about
+     * 20 MB.`; with the memory one call may use, whether it is more or within.
+     */
+    planEstimateOneCall: (p: { seconds: string; peak: string; memory: string | undefined; over: boolean }) => string;
+    /**
+     * A split call's estimate (#1143) — `As a split call: about 2.9 s, 63
+     * pieces, 14 at a time, each holding about 14 MB.`; a re-keyed join's,
+     * two calls of as many pieces.
+     */
+    planEstimateSplit: (p: { rekey: boolean; seconds: string; pieces: string; n: number; cores: string; peak: string }) => string;
+    /**
+     * What the estimates assumed (#1143) — `Assumed: 29,000,000 rows of
+     * orders, each about 1 µs in one call and 1.4 µs in a piece.`; and, when
+     * one call holds every row, what it holds of each.
+     */
+    planAssumed: (p: { rows: string; n: number; over: string; oneCall: string; piece: string; held: string | undefined }) => string;
     /** One call: it would split, and the split call could not be made — the planner's message. */
     planUnsplit: (p: { message: string }) => string;
     /**
@@ -1331,6 +1358,7 @@ export const queryMessages: QueryMessages = {
     rowCount: ({ count, n }) => `${count} ${n === 1 ? "row" : "rows"}`,
     oneValue: () => "1 value",
     byteSize: ({ value, unit }) => `${value} ${unit}`,
+    duration: ({ value, unit }) => `${value} ${unit}`,
 
     planBadge: ({ kind, detail }) => {
         if (kind === "one_shot") return "One call";
@@ -1352,6 +1380,24 @@ export const queryMessages: QueryMessages = {
         : `The first ${count} rows, in input order, are kept: each piece stops once it has ${count}, and the call once the pieces before the rest have them:`),
     planSmall: ({ over, bytes, piece }) => `One call: ${over} weighs ${bytes}, within one piece (${piece}).`,
     planUnweighed: ({ over }) => `One call: what ${over} weighs isn't known.`,
+    planSplitBy: ({ over, why }) => (why === "time"
+        ? `Split call over ${over}: estimated faster than one call.`
+        : `Split call over ${over}: one call would hold more memory than it may use.`),
+    planFaster: ({ over }) => `One call: estimated faster than a split call over ${over}.`,
+    planEstimateOneCall: ({ seconds, peak, memory, over }) => {
+        const may = memory === undefined ? "" : over ? `, more than the ${memory} it may use` : `, within the ${memory} it may use`;
+        return `As one call: about ${seconds}, holding about ${peak}${may}.`;
+    },
+    planEstimateSplit: ({ rekey, seconds, pieces, n, cores, peak }) => {
+        const cut = `${pieces} ${n === 1 ? "piece" : "pieces"}`;
+        return rekey
+            ? `As a re-keyed join: about ${seconds}, two calls of ${cut}, ${cores} at a time, each holding about ${peak}.`
+            : `As a split call: about ${seconds}, ${cut}, ${cores} at a time, each holding about ${peak}.`;
+    },
+    planAssumed: ({ rows, n, over, oneCall, piece, held }) => {
+        const holding = held === undefined ? "" : `, one call holding every row at about ${held} each`;
+        return `Assumed: ${rows} ${n === 1 ? "row" : "rows"} of ${over}, each about ${oneCall} µs in one call and ${piece} µs in a piece${holding}.`;
+    },
     planUnsplit: ({ message }) => `One call: the split call couldn't be made — ${message}`,
     planWhole: ({ code, name, at }) => {
         const end = at ? ":" : ".";
