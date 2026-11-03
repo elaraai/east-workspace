@@ -196,8 +196,10 @@ const near = (a: number, b: number) => Math.abs(a - b) <= 0.34;
 
 test.describe("a converted icon takes the room its glyph took (#1263)", () => {
     test("a chip's caret — a segment's menu, the View chip, the key search — is 8px tall and 5px wide, its own width", async ({ page, isMobile }) => {
-        test.skip(!isMobile, "the chips a caret marks are a folded toolbar's, on a phone");
-        for (const hash of ["e3/plan/plan/planTargetState", "layout/snap-grid/snapGridEditor", "e3/sheet/sheet/sheetPaged"]) {
+        test.skip(!isMobile, "the chips a caret marks are a folded toolbar's, on a touch screen");
+        // Just past a phone's frame, which draws its own buttons rather than chips.
+        await page.setViewportSize({ width: 660, height: 900 });
+        for (const hash of ["layout/snap-grid/snapGridEditor", "e3/sheet/sheet/sheetPaged"]) {
             const row = page.locator(await openExample(page, hash, "light"));
             const carets = row.locator("svg[data-chip-caret]");
             await expect(carets.first(), `no caret drawn on ${hash}`).toBeVisible();

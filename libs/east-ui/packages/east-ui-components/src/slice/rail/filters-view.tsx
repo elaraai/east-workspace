@@ -35,6 +35,7 @@ import { faArrowLeft, faChevronDown, faChevronUp } from "@fortawesome/free-solid
 import { useSlotStyles } from "../../theme/slot-styles.js";
 import { SliceDensityContext } from "../density.js";
 import { SliceFiltersViewContext } from "../choice.js";
+import { useViewEscape } from "../../layout/builder-frame/view-escape.js";
 import type { SliceRailModel } from "./toolbar.js";
 
 /** Props of {@link SliceFiltersView}. */
@@ -57,6 +58,7 @@ export function SliceFiltersView({ model, kinds, onClose }: SliceFiltersViewProp
     const styles = useSlotStyles("sliceFiltersView");
     const [open, setOpen] = useState<string | undefined>(undefined);
     const backRef = useRef<HTMLButtonElement | null>(null);
+    useViewEscape(true, onClose);
     // The focus moves into the view as it opens: its ← back.
     useEffect(() => { backRef.current?.focus({ preventScroll: true }); }, []);
     const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {

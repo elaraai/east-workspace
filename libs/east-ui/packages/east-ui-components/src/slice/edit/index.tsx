@@ -14,6 +14,7 @@ import { FOCUSABLE } from "../../primitives/focusable.js";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowLeft, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { FrameOverlaySlot } from "../../layout/builder-frame/overlay-slot.js";
+import { useViewEscape } from "../../layout/builder-frame/view-escape.js";
 
 /** What a {@link SliceEditPopover} hangs from: its trigger, or an anchor. */
 export type SliceEditPopoverAnchor =
@@ -298,6 +299,7 @@ function FramePhoneView({ slot, open, onOpenChange, toggle, anchored, label, foo
     const holdRef = useRef<HTMLSpanElement | null>(null);
     const viewRef = useRef<HTMLDivElement | null>(null);
     const wasOpen = useRef(open);
+    useViewEscape(open, () => onOpenChange(false));
     useEffect(() => {
         const opened = wasOpen.current;
         wasOpen.current = open;

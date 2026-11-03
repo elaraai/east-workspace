@@ -103,6 +103,9 @@ import {
 } from "./place.js";
 
 export { SessionRowSlot } from "./session-row.js";
+
+/** A phone form's `version`: back on a wider row, what the toolbar measured of it says nothing of the item's own forms. */
+const PHONE_FORM = "phone";
 export { FrameOverlaySlot } from "./overlay-slot.js";
 export { FrameDrawer } from "./drawer-context.js";
 
@@ -504,7 +507,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
         const items = toolbar.filter((it): it is ToolbarItem => !!it && !moved.has(it.key));
         const phoned = items.map((it): ToolbarItem => it.phone === undefined ? it
             // One cluster, in the phone forms' order: the views, the count, Filters, Search Records.
-            : { key: it.key, forms: [it.phone.form], keep: it.keep, held: it.held, version: it.version, grow: it.phone.grow, shrink: it.phone.shrink });
+            : { key: it.key, forms: [it.phone.form], keep: it.keep, held: it.held, version: PHONE_FORM, grow: it.phone.grow, shrink: it.phone.shrink });
         const order = (it: ToolbarItem) => it.phone?.order ?? 0;
         return phoned.map((it, i) => ({ it, at: order(items[i]!), i })).sort((a, b) => a.at - b.at || a.i - b.i).map(({ it }) => it);
     }, [toolbar, secondKeys, phone]);

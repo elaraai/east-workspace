@@ -115,7 +115,7 @@ export const SheetFooter = memo(function SheetFooter({ styles, items, summary, h
             </Box>
             <FooterMore shown={fit.kept < units} />
             {/* The message takes the rail's slack: the fit leaves it what the hints and the line leave, its words cut there. */}
-            <Box as="span" css={styles.footerMessage} data-slot="footerMessage" data-footer-slack="" aria-live="polite">{message}</Box>
+            <Box as="span" css={styles.footerMessage} data-slot="footerMessage" data-footer-slack="" data-footer-live={message === "" ? undefined : ""} aria-live="polite">{message}</Box>
             <LoadingLine value={runLine ?? line} shown={shown || runLine !== undefined} form={fit.form} />
         </Box>
     );

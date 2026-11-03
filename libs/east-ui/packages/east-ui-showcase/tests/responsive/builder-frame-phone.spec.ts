@@ -56,6 +56,8 @@ function phoneFaults(entry: Locator): Promise<string[]> {
         const faults: string[] = [];
         const round = (n: number) => Math.round(n * 10) / 10;
         if (!frame.hasAttribute("data-phone")) return ["not a phone's frame"];
+        // A point is hit only in view: resized, the page may have moved it out.
+        frame.scrollIntoView({ block: "center", behavior: "instant" });
         const f = frame.getBoundingClientRect();
         const regions = [...frame.children].map((el) => el.getAttribute("data-frame-slot")).filter((slot) => slot !== null);
         const want = ["toolbar", "sessionRow", "body", "paneStrip"];
@@ -155,6 +157,8 @@ for (const theme of ["light", "dark"] as const) {
                     expect((await drawerAt(entry, side)).open, `${route}: Esc closed ${side}'s drawer`).toBe(false);
                     await expect(tab).toBeFocused();
                 }
+                // The pointer off the tab it last pressed, whose hover draws its ink.
+                await page.mouse.move(0, 0);
                 await sizeBuilder(page, entry, ROOT, 294);
                 const narrow = await phoneFaults(entry);
                 if (narrow.length > 0) faults[`${route} in a 294px parent`] = narrow;

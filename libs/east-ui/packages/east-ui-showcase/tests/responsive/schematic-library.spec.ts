@@ -236,7 +236,7 @@ test.describe("The Schematic's library on a phone (#1389)", () => {
     test.skip(({ isMobile }) => !isMobile, "the phone projects");
 
     for (const theme of ["light", "dark"] as const) {
-        test(`on a phone 390px and 360px wide, and in a 294px parent, the library opens over main with a strip of main beside it; the Index's rows 44px and the layers' 44px at least, each toggle a 44px square and the chevron a 44px target by its halo, nothing past the pane's edge (${theme})`, async ({ page }) => {
+        test(`on a phone 390px and 360px wide, and in a 294px parent, the library opens as a view over the builder; the Index's rows 44px and the layers' 44px at least, each toggle a 44px square and the chevron a 44px target by its halo, nothing past the pane's edge (${theme})`, async ({ page }) => {
             await page.setViewportSize({ width: 390, height: 844 });
             const root = await openSchematic(page, DATA_CENTRE, theme);
             for (const at of ["at 390px", "at 360px", "in a 294px parent"] as const) {
@@ -247,17 +247,8 @@ test.describe("The Schematic's library on a phone (#1389)", () => {
                 if (at === "in a 294px parent") await sizeTo(page, root, 294);
                 // In the window's middle: a narrower page reflows what lies above the Schematic, and a point is hit only in view.
                 await centred(page, root);
-                const start = pane(root);
-                await expect(start, at).toHaveAttribute("data-pane-mode", "overlay");
-                await start.getByRole("button", { name: "Expand Library" }).tap();
+                await root.locator("[data-pane-tab='start']").tap();
                 await settled(page);
-                const sheet = await root.evaluate((el) => {
-                    const frame = el.querySelector("[data-builder-frame]")!.getBoundingClientRect();
-                    const open = el.querySelector("[data-frame-slot='start'] > *")!.getBoundingClientRect();
-                    return { strip: Math.round(frame.right - open.right), inside: open.left >= frame.left - 0.5 };
-                });
-                expect(sheet.strip, at).toBeGreaterThanOrEqual(48);
-                expect(sheet.inside, at).toBe(true);
                 // The Index: each row 44px; a zone's chevron a 44px target by its halo — a tap 21px above or below its
                 // middle, on its column, lands on it — and the row a tap beside it.
                 await openTab(page, root, "Index");
@@ -297,7 +288,7 @@ test.describe("The Schematic's library on a phone (#1389)", () => {
                 });
                 expect(layers.shortest, at).toBeGreaterThanOrEqual(44);
                 expect({ toggles: layers.toggles, apart: [...new Set(layers.apart)], outside: layers.outside }, at).toEqual({ toggles: ["44×44"], apart: [0], outside: [] });
-                await start.getByRole("button", { name: "Collapse Library" }).tap();
+                await page.keyboard.press("Escape");
                 await settled(page);
             }
         });

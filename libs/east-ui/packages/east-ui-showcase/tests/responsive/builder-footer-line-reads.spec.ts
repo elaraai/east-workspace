@@ -9,7 +9,7 @@
  * Plan as they scroll, the Calendar, the Roster and the Allocation as they
  * step, the Schematic as the rail narrows its racks — on the real in-page e3, its
  * reads held and failed through the showcase's e3 fault hook (`e3-faults.ts`),
- * with the frame 1440, 768, 390 and 360px wide, in both themes, as
+ * with the frame 1440, 768 and 600px wide (a phone's has no footer, its line in the second row), in both themes, as
  * `builder-footer-line.spec.ts` measures the rail at rest:
  *
  * - While a read is held, the line says what is read, one line in its own slot
@@ -106,13 +106,13 @@ const READERS: readonly Reader[] = [
 ];
 
 /** The frame's widths, widest first. */
-const WIDTHS = [1440, 768, 390, 360] as const;
+const WIDTHS = [1440, 768, 600] as const;
 
 /** The page: wide enough that a 1440px frame keeps clear of the doc column's "On this page" beside it. */
 const PAGE = { width: 2560, height: 1200 } as const;
 
 /** The widths a touch screen's preview box holds whole: its box clips a frame wider than it, so 1440 is the desktop's alone. */
-const TOUCH_WIDTHS = [768, 390, 360] as const;
+const TOUCH_WIDTHS = [768, 600] as const;
 
 /** A form's fullness: never fuller at a narrower frame. */
 const FULLNESS: Record<string, number> = { full: 2, short: 1, dot: 0 };

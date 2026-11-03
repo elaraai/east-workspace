@@ -248,7 +248,7 @@ test.describe("The Flowchart's drops on a phone (#1249)", () => {
         const root = await openLibrary(page);
         await root.locator("[data-flowchart-node='SCN']").tap();
         await expect(root.locator("[data-flowchart-node='SCN']")).toHaveAttribute("data-selected", "true");
-        await root.getByRole("button", { name: "Expand Library" }).click();
+        await root.locator("[data-pane-tab='start']").click();
         await settled(page);
         await openTab(page, root, "Steps");
         const card = cardOf(root, "HLD");

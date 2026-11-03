@@ -98,8 +98,9 @@ test("a cell that edits draws one ring, its editor's: no field inside it glows, 
 });
 
 test("a row's number stands clear of its checkbox however many digits it has: five, deep in fifty thousand rows, each row's gutter the header's width", async ({ page }, info) => {
-    const mobile = info.project.name !== "desktop";
-    const entry = await entryOf(page, `e3/sheet/sheet-records/${mobile ? "sheetRecordIndexesMobile" : "sheetRecordIndexes"}`);
+    // A phone's Sheet draws no gutter.
+    test.skip(info.project.name !== "desktop", "a desktop's gutter");
+    const entry = await entryOf(page, "e3/sheet/sheet-records/sheetRecordIndexes");
     const card = entry.locator("[data-sheet-card]").first();
     // Seventy per cent of the way down the rows' scroller: rows numbered in the tens of thousands.
     await card.locator("[data-virtual-rows]").first().evaluate((el) => { el.scrollTop = el.scrollHeight * 0.7; });
@@ -133,7 +134,6 @@ test("a row's number stands clear of its checkbox however many digits it has: fi
     });
     expect(measured.widest, "rows deep in the record carry five digits").toBe(5);
     expect(measured.faults).toEqual([]);
-    if (mobile) return;
     // A small sheet keeps the gutter it had: rail 28 · number 36 · actions 64.
     const basic = await entryOf(page, "e3/sheet/sheet/sheetBasic");
     expect(await basic.locator("[data-slot=headerGutter]").first().evaluate((el) => el.getBoundingClientRect().width)).toBe(128);

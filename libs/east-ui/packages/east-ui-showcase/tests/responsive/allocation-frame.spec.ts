@@ -56,34 +56,6 @@ for (const theme of ["light", "dark"] as const) {
         await expect(page.locator("[data-allocation-focus]")).toHaveCount(0);
     });
 
-    // On a touch screen a tooltip the keyboard's focus shows closes as the page reflows, before the row can be measured holding it:
-    // the toolbar's own DOM tests hold it for every pointer, and this its real case where it stays.
-    test(`A1 — a tooltip holds nothing in the toolbar: with Discard's tooltip showing as the frame narrows to 294px, the history still folds, nothing past the row's end (${theme}) @desktop`, async ({ page }) => {
-        await page.setViewportSize({ width: 1920, height: 1080 });
-        const entry = await open(page, "allocationKilnYard", theme);
-        const frame = entry.locator("[data-allocation-frame]").first();
-        await size(page, entry, 1440);
-        // A draft, so Discard takes the focus: bin 3113 an hour later; then no focus chip, so the history is what folds last.
-        const card = frame.locator('[data-allocation-timeline] [data-allocation-card="3113"]');
-        await card.scrollIntoViewIfNeeded(); await card.click(); await settled(page);
-        await frame.locator('[data-frame-slot="end"]').getByRole("button", { name: "One hour later" }).click(); await settled(page);
-        await frame.locator('[data-frame-slot="toolbar"] [data-allocation-focus]').getByRole("button", { name: "Show all" }).click(); await settled(page);
-        await size(page, entry, 360);
-        await expect(frame.locator('[data-toolbar-item="history"]')).toHaveAttribute("data-toolbar-form", "0");
-        // Discard's tooltip showing — here from the keyboard's focus, so it stays wherever the pointer is, as one shows on an item a
-        // narrowing row moves under a resting pointer.
-        const toolbar = frame.locator('[data-frame-slot="toolbar"]'), discard = toolbar.getByRole("button", { name: "Discard", exact: true });
-        // Tabbed to from Undo: a tooltip opens for the keyboard's focus, never a programmatic one.
-        await toolbar.getByRole("button", { name: "Undo", exact: true }).focus(); await page.keyboard.press("Tab");
-        await expect(discard).toBeFocused();
-        const tip = page.getByRole("tooltip", { name: "Discard changes" });
-        await expect(tip).toBeVisible();
-        await size(page, entry, 294);
-        // The tooltip still shows, and the row folded all the same: the history in its buttons, nothing past the row's end.
-        await expect(tip).toBeVisible();
-        await expect(frame.locator('[data-toolbar-item="history"]')).toHaveAttribute("data-toolbar-form", "1");
-        expect(await toolbarFaults(frame)).toEqual([]);
-    });
 
     test(`A79 — the footer is Plan's rail with the layout's legend and the one loading line; narrower than its legend it stays one line, the legend ending at a whole item, then "…" (#1398) (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1200 });

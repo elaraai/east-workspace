@@ -51,6 +51,7 @@ import { SliceEditPopover } from "../../slice/edit/index.js";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { useSlotStyles } from "../../theme/slot-styles.js";
 import { FrameOverlaySlot } from "../../layout/builder-frame/overlay-slot.js";
+import { useViewEscape } from "../../layout/builder-frame/view-escape.js";
 import { DatasetKeySearch, type DatasetKeyMatchRange, type DatasetKeyQuery, type DatasetKeySearchProps, type KeySearchJump } from "./index.js";
 
 /** The icon a folded box opens from, in its toolbar item. */
@@ -144,6 +145,7 @@ function PhoneKeySearch({ search, label, given, active, popover }: PhoneKeySearc
     const [open, setOpen] = useState(false);
     const buttonRef = useRef<HTMLButtonElement | null>(null);
     const wasOpen = useRef(open);
+    useViewEscape(open && slot !== null, () => setOpen(false));
     // Closed, the focus goes back to the button — which a pick's hand-off takes on to its match (`hand-off.ts`).
     useEffect(() => {
         if (wasOpen.current && !open) buttonRef.current?.focus({ preventScroll: true });

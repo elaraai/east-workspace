@@ -246,7 +246,7 @@ for (const theme of ["light", "dark"] as const) {
         expect(await end.locator(":scope > *").first().evaluate(leaves)).toEqual([]);
     });
 
-    test(`the Inspector at 1440/1024/768/390/360 and a 294px parent: beside main where it has room, else over main with a strip of it left; its Chooser inside it; nothing leaves the frame (${theme}) @narrow`, async ({ page }) => {
+    test(`the Inspector at 1440/1024/768: beside main where it has room, else over main with a strip of it left; its Chooser inside it; nothing leaves the frame (${theme}) @narrow`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "allocationKilnYard", theme);
         const frame = entry.locator("[data-allocation-frame]").first();
@@ -264,7 +264,7 @@ for (const theme of ["light", "dark"] as const) {
             await page.keyboard.press("Escape"); await settled(page);
             await expect(body.locator("[data-chooser]")).toHaveCount(0);
         };
-        for (const width of [1440, 1024, 768, 390, 360, 294]) {
+        for (const width of [1440, 1024, 768]) {
             await size(page, entry, width);
             const fit = await frame.evaluate((root) => {
                 const f = root.getBoundingClientRect(), slot = root.querySelector('[data-frame-slot="end"]')!;

@@ -1076,12 +1076,15 @@ test.describe("Visual invariants — toolbars", () => {
                 const read = await entry.evaluate((root) => {
                     const bar = root.querySelector("[data-toolbar]");
                     if (bar === null) return undefined;
+                    // A phone's frame has one form an item, so nothing of a ladder to hold it to (`toolbar-fit` holds its row).
+                    const phone = bar.closest("[data-phone]") !== null;
                     const box = bar.getBoundingClientRect();
                     const clipped = [...bar.querySelectorAll("[data-toolbar-item] *")].filter((el) => {
                         const r = el.getBoundingClientRect();
                         return r.width > 0 && (r.right > box.right + 0.5 || r.left < box.left - 0.5);
                     }).map((el) => (el.textContent ?? "").trim().slice(0, 20));
                     return {
+                        phone,
                         row: box.width,
                         folds: Number(bar.getAttribute("data-toolbar-folds")),
                         state: bar.getAttribute("data-toolbar-state") ?? "",
@@ -1090,6 +1093,7 @@ test.describe("Visual invariants — toolbars", () => {
                     };
                 });
                 if (read === undefined) { bad.add(`at ${width}px: no shared toolbar`); continue; }
+                if (read.phone) continue;
                 // Every frame painted at this width — the first one too — shows what it rests on.
                 const wrong = [...new Set(painted.filter((p) => Math.abs(p.row - read.row) <= 0.5 && p.sig !== sig).map((p) => p.sig))];
                 if (wrong.length > 0) bad.add(`at ${width}px: painted ${wrong.map((s) => `"${s.slice(0, 60)}"`).join(", ")} before resting on "${sig.slice(0, 60)}"`);

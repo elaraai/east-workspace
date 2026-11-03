@@ -172,7 +172,7 @@ for (const theme of ["light", "dark"] as const) {
         await start.locator('[role="tab"]', { hasText: /^Templates/ }).click();
         await settled(page);
         // At every width the Templates tab says what it shows — or, the pane on its rail, its badge counts the backlog — the row whole.
-        for (const width of [1920, 1440, 1024, 768, 560, 390, 360]) {
+        for (const width of [1920, 1440, 1024, 768, 600]) {
             await size(page, entry, width);
             const read = await start.evaluate((el) => (el.hasAttribute("data-collapsed")
                 ? { collapsed: true, said: el.querySelector("[data-dock-badge]")?.textContent ?? null }

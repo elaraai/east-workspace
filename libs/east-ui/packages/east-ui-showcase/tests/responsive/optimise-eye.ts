@@ -7,7 +7,7 @@
  * The Elara eye in the five collection builders (#1409, #1422; `Optimise
  * Spec.md` §14) on the real in-page e3, in both themes: one more item of each
  * builder's one toolbar row, immediately before the history item in every
- * fold of the row at 1440 / 1024 / 768 / 390 / 360 (R6, R27); and a run from
+ * fold of the row at 1440 / 1024 / 768 / 600 (R6, R27; a phone's are `toolbar-fit`'s); and a run from
  * the eye — the example's own optimiser on e3 — to the one history step and
  * its landing: the entries the run added marked and lit, the steady ring and
  * the dirty fill in the `elara` tokens and `brandTint` as the page resolves
@@ -52,7 +52,7 @@ export const OPTIMISE_BUILDERS = {
 } as const satisfies Record<string, OptimiseBuilder>;
 
 /** The frame's widths, widest first: the five the spec names (§14). */
-const WIDTHS = [1440, 1024, 768, 390, 360] as const;
+const WIDTHS = [1440, 1024, 768, 600] as const;
 
 /** The page: wide enough that a 1440px frame keeps clear of the doc column's "On this page" beside it. */
 const PAGE = { width: 2560, height: 1200 } as const;

@@ -97,21 +97,19 @@ const inspector = (root: Locator): Locator => root.locator("[data-frame-slot='en
 /** What Details shows, in the inspector's open tab. */
 const details = (root: Locator): Locator => inspector(root).locator("[role='tabpanel']:not([hidden]) [data-schematic-inspector]");
 
-/** Opens the inspector from its rail where it is collapsed, with a tap. */
+/** Opens the inspector's view from its tab where it is closed, with a tap. */
 async function expandInspector(page: Page, root: Locator): Promise<void> {
-    if (await inspector(root).getAttribute("data-collapsed") !== null) {
-        await inspector(root).getByRole("button", { name: "Expand Inspector" }).tap();
-        await expect(inspector(root)).not.toHaveAttribute("data-collapsed", "");
-    }
+    const tab = root.locator("[data-pane-tab='end']");
+    if (await tab.getAttribute("aria-selected") !== "true") await tab.tap();
+    await expect(tab).toHaveAttribute("aria-selected", "true");
     await settled(page);
 }
 
-/** Collapses the inspector to its rail where it is open, with a tap. */
+/** Closes the inspector's view where it is open: Esc, as its back does. */
 async function collapseInspector(page: Page, root: Locator): Promise<void> {
-    if (await inspector(root).getAttribute("data-collapsed") === null) {
-        await inspector(root).getByRole("button", { name: "Collapse Inspector" }).tap();
-        await expect(inspector(root)).toHaveAttribute("data-collapsed", "");
-    }
+    const tab = root.locator("[data-pane-tab='end']");
+    if (await tab.getAttribute("aria-selected") === "true") await page.keyboard.press("Escape");
+    await expect(tab).toHaveAttribute("aria-selected", "false");
     await settled(page);
 }
 
@@ -125,9 +123,7 @@ async function findRack(page: Page, root: Locator, key: string): Promise<void> {
     const box = page.locator("[data-key-search='popover'] input");
     await expect(box).toBeVisible();
     await box.fill(key);
-    await page.getByRole("option", { name: `${key} · Rack`, exact: true }).tap();
-    await expect(box).toHaveValue(key);
-    await page.keyboard.press("Escape");
+    await page.locator("[data-key-search='popover'] [data-key-search-row]").filter({ hasText: key }).first().tap();
     await expect(view).toHaveAttribute("data-state", "closed");
     await settled(page);
 }

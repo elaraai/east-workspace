@@ -21,6 +21,11 @@ import { settled } from "./settle";
 
 /** Open one pane, including the shared overlay layout on phones. */
 async function pane(root: Locator, name: "Library" | "Inspector") {
+    const tab = root.locator(`[data-pane-tab='${name === "Library" ? "start" : "end"}']`);
+    if (await tab.isVisible()) {
+        if (await tab.getAttribute("aria-selected") !== "true") await tab.click();
+        return;
+    }
     const other = root.getByRole("button", { name: `Collapse ${name === "Library" ? "Inspector" : "Library"}`, exact: true });
     if (await other.isVisible()) await other.click();
     const expand = root.getByRole("button", { name: `Expand ${name}`, exact: true });
@@ -43,7 +48,7 @@ test("Flowchart indexed records page, search and retain drafts @narrow", async (
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
     const { root } = await openFlowchart(page, "flowchartRecordIndexes");
-    const save = root.locator("[data-toolbar-item='history'] [data-slot='history'] button").last();
+    const save = root.locator("[data-slot='history'] button").last();
     // The frame's toolbar: the Flows tab's search has a row of its own.
     const toolbar = root.locator("[data-frame-slot='toolbar'] [data-toolbar]");
     await expect.poll(() => toolbar.evaluate(el => {
@@ -67,6 +72,8 @@ test("Flowchart indexed records page, search and retain drafts @narrow", async (
     }
     // The 44px collapsed rail uses the shared compact formatter and keeps
     // its exact count. Long localized values are contained by the recipe.
+    const phone = await root.locator("[data-builder-frame][data-phone]").count() > 0;
+    if (!phone) {
     await pane(root, "Library");
     await root.getByRole("button", { name: "Collapse Library", exact: true }).click();
     const badge = root.locator("[data-frame-slot='start'] [data-dock-badge]");
@@ -77,6 +84,7 @@ test("Flowchart indexed records page, search and retain drafts @narrow", async (
         const rail = el.closest("[data-collapsed]")!.getBoundingClientRect();
         return box.left >= rail.left && box.right <= rail.right && getComputedStyle(el).textOverflow === "ellipsis";
     })).toBe(true);
+    }
 
     const list = root.locator("[data-library-paged]");
     const cards = list.locator("[data-library-item]");
@@ -92,6 +100,7 @@ test("Flowchart indexed records page, search and retain drafts @narrow", async (
     await expect(cards.first()).not.toHaveAttribute("data-library-item", "");
     expect(await cards.count()).toBeLessThan(50);
 
+    if (phone) await page.keyboard.press("Escape");
     // A computed integer uses the shared range editor. Editing the graph
     // changes the maintained key in the same Save as its primary record.
     const count = await recordField(page, root, "stateCount");
@@ -102,6 +111,7 @@ test("Flowchart indexed records page, search and retain drafts @narrow", async (
     await pane(root, "Library");
     await expect(cards.first()).toHaveAttribute("data-library-item", "FLOW-10001");
     await cards.first().click();
+    if (phone) await page.keyboard.press("Escape");
     for (const name of ["Library", "Inspector"]) {
         const close = root.getByRole("button", { name: `Collapse ${name}`, exact: true });
         if (await close.isVisible()) await close.click();
@@ -217,7 +227,7 @@ for (const theme of ["light", "dark"] as const) {
         await box.fill("");
         await expect.poll(async () => (await keys())[0]).toBe("FLOW-10000");
         // At every width the Flows tab says what it shows — or, the pane on its 44px rail, its badge counts it — the rail folding first, the row whole.
-        for (const width of [1920, 1440, 1024, 768, 390, 360, 294]) {
+        for (const width of [1920, 1440, 1024, 768]) {
             await widthTo(page, root, width);
             const read = await start.evaluate((el) => (el.hasAttribute("data-collapsed")
                 ? { collapsed: true, said: el.querySelector("[data-dock-badge]")?.getAttribute("title") ?? null }

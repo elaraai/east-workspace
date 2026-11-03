@@ -85,7 +85,8 @@ async function frameFaults(entry: Locator, panes: readonly string[] = []): Promi
         }
         // The panes it is given — the library (#1195) and the inspector (#1197) — and no other.
         for (const side of ["start", "end"]) {
-            const drawn = frame.querySelector(`:scope > [data-frame-slot='body'] > [data-frame-slot='${side}']`) !== null;
+            // Beside main, or on a phone a view over the frame.
+            const drawn = frame.querySelector(`:scope > [data-frame-slot='body'] > [data-frame-slot='${side}'], :scope > [data-frame-slot='${side}']`) !== null;
             if (drawn && !given.includes(side)) bad.push(`a ${side} pane it was not given`);
             if (!drawn && given.includes(side)) bad.push(`no ${side} pane, though it was given one`);
         }
@@ -118,13 +119,13 @@ async function frameFaults(entry: Locator, panes: readonly string[] = []): Promi
 
 test.describe("the Plan's frame (#1193)", () => {
     for (const theme of ["light", "dark"] as const) {
-        test(`every source and pane combination: borderless frame, one toolbar and idle history (${theme})`, async ({ page }) => {
+        test(`every source and pane combination: borderless frame, one toolbar and idle history (${theme})`, async ({ page, isMobile }) => {
             for (const { name, file, panes, box } of FRAMED) {
                 await test.step(`${name}${box === undefined ? "" : ` in a ${box}px box`}`, async () => {
                     const entry = await openExample(page, name, file, theme);
                     if (box !== undefined) await sizeBox(page, planBox(entry), box);
                     expect((await frameFaults(entry, panes)).bad).toEqual([]);
-                    if (name === "planPrintWorks") expect(await historyFaults(entry)).toEqual([]);
+                    if (name === "planPrintWorks" && !isMobile) expect(await historyFaults(entry)).toEqual([]);
                 });
             }
         });
@@ -133,14 +134,14 @@ test.describe("the Plan's frame (#1193)", () => {
     // A Plan with nothing to control draws no toolbar: the frame's DOM test holds
     // it (`plan-frame.dom.test.tsx`), over a canvas of read-only rows — every
     // Plan the showcase shows has a control.
-    test("a Plan with a slice has a toolbar; the event kinds' Plan, whose jobs overlap, its overlaps chip and its history item", async ({ page }) => {
+    test("a Plan with a slice has a toolbar; the event kinds' Plan, whose jobs overlap, its overlaps chip and its history item", async ({ page, isMobile }) => {
         const slice = await openExample(page, "planTargetState");
         expect((await frameFaults(slice)).toolbar).toBe(true);
         // Press B2's two jobs on the 20th overlap (#1198), and the jobs' session is the history item's (#1194).
         const overlapping = await openExample(page, "planEvents", EVENTS);
         expect((await frameFaults(overlapping)).toolbar).toBe(true);
         expect(await overlapping.locator("[data-builder-frame] > [data-frame-slot='toolbar'] [data-toolbar-item]")
-            .evaluateAll((items) => items.map((item) => item.getAttribute("data-toolbar-item")))).toEqual(["overlaps", "history"]);
+            .evaluateAll((items) => items.map((item) => item.getAttribute("data-toolbar-item")))).toEqual(isMobile ? ["overlaps"] : ["overlaps", "history"]);
         const chip = overlapping.locator("[data-builder-frame] > [data-frame-slot='toolbar'] [data-plan-overlaps]");
         await expect(chip).toHaveAccessibleName("1 overlap — select the first pair");
         await expect(chip).toHaveText(await chip.getAttribute("data-plan-overlaps") === "short" ? "1" : "1 overlap");
@@ -163,7 +164,9 @@ test.describe("the Plan's frame (#1193)", () => {
         expect(read).toEqual({ bound: true, frame: read.host, host: 720, scrolls: true });
     });
 
-    test("a host that gives the frame a height bounds a canvas that declares none: it fills main and scrolls its own rows there", async ({ page }) => {
+    test("a host that gives the frame a height bounds a canvas that declares none: it fills main and scrolls its own rows there", async ({ page, isMobile }) => {
+        // A phone's rows and strip leave a 200px host no main to speak of.
+        test.skip(isMobile, "a desktop's frame");
         // The event kinds' Plan declares no height, and grows with its rows.
         const entry = await openExample(page, "planEvents", EVENTS);
         await expect(entry.locator("[data-plan-body]:not([data-plan-bounded])")).toHaveCount(1);
@@ -209,8 +212,9 @@ test.describe("the Plan's frame — its toolbar at every width (#1193, PB21)", {
             const entry = await openExample(page, name, file);
             // The example host has 42px of padding/border: 336px gives a
             // 294px frame, the available frame on the narrow phone layout.
-            expect(await toolbarLadderFaults(page, entry, [1440, 1280, 1024, 900, 768, 640, 560, 480, 420, 360, 336])).toEqual([]);
+            expect(await toolbarLadderFaults(page, entry, [1440, 1280, 1024, 900, 768, 640, 600])).toEqual([]);
             if (name === "planPrintWorks") {
+                await sizeBox(page, planBox(entry), 336);
                 await entry.getByRole("button", { name: "View", exact: true }).click();
                 const dialog = page.getByRole("dialog");
                 await expect(dialog.getByRole("button", { name: "Today", exact: true })).toBeVisible();
@@ -221,7 +225,7 @@ test.describe("the Plan's frame — its toolbar at every width (#1193, PB21)", {
                 await dialog.getByRole("radio", { name: "WEEK", exact: true }).click();
                 await expect(dialog.getByRole("radio", { name: "WEEK", exact: true })).toHaveAttribute("aria-checked", "true");
                 await page.keyboard.press("Escape");
-                await expect(entry.locator("[data-frame-slot='toolbar']").getByRole("button", { name: "Save", exact: true })).toBeVisible();
+                await expect(entry.locator("[data-frame-slot='sessionRow']").getByRole("button", { name: "Save", exact: true })).toBeVisible();
             }
         });
     }
@@ -232,7 +236,7 @@ test.describe("the Plan's frame — its toolbar at every width (#1193, PB21)", {
         const toolbar = entry.locator("[data-builder-frame] > [data-frame-slot='toolbar']");
         // A Plan approves and rejects nothing (#1260): no review item, no verdict menu.
         await expect(toolbar.locator("[data-toolbar-item='review'], [data-slot='reviewMenu'], [data-review-batch]")).toHaveCount(0);
-        await expect(toolbar.locator("[data-toolbar-item='history'] [data-slot='history']")).toBeVisible();
+        await expect(entry.locator("[data-frame-slot='sessionRow'] [data-slot='history']")).toBeVisible();
         const icon = toolbar.locator("[data-key-search='icon']");
         await expect(icon).toHaveAttribute("aria-label", "Search Records");
         await icon.click();
@@ -488,17 +492,14 @@ test.describe("the Plan's overlaps chip on a phone (#1198)", { tag: "@mobile" },
 
 test.describe("the Plan's library on a phone (#1195)", { tag: "@mobile" }, () => {
 
-    test("planPrintWorks: the library opens from its rail over main, its last tabs folded into +n, and its Series tab's search is a 44px field the box fills — a tap 20px above or below its middle lands in the box", async ({ page }) => {
+    test("planPrintWorks: the library opens from its tab, and its Series tab's search is a 44px field the box fills — a tap 20px above or below its middle lands in the box", async ({ page }) => {
         const entry = await openExample(page, "planPrintWorks", EVENTS);
         const frame = entry.locator("[data-builder-frame]").first();
-        await frame.getByRole("button", { name: "Expand Library" }).tap();
+        await frame.locator("[data-pane-tab='start']").tap();
         await settled(page);
-        // Four tabs in a phone's pane, beside the inspector's rail (#1197): Backlog, Series and Customers fold into the +n menu (#1210).
-        const pane = frame.locator("[data-frame-slot='start']");
-        await expect(pane.getByRole("tab")).toHaveText([/^Events/]);
+        const pane = frame.locator("[data-frame-drawer][data-frame-slot='start']");
         await pane.locator("[data-dock-more]").tap();
         await page.getByRole("menuitem", { name: /^Series/ }).tap();
-        // The menu closes over the pane's head and its search: measured once it has gone.
         await expect(page.locator('[role="menu"]')).toHaveCount(0);
         await settled(page);
         const search = frame.locator("[data-slot='pickSearch'] input");
@@ -517,20 +518,17 @@ test.describe("the Plan's library on a phone (#1195)", { tag: "@mobile" }, () =>
             return bad;
         });
         expect(faults).toEqual([]);
-        // The pane lies over main, which keeps its place.
-        await expect(frame.locator("[data-frame-slot='start'][data-pane-mode='overlay']")).toHaveCount(1);
     });
 });
 
 test.describe("the Plan's inspector on a phone (#1197)", { tag: "@mobile" }, () => {
 
-    test("planPrintWorks: the inspector opens from its rail over main, the window's counts and hints in it, every line inside the pane", async ({ page }) => {
+    test("planPrintWorks: the inspector opens from its tab, the window's counts and hints in it, every line inside the pane", async ({ page }) => {
         const entry = await openExample(page, "planPrintWorks", EVENTS);
         const frame = entry.locator("[data-builder-frame]").first();
-        await frame.getByRole("button", { name: "Expand Inspector" }).tap();
+        await frame.locator("[data-pane-tab='end']").tap();
         await settled(page);
-        const pane = frame.locator("[data-frame-slot='end']");
-        await expect(pane).toHaveAttribute("data-pane-mode", "overlay");
+        const pane = frame.locator("[data-frame-drawer][data-frame-slot='end']");
         await expect(pane.locator("[data-plan-inspector='none'] [data-count='events']")).toBeVisible();
         expect(await inspectorFaults(pane)).toEqual([]);
     });

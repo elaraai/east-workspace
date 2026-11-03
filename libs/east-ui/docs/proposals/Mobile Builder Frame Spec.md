@@ -103,6 +103,7 @@ The design draws this as a centred `<Dialog>` over a veil. **East has no dialogs
 - **Pane strip:** every builder's start and end panes become the strip's two tabs, by their labels and icons.
 - **The Elara eye** (`OptimiseButton`): ruled to sit immediately before the history item and never leave the toolbar. It moves with the history into the session row, before Issues (§9, R4), so it stays in the toolbar.
 - **The footer's loading line** (#1398, CL3): the one place a builder says what it reads, live under the cold-load cover. With the footer gone it needs a home (§9, R5).
+- **The footer's live notices** (ruled 3 Nov 2026): a Save's notice, a refused gesture's words, a density, where Find's pick landed, each until something moves it, so none is a toast. The footer's place keeps them: a band over the pane strip while one stands (`data-footer-live`), nothing of its legend or its counts, and no band at all otherwise.
 
 ## 8 · Accessibility and motion
 

@@ -176,7 +176,9 @@ async function formLayoutFaults(pane: Locator, coarse: boolean): Promise<string[
                 // number, a date, a select, a read-only value, a checklist's box, or a field with no value yet.
                 const tick = lineEl.querySelector("[data-scope=checkbox][data-part=control]");
                 const tagged = lineEl.querySelector("[data-scope=tags-input][data-part=control]");
-                const shape = editor === "custom" ? "custom" : tick !== null ? "checkbox" : tagged !== null ? "tags" : "line";
+                // Up to four cases are a radio group (#1473), which has no control's box.
+                const radios = lineEl.querySelector("[data-field-choice=radio]");
+                const shape = editor === "custom" ? "custom" : tick !== null ? "checkbox" : tagged !== null ? "tags" : radios !== null ? "radio" : "line";
                 // The control's bordered box: the tags' own, or the first in the line that is not the Set or Clear.
                 const control = shape === "tags" ? tagged
                     : [lineEl, ...lineEl.querySelectorAll("*")].find((el) => bordered(el) && box(el).width > 20 && (side === null || !side.contains(el))) ?? null;
@@ -352,6 +354,14 @@ async function openSheet(page: Page, name: string, theme: "light" | "dark", phon
     return { box, pane: box.locator("[data-builder-frame] [data-frame-slot=end]") };
 }
 
+/** Closes a phone's inspector view where it is open: Esc, as its back does. */
+async function closeView(page: Page, around: Locator): Promise<void> {
+    const tab = around.locator("[data-pane-tab='end']");
+    if (await tab.getAttribute("aria-selected") === "true") await page.keyboard.press("Escape");
+    await expect(tab).toHaveAttribute("aria-selected", "false");
+    await settled(page);
+}
+
 /** A sheet's row, by its id. */
 const sheetRow = (box: Locator, id: string) => box.locator(`[data-frame-slot=main] [data-slot=row][data-row-id="${id}"]`);
 
@@ -359,21 +369,18 @@ const sheetRow = (box: Locator, id: string) => box.locator(`[data-frame-slot=mai
 async function select(page: Page, box: Locator, target: Locator, phone: boolean): Promise<void> {
     // A selection sweep reuses the mounted form. Close its overlay before
     // selecting the next canvas item; data-changing workflows stay isolated.
-    const scrim = box.locator("[data-scrim]");
-    if (phone && await scrim.isVisible()) {
-        await scrim.tap({ position: { x: 8, y: 8 } });
-        await expect(scrim).toBeHidden();
-    }
+    if (phone) await closeView(page, box);
     if (phone) await target.tap();
     else await target.click();
     await settled(page);
     if (phone) {
-        await box.getByRole("button", { name: "Expand Inspector" }).tap();
+        await box.locator("[data-pane-tab='end']").tap();
         await settled(page);
     }
 }
 
-for (const phone of [false, true]) {
+// A phone's Sheet draws its own form (`sheet-frame-inspector.dom.test.tsx`).
+for (const phone of [false]) {
     test.describe(`The Sheet's inspector form — ${phone ? "on a phone" : "pinned beside main"} (#1220)`, { tag: phone ? "@mobile" : "@desktop" }, () => {
         const coarse = phone;
         const themes = phone ? (["light"] as const) : (["light", "dark"] as const);
@@ -523,8 +530,7 @@ for (const phone of [false, true]) {
                     await expect.poll(() => formFaults(pane, phone)).toEqual([]);
                     expect(await paneFaults(pane)).toEqual([]);
                     if (phone) {
-                        await frame.getByRole("button", { name: "Collapse Inspector" }).tap();
-                        await expect(frame.locator("[data-scrim]")).toBeHidden();
+                        await closeView(page, frame);
                     }
                 });
                 await test.step(`a press's row with an overlap, then one of its jobs: the overlaps banner says each overlap's time and its jobs' names in whole words, every line inside the pane (${theme})`, async () => {
@@ -549,8 +555,7 @@ for (const phone of [false, true]) {
                     // posters where they overlap, is the one a pointer reaches whole. A phone's pane lies over the list: a tap
                     // on the scrim beside it closes it first.
                     if (phone) {
-                        await frame.locator("[data-scrim]").tap({ position: { x: 8, y: 8 } });
-                        await expect(frame.locator("[data-scrim]")).toBeHidden();
+                        await closeView(page, frame);
                         await settled(page);
                     }
                     const job = holder.locator("[data-run]", { hasText: "Loyalty cards" });
@@ -609,7 +614,7 @@ for (const phone of [false, true]) {
                 const { box, pane } = await openFlowchart(page, "flowchartFlows", theme, phone);
                 await test.step(`nothing selected: the flow's name and description, its counts, its last save and its hints, inside the pane (${theme})`, async () => {
                     if (phone) {
-                        await box.getByRole("button", { name: "Expand Inspector" }).tap();
+                        await box.locator("[data-pane-tab='end']").tap();
                         await settled(page);
                     }
                     await expect(pane.locator("[data-flowchart-inspector='flow'] [data-field]")).toHaveCount(2);
@@ -705,7 +710,7 @@ for (const phone of [false, true]) {
                         });
                         await test.step(`Issues: the depot's unresolved transition, inside the pane${phone ? ", a 44px tap target" : ""}`, async () => {
                             if (phone) {
-                                await box.getByRole("button", { name: "Expand Inspector" }).tap();
+                                await box.locator("[data-pane-tab='end']").tap();
                                 await settled(page);
                             }
                             const tab = pane.getByRole("tab", { name: /^Issues/u });
@@ -752,7 +757,7 @@ for (const phone of [false, true]) {
             test(`Issues: the depot's unresolved transition, inside the pane${phone ? ", a 44px tap target" : ""}`, async ({ page }) => {
                 const { box, pane } = await openFlowchart(page, "flowchartDepot", "light", phone);
                 if (phone) {
-                    await box.getByRole("button", { name: "Expand Inspector" }).tap();
+                    await box.locator("[data-pane-tab='end']").tap();
                     await settled(page);
                 }
                 const tab = pane.getByRole("tab", { name: /^Issues/u });
@@ -784,7 +789,7 @@ async function openDataCentre(page: Page, theme: "light" | "dark", phone: boolea
     if (!phone) await sizeTo(page, root, 1440);
     await centred(page, root);
     const pane = root.locator("[data-builder-frame] [data-frame-slot=end]");
-    await expect(pane).toHaveAttribute("data-pane-mode", phone ? "overlay" : "pinned");
+    if (!phone) await expect(pane).toHaveAttribute("data-pane-mode", "pinned");
     return { root, pane };
 }
 
@@ -813,12 +818,7 @@ async function fitFloor(page: Page, root: Locator, phone: boolean): Promise<void
  * start is scrolled back into view, so the point is clicked on the canvas, never on what the box clips it under.
  */
 async function selectAt(page: Page, root: Locator, x: number, y: number, phone: boolean): Promise<void> {
-    const scrim = root.locator("[data-scrim]");
-    if (phone && await scrim.isVisible()) {
-        await scrim.tap({ position: { x: 8, y: 8 } });
-        await expect(scrim).toBeHidden();
-        await settled(page);
-    }
+    if (phone) await closeView(page, root);
     await fitFloor(page, root, phone);
     await root.evaluate((el) => { el.scrollIntoView({ block: "center", inline: "start" }); });
     await settled(page);
@@ -827,7 +827,7 @@ async function selectAt(page: Page, root: Locator, x: number, y: number, phone: 
     else await page.mouse.click(at.x, at.y);
     await settled(page);
     if (phone) {
-        await root.getByRole("button", { name: "Expand Inspector" }).tap();
+        await root.locator("[data-pane-tab='end']").tap();
         await settled(page);
     }
 }
@@ -853,7 +853,7 @@ for (const phone of [false, true]) {
                 const { root, pane } = await openDataCentre(page, theme, phone);
                 await test.step(`nothing selected: the floor's counts, two to a line, and its saves, inside the pane (${theme})`, async () => {
                     if (phone) {
-                        await root.getByRole("button", { name: "Expand Inspector" }).tap();
+                        await root.locator("[data-pane-tab='end']").tap();
                         await settled(page);
                     }
                     await expect(pane.locator("[data-schematic-inspector='drawing']")).toBeVisible();

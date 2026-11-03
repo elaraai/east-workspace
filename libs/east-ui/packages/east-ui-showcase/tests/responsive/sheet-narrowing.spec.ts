@@ -109,7 +109,7 @@ for (const theme of ["light", "dark"] as const) {
         expect(types).toHaveLength(3);
         expect(new Set(types).size, types.join(" | ")).toBe(1);
         // At every width the Rows tab says what it shows — or, the pane on its 44px rail, its badge counts the templates it shows — the row whole.
-        for (const width of [1920, 1440, 1024, 768, 560, 390, 360]) {
+        for (const width of [1920, 1440, 1024, 768, 600]) {
             await size(page, entry, width);
             const read = await start.evaluate((el) => (el.hasAttribute("data-collapsed")
                 ? { collapsed: true, said: el.querySelector("[data-dock-badge]")?.textContent ?? null }
@@ -259,7 +259,7 @@ test.describe("the Sheet's row on a phone (#1345)", () => {
                 if (width !== undefined) await size(page, entry, width);
                 expect(await toolbarFaults(frame), at).toEqual([]);
                 // The rail's trigger and Save in the row, each the element a tap on its middle lands on.
-                const save = toolbarOf(frame).getByRole("button", { name: "Save" });
+                const save = frame.locator("[data-frame-slot='sessionRow']").getByRole("button", { name: "Save" });
                 const rail = toolbarOf(frame).locator("[data-slice-rail='record-slices'] button").first();
                 for (const [what, control] of [["Save", save], ["the rail's trigger", rail]] as const) {
                     await expect(control, `${what} at ${at}`).toBeVisible();
