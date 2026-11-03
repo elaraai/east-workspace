@@ -11,7 +11,7 @@ export {
   Beast2Writer, Beast2ElementWriter, encodeBeast2SegmentsFor, encodeBeast2PagedFor, iterBeast2SegmentsFor, Beast2Pages, openBeast2PagesFor, beast2HasIndex, readBeast2Type, readBeast2HeaderType,
   readBeast2Extents, readBeast2SegmentLogicalBytes, carveBeast2, spliceBeast2, rebuildBeast2, openBeast2LazyFor, isBeast2LazySafe, beast2LazyStats,
   readBeast2ExtentsRanged, readBeast2ExtentsSync, isBeast2SyncRangeReader, carveBeast2Ranged, spliceBeast2Tail, spliceBeast2Segments,
-  RUN_MAX_COUNT, RUN_MAX_BYTES, Beast2RunSorter, mergeBeast2For, recutBeast2For, decodeBeast2ElementsFor,
+  RUN_MAX_COUNT, RUN_MAX_BYTES, FOLD_TABLE_MAX_KEYS, FOLD_TABLE_MAX_KEY_BYTES, Beast2RunSorter, mergeBeast2For, recutBeast2For, decodeBeast2ElementsFor,
   intakeBeast2For, Beast2IntakeError, type Beast2IntakeOptions, type Beast2IntakeStats,
   type Beast2RunSink, type Beast2RunSorterOptions, type Beast2MergeSource, type Beast2MergeOptions, type Beast2MergeStats,
   type Beast2Segment, type Beast2SegmentSink, type Beast2SegmentRef, type Beast2RecutPiece, type Beast2RecutSink,

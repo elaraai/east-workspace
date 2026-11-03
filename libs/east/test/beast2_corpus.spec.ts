@@ -10,7 +10,8 @@ import {
     ArrayType, BlobType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType,
     RecursiveType, RefType, SetType, StringType, StructType, VariantType, VectorType,
     East, SortedMap, SortedSet, compareFor, equalFor, none, ref, some, variant, type option,
-    Beast2ElementWriter, Beast2ManifestWriter, Beast2RunSorter, RUN_MAX_COUNT, decodeBeast2For,
+    Beast2ElementWriter, Beast2ManifestWriter, Beast2RunSorter, FOLD_TABLE_MAX_KEY_BYTES, FOLD_TABLE_MAX_KEYS,
+    RUN_MAX_COUNT, decodeBeast2For,
     decodeCollectionManifest, encodeBeast2For, encodeBeast2PagedFor, encodeBeast2SegmentsFor, encodeEastIR,
     intakeBeast2For, mergeBeast2For, recutBeast2For, segmentKeyTypeOf, spliceBeast2, spliceBeast2Tail,
     type Beast2RecutPiece, type Beast2Segment, type Beast2SegmentRef, type EastIR, type EastType, type ValueTypeOf,
@@ -64,6 +65,7 @@ type Fold = EastIR<any[], any>;
 type Fold3 = (key: unknown, acc: unknown, value: unknown) => unknown;
 
 const TallyType = StructType({ count: IntegerType, total: FloatType });
+const REGIONS = ["north", "south", "east", "west", "central"];
 const RegionKeyType = StructType({ region: StringType, id: IntegerType });
 
 const sumIntegers: Fold = East.function([StringType, IntegerType, IntegerType], IntegerType, (_$, _key, acc, value) => acc.add(value)).toIR();
@@ -74,6 +76,13 @@ const addTallies: Fold = East.function([IntegerType, TallyType, TallyType], Tall
     total: acc.total.add(value.total),
 })).toIR();
 const sumByRegion: Fold = East.function([RegionKeyType, IntegerType, IntegerType], IntegerType, (_$, _key, acc, value) => acc.add(value)).toIR();
+const sumById: Fold = East.function([IntegerType, IntegerType, IntegerType], IntegerType, (_$, _key, acc, value) => acc.add(value)).toIR();
+const latestSome: Fold = East.function([StringType, OptionType(IntegerType), OptionType(IntegerType)], OptionType(IntegerType), (_$, _key, older, newer) =>
+    newer.match({ none: () => older, some: () => newer }),
+).toIR();
+const latestTime: Fold = East.function([IntegerType, DateTimeType, DateTimeType], DateTimeType, (_$, _key, older, newer) =>
+    East.less(older, newer).ifElse(() => newer, () => older),
+).toIR();
 
 /** The strings on either side of the UTF-16 and code-point orders' one
  *  disagreement: characters above U+FFFF against U+E000–U+FFFF. */
@@ -278,6 +287,138 @@ function foldAsARun<V>(values: readonly V[], merge: (older: V, newer: V) => V): 
     return acc;
 }
 
+/** Whether a fold table takes a Dict's values of this type: their encoding is
+ *  bounded, so a fold over them does not grow (SPEC.md, *Folding as added*). */
+function boundedValues(type: EastType): boolean {
+    switch (type.type) {
+        case "Null":
+        case "Boolean":
+        case "Integer":
+        case "Float":
+        case "DateTime":
+            return true;
+        case "Struct":
+            return Object.values(type.fields as Record<string, EastType>).every(boundedValues);
+        case "Variant":
+            return Object.values(type.cases as Record<string, EastType>).every(boundedValues);
+        default:
+            return false;
+    }
+}
+
+/** The bytes of a key's canonical encoding, which a fold table's byte bound
+ *  counts, for the key types the cases use: a String is its UTF-8 bytes after
+ *  their count as a varint, an Integer its zigzag varint, and a Struct its
+ *  fields in turn. */
+function keyBytesOf(type: EastType, key: unknown): number {
+    const varint = (n: bigint): number => {
+        let length = 1;
+        for (; n >= 128n; n >>= 7n) length++;
+        return length;
+    };
+    switch (type.type) {
+        case "String": {
+            const length = Buffer.byteLength(key as string, "utf8");
+            return varint(BigInt(length)) + length;
+        }
+        case "Integer": {
+            const n = key as bigint;
+            return varint(n >= 0n ? n << 1n : (-n << 1n) - 1n);
+        }
+        case "Struct":
+            return Object.entries(type.fields as Record<string, EastType>)
+                .reduce((sum, [name, field]) => sum + keyBytesOf(field, (key as Record<string, unknown>)[name]), 0);
+        default:
+            throw new Error(`the oracle counts no ${type.type} key's bytes`);
+    }
+}
+
+/** The runs a sorter closes for an emission sequence, by SPEC.md's rules
+ *  rather than the sorter's code. A fold the fold table takes passes the
+ *  elements through it: each key's values held in the order they were added,
+ *  the table spilling once a key it does not hold would take it past
+ *  FOLD_TABLE_MAX_KEYS keys or FOLD_TABLE_MAX_KEY_BYTES — each key as one
+ *  element, in the order the keys entered, its values folded as a run folds
+ *  them — and stepping aside at its first spill when it absorbed fewer than
+ *  two elements a key. The elements the open run receives close it every
+ *  RUN_MAX_COUNT, and each run folds its repeated keys in the order they
+ *  arrived. No case reaches RUN_MAX_BYTES. */
+function sortedRunsOf(
+    type: EastType,
+    elements: readonly unknown[],
+    apply: Fold3 | undefined,
+    union: boolean,
+): (SortedMap<unknown, unknown> | SortedSet<unknown>)[] {
+    if (type.type !== "Dict" && type.type !== "Set") throw new Error(`runs hold Sets and Dicts, not ${type.type}`);
+    const dict = type.type === "Dict";
+    const keyType = type.key as EastType;
+    const cmp = compareFor(keyType);
+    const pairs = elements.map((element) => dict ? element as { key: unknown; value: unknown } : { key: element, value: undefined });
+    const fold = (key: unknown, values: unknown[]): unknown => foldAsARun(values, (older, newer) => apply!(key, older, newer));
+
+    const received: { key: unknown; value: unknown }[] = [];
+    if (type.type === "Dict" ? apply !== undefined && boundedValues(type.value as EastType) : union) {
+        let on = true;
+        let spilled = false;
+        let absorbed = 0;
+        let keyBytes = 0;
+        let held = new SortedMap<unknown, { key: unknown; values: unknown[] }>(undefined, cmp);
+        let entered: { key: unknown; values: unknown[] }[] = [];
+        const spill = (): void => {
+            const stepAside = !spilled && absorbed < 2 * entered.length;
+            spilled = true;
+            for (const { key, values } of entered) received.push({ key, value: dict ? fold(key, values) : undefined });
+            held = new SortedMap(undefined, cmp);
+            entered = [];
+            keyBytes = 0;
+            if (stepAside) on = false;
+        };
+        for (const pair of pairs) {
+            if (!on) {
+                received.push(pair);
+                continue;
+            }
+            let entry = held.get(pair.key);
+            if (entry === undefined) {
+                const bytes = keyBytesOf(keyType, pair.key);
+                if (entered.length >= FOLD_TABLE_MAX_KEYS || (entered.length > 0 && keyBytes + bytes > FOLD_TABLE_MAX_KEY_BYTES)) {
+                    spill();
+                    if (!on) {
+                        received.push(pair);
+                        continue;
+                    }
+                }
+                entry = { key: pair.key, values: [] };
+                held.set(pair.key, entry);
+                entered.push(entry);
+                keyBytes += bytes;
+            }
+            entry.values.push(pair.value);
+            absorbed++;
+        }
+        if (on && entered.length > 0) spill();
+    } else {
+        for (const pair of pairs) received.push(pair);
+    }
+
+    const runs: (SortedMap<unknown, unknown> | SortedSet<unknown>)[] = [];
+    for (let start = 0; start < received.length; start += RUN_MAX_COUNT) {
+        const share = received.slice(start, start + RUN_MAX_COUNT);
+        if (dict) {
+            const added = new SortedMap<unknown, unknown[]>(undefined, cmp);
+            for (const { key, value } of share) {
+                const values = added.get(key);
+                if (values === undefined) added.set(key, [value]);
+                else values.push(value);
+            }
+            runs.push(new SortedMap([...added].map(([key, values]) => [key, fold(key, values)] as [unknown, unknown]), cmp));
+        } else {
+            runs.push(new SortedSet(share.map(({ key }) => key), cmp));
+        }
+    }
+    return runs;
+}
+
 /** The segments the Writer cuts a collection's elements into, as a re-cut
  *  takes them: by reference, never read unless a seam needs it. */
 function segmentRefsOf(type: EastType, elements: readonly unknown[]): Beast2SegmentRef[] {
@@ -363,6 +504,70 @@ const runs: { name: string; type: EastType; sequence: EastType; elements: unknow
         sequence: ArrayType(StringType),
         elements: Array.from({ length: 3 * CODE_POINT_STRINGS.length }, (_, i) => CODE_POINT_STRINGS[(i * 7) % CODE_POINT_STRINGS.length]!),
         union: true,
+    },
+    {
+        // Few keys: the fold table folds every order as it is added, and the
+        // one run holds the five regions.
+        name: "a Dict of five regions summed over 300,000 orders",
+        type: DictType(StringType, IntegerType),
+        sequence: ArrayType(StructType({ key: StringType, value: IntegerType })),
+        elements: Array.from({ length: 300_000 }, (_, i) => ({ key: REGIONS[(i * 7) % REGIONS.length]!, value: BigInt((i * 31) % 997) })),
+        merge: sumIntegers,
+    },
+    {
+        // Every key once: the table steps aside at its first spill, and the
+        // runs are the ones a sorter without it closes.
+        name: "a Dict of unique keys past the fold table's bound, summed",
+        type: DictType(IntegerType, IntegerType),
+        sequence: ArrayType(StructType({ key: IntegerType, value: IntegerType })),
+        elements: Array.from({ length: 150_000 }, (_, i) => ({ key: BigInt((i * 7919) % 150_000) - 75_000n, value: BigInt(i) })),
+        merge: sumById,
+    },
+    {
+        // The table steps aside at the first spill, so the ten keys that
+        // repeat after it fold in the runs, which close at the element cap.
+        name: "a Dict whose fold table steps aside, its later repeats folded in the runs",
+        type: DictType(StringType, IntegerType),
+        sequence: ArrayType(StructType({ key: StringType, value: IntegerType })),
+        elements: Array.from({ length: FOLD_TABLE_MAX_KEYS + 1 + 100_000 }, (_, i) => i <= FOLD_TABLE_MAX_KEYS
+            ? { key: `u${String(i).padStart(7, "0")}`, value: BigInt(i) }
+            : { key: `t${i % 10}`, value: BigInt(i % 1_000) }),
+        merge: sumIntegers,
+    },
+    {
+        // 70,000 keys twice each, then once more: the table, having absorbed
+        // two elements a key, spills as it fills and stays on; a key in two
+        // spills is folded in the run, and the floats show how they grouped.
+        name: "a Dict of floats over more keys than the fold table holds, spilled as it fills",
+        type: DictType(StringType, FloatType),
+        sequence: ArrayType(StructType({ key: StringType, value: FloatType })),
+        elements: Array.from({ length: 210_000 }, (_, i) => ({
+            key: `s${String(i < 140_000 ? i >> 1 : i - 140_000).padStart(7, "0")}`,
+            value: [0.1, 1e16, -1e16, 3.3, -0.7][i % 5]! * ((i % 11) + 1),
+        })),
+        merge: sumFloats,
+    },
+    {
+        name: "a Set whose fold table spills as it fills, unioned",
+        type: SetType(StringType),
+        sequence: ArrayType(StringType),
+        elements: Array.from({ length: 210_000 }, (_, i) => `s${String(i < 140_000 ? i >> 1 : i - 140_000).padStart(7, "0")}`),
+        union: true,
+    },
+    {
+        // A bounded Variant: the newer value unless it is none.
+        name: "a Dict of options, the latest some kept",
+        type: DictType(StringType, OptionType(IntegerType)),
+        sequence: ArrayType(StructType({ key: StringType, value: OptionType(IntegerType) })),
+        elements: Array.from({ length: 120_000 }, (_, i) => ({ key: `o${String((i * 7919) % 3_000).padStart(5, "0")}`, value: i % 3 === 0 ? none : some(BigInt(i)) })),
+        merge: latestSome,
+    },
+    {
+        name: "a Dict of datetimes, the latest kept",
+        type: DictType(IntegerType, DateTimeType),
+        sequence: ArrayType(StructType({ key: IntegerType, value: DateTimeType })),
+        elements: Array.from({ length: 50_000 }, (_, i) => ({ key: BigInt(i % 700), value: new Date(Date.UTC(2024, 0, 1) + ((i * 7919) % 100_000) * 60_000) })),
+        merge: latestTime,
     },
 ];
 
@@ -550,26 +755,12 @@ describe("beast2 conformance corpus", () => {
                 }
                 sorter.finish();
 
-                // The oracle: each run its share of the elements, a key's
-                // values folded as a run folds them, in emission order; and
-                // the whole those runs folded in order.
+                // The oracle: the runs SPEC.md's rules close (sortedRunsOf),
+                // and the whole those runs fold to, in order.
                 const cmp = compareFor(segmentKeyTypeOf(c.type)!);
                 const total = dict ? new SortedMap<unknown, unknown>(undefined, cmp) : new SortedSet<unknown>(undefined, cmp);
                 const expected: Uint8Array[] = [];
-                for (let start = 0; start < c.elements.length; start += RUN_MAX_COUNT) {
-                    const share = c.elements.slice(start, start + RUN_MAX_COUNT);
-                    let run: SortedMap<unknown, unknown> | SortedSet<unknown>;
-                    if (dict) {
-                        const added = new SortedMap<unknown, unknown[]>(undefined, cmp);
-                        for (const { key, value } of share as { key: unknown; value: unknown }[]) {
-                            const values = added.get(key);
-                            if (values === undefined) added.set(key, [value]);
-                            else values.push(value);
-                        }
-                        run = new SortedMap([...added].map(([key, values]) => [key, foldAsARun(values, (older, newer) => apply!(key, older, newer))] as [unknown, unknown]), cmp);
-                    } else {
-                        run = new SortedSet(share, cmp);
-                    }
+                for (const run of sortedRunsOf(c.type, c.elements, apply, c.union ?? false)) {
                     expected.push(encodeBeast2PagedFor(c.type)(run as never));
                     if (run instanceof SortedMap && total instanceof SortedMap) {
                         for (const [key, value] of run) total.set(key, total.has(key) ? apply!(key, total.get(key), value) : value);

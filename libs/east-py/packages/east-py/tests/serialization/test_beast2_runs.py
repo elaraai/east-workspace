@@ -21,8 +21,19 @@ import re
 import pytest
 from east.serialization._beast2_eastc import _fnv1a64, _merge_blobs
 
-from east import ArrayType, BlobType, DictType, East, EastDict, IntegerType, SetType, StringType
+from east import (
+    ArrayType,
+    BlobType,
+    DictType,
+    East,
+    EastDict,
+    FloatType,
+    IntegerType,
+    SetType,
+    StringType,
+)
 from east.serialization.beast2 import (
+    FOLD_TABLE_MAX_KEY_BYTES,
     RUN_MAX_BYTES,
     RUN_MAX_COUNT,
     Beast2RunSorter,
@@ -35,6 +46,7 @@ from east.serialization.beast2 import (
 #: fnv1a64, in hex, joined with ','.
 PERMUTED_DICT_DIGEST = "d90d3818c52e31bb"
 SET_UNION_DIGEST = "a4a7379f0468c2be"
+LONG_KEYS_DIGEST = "d5b51e634f965575"
 
 DICT_SI = DictType(StringType, IntegerType)
 DICT_SS = DictType(StringType, StringType)
@@ -109,6 +121,18 @@ def test_union_keeps_a_repeated_element_once_and_its_absence_refuses_it() -> Non
     expected = 'beast2 v5: duplicate Set element emitted: "b" — Set elements must be unique'
     with pytest.raises(RuntimeError, match=f"^{re.escape(expected)}$"):
         _sort(SET_S, ["b", "a", "b"])
+
+
+def test_few_keys_fold_as_they_are_added_into_one_run() -> None:
+    # A sum over integers is a fold the fold table takes: twice the element
+    # cap over five keys is one run, of the five.
+    regions = ["north", "south", "east", "west", "central"]
+    added = [(regions[i % 5], i) for i in range(2 * RUN_MAX_COUNT + 7)]
+    totals: dict[str, int] = {}
+    for key, value in added:
+        totals[key] = totals.get(key, 0) + value
+    runs = _sort(DICT_SI, added, merge=_sum())
+    assert runs == [encode_beast2_paged_for(DICT_SI)(EastDict(StringType, IntegerType, totals))]
 
 
 def test_a_dict_key_added_twice_is_refused_without_a_merge() -> None:
@@ -207,6 +231,23 @@ class TestTwoRuntimeParity:
         runs = _sort(SET_S, [f"e{(i * 7919) % 200_000:06d}" for i in range(300_000)], union=True)
         assert len(runs) == 3
         assert _digest(runs) == SET_UNION_DIGEST
+
+    def test_long_keys_spill_the_fold_table_and_write_the_runs_typescript_writes(self) -> None:
+        # 10,000 keys of 4,096 canonical bytes, each added twice, then once
+        # more: the fold table spills at its byte bound every 4,096 keys
+        # (FOLD_TABLE_MAX_KEY_BYTES / 4,096), and the open run reaches the
+        # byte cap in the middle of the fourth spill. The floats show how they
+        # grouped.
+        assert FOLD_TABLE_MAX_KEY_BYTES // 4_096 == 4_096
+        dict_sf = DictType(StringType, FloatType)
+        sum_floats = East.function([StringType, FloatType, FloatType], FloatType,
+                                   lambda _b, _key, acc, value: acc + value)
+        scales = [0.1, 1e16, -1e16, 3.3, -0.7]
+        added = [(f"k{(i >> 1 if i < 20_000 else i - 20_000):07d}".ljust(4_094, "x"), scales[i % 5] * ((i % 11) + 1))
+                 for i in range(30_000)]
+        runs = _sort(dict_sf, added, merge=sum_floats, codec="none")
+        assert _counts(dict_sf, runs) == [10_000, 3_647]
+        assert _digest(runs) == LONG_KEYS_DIGEST
 
 
 def test_the_runs_merge_back_into_the_canonical_blob_of_the_whole_value(tmp_path) -> None:
