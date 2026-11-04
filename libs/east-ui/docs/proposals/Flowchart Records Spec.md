@@ -1,10 +1,10 @@
 # Flowchart Records Spec
 
-*e3-ui · Flowchart · design.* The hi-fi mock is `Flowchart Records Spec.html`, beside this file. Where the two differ, this file wins. Every behaviour is a numbered rule, R1–R41 (§5); the user's rulings and the design's decisions D1–D23 are §8; the tasks, §9.
+*e3-ui · Flowchart · design.* The visual spec is `Flowchart Records Spec.html`, beside this file: it decides how the details look — the state card, the transition label, the legend and the inspector. This file decides the rest: the authoring examples and the API (§2), the types, refusals and payload (§3), and every behaviour, those the visual spec does not draw among them. Where the two differ on a look, the visual spec wins; on anything else, this file does. Every behaviour is a numbered rule, R1–R41 (§5); the user's rulings and the design's decisions D1–D24 are §8; the tasks, §9.
 
 Today the Flowchart draws one flow of a dictionary of flows, each flow kept whole in one record entry or handed over as data. This proposal draws one flowchart over the app's own records, as the Schematic does: a record of states and a record of transitions, each row the app's own type with its fields mapped to the Flowchart's roles, each read through its source of the rail so the indexes narrow both; and beside them two small records, the lanes and the decisions. On top of that, the app can put structured details on each state and transition — figures, tag lists in its own colours, time-in-state histograms over its own bins and axis, and short lists — in one ordered array, drawn on the cards and labels and shown in full in the inspector.
 
-**Spec** for the epic · Four kinds: **states, transitions, lanes, decisions** · The Flow types and the Flows tab: **removed** · **9** rulings · **23** design decisions
+**Spec** for the epic · Four kinds: **states, transitions, lanes, decisions** · The Flow types and the Flows tab: **removed** · **11** rulings · **24** design decisions
 
 - **Records.** States and transitions are each a keyed record of the app's. `Flowchart.states` and `Flowchart.transitions` map their fields to the Flowchart's roles — a state's label, lane and place; a transition's ends and decision — and every other field is the app's, edited in the inspector's form.
 - **The rail.** Each is read through its source of the one `Slice.bindRecords`, named `states` and `transitions`, so each index's choices narrow it — hidden, or dimmed as context — and a preset narrows both at once: one record holding many flows shows one.
@@ -13,26 +13,21 @@ Today the Flowchart draws one flow of a dictionary of flows, each flow kept whol
 - **Details.** One ordered array of typed reads on each kind — `figure`, `histogram`, `list`, `tags` — drawn on the card or the label in its order and in full in the inspector, each where its `show` says; tag lists in the app's colours, and in the legend where it asks.
 - **Library.** The Steps, Transitions and Lanes tabs list each kind's cards, rows of records the app keeps — a lane's card adds a lane where it lands; an author's tab drops onto any kind. The Flows tab goes, with `Flowchart.over` and the Flow types.
 
-## 1. The mock
+## 1. The visual spec
 
-This is the Flowchart drawing the depot example — its lanes, routing, evidence labels, toolbar, footer and inspector, rebuilt from its layout code and recipes — with the proposal switched on. Its states, transitions, lanes and decisions are four records of the app's; its cards are 272px wide and as tall as what they show, and the canvas pans to them. Switch to **Today** to compare, and **Bars** to **Linear** to see the same bins to scale. Click a state, a transition, a decision or the empty canvas, and the inspector follows. The numbers are made up.
+`Flowchart Records Spec.html`, beside this file, is the visual spec. It draws what changes — the state card, the transition label and the inspector — and spells out each part's looks under it, in the design system's tokens and pixels. The frame, toolbar, footer, lanes, routing and Issues stay as they are. The numbers are made up.
 
-> **The mock** is `Flowchart Records Spec.html` beside this file: the Flowchart drawing the depot example, with **Show** switching between Today and this design, **Select** choosing what the inspector shows, **Bars** the histograms' scale, and **Theme** light or dark.
+> **The visual spec** draws the depot's Sort and Hold lanes, read only, from four records of the app's, in four parts: **In the frame**, **State card**, **Transition label** and **Inspector**. **selected** chooses what the inspector shows — a state, a transition or nothing — **bars** the histograms' `scale`, band or linear, and **theme** light or dark. In the frame, click a state, a label, the diamond or the canvas, and the inspector follows.
 
-The page's own border frames the component, as a host would; the Flowchart draws none. **Bars** switches the app's `scale` option — `"band"`, a bar a bin whatever its span, or `"linear"`, the same bins to scale — a switch of this page's, not a control the Flowchart adds. The rail's choices and the library are left out of this mock: they are the shared rail and Library, unchanged. At a phone's width this page puts the inspector under the canvas; the component's narrow layout is BuilderFrame's and does not change.
+1. **In the frame.** The Flowchart in its frame, as a host places it: today's toolbar — Find state, LR · TD, and the freshness chip, the app's `freshness` (*evidence-2026.06 · Jun 30*) — the canvas, the inspector's pane and the footer. Four states, four transitions and a decision, with the legend under them.
+2. **The state card.** A state the app gives details draws as a card 272 wide and as tall as what it shows: its head, a rule, then the reads the app puts on the canvas, in its order. A figure is one line: its label, its value and its unit. A tag list sits beside its label, wrapping to three lines, then +n. A histogram draws the app's bins as bars over an axis naming the app's ticks. A list draws its top items, each a name, a bar and its share. Three cards: as drawn, selected, and one with no details row, whose every read says *no data*. A state without details keeps today's card.
+3. **The transition label.** The evidence line, and the transition's details as lines under it — a figure a line, a list its top items, three lines at most — placed as today, with cards side by side keeping the widest label and 24 between them, so no label lands on a card. A decision's diamond keeps the middle, and its label steps beside it. Four links between two card heads: planned, observed, selected, and with a decision. Strokes, dashes, weights, rings, arrowheads, the diamond and the badge stay as today.
+4. **The legend.** Under today's rows, a row for each read the cards and labels draw, and beside them the tag list the app adds to it, each tag in its colours.
+5. **The inspector.** Between the head and the form, the reads the app shows there, in its order and in full, those it draws nowhere else among them: figures in the stats grid; every tag; the histogram on the app's axis, with a caption saying where half and nine in ten of its counts fall, or the bin under the pointer; a list's first 8 items, then Show n more. A state's transitions grouped In, Out and In place, each with its volume; a transition's Evidence last; with nothing selected, the four records counted, and each one's last save.
 
-1. **Four records.** The depot's states, transitions, lanes and decisions are four records of the app's, keyed by String, each row its own type. The canvas draws them as today's draws a flow: the lanes as columns in their order, each lane's states in theirs, the transitions routed between them.
-2. **Nothing selected.** The inspector names the flowchart, as the Schematic's names its drawing: the lanes, states, transitions and decisions counted, and each record's last save and who made it. There is no flow, so no description.
-3. **The form.** What is selected is a row of the app's: its key, printed; its role fields under their roles' words — a state's label and lane, a transition's ends and decision — which the canvas writes too; and the fields no role writes, through the shared form — here a state's slots and flow, and a transition's kind and flow, the app's hints leaving its evidence fields to Evidence.
-4. **Cards.** Each state's card widens to 272px and is as tall as what it shows: under a rule, the app's details in its order — its parcels; its flags, equipment and shifts, each tag list beside its label, every tag in the colours the app defines, wrapping, three lines at most and then +n; bars for its time in state over the app's bins, on the axis the app names; and its top two services, each with its share. A row of cards is as tall as its tallest.
-5. **Label lines.** Each transition's label keeps its evidence line and gains its top region, by share. Every link keeps the sides it takes today, cards side by side keep room for the widest label between them, and the placer no longer leaves a label on a card — switch to Today: at this width, today's placer puts the labels of Sorted → Held and Cleared → Loaded over cards.
-6. **Legend rows.** The legend names each figure, band and line the cards and labels draw, in the app's order — what it reads, and its range, scale or top — and, beside them, each tag list the app adds to it: the flags and the equipment under their labels, each tag in its colours. The shifts the app leaves out.
-7. **Inspector reads.** Between the head and the form, the reads the app shows there, in its order: a state's figures side by side, its three tag lists in full, its time in state on the app's axis with the bin under the pointer, and its lists in full — what is still in the state, and the exceptions, only here. A transition's lists sit in the same place; its Evidence stays where it is.
-8. **In and Out.** A state's transitions are grouped by direction, each line with its volume.
-9. **The app's axis.** The bars are the app's bins — a quarter hour apiece at first, then hours, days and a week — a bar each whatever its span, and the axis under them — on each card and in the inspector — names the edges the app lists. Switch **Bars** to **Linear**: the same bins to scale, the short stays crowded into the axis's start.
-10. **Issues.** Dispatched → DLV names a state no row is keyed by. Under a narrowing that hides, the Flowchart asks e3 for such an end by its key first: found, the transition is hidden with it and leaves the canvas; absent, as here, its end is the ghost and Issues lists it.
+**The depot's choices, drawn.** The visual spec's depot shows its flags alone of its tag lists on the card, its equipment and shifts only in the inspector, and its flags in three palettes — danger, warning and info — at the default look, subtle: a 6% wash of the palette on a 1px rule of it, its text in the palette's text step; its other tags are neutral. These are an app's choices drawn, not fixed looks: what a card shows is the app's `details` and each read's `show`, and a tag's colours are its definition's `colorPalette` and `variant`, as a Tag takes them (§2). The depot example below shows its equipment and shifts on the card too, and gives its tags palettes and variants of their own; each draws as the visual spec's flags do, and §4 and §5 say how.
 
-What stays as it is: the toolbar and its fold ladder, the footer, the lanes, routing, channels and handles, the evidence weights and badges' look, the decision diamonds, Find state, LR · TD, selection and hover dimming, the shared form, read only, a kind's own Details, and every gesture the canvas takes today but a key changed once saved.
+What stays as it is: the toolbar and its fold ladder, the freshness chip, the footer, the lanes, routing, channels and handles, the evidence weights and badges' look, the decision diamonds, Find state, LR · TD, hover dimming, the shared form, read only, a kind's own Details, Issues and its words, the inspector's hint, and every gesture the canvas takes today but a key changed once saved.
 
 What goes: the Flows tab, and with it opening, renaming, duplicating and deleting a flow; the props `record`, `data`, `flow` and `onApply`; `Flowchart.over`, `Flowchart.values` and `Flowchart.value`; `Flowchart.Types.Flows`, `Flow`, `State`, `Link`, `Lane` and `Trigger`; a flow's description; a saved row's key changed in the form; and `inspector={{ state, transition }}` — a kind's own Details moves onto its kind, and `inspector` stays a switch, on unless it is `false`.
 
@@ -164,7 +159,7 @@ export const flowchartDwell = example({
 
 #### Example — The depot, in full (records · Slice · editing)
 
-Four records: the states and transitions read through their sources of the rail and edited through their patch doors, a preset narrowing both to one flow; the lanes and decisions read whole; both kinds' details in the order drawn — the card's figure, three labelled tag lists, bars over the app's bins and lines; the label's line; two of the tag lists in the legend; every read in the inspector, those shown only there among them — and the library's Steps, Transitions, Lanes and Owners tabs. This is the mock above.
+Four records: the states and transitions read through their sources of the rail and edited through their patch doors, a preset narrowing both to one flow; the lanes and decisions read whole; both kinds' details in the order drawn — the card's figure, three labelled tag lists, bars over the app's bins and lines; the label's line; two of the tag lists in the legend; every read in the inspector, those shown only there among them — and the library's Steps, Transitions, Lanes and Owners tabs. The visual spec draws this depot, its flags alone of its tag lists on the card and its tags in three palettes; the reads it leaves to the inspector draw on the card by the same rules (§1).
 
 ```tsx
 // What the depot measured in each state and on each transition: the app's own rows, keyed as the states and
@@ -638,7 +633,7 @@ export const flowchartDepotDimmed = example({
 
 #### Example — At a phone's width (390px)
 
-Cards keep their size and the canvas pans; Find state selects, and the inspector shows the state's reads and its form.
+Cards keep their size and the canvas pans, one lane at a time, the pager stepping it (R40); Find state selects, and the inspector shows the state's reads and its form.
 
 ```tsx
 export const flowchartDepotPhone = example({
@@ -1149,26 +1144,26 @@ FlowchartDetailRowType = ArrayType(VariantType({
 
 ## 4. Geometry and drawing
 
-|  | Today | Proposed — the mock's cards, as drawn | The rule |
+|  | Today | Proposed — the visual spec's depot | The rule |
 |---|---|---|---|
-| **Card** | 116 × 40 | 272 × 222–271 | 272 wide where the details draw on the card; as tall as what it shows, drawn and measured before the layout places it: its head (40), a rule, then each read it shows, in the details' order, 8 apart — a figure's line (14); tag lists beside their labels, 17 a line, 4 between lines and 5 between lists; a 14 title over bars (28) and their axis (14), or over lines (15 each) — and 8 under. Nothing drawn on the card, no change. |
-| **Row pitch, left to right** | 96 | 327, 306, 96 | Each row as tall as its tallest card, its cards centred in it, and 56 between rows. |
-| **Lane width, left to right** | ≥ 166 | ≥ 426 | The card's width and the gap: the widest label's width and 24, so a label fits between two cards side by side — at least 50, today's. |
-| **Lane height, top down** | 112 | 369 | The tallest card and 72, and 26 for each line a label adds. |
+| **Card** | 116 × 40 | 272 × 216–283 | 272 wide where the details draw on the card; as tall as what it shows, drawn and measured before the layout places it: its head (56 — the label over the key, 4 apart, 12 in from either side), a 1px rule, then each read it shows, in the details' order, 12 apart inside 12 of padding — a figure's line (16); a tag list beside its label, 15 a line and 4 between lines; a title (14) over bars (28) and their axis (12), 4 apart, or over a list's rows (16, 4 apart); *no data* (16) under a title, or in a figure's or a tag list's place. Nothing drawn on the card, no change. |
+| **Row pitch, left to right** | 96 | 339, 320 | Each row as tall as its tallest card, its cards centred in it, and 56 between rows. |
+| **Lane width, left to right** | ≥ 166 | 426 | The card's width and the gap: the widest label's width and 24, so a label fits between two cards side by side — at least 50, today's. |
+| **Lane height, top down** | 112 | 381 | The tallest card and 72, and 26 for each line a label adds. |
 | **Row pitch, top down** | 168–260 | 426 | The card's width and the gap: the widest label's width and 24, at least 52 — and, as today, wider where the width allows, up to 144. |
 | **Ghost** | 116 × 40 | 272 × 40 | The card's width and 40, centred in its slot: it has no row, so no reads. |
 | **Label** | h 18 | h 31 | 18, and 13 a line; its width the longest line's (5.8 a character and 14). |
 | **Legend** | pad 122 | pad 210 | The legend's height: 22 a row more for each figure, band and line the cards and labels draw. Its groups of tags stand beside the rows, so they add height only past the rows'. |
 
 - **Order.** The lanes in their `order`, else by key; each lane's states in theirs, else by key — the order e3 returns a record in, kept under every index the rail picks, though a page of a source comes in its index's order. A state naming no lane stands in a last band, *No lane*; with no lanes record, one band holds every state, as today's does.
-- **Figures.** A figure is a line where the details put it: its label, and its value in the app's locale with its unit; on a label, a line under the evidence; in the inspector, figures side by side share the stats grid.
-- **Bars.** One flowchart's histograms share bins — the app's `bins`, else every row's edges merged — so a bar is the same span on every card. On a band axis, the default, a bar is a bin, equal widths whatever its span, as the reference mock draws them; on a linear axis each bar is as wide as its span and as tall as its count over that span, so its area is its count, the open last bin as wide as the one before it. Each card is scaled to its own tallest bar. Under a card's bars, as under the inspector's, the axis names the first edge and the edges the app lists; the legend names the read, its range and its scale.
-- **Lines.** Each list under its title: its top items by value, each its name and its share of the list's total, with a bar behind it at that share. A name ellipsizes; a share never does.
-- **Tags.** Each tags read is a list beside its label, tag lists one after another sharing a label column: the row's tags in the order their looks are defined, then the rest in the row's order, wrapping — three lines at most, then +n, its title naming the rest. Each is the tag recipe's `sm`, in its definition's palette and variant; one without a definition is neutral and subtle. A list with no tags says —, so every card reads alike.
-- **Legend.** The rows for the figures, bands and lines the cards and labels draw, in the details' order, and beside them a group for each tag list the app adds: its label, then its defined tags the cards show, in the order defined, at the tag recipe's condensed density.
-- **Sides.** Each link leaves and enters its cards by the sides it does today: they are chosen over the card's head — its width and 40 — centred where the card is, and the route meets the card's own sides. Chosen over the card itself, a card taller than it is wide would send a link between lanes out of its top or bottom, through the card beside it.
-- **Labels.** Today's placer over the label's box: on each segment, longest first, at its middle, a third and two thirds; then steps across the longest segment off its middle, 22 to 112px, 18 apart. Three changes keep a label off the cards: two cards side by side keep the widest label's width and 24 between them, since between cards taller than the steps reach a label stepped off a short segment still lands on a card; the same steps are tried off every other segment, longest first; and the last resort is the place tried that covers least of the cards, then of the other labels. Today's last resort is a fixed place under the segment's middle, which in the depot example puts two labels on cards at canvas widths of 800, 1,062 and 1,200px.
-- **Inspector.** After the head, the reads it shows, in the details' order, figures side by side sharing the stats grid; then the row's form, or the kind's own Details; then a state's Transitions — In, Out and In place, each line its volume — or a transition's Evidence.
+- **Figures.** A figure is a line where the details put it: its label, and its value in the app's locale with its unit; a value the row lacks, or a row there is none of, says *no data*. On a label, a line under the evidence; in the inspector, figures side by side share the stats grid.
+- **Bars.** One flowchart's histograms share bins — the app's `bins`, else every row's edges merged — so a bar is the same span on every card. On a band axis, the default, a bar is a bin, equal widths whatever its span, as the reference mock draws them; on a linear axis each bar is as wide as its span and as tall as its count over that span, so its area is its count, the open last bin as wide as the one before it. Each card is scaled to its own tallest bar: 28 high on a card, 2 apart on a 1px rule; 64 high across the inspector's pane, where the bar under the pointer or focus darkens. Under a card's bars, as under the inspector's, the axis names the first edge and the edges the app lists; the legend names the read, its range and its scale.
+- **Lines.** On a card, each list under its title: its top items by value, each a row — its name, a bar 56 wide filled to its share of the list's total, and the share. On a label, each its name and its share. A name ellipsizes; a share never does. A list with no items says *none*.
+- **Tags.** Each tags read is a list beside its label, tag lists one after another sharing a label column: the row's tags in the order their looks are defined, then the rest in the row's order, wrapping — three lines at most, then +n, its title naming the rest. A tag is the design system's Tag — 20 high in the inspector, 15 on a card and in the legend — in its definition's `colorPalette` and `variant`. The visual spec draws the default, subtle: in a palette, a 6% wash of it on a 1px rule of it, its text in the palette's text step; with no definition, or in gray or neutral, the Tag's own look — `--paper-3` on a 1px `--rule`, its fill `--paper` on a selected card. Any other variant takes the Tag recipe's look for it, at that size. A list with no tags says *none*; a row there is none of, *no data*.
+- **Legend.** Under today's rows, a row for each figure, band and line the cards and labels draw, in the details' order — its mark, then the read's label and what it shows: *Parcels · a figure on each card*, *Time in state · 0 to 1w+, a bar a bin* (*to scale* on a linear axis), *Service · top 2, by share*, *Region · top 1, under the evidence* — and beside them a group for each tag list the app adds: its label, then its defined tags the cards show, in the order defined, at the card's size.
+- **Sides.** Each link leaves and enters its cards by the sides it does today: they are chosen over a box of the card's width and today's 40, centred where the card is, and the route meets the card's own sides. Chosen over the card itself, a card taller than it is wide would send a link between lanes out of its top or bottom, through the card beside it.
+- **Labels.** Today's placer over the label's box: on each segment, longest first, at its middle, a third and two thirds; then steps across the longest segment off its middle, 22 to 112px, 18 apart. A decision's diamond keeps the middle, and its label steps beside it, as today's keeps a label off a diamond. Three changes keep a label off the cards: two cards side by side keep the widest label's width and 24 between them, since between cards taller than the steps reach a label stepped off a short segment still lands on a card; the same steps are tried off every other segment, longest first; and the last resort is the place tried that covers least of the cards, then of the other labels. Today's last resort is a fixed place under the segment's middle, which in the depot example puts two labels on cards at canvas widths of 800, 1,062 and 1,200px.
+- **Inspector.** After the head, the reads it shows, in the details' order: figures side by side sharing the stats grid; every other read under its title, its total beside it — a tag list's count, a histogram's sum in its `counts`, a list's in its `unit`; then the row's form, or the kind's own Details; then a state's Transitions — In, Out and In place, each line its volume — or a transition's Evidence.
 
 ## 5. Rules
 
@@ -1302,13 +1297,13 @@ Each kind's `details` is one array of reads, any mix of the four, drawn in its o
 
 #### R22 — Card size
 
-272 wide where the details draw on the card, 116 without. A card is as tall as what it shows — its head, then its details in the app's order, each its own block — drawn at its width and measured before the layout places it. Left to right, each row is as tall as its tallest card, its cards centred in it; top down, the lanes are as tall as the tallest card. A ghost is the card's width and 40, centred in its slot. Pitch, lane height, channels and labels follow.
+272 wide where the details draw on the card, 116 without. A card is as tall as what it shows — its head, a rule, then its details in the app's order, each its own block, 12 apart — drawn at its width and measured before the layout places it. Left to right, each row is as tall as its tallest card, its cards centred in it; top down, the lanes are as tall as the tallest card. A ghost is the card's width and 40, centred in its slot. Pitch, lane height, channels and labels follow.
 
 *Where:* `layout.ts`, `canvas.tsx`. *Tested by:* `layout.test.ts` over mixed heights; responsive invariant.
 
 #### R23 — Sides as today
 
-Each link's sides are chosen as today's, over the card's head — its width and 40 — centred on its card, and its route meets the card's own sides; channels between lanes leave room for the cards' real sizes. A card taller than it is wide never turns a link out of its top or bottom into the card beside it.
+Each link's sides are chosen as today's, over a box of the card's width and today's 40, centred on its card, and its route meets the card's own sides; channels between lanes leave room for the cards' real sizes. A card taller than it is wide never turns a link out of its top or bottom into the card beside it.
 
 *Where:* `layout.ts`. *Tested by:* `layout.test.ts`: every depot link's sides as today's, in both orientations, and no route across a card.
 
@@ -1320,7 +1315,7 @@ Where the details draw on the cards, two cards side by side — lanes left to ri
 
 #### R25 — Figures
 
-A figure is a line where the details put it: its label, and its value in the app's locale with its unit; a row without it says —. On a transition's label, a line under the evidence. In the inspector, figures side by side share the stats grid.
+A figure is a line where the details put it: its label, and its value in the app's locale with its unit; a value the row lacks, or a row there is none of, says *no data*. On a transition's label, a line under the evidence. In the inspector, figures side by side share the stats grid.
 
 *Where:* `canvas.tsx`, `inspector.tsx`. *Tested by:* DOM test.
 
@@ -1344,31 +1339,31 @@ Under a card's bars and the inspector's alike, the axis names the first edge and
 
 #### R29 — Lines
 
-On a card, each list under its title; on a label, its lines under the evidence. The list's top items by value — `top`, 2 on a card and 1 on a label unless given, at most 3 — each its name and its share of the list's total, a bar behind it at that share. A name ellipsizes; a share never does.
+On a card, each list under its title; on a label, its lines under the evidence. The list's top items by value — `top`, 2 on a card and 1 on a label unless given, at most 3 — on a card each its name, a bar 56 wide filled to its share of the list's total, and the share; on a label, its name and its share. A name ellipsizes; a share never does. A list with no items says *none*.
 
 *Where:* `canvas.tsx`. *Tested by:* DOM test; responsive invariant.
 
 #### R30 — Tags
 
-Each tags read on the card is a list beside its label, in the details' order, tag lists one after another sharing a label column: the row's tags in the order their looks are defined, then the rest in the row's order, wrapping — three lines at most, then +n, its title naming the rest; a list with none says —. Each drawn by the shared tag recipe at its `sm` size, in its definition's `colorPalette` and `variant`; one without a definition is neutral and subtle. A transition's label draws none.
+Each tags read on the card is a list beside its label, in the details' order, tag lists one after another sharing a label column: the row's tags in the order their looks are defined, then the rest in the row's order, wrapping — three lines at most, then +n, its title naming the rest; a list with none says *none*. Each tag 15 high, in its definition's `colorPalette` and `variant`. Subtle, the default, is a 6% wash of its palette on a 1px rule of it, its text in the palette's text step — and, in gray or neutral or for a tag with no definition, the Tag's own look, its fill `--paper` on a selected card; any other variant is the Tag recipe's look for it. A transition's label draws none.
 
 *Where:* `canvas.tsx`; the `flowchart` recipe's tag-list slots over the tag recipe. *Tested by:* DOM test; responsive invariant: no tag cut, three lines a list at most.
 
 #### R31 — The legend's tags
 
-Each of the card's tags reads with `legend` is a group beside the legend's rows: its label, then the defined tags the cards show, in the order defined, each drawn by the tag recipe at its condensed density; a tag no definition names is left out. A tags read with `show: "inspector"` takes no `legend`: a type error.
+Each of the card's tags reads with `legend` is a group beside the legend's rows: its label, then the defined tags the cards show, in the order defined, each at the card's size and in its look; a tag no definition names is left out. A tags read with `show: "inspector"` takes no `legend`: a type error.
 
 *Where:* `canvas.tsx`. *Tested by:* DOM test.
 
 #### R32 — A transition's label
 
-Its evidence line, then its details' lines in order — a figure one, a list its top — three at most, refused when built past them; its box sized by its lines. Placed as today, then by today's steps off every other segment; where no place is clear, the place tried that covers least of the cards, then of the labels — never today's fixed place under the middle, which can cover cards. An in-place transition draws no label: its lines are the inspector's.
+Its evidence line, then its details' lines in order — a figure one, a list its top — three at most, refused when built past them; its box sized by its lines. Placed as today, then by today's steps off every other segment; where no place is clear, the place tried that covers least of the cards, then of the labels — never today's fixed place under the middle, which can cover cards. A decision's diamond keeps the middle, and its label steps beside it. An in-place transition draws no label: its lines are the inspector's.
 
 *Where:* `layout.ts`, `canvas.tsx`. *Tested by:* `layout.test.ts`: no label of the depot example on a card at 800, 1,062 and 1,200px.
 
 #### R33 — No row
 
-A state with no details row draws its blocks with the absent mark; a transition with none keeps its evidence line alone. The inspector says there is no row where the reads would go.
+A state with no details row draws each of its reads with *no data*; a transition with none keeps its evidence line alone. The inspector says *no data* under Details, where the reads would go.
 
 *Where:* `canvas.tsx`. *Tested by:* DOM test.
 
@@ -1386,7 +1381,7 @@ The head; the reads it shows — `show` `"all"` or `"inspector"` — in the deta
 
 #### R36 — The inspector's reads
 
-Figures in the stats grid; tags, every one, wrapping; a histogram on the app's axis, with a caption saying where half and nine in ten of its counts fall, or the bin under the pointer or focus; a list's first 8 items, then Show n more.
+Figures in the stats grid; tags, every one, 20 high, wrapping; a histogram on the app's axis, 64 high, with a caption saying where half and nine in ten of its counts fall, or the bin under the pointer or focus, which darkens; a list's first 8 items, then Show n more, and Show fewer once open. Each read but the figures stands under its title, its total beside it.
 
 *Where:* `inspector.tsx`. *Tested by:* DOM test.
 
@@ -1404,19 +1399,19 @@ Counts the bins do not hold, and bins the app binds whose edges do not ascend, a
 
 #### R39 — Selection and hover
 
-As today: the reads follow their card — bars in the selected card's colour; hover dims what it doesn't touch.
+A card with details, hovered, is `--paper-2`; selected, `--paper-3` in a 1px `--ink` edge, its ×n count and neutral tags on `--paper`, and its bars `--brand-d`, as on every card. A selected transition's label lines are `--brand-dd`. As today, hover dims what it doesn't touch.
 
 *Where:* `canvas.tsx`. *Tested by:* DOM test.
 
 #### R40 — Narrow widths
 
-Cards keep their size and the canvas pans; the inspector's histogram spans the pane; nothing joins the toolbar.
+Cards keep their size and the canvas pans; the inspector's histogram spans the pane; nothing joins the toolbar. On a phone, where the details draw on the cards, the lane pager shows one lane at a time: its window holds only the lanes whose cards fit whole, counted at the card's width and 16 — 288 — so a phone's 390 holds one, whatever `narrow.lanes` asks, and the readout says *Lanes 1 of 3*. A lane keeps its width, the card's and the room R24 keeps for labels, so each step brings its card to the window's middle, and the labels between two lanes are a swipe away, never on a card.
 
-*Where:* recipes. *Tested by:* responsive at 390, 360 and 294px.
+*Where:* recipes; the renderer's `canvas.tsx`, `lane-pager.tsx`. *Tested by:* responsive at 390, 360 and 294px: one lane in the window, its card whole and centred after each step, and no label on a card.
 
 #### R41 — Words
 
-Numbers in the app's locale; durations from the unit — 15m, 4h, 2d, 1w — and the last bin open-ended, 1w+; the app's own words where its ticks give them.
+Numbers in the app's locale; durations from the unit — 15m, 4h, 2d, 1w — and the last bin open-ended, 1w+; the app's own words where its ticks give them. A read with nothing to show says *no data*, and a tag list or a list with no items *none*. A histogram's caption says *Half within 4h · nine in ten within 2d* — *over 1w* where its counts reach the open bin — or, for the bin under the pointer, *4h – 8h · 236 parcels · 22%*, the last bin *1w or more*.
 
 *Where:* `messages.ts`. *Tested by:* unit test.
 
@@ -1481,8 +1476,9 @@ The reference mock is evidence for what to show, not for how the Flowchart behav
 - **BuilderFrame**, the toolbar items and the Dock pane — unchanged; nothing joins the toolbar.
 - **The Flowchart's model, layout, router and label placer** — assembled from the kinds' rows instead of a flow; the card's and each label's size become inputs.
 - **FieldForm and the shared field renderers** — each kind's form over the fields no role writes, and the fields printed read only.
-- **The `flowchartInspector` recipe** — its head, stats grid, fact, link and issue parts; new slots beside them for the histogram and the list. The card's reads are new slots of the `flowchart` recipe.
-- **The Tag's recipe and east-ui's look types** — `ColorSchemeType` and `StyleVariantType`, the pair a Tag takes for its look, so a tag on a card, in the legend or in the inspector looks as the same tag does anywhere in the app.
+- **The `flowchartInspector` recipe** — its head, stats grid, fact, link and issue parts; new slots beside them for the tags, the histogram and the list. The card's reads are new slots of the `flowchart` recipe.
+- **East-ui's look types and the Tag's recipe** — `ColorSchemeType` and `StyleVariantType`, the pair a Tag takes for its look, so an app colours a tag on a card, in the legend or in the inspector as it colours a Tag. The visual spec's sizes, and its subtle and neutral looks, are the `flowchart` recipes' tag slots; every other variant is the Tag recipe's.
+- **The phone's lane pager** (`lane-pager.tsx`) — its window, readout and steps, counting lanes at the card's width.
 - **The Chart's scale words** — `"band"` and `"linear"`, as east-ui's `ChartScaleType` names a chart's x scales — for how the bars space the bins; and explicit ticks, as a chart axis's `tickValues` places them.
 - **`rowInspector`** — a kind's own Details, now on its kind.
 - **`shared/reify.ts`** — the accessors, as one function from the row.
@@ -1503,10 +1499,12 @@ The reference mock is evidence for what to show, not for how the Flowchart behav
 7. **Bars on an x axis.** A card's bars carry their axis, as the inspector's do. — *Ruled 3 Nov 2026*
 8. **Several labelled tag lists.** Each with the app's own colours, and in the legend where the app asks. — *Asked for*
 9. **The app's bar scales, and bigger cards.** The app's bins and axis, and cards sized to what they show. — *Asked for*
+10. **One pull request.** The records and the details land together, in one pull request. — *Ruled 4 Nov 2026*
+11. **The visual spec decides the look; the code design stays.** `Flowchart Records Spec.html` replaces the hi-fi mock as the visual spec, and decides how the details look. The authoring examples, the API, the types, refusals and payload stay as they are, and a tag's colours stay the app's to define, through its `colorPalette` and `variant`. — *Ruled 4 Nov 2026*
 
 ### The design's decisions
 
-The design takes D1 to D23, each naming what it leaves; the user's rulings above are theirs.
+The design takes D1 to D24, each naming what it leaves; the user's rulings above are theirs.
 
 - **D1 — A saved row's key is fixed.** As the Schematic's: the form prints it. Today's rekey of a state or a lane goes — rewriting every transition naming a state would need transitions the narrowing hides. — *Taken: fixed*
 - **D2 — A new row's key.** A state's typed in its lane's editor, as today; one dropped from the library `state-<n>`; a lane's `lane-<n>`, as today — each the viewer's to change in the form until Save. A transition's minted unique and never drawn: it is named by its ends everywhere. — *Taken: as described*
@@ -1531,10 +1529,11 @@ The design takes D1 to D23, each naming what it leaves; the user's rulings above
 - **D21 — Tags in the legend.** The defined tags the cards show, in the order defined — or every defined tag, shown or not. — *Taken: those shown*
 - **D22 — Tags on a card.** Each list beside its label, its tags wrapping to three lines and then +n — or each list under its title, its tags across the card's full width; or every tag, however many lines it takes. — *Taken: beside, three lines*
 - **D23 — Bar scales and the middle case.** Band, a bar a bin, as the default, and linear, to scale — a log axis later if an app asks; and `show`'s middle case named `"canvas"` rather than `"node"`, since a transition's details draw on its label. — *Taken: band and linear; canvas*
+- **D24 — A phone's window.** Where the details draw on the cards, one lane at a time, each step bringing its card to the middle and the labels between two lanes a swipe away — or the lanes squeezed to the phone's width, the next lane's edge in view and the labels between them on the cards. — *Taken: one lane, its card in the middle*
 
 ## 9. Tasks
 
-The work lands in two pull requests. The first is the records cutover — tasks 1 to 6 — since removing the Flow types takes the renderer and the examples with it; the second is the details — tasks 7 to 10. Task 11 closes each.
+The work lands in one pull request (ruling 10): the records cutover first — tasks 1 to 6 — since removing the Flow types takes the renderer and the examples with it, then the details — tasks 7 to 10 — each part closed by task 11. The details look as the visual spec draws them (ruling 11).
 
 1. **The kinds** (e3-ui) — `Flowchart.states`, `transitions`, `lanes` and `decisions` over the app's records: their roles typed over the row, the binding forms and every refusal's words; each kind closed behind East functions over its rows' bytes — rows with their roles, `write`, `create`, `set`, a read by key, its form, its `ready` and its own Details; the slice's `states` and `transitions` sources through `recordSources`, and `narrowed`; the payload. `record`, `data`, `flow`, `onApply`, `Flowchart.over`, `values`, `value` and the Flow types removed.
 
@@ -1568,16 +1567,16 @@ The work lands in two pull requests. The first is the records cutover — tasks 
 
    **Done when:** its unit tests cover the app's bins over a Dict and an Array, merged bins, a row with no details and a delayed and a failing binding.
 
-9. **Layout over card sizes** — `computeLayout` takes the card's width, each card's height and each label's size; each row as tall as its tallest card; two cards side by side keeping the widest label's width and 24 between them; each link's sides chosen over the card's head, its width and 40, so no link's sides change; the placer works over label boxes, steps off every segment, and its last resort covers least of the cards.
+9. **Layout over card sizes** — `computeLayout` takes the card's width, each card's height and each label's size; each row as tall as its tallest card; two cards side by side keeping the widest label's width and 24 between them; each link's sides chosen over a box of the card's width and today's 40, so no link's sides change; the placer works over label boxes, steps off every segment, and its last resort covers least of the cards; a decision's diamond keeps the middle, its label beside it; a phone's window counting lanes at the card's width, one lane at a time where the details draw on the cards, each step bringing its card to the middle.
 
-   **Done when:** layout tests pass in both orientations over cards of mixed heights, every link of the depot example keeps today's sides and crosses no card, and its labels sit clear of the cards at 800, 1,062 and 1,200px, where today two do not.
+   **Done when:** layout tests pass in both orientations over cards of mixed heights, every link of the depot example keeps today's sides and crosses no card, and its labels sit clear of the cards at 800, 1,062 and 1,200px, where today two do not; at 390, 360 and in a 294px parent, the window holds one lane, its card whole and centred after each step.
 
-10. **Cards, labels, the legend and the inspector's reads** — each card drawn and measured before the layout places it: the reads it shows, in the app's order — figures, tag lists beside their labels, wrapping and folding at three lines, the bars and their axis on either scale, the lines — the label lines, the legend rows and its groups of tags, each tag drawn by the shared tag recipe; the inspector's reads in the details' order, the histogram's caption and the bin under the pointer or focus, lists with Show n more; In, Out and In place.
+10. **Cards, labels, the legend and the inspector's reads** — each card drawn and measured before the layout places it: the reads it shows, in the app's order — figures, tag lists beside their labels, wrapping and folding at three lines, the bars and their axis on either scale, the lines — the label lines, the legend rows and its groups of tags, each tag in its definition's palette and variant; the inspector's reads in the details' order, the histogram's caption and the bin under the pointer or focus, lists with Show n more and Show fewer; In, Out and In place — every part in the visual spec's looks.
 
-   **Done when:** DOM tests and a responsive invariant — every read inside its card, no tag cut, three lines a list at most, bars inside their band and ticks clear of each other on both scales, labels clear — pass in both themes at desktop and phone widths; the inspector's DOM tests cover each read, the order beside a kind's own Details, and read only.
+   **Done when:** DOM tests and a responsive invariant — every read inside its card, no tag cut, three lines a list at most, bars inside their band and ticks clear of each other on both scales, labels clear — pass in both themes at desktop and phone widths; the inspector's DOM tests cover each read, the order beside a kind's own Details, and read only; and a DOM check measures the depot's parts against the visual spec in both themes, with no screenshot — the card's head, rule, padding and read spacing; a figure's line; a tag's height, spacing and wrapping; the bars' height and spacing, and the axis; a list row's name, bar and share; *no data* and *none*; a label's lines; the legend's rows and tags; the inspector's tags, histogram, list rows, Show n more and Show fewer; and the hover and selected looks.
 
 11. **Docs and the showcase** — the e3-ui skill and its CLAUDE.md, the renderer's CLAUDE.md, the API docs, the showcase's Flowchart page on e3, and the plugin index regenerated.
 
    **Done when:** the skill shows the minimal and depot examples, the index finds them, and the showcase's page draws each example on e3.
 
-Every figure on this page is made up: the depot's in the mock, and the examples'.
+Every figure on this page is made up: the depot's in the visual spec, and the examples'.
