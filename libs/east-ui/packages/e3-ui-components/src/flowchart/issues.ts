@@ -4,235 +4,321 @@
  */
 
 /**
- * The open flow's issues (#1250, `Flowchart Builder Spec.md` §9.9, FB37) —
- * pure and React-free: what the inspector's Issues tab lists, each naming
- * what a click on it selects.
+ * The Flowchart's issues (#1504, `Flowchart Records Spec.md` R6, R7, R11,
+ * R12, R16, D3, D12) — pure and React-free: what the inspector's Issues tab
+ * lists, each naming what a click on it selects.
  *
- * - **Two of one key** — two lanes, states, keyed transitions or decisions
- *   under one key — which holds Save off (FB22), as the session's readiness
- *   says too (`edits.ts`'s `flowReadiness`); a click selects the row the
- *   canvas draws under the key.
- * - **A state naming a lane the flow has none of** — drawn in the last lane.
- * - **A transition naming a state the flow has none of** — the unresolved
- *   ghost's transition.
- * - **A decision's queue naming a state the flow has none of.**
- * - **A Save's conflict or refusal** — the session's issues, while it stands —
- *   each selecting what its field and row name, or the flow.
+ * - **An end no state is keyed by** — a transition's end the canvas draws as a
+ *   ghost. Under `"hide"` such an end is read by key first: one the states'
+ *   narrowing hides takes its transition off the canvas with it, and is no
+ *   issue (D7).
+ * - **A state whose lane names no lane** — or that names none, while lanes are
+ *   given — drawn in the last band, *No lane* (D12).
+ * - **A transition whose decision names none** of the decisions the Flowchart
+ *   is given.
+ * - **A draft waiting in its session**, the narrowing hiding its row: listed
+ *   with the rows of the rail's sources whose narrowing leaves it out, which the
+ *   inspector names the choices of (the shared hidden pick) and Go to issue
+ *   clears (R11).
+ * - **The app's `ready` refusals** — the key check's among them, a new key e3
+ *   holds already (D3) — which hold Save off (R12).
+ * - **A Save's conflict or refusal**, while it stands.
  *
- * Two of one key and a Save's conflict or refusal block; the rest are
- * warnings, which Save goes ahead with.
+ * The last two block, and come first; the rest warn, and Save goes ahead with
+ * them. What the narrowing draws as context (`"dim"`) raises no issue: no path
+ * selects it.
+ *
+ * A Save's conflict names each side's value as the canvas names that row — a
+ * state's lane by the lane's label, a transition's ends by their states' and
+ * its decision by the decision's — never a key ({@link conflictValueName}).
  *
  * @packageDocumentation
  */
 
-import { StringType, equalFor, type EastType, type PatchPath } from "@elaraai/east";
-import { getSomeorUndefined, type EditIssue } from "@elaraai/east-ui-components";
-import { FIELD, duplicateKeys, linkKeyOf, type FlowKeyKind } from "./edits.js";
-import type { FlowchartFlowValue } from "./model.js";
+import { OptionType, StringType, compareFor, equalFor, isValueOf, type PatchPath, type ValueTypeOf } from "@elaraai/east";
+import type { EditIssue, EditSession } from "@elaraai/east-ui-components";
+import type { FlowchartWaiting } from "./drafted.js";
+import type { FlowchartDecisionRoles, FlowchartModel, FlowchartRow, FlowchartTransitionRoles } from "./model.js";
+import type { FlowchartSort } from "./read.js";
 import type { FlowchartSelection } from "./selection.js";
 
 const keyEqual = equalFor(StringType);
+const keyCompare = compareFor(StringType);
 
-/** What an issue says, before its words: the kind of issue, and what it names. */
+/** A row of a source of the rail whose narrowing leaves out what an issue names: the source's kind, and the row's key. */
+export interface FlowchartHiding {
+    /** The kind read through the source. */
+    readonly sort: "states" | "transitions";
+    /** The row's key in its record. */
+    readonly key: string;
+}
+
+/** What an issue says, before its words. */
 export type FlowchartIssueWord =
-    /** Two rows of one kind under one key. */
-    | { readonly issue: "duplicate"; readonly what: FlowKeyKind; readonly key: string }
-    /** A state naming a lane the flow has none of. */
-    | { readonly issue: "lane"; readonly state: string; readonly lane: string }
-    /** A transition naming a state — or two — the flow has none of. */
-    | { readonly issue: "end"; readonly from: string; readonly to: string; readonly missing: readonly string[] }
-    /** A decision's queue naming a state the flow has none of. */
-    | { readonly issue: "queue"; readonly decision: string; readonly state: string }
+    /** A transition, named by its ends, naming states no row is keyed by — by their keys. */
+    | { readonly issue: "end"; readonly link: string; readonly missing: readonly string[] }
+    /** A state naming a lane the Flowchart has none of, by its key — or naming none. */
+    | { readonly issue: "lane"; readonly state: string; readonly lane: string | undefined }
+    /** A transition, named by its ends, naming a decision the Flowchart has none of, by its key. */
+    | { readonly issue: "decision"; readonly link: string; readonly decision: string }
+    /** A change waiting on Save that the narrowing hides, by the row's name. */
+    | { readonly issue: "waiting"; readonly name: string }
+    /** The app's check — or the key check — refusing a drafted row, which holds Save off, in its own words. */
+    | { readonly issue: "ready"; readonly message: string }
     /** A Save's conflict or refusal, in the source's own words. */
     | { readonly issue: "save"; readonly message: string };
 
-/** One issue of the open flow, as the Issues tab lists it. */
+/** One issue, as the Issues tab lists it. */
 export interface FlowchartIssue {
-    /** What a click on it selects: a row of the flow; `null`, the flow itself — what nothing selected shows. */
+    /** What a click on it selects, as the canvas selects it; `null`, the Flowchart itself — what nothing selected shows. */
     readonly at: FlowchartSelection | null;
-    /** Whether it blocks — two of one key holds Save off, and a Save's conflict or refusal stopped one — rather than warns. */
+    /** Whether it blocks — the app's check holds Save, or a Save was stopped — rather than warns. */
     readonly blocking: boolean;
+    /** What it names: its kind — `undefined` for a record's words that name no row — and its name, as the Flowchart names it. */
+    readonly where: { readonly sort: FlowchartSort | undefined; readonly name: string };
+    /**
+     * The rows of the rail's sources whose narrowing leaves out what it names — a draft waiting in its session: its own
+     * row, or a transition's ends the states' narrowing hides; none for what the canvas draws.
+     */
+    readonly hiding: readonly FlowchartHiding[];
     /** What it says. */
     readonly word: FlowchartIssueWord;
 }
 
-/** What a row of a kind is selected as, by its key. */
-const SELECTS: { readonly [K in FlowKeyKind]: "lane" | "state" | "link" | "trigger" } = { lane: "lane", state: "state", transition: "link", decision: "trigger" };
+/** What the issues are worked out from. */
+export interface FlowchartIssueArgs {
+    /** What the canvas draws, the drafts in place. */
+    readonly model: FlowchartModel;
+    /** The transitions it draws, the drafts in place — those in place among them. */
+    readonly transitions: readonly FlowchartRow<FlowchartTransitionRoles>[];
+    /** The drafted rows waiting in their sessions (`drafted.ts`). */
+    readonly waiting: readonly FlowchartWaiting[];
+    /** The transitions held but hidden with their far end (`read.ts`' `hiddenWith`). */
+    readonly hiddenWith: ReadonlySet<string>;
+    /** The states the read holds, by key: a waiting transition's end it does not hold is one the narrowing hides. */
+    readonly stored: ReadonlyMap<string, unknown>;
+    /** Whether the Flowchart is given decisions: a transition naming one it has none of is an issue only then. */
+    readonly decisions: boolean;
+}
 
 /**
- * Every issue the open flow holds (FB37): two of one key first — they block
- * — then the warnings in the flow's order: the states naming a lane it has
- * none of, the transitions naming a state it has none of, and the decisions'
- * queues naming one.
+ * What the canvas selects a row of a kind as, by its key.
  *
- * @param flow - The open flow, as its drafts stand
- * @returns Its issues, in that order
+ * @param sort - The row's kind
+ * @param key - Its key
+ * @returns The selection
  */
-export function flowIssues(flow: FlowchartFlowValue): FlowchartIssue[] {
-    const out: FlowchartIssue[] = [];
-    for (const duplicate of duplicateKeys(flow)) {
-        out.push({ at: { kind: SELECTS[duplicate.what], key: duplicate.key }, blocking: true, word: { issue: "duplicate", what: duplicate.what, key: duplicate.key } });
+export function selectionOf(sort: FlowchartSort, key: string): FlowchartSelection {
+    switch (sort) {
+        case "states": return { kind: "state", key };
+        case "transitions": return { kind: "link", key };
+        case "lanes": return { kind: "lane", key };
+        case "decisions": return { kind: "trigger", key };
     }
-    const hasLane = (key: string): boolean => flow.lanes.some((l) => keyEqual(l.key, key));
-    const hasState = (key: string): boolean => flow.states.some((s) => keyEqual(s.key, key));
-    for (const state of flow.states) {
-        if (!hasLane(state.lane)) out.push({ at: { kind: "state", key: state.key }, blocking: false, word: { issue: "lane", state: state.key, lane: state.lane } });
-    }
-    flow.links.forEach((link, i) => {
-        const missing = [link.from, link.to].filter((end, j) => !hasState(end) && (j === 0 || !keyEqual(link.from, link.to)));
-        if (missing.length > 0) out.push({ at: { kind: "link", key: linkKeyOf(link, i) }, blocking: false, word: { issue: "end", from: link.from, to: link.to, missing } });
-    });
-    for (const trigger of flow.triggers) {
-        for (const queued of getSomeorUndefined(trigger.queue) ?? []) {
-            if (!hasState(queued)) out.push({ at: { kind: "trigger", key: trigger.key }, blocking: false, word: { issue: "queue", decision: trigger.key, state: queued } });
+}
+
+/** How the issues name rows, and what hides one that waits. */
+interface IssueReader {
+    /**
+     * A row's name, as the inspector's head names it: a state by its key, a transition by its ends' keys, a lane by its
+     * label — else its key — and a decision by its diamond's letter.
+     */
+    readonly nameOf: (sort: FlowchartSort, key: string) => string;
+    /** The rows of the rail's sources whose narrowing leaves out a row waiting in its session; none for a row drawn. */
+    readonly hidingOf: (sort: FlowchartSort, key: string) => readonly FlowchartHiding[];
+}
+
+/**
+ * A decision's diamond's letter, as the model gives it: its own, else its label's first, upper case.
+ *
+ * @param roles - The decision's roles
+ * @returns The letter
+ */
+function letterOf(roles: FlowchartDecisionRoles): string {
+    if (roles.letter.type === "some") return roles.letter.value;
+    return roles.label.length > 0 ? roles.label.charAt(0).toUpperCase() : "?";
+}
+
+/** The issues' namer over what they are worked out from. */
+function readerOf(args: FlowchartIssueArgs): IssueReader {
+    const { model, transitions, waiting, hiddenWith, stored } = args;
+    const waits = (sort: FlowchartSort, key: string): FlowchartWaiting | undefined =>
+        waiting.find((row) => row.sort === sort && keyEqual(row.key, key));
+    const nameOf = (sort: FlowchartSort, key: string): string => {
+        switch (sort) {
+            case "states": return key;
+            case "transitions": {
+                const drawn = transitions.find((t) => keyEqual(t.key, key))?.roles;
+                const row = waits("transitions", key);
+                const roles = drawn ?? (row?.sort === "transitions" ? row.roles : undefined);
+                return roles === undefined ? key : `${roles.from} → ${roles.to}`;
+            }
+            case "lanes": {
+                const lane = model.lanes.find((l) => l.band === "lane" && keyEqual(l.key, key));
+                if (lane !== undefined) return lane.label;
+                const row = waits("lanes", key);
+                return row?.sort === "lanes" && row.roles.label.length > 0 ? row.roles.label : key;
+            }
+            case "decisions": {
+                const trigger = model.triggers.get(key);
+                if (trigger !== undefined) return trigger.letter;
+                const row = waits("decisions", key);
+                return row?.sort === "decisions" ? letterOf(row.roles) : key;
+            }
         }
+    };
+    const hidingOf = (sort: FlowchartSort, key: string): readonly FlowchartHiding[] => {
+        const row = waits(sort, key);
+        if (row === undefined) return [];
+        if (row.sort === "states") return [{ sort: "states", key }];
+        if (row.sort !== "transitions") return [];
+        if (!hiddenWith.has(key)) return [{ sort: "transitions", key }];
+        // Hidden with its far end: the end the states' narrowing hides — the read holds no state of its key.
+        const { from, to } = row.roles;
+        return [from, to].filter((end, i) => !stored.has(end) && (i === 0 || !keyEqual(from, to))).map((end) => ({ sort: "states" as const, key: end }));
+    };
+    return { nameOf, hidingOf };
+}
+
+/**
+ * The Flowchart's own issues (see the module docs), each a warning: the states
+ * standing in *No lane*, in their band's order; then the transitions', in key
+ * order — an end no state is keyed by, a decision the Flowchart has none of;
+ * then each draft waiting in its session, each kind's in its drafts' order.
+ *
+ * @param args - What the canvas draws, its transitions, the drafts waiting, the transitions hidden with their far end,
+ *   the states read, and whether decisions are given
+ * @returns The issues
+ */
+export function flowchartIssues(args: FlowchartIssueArgs): FlowchartIssue[] {
+    const { model, transitions, waiting, decisions } = args;
+    const { nameOf, hidingOf } = readerOf(args);
+    const out: FlowchartIssue[] = [];
+    const warn = (at: FlowchartSelection, where: FlowchartIssue["where"], word: FlowchartIssueWord, hiding: readonly FlowchartHiding[] = []) =>
+        out.push({ at, blocking: false, where, hiding, word });
+    for (const key of model.noLane) {
+        const node = model.nodesByKey.get(key);
+        if (node === undefined || node.dimmed) continue;
+        warn({ kind: "state", key }, { sort: "states", name: key }, { issue: "lane", state: key, lane: node.lane });
+    }
+    const ghost = (key: string): boolean => model.nodesByKey.get(key)?.ghost === true;
+    for (const transition of [...transitions].sort((a, b) => keyCompare(a.key, b.key))) {
+        if (transition.dimmed) continue;
+        const { key } = transition;
+        const { from, to } = transition.roles;
+        const link = nameOf("transitions", key);
+        const where = { sort: "transitions" as const, name: link };
+        const missing = [from, to].filter((end, i) => ghost(end) && (i === 0 || !keyEqual(from, to)));
+        if (missing.length > 0) warn({ kind: "link", key }, where, { issue: "end", link, missing });
+        const decision = transition.roles.decision;
+        if (decisions && decision.type === "some" && !model.triggers.has(decision.value)) {
+            warn({ kind: "link", key }, where, { issue: "decision", link, decision: decision.value });
+        }
+    }
+    for (const row of waiting) {
+        const name = nameOf(row.sort, row.key);
+        warn(selectionOf(row.sort, row.key), { sort: row.sort, name }, { issue: "waiting", name }, hidingOf(row.sort, row.key));
     }
     return out;
 }
 
-/**
- * What a session's issue names on the open flow (#1250): the row its field
- * and its place name — a lane, a state, a transition or a decision — or,
- * naming none, the flow itself.
- *
- * @param issue - The issue: two of one key from the session's readiness, or a Save's conflict or refusal
- * @param flow - The open flow, as its drafts stand
- * @returns What a click on it selects; `null`, the flow — or a row the flow no longer has
- */
-export function issueTarget(issue: EditIssue, flow: FlowchartFlowValue): FlowchartSelection | null {
-    const field = getSomeorUndefined(issue.field);
-    const row = getSomeorUndefined(issue.row);
-    if (field === undefined || row === undefined) return null;
-    return targetAt(field, Number(row), flow);
+/** A record's session as Issues reads it: the kind it is, and where its Save stands. */
+export interface FlowchartIssueSession {
+    /** The record's key in the history: its kind. */
+    readonly kind: string;
+    /** Its session: where its latest Save stands, its source's words, and its drafts' readiness. */
+    readonly session: Pick<EditSession<unknown>, "status" | "issues" | "readiness">;
+}
+
+/** Whether a record's key in the history names one of the Flowchart's kinds. */
+function isSort(kind: string): kind is FlowchartSort {
+    return kind === "states" || kind === "transitions" || kind === "lanes" || kind === "decisions";
 }
 
 /**
- * The row a conflict is in, by its path in its flow — the field the row is in
- * and its place there, the draft's own cases passed over, and the flow's own
- * field where a draft holds the flow beside its name.
+ * The issues each record's session raises (see the module docs): the app's
+ * check — the key check's among it — refusing its drafted rows, and its latest
+ * Save's conflict or refusal while it stands; each blocking, naming its row —
+ * one waiting in its session with the rows of the rail's sources hiding it.
  *
- * @param path - The conflict's path in its flow's draft
- * @returns The row's field and place; `undefined` for a conflict of the flow's own fields
+ * @param sessions - Each record's session
+ * @param args - What the canvas draws, as {@link flowchartIssues} takes it: what names a row, and what hides one waiting
+ * @param kindName - A kind's name, as the payload gives it: what a record's words that name no row stand for
+ * @returns The issues, in the sessions' order
  */
-function rowOf(path: PatchPath): { readonly field: string; readonly at: number } | undefined {
-    const steps = path.filter((step) => step.kind !== "variant");
-    const [field, index] = steps[0]?.kind === "field" && keyEqual(steps[0].name, "flow") ? steps.slice(1) : steps;
-    return field?.kind === "field" && index?.kind === "index" ? { field: field.name, at: Number(index.index) } : undefined;
+export function sessionIssues(sessions: readonly FlowchartIssueSession[], args: FlowchartIssueArgs,
+    kindName: (sort: FlowchartSort) => string): FlowchartIssue[] {
+    const { nameOf, hidingOf } = readerOf(args);
+    const out: FlowchartIssue[] = [];
+    for (const part of sessions) {
+        if (!isSort(part.kind)) continue;
+        const sort = part.kind;
+        const raise = (issue: EditIssue, word: "ready" | "save") => {
+            // The source's own words name no row: they stand for the kind's record.
+            const row = keyEqual(issue.entry, "") ? undefined : issue.entry;
+            out.push({
+                at: row === undefined ? null : selectionOf(sort, row), blocking: true,
+                where: { sort: row === undefined ? undefined : sort, name: row === undefined ? kindName(sort) : nameOf(sort, row) },
+                hiding: row === undefined ? [] : hidingOf(sort, row),
+                word: { issue: word, message: issue.message },
+            });
+        };
+        const readiness = part.session.readiness;
+        if (readiness.type !== "ready") for (const issue of readiness.value) raise(issue, "ready");
+        const status = part.session.status;
+        if (status === "conflict" || status === "rejected") for (const issue of part.session.issues) raise(issue, "save");
+    }
+    return out;
+}
+
+/** The fields the kinds' roles name another row's key in (#1503): what a conflict on one is named by. */
+export interface FlowchartKeyFields {
+    /** The field of a state naming its lane by the lane's key; `undefined` without lanes. */
+    readonly lane: string | undefined;
+    /** The fields of a transition naming its ends by their states' keys; `undefined` without transitions. */
+    readonly ends: readonly [from: string, to: string] | undefined;
+    /** The field of a transition naming its decision by the decision's key; `undefined` without one. */
+    readonly decision: string | undefined;
 }
 
 /**
- * The state a conflict is in, by its path in its flow: what wears the warn
- * halo while it waits.
+ * A conflict's value as the canvas names that row, where the value is a key
+ * (#1503): a state's lane by the lane's label, a transition's end by its
+ * state's label and its decision by the decision's — never a key, as the
+ * history bar's conflict card shows each side and what it was.
  *
- * @param path - The conflict's path in its flow's draft
- * @param flow - The open flow, as its drafts stand
- * @returns The state's key; `undefined` for a conflict of another row, of the flow's own fields, or of a state it no longer has
+ * @param sort - The kind whose row conflicts
+ * @param path - The conflict's path in the row: one field, through the case of an Option
+ * @param value - The value on one side: a key, in a `String` or an `Option` of one
+ * @param fields - The fields the kinds' roles name a key in
+ * @param model - The flowchart as its drafts stand, which names each row
+ * @returns Its name, or the key itself for a row the flowchart holds none of; `undefined` for any other value, which the card reads as it is
  */
-export function conflictStateKey(path: PatchPath, flow: FlowchartFlowValue): string | undefined {
-    const row = rowOf(path);
-    return row !== undefined && keyEqual(row.field, FIELD.state) ? flow.states[row.at]?.key : undefined;
-}
-
-/**
- * What a conflict's Go to selects: the row of the flow its path is in — a
- * lane, a state, a transition or a decision.
- *
- * @param path - The conflict's path in its flow's draft
- * @param flow - The open flow, as its drafts stand
- * @returns The row; `null`, the flow — a conflict of its own fields, or of a row it no longer has
- */
-export function conflictTarget(path: PatchPath, flow: FlowchartFlowValue): FlowchartSelection | null {
-    const row = rowOf(path);
-    return row === undefined ? null : targetAt(row.field, row.at, flow);
-}
-
-/**
- * A conflict's row as the flow shows it: a lane's or a state's label, else
- * its key; a transition by its ends; a decision by its label.
- *
- * @param path - The conflict's path in its flow's draft
- * @param flow - The open flow, as its drafts stand
- * @returns Its name; `undefined` for a conflict of the flow's own fields, or of a row it no longer has
- */
-export function conflictRowName(path: PatchPath, flow: FlowchartFlowValue): string | undefined {
-    const row = rowOf(path);
-    if (row === undefined) return undefined;
-    const stateName = (key: string) => {
-        const state = flow.states.find((s) => keyEqual(s.key, key));
-        return state === undefined ? key : getSomeorUndefined(state.label) ?? key;
-    };
-    if (keyEqual(row.field, FIELD.lane)) {
-        const lane = flow.lanes[row.at];
-        return lane === undefined ? undefined : getSomeorUndefined(lane.label) ?? lane.key;
+export function conflictValueName(sort: FlowchartSort, path: PatchPath, value: unknown, fields: FlowchartKeyFields, model: FlowchartModel): string | undefined {
+    let named: string | undefined;
+    for (const step of path) {
+        if (step.kind !== "field") continue;
+        if (named !== undefined) return undefined;
+        named = step.name;
     }
-    if (keyEqual(row.field, FIELD.state)) {
-        const state = flow.states[row.at];
-        return state === undefined ? undefined : stateName(state.key);
+    const field = named;
+    if (field === undefined) return undefined;
+    let key: string | undefined;
+    if (isValueOf(value, StringType)) key = value as string;
+    else if (isValueOf(value, OptionType(StringType))) {
+        const option = value as ValueTypeOf<OptionType<StringType>>;
+        if (option.type === "some") key = option.value;
     }
-    if (keyEqual(row.field, FIELD.transition)) {
-        const link = flow.links[row.at];
-        return link === undefined ? undefined : `${stateName(link.from)} → ${stateName(link.to)}`;
+    if (key === undefined) return undefined;
+    const held = key;
+    const is = (name: string | undefined): boolean => name !== undefined && keyEqual(name, field);
+    switch (sort) {
+        case "states":
+            return is(fields.lane) ? model.lanes.find((lane) => keyEqual(lane.key, held))?.label ?? held : undefined;
+        case "transitions":
+            if (fields.ends !== undefined && (is(fields.ends[0]) || is(fields.ends[1]))) return model.nodesByKey.get(held)?.label ?? held;
+            return is(fields.decision) ? model.triggers.get(held)?.label ?? held : undefined;
+        default:
+            return undefined;
     }
-    if (keyEqual(row.field, FIELD.decision)) return flow.triggers[row.at]?.label;
-    return undefined;
-}
-
-/**
- * A conflict's value as the flow shows it, where the value is a key: a step's
- * lane by the lane's label, a transition's end by its step's — else its key.
- *
- * @param path - The conflict's path in its flow's draft
- * @param value - The value on one side
- * @param type - Its East type
- * @param flow - The open flow, as its drafts stand
- * @returns Its name; `undefined` for any other value, which reads as it is
- */
-export function conflictValueName(path: PatchPath, value: unknown, type: EastType | undefined, flow: FlowchartFlowValue): string | undefined {
-    const row = rowOf(path);
-    const last = path[path.length - 1];
-    if (row === undefined || last?.kind !== "field" || type?.type !== "String") return undefined;
-    const key = value as string;
-    if (keyEqual(row.field, FIELD.state) && keyEqual(last.name, "lane")) {
-        const lane = flow.lanes.find((l) => keyEqual(l.key, key));
-        return lane === undefined ? key : getSomeorUndefined(lane.label) ?? key;
-    }
-    if (keyEqual(row.field, FIELD.transition) && (keyEqual(last.name, "from") || keyEqual(last.name, "to"))) {
-        const state = flow.states.find((s) => keyEqual(s.key, key));
-        return state === undefined ? key : getSomeorUndefined(state.label) ?? key;
-    }
-    return undefined;
-}
-
-/** The row of a flow under a field, by its place there; `null` for none. */
-function targetAt(field: string, at: number, flow: FlowchartFlowValue): FlowchartSelection | null {
-    if (keyEqual(field, FIELD.lane)) {
-        const lane = flow.lanes[at];
-        return lane === undefined ? null : { kind: "lane", key: lane.key };
-    }
-    if (keyEqual(field, FIELD.state)) {
-        const state = flow.states[at];
-        return state === undefined ? null : { kind: "state", key: state.key };
-    }
-    if (keyEqual(field, FIELD.transition)) {
-        const link = flow.links[at];
-        return link === undefined ? null : { kind: "link", key: linkKeyOf(link, at) };
-    }
-    if (keyEqual(field, FIELD.decision)) {
-        const trigger = flow.triggers[at];
-        return trigger === undefined ? null : { kind: "trigger", key: trigger.key };
-    }
-    return null;
-}
-
-/**
- * A Save's conflict or refusal, as the Issues tab lists it (FB37): each of
- * the session's issues, in the source's own words, blocking, selecting what
- * it names.
- *
- * @param issues - The session's issues with its last Save
- * @param flow - The open flow, as its drafts stand
- * @returns The issues
- */
-export function saveIssues(issues: readonly EditIssue[], flow: FlowchartFlowValue): FlowchartIssue[] {
-    return issues.map((issue) => ({ at: issueTarget(issue, flow), blocking: true, word: { issue: "save", message: issue.message } }));
 }

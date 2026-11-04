@@ -6,126 +6,187 @@
  *
  * No DOM is under test: the flowchart's modules load east-ui-components'
  * entry, which needs one as it loads.
+ */
+
+/**
+ * The Flowchart's issues (#1504, `Flowchart Records Spec.md` R6, R7, R11, R12,
+ * D3, D12), pure, over rows as the read holds them: its own warnings in their
+ * order — a state standing in No lane, a transition's end no state is keyed by
+ * (once for one in place), a decision the Flowchart has none of, a draft the
+ * rail hides with the rows hiding it — and none for what the narrowing draws as
+ * context; each record's session's — the app's check, a Save's conflict or
+ * refusal — blocking, naming the row or else the record; each issue's words;
+ * and a conflict's value as the canvas names that row, never by a key.
  *
- * The open flow's issues (#1250, `Flowchart Builder Spec.md` §9.9, FB37),
- * pure, over real East values: two of one key — blocking, naming the row the
- * canvas draws under the key — then the warnings in the flow's order: a state
- * naming a missing lane, a transition naming a missing state, a decision's
- * queue naming one; a Save's conflict or refusal in the source's own words,
- * blocking, naming the row its field and place give, or the flow; and each
- * issue's words in the flowchart's table.
+ * @packageDocumentation
  */
 
 import { describe, expect, test } from "vitest";
-import { none, some, variant, type PatchPath, type ValueTypeOf } from "@elaraai/east";
-import { Flowchart } from "@elaraai/e3-ui/internal";
-import * as edits from "./edits.js";
-import { conflictRowName, conflictStateKey, conflictTarget, flowIssues, issueTarget, saveIssues } from "./issues.js";
-import { flowchartMessages as m } from "./messages.js";
+import { none, some, variant, type PatchPath } from "@elaraai/east";
+import type { EditIssue } from "@elaraai/east-ui-components";
+import type { FlowchartWaiting } from "./drafted.js";
+import {
+    conflictValueName, flowchartIssues, sessionIssues, type FlowchartIssue, type FlowchartIssueArgs, type FlowchartIssueSession, type FlowchartKeyFields,
+} from "./issues.js";
+import type { FlowchartRows } from "./model.js";
+import type { FlowchartSort } from "./read.js";
+import { decisionRow, laneRow, modelOf, rowsOf, stateRow, transitionRow, words } from "./rows.test-utils.js";
 
-type Flow = ValueTypeOf<typeof Flowchart.Types.Flow>;
-
-/** A clean flow: every transition, state and decision resolves. */
-const CLEAN: Flow = Flowchart.value({
-    lanes: [{ key: "induct", label: "Induct" }, { key: "sort", label: "Sort" }],
-    states: [{ key: "IND", label: "Inducting", lane: "induct" }, { key: "CH*", label: "Sort chutes", lane: "sort" }],
-    links: [{ key: "IND→CH*", from: "IND", to: "CH*", trigger: "route" }, { from: "CH*", to: "CH*" }],
-    triggers: [{ key: "route", label: "route", queue: ["IND"] }],
+/** Two lanes, three states, a decision on IND → CH* and CH* in place: every end, lane and decision resolves. */
+const CLEAN = rowsOf({
+    lanes: [laneRow("induct", "Induct", 1), laneRow("sort", "Sort", 2)],
+    states: [stateRow("IND", "Inducting", { lane: "induct" }), stateRow("CH*", "Sort chutes", { lane: "sort" }), stateRow("SRD", "Sorted", { lane: "sort" })],
+    transitions: [transitionRow("t1", "IND", "CH*", { decision: "route" }), transitionRow("t2", "CH*", "SRD"), transitionRow("t3", "CH*", "CH*")],
+    decisions: [decisionRow("route", "route")],
 });
 
-/** The clean flow with every issue a flow holds: a state twice, a state naming no lane, transitions naming no state, a queue naming none. */
-const TROUBLED: Flow = {
-    ...CLEAN,
-    states: [...CLEAN.states, { key: "CH*", label: none, lane: "sort", members: none, notes: none }, { key: "STR", label: none, lane: "gone", members: none, notes: none }],
-    links: [...CLEAN.links, { key: none, from: "CH*", to: "LOST", kind: none, trigger: none, evidence: none }, { key: none, from: "OFF", to: "OFF", kind: none, trigger: none, evidence: none }],
-    triggers: [{ ...CLEAN.triggers[0]!, queue: some(["IND", "AWAY"]) }],
-};
+/**
+ * What the issues are worked out from: the rows drawn, every state read, and —
+ * unless given — nothing waiting, nothing hidden with its far end, and
+ * decisions given.
+ *
+ * @param rows - The rows drawn
+ * @param more - What differs
+ * @returns The arguments
+ */
+function argsOf(rows: FlowchartRows, more: Partial<FlowchartIssueArgs> = {}): FlowchartIssueArgs {
+    return {
+        model: modelOf(rows), transitions: rows.transitions, waiting: [], hiddenWith: new Set(),
+        stored: new Map(rows.states.map((row) => [row.key, row])), decisions: true, ...more,
+    };
+}
 
-describe("the open flow's issues (FB37)", () => {
-    test("a clean flow has none", () => {
-        expect(flowIssues(CLEAN)).toEqual([]);
+/** What a test reads of an issue: what a click selects, whether it blocks, what it names, the rows hiding it, and what it says. */
+const read = (issue: FlowchartIssue) => [issue.at, issue.blocking, issue.where, issue.hiding, issue.word];
+
+/** An issue of a record's source, naming a row by its key — or, the key empty, naming none. */
+const sourceIssue = (entry: string, message: string): EditIssue => ({ entry, row: none, field: none, message });
+
+/** Each kind's name, as the payload gives it. */
+const KIND_NAMES: { readonly [S in FlowchartSort]: string } = { states: "State", transitions: "Transition", lanes: "Lane", decisions: "Decision" };
+
+describe("the Flowchart's own issues", () => {
+    test("records whose every end, lane and decision resolves raise none", () => {
+        expect(flowchartIssues(argsOf(CLEAN))).toEqual([]);
     });
 
-    test("two of one key first, blocking; then, warning, a state naming a missing lane, a transition naming a missing state — once for an in-place one — and a queue naming one, each naming what a click selects", () => {
-        expect(flowIssues(TROUBLED)).toEqual([
-            { at: { kind: "state", key: "CH*" }, blocking: true, word: { issue: "duplicate", what: "state", key: "CH*" } },
-            { at: { kind: "state", key: "STR" }, blocking: false, word: { issue: "lane", state: "STR", lane: "gone" } },
-            { at: { kind: "link", key: "CH*→LOST#2" }, blocking: false, word: { issue: "end", from: "CH*", to: "LOST", missing: ["LOST"] } },
-            { at: { kind: "link", key: "OFF→OFF#3" }, blocking: false, word: { issue: "end", from: "OFF", to: "OFF", missing: ["OFF"] } },
-            { at: { kind: "trigger", key: "route" }, blocking: false, word: { issue: "queue", decision: "route", state: "AWAY" } },
-        ]);
-        // Each kind of row twice selects its row: a lane, a keyed transition, a decision.
-        const twice: Flow = { ...CLEAN, lanes: [...CLEAN.lanes, CLEAN.lanes[1]!], links: [...CLEAN.links, CLEAN.links[0]!], triggers: [...CLEAN.triggers, CLEAN.triggers[0]!] };
-        expect(flowIssues(twice).map((issue) => [issue.at, issue.blocking])).toEqual([
-            [{ kind: "lane", key: "sort" }, true], [{ kind: "link", key: "IND→CH*" }, true], [{ kind: "trigger", key: "route" }, true],
-        ]);
-    });
-
-    test("an issue of the session names the row its field and place give — the readiness's two of one key — or, naming none, the flow", () => {
-        const clash = edits.addState(CLEAN, "sort", "IND", "");
-        const readiness = edits.flowReadiness(new Map([["Sort", { draft: variant("value", clash) }]]), (d) => m.duplicateKey(d));
-        if (readiness.type !== "invalid") throw new Error("two of one key is invalid");
-        expect(issueTarget(readiness.value[0]!, clash)).toEqual({ kind: "state", key: "IND" });
-        const at = (field: string, row: bigint) => ({ entry: "Sort", row: some(row), field: some(field), message: "" });
-        expect(issueTarget(at("lanes", 1n), CLEAN)).toEqual({ kind: "lane", key: "sort" });
-        expect(issueTarget(at("links", 1n), CLEAN)).toEqual({ kind: "link", key: "CH*→CH*#1" });
-        expect(issueTarget(at("triggers", 0n), CLEAN)).toEqual({ kind: "trigger", key: "route" });
-        expect(issueTarget(at("states", 9n), CLEAN)).toBeNull();
-        expect(issueTarget(at("notes", 0n), CLEAN)).toBeNull();
-        expect(issueTarget({ entry: "Sort", row: none, field: none, message: "Changed since this edit began" }, CLEAN)).toBeNull();
-    });
-
-    test("a conflict's Go to selects the row its path is in, the draft's own cases passed over; its card names the row as the flow shows it", () => {
-        const step = { kind: "variant", tag: "value" } as const;
-        const field = (name: string) => ({ kind: "field", name }) as const;
-        const index = (at: bigint) => ({ kind: "index", index: at }) as const;
-        const into = (name: string, at: bigint, ...rest: PatchPath): PatchPath => [step, field(name), index(at), ...rest];
-        expect(conflictTarget(into("states", 1n, field("label")), CLEAN)).toEqual({ kind: "state", key: "CH*" });
-        expect(conflictTarget(into("lanes", 0n, field("label")), CLEAN)).toEqual({ kind: "lane", key: "induct" });
-        expect(conflictTarget(into("links", 1n, field("to")), CLEAN)).toEqual({ kind: "link", key: "CH*→CH*#1" });
-        expect(conflictTarget(into("triggers", 0n, field("queue")), CLEAN)).toEqual({ kind: "trigger", key: "route" });
-        // A row the flow no longer has, or a field of the flow's own: the flow.
-        expect(conflictTarget(into("states", 9n), CLEAN)).toBeNull();
-        expect(conflictTarget([step, field("notes")], CLEAN)).toBeNull();
-        expect([into("states", 1n, field("label")), into("lanes", 0n), into("links", 0n), into("triggers", 0n)].map((path) => conflictRowName(path, CLEAN)))
-            .toEqual(["Sort chutes", "Induct", "Inducting → Sort chutes", "route"]);
-        // A state with no label by its key; a row the flow no longer has, none.
-        expect([conflictRowName(into("states", 3n), TROUBLED), conflictRowName(into("states", 9n), TROUBLED)]).toEqual(["STR", undefined]);
-    });
-
-    test("a conflict's state, its node wearing the ring: a state's path in a flow of a record, or in a draft holding the flow beside its name; none for another row", () => {
-        const step = { kind: "variant", tag: "value" } as const;
-        const field = (name: string) => ({ kind: "field", name }) as const;
-        const index = (at: bigint) => ({ kind: "index", index: at }) as const;
-        const some = { kind: "variant", tag: "some" } as const;
-        // A flow of a record of flows by name: its draft the flow itself.
-        expect(conflictStateKey([step, field("states"), index(1n), field("label"), some], CLEAN)).toBe("CH*");
-        // A draft holding the flow beside its name.
-        expect(conflictStateKey([field("flow"), field("states"), index(1n), field("label")], CLEAN)).toBe("CH*");
-        expect([conflictStateKey([step, field("lanes"), index(0n), field("label")], CLEAN), conflictStateKey([step, field("states"), index(9n)], CLEAN),
-            conflictStateKey([step, field("notes")], CLEAN)]).toEqual([undefined, undefined, undefined]);
-    });
-
-    test("a Save's conflict or refusal lists each of its issues in the source's words, blocking", () => {
-        const issues = saveIssues([
-            { entry: "Sort", row: none, field: none, message: "Changed since this edit began" },
-            { entry: "Sort", row: some(0n), field: some("states"), message: "IND is in use" },
-        ], CLEAN);
-        expect(issues).toEqual([
-            { at: null, blocking: true, word: { issue: "save", message: "Changed since this edit began" } },
-            { at: { kind: "state", key: "IND" }, blocking: true, word: { issue: "save", message: "IND is in use" } },
+    test("warnings, each selecting its row: the states in No lane — naming a lane the Flowchart has none of, or none — then, in key order, a transition's end no state is keyed by, once for one in place, and a decision the Flowchart has none of", () => {
+        const rows = {
+            ...CLEAN,
+            states: [...CLEAN.states, stateRow("STR", "Stray", { lane: "gone" }), stateRow("LOOSE", "Loose")],
+            transitions: [
+                ...CLEAN.transitions,
+                transitionRow("t6", "SRD", "IND", { decision: "customs" }), transitionRow("t4", "CH*", "LOST"), transitionRow("t5", "OFF", "OFF"),
+            ],
+        };
+        expect(flowchartIssues(argsOf(rows)).map(read)).toEqual([
+            [{ kind: "state", key: "LOOSE" }, false, { sort: "states", name: "LOOSE" }, [], { issue: "lane", state: "LOOSE", lane: undefined }],
+            [{ kind: "state", key: "STR" }, false, { sort: "states", name: "STR" }, [], { issue: "lane", state: "STR", lane: "gone" }],
+            [{ kind: "link", key: "t4" }, false, { sort: "transitions", name: "CH* → LOST" }, [], { issue: "end", link: "CH* → LOST", missing: ["LOST"] }],
+            [{ kind: "link", key: "t5" }, false, { sort: "transitions", name: "OFF → OFF" }, [], { issue: "end", link: "OFF → OFF", missing: ["OFF"] }],
+            [{ kind: "link", key: "t6" }, false, { sort: "transitions", name: "SRD → IND" }, [], { issue: "decision", link: "SRD → IND", decision: "customs" }],
         ]);
     });
 
-    test("each issue in the flowchart's words", () => {
-        expect(flowIssues(TROUBLED).map((issue) => m.issueText(issue.word))).toEqual([
-            "Two states are keyed \"CH*\"",
-            "STR names the lane gone, which the flow has none of",
-            "CH* → LOST names LOST, which the flow has no state of",
-            "OFF → OFF names OFF, which the flow has no state of",
-            "route's queue names AWAY, which the flow has no state of",
+    test("a decision is checked only when the Flowchart is given decisions, and what the narrowing draws as context raises none", () => {
+        const decided = { ...CLEAN, transitions: [...CLEAN.transitions, transitionRow("t6", "SRD", "IND", { decision: "customs" })] };
+        expect(flowchartIssues(argsOf(decided, { decisions: false }))).toEqual([]);
+        const dimmed = {
+            ...CLEAN,
+            states: [...CLEAN.states, stateRow("STR", "Stray", { lane: "gone", dimmed: true })],
+            transitions: [...CLEAN.transitions, transitionRow("t4", "CH*", "LOST", { dimmed: true }), transitionRow("t6", "SRD", "IND", { decision: "customs", dimmed: true })],
+        };
+        expect(flowchartIssues(argsOf(dimmed))).toEqual([]);
+    });
+
+    test("a draft the rail hides waits in its session, listed last with the rows hiding it: a state its own; a transition its own, or — hidden with its far end — the ends the read holds no state of", () => {
+        const waiting: FlowchartWaiting[] = [
+            { sort: "states", key: "NEW", roles: stateRow("NEW", "New", { lane: "sort" }).roles },
+            { sort: "transitions", key: "t8", roles: transitionRow("t8", "IND", "SRD").roles },
+            { sort: "transitions", key: "t9", roles: transitionRow("t9", "SRD", "FAR").roles },
+            { sort: "transitions", key: "t10", roles: transitionRow("t10", "GONE", "GONE").roles },
+        ];
+        const rows = { ...CLEAN, states: [...CLEAN.states, stateRow("STR", "Stray", { lane: "gone" })] };
+        expect(flowchartIssues(argsOf(rows, { waiting, hiddenWith: new Set(["t9", "t10"]) })).map(read)).toEqual([
+            [{ kind: "state", key: "STR" }, false, { sort: "states", name: "STR" }, [], { issue: "lane", state: "STR", lane: "gone" }],
+            [{ kind: "state", key: "NEW" }, false, { sort: "states", name: "NEW" }, [{ sort: "states", key: "NEW" }], { issue: "waiting", name: "NEW" }],
+            [{ kind: "link", key: "t8" }, false, { sort: "transitions", name: "IND → SRD" }, [{ sort: "transitions", key: "t8" }], { issue: "waiting", name: "IND → SRD" }],
+            [{ kind: "link", key: "t9" }, false, { sort: "transitions", name: "SRD → FAR" }, [{ sort: "states", key: "FAR" }], { issue: "waiting", name: "SRD → FAR" }],
+            [{ kind: "link", key: "t10" }, false, { sort: "transitions", name: "GONE → GONE" }, [{ sort: "states", key: "GONE" }], { issue: "waiting", name: "GONE → GONE" }],
         ]);
-        expect(m.issueText({ issue: "end", from: "A", to: "B", missing: ["A", "B"] })).toBe("A → B names A and B, which the flow has no state of");
-        expect(m.issueText({ issue: "save", message: "Changed since this edit began" })).toBe("Changed since this edit began");
+    });
+});
+
+describe("each record's session's issues", () => {
+    test("the app's check refusing a draft, and a Save's conflict or refusal while it stands: blocking, each naming its row as the Flowchart names it — or, naming none, the record — in the sessions' order", () => {
+        const sessions: FlowchartIssueSession[] = [
+            {
+                kind: "states",
+                session: { status: "idle", issues: [sourceIssue("SRD", "Not raised while no Save stands")], readiness: variant("incomplete", [sourceIssue("NEW", "Give the state its flow")]) },
+            },
+            {
+                kind: "transitions",
+                session: { status: "conflict", issues: [sourceIssue("t2", "Another session changed CH* → SRD"), sourceIssue("", "The transitions changed since they were read")], readiness: variant("ready", null) },
+            },
+            { kind: "lanes", session: { status: "rejected", issues: [sourceIssue("sort", "The lanes take no change today")], readiness: variant("ready", null) } },
+            {
+                kind: "decisions",
+                session: { status: "applying", issues: [sourceIssue("route", "Not raised while a Save goes on")], readiness: variant("invalid", [sourceIssue("route", "A decision needs an owner")]) },
+            },
+            // A record of the history that is none of the Flowchart's kinds raises nothing here.
+            { kind: "notes", session: { status: "conflict", issues: [sourceIssue("", "Never listed")], readiness: variant("ready", null) } },
+        ];
+        const waiting: FlowchartWaiting[] = [{ sort: "states", key: "NEW", roles: stateRow("NEW", "New", { lane: "sort" }).roles }];
+        expect(sessionIssues(sessions, argsOf(CLEAN, { waiting }), (sort) => KIND_NAMES[sort]).map(read)).toEqual([
+            [{ kind: "state", key: "NEW" }, true, { sort: "states", name: "NEW" }, [{ sort: "states", key: "NEW" }], { issue: "ready", message: "Give the state its flow" }],
+            [{ kind: "link", key: "t2" }, true, { sort: "transitions", name: "CH* → SRD" }, [], { issue: "save", message: "Another session changed CH* → SRD" }],
+            [null, true, { sort: undefined, name: "Transition" }, [], { issue: "save", message: "The transitions changed since they were read" }],
+            [{ kind: "lane", key: "sort" }, true, { sort: "lanes", name: "Sort" }, [], { issue: "save", message: "The lanes take no change today" }],
+            [{ kind: "trigger", key: "route" }, true, { sort: "decisions", name: "R" }, [], { issue: "ready", message: "A decision needs an owner" }],
+        ]);
+    });
+});
+
+describe("each issue in the Flowchart's words", () => {
+    test("an end, a lane, a decision, a draft waiting, and the source's own words; where it is", () => {
+        const m = words.m;
+        expect(m.issueText({ issue: "end", link: "SCN → GONE", missing: ["GONE"] })).toBe("SCN → GONE names GONE, and e3 holds no state of that key");
+        expect(m.issueText({ issue: "end", link: "OFF → LOST", missing: ["OFF", "LOST"] })).toBe("OFF → LOST names OFF and LOST, and e3 holds no state of either key");
+        expect(m.issueText({ issue: "lane", state: "LOOSE", lane: undefined })).toBe("LOOSE names no lane");
+        expect(m.issueText({ issue: "lane", state: "STR", lane: "gone" })).toBe("STR names the lane gone, which the flowchart has none of");
+        expect(m.issueText({ issue: "decision", link: "SRD → IND", decision: "customs" })).toBe("SRD → IND names the decision customs, which the flowchart has none of");
+        expect(m.issueText({ issue: "waiting", name: "NEW" })).toBe("NEW has an unsaved change the rail hides: Save writes it with the rest");
+        expect(m.issueText({ issue: "ready", message: "Give the state its flow" })).toBe("Give the state its flow");
+        expect(m.issueText({ issue: "save", message: "The lanes take no change today" })).toBe("The lanes take no change today");
+        expect(m.issueWhere({ kind: "Transition", name: "CH* → SRD" })).toBe("Transition · CH* → SRD");
+        expect(m.issueWhere({ kind: undefined, name: "Transition" })).toBe("Transition");
+    });
+});
+
+describe("a conflict's value as the canvas names that row (#1503)", () => {
+    const model = modelOf(rowsOf({
+        lanes: [laneRow("induct", "Induct", 1), laneRow("sort", "Sort", 2)],
+        states: [stateRow("IND", "Inducting", { lane: "induct" }), stateRow("SRD", "Sorted", { lane: "sort" })],
+        transitions: [transitionRow("t1", "IND", "SRD", { decision: "route" })],
+        decisions: [decisionRow("route", "Route by zone")],
+    }));
+    const fields: FlowchartKeyFields = { lane: "phase", ends: ["src", "dst"], decision: "trigger" };
+    const at = (...names: string[]): PatchPath => names.map((name) => ({ kind: "field", name }) as const);
+
+    test("a state's lane by the lane's label, a transition's ends by their states' labels and its decision by the decision's, through an Option's case; a key the flowchart holds no row of, itself", () => {
+        expect(conflictValueName("states", at("phase"), "sort", fields, model)).toBe("Sort");
+        expect(conflictValueName("transitions", at("src"), "IND", fields, model)).toBe("Inducting");
+        expect(conflictValueName("transitions", at("dst"), "SRD", fields, model)).toBe("Sorted");
+        expect(conflictValueName("transitions", at("trigger"), some("route"), fields, model)).toBe("Route by zone");
+        expect(conflictValueName("transitions", [{ kind: "field", name: "trigger" }, { kind: "variant", tag: "some" }], "route", fields, model)).toBe("Route by zone");
+        expect(conflictValueName("states", at("phase"), "hold", fields, model)).toBe("hold");
+    });
+
+    test("any other value reads as it is: another field, a decision cleared, a path deeper than one field, a kind naming no key, a flowchart without the role", () => {
+        expect(conflictValueName("states", at("name"), "sort", fields, model)).toBeUndefined();
+        expect(conflictValueName("transitions", at("trigger"), none, fields, model)).toBeUndefined();
+        expect(conflictValueName("states", at("phase", "code"), "sort", fields, model)).toBeUndefined();
+        expect(conflictValueName("lanes", at("phase"), "sort", fields, model)).toBeUndefined();
+        expect(conflictValueName("states", at("phase"), "sort", { lane: undefined, ends: undefined, decision: undefined }, model)).toBeUndefined();
     });
 });
