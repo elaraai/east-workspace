@@ -410,7 +410,10 @@ component, nothing in east-ui.
   the Roster, the Allocation: FR9) hears what main and an open pane open
   through `FrameBottomPanel`: `SliceEditPopover` draws in a slot in the flow
   over the strip, as the Sheet's action bar stands, what is above giving way,
-  rather than in a popover; the toolbar's stay views. Every builder has a phone-sized example
+  rather than in a popover; the toolbar's stay views. `phoneViews` opens them
+  as views instead, over the whole builder (the query builder, `Query Builder
+  Phone Spec.md`), and a dock's `phoneTabs` gives the strip a tab for each of a
+  single pane's own tabs. Every builder has a phone-sized example
   (a 390px box) that the showcase's `builder-frame-phone.spec.ts` measures.
 - **Styles.** The `builderFrame` slot recipe owns every style the frame has.
   The frame sets data attributes (`data-builder-frame`, `data-frame-slot`,

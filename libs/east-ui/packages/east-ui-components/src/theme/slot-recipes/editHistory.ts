@@ -36,7 +36,7 @@ import { wholeOrNone } from "../../style/whole-or-none.js";
 export const editHistorySlotRecipe = defineSlotRecipe({
     className: "elara-edit-history",
     slots: ["root", "actions", "status", "button", "issues", "conflicts", "conflictsCount", "error", "notice", "bannerIssues", "bannerIssue",
-        "summary", "changes", "live", "ask", "askHead", "askTitle", "askBody", "askActions", "askButton"],
+        "summary", "changes", "live", "issuesCount", "ask", "askHead", "askTitle", "askBody", "askActions", "askButton"],
     base: {
         root: {
             flexShrink: "0",
@@ -67,6 +67,7 @@ export const editHistorySlotRecipe = defineSlotRecipe({
              * `--rule` and `--ink-5` while they don't, never faded; Save `--brand-d` while it would save. */
             "[data-history-form=phone] &": {
                 width: "44px", height: "44px", minWidth: "44px", padding: "0", borderRadius: "md", borderWidth: "1px",
+                "&:has([data-history-issues])": { width: "auto", paddingX: "6px" },
                 borderColor: "border.strong", background: "bg.surface", color: "fg", "& svg": { fontSize: "16px" },
                 "&:disabled, &[aria-disabled=true]": { borderColor: "border.subtle", color: "fg.faint", opacity: 1 },
                 "&[data-ready]": { background: "brand.solid", borderColor: "brand.solid", color: "brand.contrast" },
@@ -116,6 +117,11 @@ export const editHistorySlotRecipe = defineSlotRecipe({
                 height: "24px", display: "inline-flex", alignItems: "center", paddingX: "{spacing.2}", borderRadius: "sm",
                 background: "brandTint", color: "brandPressed", fontWeight: "600",
             },
+        },
+        /* A phone's Issues while any stands (FR6.3, QP6): `--warn`, then the count in mono 11/600. */
+        issuesCount: {
+            display: "inline-flex", alignItems: "center", gap: "2px", fontFamily: "mono", fontSize: "11px", fontWeight: "600", color: "fg.warning",
+            "& svg": { color: "status.warn" },
         },
         /* Save's live dot while it is out: an echo of the dot, as an auto save's. */
         live: {

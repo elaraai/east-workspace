@@ -3,7 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useRef, useState, useEffect, useLayoutEffect, useCallback, type CSSProperties } from "react";
+import { memo, useContext, useMemo, useRef, useState, useEffect, useLayoutEffect, useCallback, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { keptRead } from "../../platform/kept.js";
 import {
@@ -17,7 +18,7 @@ import {
     type TableRootProps,
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCheck, faChevronUp, faChevronDown, faChevronLeft, faChevronRight, faAnglesDown, faThumbtack, faCaretDown } from "@fortawesome/free-solid-svg-icons";
+import { faArrowLeft, faCheck, faThumbtack as faPinned, faChevronUp, faChevronDown, faChevronLeft, faChevronRight, faAnglesDown, faThumbtack, faCaretDown } from "@fortawesome/free-solid-svg-icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
     useReactTable,
@@ -52,6 +53,7 @@ import { useTablePagedRows, type TablePagedSourceValue, type TableRowValue } fro
 import { windowedSourceOf } from "../windowed-source.js";
 import { useContainerWidth } from "../../contracts/adaptive.js";
 import { NARROW_FRAME } from "../../layout/builder-frame/place.js";
+import { FrameOverlaySlot } from "../../layout/builder-frame/overlay-slot.js";
 import { fitPhoneColumns, measureText } from "./phone-fit.js";
 import { useFormatters, type Formatters, type TickFormatOpt } from "../../format/index.js";
 
@@ -271,6 +273,10 @@ export interface EastChakraTableProps {
     enableColumnResizing?: boolean;
     /** Storage key for persisting sort/column state in localStorage. Omit for ephemeral state. */
     storageKey: string;
+    /** At a phone's width, what its host shows under the pager and over the columns: a stale result's band (QP14). */
+    phoneBand?: ReactNode;
+    /** At a phone's width, its rows read again: the headers drawn, a 12 bar in each cell (QP14). */
+    phoneReading?: boolean | undefined;
 }
 
 /** Paged transport state (#576) — what the chrome reports, and what disables
@@ -451,6 +457,8 @@ const TableCore = function TableCore({
     hidePaginationBand,
     rows: sourceRows,
     transport,
+    phoneBand,
+    phoneReading = false,
 }: EastChakraTableProps & {
     hidePaginationBand?: boolean;
     /** The resolved row collection — the whole inline array, or the loaded
@@ -882,6 +890,8 @@ const TableCore = function TableCore({
     // ── The phone's window over the columns ───────────────────────────────
     const [phoneFirst, setPhoneFirst] = useState(0);
     const [phoneMenu, setPhoneMenu] = useState(false);
+    // A frame's view over the builder, where its Columns opens (QP34); with none, the columns list in place.
+    const overlaySlot = useContext(FrameOverlaySlot);
     const phonePin = phone ? ([...value.frozen][0] ?? value.columns[0]?.key) : undefined;
     const phoneOthers = useMemo(() => value.columns.filter(c => c.key !== phonePin), [value.columns, phonePin]);
     // Fonts arriving move what the columns measure.
@@ -1316,31 +1326,61 @@ const TableCore = function TableCore({
                         <Box css={tableCustomSlots.phonePagerBand}>
                             <chakra.button type="button" css={tableCustomSlots.phonePagerRange} aria-expanded={phoneMenu} data-table-pager-range="" onClick={() => setPhoneMenu(!phoneMenu)}>
                                 <span>Columns <b>{range}</b> of {words.number(phoneOthers.length)}</span>
-                                <FontAwesomeIcon icon={faCaretDown} />
+                                <FontAwesomeIcon icon={faChevronDown} />
                             </chakra.button>
                             <chakra.button type="button" css={tableCustomSlots.phonePagerStep} aria-label="Previous column" aria-disabled={phoneFit.first <= 0 ? true : undefined}
                                 onClick={() => { if (phoneFit.first > 0) setPhoneFirst(phoneFit.first - 1); }}><FontAwesomeIcon icon={faChevronLeft} /></chakra.button>
                             <chakra.button type="button" css={tableCustomSlots.phonePagerStep} aria-label="Next column" aria-disabled={phoneFit.first >= phoneFit.lastFirst ? true : undefined}
                                 onClick={() => { if (phoneFit.first < phoneFit.lastFirst) setPhoneFirst(phoneFit.first + 1); }}><FontAwesomeIcon icon={faChevronRight} /></chakra.button>
                         </Box>
-                        {phoneMenu && <Box css={tableCustomSlots.phoneColumns} data-table-pager-columns="">
-                            {phoneOthers.map((col, i) => {
-                                const shown = phoneInView.has(col.key);
-                                return (
-                                    <chakra.button key={col.key} type="button" css={tableCustomSlots.phoneColumn} data-in-view={shown ? "" : undefined} onClick={() => {
-                                        if (i < phoneFit.first) setPhoneFirst(i);
-                                        else if (i >= phoneFit.first + phoneFit.widths.length) setPhoneFirst(i);
-                                        setPhoneMenu(false);
-                                    }}>
-                                        <span>{getSomeorUndefined(col.header) ?? col.key}</span>
-                                        {shown && <FontAwesomeIcon icon={faCheck} />}
-                                    </chakra.button>
-                                );
-                            })}
-                        </Box>}
+                        {phoneMenu && (() => {
+                            const kindOf = (type: string) => type === "Integer" ? "whole number" : type === "Float" ? "number" : type === "String" ? "text"
+                                : type === "DateTime" ? "date" : type === "Boolean" ? "yes or no" : type.toLowerCase();
+                            const pinnedCol = value.columns.find(c => c.key === phonePin);
+                            const pinnedName = pinnedCol === undefined ? "" : getSomeorUndefined(pinnedCol.header) ?? pinnedCol.key;
+                            const list = (
+                                <Box css={tableCustomSlots.phoneColumns} data-table-pager-columns="">
+                                    {pinnedCol !== undefined && overlaySlot !== null && (
+                                        <Box css={tableCustomSlots.phoneColumn} data-pinned="">
+                                            <Box as="span" css={tableCustomSlots.phoneColumnMark}><FontAwesomeIcon icon={faPinned} /></Box>
+                                            <Box as="span" css={tableCustomSlots.phoneColumnText}><Box as="span" css={tableCustomSlots.phoneColumnName}>{pinnedName}</Box><Box as="span" css={tableCustomSlots.phoneColumnKind}>{kindOf(pinnedCol.valueType.type)}</Box></Box>
+                                            <Box as="span" css={tableCustomSlots.phoneColumnKind}>pinned</Box>
+                                        </Box>
+                                    )}
+                                    {phoneOthers.map((col, i) => {
+                                        const shown = phoneInView.has(col.key);
+                                        return (
+                                            <chakra.button key={col.key} type="button" css={tableCustomSlots.phoneColumn} data-in-view={shown ? "" : undefined} onClick={() => {
+                                                if (i < phoneFit.first) setPhoneFirst(i);
+                                                else if (i >= phoneFit.first + phoneFit.widths.length) setPhoneFirst(i);
+                                                setPhoneMenu(false);
+                                            }}>
+                                                <Box as="span" css={tableCustomSlots.phoneColumnMark} />
+                                                <Box as="span" css={tableCustomSlots.phoneColumnText}><Box as="span" css={tableCustomSlots.phoneColumnName}>{getSomeorUndefined(col.header) ?? col.key}</Box><Box as="span" css={tableCustomSlots.phoneColumnKind}>{kindOf(col.valueType.type)}</Box></Box>
+                                                {shown && <Box as="span" css={tableCustomSlots.phoneColumnCheck}><FontAwesomeIcon icon={faCheck} /></Box>}
+                                            </chakra.button>
+                                        );
+                                    })}
+                                </Box>
+                            );
+                            if (overlaySlot === null) return list;
+                            return createPortal(
+                                <Box css={tableCustomSlots.phoneView} data-table-columns-view="" role="dialog" aria-label="Columns">
+                                    <Box css={tableCustomSlots.phoneViewHead}>
+                                        <chakra.button type="button" css={tableCustomSlots.phoneViewBack} aria-label="Back to the result" onClick={() => setPhoneMenu(false)}><FontAwesomeIcon icon={faArrowLeft} /></chakra.button>
+                                        <Box as="span" css={tableCustomSlots.phoneViewTitle}>Columns</Box>
+                                        <Box as="span" css={tableCustomSlots.phoneViewContext}>{range} of {words.number(phoneOthers.length)} in view</Box>
+                                    </Box>
+                                    {list}
+                                    <Box css={tableCustomSlots.phoneViewFoot}>{pinnedName} stays pinned. Tap a column to bring it into view.</Box>
+                                </Box>,
+                                overlaySlot,
+                            );
+                        })()}
                     </Box>
                 );
             })()}
+            {phone && phoneBand}
             <ChakraTable.Root
                 {...props}
                 size={tableSize}
@@ -1907,6 +1947,13 @@ const TableCore = function TableCore({
                                         handleCellDoubleClick(rowIndex, path, columnKey, cellValue);
                                     } : undefined;
 
+                                    if (phone && phoneReading) {
+                                        return (
+                                            <ChakraTable.Cell key={cell.id} css={tableSlotStyles.cell} style={cellStyle} {...phoneAttrs}>
+                                                <Skeleton css={tableCustomSlots.phoneBar} style={{ width: `${55 + ((virtualRow.index * 3 + cell.column.getIndex() * 7) % 5) * 10}%` }} aria-hidden />
+                                            </ChakraTable.Cell>
+                                        );
+                                    }
                                     if (isRowLoading) {
                                         return (
                                             <ChakraTable.Cell key={cell.id} css={tableSlotStyles.cell} style={cellStyle}>
@@ -2295,4 +2342,4 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
             </Box>
         </Box>
     );
-}, (prev, next) => tableRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+}, (prev, next) => tableRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.phoneBand === next.phoneBand && prev.phoneReading === next.phoneReading);

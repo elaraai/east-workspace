@@ -60,7 +60,7 @@ import {
     useTrackedEvaluation,
     type BuilderFrameDock, type EditIssue, type EditSession, type EditingWords,
 } from "@elaraai/east-ui-components";
-import { keptRead } from "@elaraai/east-ui-components/internal";
+import { LoadingLine, keptRead } from "@elaraai/east-ui-components/internal";
 import { useE3ConfigOptional } from "../platform/e3-config.js";
 import { SlotAutocomplete } from "./autocomplete.js";
 import { DatasetsTab, type SourceRole } from "./datasets-tab.js";
@@ -70,13 +70,15 @@ import {
 } from "./hooks.js";
 import { downloadResult } from "./downloads.js";
 import { describeQuery, type QueryWords } from "./model/words.js";
+import type { Card } from "./model/cards.js";
 import type { QueryResult, QueryRoot } from "./one-shot.js";
 import { LibraryTab } from "./library-tab.js";
 import { newQuery, useOpenQuery, type OpenQueryWrite, type QueryArrival, type QueryOpen } from "./open-query.js";
 import { usePartStyles, type Styles } from "./parts.js";
 import { QueryTabPanel } from "./query-tab.js";
 import { QueryLiveBand, phoneQueryToolbar } from "./phone.js";
-import { QueryResults, ResultStrips, pickedView, resultToolbarItems, type DownloadFormat, type ResultView } from "./results.js";
+import { QueryPhoneView } from "./phone-steps.js";
+import { QueryResults, ResultStrips, pickedView, resultFooter, resultToolbarItems, type DownloadFormat, type ResultView } from "./results.js";
 import { canonicalProgram, planRun, useQueryRun, type RunPlan } from "./run.js";
 import { QuerySavePopover } from "./save-popover.js";
 import {
@@ -215,7 +217,6 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     const bounds = useCallback(() => element, [element]);
     // A phone's frame: the builder's own width, as the frame's is (`Query Builder Phone Spec.md`).
     const widthRef = useRef<HTMLDivElement | null>(null);
-    const setRoot = useCallback((el: HTMLDivElement | null) => { widthRef.current = el; setElement(el); }, []);
     const width = useContainerWidth(widthRef);
     const phone = width > 0 && width <= NARROW_FRAME;
 
@@ -258,7 +259,11 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
             root: result.inputs.map(input => ({ name: input.name, path: input.path })), saved_at: new Date(),
         });
     }, [remember, root]);
-    const { state: run, run: start } = useQueryRun(root, seams, onRan);
+    const { state: lastRunState, run: start } = useQueryRun(root, seams, onRan);
+    // A query never run has nothing to read on a phone, whatever the query before it gave (QP15, 5b).
+    const ranQuery = useRef<string | undefined>(undefined);
+    const neverRun = phone && ranQuery.current !== sourceId;
+    const run = useMemo((): typeof lastRunState => (neverRun ? { status: "idle" } : lastRunState), [neverRun, lastRunState]);
     const summaries = useQuerySummaries(root, call);
     const saved = useMemo(() => savedOffers(record, root), [record, root]);
     const onOpenSaved = useCallback((name: string) => writeOpen(variant("saved", name)), [writeOpen]);
@@ -301,8 +306,33 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     // A run takes the jq as typed: left first, one gesture.
     const onRun = useCallback(() => {
         leaveJq();
+        ranQuery.current = sourceId;
         start(planRun(editor, root));
-    }, [leaveJq, start, editor, root]);
+    }, [leaveJq, start, editor, root, sourceId]);
+    // Run in the Query view closes it onto the fresh result; with an issue it stays, the issue's clause open (QP29).
+    const onRunFromView = useCallback(() => {
+        const issue = session.readiness.type === "ready" ? session.issues[0] : session.readiness.value[0];
+        if (issue !== undefined) {
+            setFocus({ entry: issue.entry, slot: issue.field.type === "some" ? issue.field.value : undefined });
+            return;
+        }
+        onRun();
+        setPane({ collapsed: true });
+    }, [session, onRun, setPane]);
+    // Starting a query opens its Query view; opening a saved one lands on its result (QP38).
+    useEffect(() => {
+        if (!phone) return undefined;
+        const toResult = open.type === "saved" || open.value.from.type === "some";
+        let live = true;
+        // After the frame closes a pane that starts to overlay, which it tells through a microtask.
+        queueMicrotask(() => {
+            if (!live) return;
+            if (!toResult) setTab("query");
+            setPane({ collapsed: toResult });
+        });
+        return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a phone's frame, and each query opened.
+    }, [phone, sourceId]);
     // Opening a saved query runs it, and so does opening a recent run as a new query; starting a new one does not.
     const ranFor = useRef<string | undefined>(undefined);
     useEffect(() => {
@@ -334,9 +364,22 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     const [chosen, setChosen] = useState<{ n: number; view: ResultView } | undefined>(undefined);
     const [noted, setNoted] = useState<{ n: number; text: string } | undefined>(undefined);
     const n = run.status === "idle" ? 0 : run.n;
+    // The run the rows a phone keeps under a failed one are from (QP14).
+    const lastRun = useRef<number | undefined>(undefined);
+    const lastRunAt = useRef<Date | undefined>(undefined);
+    const lastCount = useRef<string | undefined>(undefined);
+    const lastView = useRef<ResultView | undefined>(undefined);
+    if (run.status === "idle") {
+        lastRun.current = undefined; lastRunAt.current = undefined; lastCount.current = undefined; lastView.current = undefined;
+    } else if (run.status === "done" && run.output !== undefined) {
+        lastRun.current = run.n; lastRunAt.current = run.at; lastCount.current = resultFooter(run, words).count;
+    }
     // The view chosen and the note last until the next run.
     const view = chosen !== undefined && chosen.n === n ? chosen.view : picked;
     const note = noted !== undefined && noted.n === n ? noted.text : undefined;
+    if (view !== undefined && output !== undefined) lastView.current = view;
+    // A phone keeps the last result under a run that goes or gave none (QP14), and so its view and its count.
+    const phoneView = output !== undefined ? view : lastView.current;
     const onView = useCallback((next: ResultView) => setChosen({ n, view: next }), [n]);
     const onDismissNote = useCallback(() => setNoted(undefined), []);
     const onDownload = useCallback((format: DownloadFormat) => {
@@ -406,6 +449,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
         }
     }, [leaveJq, current, gesture, session, editingWords, m]);
     const trigger = useMemo(() => <Button size="sm" variant="outline" data-query-save-open="">{m.saveAs()}</Button>, [m]);
+    const phoneTrigger = useMemo(() => <Button size="md" variant="outline" css={styles.phoneSave} data-query-save-open="">{m.saveAs()}</Button>, [m, styles]);
     const savePopover = (
         <QuerySavePopover open={naming} onOpenChange={setNaming} trigger={trigger}
             name={editor.header.name} taken={taken} description={editor.header.description} generated={generated} onSave={onSave} />
@@ -442,7 +486,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     // ── The layout: the builder frame (#1125) ───────────────────────────
     const history = historyToolbarItem({ session, words: editingWords, editing: false, onIssue, onAction });
     const toolbar = phone ? phoneQueryToolbar({
-        history, state: run, view: output === undefined ? undefined : view, onView, onDownload, onRun, name: editor.header.name, gives: editor.gives?.text, width, words,
+        history, state: run, view: phoneView, keptCount: lastCount.current, onView, onDownload, onRun, name: editor.header.name, width, words,
     }) : queryToolbarItems({
         history,
         copyText: () => editor.program,
@@ -455,26 +499,32 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
         words,
         styles,
     });
+    const openedNotice = phone && arrival !== undefined && (open.type === "saved" || open.value.from.type === "some")
+        ? editor.notices.find((notice) => notice.text === arrival.text) : undefined;
+    // A phone's one notice over the strip (QP16): the newest of a download's, a save's and the query opened's.
     const controls = resultToolbarItems({ view: output === undefined ? undefined : view, picked, onView, onDownload, words, styles, seg });
     const tabs = (["query", "datasets", "library"] as const).map((key) => ({
         key,
         label: m.tab({ tab: key }),
         body: key === "query"
-            ? <QueryTabPanel editor={editor} ps={ps} workspace={workspace} focus={focus?.entry} />
+            ? phone
+                ? <QueryPhoneView editor={editor} ps={ps} workspace={workspace} focus={focus?.entry} elsewhere={openedNotice} save={save}
+                    description={editor.header.description.type === "some" ? editor.header.description.value : generated} running={run.status === "running"} onRun={onRunFromView} drafted={session.pending > 0} onOpenLibrary={() => setTab("library")}
+                    saveButton={<QuerySavePopover phone pending={session.pending} open={naming} onOpenChange={setNaming} trigger={phoneTrigger}
+                        name={editor.header.name} taken={taken} description={editor.header.description} generated={generated} onSave={onSave} />} />
+                : <QueryTabPanel editor={editor} ps={ps} workspace={workspace} focus={focus?.entry} />
             : (
-                <Box css={styles.tab} data-query-tab={key}>
+                <Box css={styles.tab} data-query-tab={key} data-query-phone-tab={phone ? "" : undefined}>
                     {key === "datasets"
                         // Each tab's library has an id of its own, under the builder's keys.
                         ? <DatasetsTab root={root} reads={reads} onStart={onStart} id={`${recentKey}.datasets`} words={words} storageKey={`${storageKey}.datasets`} />
                         : <LibraryTab record={record} recent={recent} root={root} open={open} onOpenSaved={onOpenFromLibrary} onOpenRun={onOpenRun}
-                            id={`${recentKey}.library`} ps={ps} storageKey={`${storageKey}.library`} />}
+                            id={`${recentKey}.library`} ps={ps} storageKey={`${storageKey}.library`} phoneWidth={phone ? width : undefined} />}
+                    {phone && <Box css={styles.phoneTabHint} data-query-tab-hint="">{key === "datasets" ? m.tapDataset() : m.tapQuery()}</Box>}
                 </Box>
             ),
     }));
     // The pane: its open tab and its collapse, the builder's to drive.
-    const openedNotice = phone && arrival !== undefined && (open.type === "saved" || open.value.from.type === "some")
-        ? editor.notices.find((notice) => notice.text === arrival.text) : undefined;
-    // A phone's one notice over the strip (QP16): the newest of a download's, a save's and the query opened's.
     const liveBand = !phone ? undefined
         : note !== undefined ? <QueryLiveBand text={note} saved={false} onDismiss={onDismissNote} words={words} />
         : savedAt !== undefined ? <QueryLiveBand text={m.savedNotice({ name: editor.header.name, time: words.formatters.time(savedAt) })} saved onDismiss={() => setSavedAt(undefined)} words={words} />
@@ -482,7 +532,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
         : undefined;
     const queryPane: BuilderFrameDock = {
         phoneTabs: [
-            { key: "query", label: m.tab({ tab: "query" }), icon: "diagram-project", detail: words.formatters.number(editor.query.steps.length) },
+            { key: "query", label: m.tab({ tab: "query" }), icon: "diagram-project", detail: editor.query.steps.length === 0 ? undefined : words.formatters.number(editor.query.steps.length) },
             { key: "datasets", label: m.tab({ tab: "datasets" }), icon: "database", detail: words.formatters.number(root.entries.length) },
             { key: "library", label: m.tab({ tab: "library" }), icon: "layer-group", detail: words.formatters.number(record.size + recent.length) },
         ],
@@ -498,30 +548,65 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
         onCollapsedChange,
     };
     const popover = editor.popover;
+    const shownRun = lastRun.current;
+    const phoneStrips = useMemo(() => (phone ? <ResultStrips state={run} stale={stale} note={note} onDismissNote={onDismissNote} onRunAgain={onRun} words={words} phone
+        onShowProblem={onShowQuery} shownRun={shownRun} shownAt={lastRunAt.current} /> : undefined), [phone, run, stale, note, onDismissNote, onRun, words, onShowQuery, shownRun]);
+    // A picker's view on a phone (QP34): what it is for; Add a step's Quick add's five first, each row its name alone.
+    const phoneContext = useMemo(() => {
+        if (popover === undefined) return undefined;
+        const ref = popover.slot.ref;
+        if (ref.kind === "add-step") {
+            return ref.at === undefined || ref.at >= editor.cards.length ? m.atEnd() : m.beforeStep({ n: words.formatters.bare(ref.at + 1) });
+        }
+        const card = editor.cards.find((c) => c.stepId === ref.stepId);
+        if (card === undefined) return undefined;
+        const step = words.formatters.bare(card.index + 1);
+        if (ref.condId === undefined) return m.stepContext({ n: step });
+        const conds: string[] = [];
+        const walk = (lines: Card["lines"]) => { for (const line of lines) {
+            for (const part of line.parts) if (part.t === "slot" && part.slot.condId !== undefined && !conds.includes(part.slot.condId)) conds.push(part.slot.condId);
+            walk(line.lines ?? []);
+        } };
+        walk(card.lines);
+        return m.conditionContext({ n: step, c: words.formatters.bare(conds.indexOf(ref.condId) + 1) });
+    }, [popover, editor.cards, m, words]);
+    const phoneItems = useMemo(() => {
+        if (!phone || popover === undefined || popover.slot.ref.kind !== "add-step") return undefined;
+        const quick = new Set(editor.quick.map((option) => option.icon));
+        const shown = popover.items.map((item) => (item.disabled === true ? item : { ...item, detail: undefined as unknown as string }));
+        return [
+            ...shown.filter((item) => item.icon !== undefined && quick.has(item.icon)).map((item) => ({ ...item, group: m.quickAddGroup() })),
+            ...shown.filter((item) => item.icon === undefined || !quick.has(item.icon)).map((item) => ({ ...item, group: m.moreStepsGroup() })),
+        ];
+    }, [phone, popover, editor.quick, m]);
     return (
-        <Box ref={setRoot} css={styles.root} data-query-builder="" data-query-open={sourceId} data-query-naming={naming ? "" : undefined}
+        <Box ref={setElement} css={styles.root} data-query-builder="" data-query-open={sourceId} data-query-naming={naming ? "" : undefined}
             data-query-focus={focus === undefined ? undefined : focus.entry} onKeyDown={onKeyDown}>
             <QueryDropTarget id={id} refusal={dropRefusal} steps={dropSteps} onOpen={onDrop} words={words}>
                 <BuilderFrame
+                    ref={widthRef}
                     storageKey={`${storageKey}.frame`}
                     toolbar={toolbar}
                     banners={<>
                         {/* The session's: a query saved elsewhere under these edits, which its Discard takes; a Save refused. */}
                         <SessionBanners session={session} words={editingWords} onAction={onAction} />
-                        <ResultStrips state={run} stale={stale} note={note} onDismissNote={onDismissNote} onRunAgain={onRun} words={words} phone={phone} />
+                        {!phone && <ResultStrips state={run} stale={stale} note={note} onDismissNote={onDismissNote} onRunAgain={onRun} words={words} />}
                     </>}
                     start={queryPane}
                     phoneViews
-                    footer={phone ? liveBand : <QueryStatusLine check={editor.check} gives={editor.gives} save={save} name={editor.header.name} />}
+                    footer={phone ? <>{run.status === "running" && <LoadingLine value={{ kind: "loading", text: m.readingShort(), short: m.readingShort() }} shown form="short" />}{liveBand}</> : <QueryStatusLine check={editor.check} gives={editor.gives} save={save} name={editor.header.name} />}
                 >
-                    <QueryResults state={run} stale={stale} view={view ?? "table"} words={words} storageKey={storageKey} controls={controls} phone={phone} />
+                    <QueryResults state={run} stale={stale} view={(phone ? phoneView : view) ?? "table"} words={words} storageKey={storageKey} controls={controls} phone={phone}
+                        strips={phoneStrips} />
                 </BuilderFrame>
             </QueryDropTarget>
             {popover !== undefined && element !== null && (
                 <SlotAutocomplete key={popover.generation} anchor={popover.slot.anchor} bounds={element}
-                    label={popover.label} placeholder={popover.placeholder} hint={popover.hint} empty={popover.empty} keys={popover.keys}
-                    items={popover.items} text={popover.text} onText={popover.onText} initialActive={popover.initialActive}
-                    onPick={popover.onPick} onClose={popover.onClose} />
+                    label={popover.label} placeholder={phone && popover.slot.ref.kind === "field" ? m.filterSlot({ what: "fields" }) : popover.placeholder}
+                    hint={phone && popover.slot.ref.kind === "add-step" ? m.stepFitNote() : popover.hint} empty={popover.empty} keys={popover.keys}
+                    items={phoneItems ?? popover.items} text={popover.text} onText={popover.onText} initialActive={popover.initialActive}
+                    onPick={popover.onPick} onClose={popover.onClose}
+                    view={phone ? element.querySelector<HTMLElement>('[data-frame-slot="overlay"]') : undefined} backLabel={m.backToStep()} context={phone ? phoneContext : undefined} noFilter={phone && popover.slot.ref.kind === "add-step"} />
             )}
         </Box>
     );

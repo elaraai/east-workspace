@@ -61,6 +61,12 @@ export type NamePopoverProps = SliceEditPopoverAnchor & {
     cancel: string;
     /** Further fields, under the name. */
     children?: ReactNode;
+    /** The name field's label, above it: a phone's view. */
+    nameLabel?: string | undefined;
+    /** The name field's help under it, while no hint shows. */
+    nameHelp?: string | undefined;
+    /** The commit as the Primary: a phone's view. */
+    primary?: boolean | undefined;
     /** Makes the thing under the name — resolves to what refused it, or `undefined` once it is made. */
     onConfirm: (name: string) => Promise<string | undefined>;
 };
@@ -72,7 +78,7 @@ export type NamePopoverProps = SliceEditPopoverAnchor & {
  * @returns The trigger or the anchor, and the popover while open
  */
 export function NamePopover(props: NamePopoverProps) {
-    const { open, onOpenChange, label, placeholder, initial, taken, missing, nameTaken, confirm, cancel, children, onConfirm } = props;
+    const { open, onOpenChange, label, placeholder, initial, taken, missing, nameTaken, confirm, cancel, children, onConfirm, nameLabel, nameHelp, primary = false } = props;
     const hangs: SliceEditPopoverAnchor = props.trigger !== undefined ? { trigger: props.trigger } : { anchor: props.anchor };
     const edit = useSlotRecipe({ key: "sliceEdit" })() as Styles;
     const input = useRecipe({ key: "input" })({}) as SystemStyleObject;
@@ -119,7 +125,7 @@ export function NamePopover(props: NamePopoverProps) {
                     <ChakraButton type="button" variant="outline" size="xs" disabled={busy} onClick={() => onOpenChange(false)}>
                         {cancel}
                     </ChakraButton>
-                    <ChakraButton type="submit" form={`${id}-form`} variant="outline" size="xs" loading={busy}
+                    <ChakraButton type="submit" form={`${id}-form`} variant={primary ? "solid" : "outline"} size="xs" loading={busy}
                         disabled={trimmed === "" || isTaken}>
                         {confirm}
                     </ChakraButton>
@@ -129,12 +135,14 @@ export function NamePopover(props: NamePopoverProps) {
             <chakra.form id={`${id}-form`} css={edit.form} noValidate
                 onSubmit={(e: React.FormEvent) => { e.preventDefault(); void submit(); }}>
                 <Box css={edit.field}>
-                    <chakra.input css={input} value={name} placeholder={placeholder} aria-label={placeholder}
+                    {nameLabel !== undefined && <chakra.label htmlFor={`${id}-name`} css={edit.viewFieldLabel}>{nameLabel}</chakra.label>}
+                    <chakra.input id={`${id}-name`} css={input} value={name} placeholder={placeholder} aria-label={placeholder}
                         autoComplete="off" autoFocus aria-invalid={isTaken ? true : undefined}
                         aria-describedby={trimmed === "" || isTaken ? `${id}-hint` : undefined}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} />
                     {trimmed === "" && <Box as="span" id={`${id}-hint`} css={edit.hint}>{missing}</Box>}
                     {isTaken && <Box as="span" id={`${id}-hint`} css={edit.hintError}>{nameTaken(trimmed)}</Box>}
+                    {nameHelp !== undefined && trimmed !== "" && !isTaken && <Box as="span" css={edit.hint}>{nameHelp}</Box>}
                 </Box>
                 {children}
                 {refused !== undefined && <Box as="span" role="alert" css={edit.hintError} data-refused="">{refused}</Box>}

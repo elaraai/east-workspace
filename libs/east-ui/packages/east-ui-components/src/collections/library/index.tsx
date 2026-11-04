@@ -78,6 +78,8 @@ export interface EastChakraLibraryProps {
     search?: string | undefined;
     /** What the Library says while a search or a filter hides every card, in a host's words (`No events match`), in place of `No matches`. */
     noMatch?: LibraryEmpty | undefined;
+    /** What it draws in place of those words, a host's own: a phone's checklist (`Query Builder Phone Spec.md` QP37), told the search and how to clear it. */
+    noMatchView?: ((query: string, clear: () => void) => ReactNode) | undefined;
     /** What a host draws on a compact card beside its shared face (#1330): its tooltip, a figure, a note line, a look and an ×. */
     extras?: ((item: LibraryItemValue) => LibraryCardExtras | undefined) | undefined;
     /** A group head's mark, by the group's label: a group that warns. */
@@ -927,7 +929,7 @@ interface LibraryCoreProps extends EastChakraLibraryProps {
     rail?: { slice: SliceBindValue; kinds: readonly string[] } | undefined;
 }
 
-function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter, facetFilter, search, noMatch, extras, groupMark, narrowing, pending = false }: LibraryCoreProps) {
+function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter, facetFilter, search, noMatch, noMatchView, extras, groupMark, narrowing, pending = false }: LibraryCoreProps) {
     const styles = useSlotRecipe({ key: "library" })() as SlotStyles;
     // Counts, in the app's locale (#850).
     const words = useFormatters();
@@ -1340,7 +1342,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
                 {...(virtualEnabled ? { "data-virtual": "" } : {})}
                 onScroll={handleScrollPersist}
             >
-                {nothing !== undefined && <LibraryEmptyState said={nothing} onClear={clearNarrowing} />}
+                {nothing !== undefined && (noMatchView !== undefined && narrowedOut === undefined && value.items.length > 0 ? noMatchView(query.trim(), showAll) : <LibraryEmptyState said={nothing} onClear={clearNarrowing} />)}
                 {bodyContent}
                 {pending && <LibraryPendingRows styles={styles} />}
             </Box>
@@ -1413,7 +1415,7 @@ export const EastChakraLibrary = memo(function EastChakraLibrary(props: EastChak
     );
 }, (prev, next) => libraryEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.renderMedia === next.renderMedia
     && prev.empty?.title === next.empty?.title && prev.empty?.description === next.empty?.description && prev.onCardEnter === next.onCardEnter && prev.facetFilter === next.facetFilter
-    && prev.search === next.search && prev.noMatch?.title === next.noMatch?.title && prev.noMatch?.description === next.noMatch?.description
+    && prev.search === next.search && prev.noMatchView === next.noMatchView && prev.noMatch?.title === next.noMatch?.title && prev.noMatch?.description === next.noMatch?.description
     && prev.extras === next.extras && prev.groupMark === next.groupMark
     && prev.narrowing?.empty.title === next.narrowing?.empty.title && prev.narrowing?.empty.description === next.narrowing?.empty.description
     && prev.narrowing?.onClear === next.narrowing?.onClear && prev.narrowing?.emptied === next.narrowing?.emptied

@@ -105,7 +105,7 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
             minWidth: 0,
             maxWidth: "300px",
             overflow: "hidden",
-            "[data-tree-phone] &": { maxWidth: "none", flexWrap: "wrap", lineHeight: "20px", "& input": { height: "36px", minHeight: "36px" } },
+            "[data-tree-phone] &": { maxWidth: "none", flexWrap: "wrap", lineHeight: "20px", "& input": { height: "36px", minHeight: "36px" }, "[data-branch] > &": { justifyContent: "flex-end" } },
             /* Editors are dense inline lines, not standalone form fields —
              * cap their height so adjacent rows keep visible air. */
             "& input": {
@@ -125,9 +125,11 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
             overflow: "hidden",
             textOverflow: "ellipsis",
             "[data-tree-phone] &": { whiteSpace: "normal", overflow: "visible", overflowWrap: "anywhere" },
+            /* Text in the body's face; numbers and dates stay mono (QP12). */
+            "[data-tree-phone] [data-leaf=string] &": { fontFamily: "body" },
         },
         /* A phone's preview: as many whole ` · ` parts as fit, mono 10.5 `--ink-4`. */
-        phoneSummary: { ...wholeOrNone("20px"), flex: "1 1 auto", minWidth: "0", columnGap: "4px", fontFamily: "mono", fontSize: "label.md", color: "fg.subtle", whiteSpace: "nowrap" },
+        phoneSummary: { ...wholeOrNone("20px"), flex: "1 1 auto", minWidth: "0", columnGap: "4px", justifyContent: "flex-end", textAlign: "right", fontFamily: "mono", fontSize: "label.md", color: "fg.subtle", whiteSpace: "nowrap" },
         /* Branch preview / count — "Press · 2.5 · Running", "3 items". */
         summary: {
             fontSize: "{fontSizes.body.sm}",

@@ -15,7 +15,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowLeft, faChevronDown, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { FrameOverlaySlot } from "../../layout/builder-frame/overlay-slot.js";
 import { FrameBottomPanel } from "../../layout/builder-frame/bottom-panel.js";
-import { layerOpen, useViewEscape } from "../../layout/builder-frame/view-escape.js";
+import { layerOpen, useTopViewEscape } from "../../layout/builder-frame/view-escape.js";
 
 /** What a {@link SliceEditPopover} hangs from: its trigger, or an anchor. */
 export type SliceEditPopoverAnchor =
@@ -349,7 +349,7 @@ function useViewTrigger({ open, onOpenChange, toggle, anchored, initialFocusEl, 
 function FramePhoneView({ slot, open, onOpenChange, toggle, anchored, label, footLeft, footActions, initialFocusEl, children }: FramePhoneViewProps) {
     const styles = useSlotStyles("frameView");
     const viewRef = useRef<HTMLDivElement | null>(null);
-    useViewEscape(open, () => onOpenChange(false));
+    useTopViewEscape(open, () => onOpenChange(false));
     const { holdRef, trigger } = useViewTrigger({ open, onOpenChange, toggle, anchored, initialFocusEl, viewRef });
     const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
         if (event.key !== "Escape" || event.defaultPrevented) return;

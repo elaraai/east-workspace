@@ -262,6 +262,8 @@ export interface JqEditorProps {
     readonly onLeave: () => void;
     /** Told a fix taken: the text it makes, and its label — one gesture of its own. */
     readonly onFix: (text: string, label: string) => void;
+    /** A phone's: lines wrap, a number on each first row, completions docked, no keys told of (QP30–QP32). */
+    readonly phone?: boolean | undefined;
 }
 
 /**
@@ -270,7 +272,7 @@ export interface JqEditorProps {
  * @param props - The text and its check, the root, the summaries, the words and what it tells ({@link JqEditorProps})
  * @returns The editor
  */
-export const JqEditor = memo(function JqEditor({ text, checked, root, summaries, ps, onText, onLeave, onFix }: JqEditorProps) {
+export const JqEditor = memo(function JqEditor({ text, checked, root, summaries, ps, onText, onLeave, onFix, phone = false }: JqEditorProps) {
     const words: QueryWords = ps.words;
     const m = words.messages;
     const f = words.formatters;
@@ -518,13 +520,52 @@ export const JqEditor = memo(function JqEditor({ text, checked, root, summaries,
         else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
     }, [openIndex]);
 
+    // A phone's lines wrap: each number as tall as its line, on its first row.
+    const gutterRef = useRef<HTMLDivElement>(null);
+    useLayoutEffect(() => {
+        if (!phone) return;
+        const rows = highlightRef.current?.children;
+        const numbers = gutterRef.current?.children;
+        if (rows === undefined || numbers === undefined) return;
+        for (let i = 0; i < numbers.length; i++) {
+            const row = rows[i], number = numbers[i];
+            if (row instanceof HTMLElement && number instanceof HTMLElement) number.style.height = `${row.offsetHeight}px`;
+        }
+    });
     const activeItem = open === undefined ? undefined : open.items[open.index];
     const check = dots[tone];
+    const completions = open !== undefined && (
+        <Box ref={popRef} css={[popover.content!, jq.completions!]} data-query-completions="" style={phone ? undefined : place} onMouseDown={keepFocus}>
+            <Box ref={listRef} id={listId} role="listbox" aria-label={m.jqCompletionsLabel()} css={jq.completionList}>
+                {open.items.map((item, i) => (
+                    <Box
+                        key={`${i}:${item.label}`}
+                        id={optionId(i)}
+                        role="option"
+                        aria-selected={i === open.index}
+                        data-highlighted={i === open.index ? "" : undefined}
+                        data-kind={item.kind}
+                        css={[combobox.item!, jq.completion!]}
+                        onPointerMove={i === open.index ? undefined : () => setOpen({ ...open, index: i })}
+                        onClick={() => accept(open, item)}
+                    >
+                        <chakra.span css={jq.glyph} data-glyph="">{GLYPH[item.kind]}</chakra.span>
+                        <chakra.span css={jq.completionLabel} data-label="">{item.label}</chakra.span>
+                        <chakra.span css={jq.completionDetail} data-detail="" data-warn={item.warn === true ? "" : undefined}>{item.detail}</chakra.span>
+                    </Box>
+                ))}
+            </Box>
+            <Box css={[popover.footer!, jq.completionFooter!]}>
+                <chakra.span css={jq.completionDoc} data-doc="">{activeItem === undefined ? "" : docOf(activeItem, m)}</chakra.span>
+                <Kbd css={jq.completionKeys}>{m.jqCompletionKeys()}</Kbd>
+            </Box>
+        </Box>
+    );
     return (
-        <Box css={jq.root} data-query-jq-editor="" onBlur={onRootBlur}>
+        <Box css={jq.root} data-query-jq-editor="" data-jq-phone={phone ? "" : undefined} onBlur={onRootBlur}>
             <Box ref={scrollerRef} css={jq.editor}>
                 <Box css={jq.content}>
-                    <Box css={jq.gutter} aria-hidden data-query-jq-gutter="">
+                    <Box ref={gutterRef} css={jq.gutter} aria-hidden data-query-jq-gutter="">
                         {lines.map((_, i) => (
                             <Box key={i} css={jq.line}>
                                 <Box as="span" css={jq.dot} data-severity={worst.get(i)} />
@@ -548,7 +589,7 @@ export const JqEditor = memo(function JqEditor({ text, checked, root, summaries,
                             ref={areaRef}
                             css={jq.input}
                             value={text}
-                            wrap="off"
+                            wrap={phone ? "soft" : "off"}
                             aria-label={m.jqLabel()}
                             aria-autocomplete="list"
                             aria-controls={open === undefined ? undefined : listId}
@@ -564,44 +605,19 @@ export const JqEditor = memo(function JqEditor({ text, checked, root, summaries,
                             onBlur={onAreaBlur}
                         />
                         <chakra.span ref={measureRef} css={jq.measure} aria-hidden>{MEASURE}</chakra.span>
-                        {open !== undefined && (
-                            <Box ref={popRef} css={[popover.content!, jq.completions!]} data-query-completions="" style={place} onMouseDown={keepFocus}>
-                                <Box ref={listRef} id={listId} role="listbox" aria-label={m.jqCompletionsLabel()} css={jq.completionList}>
-                                    {open.items.map((item, i) => (
-                                        <Box
-                                            key={`${i}:${item.label}`}
-                                            id={optionId(i)}
-                                            role="option"
-                                            aria-selected={i === open.index}
-                                            data-highlighted={i === open.index ? "" : undefined}
-                                            data-kind={item.kind}
-                                            css={[combobox.item!, jq.completion!]}
-                                            onPointerMove={i === open.index ? undefined : () => setOpen({ ...open, index: i })}
-                                            onClick={() => accept(open, item)}
-                                        >
-                                            <chakra.span css={jq.glyph} data-glyph="">{GLYPH[item.kind]}</chakra.span>
-                                            <chakra.span css={jq.completionLabel} data-label="">{item.label}</chakra.span>
-                                            <chakra.span css={jq.completionDetail} data-detail="" data-warn={item.warn === true ? "" : undefined}>{item.detail}</chakra.span>
-                                        </Box>
-                                    ))}
-                                </Box>
-                                <Box css={[popover.footer!, jq.completionFooter!]}>
-                                    <chakra.span css={jq.completionDoc} data-doc="">{activeItem === undefined ? "" : docOf(activeItem, m)}</chakra.span>
-                                    <Kbd css={jq.completionKeys}>{m.jqCompletionKeys()}</Kbd>
-                                </Box>
-                            </Box>
-                        )}
+                        {!phone && completions}
                     </Box>
                 </Box>
             </Box>
-            <Box css={jq.problems} data-query-jq-problems="">
-                <Box css={jq.summary}>
+            {phone && completions}
+            <Box css={jq.problems} data-query-jq-problems="" hidden={phone && problems.length === 0}>
+                {!phone && <Box css={jq.summary}>
                     <Box as="span" css={check.root} data-query-jq-check={tone}>
                         <Box as="span" css={check.indicator} aria-hidden />
                         <Box as="span" css={check.label}>{m.jqCheck({ problems: f.number(errors), n: errors, warnings: f.number(warnings), w: warnings })}</Box>
                     </Box>
                     <Box as="span" css={jq.hint}>{m.jqHint()}</Box>
-                </Box>
+                </Box>}
                 <Box css={jq.problemList} role="list" aria-label={m.jqProblemsLabel()}>
                     {problems.map((p, i) => (
                         <Box key={i} role="listitem" css={jq.problem} data-severity={p.severity} data-query-jq-problem={p.code}>

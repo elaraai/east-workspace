@@ -34,8 +34,9 @@ import { createPortal } from "react-dom";
 import { Box, Portal, Tooltip, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { library, type IconName } from "@fortawesome/fontawesome-svg-core";
-import { fas } from "@fortawesome/free-solid-svg-icons";
+import { fas, faArrowLeft, faCheck, faMagnifyingGlass } from "@fortawesome/free-solid-svg-icons";
 import { useValueSync } from "@elaraai/east-ui-components";
+import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import type { SlotItem } from "./model/slots.js";
 
 // An offer's icon is a Font Awesome solid name (e.g. "filter"); register the
@@ -212,6 +213,17 @@ function sameText(a: string, b: string): boolean {
 
 // ─── An offer ────────────────────────────────────────────────────────────────
 
+/** A field's glyph in a view, by the kind its sub-line names (QP33's 16 icon column). */
+function kindIcon(detail: string | undefined): string | undefined {
+    if (detail === undefined) return undefined;
+    if (/number/.test(detail)) return "hashtag";
+    if (/^text/.test(detail)) return "font";
+    if (/^date/.test(detail)) return "calendar";
+    if (/^list/.test(detail)) return "list";
+    if (/^one of/.test(detail)) return "shapes";
+    return undefined;
+}
+
 /** Props of {@link AutocompleteOption}. */
 interface AutocompleteOptionProps {
     /** The offer. */
@@ -230,6 +242,8 @@ interface AutocompleteOptionProps {
     readonly onPick: (item: SlotItem) => void;
     /** Told the pointer moved over it. */
     readonly onHover: (index: number) => void;
+    /** A view's: a disabled offer's reason its sub-line, where nothing hovers (QP33). */
+    readonly reasonShown?: boolean | undefined;
 }
 
 /**
@@ -241,9 +255,9 @@ interface AutocompleteOptionProps {
  * @param props - the offer, its place and state, the recipes' styles and the handlers
  * @returns the option
  */
-function AutocompleteOption({ item, index, id, active, combobox, styles, onPick, onHover }: AutocompleteOptionProps) {
+function AutocompleteOption({ item, index, id, active, combobox, styles, onPick, onHover, reasonShown = false }: AutocompleteOptionProps) {
     const disabled = item.disabled === true;
-    const note = disabled ? undefined : item.note;
+    const note = disabled && !reasonShown ? undefined : item.note;
     const option = (
         <Box
             id={id}
@@ -275,7 +289,7 @@ function AutocompleteOption({ item, index, id, active, combobox, styles, onPick,
             {item.meta !== undefined && <chakra.span css={styles.itemMeta} data-meta="">{item.meta}</chakra.span>}
         </Box>
     );
-    if (!disabled || item.note === undefined) return option;
+    if (!disabled || item.note === undefined || reasonShown) return option;
     return (
         <Tooltip.Root ids={{ trigger: id }} openDelay={250} positioning={{ placement: "right" }}>
             <Tooltip.Trigger asChild>{option}</Tooltip.Trigger>
@@ -330,6 +344,18 @@ export interface SlotAutocompleteProps {
     onPick: (item: SlotItem) => void;
     /** Told it closes: Esc, or a press outside it and its anchor. */
     onClose: () => void;
+    /**
+     * A phone's frame's overlay slot: drawn there, a view over the whole builder (`Query Builder Phone Spec.md` QP33) —
+     * ← back and its label at its head, the filter in a 56 band, its rows at least 44, where the offers come from at its
+     * foot — placed nowhere and floating over nothing. Esc goes back, wherever the focus is.
+     */
+    view?: HTMLElement | null | undefined;
+    /** The name of the view's ←. */
+    backLabel?: string | undefined;
+    /** What it is for, beside the view's title: `Step 1 · condition 2`. */
+    context?: string | undefined;
+    /** A view with no filter: a short list of steps (QP34). */
+    noFilter?: boolean | undefined;
 }
 
 /**
@@ -343,8 +369,10 @@ export interface SlotAutocompleteProps {
  * @returns the popover, portaled into the builder
  */
 export const SlotAutocomplete = memo(function SlotAutocomplete({
-    anchor, bounds, label, placeholder, hint, empty, keys, items, text, onText, initialActive, onPick, onClose,
+    anchor, bounds, label, placeholder, hint, empty, keys, items, text, onText, initialActive, onPick, onClose, view, backLabel, context, noFilter = false,
 }: SlotAutocompleteProps) {
+    const phoneStyles = useSlotStyles("queryPhone");
+    const isView = view !== undefined && view !== null;
     const popoverRecipe = useSlotRecipe({ key: "popover" });
     const comboboxRecipe = useSlotRecipe({ key: "combobox" });
     const recipe = useSlotRecipe({ key: "queryAutocomplete" });
@@ -386,12 +414,12 @@ export const SlotAutocomplete = memo(function SlotAutocomplete({
     const [place, setPlace] = useState<AutocompletePlacement | undefined>(undefined);
     const measure = useCallback(() => {
         const root = rootRef.current;
-        if (root === null) return;
+        if (root === null || isView) return;
         const box = bounds.getBoundingClientRect();
         const scale = bounds.offsetWidth > 0 && box.width > 0 ? box.width / bounds.offsetWidth : 1;
         const next = placeAutocomplete({ anchor: anchor.getBoundingClientRect(), bounds: box, width: root.offsetWidth, scale });
         setPlace(prev => (prev !== undefined && samePlace(prev, next) ? prev : next));
-    }, [anchor, bounds]);
+    }, [anchor, bounds, isView]);
     useLayoutEffect(() => {
         measure();
         const view = bounds.ownerDocument.defaultView;
@@ -405,12 +433,24 @@ export const SlotAutocomplete = memo(function SlotAutocomplete({
             observer?.disconnect();
         };
     }, [measure, bounds]);
-    const placed = place !== undefined;
+    const placed = place !== undefined || isView;
 
     // ── Focus: the filter on open; the slot again on close ──────────────
     useEffect(() => {
         inputRef.current?.focus({ preventScroll: true });
     }, []);
+    // A view hears Esc wherever the focus is, ahead of the pane it lies over.
+    useEffect(() => {
+        if (!isView) return undefined;
+        const onEscape = (event: globalThis.KeyboardEvent) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            event.stopPropagation();
+            queueMicrotask(() => onClose());
+        };
+        document.addEventListener("keydown", onEscape, true);
+        return () => document.removeEventListener("keydown", onEscape, true);
+    }, [isView, onClose]);
     useLayoutEffect(() => () => {
         // Closing with the focus inside — a pick, Esc — hands it back to the
         // slot; a press outside has already moved it.
@@ -488,6 +528,57 @@ export const SlotAutocomplete = memo(function SlotAutocomplete({
     const position = place === undefined ? undefined
         : place.side === "below" ? { left: place.left, top: place.top, maxHeight: place.maxHeight }
         : { left: place.left, bottom: place.bottom, maxHeight: place.maxHeight };
+    if (isView) {
+        return createPortal(
+            <Box ref={setRoot} css={phoneStyles.view} data-query-autocomplete="" data-query-view-picker="" role="dialog" aria-labelledby={labelId}>
+                <Box css={phoneStyles.viewHead}>
+                    <chakra.button type="button" css={phoneStyles.viewBack} aria-label={backLabel} onClick={() => onClose()}><FontAwesomeIcon icon={faArrowLeft} aria-hidden /></chakra.button>
+                    <chakra.label id={labelId} htmlFor={inputId} css={phoneStyles.viewTitle}>{label}</chakra.label>
+                    {context !== undefined && <Box as="span" css={phoneStyles.viewContext}>{context}</Box>}
+                </Box>
+                {!noFilter && <Box css={phoneStyles.viewBand}>
+                    <Box as="span" css={phoneStyles.viewFieldIcon} aria-hidden><FontAwesomeIcon icon={faMagnifyingGlass} /></Box>
+                    <chakra.input ref={inputRef} id={inputId} type="text" role="combobox" aria-expanded={true} aria-controls={listId} aria-autocomplete="list"
+                        aria-activedescendant={activeIndex >= 0 ? optionId(activeIndex) : undefined} autoComplete="off" spellCheck={false} placeholder={placeholder} value={typed}
+                        css={phoneStyles.viewField} onChange={onChange} onKeyDown={onKeyDown} />
+                </Box>}
+                <Box ref={listRef} css={phoneStyles.viewList}>
+                    <Box role="listbox" id={listId} aria-labelledby={labelId}>
+                        {runs.map((run, r) => {
+                            const headingId = `${ids}-group-${r}`;
+                            return (
+                                <Box key={`${r}:${run.group}`} role="group" aria-labelledby={run.group === "" ? undefined : headingId}>
+                                    {run.group !== "" && <Box id={headingId} role="presentation" css={phoneStyles.viewGroup}>{run.group}</Box>}
+                                    {run.offers.map(({ item, index }) => {
+                                        const off = item.disabled === true;
+                                        const sub = (off ? [item.note ?? item.detail] : [item.detail, item.meta, item.note]).filter((part): part is string => part !== undefined && part !== "").join(" · ");
+                                        const icon = item.icon ?? kindIcon(item.detail);
+                                        // The value its slot holds now, by what the slot shows: checked and on the third paper.
+                                        const current = !off && item.label === anchor.querySelector("span")?.textContent;
+                                        return (
+                                            <Box key={`${index}:${keyOf(item)}`} id={optionId(index)} role="option" aria-selected={current} aria-disabled={off ? true : undefined}
+                                                css={phoneStyles.optionRow} data-current={current ? "" : undefined} data-disabled={off ? "" : undefined}
+                                                data-highlighted={index === activeIndex ? "" : undefined} onClick={off ? undefined : () => pick(item)}>
+                                                <chakra.span css={phoneStyles.optionIcon}>{icon !== undefined && <FontAwesomeIcon icon={icon as IconName} />}</chakra.span>
+                                                <Box css={phoneStyles.optionBody}>
+                                                    <chakra.span css={phoneStyles.optionLabel} data-label="" data-mono={item.mono === true ? "" : undefined}>{item.label.replace(/…$/, "")}</chakra.span>
+                                                    {sub !== "" && <chakra.span css={phoneStyles.optionSub}>{sub}</chakra.span>}
+                                                </Box>
+                                                {current && <chakra.span css={phoneStyles.optionCheck}><FontAwesomeIcon icon={faCheck} /></chakra.span>}
+                                            </Box>
+                                        );
+                                    })}
+                                </Box>
+                            );
+                        })}
+                    </Box>
+                    {items.length === 0 && <Box css={[combobox.empty, styles.empty]} data-empty="">{empty}</Box>}
+                </Box>
+                <Box css={phoneStyles.viewFoot}><span data-hint="">{hint}</span></Box>
+            </Box>,
+            view,
+        );
+    }
     return createPortal(
         <Box
             ref={setRoot}

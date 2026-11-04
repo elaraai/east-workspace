@@ -620,6 +620,9 @@ export interface QueryMessages {
     idleChecks: () => string;
     /** Its second. */
     idleRun: () => string;
+    /** The same on a phone: no key to name (QP15). */
+    idleRunPhone: () => string;
+    clearTheSearch: () => string;
     /** While a run reads — `Reading orders, customers`. */
     reading: (p: { sources: string }) => string;
     /** The footer while a run goes. */
@@ -660,6 +663,35 @@ export interface QueryMessages {
     thisResultRun: () => string;
     thisResultReads: () => string;
     thisResultPlan: () => string;
+    /** The Query view's head (QP21), and a step's ⋯ (QP27). */
+    queryEyebrow: (p: { state: string; n: number; count: string }) => string;
+    stepActions: () => string;
+    backToStep: () => string;
+    removeCondition: () => string;
+    clearSearchEvery: () => string;
+    rowsFromRun: (p: { n: string; time: string }) => string;
+    showProblem: () => string;
+    thisResultDownload: () => string;
+    savedAs: (p: { slug: string }) => string;
+    readingShort: () => string;
+    noStepsYet: () => string;
+    noStepsAdd: () => string;
+    noStepsSaved: () => string;
+    openLibrary: () => string;
+    tapDataset: () => string;
+    tapQuery: () => string;
+    nameLabel: () => string;
+    nameHelp: () => string;
+    descriptionLabel: () => string;
+    changesCount: (p: { n: number; count: string }) => string;
+    filterSlot: (p: { what: string }) => string;
+    quickAddGroup: () => string;
+    moreStepsGroup: () => string;
+    atEnd: () => string;
+    beforeStep: (p: { n: string }) => string;
+    stepContext: (p: { n: string }) => string;
+    conditionContext: (p: { n: string; c: string }) => string;
+    stepFitNote: () => string;
     /** A phone's band of one notice (QP16). */
     dismissNotice: () => string;
     savedNotice: (p: { name: string; time: string }) => string;
@@ -1321,6 +1353,8 @@ export const queryMessages: QueryMessages = {
     idleTitle: () => "Run the query to see results",
     idleChecks: () => "Checks run as you edit; nothing reads data yet.",
     idleRun: () => "Press Run or ⌘⏎ to read the datasets the query uses.",
+    idleRunPhone: () => "Press Run to read the datasets the query uses.",
+    clearTheSearch: () => "Clear the search",
     reading: ({ sources }) => `Reading ${sources}`,
     runningWord: () => "Running…",
     noResult: () => "No result",
@@ -1347,6 +1381,34 @@ export const queryMessages: QueryMessages = {
     thisResultReads: () => "Reads",
     thisResultPlan: () => "Plan",
     dismissNotice: () => "Dismiss",
+    queryEyebrow: ({ state, n, count }) => (n === 0 ? `${state} · no steps` : `${state} · ${count} ${n === 1 ? "step" : "steps"}`),
+    stepActions: () => "Step actions",
+    backToStep: () => "Back to the step",
+    removeCondition: () => "Remove condition",
+    clearSearchEvery: () => "Clear the search to see every query.",
+    rowsFromRun: ({ n, time }) => `The rows below are from run #${n} at ${time}.`,
+    showProblem: () => "Show the problem",
+    thisResultDownload: () => "Download",
+    savedAs: ({ slug }) => `Saved as ${slug}.csv or .beast2`,
+    readingShort: () => "Reading",
+    noStepsYet: () => "No steps yet",
+    noStepsAdd: () => "Add a step to narrow, reshape or total the rows.",
+    noStepsSaved: () => "Or start from a saved query in Library.",
+    openLibrary: () => "Open Library",
+    tapDataset: () => "Tap a dataset to start a new query on it.",
+    tapQuery: () => "Tap a query to open it and run it.",
+    nameLabel: () => "Name",
+    nameHelp: () => "A name another query holds is refused; this one's own updates it.",
+    descriptionLabel: () => "Description",
+    changesCount: ({ n, count }) => `${count} ${n === 1 ? "change" : "changes"}`,
+    filterSlot: ({ what }) => `Filter ${what}`,
+    quickAddGroup: () => "Quick add",
+    moreStepsGroup: () => "More steps",
+    atEnd: () => "at the end",
+    beforeStep: ({ n }) => `before step ${n}`,
+    stepContext: ({ n }) => `Step ${n}`,
+    conditionContext: ({ n, c }) => `Step ${n} · condition ${c}`,
+    stepFitNote: () => "A step that doesn't fit the rows here says why.",
     savedNotice: ({ name, time }) => `Saved “${name}” · ${time}`,
     planSplit: ({ over, heaviest, bytes, piece }) => (heaviest === over
         ? `Split call over ${over}: it weighs ${bytes}, more than one piece (${piece}).`

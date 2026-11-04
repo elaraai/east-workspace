@@ -48,7 +48,7 @@ export const frameViewSlotRecipe = defineSlotRecipe({
             _motionReduce: { animation: "none" },
         },
         head: {
-            height: "44px", flex: "none", display: "flex", alignItems: "center", gap: "8px", paddingInlineEnd: "8px", boxSizing: "border-box",
+            minHeight: "44px", flex: "none", display: "flex", alignItems: "center", gap: "8px", paddingInlineEnd: "8px", boxSizing: "border-box",
             borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",
         },
         back: {
@@ -59,7 +59,7 @@ export const frameViewSlotRecipe = defineSlotRecipe({
         },
         title: {
             flex: "1", minWidth: "0", fontFamily: "heading", fontSize: "title.sm", fontWeight: 700, letterSpacing: "-0.01em", lineHeight: "1.4",
-            color: "fg", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            color: "fg",
         },
         body: {
             flex: "1", minHeight: "0", overflowY: "auto", scrollbarWidth: "none",
@@ -73,9 +73,13 @@ export const frameViewSlotRecipe = defineSlotRecipe({
             flex: "none", display: "flex", alignItems: "center", gap: "8px", boxSizing: "border-box",
             paddingTop: "12px", paddingX: "16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))",
             background: "bg.surface", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.strong",
-            "& button": { minHeight: "44px" },
+            "& button": { minHeight: "44px", fontSize: "body.sm" },
         },
-        footActions: { marginInlineStart: "auto", display: "flex", alignItems: "center", gap: "8px" },
+        footActions: {
+            marginInlineStart: "auto", display: "flex", alignItems: "center", gap: "8px",
+            /* A view's foot: its actions equal halves across it. */
+            "[data-frame-view] &": { flex: "1", "& > button": { flex: "1 1 0" } },
+        },
         panel: {
             flex: "0 1 auto", minHeight: "0", display: "flex", flexDirection: "column", gap: "8px", boxSizing: "border-box",
             paddingTop: "0", paddingX: "16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))",

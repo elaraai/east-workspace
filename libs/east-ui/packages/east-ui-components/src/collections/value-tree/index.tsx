@@ -45,7 +45,7 @@ import { Box, Skeleton, chakra, useSlotRecipe, type SystemStyleObject } from "@c
 import { useContainerWidth } from "../../contracts/adaptive.js";
 import { NARROW_FRAME } from "../../layout/builder-frame/place.js";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faChevronDown, faChevronRight, faMinus, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faAngleDown, faAngleRight, faChevronDown, faChevronRight, faMinus, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { equivalentFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
 import {
     ValueTree,
@@ -119,6 +119,8 @@ export interface EastChakraValueTreeProps {
      *  clears back to `undefined`. Paged trees take the jump through
      *  {@link ValueTreePaging.scrollToRow} instead (#520). */
     scrollToRow?: number | undefined;
+    /** At a phone's width, only the first row opens at first: it reads one row whole (QP13, the query builder's result). */
+    phoneFirstOnly?: boolean | undefined;
     /** Given the tree's Collapse all and Expand all while it is mounted, and
      *  `null` once it unmounts, for a host's own controls; the toolbar's
      *  buttons, which `style.toolbar` draws, do the same (#1209). */
@@ -342,7 +344,7 @@ function Row({ row, styles, cbs, tabbable, matched, phone, onToggle, onKeyNav, o
     } else {
         valueCell = row.summary === undefined || row.summary === "" ? null
             // A phone's preview: whole parts, as many as fit, or none.
-            : phone ? <Box as="span" css={styles["phoneSummary"]}>{row.summary.split(" · ").map((part, i) => <span key={i}>{i > 0 ? `· ${part}` : part}</span>)}</Box>
+            : phone ? <Box as="span" css={styles["phoneSummary"]}>{row.summary.split(" · ").filter((part) => part !== row.label).map((part, i) => <span key={i}>{i > 0 ? `· ${part}` : part}</span>)}</Box>
             : <Box as="span" css={styles["summary"]}>{row.summary}</Box>;
     }
     return (
@@ -376,7 +378,7 @@ function Row({ row, styles, cbs, tabbable, matched, phone, onToggle, onKeyNav, o
                     title={row.expanded ? "Collapse (Alt: entire subtree)" : "Expand"}
                     onClick={(e) => onToggle(row.id, !row.expanded, e.altKey)}
                 >
-                    <FontAwesomeIcon icon={row.expanded ? faChevronDown : faChevronRight} />
+                    <FontAwesomeIcon icon={row.expanded ? (phone ? faAngleDown : faChevronDown) : (phone ? faAngleRight : faChevronRight)} />
                 </chakra.button>
             ) : (
                 <Box css={styles["twist"]} visibility="hidden" aria-hidden="true" />
@@ -421,10 +423,14 @@ function Row({ row, styles, cbs, tabbable, matched, phone, onToggle, onKeyNav, o
  * @returns the ValueTree element
  */
 export const EastChakraValueTree = memo(function EastChakraValueTree(
-    { value, storageKey, paging, scrollToRow, controlsRef }: EastChakraValueTreeProps,
+    { value, storageKey, paging, scrollToRow, controlsRef, phoneFirstOnly }: EastChakraValueTreeProps,
 ): ReactNode {
     const recipe = useSlotRecipe({ key: "valueTree" });
     const styles = recipe() as SlotStyles;
+    // The phone's form: by the tree's own width, as a frame's is.
+    const widthRef = useRef<HTMLDivElement | null>(null);
+    const ownWidth = useContainerWidth(widthRef);
+    const ownPhone = ownWidth > 0 && ownWidth <= NARROW_FRAME;
 
     const cbs = useMemo<TreeCallbacks>(() => ({
         onEdit: getSomeorUndefined(value.onEdit) as TreeCallbacks["onEdit"],
@@ -457,12 +463,15 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
         },
         [paging, persisted.open, openDepth],
     );
-    const rows = useMemo(
-        () => (pagedFlat !== undefined
-            ? pagedFlat.loadedRows
-            : flattenRows(value.root, persisted.open, openDepth, cbs.onRemove !== undefined, cbs.onInsert !== undefined)),
-        [pagedFlat, value.root, persisted.open, openDepth, cbs.onRemove, cbs.onInsert],
-    );
+    // The phone's first row alone open, until the viewer opens or closes one (QP13).
+    const firstOnly = phoneFirstOnly === true && ownPhone && Object.keys(persisted.open).length === 0 && persisted.baseDepth === undefined;
+    const rows = useMemo(() => {
+        if (pagedFlat !== undefined) return pagedFlat.loadedRows;
+        if (!firstOnly) return flattenRows(value.root, persisted.open, openDepth, cbs.onRemove !== undefined, cbs.onInsert !== undefined);
+        const shut = flattenRows(value.root, {}, 0, cbs.onRemove !== undefined, cbs.onInsert !== undefined);
+        const first = shut.find((r) => r.expandable);
+        return first === undefined ? shut : flattenRows(value.root, { [first.id]: true }, 0, cbs.onRemove !== undefined, cbs.onInsert !== undefined);
+    }, [pagedFlat, value.root, persisted.open, openDepth, cbs.onRemove, cbs.onInsert, firstOnly]);
     const rowCount = pagedFlat !== undefined ? pagedFlat.totalFlat : rows.length;
 
     const onToggle = useCallback((id: string, expanded: boolean, deep = false) => {
@@ -495,9 +504,7 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
 
     // Roving tab index + arrow-key traversal (transient, not persisted).
     const rootElRef = useRef<HTMLDivElement | null>(null);
-    // The phone's form: by the tree's own width, as a frame's is.
-    const ownWidth = useContainerWidth(rootElRef);
-    const phone = ownWidth > 0 && ownWidth <= NARROW_FRAME;
+    const phone = ownPhone;
     const rowH = phone ? PHONE_ROW_H : ROW_H;
     // A jump over rows measured as they mount goes by the row, never by a sum of heights.
     const [phoneJump, setPhoneJump] = useState<{ index: number; nonce: number } | undefined>(undefined);
@@ -656,7 +663,7 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
         <Box
             role="tree"
             aria-label="Value tree"
-            ref={rootElRef}
+            ref={(el: HTMLDivElement | null) => { rootElRef.current = el; widthRef.current = el; }}
             data-tree-phone={phone ? "" : undefined}
             {...(frameFills && {
                 display: "flex",
@@ -715,4 +722,4 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
         </Box>
     );
 }, (prev, next) => valueTreeEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.paging === next.paging && prev.scrollToRow === next.scrollToRow
-    && prev.controlsRef === next.controlsRef);
+    && prev.controlsRef === next.controlsRef && prev.phoneFirstOnly === next.phoneFirstOnly);

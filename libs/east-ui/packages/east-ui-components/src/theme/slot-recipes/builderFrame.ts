@@ -240,6 +240,8 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
         sessionStatus: {
             /* As tall as the row, so its clip spares a Retry's halo. */
             order: -2, flex: "1 1 auto", alignSelf: "stretch", minWidth: "0", display: "flex", alignItems: "center", overflow: "hidden",
+            /* At the row's start (R5), never where the footer's rail would push it. */
+            "& [data-footer-line]": { marginInlineStart: "0" },
             "&:not(:has([data-footer-line]:not([data-idle])))": { display: "none" },
         },
         /* A phone's panes: one tab each along the frame's bottom edge, over the safe area. */

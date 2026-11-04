@@ -34,6 +34,30 @@ export function layerOpen(): boolean {
 }
 
 /**
+ * Closes a view that lies over another on an Esc from anywhere while it shows,
+ * ahead of the one under it, which stays: heard first and taken. A layer open over
+ * it keeps its own.
+ *
+ * @param open - Whether the view shows
+ * @param onClose - Closes it
+ */
+export function useTopViewEscape(open: boolean, onClose: () => void): void {
+    const close = useRef(onClose);
+    close.current = onClose;
+    useEffect(() => {
+        if (!open) return undefined;
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key !== "Escape" || layerOpen()) return;
+            event.preventDefault();
+            event.stopPropagation();
+            close.current();
+        };
+        document.addEventListener("keydown", onKeyDown, true);
+        return () => document.removeEventListener("keydown", onKeyDown, true);
+    }, [open]);
+}
+
+/**
  * Closes a view on an Esc from anywhere while it shows.
  *
  * @param open - Whether the view shows
