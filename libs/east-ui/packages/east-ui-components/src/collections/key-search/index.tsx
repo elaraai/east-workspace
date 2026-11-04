@@ -207,6 +207,11 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
     const shownSeqRef = useRef(0);
     /** Whether the box shows a match, rather than what was typed. */
     const showingRef = useRef(false);
+    /**
+     * Whether a pick or a step has placed the box on a match, as it does at once — before its text is read, and before
+     * the render a query asked again could see it in: that answer finds no match standing, and leaves the place be.
+     */
+    const placedRef = useRef(false);
     /** Position within the range after a jump; -1 before the first jump. */
     const [activeIdx, setActiveIdx] = useState(-1);
     const [hint, setHint] = useState<string | null>(null);
@@ -225,6 +230,7 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
     /** The box shows what was typed again: the match it showed no longer stands where it stood. */
     const showTyped = useCallback(() => {
         showingRef.current = false;
+        placedRef.current = false;
         const text = typedRef.current;
         setShown({ value: text, seq: ++shownSeqRef.current });
         setTyped(text !== '');
@@ -286,7 +292,7 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
                     && await holdsAt(result.row + standing.index, standing.text);
                 if (seq !== findSeqRef.current) return;
                 const moved = standing !== undefined && standing.seq !== shownSeqRef.current;
-                if (shownSeqRef.current === shownWhenAsked) setActiveIdx(stands ? standing.index : -1);
+                if (shownSeqRef.current === shownWhenAsked && (standing !== undefined || !placedRef.current)) setActiveIdx(stands ? standing.index : -1);
                 if (standing !== undefined && !stands && !moved) showTyped();
             } catch (error) {
                 if (seq !== findSeqRef.current) return;
@@ -308,6 +314,7 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
         clearTimeout(debounceRef.current);
         findSeqRef.current++;
         queryRef.current = undefined;
+        placedRef.current = false;
         setRange(null);
         setItems([]);
         setActiveIdx(-1);
@@ -350,6 +357,7 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
         typedRef.current = text;
         shownSeqRef.current++;
         showingRef.current = false;
+        placedRef.current = false;
         setShown(undefined);
         findSeqRef.current++;
         setRange(null);
@@ -423,6 +431,7 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
 
     const commit = useCallback((row: number, how: KeySearchJump) => {
         onJump(row, how);
+        placedRef.current = true;
         if (range !== null) setActiveIdx(row - range.row);
         showMatch(row);
     }, [onJump, range, showMatch]);
