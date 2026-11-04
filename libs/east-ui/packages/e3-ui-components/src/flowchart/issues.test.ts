@@ -12,9 +12,10 @@
  * The Flowchart's issues (#1504, `Flowchart Records Spec.md` R6, R7, R11, R12,
  * D3, D12), pure, over rows as the read holds them: its own warnings in their
  * order — a state standing in No lane, a transition's end no state is keyed by
- * (once for one in place), a decision the Flowchart has none of, a draft the
- * rail hides with the rows hiding it — and none for what the narrowing draws as
- * context; each record's session's — the app's check, a Save's conflict or
+ * (once for one in place), a decision the Flowchart has none of, the details'
+ * refused bins and counts no bin holds (R38), a draft the rail hides with the
+ * rows hiding it — and none for what the narrowing draws as context; each
+ * record's session's — the app's check, a Save's conflict or
  * refusal — blocking, naming the row or else the record; each issue's words;
  * and a conflict's value as the canvas names that row, never by a key.
  *
@@ -24,6 +25,7 @@
 import { describe, expect, test } from "vitest";
 import { none, some, variant, type PatchPath } from "@elaraai/east";
 import type { EditIssue } from "@elaraai/east-ui-components";
+import type { FlowchartDetailsFinding } from "./details.js";
 import type { FlowchartWaiting } from "./drafted.js";
 import {
     conflictValueName, flowchartIssues, sessionIssues, type FlowchartIssue, type FlowchartIssueArgs, type FlowchartIssueSession, type FlowchartKeyFields,
@@ -52,7 +54,7 @@ const CLEAN = rowsOf({
 function argsOf(rows: FlowchartRows, more: Partial<FlowchartIssueArgs> = {}): FlowchartIssueArgs {
     return {
         model: modelOf(rows), transitions: rows.transitions, waiting: [], hiddenWith: new Set(),
-        stored: new Map(rows.states.map((row) => [row.key, row])), decisions: true, ...more,
+        stored: new Map(rows.states.map((row) => [row.key, row])), decisions: true, details: [], ...more,
     };
 }
 
@@ -115,6 +117,29 @@ describe("the Flowchart's own issues", () => {
             [{ kind: "link", key: "t10" }, false, { sort: "transitions", name: "GONE → GONE" }, [{ sort: "states", key: "GONE" }], { issue: "waiting", name: "GONE → GONE" }],
         ]);
     });
+
+    test("the details' findings, after the transitions' and before the drafts waiting (R38): refused bins naming the kind and selecting the Flowchart, then counts no bin holds, each selecting its row — none for a row drawn as context", () => {
+        const rows = {
+            ...CLEAN,
+            states: [...CLEAN.states, stateRow("STR", "Stray", { lane: "gone" }), stateRow("DIM", "Dimmed", { lane: "sort", dimmed: true })],
+            transitions: [...CLEAN.transitions, transitionRow("t7", "SRD", "IND", { dimmed: true })],
+        };
+        const waiting: FlowchartWaiting[] = [{ sort: "states", key: "NEW", roles: stateRow("NEW", "New", { lane: "sort" }).roles }];
+        const details: FlowchartDetailsFinding[] = [
+            { finding: "bins", sort: "states", kind: "Step", read: "Time in state", refusal: { why: "order", before: "5", after: "5" } },
+            { finding: "counts", sort: "states", key: "SRD", read: "Wait" },
+            { finding: "counts", sort: "states", key: "DIM", read: "Wait" },
+            { finding: "counts", sort: "transitions", key: "t2", read: "Hand-off" },
+            { finding: "counts", sort: "transitions", key: "t7", read: "Hand-off" },
+        ];
+        expect(flowchartIssues(argsOf(rows, { waiting, details })).map(read)).toEqual([
+            [{ kind: "state", key: "STR" }, false, { sort: "states", name: "STR" }, [], { issue: "lane", state: "STR", lane: "gone" }],
+            [null, false, { sort: undefined, name: "Step" }, [], { issue: "bins", read: "Time in state", refusal: { why: "order", before: "5", after: "5" } }],
+            [{ kind: "state", key: "SRD" }, false, { sort: "states", name: "SRD" }, [], { issue: "counts", name: "SRD", read: "Wait" }],
+            [{ kind: "link", key: "t2" }, false, { sort: "transitions", name: "CH* → SRD" }, [], { issue: "counts", name: "CH* → SRD", read: "Hand-off" }],
+            [{ kind: "state", key: "NEW" }, false, { sort: "states", name: "NEW" }, [{ sort: "states", key: "NEW" }], { issue: "waiting", name: "NEW" }],
+        ]);
+    });
 });
 
 describe("each record's session's issues", () => {
@@ -158,6 +183,10 @@ describe("each issue in the Flowchart's words", () => {
         expect(m.issueText({ issue: "waiting", name: "NEW" })).toBe("NEW has an unsaved change the rail hides: Save writes it with the rest");
         expect(m.issueText({ issue: "ready", message: "Give the state its flow" })).toBe("Give the state its flow");
         expect(m.issueText({ issue: "save", message: "The lanes take no change today" })).toBe("The lanes take no change today");
+        expect(m.issueText({ issue: "counts", name: "CH* → SRD", read: "Hand-off" })).toBe("Hand-off of CH* → SRD has counts no bin holds");
+        expect(m.issueText({ issue: "bins", read: "Time in state", refusal: { why: "empty" } })).toBe("The bins of Time in state hold no edge");
+        expect(m.issueText({ issue: "bins", read: "Time in state", refusal: { why: "number", edge: "NaN" } })).toBe("The bins of Time in state hold NaN, which no bin starts at");
+        expect(m.issueText({ issue: "bins", read: "Time in state", refusal: { why: "order", before: "10", after: "5" } })).toBe("The bins of Time in state do not ascend: 10, then 5");
         expect(m.issueWhere({ kind: "Transition", name: "CH* → SRD" })).toBe("Transition · CH* → SRD");
         expect(m.issueWhere({ kind: undefined, name: "Transition" })).toBe("Transition");
     });

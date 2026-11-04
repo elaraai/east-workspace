@@ -33,6 +33,7 @@ import { StringType, printFor } from "@elaraai/east";
 import { editingMessages, type EditingMessages, type EditingWords } from "@elaraai/east-ui-components";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
 import { hiddenByText, joinedWords, kindPlural, lowerWord, type HiddenWords } from "../shared/schedule/words.js";
+import type { FlowchartBinsRefusalWord } from "./details.js";
 import type { FlowchartGesture } from "./edits.js";
 import type { FlowchartIssueWord } from "./issues.js";
 import type { FlowchartSort } from "./read.js";
@@ -303,6 +304,15 @@ const FIELDS: { readonly [F in Exclude<FlowchartFieldWord, "moveTo">]: string } 
 /** A state's transitions' groups. */
 const GROUPS = { in: "In", out: "Out", inPlace: "In place" } as const;
 
+/** Why a histogram's bins, as the app binds them, are refused — `The bins of Time in state do not ascend: 5, then 5`. */
+function binsRefused(read: string, refusal: FlowchartBinsRefusalWord): string {
+    switch (refusal.why) {
+        case "empty": return `The bins of ${read} hold no edge`;
+        case "number": return `The bins of ${read} hold ${refusal.edge}, which no bin starts at`;
+        case "order": return `The bins of ${read} do not ascend: ${refusal.before}, then ${refusal.after}`;
+    }
+}
+
 /**
  * The English table, in the Flowchart's nouns (#1516): each kind's own `name`, and the app's words for a transition's
  * kinds.
@@ -488,6 +498,8 @@ export function flowchartMessagesOf(nouns: FlowchartNouns): FlowchartMessages {
                     : `${p.link} names ${joinedWords(p.missing, "and")}, and e3 holds no ${state} of either key`;
                 case "lane": return p.lane === undefined ? `${p.state} names no ${lane}` : `${p.state} names the ${lane} ${p.lane}, which the flowchart has none of`;
                 case "decision": return `${p.link} names the ${decision} ${p.decision}, which the flowchart has none of`;
+                case "counts": return `${p.read} of ${p.name} has counts no bin holds`;
+                case "bins": return binsRefused(p.read, p.refusal);
                 case "waiting": return `${p.name} has an unsaved change the rail hides: Save writes it with the rest`;
                 case "ready": return p.message;
                 case "save": return p.message;

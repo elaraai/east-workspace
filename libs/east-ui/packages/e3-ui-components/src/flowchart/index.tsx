@@ -27,6 +27,10 @@
  *   with Retry, as the footer's loading line says it (R5). Under `narrowed:
  *   "dim"` every row is read and what the rail leaves out is drawn dimmed, its
  *   keys the source's shown keys (`FollowSources`);
+ * - **the details** (`details.ts`): a state's and a transition's details read
+ *   as their kind is — whole, or by the keys of the rows drawn, every key in
+ *   one request — in a reader of their own, counted into the flowchart's bins;
+ *   what no bin holds, and the bins the app binds refused, listed in Issues;
  * - **the editing** (`editing.ts`): one history over a session per record that
  *   writes; every gesture on the canvas, every drop and every edit the
  *   inspector makes is one step of it (`edits.ts`). Its history item ends the
@@ -73,6 +77,7 @@ import { sourcePart, type KeyVisibilityWords } from "../shared/schedule/visibili
 import { NARROW_WIDTH } from "../shared/schedule/window.js";
 import { kindPlural } from "../shared/schedule/words.js";
 import { FlowchartCanvasView, type FlowchartCanvasEdit, type FlowchartCanvasFailure, type FlowchartCanvasHandle, type FlowchartReveal } from "./canvas.js";
+import { FlowchartDetailsReader, NO_DETAILS, detailsKindsOf, flowchartDetailsModel, useDrawnKeys, type FlowchartDetailsData } from "./details.js";
 import { draftedRows, type FlowchartDimmed } from "./drafted.js";
 import type { FlowchartDropContext } from "./drop.js";
 import { kindOf, useFlowchartEditing, type FlowchartKeyCheckWords } from "./editing.js";
@@ -155,7 +160,7 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
     return (
         <>
             <FlowchartDataReader value={value} attempt={attempt} onData={setData} />
-            <FlowchartFollows value={value} data={data} readAgain={readAgain} storageKey={storageKey} />
+            <FlowchartFollows value={value} data={data} attempt={attempt} readAgain={readAgain} storageKey={storageKey} />
         </>
     );
 }, (prev, next) => payloadEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
@@ -166,6 +171,8 @@ interface FlowchartFollowsProps {
     readonly value: FlowchartValue;
     /** What the reader has read. */
     readonly data: FlowchartData;
+    /** The read's attempt: a Retry moves it, and the details are read again with the records. */
+    readonly attempt: number;
     /** Reads every kind again: the loading line's Retry. */
     readonly readAgain: () => void;
     /** The structural storage key. */
@@ -233,7 +240,7 @@ interface Latest {
  * @param props - The payload, what is read, the words, and the rail's sources and picks
  * @returns The frame
  */
-function FlowchartFrame({ value, data, readAgain, storageKey, words, nouns, followed, picks }: FlowchartFrameProps) {
+function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, nouns, followed, picks }: FlowchartFrameProps) {
     const recipe = useSlotRecipe({ key: "flowchart" });
     const styles = useMemo(() => recipe() as Styles, [recipe]);
     const m = words.m;
@@ -274,6 +281,12 @@ function FlowchartFrame({ value, data, readAgain, storageKey, words, nouns, foll
     }, [value.narrowed, followed]);
     const drafted = useMemo(() => draftedRows(data.held, data.hiddenWith, editing.drafts, dimmed), [data.held, data.hiddenWith, editing.drafts, dimmed]);
     const model = useMemo(() => buildModel(drafted.rows, words), [drafted.rows, words]);
+
+    // ── The details: read by the rows drawn, in a reader of their own, and counted into the flowchart's bins ──
+    const [details, setDetails] = useState<FlowchartDetailsData>(NO_DETAILS);
+    const detailsKinds = useMemo(() => detailsKindsOf(value), [value]);
+    const drawn = useDrawnKeys(model);
+    const detailsModel = useMemo(() => flowchartDetailsModel(detailsKinds, details, drawn, words), [detailsKinds, details, drawn, words]);
 
     // ── What is selected, and where the canvas looks ──────────────────
     const [selected, setSelected] = useState<FlowchartSelection | null>(null);
@@ -464,7 +477,8 @@ function FlowchartFrame({ value, data, readAgain, storageKey, words, nouns, foll
     const decisionsGiven = getSomeorUndefined(value.decisions) !== undefined;
     const issueArgs = useMemo((): FlowchartIssueArgs => ({
         model, transitions: drafted.rows.transitions, waiting: drafted.waiting, hiddenWith: data.hiddenWith, stored: data.held.states, decisions: decisionsGiven,
-    }), [model, drafted, data.hiddenWith, data.held.states, decisionsGiven]);
+        details: detailsModel.findings,
+    }), [model, drafted, data.hiddenWith, data.held.states, decisionsGiven, detailsModel.findings]);
     const historyVersion = editing.version;
     // Each session's readiness, held by what it says, as the Sheet holds its own: the history checks each session again
     // as what its checks read lands — the key check's answer from e3 (D3) — and that moves no version of it.
@@ -531,6 +545,7 @@ function FlowchartFrame({ value, data, readAgain, storageKey, words, nouns, foll
 
     return (
         <Box css={styles.root} data-flowchart-root="" data-flowchart-layout={narrow ? "narrow" : "wide"}>
+            <FlowchartDetailsReader kinds={detailsKinds} drawn={drawn} attempt={attempt} onDetails={setDetails} />
             {/* The frame's one reveal clock: the footer's line shows a read in flight after 150 ms, held 300 ms once shown. */}
             <LoadingReveal waiting={line?.kind === "loading"}>
                 <BuilderFrame

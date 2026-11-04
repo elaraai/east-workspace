@@ -16,6 +16,11 @@
  *   given — drawn in the last band, *No lane* (D12).
  * - **A transition whose decision names none** of the decisions the Flowchart
  *   is given.
+ * - **The details' counts no bin holds** — a row's histogram counting at no
+ *   edge of the flowchart's bins, or counting what is no count — and **the bins
+ *   the app binds** that hold no edge, one that is no finite number, or two
+ *   that do not ascend (R38, `details.ts`). A details row keyed as no row drawn
+ *   is no issue.
  * - **A draft waiting in its session**, the narrowing hiding its row: listed
  *   with the rows of the rail's sources whose narrowing leaves it out, which the
  *   inspector names the choices of (the shared hidden pick) and Go to issue
@@ -37,6 +42,7 @@
 
 import { OptionType, StringType, compareFor, equalFor, isValueOf, type PatchPath, type ValueTypeOf } from "@elaraai/east";
 import type { EditIssue, EditSession } from "@elaraai/east-ui-components";
+import type { FlowchartBinsRefusalWord, FlowchartDetailsFinding } from "./details.js";
 import type { FlowchartWaiting } from "./drafted.js";
 import type { FlowchartDecisionRoles, FlowchartModel, FlowchartRow, FlowchartTransitionRoles } from "./model.js";
 import type { FlowchartSort } from "./read.js";
@@ -61,6 +67,10 @@ export type FlowchartIssueWord =
     | { readonly issue: "lane"; readonly state: string; readonly lane: string | undefined }
     /** A transition, named by its ends, naming a decision the Flowchart has none of, by its key. */
     | { readonly issue: "decision"; readonly link: string; readonly decision: string }
+    /** A row's histogram holding counts no bin holds, by the row's name and the read's label. */
+    | { readonly issue: "counts"; readonly name: string; readonly read: string }
+    /** A histogram's bins, as the app binds them, refused, by the read's label: why, its numbers in the app's locale. */
+    | { readonly issue: "bins"; readonly read: string; readonly refusal: FlowchartBinsRefusalWord }
     /** A change waiting on Save that the narrowing hides, by the row's name. */
     | { readonly issue: "waiting"; readonly name: string }
     /** The app's check — or the key check — refusing a drafted row, which holds Save off, in its own words. */
@@ -99,6 +109,8 @@ export interface FlowchartIssueArgs {
     readonly stored: ReadonlyMap<string, unknown>;
     /** Whether the Flowchart is given decisions: a transition naming one it has none of is an issue only then. */
     readonly decisions: boolean;
+    /** What the details model finds (`details.ts`): the bins the app binds refused, and the rows' counts no bin holds. */
+    readonly details: readonly FlowchartDetailsFinding[];
 }
 
 /**
@@ -184,14 +196,17 @@ function readerOf(args: FlowchartIssueArgs): IssueReader {
  * The Flowchart's own issues (see the module docs), each a warning: the states
  * standing in *No lane*, in their band's order; then the transitions', in key
  * order — an end no state is keyed by, a decision the Flowchart has none of;
- * then each draft waiting in its session, each kind's in its drafts' order.
+ * then the details', as the details model finds them — each kind's refused
+ * bins, naming the kind and selecting the Flowchart, then its rows' counts no
+ * bin holds, each selecting its row; then each draft waiting in its session,
+ * each kind's in its drafts' order.
  *
  * @param args - What the canvas draws, its transitions, the drafts waiting, the transitions hidden with their far end,
- *   the states read, and whether decisions are given
+ *   the states read, whether decisions are given, and what the details model finds
  * @returns The issues
  */
 export function flowchartIssues(args: FlowchartIssueArgs): FlowchartIssue[] {
-    const { model, transitions, waiting, decisions } = args;
+    const { model, transitions, waiting, decisions, details } = args;
     const { nameOf, hidingOf } = readerOf(args);
     const out: FlowchartIssue[] = [];
     const warn = (at: FlowchartSelection, where: FlowchartIssue["where"], word: FlowchartIssueWord, hiding: readonly FlowchartHiding[] = []) =>
@@ -214,6 +229,19 @@ export function flowchartIssues(args: FlowchartIssueArgs): FlowchartIssue[] {
         if (decisions && decision.type === "some" && !model.triggers.has(decision.value)) {
             warn({ kind: "link", key }, where, { issue: "decision", link, decision: decision.value });
         }
+    }
+    // What the narrowing draws as context raises none: no path selects it.
+    const dimmed = (sort: "states" | "transitions", key: string): boolean => (sort === "states"
+        ? model.nodesByKey.get(key)?.dimmed === true
+        : transitions.some((t) => t.dimmed && keyEqual(t.key, key)));
+    for (const found of details) {
+        if (found.finding === "bins") {
+            out.push({ at: null, blocking: false, where: { sort: undefined, name: found.kind }, hiding: [], word: { issue: "bins", read: found.read, refusal: found.refusal } });
+            continue;
+        }
+        if (dimmed(found.sort, found.key)) continue;
+        const name = nameOf(found.sort, found.key);
+        warn(selectionOf(found.sort, found.key), { sort: found.sort, name }, { issue: "counts", name, read: found.read });
     }
     for (const row of waiting) {
         const name = nameOf(row.sort, row.key);
