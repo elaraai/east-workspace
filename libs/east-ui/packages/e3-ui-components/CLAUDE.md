@@ -502,6 +502,12 @@ builder supplies only its own:
   lines are listed again as the layout comes to lay resources out or leaves
   off, and a pick steps to the event's period and selects it. The time grids,
   the month and the agenda narrow no event by its resource, and name none.
+- **The Plan**: its `rows` source (`plan/find.ts`, #1513): the box seeks and
+  lists the whole record in its key's order, a line naming what hides a row; a
+  pick asks e3 where the row stands among the narrowing's rows, from the row's
+  index keys and, among rows sharing one, by halves (`recordSlicePosition`), and
+  clears what hides it first where the narrowing holds none of it. The canvas
+  opens that window once the source reads the narrowing the pick left.
 - **The Schematic**: each kind's source of the rail, every kind's pick read by
   the frame — Find's items, and an unsaved change waiting in its session that
   Issues names; a pick flies to where the row stands and selects it through

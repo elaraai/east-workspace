@@ -319,6 +319,17 @@ export interface PlanController {
      *  `requery` is the seek snapshot's `again` (#821, #1199), and its
      *  `resetKey` the source's id. */
     readonly search: Omit<PlanSearch, "resetKey" | "requery">;
+    /**
+     * Go to a row of the `rows` source Search Records found (#1513): its window opened as a key search's jump opens it,
+     * once the source reads the narrowing the row was placed in, and the view brought to the row as it lands.
+     *
+     * @param key - The row's element key
+     * @param row - Its place among the narrowing's rows
+     * @param narrowing - The narrowing, as the source names it
+     */
+    goToRow(key: string, row: number, narrowing: string): void;
+    /** Drop what {@link PlanController.goToRow} asked: the box cleared. */
+    leaveRow(): void;
     /** The diagnostics chip asked for the first skipped row (#811). */
     seekSkipped(): void;
     /**
@@ -516,6 +527,11 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     // window leaving as the reader scrolls on, retargets nothing.
     let searchRequest: { key: string; row: number } | undefined;
     let searchJump = 0;
+    // A row Search Records over the `rows` source goes to (#1513): the key and its place among the narrowing's rows, as e3
+    // placed them. It waits for the source to read that narrowing, a pick's clear having just written it, as a jump made
+    // under the last one would be dropped with its rows. `goingToRow` holds its target: no query of the seek driver's does.
+    let rowGoal: { key: string; row: number; narrowing: string } | undefined;
+    let goingToRow = false;
     let nav = NO_NAV;
     let navSeq = 0;
     // The item a far key set out from while the view it left stands in (#1398, CL10): the focus moving anywhere else
@@ -574,7 +590,9 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             // them: one that showed only rows not read yet stood in for nothing, and kept its offset into the new rows.
             const rowsIn = !landed.replacing && landed.rows.length > 0;
             const anew = rowsIn && narrowingDrawn !== undefined && landed.narrowing !== undefined && !sameNarrowing(landed.narrowing, narrowingDrawn);
-            if (((replacing && !landed.replacing) || anew) && anchor.phase === "settled") {
+            // A row a pick goes to (#1513) takes the view: no top row is kept for it to fight.
+            const goesToRow = rowGoal !== undefined || searchRequest !== undefined;
+            if (((replacing && !landed.replacing) || anew) && anchor.phase === "settled" && !goesToRow) {
                 anchor = { saved: persisted.anchor, phase: "pending", keeping: true, restore: anchor.restore };
             }
             if (rowsIn) narrowingDrawn = landed.narrowing;
@@ -598,6 +616,8 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             }
             // A row a `focus` request waits for may have landed (#824).
             serveFocus();
+            // The narrowing a pick left may be what the source reads now (#1513).
+            serveRowGoal();
         }),
     });
     const seek = createSeekDriver({
@@ -666,10 +686,10 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         // landed. A search SERVED takes the viewport back from the
         // skipped-row chip — the latest request wins — and is not served
         // again: the rows around it may land and leave as the reader scrolls.
-        if (s.sought === null) {
+        if (s.sought === null && !goingToRow) {
             searchRequest = undefined;
             if (scroll.targetKey !== undefined) scroll = { ...scroll, targetKey: undefined };
-        } else if (searchRequest !== undefined && landedAt(p, searchRequest.row)) {
+        } else if (searchRequest !== undefined && !p.replacing && landedAt(p, searchRequest.row)) {
             const loaded = elementRowsOf(p);
             const targetKey = loaded[firstAtOrAfter(loaded, searchRequest.key)]?.key;
             searchRequest = undefined;
@@ -995,6 +1015,16 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         }
     }
 
+    /** Go to the row a pick placed, once the source reads the narrowing it was placed in (#1513). */
+    function serveRowGoal(): void {
+        const goal = rowGoal;
+        const reading = paging.getSnapshot().narrowing;
+        if (goal === undefined || reading === undefined || !sameNarrowing(reading, goal.narrowing)) return;
+        rowGoal = undefined;
+        searchRequest = { key: goal.key, row: goal.row };
+        paging.jumpToElement(goal.row);
+    }
+
     /** Ask for the row of the element `row` under the standing search. */
     function requestSearch(row: number): void {
         const sought = seek.getSnapshot().sought;
@@ -1264,6 +1294,23 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         },
         placeOf: (key) => paging.placeOf(key),
         search,
+        goToRow(key, row, narrowing) {
+            batch(() => {
+                goingToRow = true;
+                searchRequest = undefined;
+                rowGoal = { key, row, narrowing };
+                if (scroll.owner !== "search") scroll = { ...scroll, owner: "search" };
+                serveRowGoal();
+            });
+        },
+        leaveRow() {
+            batch(() => {
+                goingToRow = false;
+                rowGoal = undefined;
+                searchRequest = undefined;
+                paging.clearJump();
+            });
+        },
         seekSkipped() {
             batch(() => { scroll = { ...scroll, owner: "skipped", skippedSeq: scroll.skippedSeq + 1 }; });
         },

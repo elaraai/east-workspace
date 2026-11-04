@@ -423,6 +423,50 @@ export class RecordSliceController {
     }
 
     /**
+     * Where a row stands among a narrowing's rows, in their order (#1513): its
+     * maintained keys sought in the narrowing, the first that holds it; where
+     * several rows share that key — every row of a status, under a status's
+     * narrowing — the run's rows, which an index keeps in their primary keys'
+     * order, read a row at a time by halves. What a reader that pages the
+     * narrowing's rows goes to a row by, where a row's place in the record says
+     * nothing of its place there.
+     *
+     * @param where - The narrowing
+     * @param key - The row's primary key, an East value of the record's key type
+     * @param row - The row, as the record holds it at its current revision
+     * @returns Its place, `null` where the narrowing does not hold it; none while a read is pending
+     * @throws {Error} When the rows read run out inside the run: the record changed between the reads
+     */
+    position(where: Where, key: unknown, row: unknown): option<bigint | null> {
+        const plan = this.plan(where);
+        const keys = plan.index === "primary" ? [this.printKey(key)] : this.source.entryKeys(plan.index, key, row);
+        let run: { row: bigint; count: bigint } | undefined;
+        let pending = false;
+        for (const ik of keys) {
+            const found = this.windows.seek(plan, variant("key", ik));
+            if (found.type === "none") pending = true;
+            else if (found.value.found && (run === undefined || found.value.row < run.row)) run = found.value;
+        }
+        if (pending) return none;
+        if (run === undefined) return some(null);
+        const compare = compareFor(this.primaryKey);
+        let low = run.row;
+        let high = run.row + run.count - 1n;
+        while (low < high) {
+            const middle = (low + high) / 2n;
+            const page = this.windows.page(plan, middle, 1n);
+            if (page.type === "none") return none;
+            const entry = page.value[0];
+            if (entry === undefined) throw new Error("The results changed while finding the row; retry");
+            const order = compare(entry.key, key);
+            if (order === 0) return some(middle);
+            if (order < 0) low = middle + 1n;
+            else high = middle;
+        }
+        return some(low);
+    }
+
+    /**
      * Some rows' maintained entries of an index, each beside the row it is one of: each row's keys, as the binding
      * maintains them — an East function of the row, evaluated row by row.
      */

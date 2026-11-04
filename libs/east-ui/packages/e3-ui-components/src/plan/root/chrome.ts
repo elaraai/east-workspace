@@ -15,12 +15,11 @@ import type { ReactNode, RefObject } from "react";
 import type { SystemStyleObject } from "@chakra-ui/react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Plan } from "@elaraai/e3-ui/internal";
-import type { EditIssue, EditSession, HistoryAction, HistoryBarProps, LandingAttributes, ToolbarItem } from "@elaraai/east-ui-components";
+import type { EditIssue, EditSession, HistoryAction, HistoryBarProps, KeySearchSource, LandingAttributes, ToolbarItem } from "@elaraai/east-ui-components";
 import type { LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import type { PlanScale } from "../scale.js";
 import type { PlanGrain, RowKey } from "../plan-state.js";
 import type { PlanEventEditing } from "../edit/events.js";
-import type { PlanSearch } from "../use-seek.js";
 import type { PlanWords } from "../words.js";
 import type { PlanEntryRef } from "../use-plan-editing.js";
 import type { PlanDiagnostics } from "../shell/Diagnostics.js";
@@ -123,8 +122,8 @@ export interface PlanChrome {
     busy: boolean;
     /** The rows' pitch, in px: the cold-load skeleton's rows draw at it. */
     pitch: number;
-    /** Key search over the source, when a paged source declares `seek` (#574). */
-    search: PlanSearch | undefined;
+    /** Key search over the source, when a paged source declares `seek` (#574), or over the `rows` source's record (#1513). */
+    search: KeySearchSource | undefined;
     /** What the canvas carried on past (#811). */
     diagnostics: PlanDiagnostics;
     /**

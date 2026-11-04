@@ -441,6 +441,22 @@ export function recordSliceSeek(slice: Pick<ValueTypeOf<RecordSliceBindType>, "k
 }
 
 /**
+ * Where a row stands among a record Slice's narrowing's rows, in their order
+ * (#1513): what a reader that pages the narrowing's rows goes to a row by — the
+ * Plan's Search Records, once a pick has cleared what hid it. A tracked read, as
+ * {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param where - The narrowing
+ * @param key - The row's primary key
+ * @param row - The row, as the record holds it at its current revision
+ * @returns Its place, `null` where the narrowing does not hold it; none while pending
+ */
+export function recordSlicePosition(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where: Where, key: unknown, row: unknown): option<bigint | null> {
+    return controllerOf(slice).position(where, key, row);
+}
+
+/**
  * A window of what a read of a record Slice's record holds — with no
  * narrowing, of the record's own rows in their order (#1404): the entries
  * `[offset, offset + limit)`, each as its binding reads it, its key and its row

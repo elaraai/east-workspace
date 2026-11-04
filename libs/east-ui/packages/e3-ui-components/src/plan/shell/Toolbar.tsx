@@ -56,6 +56,7 @@ import { Seg, SegMenu } from "../../shared/schedule/segments.js";
 export { Seg, SegMenu } from "../../shared/schedule/segments.js";
 import { PlanTimeNavigator } from "./TimeNavigator.js";
 import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
+import { SEARCH_BOX_RANK } from "../../shared/schedule/search-rank.js";
 
 /** The Plan's own fold ranks, after every step of the rail's (#952): the
  *  overlaps chip keeps its glyph and its count, the resolution then the fold
@@ -146,7 +147,10 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
         ...(slices?.persist.type === "some" ? { persist: slices.persist.value.type } : {}),
     });
     // The key search over a seekable source: its box, or its icon on a row short of room.
-    const seek = useKeySearchToolbarItem(search, { rank: PLAN_RANK.seek, label: words.m.keySearch() });
+    // Over the `rows` source's record (#1513) it is the first thing the row folds, as a period builder's is: the box came
+    // to a row its rail, its dates and its zoom already fill, and they stay live.
+    const seekRank = chrome?.rowsPart !== undefined ? SEARCH_BOX_RANK : PLAN_RANK.seek;
+    const seek = useKeySearchToolbarItem(search, { rank: seekRank, label: words.m.keySearch() });
 
     // What the Plan's own items are drawn from: the chrome's facts each reads, never the chrome, which is new each render.
     const drawn = chrome !== undefined;

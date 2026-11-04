@@ -26,7 +26,7 @@
 import { createContext, createElement, useContext, useMemo, type ReactNode } from "react";
 import { editingMessages, type EditingMessages } from "@elaraai/east-ui-components";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
-import { eventsNotCounted, joinedWords as joined, kindPlural as pluralName } from "../shared/schedule/words.js";
+import { eventsNotCounted, hiddenByText, joinedWords as joined, kindPlural as pluralName, type HiddenWords } from "../shared/schedule/words.js";
 import { timeMessages, type TimeMessages } from "../shared/time/scale.js";
 
 /** A lifecycle state as the words name it — `EventStateType`, with the
@@ -105,7 +105,7 @@ export type PlanInspectorStat = "events" | "hours" | "hoursInView" | "backlog";
  * #1398: `lineLoading`, `lineFiltering`, `lineFailed`, `lineShort`), in what
  * the rail counts the rows in.
  */
-export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadingMessages {
+export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadingMessages, HiddenWords {
     // ── The frame ──────────────────────────────────────────────────────────
     /** The treegrid's accessible name. */
     gridLabel: () => string;
@@ -140,6 +140,12 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     /** The key search's icon — what a toolbar short of room folds its box
      *  to — and the head of the popover it opens the box in (#1193). */
     keySearch: () => string;
+    /** What the key search says where no record matches: it finds a record, and the rail narrows by its fields (#1513). */
+    keySearchNoMatches: () => string;
+    /** Why a pick could not go to its row, where the read threw no words of its own (#1513). */
+    keySearchUnplaced: () => string;
+    /** Why the choices hiding a row could not be cleared, where the clear threw no words of its own (#1513). */
+    keySearchUncleared: () => string;
     /** The overlaps chip (#1198, PB52) — `3 overlaps`: the pairs of events
      *  that overlap in the window. */
     overlaps: (p: { n: number; count: string }) => string;
@@ -602,6 +608,11 @@ export const planMessages: PlanMessages = {
     resolutionLabel: () => "Resolution",
     resolutionName: ({ resolution }) => resolution.toUpperCase(),
     keySearch: () => "Search Records",
+    keySearchNoMatches: () => "No record matches. The filters narrow by a record's other fields.",
+    keySearchUnplaced: () => "The record could not be found among the rows",
+    keySearchUncleared: () => "The filters hiding the record could not be cleared",
+    hiddenByFilters: () => "hidden by the filters",
+    hiddenBy: ({ filters, also }) => hiddenByText(filters, also),
     overlaps: ({ n, count }) => `${count} ${plural(n, "overlap", "overlaps")}`,
     overlapsShort: ({ count }) => count,
     overlapsLabel: ({ n, count }) => `${count} ${plural(n, "overlap", "overlaps")} — select the first pair`,

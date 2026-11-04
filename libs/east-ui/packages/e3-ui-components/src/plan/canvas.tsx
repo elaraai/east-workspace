@@ -89,7 +89,7 @@ import {
     type EditHistory, type EditHistoryJoined, type EditIssue, type DragEventValue, type DragMeta, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import {
-    parseCssSize, DensityProvider, VirtualRows, VIRTUALIZE_UNBOUNDED_AT, getStore, recordSliceNoun, usePickHandOff,
+    parseCssSize, DensityProvider, VirtualRows, VIRTUALIZE_UNBOUNDED_AT, getStore, recordSliceNoun,
 } from "@elaraai/east-ui-components/internal";
 import {
     PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanResolversContext, PlanGeometryContext,
@@ -153,6 +153,9 @@ import {
 import { PlanAnnouncer } from "./root/announce.js";
 import { PlanWordsContext, useResolvedPlanWords } from "./words.js";
 import type { PlanSearch } from "./use-seek.js";
+import { usePlanRowsFind } from "./find.js";
+import { useSourceHidden } from "../shared/schedule/hidden.js";
+import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { DROPPABLE_KINDS } from "./rows/BodyRow.js";
 import { PlanEditContext, PlanEditStore, type PlanEditContextValue } from "./edit/store.js";
 import { PlanTypingStore, planZooms, type PlanTyping } from "./edit/typing.js";
@@ -763,16 +766,25 @@ export function usePlanCanvas({
     // snapshot of the source's data, whose rows the matches it holds no longer
     // index (#821, #1199). New rows over the same data — a pan reading the
     // event kinds' rows again, a draft — move neither, so the search stands.
-    // The `rows` source's own Search Records stays primary-key navigation: the rail narrows, never the key search.
+    // The `rows` source's own Search Records stays primary-key navigation over its whole record (#1513, `find.ts`): the
+    // rail narrows, never the key search, and a pick clears what hides its row.
     const seekable = rowsPart === undefined && data.rows.type !== "inline" && data.rows.value.seek.type === "some";
     const sourceId = data.rows.type !== "inline" ? data.rows.value.id : "";
     // A pick in it hands the keyboard to the canvas (#1398): the row it brings in takes the focus — the grid's one stop,
     // its ring — once the box has let the keyboard go (below); a step leaves it in the box.
-    const handOff = usePickHandOff();
+    const [findError, setFindError] = useState<string | undefined>(undefined);
+    const hiddenPick = useHiddenPick({ onError: setFindError, uncleared: words.m.keySearchUncleared() });
+    const handOff = hiddenPick.handOff;
     const picking = useMemo(() => handOff.search(controller.search), [handOff, controller]);
-    const search = useMemo<PlanSearch | undefined>(
+    const seekSearch = useMemo<PlanSearch | undefined>(
         () => (seekable ? { ...picking, resetKey: sourceId, requery: seek.again } : undefined),
         [seekable, picking, sourceId, seek.again]);
+    const findsRows = rowsPart !== undefined && data.rows.type !== "inline" ? rowsPart : undefined;
+    const rowsHiding = useSourceHidden("Plan", findsRows);
+    const rowsFind = usePlanRowsFind({ part: findsRows, pick: rowsHiding, clear: hiddenPick.clear, controller, words, onError: setFindError });
+    const search = useMemo(
+        () => (rowsFind !== undefined ? hiddenPick.search(rowsFind) : seekSearch),
+        [rowsFind, hiddenPick, seekSearch]);
 
     // ── Row focus and the visible rows ────────────────────────────────────
     const { linkFamily, focusVisibleKeys, focusCtx } = usePlanFocus(view.focus, data.links);
@@ -1133,9 +1145,9 @@ export function usePlanCanvas({
         skipped: derived.diagnostics.size,
         onSeekSkipped: target.firstSkipped !== undefined && !narrow ? controller.seekSkipped : undefined,
         sourceError,
-        searchError: seek.searchError,
+        searchError: seek.searchError ?? findError,
         truncatedAt: scale?.truncated?.shown,
-    }), [derived.diagnostics, target.firstSkipped, narrow, controller, sourceError, seek.searchError, scale]);
+    }), [derived.diagnostics, target.firstSkipped, narrow, controller, sourceError, seek.searchError, findError, scale]);
 
     // The element-click funnel, when the root declares `onElementClick` (#824)
     // — the controller reports a click to the LATEST root's.
