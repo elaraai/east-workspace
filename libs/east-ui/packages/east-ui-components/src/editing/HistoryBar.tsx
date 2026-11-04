@@ -21,7 +21,7 @@
  */
 import { useContext, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
-import { Box, chakra, Portal, Text, Tooltip, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { Box, chakra, Portal, Text, Tooltip, useRecipe, useSlotRecipe, VisuallyHidden, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRotateLeft, faArrowRotateRight, faCheck, faRotate, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
@@ -114,6 +114,11 @@ export interface HistoryBarProps<W> {
     locked?: boolean | undefined;
     /** The phone's form, the toolbar's second row in a frame of 560 px or less (see the module docs). `false` by default. */
     phone?: boolean | undefined;
+    /**
+     * On a phone, what the Issues button opens where a host lists them, conflicts too: a tab of its inspector
+     * (`Studio Mobile Spec.md` ST7). The button then counts the conflicts, and there is no conflicts button.
+     */
+    onOpenIssues?: (() => void) | undefined;
 }
 
 /** Keep an accessible name and a hover/focus tooltip when the control has no text. */
@@ -194,7 +199,7 @@ function DiscardAsk({ head, title, body, cancel, confirm, styles, confirmCss, ca
  * @param props - The session, the collection's words, and its callbacks
  * @returns The bar
  */
-export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onConflict, conflictItem, conflictValue, where, issueText, buttonsOnly = false, showError = true, locked = false, phone = false }: HistoryBarProps<W>) {
+export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onConflict, conflictItem, conflictValue, where, issueText, buttonsOnly = false, showError = true, locked = false, phone = false, onOpenIssues }: HistoryBarProps<W>) {
     const buttonRecipe = useRecipe({ key: "button" });
     // A phone's Discard asks first (FR8), in the band under the row.
     const [asking, setAsking] = useState(false);
@@ -237,11 +242,16 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onCo
                     {message !== undefined ? <Text as="span" css={styles.status}>{message}</Text>
                         : <Box as="span" css={styles.changes} data-changes={pending > 0 ? "" : undefined}>{m.historyChanges({ n: pending, count: words.number(pending) })}</Box>}
                 </Box>
-                <ConflictsControl session={session} words={words} onIssue={onConflict ?? onIssue} where={where} item={conflictItem} value={conflictValue} issueText={issueText} locked={locked} />
+                {onOpenIssues === undefined
+                    ? <ConflictsControl session={session} words={words} onIssue={onConflict ?? onIssue} where={where} item={conflictItem} value={conflictValue} issueText={issueText} locked={locked} />
+                    : <VisuallyHidden aria-live="polite" data-conflicts-said="">{unsettled > 0 ? m.conflictsAppeared({ n: unsettled, count: words.number(unsettled) }) : ""}</VisuallyHidden>}
                 {/* The issues there whatever their number, off at none (FR6.3). */}
-                <HistoryButton styles={styles} label={m.issues({ n, count: words.number(n) })} tip={m.issuesTip({ n, count: words.number(n) })} locked={false}
-                    icon={faTriangleExclamation} disabled={n === 0} onClick={() => { if (issues[0]) onIssue(issues[0]); }}
-                    content={n === 0 ? undefined : <Box as="span" css={styles.issuesCount} data-history-issues=""><FontAwesomeIcon icon={faTriangleExclamation} /><span>{words.number(n)}</span></Box>} />
+                {(() => {
+                    const shown = onOpenIssues === undefined ? n : n + unsettled;
+                    return <HistoryButton styles={styles} label={m.issues({ n: shown, count: words.number(shown) })} tip={m.issuesTip({ n: shown, count: words.number(shown) })} locked={false}
+                        icon={faTriangleExclamation} disabled={shown === 0} onClick={() => { if (onOpenIssues !== undefined) onOpenIssues(); else if (issues[0]) onIssue(issues[0]); }}
+                        content={shown === 0 ? undefined : <Box as="span" css={styles.issuesCount} data-history-issues=""><FontAwesomeIcon icon={faTriangleExclamation} /><span>{words.number(shown)}</span></Box>} />;
+                })()}
                 <HistoryButton styles={styles} label={m.undo()} tip={m.undoTip()} icon={faArrowRotateLeft} disabled={!session.canUndo && !commitEditor} locked={locked} onClick={() => onAction("undo")} />
                 <HistoryButton styles={styles} label={m.redo()} tip={m.redoTip()} icon={faArrowRotateRight} disabled={!session.canRedo} locked={locked} onClick={() => onAction("redo")} />
                 <HistoryButton styles={styles} label={m.discard()} tip={m.discardTip()} icon={faXmark} disabled={discardOff} locked={locked} expanded={askingNow} buttonRef={discardRef}

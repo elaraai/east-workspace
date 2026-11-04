@@ -72,6 +72,7 @@ import { BuilderFrame, type BuilderFramePane } from "../builder-frame/index.js";
 import { NARROW_FRAME } from "../builder-frame/place.js";
 import { useContainerWidth } from "../../contracts/adaptive.js";
 import { SnapGridPhoneCanvas, type SnapGridPhoneOptions, type SnapGridPlacing } from "./phone.js";
+import { SnapGridPhoneIssues } from "./phone-issues.js";
 import { historyToolbarItem } from "../../editing/history-item.js";
 import { SessionBanners } from "../../editing/banners.js";
 import type { HistoryAction } from "../../editing/HistoryBar.js";
@@ -878,7 +879,12 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     }, [select, focusTile]);
     // A tile as the page shows it, in the frame's banners and its conflicts' cards: its label — `Breakdown bars` — else its id.
     const tileWhere = useCallback((issue: EditIssue) => tilesRef.current.find((t) => t.id === issue.entry)?.label ?? issue.entry, []);
-    const history = historyToolbarItem({ session, words, editing: false, onAction: action, onIssue, where: tileWhere });
+    // On a phone an inspector pane the frame draws takes an Issues tab, which the second row's Issues opens (ST7, D9).
+    const [phoneTab, setPhoneTab] = useState<string | undefined>(undefined);
+    const hostEnd = panes?.end;
+    const issuesDock = phone && hostEnd !== undefined && !("element" in hostEnd) ? hostEnd : undefined;
+    const openIssues = () => { setPhoneTab("issues"); issuesDock?.onCollapsedChange?.(false); };
+    const history = historyToolbarItem({ session, words, editing: false, onAction: action, onIssue, where: tileWhere, onOpenIssues: issuesDock === undefined ? undefined : openIssues });
 
     // ── The ruler: the selected tile's columns ───────────────────────────
     const guides = value.guides;
@@ -1033,7 +1039,16 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     const eastPaneEnd = getSomeorUndefined(value.panes.end);
     const paneStart: BuilderFramePane | undefined = panes?.start ?? (eastPaneStart !== undefined
         ? { element: <EastChakraComponent value={eastPaneStart} storageKey={`${storageKey}.pane.start`} /> } : undefined);
-    const paneEnd: BuilderFramePane | undefined = panes?.end ?? (eastPaneEnd !== undefined
+    const issuesCount = session.unsettled + (session.readiness.type === "ready" ? session.issues.length : session.readiness.value.length);
+    const paneEnd: BuilderFramePane | undefined = issuesDock !== undefined ? {
+        ...issuesDock,
+        tab: phoneTab ?? issuesDock.tabs?.[0]?.key,
+        onTabChange: setPhoneTab,
+        tabs: [...(issuesDock.tabs ?? []), {
+            key: "issues", label: m.phoneIssues(), count: words.number(issuesCount),
+            body: <SnapGridPhoneIssues session={session} rows={rows} words={words} where={tileWhere} />,
+        }],
+    } : panes?.end ?? (eastPaneEnd !== undefined
         ? { element: <EastChakraComponent value={eastPaneEnd} storageKey={`${storageKey}.pane.end`} /> } : undefined);
 
     // What the source holds of each tile's span: a span drafted away from it is a dirty value on a phone (ST16).
@@ -1043,7 +1058,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         return spans;
     }, [value.cells]);
     const conflicted = useCallback((id: string) => session.conflicts.has(id), [session.conflicts]);
-    const banners = <SessionBanners session={session} words={words} onAction={action} where={tileWhere} />;
+    const banners = <SessionBanners session={session} words={words} onAction={action} where={tileWhere} onChoose={issuesDock === undefined ? undefined : openIssues} />;
 
     return (
         <Box

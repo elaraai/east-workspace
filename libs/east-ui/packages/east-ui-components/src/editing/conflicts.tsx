@@ -122,8 +122,8 @@ function fieldOf(point: ConflictPoint): string | undefined {
     return conflictFieldOf(point);
 }
 
-/** One conflict, as the popover lists it. */
-interface Card {
+/** One conflict, as the popover lists it — and a phone's Issues tab. */
+export interface ConflictCard {
     /** Its session's key, its entry and its path — or its range: what it is known by while the popover is open. */
     readonly key: string;
     /** The conflict as an issue of its entry: what Go to goes to, and what names its item. */
@@ -153,12 +153,12 @@ interface Card {
  * @param value - How the collection writes a value
  * @returns The cards
  */
-function cardsOf<W>(
+export function conflictCards<W>(
     held: EditSession<W> | EditHistory<W>, words: EditingWords, where: ((issue: EditIssue) => string) | undefined,
     item: ((issue: EditIssue, at: PatchPath, steps: readonly string[]) => string | undefined) | undefined,
     value: ((issue: EditIssue, at: PatchPath, value: unknown, type: EastType | undefined) => string | undefined) | undefined,
-): Card[] {
-    const cards: Card[] = [];
+): ConflictCard[] {
+    const cards: ConflictCard[] = [];
     const history = held instanceof EditHistory ? held : undefined;
     for (const [sessionKey, session] of heldSessions(held)) {
         // The collection's name for the item, its steps included, where it gives one; else its entry's, then the steps.
@@ -174,7 +174,7 @@ function cardsOf<W>(
         // A value in the collection's words, where it gives them for the conflict's issue.
         const valueOf = (issue: EditIssue): ConflictValueWords | undefined =>
             (value === undefined ? undefined : (at, held, type) => value(issue, at, held, type));
-        const card = (id: string, key: unknown, point: ConflictPoint, values: EntryConflicts | SettledConflict, choice: ConflictChoice | undefined): Card => {
+        const card = (id: string, key: unknown, point: ConflictPoint, values: EntryConflicts | SettledConflict, choice: ConflictChoice | undefined): ConflictCard => {
             const issue = session.conflictIssue(id, point);
             const view = conflictViewOf(session.draftType, {
                 id, key, keyType: session.keyType, at: point.at, was: values.was, draft: values.draft, source: values.source,
@@ -183,7 +183,7 @@ function cardsOf<W>(
         };
         // A range's card: each end read from its own conflict — as it read before it was chosen — else from the draft as
         // it stands, which a choice leaves there; chosen once every one of its conflicts is chosen alike.
-        const rangeCard = ({ id, key, range, points }: RangeGroup): Card => {
+        const rangeCard = ({ id, key, range, points }: RangeGroup): ConflictCard => {
             const current = points.find((at) => at.choice === undefined)?.values ?? points[0]!.values;
             const endAt = (field: string): RangeEnd => {
                 const at = points.find((p) => { const name = fieldOf(p.point); return name !== undefined && textEqual(name, field); });
@@ -201,7 +201,7 @@ function cardsOf<W>(
         };
         // Fields that change together: one card, the lead's conflict as it reads — or, the lead not in conflict, the first
         // one's — under the value's own name; chosen once every one of its conflicts is chosen alike.
-        const togetherCard = ({ id, key, together, points }: TogetherGroup): Card => {
+        const togetherCard = ({ id, key, together, points }: TogetherGroup): ConflictCard => {
             const shown = points.find((p) => { const name = fieldOf(p.point); return name !== undefined && textEqual(name, together.lead); }) ?? points[0]!;
             const issue = session.conflictIssue(id, shown.point);
             const read = conflictViewOf(session.draftType, {
@@ -219,7 +219,7 @@ function cardsOf<W>(
         };
         // Each conflict in turn, one at an item's start or end gathered into its range's card, and one at fields that change
         // together into theirs, where the first of them shows.
-        const items: (Card | RangeGroup | TogetherGroup)[] = [];
+        const items: (ConflictCard | RangeGroup | TogetherGroup)[] = [];
         const groups = new Map<string, RangeGroup | TogetherGroup>();
         const add = (id: string, key: unknown, point: ConflictPoint, values: EntryConflicts | SettledConflict, choice: ConflictChoice | undefined) => {
             const part = conflictPartOf(point, session.ranges, session.together);
@@ -378,7 +378,7 @@ export function ConflictsControl<W>({ session, words, onIssue, where, item, issu
             return [];
         }
         const seen = order.current;
-        const all = cardsOf(session, words, where, item, value);
+        const all = conflictCards(session, words, where, item, value);
         for (const card of all) if (!seen.has(card.key)) seen.set(card.key, seen.size);
         return all.sort((a, b) => seen.get(a.key)! - seen.get(b.key)!);
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the session is mutable: its serial says it moved
@@ -482,7 +482,7 @@ export function ConflictsControl<W>({ session, words, onIssue, where, item, issu
         if (active !== null && active.hasAttribute("data-conflict")) seen(active, "focus");
         else seen(frame.querySelector(SHOWN), "selection");
     };
-    const goTo = (card: Card) => {
+    const goTo = (card: ConflictCard) => {
         onIssue(card.issue, card.at);
         // In a narrow frame the popover would cover the item: it closes, and the button stays. A frame not laid out has no width.
         const toolbar = anchor.current?.closest<HTMLElement>("[data-toolbar]") ?? anchor.current?.parentElement;
@@ -491,12 +491,12 @@ export function ConflictsControl<W>({ session, words, onIssue, where, item, issu
         else watchShown();
     };
     // Where the newer value came from — what the source said, else that it changed — then what both began from.
-    const sourceOf = (card: Card): string => (card.said === undefined ? m.conflictChangedSince() : issueText?.(card.said) ?? card.said);
-    const contextOf = (card: Card): string => [sourceOf(card), ...(card.view.was === undefined ? [] : [m.conflictWas({ value: card.view.was })])].join(" · ");
+    const sourceOf = (card: ConflictCard): string => (card.said === undefined ? m.conflictChangedSince() : issueText?.(card.said) ?? card.said);
+    const contextOf = (card: ConflictCard): string => [sourceOf(card), ...(card.view.was === undefined ? [] : [m.conflictWas({ value: card.view.was })])].join(" · ");
     // A value longer than its two lines opens in place with Show all, never in a second popover.
-    const long = (card: Card) => [[card.view.yours, card.view.yoursForm], [card.view.theirs, card.view.theirsForm]]
+    const long = (card: ConflictCard) => [[card.view.yours, card.view.yoursForm], [card.view.theirs, card.view.theirsForm]]
         .some(([value, form]) => form === "text" && (value!.length > LONG_TEXT || value!.includes("\n")));
-    const choiceRow = (card: Card, seq: number, choice: ConflictChoice) => {
+    const choiceRow = (card: ConflictCard, seq: number, choice: ConflictChoice) => {
         const checked = card.choice === choice;
         const name = choice === "draft" ? m.conflictYours() : m.conflictTheirs();
         const value = choice === "draft" ? card.view.yours : card.view.theirs;
@@ -519,7 +519,7 @@ export function ConflictsControl<W>({ session, words, onIssue, where, item, issu
             </chakra.label>
         );
     };
-    const head = (card: Card, itemId?: string) => (
+    const head = (card: ConflictCard, itemId?: string) => (
         <Box css={styles.head}>
             <Box as="span" css={styles.mark} data-chosen={card.choice === undefined ? undefined : ""} aria-hidden>
                 {card.choice !== undefined && <FontAwesomeIcon icon={faCheck} />}
@@ -528,7 +528,7 @@ export function ConflictsControl<W>({ session, words, onIssue, where, item, issu
             <chakra.button type="button" css={styles.goTo} data-conflict-go="" onClick={() => goTo(card)}>{m.conflictGoTo()}</chakra.button>
         </Box>
     );
-    const cardOf = (card: Card, index: number) => {
+    const cardOf = (card: ConflictCard, index: number) => {
         const seq = order.current.get(card.key)!;
         const track = { onFocus: () => { focused.current = { key: card.key, index }; } };
         const label = card.view.label;

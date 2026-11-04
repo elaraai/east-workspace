@@ -402,7 +402,7 @@ test.describe("Studio on a phone (`Studio Mobile Spec.md`)", () => {
         await expect(frame.locator("[data-snap-grid-saved-band]")).toHaveText("Saved 1 change");
     });
 
-    test("a change that meets someone else's save waits: its frame dashed, Conflict in its caption, the band over the strip, the choices in the bottom panel with the tile bar out of their way (ST37, as built)", async ({ page }) => {
+    test("a change that meets someone else's save waits: its frame dashed, Conflict in its caption, the band over the strip, Issues counting it and opening the Inspector's tab, mine against theirs, either clearing it (ST7, ST37)", async ({ page }) => {
         await page.setViewportSize({ width: 430, height: 1000 });
         await page.goto("/?theme=light#e3/studio/studio/studioConflicts");
         await page.waitForSelector("header", { timeout: 20_000 });
@@ -417,9 +417,23 @@ test.describe("Studio on a phone (`Studio Mobile Spec.md`)", () => {
         await entry.getByRole("button", { name: "Someone else saves" }).click();
         await expect(frame.locator("[data-tile-conflict]")).toHaveText("Conflict");
         expect(await frame.locator("[data-snap-grid-tile][data-conflict] > [data-snap-grid-phone-frame]").evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe("dashed");
+        // Issues counts it and opens the Inspector's Issues tab; nothing floats, no conflicts button. The band's Choose goes there too.
+        await expect(frame.locator("[data-conflicts]")).toHaveCount(0);
+        await expect(frame.locator("[data-history-issues]")).toHaveText("1");
         await frame.locator("[data-banner-action=choose]").click(); await settled(page);
-        await expect(frame.locator("[data-frame-panel]")).toBeVisible();
-        await expect(frame.locator("[data-snap-grid-tile-bar]")).toBeHidden();
+        const pane = frame.locator("[data-frame-drawer][data-open]");
+        const issue = pane.locator("[data-snap-grid-issue]");
+        await expect(issue).toContainText("Conflict · Row 2");
+        await expect(issue).toContainText("Orders by week · column span");
+        await expect(issue).toContainText("6 / 12 · columns 1–6");
+        await expect(issue).toContainText("7 / 12");
         await expect(page.locator('[data-scope="popover"][data-part="content"][data-state="open"]')).toHaveCount(0);
+        // Either clears it, and Save no longer waits.
+        await issue.locator('[data-issue-keep="draft"]').click();
+        await expect(issue).toHaveCount(0);
+        await expect(pane.locator("[data-snap-grid-issues][data-empty]")).toBeVisible();
+        await page.keyboard.press("Escape"); await settled(page);
+        await expect(frame.locator("[data-tile-conflict]")).toHaveCount(0);
+        await frame.locator("[data-history-issues]").waitFor({ state: "detached" });
     });
 });

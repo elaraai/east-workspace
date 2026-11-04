@@ -46,7 +46,8 @@ export const snapGridPhoneSlotRecipe = defineSlotRecipe({
         "add", "empty", "emptyGlyph", "emptyTitle", "emptyList",
         "bar", "barHead", "barTitle", "barClose", "barMove", "barControls", "stepper", "stepperButton", "stepperValue", "barRemove", "barLine",
         "outline", "outlineRow", "outlineName", "outlineIcon", "slot",
-        "placeBar", "placeHead", "placeTitle", "placeCancel", "placeLine", "placeCount", "saved", "savedCheck"],
+        "placeBar", "placeHead", "placeTitle", "placeCancel", "placeLine", "placeCount", "saved", "savedCheck",
+        "issues", "issuesIntro", "issuesNone", "issue", "issueHead", "issueTitle", "issueLine", "issueKey", "issueValue", "issueActions", "issueAction"],
     base: {
         root: { flex: "1", minWidth: "0", minHeight: "0", display: "flex", flexDirection: "column", background: "bg.canvas" },
         scroll: { flex: "1", minHeight: "0", overflowY: "auto", overflowX: "hidden", background: "bg.canvas" },
@@ -133,5 +134,17 @@ export const snapGridPhoneSlotRecipe = defineSlotRecipe({
         placeCount: { marginTop: "4px", fontFamily: "mono", fontSize: "label.md", lineHeight: "16px", color: "fg.muted" },
         saved: { flex: "none", minHeight: "44px", display: "flex", alignItems: "center", gap: "8px", paddingY: "4px", paddingX: "16px", boxSizing: "border-box", background: "bg.surface", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle", fontSize: "body.sm", lineHeight: "18px", color: "fg.strong" },
         savedCheck: { flex: "none", display: "inline-flex", fontSize: "14px", color: "status.pos" },
+        /* A phone's inspector's Issues tab (ST37). */
+        issues: { flex: "1", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", background: "bg.surface" },
+        issuesIntro: { paddingY: "12px", paddingX: "20px", fontSize: "body", lineHeight: "20px", color: "fg.strong", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle", "&[data-flush]": { padding: "0", border: "none" } },
+        issuesNone: { padding: "20px", fontSize: "body", lineHeight: "20px", color: "fg.muted" },
+        issue: { display: "flex", flexDirection: "column", gap: "8px", paddingY: "16px", paddingX: "20px", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle" },
+        issueHead: { ...EYEBROW, display: "flex", alignItems: "center", gap: "8px", color: "fg.warning" },
+        issueTitle: { fontFamily: "heading", fontSize: "15px", fontWeight: "700", lineHeight: "20px", color: "fg" },
+        issueLine: { display: "grid", gridTemplateColumns: "96px minmax(0, 1fr)", columnGap: "12px", alignItems: "baseline" },
+        issueKey: { ...EYEBROW, color: "fg.muted" },
+        issueValue: { fontFamily: "mono", fontSize: "body", lineHeight: "20px", color: "fg" },
+        issueActions: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "8px", marginTop: "4px" },
+        issueAction: { ...CONTROL, width: "100%", fontWeight: "500" },
     },
 });

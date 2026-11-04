@@ -136,6 +136,22 @@ export interface SnapGridMessages extends EditingMessages {
     phoneEmptyThen: () => string;
     /** The band once a Save lands — `Saved 2 changes`. */
     phoneSaved: (p: { n: number; count: string }) => string;
+    /** A phone's inspector's Issues tab. */
+    phoneIssues: () => string;
+    /** It with nothing to choose. */
+    phoneIssuesNone: () => string;
+    /** A conflict's eyebrow — `Conflict · Row 2`. */
+    phoneIssueHead: (p: { row: string }) => string;
+    /** My side. */
+    phoneMine: () => string;
+    /** Theirs. */
+    phoneTheirs: () => string;
+    /** Where a span of mine stands — `columns 1–4`. */
+    phoneIssueColumns: (p: { first: string; last: string }) => string;
+    /** Takes theirs. */
+    phoneKeepTheirs: () => string;
+    /** Keeps mine. */
+    phoneKeepMine: () => string;
 }
 
 /** The SnapGrid's English messages — the default table. */
@@ -195,6 +211,14 @@ export const snapGridMessages: SnapGridMessages = {
     phoneEmptyFirst: () => "Tap Add a component and pick one.",
     phoneEmptyThen: () => "Tap a dashed slot to place it.",
     phoneSaved: ({ n, count }) => `Saved ${count} ${n === 1 ? "change" : "changes"}`,
+    phoneIssues: () => "Issues",
+    phoneIssuesNone: () => "No issues. Your changes can be saved.",
+    phoneIssueHead: ({ row }) => `Conflict · Row ${row}`,
+    phoneMine: () => "Mine",
+    phoneTheirs: () => "Theirs",
+    phoneIssueColumns: ({ first, last }) => `columns ${first}–${last}`,
+    phoneKeepTheirs: () => "Keep theirs",
+    phoneKeepMine: () => "Keep mine",
 };
 
 const SnapGridMessagesContext = createContext<SnapGridMessages>(snapGridMessages);

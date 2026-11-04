@@ -131,8 +131,8 @@ At rest, main is 575 tall at 390 × 844. It is 573 in the showcase's 324 × 761 
 Built on PR #1481. Where the build differs from the text above:
 
 - **No anchored popovers, as ruled for every builder on a phone.** Save as template and Height open as full views (ST25, ST28), ⋯ goes straight to Save as template (ST27), and Discard asks in the band under the session row (ST29, D15).
-- **Conflicts open in the frame's bottom panel**, as every builder's do (`Mobile Builder Frame Spec.md` FR8). So the Inspector has one tab, Details, and no Issues tab (ST7, ST37, D9). The conflict's band stands over the strip, the tile dashed `--warn` with `● Conflict`.
-- **− stops at 2**, the model's `MIN_SPAN`, as desktop's does, not 1 (ST16). A row with fewer than 2 free columns offers no slot (ST19).
+- **Issues** (ST7, ST37, D9) as drawn, a tab of the Inspector, ruled 4 Nov 2026. Its opening line is the session's own, because a session does not know who saved or when: not `J. Lee saved Overview at 11:42`. Theirs says who only where the source said so.
+- **− stops at 2**, the model's `MIN_SPAN`, as desktop's does, not 1 (ST16); a column is too narrow on a phone to show anything. A row with fewer than 2 free columns offers no slot (ST19).
 - **Env is a line, not a Select** (ST32): the builder is given one environment, so there is nothing to choose.
 - **Cold load** (ST35) is not drawn by the builder: its host loads what it reads before it mounts.
 - **The Inspector's meta line** is `row 2 · columns 1–8`: the component's kind (`Chart.Column`) is not in what the inspector is given.
