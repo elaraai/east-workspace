@@ -239,10 +239,12 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
         sessionBand: { flex: "none", "&:empty": { display: "none" } },
         sessionStatus: {
             /* As tall as the row, so its clip spares a Retry's halo. */
-            order: -2, flex: "1 1 auto", alignSelf: "stretch", minWidth: "0", display: "flex", alignItems: "center", overflow: "hidden",
+            order: -2, flex: "1 1 auto", alignSelf: "stretch", minWidth: "0", display: "flex", alignItems: "center", overflow: "hidden", containerType: "inline-size", containerName: "session-status",
             /* At the row's start (R5), never where the footer's rail would push it. */
             "& [data-footer-line]": { marginInlineStart: "0" },
             "&:not(:has([data-footer-line]:not([data-idle])))": { display: "none" },
+            /* Retry's 44 target stays clear of the button beside it: its halo is its own (R5). */
+            "&:has([data-line-retry])": { paddingInlineEnd: "{spacing.2}" },
         },
         /* A phone's panes: one tab each along the frame's bottom edge, over the safe area. */
         paneStrip: {
@@ -332,6 +334,24 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
         },
         /* A phone's view over the whole builder, a toolbar item's (FR7): over every region, taking the pointer only where
          * a view draws itself. */
-        overlay: { position: "absolute", inset: "0", zIndex: "overlay", pointerEvents: "none", overflow: "hidden" },
+        overlay: {
+            position: "absolute", inset: "0", zIndex: "overlay", pointerEvents: "none", overflow: "hidden",
+            /* A menu or a Select's list on a phone: the whole slot, whatever the floating placement set on it. */
+            /* Closed, a Select keeps its list mounted: nothing, and nothing under the pointer. */
+            '& > [data-frame-layer]:not(:has(> [data-state="open"]))': { display: "none !important" },
+            '& > [data-frame-layer]:has(> [data-state="open"])': {
+                position: "absolute !important", inset: "0 !important", width: "100% !important", minWidth: "0 !important", height: "100% !important",
+                transform: "none !important", pointerEvents: "auto !important",
+            },
+            "& [data-frame-layer-content]": {
+                display: "flex !important", flexDirection: "column", width: "100% !important", maxWidth: "none !important", height: "100% !important", maxHeight: "none !important",
+                padding: "0 !important", border: "none !important", borderRadius: "0 !important", boxShadow: "none !important", background: "bg.surface", overflowY: "auto", outline: "none",
+                animationName: "slide-from-right-full", animationDuration: "normal", animationTimingFunction: "{easings.out}", _motionReduce: { animation: "none" },
+                "& [data-frame-layer-head]": { position: "sticky", top: "0", zIndex: "1", background: "bg.surface" },
+                /* Its rows at touch size, across the view. */
+                '& [data-part="item"], & [data-part="option-item"]': { flex: "none", minHeight: "44px", paddingX: "16px", borderRadius: "0", fontSize: "body", whiteSpace: "normal" },
+                '& [data-part="item-group-label"]': { paddingX: "16px" },
+            },
+        },
     },
 });

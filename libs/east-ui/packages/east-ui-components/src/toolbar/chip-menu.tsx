@@ -17,10 +17,11 @@
  */
 
 import { type ReactNode } from "react";
-import { chakra, Menu as ChakraMenu, Portal, useRecipe } from "@chakra-ui/react";
+import { chakra, Menu as ChakraMenu, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, type IconDefinition } from "@fortawesome/free-solid-svg-icons";
 import { coarseHitArea } from "../style/hit-area.js";
+import { FrameMenuLayer } from "../layout/builder-frame/frame-layer.js";
 
 /** Props of {@link ChipMenu}. */
 export interface ChipMenuProps {
@@ -56,11 +57,7 @@ export function ChipMenu({ label, icon, caret = false, data, onSelect, children 
                     {caret && <FontAwesomeIcon icon={faCaretDown} data-chip-caret="" />}
                 </chakra.button>
             </ChakraMenu.Trigger>
-            <Portal>
-                <ChakraMenu.Positioner>
-                    <ChakraMenu.Content>{children}</ChakraMenu.Content>
-                </ChakraMenu.Positioner>
-            </Portal>
+            <FrameMenuLayer label={label}>{children}</FrameMenuLayer>
         </ChakraMenu.Root>
     );
 }

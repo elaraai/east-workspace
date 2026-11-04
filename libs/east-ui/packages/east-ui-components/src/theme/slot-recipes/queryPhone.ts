@@ -42,15 +42,17 @@ export const queryPhoneSlotRecipe = defineSlotRecipe({
         "view", "viewHead", "viewBack", "viewTitle", "viewBand", "viewField", "viewList", "viewGroup", "viewFoot"],
     base: {
         bar: { flex: "1", minWidth: "0", height: "44px", display: "flex", alignItems: "center", gap: "8px", paddingX: "12px", boxSizing: "border-box" },
-        seg: { "[data-query-phone-view] &": { height: "44px" }, flex: "none", height: "32px", display: "inline-flex", boxSizing: "border-box", borderWidth: "1px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "md", overflow: "hidden" },
+        seg: { "[data-query-phone-view] &": { height: "44px" }, flex: "none", height: "32px", display: "inline-flex", boxSizing: "border-box", borderWidth: "1px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "md" },
         segItem: {
             position: "relative", height: "100%", display: "inline-flex", alignItems: "center", gap: "8px", paddingX: "12px", border: "none", background: "transparent", cursor: "pointer",
+            /* The strip clips nothing: its targets stand past its box, its ends' tint keeps its corners. */
+            "&:first-of-type": { borderStartRadius: "calc({radii.md} - 1px)" }, "&:last-of-type": { borderEndRadius: "calc({radii.md} - 1px)" },
             fontFamily: "mono", fontSize: "label.lg", fontWeight: "600", letterSpacing: "0.16em", textTransform: "uppercase", color: "fg.subtle", whiteSpace: "nowrap",
             "&[data-state=on]": { background: "brandTint", color: "brandPressed" },
             "[data-query-phone-view] &": { height: "100%" },
             _disabled: { color: "fg.faint", cursor: "default" },
             /* Its target the row's height, past the strip's 32. */
-            "&::after": { content: '""', position: "absolute", insetInline: "0", top: "-6px", bottom: "-6px", "[data-query-phone-view] &": { display: "none" } },
+            "&::after": { content: '""', position: "absolute", insetInline: "0", top: "-7px", bottom: "-7px", "[data-query-phone-view] &": { display: "none" } },
             _focusVisible: { outline: "none", boxShadow: "focusInset" },
             "&[data-icons]": { width: "44px", paddingX: "0", justifyContent: "center" },
             "& + &": { borderInlineStartWidth: "1px", borderInlineStartStyle: "solid", borderInlineStartColor: "border.strong" },
@@ -110,9 +112,10 @@ export const queryPhoneSlotRecipe = defineSlotRecipe({
         queryNotice: { flex: "none", minHeight: "44px", display: "flex", alignItems: "center", gap: "8px", paddingY: "4px", paddingInlineStart: "16px", paddingInlineEnd: "4px", background: "bg.canvas", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.strong" },
         emptySteps: { display: "flex", flexDirection: "column", gap: "8px", padding: "16px", background: "bg.surface", borderWidth: "1px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "md" },
         noMatch: { display: "flex", flexDirection: "column", gap: "8px", paddingY: "8px" },
-        emptyGlyph: { fontFamily: "mono", fontSize: "26px", lineHeight: "1.2", color: "border.strong" },
+        /* Its empty square, drawn: never a text glyph (#1263). */
+        emptyGlyph: { display: "block", flex: "none", width: "20px", height: "20px", boxSizing: "border-box", borderWidth: "1.5px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "2px" },
         emptyTitle: { fontFamily: "heading", fontSize: "15px", fontWeight: "700", color: "fg" },
-        emptyList: { margin: "0", padding: "0", listStyle: "none", display: "flex", flexDirection: "column", gap: "8px", fontSize: "body", lineHeight: "20px", color: "fg.strong", "& li": { display: "flex", gap: "8px" }, "& li::before": { content: '"☐"', flex: "none", color: "fg.subtle" } },
+        emptyList: { margin: "0", padding: "0", listStyle: "none", display: "flex", flexDirection: "column", gap: "8px", fontSize: "body", lineHeight: "20px", color: "fg.strong", "& li": { display: "flex", gap: "8px" }, "& li::before": { content: '""', flex: "none", width: "12px", height: "12px", marginTop: "4px", boxSizing: "border-box", borderWidth: "1px", borderStyle: "solid", borderColor: "fg.subtle", borderRadius: "2px" } },
         emptyLink: { alignSelf: "flex-start", minHeight: "44px", padding: "0", border: "none", background: "transparent", fontSize: "body.sm", fontWeight: "500", color: "brand.solid", cursor: "pointer" },
         queryHead: { display: "flex", flexDirection: "column", gap: "4px", paddingY: "12px", paddingX: "16px", background: "bg.surface", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle" },
         queryEyebrow: { fontFamily: "mono", fontSize: "label.xs", fontWeight: "600", letterSpacing: "0.14em", textTransform: "uppercase", color: "fg.subtle" },

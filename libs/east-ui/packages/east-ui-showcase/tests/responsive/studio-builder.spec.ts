@@ -255,7 +255,7 @@ test.describe("Studio on a phone (`Studio Mobile Spec.md`)", () => {
         return { builder, frame };
     }
     /** What no popover may be, on this phone. */
-    const nothingFloats = (page: Page) => expect(page.locator('[data-scope="popover"][data-part="content"][data-state="open"], [data-scope="menu"][data-part="content"][data-state="open"]')).toHaveCount(0);
+    const nothingFloats = (page: Page) => expect(page.locator('[data-scope="popover"][data-part="content"][data-state="open"], [data-scope="menu"][data-part="content"][data-state="open"]:not([data-frame-layer-content])')).toHaveCount(0);
 
     test("the first row by width (ST1–ST3), the canvas's stack and captions (ST8–ST10), no grid, no drag, no zoom (D1, D3); select, the bar, the stepper as one undo step (ST12–ST16)", async ({ page }) => {
         const { builder, frame } = await openPhone(page);
@@ -335,6 +335,18 @@ test.describe("Studio on a phone (`Studio Mobile Spec.md`)", () => {
         await expect(pane.locator("[data-studio-intro]").first()).toContainText("Tap a component");
         await expect(pane.locator("[data-drag-grip]")).toHaveCount(0);
         expect(await pane.locator("[data-clickable]").evaluateAll((cards) => cards.filter((c) => (c as HTMLElement).offsetHeight > 0).every((c) => c.getBoundingClientRect().height >= 56))).toBe(true);
+        // A menu of the pane's: a view over the whole frame, its rows 44, and Esc goes back to the pane, not past it.
+        await pane.getByRole("button", { name: "Group by" }).click(); await settled(page);
+        await nothingFloats(page);
+        const layer = frame.locator('[data-frame-slot="overlay"] [data-frame-layer-content]');
+        await expect(layer).toBeVisible();
+        expect(await layer.evaluate((el) => {
+            const box = el.getBoundingClientRect(), root = el.closest("[data-builder-frame]")!.getBoundingClientRect();
+            return { covers: Math.abs(box.width - root.width) < 1 && Math.abs(box.height - root.height) < 1, rows: [...el.querySelectorAll("[data-part=item]")].every((r) => r.getBoundingClientRect().height >= 44) };
+        })).toEqual({ covers: true, rows: true });
+        await page.keyboard.press("Escape"); await settled(page);
+        await expect(layer).toBeHidden();
+        await expect(frame.locator("[data-frame-drawer][data-open]")).toBeVisible();
         const before = await frame.locator("[data-snap-grid-tile]").count();
         await pane.locator("[data-clickable]", { hasText: "Visits sparkline" }).click(); await settled(page);
         await expect(frame.locator("[data-frame-drawer][data-open]")).toHaveCount(0);

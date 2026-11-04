@@ -573,8 +573,8 @@ const findStepped: Gesture = {
 
 /**
  * The builders' rows on a phone's frame, each form its row holds at the phone's
- * width and the gestures that use them by touch: Studio's View chip and ⋯ chip,
- * the SnapGrid editor's and the query builder's items in the row, and the
+ * width and the gestures that use them by touch: Studio's and the query builder's
+ * phone rows (their words whole, nothing folded), and the
  * Flowchart's LR · TD segment and find state's view (#1245). A frame past a
  * phone's has room for every item here, so none folds into a chip there: on
  * the wide touch screen the frame is narrowed until the design widths fold to
@@ -583,8 +583,8 @@ const findStepped: Gesture = {
 const CHIPS: ReadonlyArray<{ name: string; hash: string; chips: readonly string[]; phone: readonly Gesture[]; wide: readonly Gesture[] }> = [
     {
         name: "studioBuilder", hash: "e3/studio/studio/studioBuilder",
-        chips: ["[data-snap-grid-view]", "[data-studio-more]"],
-        phone: [viewByTouch, popoverFromChip("[data-studio-more]", "Save as template…")],
+        chips: [],
+        phone: [],
         wide: [widthsToIcons],
     },
     {
@@ -613,7 +613,8 @@ test.describe("the builders' toolbars folded into chips, under a touch pointer (
 
     for (const { name, hash, chips, phone, wide } of CHIPS) {
         for (const { where, width, gestures } of [
-            { where: "at the phone's width", width: undefined, gestures: phone },
+            // A SnapGrid's first row on a phone holds what its host adds, and the bare editor adds nothing: it has none.
+            ...(name === "snapGridEditor" ? [] : [{ where: "at the phone's width", width: undefined, gestures: phone }]),
             { where: "on a touch screen 1920px wide", width: 1920, gestures: wide },
         ]) {
             test(`${name}, ${where}, at rest${gestures.map((g) => `, then ${g.what}`).join("")}: one row in its 44px band, nothing past its edge, every control a 44px tap target`, async ({ page }) => {

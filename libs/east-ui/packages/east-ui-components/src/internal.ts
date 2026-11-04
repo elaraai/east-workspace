@@ -160,3 +160,5 @@ export {
 export { FOOTER_UNFIT, fitFooter, type FooterFit, type FooterFitInput, type LoadingLineForm } from "./layout/builder-frame/footer-fit.js";
 // Whether a pane's body is drawn in a phone's drawer: a builder's inspector draws its phone form there (SH12).
 export { FrameDrawer } from "./layout/builder-frame/drawer-context.js";
+// What a menu or a Select's list draws in: floating, or a view over the builder in a phone's frame (ruled 4 Nov 2026).
+export { FrameMenuLayer, FramePhoneLayer, FrameSelectLayer, type FrameMenuLayerProps, type FrameSelectLayerProps } from "./layout/builder-frame/frame-layer.js";

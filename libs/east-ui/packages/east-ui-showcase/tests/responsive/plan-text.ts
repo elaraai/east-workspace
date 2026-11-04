@@ -187,7 +187,7 @@ export const rulerFaults = (root: Element): string[] => {
     const RULER_GAP = 4;
     for (const ruler of root.querySelectorAll("[data-slot='ruler'], [data-slot='narrowRuler']")) {
         const shown: { text: string; left: number; right: number; start: boolean }[] = [];
-        const hidden: { text: string; left: number; right: number; room: number; now: boolean }[] = [];
+        const hidden: { text: string; left: number; right: number; room: number; now: boolean; gap: number }[] = [];
         for (const tick of ruler.querySelectorAll<HTMLElement>("[data-slot='rulerTick'], [data-slot='narrowRulerTick']")) {
             const label = tick.querySelector<HTMLElement>("[data-tick-label]") ?? tick;
             const text = (label.textContent ?? "").trim();
@@ -206,7 +206,7 @@ export const rulerFaults = (root: Element): string[] => {
             const s = getComputedStyle(label);
             if (s.display === "none" || s.visibility === "hidden") {
                 const now = tick.hasAttribute("data-now");
-                if (tick.hasAttribute("data-period-start") || now) hidden.push({ text, left: r.left, right: r.right, room: right - left, now });
+                if (tick.hasAttribute("data-period-start") || now) hidden.push({ text, left: r.left, right: r.right, room: right - left, now, gap: Math.max(RULER_GAP, (Number.parseFloat(s.paddingLeft) || 0) + (Number.parseFloat(s.paddingRight) || 0)) });
                 continue;
             }
             if (r.left < left - 0.5 || r.right > right + 0.5) out.push(`"${text}" is cut — ${(Math.min(r.right, right) - Math.max(r.left, left)).toFixed(1)}px of ${r.width.toFixed(1)}px shows`);
@@ -218,7 +218,8 @@ export const rulerFaults = (root: Element): string[] => {
         }
         // A period's first column, or the now bucket, gives way only to a period's first column it would crowd.
         for (const h of hidden) {
-            const crowds = shown.some((d) => d.start && h.left < d.right + RULER_GAP + 0.5 && d.left < h.right + RULER_GAP + 0.5);
+            // Apart by the gap the ruler's fit keeps: two labels' knockouts' as much, when that is the more (`useRulerFit`).
+            const crowds = shown.some((d) => d.start && h.left < d.right + h.gap + 0.5 && d.left < h.right + h.gap + 0.5);
             if (crowds || h.right - h.left > h.room + 0.5) continue;
             out.push(h.now ? `the now bucket's "${h.text}" is not drawn, and crowds no period's first column` : `"${h.text}" starts a period, and is not drawn`);
         }

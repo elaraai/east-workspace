@@ -303,7 +303,7 @@ export const SnapGridPhoneCanvas = memo(function SnapGridPhoneCanvas(props: Snap
                 <Box css={styles.rows}>
                     {rows.length === 0 && placingNow === undefined && (
                         <Box css={styles.empty} data-snap-grid-empty="">
-                            <Box as="span" css={styles.emptyGlyph} aria-hidden>☐</Box>
+                            <Box as="span" css={styles.emptyGlyph} aria-hidden />
                             <Box as="span" css={styles.emptyTitle}>{m.phoneEmpty({ page: options?.title })}</Box>
                             <Box as="ul" css={styles.emptyList}><li>{m.phoneEmptyFirst()}</li><li>{m.phoneEmptyThen()}</li></Box>
                         </Box>

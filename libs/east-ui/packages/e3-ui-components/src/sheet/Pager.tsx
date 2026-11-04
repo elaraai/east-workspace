@@ -23,7 +23,7 @@ import { memo, useEffect, useState } from "react";
 import { Box, chakra, Menu as ChakraMenu, Portal } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, faCaretUp, faCheck, faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
-import { useSlotStyles } from "@elaraai/east-ui-components/internal";
+import { FrameMenuLayer, useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { useSheetWords } from "./words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -117,9 +117,7 @@ export const SheetPager = memo(function SheetPager({ styles, frame, columns, slo
                         <Box as="span" css={styles.pagerCaret} aria-hidden><FontAwesomeIcon icon={open ? faCaretUp : faCaretDown} /></Box>
                     </chakra.button>
                 </ChakraMenu.Trigger>
-                <Portal>
-                    <ChakraMenu.Positioner>
-                        <ChakraMenu.Content css={styles.pagerMenu} data-slot="pagerMenu">
+                <FrameMenuLayer label={m.pagerMenu()} css={styles.pagerMenu} data-slot="pagerMenu">
                             <ChakraMenu.ItemGroup>
                                 <ChakraMenu.ItemGroupLabel css={styles.pagerMenuHead}>{m.pagerMenu()}</ChakraMenu.ItemGroupLabel>
                                 {columns.map((col, i) => {
@@ -140,9 +138,7 @@ export const SheetPager = memo(function SheetPager({ styles, frame, columns, slo
                                 <Box as="span" css={styles.pagerMenuLabel}>{m.pagerRowNumber()}</Box>
                                 <Box as="span" css={[menuStyles.itemCommand, styles.pagerMenuKind]}>{m.pagerRowNumberNote()}</Box>
                             </ChakraMenu.CheckboxItem>
-                        </ChakraMenu.Content>
-                    </ChakraMenu.Positioner>
-                </Portal>
+                        </FrameMenuLayer>
             </ChakraMenu.Root>
             <chakra.button type="button" css={styles.pagerStep} data-slot="pagerPrevious" aria-label={m.pagerPrevious()}
                 aria-disabled={first <= 0 ? true : undefined} onClick={() => { if (first > 0) go(first - 1); }}>

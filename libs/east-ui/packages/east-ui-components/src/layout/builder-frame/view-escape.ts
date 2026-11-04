@@ -30,7 +30,8 @@ const SEARCH_INPUT = '[data-scope="combobox"][data-part="input"]';
  * @returns Whether one is open
  */
 export function layerOpen(): boolean {
-    return [...document.querySelectorAll(OPEN_CONTENT)].some((el) => el.closest("[data-builder-frame]") === null);
+    // Or in a phone's overlay slot: a menu or a Select's list, drawn as a view over the frame, is a layer the same.
+    return [...document.querySelectorAll(OPEN_CONTENT)].some((el) => el.closest("[data-builder-frame]") === null || el.closest("[data-frame-layer]") !== null);
 }
 
 /**

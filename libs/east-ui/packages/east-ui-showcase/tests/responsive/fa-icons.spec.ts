@@ -197,7 +197,8 @@ const near = (a: number, b: number) => Math.abs(a - b) <= 0.34;
 test.describe("a converted icon takes the room its glyph took (#1263)", () => {
     test("a chip's caret — a segment's menu, the View chip, the key search — is 8px tall and 5px wide, its own width", async ({ page, isMobile }) => {
         test.skip(!isMobile, "the chips a caret marks are a folded toolbar's, on a touch screen");
-        // A phone's row: the builders that still fold into chips there, the Plan's resolution and Studio's View.
+        // A frame past a phone's, a touch screen's, whose row is short of room: the Plan's resolution and Studio's View.
+        await page.setViewportSize({ width: 640, height: 900 });
         let seen = 0;
         for (const hash of ["e3/plan/plan/planTargetState", "e3/studio/studio/studioBuilder"]) {
             const row = page.locator(await openExample(page, hash, "light"));

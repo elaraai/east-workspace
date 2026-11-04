@@ -25,11 +25,11 @@
  * @packageDocumentation
  */
 import { Fragment, createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { Box, Button, Menu as ChakraMenu, Portal, chakra } from "@chakra-ui/react";
+import { Box, Button, Menu as ChakraMenu, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faGripVertical, faRotateLeft, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { none, variant } from "@elaraai/east";
-import { LoadingFailedLine, PlaceholderShape, VirtualRows, devicePixels, useRevealed, useRowsTop, keptRead } from "@elaraai/east-ui-components/internal";
+import { FrameMenuLayer, LoadingFailedLine, PlaceholderShape, VirtualRows, devicePixels, useRevealed, useRowsTop, keptRead } from "@elaraai/east-ui-components/internal";
 import { takeKey, tickFormatOf, useDragEventChip, useDropCell, type CellCoord, type DragEventValue, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import type { PeriodRead } from "../shared/loading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
@@ -726,18 +726,14 @@ function AssignMenu({ ctx, person, group, day }: { ctx: ViewContext; person: Per
         <ChakraMenu.Trigger asChild>
             {trigger}
         </ChakraMenu.Trigger>
-        <Portal>
-            <ChakraMenu.Positioner>
-                <ChakraMenu.Content data-roster-assign-menu="">
+        <FrameMenuLayer label={`Assign · ${format.weekday(date)} ${format.number(date.getUTCDate())}`} data-roster-assign-menu="">
                     <Box css={styles.assignMenuHead}>Assign · {format.weekday(date)} {format.number(date.getUTCDate())}</Box>
                     {value.shifts.map(shift => <ChakraMenu.Item key={shift.key} value={shift.key} css={styles.assignItem} data-roster-assign-shift={shift.key}>
                         <Box as="span" css={styles.swatch} style={fillOf(shift)} aria-hidden="true" /><span>{shift.label}</span><Box as="span" data-roster-shift-times="">{shiftHoursText(shift)}</Box>
                     </ChakraMenu.Item>)}
                     <ChakraMenu.Separator />
                     <ChakraMenu.Item value="elsewhere">Elsewhere…</ChakraMenu.Item>
-                </ChakraMenu.Content>
-            </ChakraMenu.Positioner>
-        </Portal>
+                </FrameMenuLayer>
     </ChakraMenu.Root>;
 }
 /**

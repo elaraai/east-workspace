@@ -84,7 +84,8 @@ export const snapGridPhoneSlotRecipe = defineSlotRecipe({
             _focusVisible: { outline: "none", boxShadow: "focus" },
         },
         empty: { display: "flex", flexDirection: "column", gap: "8px", paddingX: "4px", paddingTop: "24px", paddingBottom: "16px" },
-        emptyGlyph: { fontFamily: "mono", fontSize: "26px", lineHeight: "1.2", color: "border.strong" },
+        /* Its empty square, drawn: never a text glyph (#1263). */
+        emptyGlyph: { display: "block", flex: "none", width: "20px", height: "20px", boxSizing: "border-box", borderWidth: "1.5px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "2px" },
         emptyTitle: { fontFamily: "heading", fontSize: "15px", fontWeight: "700", color: "fg" },
         emptyList: { margin: "0", paddingInlineStart: "16px", listStyle: "disc", display: "flex", flexDirection: "column", gap: "4px", fontSize: "body", lineHeight: "20px", color: "fg.strong" },
         /* The bottom container's tile bar: `--paper` (D11). */

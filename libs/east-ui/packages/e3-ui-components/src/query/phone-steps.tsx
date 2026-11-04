@@ -353,7 +353,7 @@ export const QueryPhoneView = memo(function QueryPhoneView({ editor, ps, workspa
                         ))}
                         {cards.length === 0 && (
                             <Box css={styles.emptySteps} data-query-empty="">
-                                <Box as="span" css={styles.emptyGlyph} aria-hidden>☐</Box>
+                                <Box as="span" css={styles.emptyGlyph} aria-hidden />
                                 <Box css={styles.emptyTitle}>{m.noStepsYet()}</Box>
                                 <Box as="ul" css={styles.emptyList}><li>{m.noStepsAdd()}</li><li>{m.noStepsSaved()}</li></Box>
                                 <chakra.button type="button" css={styles.emptyLink} onClick={onOpenLibrary}>{m.openLibrary()} →</chakra.button>

@@ -159,7 +159,7 @@ export const StudioInspector = memo(function StudioInspector({ value, phone }: S
         return (
             <Box css={styles.root} data-studio-inspector="">
                 <Box css={ps.inspectorEmpty} data-inspector="empty">
-                    <Box as="span" css={ps.inspectorEmptyGlyph} aria-hidden>☐</Box>
+                    <Box as="span" css={ps.inspectorEmptyGlyph} aria-hidden />
                     <Box as="span" css={ps.inspectorEmptyTitle}>{m.nothingSelected()}</Box>
                     <Box as="ul" css={ps.inspectorEmptyList}><li>{m.phoneNothingFirst()}</li><li>{m.phoneNothingThen()}</li></Box>
                 </Box>

@@ -82,7 +82,9 @@
  *   action bar stands ({@link FrameBottomPanel}, FR9): main, or the pane, gives
  *   way to it. The toolbar's stay views. The second row's own conflicts open
  *   in main's panel whichever frame it is, and Discard asks in a band under the
- *   row ({@link FrameSessionBand}, FR8): a phone has no anchored popovers.
+ *   row ({@link FrameSessionBand}, FR8): a phone has no anchored popovers;
+ * - a menu or a Select's list anywhere in it opens as a view over the builder
+ *   ({@link FramePhoneLayer}), through the shared layers its hosts draw them with.
  *
  * @packageDocumentation
  */
@@ -101,6 +103,7 @@ import { useViewEscape } from "./view-escape.js";
 import { FrameOverlaySlot } from "./overlay-slot.js";
 import { FrameDrawer } from "./drawer-context.js";
 import { FrameBottomPanel } from "./bottom-panel.js";
+import { FramePhoneLayer } from "./frame-layer.js";
 import { useSlotStyles } from "../../theme/slot-styles.js";
 import { kept, keptFlag } from "../../platform/kept.js";
 import { DockPane, type DockRailMark } from "../dock/index.js";
@@ -791,6 +794,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
             data-builder-frame="" data-phone={phone ? "" : undefined} data-loading={covered ? "" : undefined} aria-busy={loading === undefined ? undefined : covered}
             {...(label !== undefined ? { role: "group", "aria-label": label } : {})}
             onKeyDownCapture={onKeyDownCapture} onKeyDown={onKeyDown}>
+            <FramePhoneLayer.Provider value={phone && !covered ? overlaySlot : null}>
             {toolbar !== undefined && (
                 <Box ref={toolbarRef} css={styles.toolbar} data-frame-slot="toolbar" inert={covered} aria-hidden={covered ? true : undefined}>
                     <FrameOverlaySlot.Provider value={phone && !covered ? overlaySlot : null}>
@@ -809,7 +813,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
                     </FrameSessionBand.Provider>
                 </Box>
             )}
-            {sessionRow && <Box ref={setSessionBand} css={styles.sessionBand} data-frame-slot="sessionBand" />}
+            {sessionRow && <Box ref={setSessionBand} css={styles.sessionBand} data-frame-slot="sessionBand" inert={covered} aria-hidden={covered ? true : undefined} />}
             {given(banners) && <Box css={styles.banners} data-frame-slot="banners" inert={covered} aria-hidden={covered ? true : undefined}>{banners}</Box>}
             <Box css={styles.body} data-frame-slot="body" inert={covered} aria-hidden={covered ? true : undefined}>
                 {start !== undefined && !drawn("start") && pane("start", start)}
@@ -822,7 +826,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
                 </Box>
                 {end !== undefined && !drawn("end") && pane("end", end)}
             </Box>
-            {phone && <Box ref={setMainPanel} css={styles.bottomPanel} data-frame-slot="bottomPanel" />}
+            {phone && <Box ref={setMainPanel} css={styles.bottomPanel} data-frame-slot="bottomPanel" inert={covered} aria-hidden={covered ? true : undefined} />}
             {strip.length > 0 && (
                 <Box css={styles.paneStrip} data-frame-slot="paneStrip" role="tablist" aria-label={label === undefined ? "Panes" : `${label} panes`}
                     inert={covered} aria-hidden={covered ? true : undefined}>
@@ -843,6 +847,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
                 return dock !== undefined && drawn(side) ? drawer(side, dock) : null;
             })}
             {/* A phone's view over the whole builder, a toolbar item's (FR7): empty, it takes no pointer. */}
+            </FramePhoneLayer.Provider>
             {phone && <Box ref={setOverlaySlot} css={styles.overlay} data-frame-slot="overlay" inert={covered} aria-hidden={covered ? true : undefined} />}
             {covered && <Box css={styles.loading} data-builder-loading="" role="status" aria-label={label === undefined ? "Loading builder" : `Loading ${label}`}
                 style={{ "--builder-loading-pitch": `${loadingPitch}px`, ...(footerLive ? { bottom: `${footerHeight ?? 0}px` } : {}) } as CSSProperties}>

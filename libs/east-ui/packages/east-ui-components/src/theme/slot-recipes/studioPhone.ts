@@ -93,7 +93,8 @@ export const studioPhoneSlotRecipe = defineSlotRecipe({
             "& svg": { fontSize: "14px" }, _focusVisible: { outline: "none", boxShadow: "focusInset" },
         },
         inspectorEmpty: { display: "flex", flexDirection: "column", gap: "8px", padding: "20px" },
-        inspectorEmptyGlyph: { fontFamily: "mono", fontSize: "26px", lineHeight: "1.2", color: "border.strong" },
+        /* Its empty square, drawn: never a text glyph (#1263). */
+        inspectorEmptyGlyph: { display: "block", flex: "none", width: "20px", height: "20px", boxSizing: "border-box", borderWidth: "1.5px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "2px" },
         inspectorEmptyTitle: { fontFamily: "heading", fontSize: "15px", fontWeight: "700", color: "fg" },
         inspectorEmptyList: { margin: "0", paddingInlineStart: "16px", listStyle: "disc", display: "flex", flexDirection: "column", gap: "4px", fontSize: "body", lineHeight: "20px", color: "fg.strong" },
         /* The preview, in the builder's place. */

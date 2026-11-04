@@ -44,7 +44,8 @@ import {
     useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent, type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
-import { Box, Menu as ChakraMenu, Portal, chakra } from "@chakra-ui/react";
+import { Box, Menu as ChakraMenu, chakra } from "@chakra-ui/react";
+import { FrameMenuLayer } from "@elaraai/east-ui-components/internal";
 import { usePlanGeometry } from "../context.js";
 import { PlanControllerContext } from "../controller/react.js";
 import { rowKeyOf } from "../row-key.js";
@@ -252,13 +253,9 @@ export function BucketCell(props: BucketCellProps) {
                                 <span data-tile-more-count="">{words.m.tileMore({ n: folded.length, count: words.number(folded.length) })}</span>
                             </chakra.button>
                         </ChakraMenu.Trigger>
-                        <Portal>
-                            <ChakraMenu.Positioner>
-                                <ChakraMenu.Content data-tile-more-menu="">
+                        <FrameMenuLayer label={bucket} data-tile-more-menu="">
                                     {folded.map((tile) => <ChakraMenu.Item key={tile.key} value={tile.key}>{tile.name}</ChakraMenu.Item>)}
-                                </ChakraMenu.Content>
-                            </ChakraMenu.Positioner>
-                        </Portal>
+                                </FrameMenuLayer>
                     </ChakraMenu.Root>
                 )}
             </Box>

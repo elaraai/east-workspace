@@ -37,10 +37,10 @@
  */
 
 import { memo, useEffect, useLayoutEffect, useRef, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
-import { Box, Button, chakra, Menu as ChakraMenu, Portal, useSlotRecipe } from "@chakra-ui/react";
+import { Box, Button, chakra, Menu as ChakraMenu, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
-import { SliceChoiceGroup, SliceClearButton, useSlotStyles } from "@elaraai/east-ui-components/internal";
+import { FrameMenuLayer, SliceChoiceGroup, SliceClearButton, useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { foldTabs } from "./lens.js";
 import { useSheetWords } from "./words.js";
 
@@ -270,9 +270,7 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
                             <FontAwesomeIcon icon={faChevronDown} data-slot="tabMenuCaret" />
                         </chakra.button>
                     </ChakraMenu.Trigger>
-                    <Portal>
-                        <ChakraMenu.Positioner>
-                            <ChakraMenu.Content>
+                    <FrameMenuLayer label={m.tabList()}>
                                 <ChakraMenu.Item value={ALL} title={m.tabAllTitle()}>
                                     {m.tabAll()}
                                     <Box as="span" css={menuStyles.itemCommand}>{wholeCount === undefined ? "…" : words.number(wholeCount)}</Box>
@@ -286,9 +284,7 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
                                 <ChakraMenu.Separator />
                                 <ChakraMenu.Item value={MENU_NEW} title={m.tabAddTitle({ query: hasQuery })}>{m.tabAddName()}</ChakraMenu.Item>
                                 {open !== undefined && <ChakraMenu.Item value={MENU_CLOSE}>{m.tabCloseView({ name: open.name })}</ChakraMenu.Item>}
-                            </ChakraMenu.Content>
-                        </ChakraMenu.Positioner>
-                    </Portal>
+                            </FrameMenuLayer>
                 </ChakraMenu.Root>
             </Box>
         );
@@ -389,18 +385,14 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
                             <FontAwesomeIcon icon={faChevronDown} style={{ fontSize: "8px", opacity: 0.7 }} />
                         </chakra.button>
                     </ChakraMenu.Trigger>
-                    <Portal>
-                        <ChakraMenu.Positioner>
-                            <ChakraMenu.Content>
+                    <FrameMenuLayer label={m.tabMoreTitle()}>
                                 {hidden.map((v) => (
                                     <ChakraMenu.Item key={v.id} value={v.id} title={v.title}>
                                         {v.name}
                                         <Box as="span" css={menuStyles.itemCommand}>{v.count === undefined ? "…" : words.number(v.count)}</Box>
                                     </ChakraMenu.Item>
                                 ))}
-                            </ChakraMenu.Content>
-                        </ChakraMenu.Positioner>
-                    </Portal>
+                            </FrameMenuLayer>
                 </ChakraMenu.Root>
             )}
             <chakra.button

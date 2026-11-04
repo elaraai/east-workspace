@@ -211,10 +211,14 @@ export const builderFooterLineSlotRecipe = defineSlotRecipe({
             flex: "none",
             "[data-failed] > &": { color: "fg.danger" },
             "[data-form=full] > &, [data-form=dot] > &": { display: "none" },
+            /* In a phone's session row too narrow for its words, a failure keeps its dot and Retry, whole (ST39, R5). */
+            "@container session-status (max-width: 150px)": { "[data-failed] > &": { display: "none" } },
         },
         sep: {
             flex: "none",
             "[data-form=dot] > &": { display: "none" },
+            /* In a phone's session row too narrow for its words, a failure keeps its dot and Retry, whole (ST39, R5). */
+            "@container session-status (max-width: 150px)": { "[data-failed] > &": { display: "none" } },
         },
         // The seconds a run has been out, in the full form alone: tabular, padded by the line's words so they never shift.
         aside: {

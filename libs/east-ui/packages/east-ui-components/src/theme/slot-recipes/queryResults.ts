@@ -60,9 +60,10 @@ export const queryResultsSlotRecipe = defineSlotRecipe({
         },
         /* A phone's empty state (QP15), centred, padded 40 20. */
         phoneIdle: { height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", paddingY: "40px", paddingX: "20px", boxSizing: "border-box" },
-        phoneIdleGlyph: { fontFamily: "mono", fontSize: "26px", lineHeight: "1.2", color: "border.strong" },
+        /* Its empty square, drawn: never a text glyph (#1263). */
+        phoneIdleGlyph: { display: "block", flex: "none", width: "20px", height: "20px", boxSizing: "border-box", borderWidth: "1.5px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "2px" },
         phoneIdleTitle: { marginTop: "8px", fontFamily: "heading", fontSize: "15px", fontWeight: "700", color: "fg" },
-        phoneIdleList: { marginTop: "8px", padding: "0", listStyle: "none", display: "flex", flexDirection: "column", gap: "8px", fontSize: "body", lineHeight: "20px", color: "fg.strong", "& li": { display: "flex", gap: "8px" }, "& li::before": { content: '"☐"', flex: "none", color: "fg.subtle" } },
+        phoneIdleList: { marginTop: "8px", padding: "0", listStyle: "none", display: "flex", flexDirection: "column", gap: "8px", fontSize: "body", lineHeight: "20px", color: "fg.strong", "& li": { display: "flex", gap: "8px" }, "& li::before": { content: '""', flex: "none", width: "12px", height: "12px", marginTop: "4px", boxSizing: "border-box", borderWidth: "1px", borderStyle: "solid", borderColor: "fg.subtle", borderRadius: "2px" } },
         /* A phone's reading band (QP14). */
         phoneReading: { minHeight: "44px", display: "flex", alignItems: "center", gap: "8px", paddingX: "16px", fontSize: "body", color: "fg.strong", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle" },
         /* A phone's Not run (QP14): a 6% `--neg` wash over a 1 px `--neg`. */

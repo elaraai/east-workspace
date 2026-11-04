@@ -26,7 +26,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe } from "@chakra-ui/react";
+import { Box, chakra, Menu as ChakraMenu, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, faListCheck } from "@fortawesome/free-solid-svg-icons";
 import { type OptionType, type ValueTypeOf } from "@elaraai/east";
@@ -35,6 +35,7 @@ import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { DEFAULT_RANK, type ToolbarItem } from "../../toolbar/index.js";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { FrameMenuLayer } from "../../layout/builder-frame/frame-layer.js";
 
 /** The row-granularity review-config value every adopter's `review` decodes to. */
 export type RowReviewValue = ValueTypeOf<RowReviewType>;
@@ -359,9 +360,7 @@ function ReviewMenu({ controller, labels }: { controller: ReviewFootModel; label
                     <FontAwesomeIcon icon={faCaretDown} data-chip-caret="" />
                 </chakra.button>
             </ChakraMenu.Trigger>
-            <Portal>
-                <ChakraMenu.Positioner>
-                    <ChakraMenu.Content>
+            <FrameMenuLayer label={labels.menu}>
                         {controller.hasRejectAll && (
                             <ChakraMenu.Item value="reject" disabled={controller.batchDisabled === true} data-destructive=""
                                 data-review-batch="reject">{labels.rejectAll}</ChakraMenu.Item>
@@ -373,9 +372,7 @@ function ReviewMenu({ controller, labels }: { controller: ReviewFootModel; label
                             <ChakraMenu.Item value="approve" disabled={controller.batchDisabled === true}
                                 data-review-batch="approve">{labels.approveAll}</ChakraMenu.Item>
                         )}
-                    </ChakraMenu.Content>
-                </ChakraMenu.Positioner>
-            </Portal>
+                    </FrameMenuLayer>
         </ChakraMenu.Root>
     );
 }

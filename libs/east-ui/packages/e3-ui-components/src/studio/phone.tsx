@@ -12,8 +12,8 @@
  * @packageDocumentation
  */
 
-import { memo, useRef } from "react";
-import { Box, chakra } from "@chakra-ui/react";
+import { memo, useLayoutEffect, useRef, useState } from "react";
+import { Box, chakra, VisuallyHidden } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faEllipsis } from "@fortawesome/free-solid-svg-icons";
 import { useContainerWidth } from "@elaraai/east-ui-components";
@@ -49,7 +49,17 @@ export const StudioPhoneBar = memo(function StudioPhoneBar({ status, saveTemplat
     const m = useStudioMessages();
     // The row's own width, the frame's whatever holds it. Unmeasured, the narrow form: nothing to cut.
     const barRef = useRef<HTMLDivElement | null>(null);
-    const inline = useContainerWidth(barRef) >= TEMPLATE_INLINE_FROM;
+    const width = useContainerWidth(barRef);
+    // Past the width's own rule (ST3), a status too long for the row gives way: Save as template goes to ⋯, then the
+    // status keeps its dot, its word whole or not at all (ST39). Measured before paint, again as the width or the word moves.
+    const [gave, setGave] = useState(0);
+    const label = status?.label;
+    useLayoutEffect(() => { setGave(0); }, [width, label]);
+    useLayoutEffect(() => {
+        const bar = barRef.current;
+        if (bar !== null && gave < 2 && bar.scrollWidth > bar.clientWidth + 0.5) setGave(gave + 1);
+    }, [gave, width, label]);
+    const inline = width >= TEMPLATE_INLINE_FROM && gave === 0;
     const trigger = inline
         ? <chakra.button type="button" css={styles.target} disabled={!saveTemplate.enabled} data-studio-save-template=""><Box as="span" css={styles.box}>{m.saveAsTemplate()}</Box></chakra.button>
         : <chakra.button type="button" css={styles.more} disabled={!saveTemplate.enabled} aria-label={m.saveAsTemplate()} data-studio-more=""><FontAwesomeIcon icon={faEllipsis} /></chakra.button>;
@@ -58,7 +68,7 @@ export const StudioPhoneBar = memo(function StudioPhoneBar({ status, saveTemplat
         <Box ref={barRef} css={styles.bar} data-studio-phone-bar="" data-ends-more={inline ? undefined : ""}>
             {status !== undefined && (
                 <Box as="span" css={styles.status} data-studio-status={status.tone}>
-                    <Box as="span" css={styles.statusDot} data-tone={status.tone} aria-hidden />{status.label}
+                    <Box as="span" css={styles.statusDot} data-tone={status.tone} aria-hidden />{gave < 2 ? status.label : <VisuallyHidden>{status.label}</VisuallyHidden>}
                 </Box>
             )}
             {inline && template}

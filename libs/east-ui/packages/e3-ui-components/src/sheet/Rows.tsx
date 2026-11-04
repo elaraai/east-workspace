@@ -20,14 +20,14 @@
  */
 
 import { memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
-import { Box, chakra, Menu as ChakraMenu, Portal, type SystemStyleObject } from "@chakra-ui/react";
+import { Box, chakra, Menu as ChakraMenu, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRight, faCheck, faChevronRight, faEllipsisVertical, faGripVertical, faMinus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { none } from "@elaraai/east";
 import {
     getSomeorUndefined, optimiseMessages, useDragEventChip, useDropCell, type CellCoord, type DragHandle, type DragPayload, type DropCellOptions,
 } from "@elaraai/east-ui-components";
-import { EastErrorBoundary, UnloadedRun, loadingLineText, type PlaceholderKind, type RunCell } from "@elaraai/east-ui-components/internal";
+import { EastErrorBoundary, FrameMenuLayer, UnloadedRun, loadingLineText, type PlaceholderKind, type RunCell } from "@elaraai/east-ui-components/internal";
 import {
     BAND_MIN_PX, TITLE_KEY, cellIsBlank, cellText, driverKeyOf, resolveMember,
     type LineGroup, type SheetBand, type SheetColumnIndex, type SheetColumnMeta, type SheetGroupIndex, type SheetKind, type SheetRegisterIndex, type SheetWindowFailure,
@@ -270,13 +270,9 @@ function RowActions({ styles, r, grip, what, decisions, inserts }: {
                     <FontAwesomeIcon icon={faEllipsisVertical} />
                 </Box>
             </ChakraMenu.Trigger>
-            <Portal>
-                <ChakraMenu.Positioner>
-                    <ChakraMenu.Content>
+            <FrameMenuLayer label={m.rowActions({ what })}>
                         {items.map((item) => <ChakraMenu.Item key={item.value} value={item.value}>{item.label}</ChakraMenu.Item>)}
-                    </ChakraMenu.Content>
-                </ChakraMenu.Positioner>
-            </Portal>
+                    </FrameMenuLayer>
         </ChakraMenu.Root>
     );
 }

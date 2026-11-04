@@ -242,7 +242,7 @@ export const QueryResults = memo(function QueryResults({ state, stale, view, wor
     if (phone && state.status === "idle") {
         body = (
             <Box css={styles.phoneIdle} data-query-results-idle="">
-                <Box as="span" css={styles.phoneIdleGlyph} aria-hidden>☐</Box>
+                <Box as="span" css={styles.phoneIdleGlyph} aria-hidden />
                 <Box css={styles.phoneIdleTitle}>{m.idleTitle()}</Box>
                 <Box as="ul" css={styles.phoneIdleList}><li>{m.idleChecks()}</li><li>{m.idleRunPhone()}</li></Box>
             </Box>
