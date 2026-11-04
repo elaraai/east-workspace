@@ -5,13 +5,14 @@
 
 /**
  * The Flowchart's toolbar items (#1245, `Flowchart Builder Spec.md` §7.1,
- * FB8, FB9) — every control the flowchart has, as items of its frame's one
- * toolbar, in this order: find state, LR · TD and the freshness chip at the
- * row's start; the rail over the flowchart's `Slice.bindRecords` (#1346) at
- * its end — each source's fields in source order, the presets, and one
- * summary counting each source — and last the history item over the open
- * flow's session, where the flowchart edits (#1246). The canvas draws no
- * eyebrow of its own.
+ * FB8, FB9; `Flowchart Records Spec.md` R17) — every control the flowchart
+ * has, as items of its frame's one toolbar, in this order: find state, LR · TD
+ * and the freshness chip at the row's start; the rail over the flowchart's
+ * `Slice.bindRecords` (#1346) at its end — each source's fields in source
+ * order, the presets, and one summary counting each source — and last the
+ * history item over the records' one history, where the flowchart edits
+ * (#1503). The canvas draws no eyebrow of its own. Every word the items say is
+ * the Flowchart's message table's.
  *
  * They fold on one ladder: the rail first, in its own order (#952) — its
  * fields into their summary chips, then one chip, then its icon, and its
@@ -31,8 +32,9 @@ import { Box, useRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordSlicesChromeType } from "@elaraai/east-ui/internal";
 import { HOST_RANK, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
-import { useKeySearchToolbarItem, type Formatters, type KeySearchSource, type ToolbarItem } from "@elaraai/east-ui-components";
+import { useKeySearchToolbarItem, type KeySearchSource, type ToolbarItem } from "@elaraai/east-ui-components";
 import { Seg, SegMenu } from "../shared/schedule/segments.js";
+import type { FlowchartWords } from "./messages.js";
 
 type Styles = Record<string, SystemStyleObject>;
 
@@ -69,23 +71,21 @@ export interface FlowchartFreshness {
 export interface FlowchartToolbarProps {
     /** The `flowchart` recipe's styles: the freshness chip's dot. */
     readonly styles: Styles;
-    /** Find state's source — `undefined` over a flow with no state. */
+    /** Find state's source (`find.ts`) — `undefined` with no state to seek. */
     readonly find: KeySearchSource | undefined;
-    /** What find state is called: `Find state` unless the app's words say otherwise. */
-    readonly findLabel?: string | undefined;
     /** The canvas's orientation. */
     readonly orientation: FlowchartOrientation;
     /** Turns the canvas. */
     readonly onOrientation: (orientation: FlowchartOrientation) => void;
     /** The freshness chip — `undefined` when the flowchart has none. */
     readonly freshness: FlowchartFreshness | undefined;
-    /** The formatters the chip's date prints with, in the app's locale. */
-    readonly words: Formatters;
-    /** The history item over the open flow's session (`historyToolbarItem`) — where the flowchart edits; `undefined` where it does not. */
+    /** The Flowchart's words: the items' labels, and the formatters the chip's date prints with, in the app's locale. */
+    readonly words: FlowchartWords;
+    /** The history item over the records' one history (`historyToolbarItem`) — where the flowchart edits; `undefined` where it does not. */
     readonly history?: ToolbarItem | undefined;
     /** The rail (#1346): one over the flowchart's `Slice.bindRecords`, its affordances and its persistence; `undefined` with no slice. */
     readonly chrome?: ValueTypeOf<RecordSlicesChromeType> | undefined;
-    /** What the rail's summary counts each source in, by its name — `flows`, `state templates`, `owners`. */
+    /** What the rail's summary counts each source in, by its name — `states`, `state cards`, `owners`. */
     readonly nouns?: Readonly<Record<string, string>> | undefined;
 }
 
@@ -96,15 +96,17 @@ export interface FlowchartToolbarProps {
  * @param props - What the items show and drive
  * @returns The items, a falsy entry for each the flowchart has no use for
  */
-export function useFlowchartToolbarItems({ styles, find, findLabel, orientation, onOrientation, freshness, words, history, chrome, nouns }: FlowchartToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
+export function useFlowchartToolbarItems({ styles, find, orientation, onOrientation, freshness, words, history, chrome, nouns }: FlowchartToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
     // Find state: its box, or its icon, which opens the box, on a row short of room — and, beside a rail, last its
     // popover holding LR · TD over its box, the orientation's chip gone in the same move.
     const combine = chrome !== undefined && find !== undefined;
+    const m = words.m;
+    const turn = m.orientationLabel();
     const seek = useKeySearchToolbarItem(find, {
-        rank: FLOWCHART_RANK.seek, label: findLabel ?? "Find state",
+        rank: FLOWCHART_RANK.seek, label: m.findLabel(),
         compact: combine ? {
-            label: "View",
-            controls: <Box css={styles.toolbarControls}><Seg label="Orientation" name="orientation" scope="flowchart"
+            label: m.viewLabel(),
+            controls: <Box css={styles.toolbarControls}><Seg label={turn} name="orientation" scope="flowchart"
                 items={ORIENTATIONS} active={orientation} onPick={onOrientation} fullWidth /></Box>,
         } : undefined,
     });
@@ -131,8 +133,8 @@ export function useFlowchartToolbarItems({ styles, find, findLabel, orientation,
             rank: combine ? [FLOWCHART_RANK.orientation, FLOWCHART_RANK.controls] : FLOWCHART_RANK.orientation,
             bundle: combine ? [undefined, "flowchart.controls"] : undefined,
             forms: [
-                <Seg label="Orientation" name="orientation" scope="flowchart" items={ORIENTATIONS} active={orientation} onPick={onOrientation} />,
-                <SegMenu label="Orientation" name="orientation" scope="flowchart" items={ORIENTATIONS} active={orientation} onPick={onOrientation} />,
+                <Seg label={turn} name="orientation" scope="flowchart" items={ORIENTATIONS} active={orientation} onPick={onOrientation} />,
+                <SegMenu label={turn} name="orientation" scope="flowchart" items={ORIENTATIONS} active={orientation} onPick={onOrientation} />,
                 ...(combine ? [null] : []),
             ],
         },

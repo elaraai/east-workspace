@@ -4,403 +4,335 @@
  *
  * @vitest-environment jsdom
  *
- * The Flowchart's narrowing (#1346): one rail over its `Slice.bindRecords`,
- * each source filtering every place its records appear — the `flows` source
- * the Flows tab, which pages what it narrows the record to and counts it
- * (`Flows 683 of 2,048`); each templates list's source its tab's cards; the
- * author's tab the source it names — each tab saying so when its source
- * empties it, with that source's Clear filters; the open flow read by its
- * name whatever the narrowing, its drafts kept; a Save that takes a flow out
- * of the narrowing reported in the footer's shared notice; the Flows tab's
- * own search finding within the narrowing, the rail and every count as they
- * were; the flows paged, counted, searched and saved through their indexes
- * and reads by name, never read whole; and the examples mounted as they are.
- * Over the examples' records on e3 itself, paged through their indexes
- * (`flowchart.test-utils.tsx`, #1376), the flowchart in a Reactive root as a
- * ui task draws it, the rail written as its chips write it. That no function
- * holds the whole slice is e3-ui's one guard over every builder's examples
- * (#1356). A filter change builds nothing again: the flowchart's body runs no
- * more, and no payload is decoded (#1354).
+ * The Flowchart's narrowing over the depot's records (#1502, `Flowchart
+ * Records Spec.md` R5, R6, D7, D11; R11, R12, R14), on e3 itself
+ * (`flowchart.test-utils.tsx`): one rail, its `Slice.bindRecords`, the states'
+ * and the transitions' sources narrowing those kinds and each list of cards'
+ * the tab that names it.
+ *
+ * - **Hide** (the default): a transition kept whose end the states' narrowing
+ *   leaves out has that end read by key, every such end in one request —
+ *   found, the transition is hidden with it; absent, the end is a ghost,
+ *   listed in Issues (D7).
+ * - **Dim**: every state read, none by key; what the narrowing leaves out
+ *   drawn as context, selected by no path; a ghost faded once every
+ *   transition naming it is.
+ * - **A draft the rail hides** waits in its session through a remount, and
+ *   Save writes it with the rest (R11); a Save that takes a state out of the
+ *   narrowing says so in the footer's shared notice (R12).
+ * - **A new narrowing** keeps what the canvas drew, main busy, while it is read
+ *   (R5); each list of cards follows its own source (R14); and a choice builds
+ *   the flowchart no more (#1354).
+ *
+ * The rail is written as its chips write it: each source's state in the UI
+ * store, under the rail's key and the source's name.
  */
 
-import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { cleanup, fireEvent, waitFor, within, type RenderResult } from "@testing-library/react";
-import { East, IntegerType, OptionType, StringType, equalFor, printFor, some, variant, type EastIR } from "@elaraai/east";
-import { Reactive, RecordSlicesChromeType, Slice, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
-import { UIStore, editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
-import { initializeStore } from "@elaraai/east-ui-components/internal";
-import { Data, Flowchart, Record } from "@elaraai/e3-ui/internal";
+import { describe, expect, test } from "vitest";
+import { fireEvent, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, variant, type ValueTypeOf } from "@elaraai/east";
+import { RecordSliceStateType, type RecordSliceWhereType } from "@elaraai/east-ui/internal";
+import { StateRuntime, editingMessages, formatters } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
-import { searched } from "../e3-web.test-utils.js";
-import { act, flowchartHarness, settle } from "./flowchart.test-utils.js";
+import type { E3Request } from "../e3-web.test-utils.js";
+import { programOf, reloadPage, slot } from "../e3-web-mount.test-utils.js";
+import { countBuilds } from "../shared/builds.test-utils.js";
+import { act, flowchartHarness, press, settle } from "./flowchart.test-utils.js";
+import { measureLibrary } from "./library-measure.test-utils.js";
 import { flowchartMessages } from "./messages.js";
-import { countBuilds, type UIProgram } from "../shared/builds.test-utils.js";
 
 const h = flowchartHarness();
-
-// jsdom lacks the ResizeObserver the panes and the canvas reach for, and the matchMedia the popovers do.
-beforeAll(() => {
-    class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = ResizeObserverStub;
-    (globalThis as { matchMedia?: unknown }).matchMedia ??= (query: string) => ({
-        matches: false, media: query, onchange: null,
-        addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent() { return false; },
-    });
-});
-
-/** The flows' indexes, as the rail's `flows` source lists them. */
-const FLOW_INDEXES = ["name", "flowchart_by_description", "flowchart_by_description_name", "stateCount", "flowchart_by_description_state_count", "lane", "decisionOwner"] as const;
-/** The route flows' record, as its dataset's requests name it: paged through its indexes, never read whole. */
-const FLOWS_DATASET = `records.${ex.indexedFlows.name}`;
-/** The step types' record, as its dataset's requests name it. */
-const STEPS_DATASET = `records.${ex.stepTemplates.name}`;
-/** The route flows' commits, newest first, by the mutation that made each. */
-const flowCommits = async () => (await h.history(ex.indexedFlows)).commits.map((c) => c.mutation);
-
-// Each test its own UI store; its own records and paged windows are its workspace's on e3.
-beforeEach(() => {
-    initializeStore(new UIStore());
-});
-
-afterEach(() => {
-    cleanup();
-    localStorage.clear();
-});
+// The Library measured as a browser lays it: its lists of cards render.
+measureLibrary();
 
 const m = flowchartMessages;
+const WORDS = formatters("en-US");
+const SAVE = editingMessages.apply();
 const printText = printFor(StringType);
-const printDescription = printFor(OptionType(StringType));
-const printCount = printFor(IntegerType);
-const stringEqual = equalFor(StringType);
+const compareString = compareFor(StringType);
+const statesEqual = equalFor(ex.depotStates.type);
 
-/** The rail's key: the flowchart's and the test's writes share it. */
-const KEY = "flowchart_narrowing_dom";
+/** The depot's rail, as `Slice.bindRecords` keys it. */
+const DEPOT = "flowchart.depot";
+/** The dimmed depot's rail. */
+const DIMMED = "flowchart.depotDimmed";
+/** The states' record, as its dataset's requests name it. */
+const STATES = `records.${ex.depotStates.name}`;
+/** The transitions' record. */
+const TRANSITIONS = `records.${ex.depotTransitions.name}`;
 
-/** The rail's `flows` source: the route flows through their indexes, found by name in the Flows tab's own search. */
-const flowsSource = () => ({
-    source: Data.bindPaged(ex.indexedFlows, { indexes: FLOW_INDEXES }), label: "Flows",
-    fields: {
-        description: { label: "Description" }, stateCount: { label: "State count" }, lane: { label: "Lane" },
-        decisionOwner: { label: "Decision owner" }, name: { label: "Name" },
-    },
-    search: ["name", "description", "lane", "decisionOwner"] as ("name" | "description" | "lane" | "decisionOwner")[],
-});
+/** The depot's parcels' states: what the rail's opening choice keeps. */
+const PARCELS = ["ARV", "CH*", "CLR", "DSP", "HLD", "IND", "LBL", "LDD", "SCN", "SRD"];
 
-/** The rail's sources: the flows, and each templates record and the roles. */
-const sources = () => ({
-    flows: flowsSource(),
-    steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: ["flowchart_steps_by_kind"] }), label: "Steps",
-        fields: { kind: { label: "Step kind", hints: ["Intake", "Sort", "Hold", "Load"] } } },
-    moves: { source: Data.bindPaged(ex.moveTemplates, { indexes: ["flowchart_moves_by_kind"] }), label: "Transitions", fields: { kind: { label: "Transition kind" } } },
-    owners: { source: Data.bindPaged(ex.decisionOwners, { indexes: ["flowchart_owners_by_desk"] }), label: "Owners",
-        fields: { desk: { label: "Desk", hints: ["Sort hall", "Hold bay"] } } },
-});
+type Where = ValueTypeOf<RecordSliceWhereType>;
 
-/**
- * The route flows under one rail, the Flows tab paging its `flows` source and
- * the library's templates lists and its Owners tab following theirs — in a
- * Reactive root, as a ui task draws it. A narrowing written to the rail is read
- * where each source's rows are read, and nothing builds the flowchart again
- * (#1354).
- */
-const flowchart = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const flows = $.let(Record.bind(ex.indexedFlows, ["patch"]));
-    const steps = $.let(Data.bind(ex.stepTemplates));
-    const moves = $.let(Data.bind(ex.moveTemplates));
-    const owners = $.let(Data.bind(ex.decisionOwners));
-    const slice = $.let(Slice.bindRecords(KEY, sources()));
-    return Flowchart({
-        record: flows, slice: { slice, affordances: ["fields", "summary"] }, name: "narrowing",
-        library: [
-            Flowchart.library.flows(),
-            Flowchart.library.states(steps.read(), {
-                name: "Steps", icon: "box", source: "steps", label: (s) => s.name, group: (s) => s.kind,
-                drop: (s, code) => Flowchart.patch(Flowchart.Types.State, { key: code, label: some(s.name) }),
-            }),
-            Flowchart.library.transitions(moves.read(), {
-                source: "moves", label: (_m, name) => name, drop: (mv) => Flowchart.patch(Flowchart.Types.Link, { kind: some(mv.kind) }),
-            }),
-            Flowchart.library.tab(owners.read(), {
-                name: "Owners", icon: "user-tie", source: "owners", key: (_o, role) => role, label: (o) => o.name,
-                drop: (_o, role) => Flowchart.patch(Flowchart.Types.Trigger, { owner: some(role) }),
-            }),
-        ],
-    });
-}))) };
-
-/** The rail as a test writes it: the same sources under the flowchart's key, each part's controls as the toolbar's chips use them. */
-const rail = East.compile(East.function([], RecordSlicesChromeType, ($) => $.return(recordSlicesChrome({ slice: Slice.bindRecords(KEY, sources()) }))),
-    getRegisteredPlatformImplementations());
-/** The rail's parts, bound once: a source's part by its name. */
-function railParts() {
-    const chrome = rail();
-    return (source: string) => chrome.slice.parts.find((part) => stringEqual(part.source, source))!.slice;
+/** A narrowing: each field's values chosen, printed as the rail prints them. */
+function where(choices: { readonly [field: string]: readonly string[] }): Where {
+    return new SortedMap(Object.entries(choices).map(([field, values]) => [field, variant("values", values.map((value) => printText(value)))]), compareString);
 }
 
-/** An example's program, or the test's flowchart's, compiled. */
-const programOf = (example: { fn: { toIR(): unknown } }): UIProgram =>
-    (example.fn.toIR() as EastIR<[], typeof UIComponentType>).compile(getRegisteredPlatformImplementations());
+/** No choice at all: the source's record whole. */
+const WHOLE: Where = where({});
 
-/** Mounts an example or the test's flowchart as a ui task draws it, or a program compiled from one (a counted one) in its place. */
-function mount(example: { fn: { toIR(): unknown } }, program?: UIProgram): Promise<RenderResult> {
-    return h.mount(example, { drag: false, storageKey: "flowchart.narrowing", ...(program === undefined ? {} : { program }) });
+/** Writes a source's narrowing, as the rail's chips do, and settles. */
+async function narrow(rail: string, source: string, next: Where): Promise<void> {
+    const key = `${rail}.${source}`;
+    const store = StateRuntime.getStore();
+    const held = store.read(key);
+    const state = held === undefined ? { where: next, preset: none, resolution: none } : { ...decodeBeast2For(RecordSliceStateType)(held), preset: none, where: next };
+    await act(async () => { store.write(key, encodeBeast2For(RecordSliceStateType)(state)); });
+    await settle();
 }
 
-/** A region of the frame. */
-const slot = (container: HTMLElement, name: string) => container.querySelector<HTMLElement>(`[data-builder-frame] [data-frame-slot="${name}"]`);
+/** A source's narrowing, as the rail holds it. */
+const whereOf = (rail: string, source: string): Where => decodeBeast2For(RecordSliceStateType)(StateRuntime.getStore().read(`${rail}.${source}`)!).where;
+
+/** A read by key's body, as the request log holds it: the keys it reads, each as East prints it, in East's order. */
+const keysOf = (request: E3Request): string[] =>
+    [...((JSON.parse(new TextDecoder().decode(request.body)) as { keys?: string[] }).keys ?? [])].sort(compareString);
+
+// ── Reading the flowchart ─────────────────────────────────────────────────
+
+const node = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data-flowchart-node="${key}"]`);
+const link = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data-flowchart-link="${key}"]`);
+/** The states drawn, ghosts among them, in East's order of their keys. */
+const stateKeys = (c: HTMLElement): string[] =>
+    [...c.querySelectorAll("[data-flowchart-node]")].map((el) => el.getAttribute("data-flowchart-node") ?? "").sort(compareString);
+/** The states drawn as context, in East's order of their keys. */
+const context = (c: HTMLElement): string[] =>
+    [...c.querySelectorAll("[data-flowchart-node][data-context]")].map((el) => el.getAttribute("data-flowchart-node") ?? "").sort(compareString);
+/** What waits on Save, as the footer counts it. */
+const pending = (c: HTMLElement): string | null => c.querySelector("[data-flowchart-pending]")?.textContent ?? null;
+const pendingOf = (n: number): string => ` · ${m.footerPending({ n, count: WORDS.number(n) })}`;
+
 /** The library's tabs, as they read: each name and its count. */
-const tabs = (container: HTMLElement) => [...slot(container, "start")!.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent);
+const libraryTabs = (c: HTMLElement) => [...slot(c, "start").querySelectorAll('[role="tab"]')].map((tab) => tab.textContent);
 /** The library's open panel. */
-const panel = (container: HTMLElement) => slot(container, "start")!.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+const libraryPanel = (c: HTMLElement) => slot(c, "start").querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
 /** The open panel's cards' keys, in order. */
-const cardKeys = (container: HTMLElement) => [...panel(container).querySelectorAll<HTMLElement>("[data-library-item]")].map((card) => card.getAttribute("data-library-item"));
-/** The open flow, as the footer names it. */
-const openFlow = (container: HTMLElement) => container.querySelector("[data-flowchart-flow]")?.textContent ?? null;
-/** The changes waiting on Save, as the footer counts them. */
-const pending = (container: HTMLElement) => container.querySelector("[data-flowchart-pending]")?.textContent ?? null;
+const cardKeys = (c: HTMLElement) => [...libraryPanel(c).querySelectorAll("[data-library-item]")].map((card) => card.getAttribute("data-library-item"));
 
-/** Opens a library tab, by its name. */
-async function openTab(container: HTMLElement, name: string) {
-    const tab = [...slot(container, "start")!.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent === name || t.textContent?.startsWith(`${name} `));
-    if (tab === undefined) throw new Error(`no library tab ${name}`);
-    await act(async () => { fireEvent.click(tab); });
+/** The inspector's open panel. */
+const inspectorPanel = (c: HTMLElement) => slot(c, "end").querySelector<HTMLElement>("[role='tabpanel']:not([hidden])")!;
+/** What its Details shows. */
+const showing = (c: HTMLElement) => inspectorPanel(c).querySelector("[data-flowchart-inspector]")?.getAttribute("data-flowchart-inspector") ?? null;
+/** Its Issues, each as it reads: what it names, what it says and how, and which of the rail's choices hide it. */
+const issueLines = (c: HTMLElement) => [...inspectorPanel(c).querySelectorAll("[data-inspector-issue]")].map((el) => [
+    el.querySelector("span:first-child")?.textContent ?? null,
+    el.querySelector("[data-kind]")?.textContent ?? null,
+    el.querySelector("[data-kind]")?.getAttribute("data-kind") ?? null,
+    ...(el.querySelector("[data-inspector-issue-hidden]") === null ? [] : [el.querySelector("[data-inspector-issue-hidden]")!.textContent]),
+]);
+/** DSP → DLV's issue: its far end no state is keyed by. */
+const DLV_ISSUE = [m.issueWhere({ kind: "Transition", name: "DSP → DLV" }), m.issueText({ issue: "end", link: "DSP → DLV", missing: ["DLV"] }), "warning"];
+
+/** Clicks an element, as a pointer does, and lets the flowchart settle. */
+async function click(el: Element): Promise<void> {
+    await act(async () => { fireEvent.click(el); });
     await settle();
 }
 
-/** Presses one of the history item's buttons, by its words. */
-async function press(container: HTMLElement, name: string) {
-    const button = within(slot(container, "toolbar")!).getByRole("button", { name });
-    await act(async () => {
-        fireEvent.mouseDown(button, { button: 0 });
-        fireEvent.click(button);
-    });
+/** Opens a tab of a pane — `start`, the library; `end`, the inspector — by its name. */
+async function openTab(c: HTMLElement, pane: "start" | "end", name: string): Promise<void> {
+    const tab = [...slot(c, pane).querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent === name || t.textContent?.startsWith(`${name} `));
+    if (tab === undefined) throw new Error(`no ${pane} tab ${name}`);
+    await click(tab);
+}
+
+/** Types a field of the inspector's new text, and commits it with ⏎. */
+async function retype(c: HTMLElement, key: string, text: string): Promise<void> {
+    const box = within(inspectorPanel(c).querySelector<HTMLElement>(`[data-field="${key}"]`)!).getByRole("textbox");
+    const user = userEvent.setup();
+    await user.clear(box);
+    if (text !== "") await user.type(box, text);
+    await user.type(box, "{Enter}");
     await settle();
 }
 
-const FLOWS_TAB = m.flowsTab();
-const TRANSITIONS_TAB = m.libraryTab({ tab: "transitions" });
+/** Mounts an example as a ui task draws it, and waits until the canvas draws `first`. */
+async function open(example: { fn: { toIR(): unknown } }, first: string): Promise<HTMLElement> {
+    const { container } = await h.mountExample(example);
+    await waitFor(() => expect(node(container, first)).not.toBeNull());
+    return container;
+}
 
-describe("the Flows tab pages the `flows` source (#1346)", () => {
-    test("it lists and counts every flow while nothing narrows, and `683 of 2,048` while the rail narrows them; the collapsed rail's badge is what it shows", async () => {
-        const { container } = await mount(flowchart);
-        const part = railParts();
-        await waitFor(() => expect(tabs(container)[0]).toBe(`${FLOWS_TAB} 2,048`));
-        await waitFor(() => expect(cardKeys(container)[0]).toBe("FLOW-10000"));
-        await act(async () => { part("flows").choose("description", [printDescription(some("Inbound parcels"))]); });
-        await waitFor(() => expect(tabs(container)[0]).toBe(`${FLOWS_TAB} 683 of 2,048`));
-        // Every third flow is inbound: the list pages the narrowing, in its order.
-        await waitFor(() => expect(cardKeys(container).slice(0, 3)).toEqual(["FLOW-10000", "FLOW-10003", "FLOW-10006"]));
-        // The other sources narrow nothing: their tabs count their records whole.
-        expect(tabs(container).slice(1)).toEqual(["Steps 5", `${TRANSITIONS_TAB} 3`, "Owners 2"]);
-        fireEvent.click(within(slot(container, "start")!).getByRole("button", { name: `Collapse ${m.libraryPane()}` }));
-        await settle();
-        const badge = slot(container, "start")!.querySelector<HTMLElement>("[data-dock-badge]")!;
-        expect(badge.getAttribute("title")).toBe("683");
-        // Paged and counted through the indexes alone: the flows are never read whole, as the templates are, which
-        // the Steps list reads whole beside them.
-        expect([h.requests("read", FLOWS_DATASET).length, h.requests("read", STEPS_DATASET).length > 0]).toEqual([0, true]);
+// ============================================================================
+// Hide and dim (R6, D7, D11)
+// ============================================================================
+
+describe("hide and dim (#1502, R6, D7)", () => {
+    test("under hide, the ends the states' narrowing leaves out are read by key, every one in one request: one found hides its transition with it; one absent is a ghost, listed in Issues", async () => {
+        // A transition of the parcels' flow into RCV, a state of the returns' flow the rail's opening choice leaves out.
+        const transitions = await h.read(ex.depotTransitions);
+        const crossing = new SortedMap(transitions, compareString);
+        crossing.set("x1", { src: "CLR", dst: "RCV", kind: variant("planned", null), trigger: none, volume: none, n: none, at: none, flow: "Parcels" });
+        await h.patch(ex.depotTransitions, crossing);
+        const c = await open(ex.flowchartDepot, "ARV");
+        // One request reads both ends: DLV, which no state is keyed by, and RCV.
+        expect(h.requests("rows", STATES).map(keysOf)).toEqual([[printText("DLV"), printText("RCV")]]);
+        // RCV found: CLR → RCV is hidden with it — neither drawn, and no issue.
+        expect([link(c, "x1"), node(c, "RCV")]).toEqual([null, null]);
+        // DLV absent: drawn as a ghost — no state row — and listed in Issues, alone.
+        expect(stateKeys(c)).toEqual([...PARCELS, "DLV"].sort(compareString));
+        expect(node(c, "DLV")!.textContent).toBe(`DLV${m.noStateRow()}`);
+        await openTab(c, "end", "Issues");
+        expect(issueLines(c)).toEqual([DLV_ISSUE]);
+        // The states' choice cleared: RCV is read with the rest, and CLR → RCV drawn into it; DLV is still no state's.
+        await narrow(DEPOT, "states", WHOLE);
+        await waitFor(() => expect(link(c, "x1")).not.toBeNull());
+        expect(node(c, "RCV")!.textContent).toBe("RCVReceived");
+        expect(issueLines(c)).toEqual([DLV_ISSUE]);
     });
 
-    test("while the rail leaves it no flow, it says so, with Clear filters for the `flows` source alone", async () => {
-        const { container } = await mount(flowchart);
-        const part = railParts();
-        await waitFor(() => expect(tabs(container)[0]).toBe(`${FLOWS_TAB} 2,048`));
-        await act(async () => {
-            part("steps").choose("kind", [printText("Hold")]);
-            part("flows").range("stateCount", printCount(100n), printCount(200n));
-        });
-        await waitFor(() => expect(tabs(container)[0]).toBe(`${FLOWS_TAB} 0 of 2,048`));
-        const said = await waitFor(() => panel(container).querySelector<HTMLElement>("[data-library-empty]")!);
-        expect(within(said).getByText(m.flowsFiltered({ part: "title" }))).toBeTruthy();
-        expect(within(said).getByText(m.flowsFiltered({ part: "hint" }))).toBeTruthy();
-        await act(async () => { fireEvent.click(within(said).getByRole("button", { name: "Clear filters" })); });
-        await settle();
-        await waitFor(() => expect(tabs(container)[0]).toBe(`${FLOWS_TAB} 2,048`));
-        // The flows' choices cleared; the steps' kept.
-        expect([part("flows").read().where.size, part("steps").read().where.size]).toEqual([0, 1]);
-        expect(tabs(container)[1]).toBe("Steps 1 of 5");
-    });
-});
-
-describe("each other source narrows the tab that names it (#1346)", () => {
-    test("the templates lists and the Owners tab show the cards their sources show, counted; a source the rail empties says so, with its own Clear filters", async () => {
-        const { container } = await mount(flowchart);
-        const part = railParts();
-        await waitFor(() => expect(tabs(container)).toEqual([`${FLOWS_TAB} 2,048`, "Steps 5", `${TRANSITIONS_TAB} 3`, "Owners 2"]));
-        await act(async () => {
-            part("steps").choose("kind", [printText("Intake")]);
-            part("moves").choose("kind", [printFor(Flowchart.Types.Kind)(variant("observed", null))]);
-            part("owners").choose("desk", [printText("Hold bay")]);
-        });
-        await waitFor(() => expect(tabs(container)).toEqual([`${FLOWS_TAB} 2,048`, "Steps 2 of 5", `${TRANSITIONS_TAB} 1 of 3`, "Owners 1 of 2"]));
-        await openTab(container, "Steps");
-        expect(cardKeys(container)).toEqual(["ARV", "SCN"]);
-        await openTab(container, TRANSITIONS_TAB);
-        expect(cardKeys(container)).toEqual(["Observed"]);
-        await openTab(container, "Owners");
-        expect(cardKeys(container)).toEqual(["customs-desk"]);
-        // A kind no step has: the tab says so, and its Clear filters clears the steps' source alone.
-        await openTab(container, "Steps");
-        await act(async () => { part("steps").choose("kind", [printText("Load"), printText("Hold")]); });
-        await waitFor(() => expect(tabs(container)[1]).toBe("Steps 2 of 5"));
-        await act(async () => { part("steps").choose("kind", [printText("Nowhere")]); });
-        await waitFor(() => expect(tabs(container)[1]).toBe("Steps 0 of 5"));
-        const said = panel(container).querySelector<HTMLElement>("[data-library-empty]")!;
-        await act(async () => { fireEvent.click(within(said).getByRole("button", { name: "Clear filters" })); });
-        await settle();
-        await waitFor(() => expect(tabs(container)[1]).toBe("Steps 5"));
-        expect([part("steps").read().where.size, part("moves").read().where.size, part("owners").read().where.size]).toEqual([0, 1, 1]);
+    test("under dim, every state is read — none by key — and those the narrowing leaves out draw as context, selected by no path: a transition into one draws as itself; an end no state is keyed by is a ghost, listed in Issues, faded once every transition naming it is", async () => {
+        const c = await open(ex.flowchartDepotDimmed, "HLD");
+        // Every state read, the returns' beside the parcels': none asked for by key, and DLV, no state's, a ghost.
+        expect(stateKeys(c)).toEqual([...PARCELS, "INS", "RCV", "RSD", "DLV"].sort(compareString));
+        expect(h.requests("rows", STATES)).toEqual([]);
+        // The parcels' Hold lane in focus: HLD and CLR draw as themselves, every other state as context.
+        expect(context(c)).toEqual(["ARV", "CH*", "DSP", "IND", "INS", "LBL", "LDD", "RCV", "RSD", "SCN", "SRD"]);
+        // SRD → HLD, into the focus from a state outside it: drawn as itself, its end SRD faded and selected by no click.
+        expect(link(c, "l6")).not.toBeNull();
+        await click(node(c, "SRD")!);
+        expect(showing(c)).toBe("flowchart");
+        await click(node(c, "HLD")!);
+        expect(showing(c)).toBe("state");
+        // DSP → DLV draws as itself, so its ghost does, and Issues lists it.
+        expect(node(c, "DLV")!.hasAttribute("data-context")).toBe(false);
+        await openTab(c, "end", "Issues");
+        expect(issueLines(c)).toEqual([DLV_ISSUE]);
+        // The transitions narrowed to the returns' flow: DSP → DLV draws as context, its ghost with it, and no issue is left.
+        await narrow(DIMMED, "transitions", where({ flow: ["Returns"] }));
+        await waitFor(() => expect(node(c, "DLV")!.hasAttribute("data-context")).toBe(true));
+        expect([link(c, "l10"), link(c, "r1") !== null]).toEqual([null, true]);
+        expect(inspectorPanel(c).querySelector("[data-inspector-no-issues]")).not.toBeNull();
     });
 });
 
-describe("the open flow, its drafts and its Save (#1346)", () => {
-    test("the open flow stays open, its drafts kept, while the rail narrows it away; the Flows tab marks it Pending again once it shows", async () => {
-        const { container } = await mount(flowchart);
-        const part = railParts();
-        await waitFor(() => expect(cardKeys(container)).toContain("FLOW-10001"));
-        await act(async () => { fireEvent.click(panel(container).querySelector('[data-library-item="FLOW-10001"]')!); });
-        await settle();
-        await waitFor(() => expect(openFlow(container)).toBe("FLOW-10001"));
-        // A draft: a lane added.
-        await act(async () => { fireEvent.click(container.querySelector("[data-flowchart-addlane]")!); });
-        await settle();
-        expect(pending(container)).toBe(` · ${m.footerPending({ n: 1, count: "1" })}`);
-        // The rail narrows it away: FLOW-10001's description is Returns.
-        await act(async () => { part("flows").choose("description", [printDescription(some("Inbound parcels"))]); });
-        await waitFor(() => expect(cardKeys(container)[0]).toBe("FLOW-10000"));
-        expect(cardKeys(container)).not.toContain("FLOW-10001");
-        expect([openFlow(container), pending(container)]).toEqual(["FLOW-10001", ` · ${m.footerPending({ n: 1, count: "1" })}`]);
-        // Cleared: listed again, its draft Pending.
-        await act(async () => { part("flows").clearAll(); });
-        await waitFor(() => expect(panel(container).querySelector('[data-library-item="FLOW-10001"] [data-tone]')?.textContent).toBe(m.flowPending()));
+// ============================================================================
+// Drafts out of view, and Save (R11, R12)
+// ============================================================================
+
+describe("drafts out of view, and Save (R11, R12)", () => {
+    test("a draft the rail hides waits in its session through a remount, Issues listing it; Save writes it with the rest, and the record reads it back", async () => {
+        const before = await h.commits(ex.depotStates);
+        const stored = await h.read(ex.depotStates);
+        let c = await open(ex.flowchartDepot, "CLR");
+        await click(node(c, "CLR")!);
+        await retype(c, "label", "Cleared at the desk");
+        expect(pending(c)).toBe(pendingOf(1));
+        // The rail moves to the returns' flow: CLR is drawn no more, its draft waiting.
+        await narrow(DEPOT, "states", where({ flow: ["Returns"] }));
+        await waitFor(() => expect(node(c, "CLR")).toBeNull());
+        expect(pending(c)).toBe(pendingOf(1));
+        // The page reloads in the same tab, and the flowchart mounts again under the same narrowing: the draft still waits.
+        reloadPage();
+        c = (await h.mountExample(ex.flowchartDepot)).container;
+        await narrow(DEPOT, "states", where({ flow: ["Returns"] }));
+        await waitFor(() => expect(stateKeys(c)).toEqual(["INS", "RCV", "RSD"]));
+        expect(pending(c)).toBe(pendingOf(1));
+        await openTab(c, "end", "Issues");
+        await waitFor(() => expect(issueLines(c)).toEqual([[
+            m.issueWhere({ kind: "State", name: "CLR" }), m.issueText({ issue: "waiting", name: "CLR" }), "warning",
+            m.hiddenBy({ filters: ["Flow: Returns"], also: [] }),
+        ]]));
+        // Save writes it, through the states' patch door, though the rail hides it.
+        await press(SAVE);
+        expect(pending(c)).toBe(pendingOf(0));
+        expect(statesEqual(await h.read(ex.depotStates), new SortedMap([...stored, ["CLR", { ...stored.get("CLR")!, name: "Cleared at the desk" }]], compareString))).toBe(true);
+        expect(await h.commits(ex.depotStates)).toEqual(["patch", ...before]);
+        expect(inspectorPanel(c).querySelector("[data-inspector-no-issues]")).not.toBeNull();
+        // The rail's choice cleared: CLR read back as e3 holds it, nothing waiting on it.
+        await narrow(DEPOT, "states", WHOLE);
+        await waitFor(() => expect(node(c, "CLR")?.textContent).toBe("CLRCleared at the desk"));
+        expect(pending(c)).toBe(pendingOf(0));
     });
 
-    test("a Save that takes the open flow out of the narrowing confirms by its name, and the footer says one flow left the view", async () => {
-        const { container } = await mount(flowchart);
-        const part = railParts();
-        const before = await flowCommits();
-        // FLOW-10001 holds four states; the rail keeps flows of four.
-        await act(async () => { part("flows").range("stateCount", printCount(4n), printCount(5n)); });
-        await waitFor(() => expect(cardKeys(container)[0]).toBe("FLOW-10001"));
-        await act(async () => { fireEvent.click(panel(container).querySelector('[data-library-item="FLOW-10001"]')!); });
-        await settle();
-        await waitFor(() => expect(container.querySelectorAll("[data-flowchart-node]")).toHaveLength(4));
-        await act(async () => { fireEvent.click(container.querySelector('[data-flowchart-node="CHK"]')!); });
-        await act(async () => { fireEvent.keyDown(container.querySelector("[data-flowchart-scroll]")!, { key: "Delete" }); });
-        await settle();
-        expect(container.querySelectorAll("[data-flowchart-node]")).toHaveLength(3);
-        await press(container, editingMessages.apply());
-        await waitFor(() => expect(container.querySelector("[data-record-save-notice]")?.textContent).toBe("1 flow left this view"));
-        // Still open, read by its name, its Save seen through.
-        expect([openFlow(container), pending(container)]).toEqual(["FLOW-10001", ` · ${m.footerPending({ n: 0, count: "0" })}`]);
-        expect(await flowCommits()).toEqual(["patch", ...before]);
-        // Its Save confirmed, and its exit counted, by reads of the flow and seeks of the indexes: never the flows whole.
-        expect(h.requests("read", FLOWS_DATASET)).toEqual([]);
+    test("a Save that takes a state out of the narrowing says so in the footer's shared notice, and reads the states by key, never whole", async () => {
+        const c = await open(ex.flowchartDepot, "CLR");
+        await click(node(c, "CLR")!);
+        await retype(c, "flow", "Returns");
+        await press(SAVE);
+        await waitFor(() => expect(c.querySelector("[data-record-save-notice]")?.textContent).toBe("1 state left this view"));
+        // CLR stands in the returns' flow now, which the rail hides.
+        expect([node(c, "CLR"), pending(c)]).toEqual([null, pendingOf(0)]);
+        expect((await h.read(ex.depotStates)).get("CLR")!.flow).toBe("Returns");
+        expect([h.requests("read", STATES), h.requests("read", TRANSITIONS)]).toEqual([[], []]);
     });
 });
 
-describe("opening a flow (#1398, CL5)", () => {
-    test("covers nothing while the flow it opens is read — the toolbar, the panes and the footer live, main busy, the footer naming it — and draws it once it lands", async () => {
-        const { container } = await mount(flowchart);
-        await waitFor(() => expect(cardKeys(container)).toContain("FLOW-10001"));
-        const frame = container.querySelector<HTMLElement>("[data-builder-frame]")!;
-        expect(frame.hasAttribute("data-loading")).toBe(false);
-        // The flow's read by its name, held on its way to e3.
-        const read = h.e3.hold((request) => request.dataset === FLOWS_DATASET && searched(request, undefined, printText("FLOW-10001")));
-        await act(async () => { fireEvent.click(panel(container).querySelector('[data-library-item="FLOW-10001"]')!); });
-        await read.holding;
-        await settle();
+// ============================================================================
+// A new narrowing, the lists of cards, and the example as it is (R5, R14)
+// ============================================================================
+
+describe("a new narrowing, and the library's sources (R5, R14)", () => {
+    test("a new narrowing covers nothing while it is read: what the canvas drew kept and main busy, the toolbar, the panes and the footer live; it draws once it lands", async () => {
+        const c = await open(ex.flowchartDepot, "ARV");
+        const frame = c.querySelector<HTMLElement>("[data-builder-frame]")!;
+        const drawn = stateKeys(c);
+        // Every read of the states held on its way to e3.
+        const reading = h.e3.hold((request) => request.dataset === STATES && request.kind !== "mutate");
+        await narrow(DEPOT, "states", where({ flow: ["Returns"] }));
+        await reading.holding;
         expect(frame.hasAttribute("data-loading"), "the frame is not covered").toBe(false);
-        expect(["toolbar", "start", "end", "footer"].filter((name) => slot(container, name)!.closest("[inert], [aria-hidden='true']") !== null), "no region is hidden").toEqual([]);
-        expect(slot(container, "main")!.getAttribute("aria-busy")).toBe("true");
-        expect(openFlow(container)).toBe("FLOW-10001");
-        expect(container.querySelectorAll("[data-flowchart-node]")).toHaveLength(0);
-        await act(async () => { read.release(); });
+        expect(["toolbar", "start", "end", "footer"].filter((name) => slot(c, name).closest("[inert], [aria-hidden='true']") !== null), "no region is hidden").toEqual([]);
+        expect(slot(c, "main").getAttribute("aria-busy")).toBe("true");
+        expect(stateKeys(c)).toEqual(drawn);
+        await act(async () => { reading.release(); });
         await settle();
-        await waitFor(() => expect(container.querySelectorAll("[data-flowchart-node]")).toHaveLength(4));
-        expect([slot(container, "main")!.getAttribute("aria-busy"), frame.hasAttribute("data-loading")]).toEqual(["false", false]);
-    });
-});
-
-describe("the Flows tab's own search (#1340, ruling 11; #1346)", () => {
-    /** The Flows tab's search box. */
-    const searchBox = (container: HTMLElement) => within(panel(container)).getByRole("textbox", { name: "Search flows by name" }) as HTMLInputElement;
-
-    test("finds a flow by its name within the narrowing — the rail, its count and the tab's count as they were — and says how many it hides, with Show all", async () => {
-        const { container } = await mount(flowchart);
-        const part = railParts();
-        await waitFor(() => expect(cardKeys(container)[0]).toBe("FLOW-10000"));
-        expect(searchBox(container).placeholder).toBe("Search 2,048 flows by name…");
-        await act(async () => { fireEvent.change(searchBox(container), { target: { value: "FLOW-1050" } }); });
-        await waitFor(() => expect(cardKeys(container)).toEqual(Array.from({ length: 10 }, (_x, i) => `FLOW-1050${i}`)));
-        expect(panel(container).querySelector("[data-library-search-hidden]")!.textContent).toBe("2,038 hidden by filter · Show all");
-        // The tab's own: the rail narrows nothing, and the tab counts every flow still.
-        expect([part("flows").read().where.size, tabs(container)[0]]).toEqual([0, `${FLOWS_TAB} 2,048`]);
-        // Within the narrowing: the inbound flows of the ten.
-        await act(async () => { part("flows").choose("description", [printDescription(some("Inbound parcels"))]); });
-        await waitFor(() => expect(cardKeys(container)).toEqual(["FLOW-10501", "FLOW-10504", "FLOW-10507"]));
-        expect(tabs(container)[0]).toBe(`${FLOWS_TAB} 683 of 2,048`);
-        // Found through the indexes, never over the flows read whole.
-        expect(h.requests("read", FLOWS_DATASET)).toEqual([]);
-        await act(async () => { fireEvent.click(within(panel(container)).getByRole("button", { name: "Show all" })); });
-        await waitFor(() => expect(cardKeys(container).slice(0, 2)).toEqual(["FLOW-10000", "FLOW-10003"]));
-        expect(searchBox(container).value).toBe("");
+        // The returns' states, every parcels' transition hidden with its ends.
+        await waitFor(() => expect(stateKeys(c)).toEqual(["INS", "RCV", "RSD"]));
+        expect([slot(c, "main").getAttribute("aria-busy"), frame.hasAttribute("data-loading")]).toEqual(["false", false]);
     });
 
-    test("the rail's choices that no index combines with a name say so, naming them, with the rail's Clear filters", async () => {
-        const { container } = await mount(flowchart);
-        const part = railParts();
-        await waitFor(() => expect(cardKeys(container)[0]).toBe("FLOW-10000"));
-        await act(async () => { part("flows").range("stateCount", printCount(4n), printCount(6n)); });
-        await waitFor(() => expect(tabs(container)[0]).toMatch(/ of 2,048$/));
-        await act(async () => { fireEvent.change(searchBox(container), { target: { value: "FLOW-1" } }); });
-        const said = await waitFor(() => {
-            const empty = panel(container).querySelector<HTMLElement>("[data-library-empty]");
-            expect(empty).not.toBeNull();
-            return empty!;
-        });
-        expect(within(said).getByText("No search with these filters")).toBeTruthy();
-        expect(within(said).getByText("Clear the filters on State count to search by Name and Description.")).toBeTruthy();
-        await act(async () => { fireEvent.click(within(said).getByRole("button", { name: "Clear filters" })); });
-        await settle();
-        await waitFor(() => expect(cardKeys(container)[0]).toBe("FLOW-10000"));
-        expect(part("flows").read().where.size).toBe(0);
-    });
-});
-
-describe("the examples, mounted as they are (#1346)", () => {
-    test("the library example's rail narrows its templates and its Owners tab, a source each; its Flows tab lists the depot's flows read whole", async () => {
-        const { container } = await mount(ex.flowchartLibrary);
-        await waitFor(() => expect(tabs(container)).toEqual([`${FLOWS_TAB} 2`, "Steps 5", `${TRANSITIONS_TAB} 3`, "Owners 2"]));
-        const sourcesOnRail = new Set([...slot(container, "toolbar")!.querySelectorAll("[data-record-slice-source]")].map((el) => el.getAttribute("data-record-slice-source")));
-        expect([...sourcesOnRail].sort()).toEqual(["moves", "owners", "steps"]);
+    test("each list of cards follows its own source: its tab shows the cards the source shows, counted; a source the rail empties says so, with a Clear for that source alone; collapsed, the badge counts the first tab's", async () => {
+        const c = await open(ex.flowchartDepot, "ARV");
+        await waitFor(() => expect(libraryTabs(c)).toEqual(["Steps 3", "Transitions 3", "Lanes 2", "Owners 3"]));
+        await narrow(DEPOT, "stepCards", where({ group: ["Sort"] }));
+        await narrow(DEPOT, "moveCards", where({ group: ["Decisions"] }));
+        await waitFor(() => expect(libraryTabs(c)).toEqual(["Steps 1 of 3", "Transitions 1 of 3", "Lanes 2", "Owners 3"]));
+        await waitFor(() => expect(cardKeys(c)).toEqual(["chutes"]));
+        await openTab(c, "start", "Transitions");
+        await waitFor(() => expect(cardKeys(c)).toEqual(["routed"]));
+        // A group no lane card stands in: the Lanes tab says so, and its Clear clears the lane cards' source alone.
+        await openTab(c, "start", "Lanes");
+        await narrow(DEPOT, "laneCards", where({ group: ["Yard"] }));
+        await waitFor(() => expect(libraryTabs(c)[2]).toBe("Lanes 0 of 2"));
+        const said = libraryPanel(c).querySelector<HTMLElement>("[data-library-empty]")!;
+        // The tab named mid-sentence, as the empty state words it.
+        const name = m.libraryTab({ tab: "lanes" }).toLocaleLowerCase(WORDS.locale);
+        expect(said.textContent).toBe(`${m.libraryNarrowed({ tab: "lanes", name })}${m.libraryNarrowedHint({ tab: "lanes", name })}Clear filters`);
+        await click(within(said).getByRole("button"));
+        await waitFor(() => expect(libraryTabs(c)[2]).toBe("Lanes 2"));
+        expect([whereOf(DEPOT, "laneCards").size, whereOf(DEPOT, "stepCards").size, whereOf(DEPOT, "moveCards").size]).toEqual([0, 1, 1]);
+        // Collapsed: the badge counts what the first tab shows.
+        await click(within(slot(c, "start")).getByRole("button", { name: `Collapse ${m.libraryPane()}` }));
+        expect(slot(c, "start").querySelector("[data-dock-badge]")!.getAttribute("title")).toBe("1");
     });
 
-    test("the record indexes example pages and counts its 2,048 flows through its `flows` source", async () => {
-        const { container } = await mount(ex.flowchartRecordIndexes);
-        await waitFor(() => expect(tabs(container)).toEqual([`${FLOWS_TAB} 2,048`]));
-        await waitFor(() => expect(cardKeys(container)[0]).toBe("FLOW-10000"));
-        expect(h.requests("page", FLOWS_DATASET).length).toBeGreaterThan(0);
-        expect(h.requests("read", FLOWS_DATASET)).toEqual([]);
+    test("the depot example, mounted as it is: its rail's sources on the toolbar — the states', the transitions' and each list of cards' — its tabs counted, and its states and transitions read through their sources, never whole", async () => {
+        const c = await open(ex.flowchartDepot, "ARV");
+        await waitFor(() => expect(libraryTabs(c)).toEqual(["Steps 3", "Transitions 3", "Lanes 2", "Owners 3"]));
+        const sources = new Set([...slot(c, "toolbar").querySelectorAll("[data-record-slice-source]")].map((el) => el.getAttribute("data-record-slice-source") ?? ""));
+        expect([...sources].sort(compareString)).toEqual(["laneCards", "moveCards", "states", "stepCards", "transitions"]);
+        // The parcels' flow, as the rail opens: its states, and DLV, no state's.
+        expect(stateKeys(c)).toEqual([...PARCELS, "DLV"].sort(compareString));
+        expect([h.requests("read", STATES), h.requests("read", TRANSITIONS)]).toEqual([[], []]);
     });
-});
 
-describe("a filter change rebuilds no builder (#1354)", () => {
-    test("a choice on the rail builds the flowchart no more: the Flows tab and a templates list follow it over the payload it mounted with", async () => {
-        const builds = countBuilds("Flowchart", programOf(flowchart));
+    test("a choice on the rail builds the flowchart no more: the canvas and a list of cards follow it over the payload it mounted with (#1354)", async () => {
+        const builds = countBuilds("Flowchart", programOf(ex.flowchartDepot));
         try {
-            const { container } = await mount(flowchart, builds.program);
-            const part = railParts();
-            await waitFor(() => expect(tabs(container)[0]).toBe(`${FLOWS_TAB} 2,048`));
-            await waitFor(() => expect(cardKeys(container)[0]).toBe("FLOW-10000"));
+            const { container: c } = await h.mount(ex.flowchartDepot, { drag: false, storageKey: "flowchart-example", program: builds.program });
+            await waitFor(() => expect(node(c, "ARV")).not.toBeNull());
             const mounted = [builds.runs, builds.decodes];
             expect(Math.min(...mounted)).toBeGreaterThan(0);
-            await act(async () => { part("flows").choose("description", [printDescription(some("Inbound parcels"))]); });
-            await waitFor(() => expect(tabs(container)[0]).toBe(`${FLOWS_TAB} 683 of 2,048`));
-            await waitFor(() => expect(cardKeys(container).slice(0, 3)).toEqual(["FLOW-10000", "FLOW-10003", "FLOW-10006"]));
-            await act(async () => { part("steps").choose("kind", [printText("Intake")]); });
-            await waitFor(() => expect(tabs(container)[1]).toBe("Steps 2 of 5"));
-            expect([builds.runs, builds.decodes], "no choice runs the body again or decodes a payload").toEqual(mounted);
+            await narrow(DEPOT, "states", where({ flow: ["Returns"] }));
+            await waitFor(() => expect(stateKeys(c)).toEqual(["INS", "RCV", "RSD"]));
+            await narrow(DEPOT, "stepCards", where({ group: ["Sort"] }));
+            await waitFor(() => expect(libraryTabs(c)[0]).toBe("Steps 1 of 3"));
+            expect([builds.runs, builds.decodes], "no choice builds the body again or decodes a payload").toEqual(mounted);
         } finally {
             builds.restore();
         }
