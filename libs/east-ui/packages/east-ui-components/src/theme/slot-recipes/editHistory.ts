@@ -105,7 +105,7 @@ export const editHistorySlotRecipe = defineSlotRecipe({
             color: "fg.warning",
         },
         /* A phone's row: what a Save is doing, else the drafts' count, taking what the buttons leave — whole, or, where
-         * they leave too little, not at all: the buttons say as much. */
+         * they leave too little, a Save's words not at all and the count its number alone. */
         summary: {
             order: -1, flex: "1 1 auto", minWidth: "0", ...wholeOrNone("24px"),
             /* The frame's loading line showing at the row's start, the count steps aside for it (R5); a Save's words do not. */
@@ -113,8 +113,9 @@ export const editHistorySlotRecipe = defineSlotRecipe({
         },
         changes: {
             fontFamily: "mono", fontSize: "label.lg", fontWeight: "500", color: "fg.subtle", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums",
+            /* Each word whole or gone, the number first, so a row with little room still counts: `1 change`, then `1`. */
             "&[data-changes]": {
-                height: "24px", display: "inline-flex", alignItems: "center", paddingX: "{spacing.2}", borderRadius: "sm",
+                ...wholeOrNone("24px"), maxWidth: "100%", boxSizing: "border-box", columnGap: "0.6ch", paddingX: "{spacing.2}", borderRadius: "sm",
                 background: "brandTint", color: "brandPressed", fontWeight: "600",
             },
         },

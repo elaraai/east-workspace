@@ -31,7 +31,7 @@
 import { test, expect, type Locator, type Page } from "playwright/test";
 import { leaveBuilder } from "./builder-page";
 import { DATA_CENTRE, centred, discard, libraryCard, openSchematic, openTab, pane, printedRef, restsOn, save, screenPoint, sizeTo, type Point } from "./schematic-page";
-import { settled } from "./settle";
+import { escapeLayer, settled } from "./settle";
 
 /** What nothing on a narrow main may carry: a drag source or a drop target. */
 const DRAG = "[data-draggable], [data-drag-cell]";
@@ -172,7 +172,7 @@ async function phoneAt(page: Page, root: Locator, at: string, rack: { readonly x
     const tools = page.locator("[data-schematic-view] [data-schematic-seg='tools'] [role='radio']");
     await expect(tools.first(), at).toBeVisible();
     expect(await tools.evaluateAll((radios) => radios.map((radio) => radio.getAttribute("aria-label"))), at).toEqual(["Select", "Zoom box", "Marquee"]);
-    await page.keyboard.press("Escape");
+    await escapeLayer(page);
     await expect(view).toHaveAttribute("data-state", "closed");
     // A rack tapped, and the inspector opened: its Position, its Connect to… and its Delete, tap targets inside the pane.
     await tapAt(page, root, rack.x, 2.9);
@@ -192,7 +192,7 @@ async function phoneAt(page: Page, root: Locator, at: string, rack: { readonly x
     const choice = await choose(page, to, "MMR-1 · Network frame");
     expect(await choice.evaluate((el) => { const b = el.closest("[role='listbox']")!.getBoundingClientRect(); return b.left >= -0.5 && b.right <= window.innerWidth + 0.5; }),
         `${at}: the list inside the window`).toBe(true);
-    await page.keyboard.press("Escape");
+    await escapeLayer(page);
     await collapse(page, inspector(root), "Inspector");
     expect(await pageOverflow(page), `${at}: the page`).toBeLessThanOrEqual(0);
 }

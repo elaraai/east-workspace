@@ -9,7 +9,9 @@
  * ‹ › stepping the window a lane. The window is the canvas's own sideways
  * scroll: the pager reads where it rests and moves it — smoothly, at once
  * under reduced motion — so a swipe and a step are one window, and › reaches
- * what stands past the last lane, `+ LANE`, as a swipe does. Its looks are the
+ * what stands past the last lane, `+ LANE`, as a swipe does. A window that comes
+ * to rest between two lanes — a Find's pick centres its state, wherever that
+ * leaves the lanes — settles on the nearer, as a step would. Its looks are the
  * Sheet's pager's, in the `sheet` recipe.
  *
  * @packageDocumentation
@@ -54,9 +56,20 @@ export const FlowchartLanePager = memo(function FlowchartLanePager({ frame, tota
             setFirst(Math.min(last, Math.max(0, Math.round(frame.scrollLeft / slotPx))));
             setAtEnd(frame.scrollLeft + frame.clientWidth >= frame.scrollWidth - 1);
         };
+        // At rest between two lanes it settles on the nearer, never at the canvas's end, which stands past the last lane's start.
+        const settle = () => {
+            const at = Math.round(frame.scrollLeft / slotPx) * slotPx;
+            if (Math.abs(frame.scrollLeft - at) > 1 && frame.scrollLeft + frame.clientWidth < frame.scrollWidth - 1) {
+                frame.scrollTo({ left: at, behavior: reducedMotion() ? "auto" : "smooth" });
+            }
+        };
         read();
         frame.addEventListener("scroll", read, { passive: true });
-        return () => frame.removeEventListener("scroll", read);
+        frame.addEventListener("scrollend", settle, { passive: true });
+        return () => {
+            frame.removeEventListener("scroll", read);
+            frame.removeEventListener("scrollend", settle);
+        };
     }, [frame, slotPx, last]);
     // The canvas's end holds it past the last lane's start; the browser stops the scroll there.
     const go = (to: number) => {

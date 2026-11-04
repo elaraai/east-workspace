@@ -26,6 +26,8 @@
  * App bar: sticky to the viewport top · 1px bottom rule.
  *   Row 1 — breadcrumb left, search right.
  *   Row 2 — surface title left, state eyebrow right.
+ *   On a phone one row, the menu, the search and the theme, so a builder's 760px
+ *   example stands whole in the window under it (hand test, 4 Nov 2026).
  *
  * Main: 32px top/bottom · 24px left/right padding, 1480px max content width.
  */
@@ -365,7 +367,7 @@ function Header({
         <Box as="header" layerStyle="header.bar" position="sticky" top="0" zIndex={10}>
             {/* Row 1 — (mobile) hamburger · breadcrumb · (desktop) search.
               * The breadcrumb never wraps: it truncates on one 28px line. */}
-            <Flex align="center" gap="3" mb="6px" h="28px" minW="0">
+            <Flex align="center" gap="3" mt={{ base: "-8px", md: "0" }} mb={{ base: "-8px", md: "6px" }} h={{ base: "44px", md: "28px" }} minW="0">
                 {/* Mobile nav trigger (#356): ≥44px tap target, hidden on md+. */}
                 <chakra.button
                     type="button"
@@ -386,15 +388,21 @@ function Header({
                 >
                     <FontAwesomeIcon icon={faBars} />
                 </chakra.button>
-                <Box minW="0" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                <Box minW="0" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" hideBelow="md">
                     <Breadcrumb category={category} />
+                </Box>
+                {/* On a phone the search is the row: the page's name its placeholder. */}
+                <Box hideFrom="md" flex="1" minW="0">
+                    <InputGroup w="100%" startElement={<FontAwesomeIcon icon={faMagnifyingGlass} />}>
+                        <Input size="sm" w="100%" aria-label="Search examples" placeholder={`Search ${category}`} value={search} onChange={(e) => onSearch(e.target.value)} />
+                    </InputGroup>
                 </Box>
                 {/* Desktop search keeps its spec position; mobile search moves
                   * to its own full-width row below (the coarse 44px input
                   * floor doesn't fit the 28px breadcrumb line). The theme
                   * toggle (#362) rides the same right-aligned cluster on
                   * every viewport. */}
-                <Flex ml="auto" align="center" gap="2" flexShrink={0}>
+                <Flex ml={{ base: "0", md: "auto" }} align="center" gap="2" flexShrink={0}>
                     <Box hideBelow="md">
                         <InputGroup
                             maxW="280px"
@@ -403,6 +411,7 @@ function Header({
                         >
                             <Input
                                 size="sm"
+                                aria-label="Search examples"
                                 placeholder="Search examples"
                                 value={search}
                                 onChange={(e) => onSearch(e.target.value)}
@@ -414,28 +423,14 @@ function Header({
             </Flex>
 
             {/* Row 2 — surface title left · state eyebrow right · 36 px tall */}
-            <Flex align="baseline" gap="3.5" h="36px" minW="0">
+            {/* On a phone for screen readers alone: the search's placeholder names the page. */}
+            <Flex align="baseline" gap="3.5" h={{ base: "1px", md: "36px" }} minW="0" srOnly={{ base: true, md: false }}>
                 <Heading as="h1" textStyle="surface.title" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">{category}</Heading>
                 <Text textStyle="state.eyebrow" flexShrink={0} hideBelow="sm">
                     {categoryCount} example{categoryCount === 1 ? "" : "s"}
                 </Text>
             </Flex>
 
-            {/* Row 3 (mobile only) — full-width search on its own line. */}
-            <Box hideFrom="md" mt="8px">
-                <InputGroup
-                    w="100%"
-                    startElement={<FontAwesomeIcon icon={faMagnifyingGlass} />}
-                >
-                    <Input
-                        size="sm"
-                        w="100%"
-                        placeholder="Search examples"
-                        value={search}
-                        onChange={(e) => onSearch(e.target.value)}
-                    />
-                </InputGroup>
-            </Box>
         </Box>
     );
 }

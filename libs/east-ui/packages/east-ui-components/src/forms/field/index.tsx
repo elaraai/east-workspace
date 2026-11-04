@@ -9,6 +9,7 @@ import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Field } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
+import { FrameFieldName } from "../../layout/builder-frame/frame-layer.js";
 
 // Pre-define equality function at module level
 const fieldEqual = equivalentFor(Field.Types.Field);
@@ -54,7 +55,9 @@ export const EastChakraField = memo(function EastChakraField({ value, storageKey
                     for the eye: the control is named by the label alone, never the label and the key run together. */}
                 {schemaKey && <Box as="span" data-field-key="" aria-hidden="true">{schemaKey}</Box>}
             </ChakraField.Label>
-            {controlNode ?? <EastChakraComponent value={value.control} storageKey={`${storageKey}.control`} />}
+            <FrameFieldName.Provider value={value.label}>
+                {controlNode ?? <EastChakraComponent value={value.control} storageKey={`${storageKey}.control`} />}
+            </FrameFieldName.Provider>
             {helperText && <ChakraField.HelperText>{helperText}</ChakraField.HelperText>}
             {errorText && <ChakraField.ErrorText>{errorText}</ChakraField.ErrorText>}
         </ChakraField.Root>

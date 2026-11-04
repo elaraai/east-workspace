@@ -86,7 +86,7 @@ export const queryResultsSlotRecipe = defineSlotRecipe({
             lineHeight: "1.45",
             color: "fg.muted",
             "&[data-tone=stale]": {
-                "[data-phone] &": { minHeight: "44px", paddingY: "0", background: "bg.canvas" },
+                "[data-phone] &": { minHeight: "44px", paddingY: "4px", background: "bg.canvas" },
                 background: "bg.panel",
                 borderBottomStyle: "dashed",
                 borderBottomColor: "border.strong",
@@ -119,6 +119,8 @@ export const queryResultsSlotRecipe = defineSlotRecipe({
             overflow: "hidden",
             textOverflow: "ellipsis",
             "[data-tone=note] > &": { whiteSpace: "normal" },
+            /* A phone's stale words wrap: cut, they say less than they mean. */
+            "[data-phone] &": { whiteSpace: "normal" },
         },
         stripIcon: {
             display: "inline-flex",

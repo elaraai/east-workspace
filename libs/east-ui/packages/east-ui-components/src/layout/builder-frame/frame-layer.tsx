@@ -26,6 +26,9 @@ import { useSlotStyles } from "../../theme/slot-styles.js";
 /** The phone's overlay slot for what a menu or a Select's list opens, while the frame is a phone's; `null` otherwise. */
 export const FramePhoneLayer = createContext<HTMLElement | null>(null);
 
+/** The name of the field a control stands in: what a Select's view is headed with on a phone, where the Select names nothing itself. */
+export const FrameFieldName = createContext<string | undefined>(undefined);
+
 /** The view's head: ← and its name. */
 function LayerHead({ label, onClose }: { label: string; onClose: () => void }) {
     const styles = useSlotStyles("frameView");

@@ -33,7 +33,7 @@
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { DATA_CENTRE, card, centred, collapseInspector, openSchematic, openTab, pane, sizeTo } from "./schematic-page";
-import { settled } from "./settle";
+import { escapeLayer, settled } from "./settle";
 import { token } from "./tokens";
 
 /** The open tab's panel. */
@@ -46,7 +46,7 @@ async function tabNames(page: Page, root: Locator): Promise<string[]> {
     if (await more.count() === 0) return onRow;
     await more.click();
     const inMenu = await page.getByRole("menuitem").allTextContents();
-    await page.keyboard.press("Escape");
+    await escapeLayer(page);
     await expect(page.getByRole("menu")).toHaveCount(0);
     return [...onRow, ...inMenu];
 }

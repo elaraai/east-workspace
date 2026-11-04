@@ -50,6 +50,9 @@ export const buttonRecipe = defineRecipe({
         /* Touch hit target (#346) — ≥44px effective area on coarse pointers;
          * visual size (26–40px per the spec) is unchanged. */
         ...coarseHitArea(),
+        /* In a phone's main or pane its neighbours stand close, and would cut a halo: 44 by its box, under a finger
+         * (hand test, 4 Nov 2026). The toolbar's rows keep their controls' height and take the halo. */
+        "[data-phone] :is([data-frame-slot=main], [data-frame-slot=start], [data-frame-slot=end]) &": { _coarse: { minHeight: "44px" } },
         transitionProperty: "background, color, border-color, box-shadow, transform",
         transitionDuration: "{durations.fast}",
         transitionTimingFunction: "{easings.out}",

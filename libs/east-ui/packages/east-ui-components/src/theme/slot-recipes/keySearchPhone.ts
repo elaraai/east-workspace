@@ -15,8 +15,10 @@
  *     in a 36 column, the input mono 13 in ink, Cancel 12.5/500 in
  *     `--brand-d` padded 0 12;
  *   - eyebrow: padded 8 16 4, mono 10/600 caps at 0.14em in `--ink-4`;
- *   - row: one 44 a match, padded 0 16, 8 apart, a `--rule` above — its key
- *     mono 13/500 in ink, its note mono 10.5 in `--ink-4`; `--paper-2` under
+ *   - row: one a match, 44 at least, padded 0 16, 8 apart, a `--rule` above —
+ *     its key mono 13/500 in ink, its note mono 10.5 in `--ink-4` beside it, or
+ *     under it where it does not fit, wrapped and never cut: the hidden pick's
+ *     line is what a pick will clear (hand test, 4 Nov 2026); `--paper-2` under
  *     the pointer;
  *   - hint: padded 8 16 12, mono 10.5 in `--ink-4`.
  *
@@ -67,15 +69,15 @@ export const keySearchPhoneSlotRecipe = defineSlotRecipe({
             fontFamily: "mono", fontSize: "label.sm", fontWeight: 600, letterSpacing: "0.14em", textTransform: "uppercase", color: "fg.subtle",
         },
         row: {
-            width: "100%", height: "44px", display: "flex", alignItems: "center", gap: "8px", paddingX: "16px", boxSizing: "border-box",
+            width: "100%", minHeight: "44px", display: "flex", flexWrap: "wrap", alignItems: "center", alignContent: "center", columnGap: "8px", rowGap: "2px", paddingX: "16px", paddingY: "6px", boxSizing: "border-box",
             border: "none", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle",
             background: "transparent", textAlign: "start", cursor: "pointer",
             _hover: { background: "bg.canvas" },
             _focusVisible: { outline: "none", boxShadow: "focusInset" },
         },
-        key: { flex: "none", maxWidth: "50%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "mono", fontSize: "body", fontWeight: 500, color: "fg" },
+        key: { flex: "none", maxWidth: "100%", overflowWrap: "anywhere", fontFamily: "mono", fontSize: "body", fontWeight: 500, color: "fg" },
         note: {
-            flex: "1", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "end",
+            flex: "1 1 auto", minWidth: "0", maxWidth: "100%", overflowWrap: "anywhere", textAlign: "start",
             fontFamily: "mono", fontSize: "label.md", color: "fg.subtle",
         },
         hint: { paddingTop: "8px", paddingX: "16px", paddingBottom: "12px", fontFamily: "mono", fontSize: "label.md", color: "fg.subtle" },

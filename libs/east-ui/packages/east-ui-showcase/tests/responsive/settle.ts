@@ -106,6 +106,19 @@ function panesStill(page: Page): Promise<boolean> {
 }
 
 /**
+ * Presses Escape over a layer just opened — a menu, a popover or a list that shows as soon as a click has opened it,
+ * and starts to hear the key a frame later (Zag defers its dismissal to the next animation frame, and the focus with
+ * it). A person cannot press a key inside that frame; a spec can: pressed there it lands on nothing, closes nothing,
+ * and the layer stays. So the frame goes by first.
+ *
+ * @param page - The page
+ */
+export async function escapeLayer(page: Page): Promise<void> {
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await page.keyboard.press("Escape");
+}
+
+/**
  * Resolves once the page has stopped laying itself out: the webfonts are
  * loaded, no example is still compiling its East behind its skeleton, no e3
  * example is waiting for the e3 the page runs to start (#849), no builder is

@@ -722,6 +722,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             ...conflictRing,
         },
         agendaBinHead: {
+            "[data-phone] &": { _coarse: { minHeight: "44px", alignContent: "center" } },
             display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: "8px", minWidth: 0, textAlign: "left", textStyle: "mono.sm", color: "fg.strong",
             "[data-draft] > &": { color: "brandPressed" }, "[data-selected] > &": { color: "fg", fontWeight: "semibold" }, ...planElementFocus,
         },

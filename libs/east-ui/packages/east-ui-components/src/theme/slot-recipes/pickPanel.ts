@@ -109,6 +109,7 @@ export const pickPanelSlotRecipe = defineSlotRecipe({
             boxSizing: "border-box",
             _last: { borderBottomWidth: "0" },
             _hover: { background: "bg.subtle" },
+            "[data-phone] &": { _coarse: { minHeight: "44px" } },
             // The switched-off row: one rule, every child follows.
             "&[data-on='false']": { opacity: 0.5 },
         },

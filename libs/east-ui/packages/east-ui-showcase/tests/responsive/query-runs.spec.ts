@@ -30,7 +30,7 @@ import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { East, IntegerType, StructType, evaluateJq, isVariant, printJq, printFor, type EastType } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/query/query";
-import { settled } from "./settle";
+import { escapeLayer, settled } from "./settle";
 
 const FIXTURE = "e3/query/query/queryBuilder";
 const HISTORY = "e3/query/query/queryBuilderHistory";
@@ -113,7 +113,7 @@ async function explanationOf(page: Page, builder: Locator): Promise<string[]> {
     const lines = page.locator("[data-query-plan-line]");
     await expect(lines.first()).toBeVisible();
     const text = await lines.evaluateAll((items) => items.map((li) => li.querySelector("span")?.textContent ?? ""));
-    await page.keyboard.press("Escape");
+    await escapeLayer(page);
     return text;
 }
 

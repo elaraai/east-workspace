@@ -614,7 +614,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
         if (drawn(side)) {
             const dock = dockOf(side);
             const key = dock?.phoneTabs === undefined ? side : `${side}:${dock.tab ?? dock.phoneTabs[0]?.key}`;
-            rootRef.current?.querySelector<HTMLElement>(`[data-pane-tab="${key}"]`)?.focus();
+            rootRef.current?.querySelector<HTMLElement>(`[data-pane-tab="${key}"]`)?.focus({ preventScroll: true });
         }
         else slotRefs[side].current?.querySelector<HTMLElement>(":scope > * > [data-collapsed] > :first-child > button")?.focus();
     });
@@ -625,7 +625,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
         if (side === undefined) return;
         drawerFocus.current = undefined;
         const drawer = slotRefs[side].current;
-        (drawer?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? drawer?.querySelector<HTMLElement>("button, [href], input, [tabindex]"))?.focus();
+        (drawer?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? drawer?.querySelector<HTMLElement>("button, [href], input, [tabindex]"))?.focus({ preventScroll: true });
     });
     /** A strip tab: its drawer opens, or, open, closes; one of the pane's own tabs opens it there. */
     const onPaneTab = (side: Side, tab?: string) => {

@@ -138,6 +138,8 @@ export const librarySlotRecipe = defineSlotRecipe({
             flexShrink: "0",
             /* A query builder's phone tabs (QP35): a 56 band, its search 44. */
             "[data-library-phone] &": { height: "56px", paddingX: "16px", "& input": { height: "42px" } },
+            /* Any Library in a phone's view, under a finger: the same band, its search and its menus touch-sized (hand test, 4 Nov 2026). */
+            "[data-frame-drawer] &": { _coarse: { height: "56px" } },
             /* Studio's fill the row, Group and Filter at its end (ST22). */
             "[data-library-phone=studio] &": { "& [data-toolbar-item]:has(input)": { flex: "1 0 auto" } },
         },
@@ -162,6 +164,7 @@ export const librarySlotRecipe = defineSlotRecipe({
             "&[data-size=narrow]": { width: "160px" },
             /* In a phone's pane with no toolbar to fold it, as the Schematic's Index: the row's width. */
             "[data-frame-drawer] :not([data-toolbar-item]) > &": { width: "100%" },
+            "[data-frame-drawer] &": { _coarse: { height: "44px", boxSizing: "border-box" } },
             /* A query builder's phone tabs (QP35): a 44 search. */
             "[data-library-phone] &": { height: "44px", paddingLeft: "12px", boxSizing: "border-box" },
             /* Across the row, each form still its width at least: what folds Group and Filter to their 44 icons. */
@@ -213,6 +216,7 @@ export const librarySlotRecipe = defineSlotRecipe({
             display: "inline-flex",
             alignItems: "center",
             "[data-library-phone] &": { minWidth: "44px", height: "44px", justifyContent: "center" },
+            "[data-frame-drawer] &": { _coarse: { minWidth: "44px", height: "44px", justifyContent: "center" } },
             gap: "6px",
             padding: "0",
             background: "transparent",
@@ -234,6 +238,7 @@ export const librarySlotRecipe = defineSlotRecipe({
             color: "brand.solid",
             cursor: "pointer",
             whiteSpace: "nowrap",
+            "[data-frame-drawer] &": { _coarse: { minWidth: "44px", height: "44px", justifyContent: "center" } },
             "& svg": { fontSize: "9px" },
             _hover: { color: "brand.fg" },
         },

@@ -50,9 +50,9 @@
  * On a phone (`phone`, `Mobile Filters Spec.md` SL10) it is a view over the
  * whole builder, as the Filters view is: its field row — the magnifier, the
  * input and Cancel — then an eyebrow saying what to type or what was found,
- * one 44px row a match (its key, and its note: the hidden pick's line where
- * the filters hide it), and the hint that a pick jumps to the row. A pick closes
- * the view.
+ * one row a match, 44px at least (its key, and its note, wrapped to be read
+ * whole: the hidden pick's line says what a pick clears), and the hint that a
+ * pick jumps to the row. A pick closes the view.
  *
  * The host owns the data: `onFind` locates a query (server fences or a
  * client-side scan), `onListRange` labels a row window for the popup,

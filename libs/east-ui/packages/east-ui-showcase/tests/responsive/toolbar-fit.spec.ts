@@ -43,7 +43,7 @@ import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { sizeBuilder, visitBuilder } from "./builder-page";
 import { holdE3, installE3Faults, releaseE3 } from "./e3-faults";
-import { settled } from "./settle";
+import { escapeLayer, settled } from "./settle";
 import { LAYOUT_THEMES } from "./themes";
 
 /** An area's builder examples, by their showcase routes: the builder's own, and its optimiser's where it has one. */
@@ -193,7 +193,7 @@ async function checkPhoneEye(page: Page, entry: Locator, named: string, at: stri
     if (await viewChip.count() > 0) {
         await viewChip.click();
         await expect(page.getByRole("dialog").locator("[data-optimise-entry]"), `${at}: the View lists no eye`).toHaveCount(0);
-        await page.keyboard.press("Escape");
+        await escapeLayer(page);
         await expect(page.getByRole("dialog"), `${at}: the View closed`).toHaveCount(0);
     }
     const eye = second.locator("[data-optimise-button]");

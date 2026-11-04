@@ -77,6 +77,8 @@ export interface EastChakraLibraryProps {
     facetFilter?: { values: Record<string, string[]>; onChange: (next: Record<string, string[]>) => void } | undefined;
     /** The search box's words, a host's (`Find an event or site`), in place of `Search 27 items…`; its accessible name too. */
     search?: string | undefined;
+    /** How many the search box's words count, where some of its items are not what it counts: the Roster's agency requests beside its people. Its items by default. */
+    searchCount?: number | undefined;
     /** What the Library says while a search or a filter hides every card, in a host's words (`No events match`), in place of `No matches`. */
     noMatch?: LibraryEmpty | undefined;
     /** What it draws in place of those words, a host's own: a phone's checklist (`Query Builder Phone Spec.md` QP37), told the search and how to clear it. */
@@ -918,7 +920,7 @@ interface LibraryCoreProps extends EastChakraLibraryProps {
     rail?: { slice: SliceBindValue; kinds: readonly string[] } | undefined;
 }
 
-function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter, facetFilter, search, noMatch, noMatchView, extras, groupMark, narrowing, pending = false }: LibraryCoreProps) {
+function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter, facetFilter, search, searchCount, noMatch, noMatchView, extras, groupMark, narrowing, pending = false }: LibraryCoreProps) {
     const styles = useSlotRecipe({ key: "library" })() as SlotStyles;
     // Counts, in the app's locale (#850).
     const words = useFormatters();
@@ -1141,7 +1143,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
     const searchBox = (size: LibrarySearchSize) => (
         <LibrarySearchBox size={size} inputRef={searchRef} query={query} onQuery={setQuery}
             placeholder={search ?? (pending ? `Search ${noun?.plural ?? "items"}…`
-                : `Search ${words.number(value.items.length)} ${value.items.length === 1 ? (noun?.singular ?? "item") : (noun?.plural ?? "items")}…`)}
+                : `Search ${words.number(searchCount ?? value.items.length)} ${(searchCount ?? value.items.length) === 1 ? (noun?.singular ?? "item") : (noun?.plural ?? "items")}…`)}
             label={search ?? "Search library"} />
     );
     const checkedFilters = filterOptions.reduce((n, o) => n + (activeFilters[o.key]?.length ?? 0), 0);

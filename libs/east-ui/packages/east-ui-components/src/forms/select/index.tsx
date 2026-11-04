@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useCallback, useState } from "react";
+import { memo, useContext, useMemo, useCallback, useState } from "react";
 import { Select as ChakraSelect, createListCollection, type SelectRootProps } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faChevronDown } from "@fortawesome/free-solid-svg-icons";
@@ -11,7 +11,7 @@ import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Select } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useValueSync } from "../../hooks/useValueSync";
-import { FrameSelectLayer } from "../../layout/builder-frame/frame-layer.js";
+import { FrameFieldName, FrameSelectLayer } from "../../layout/builder-frame/frame-layer.js";
 
 // Pre-define equality function at module level
 const selectRootEqual = equivalentFor(Select.Types.Root);
@@ -70,6 +70,7 @@ export interface EastChakraSelectProps {
  */
 export const EastChakraSelect = memo(function EastChakraSelect({ value, ariaLabel, portalled }: EastChakraSelectProps) {
     const [props, setProps] = useState(toChakraSelect(value));
+    const fieldName = useContext(FrameFieldName);
     const placeholder = useMemo(() => getSomeorUndefined(value.placeholder), [value.placeholder]);
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
     const onChangeMultipleFn = useMemo(() => getSomeorUndefined(value.onChangeMultiple), [value.onChangeMultiple]);
@@ -118,7 +119,7 @@ export const EastChakraSelect = memo(function EastChakraSelect({ value, ariaLabe
                     <ChakraSelect.Indicator><FontAwesomeIcon icon={faChevronDown} /></ChakraSelect.Indicator>
                 </ChakraSelect.IndicatorGroup>
             </ChakraSelect.Control>
-            <FrameSelectLayer label={ariaLabel ?? placeholder ?? "Select"} inPlace={portalled === false}>
+            <FrameSelectLayer label={ariaLabel ?? fieldName ?? placeholder ?? "Select"} inPlace={portalled === false}>
                 {collection.items.map((item) => (
                     <ChakraSelect.Item key={item.value} item={item}>
                         {item.label}

@@ -59,7 +59,8 @@
  * Events selected from outside the canvas — the overlaps chip's pair, a peer
  * the inspector's banner names (#1198) — ask for their row: the list opens
  * the row's group on the Rows tab, pages to it, and scrolls its card into
- * view, as the desktop canvas scrolls to the row.
+ * view, as the desktop canvas scrolls to the row. A row a search found is
+ * selected too and stands in the list's middle.
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from "react";
@@ -334,6 +335,8 @@ export function PlanNarrow({
     const request = requested === undefined ? undefined
         : `${scroll.owner}:${scroll.owner === "search" ? scroll.searchSeq : scroll.nav?.seq}`;
     const served = useRef(request);
+    const scrollOwner = useRef(scroll.owner);
+    scrollOwner.current = scroll.owner;
     const [revealing, setRevealing] = useState<RowKey | undefined>(undefined);
     // Reveal before the parent releases the paging jump after commit. Otherwise
     // the old cards report their viewport and pull residency back to that window.
@@ -360,7 +363,9 @@ export function PlanNarrow({
         setScope(scoped);
         setReveal((r) => ({ ...r, rows: Math.max(r.rows, (Math.floor(at / PAGE_ROWS) + 1) * PAGE_ROWS) }));
         setRevealing(row.key);
-    }, [request, requested, index, ungrouped, hasGroups]);
+        // A search's row is what the viewer asked for: selected, so it is told from the cards around it, as the Sheet selects a row it finds.
+        if (scroll.owner === "search" && row.kind.type !== "group") dispatch({ t: "row.select", key: row.key });
+    }, [request, requested, index, ungrouped, hasGroups, scroll.owner, dispatch]);
 
     // ── Two-finger pan (§10) — one whole period per period width crossed ──
     const listRef = useRef<HTMLDivElement | null>(null);
@@ -368,7 +373,8 @@ export function PlanNarrow({
         if (revealing === undefined) return;
         const card = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-plan-card], [data-plan-scope]") ?? [])]
             .find((el) => (el.getAttribute("data-plan-card") ?? el.getAttribute("data-plan-scope")) === revealing);
-        card?.scrollIntoView({ block: "nearest" });
+        // A search's row in the list's middle, never left at an edge among cards like it; an event's row only as far as it takes.
+        card?.scrollIntoView({ block: scrollOwner.current === "search" ? "center" : "nearest" });
         setRevealing(undefined);
     }, [revealing]);
     const gesture = useRef(newTwoFingerPan());

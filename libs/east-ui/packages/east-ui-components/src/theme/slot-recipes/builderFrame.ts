@@ -242,6 +242,8 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             order: -2, flex: "1 1 auto", alignSelf: "stretch", minWidth: "0", display: "flex", alignItems: "center", overflow: "hidden", containerType: "inline-size", containerName: "session-status",
             /* At the row's start (R5), never where the footer's rail would push it. */
             "& [data-footer-line]": { marginInlineStart: "0" },
+            /* Its words whole or gone, the dot holding the row, never `Loadi`; a failure's keep their own fit, Retry's halo unclipped (ST39). */
+            "& [data-footer-line]:not([data-failed])": { flexWrap: "wrap", alignContent: "flex-start", maxWidth: "100%", maxHeight: "1.5em", overflow: "hidden" },
             "&:not(:has([data-footer-line]:not([data-idle])))": { display: "none" },
             /* Retry's 44 target stays clear of the button beside it: its halo is its own (R5). */
             "&:has([data-line-retry])": { paddingInlineEnd: "{spacing.2}" },

@@ -155,6 +155,12 @@ function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onC
     </Tooltip.Root>;
 }
 
+/** The drafts' count in words, its number holding the row while its noun goes where the row leaves it no room: `1 change`, then `1`. */
+function CountWords({ text }: { text: string }) {
+    const at = text.indexOf(" ");
+    return at < 0 ? <span>{text}</span> : <><span>{text.slice(0, at)}</span>{" "}<span data-changes-noun="">{text.slice(at + 1)}</span></>;
+}
+
 /**
  * A phone's Discard asking first (FR8): the design's words and its two buttons,
  * the focus on Cancel as it opens; Esc is Cancel, wherever the focus is.
@@ -240,7 +246,7 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onCo
                 {/* The row's start: what a Save is doing, else the drafts' count — a chip while there are any. */}
                 <Box css={styles.summary} role="status" aria-live="polite" data-history-summary={message !== undefined ? "message" : "count"}>
                     {message !== undefined ? <Text as="span" css={styles.status}>{message}</Text>
-                        : <Box as="span" css={styles.changes} data-changes={pending > 0 ? "" : undefined}>{m.historyChanges({ n: pending, count: words.number(pending) })}</Box>}
+                        : <Box as="span" css={styles.changes} data-changes={pending > 0 ? "" : undefined}>{pending > 0 ? <CountWords text={m.historyChanges({ n: pending, count: words.number(pending) })} /> : m.historyChanges({ n: pending, count: words.number(pending) })}</Box>}
                 </Box>
                 {onOpenIssues === undefined
                     ? <ConflictsControl session={session} words={words} onIssue={onConflict ?? onIssue} where={where} item={conflictItem} value={conflictValue} issueText={issueText} locked={locked} />

@@ -276,6 +276,7 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
                 <SliceFieldChip label={`Find · ${findWhat}`} aria-label={`Clear find · ${findWhat}`} active removeLabel="Clear find" onRemove={args.onClearFind} onClick={args.onClearFind} />
             </Box>}
             <EastChakraLibrary value={library} storageKey={rosterLibraryId(storageKey, name)} empty={follows.empty} narrowing={narrowing}
+                searchCount={tab.type === "people" ? cards.length - value.agencies.length : undefined}
                 extras={tab.type === "people" ? reasons : tab.type === "patterns" ? patternExtras : undefined} />
             <Box css={[styles.paneFoot, styles.paneHint]}>{hint}</Box>
             {/* The foot's actions stay in place, inert, while a run of the optimiser holds the week (#1409, R2). */}

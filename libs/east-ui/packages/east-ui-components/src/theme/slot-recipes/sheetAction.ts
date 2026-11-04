@@ -378,9 +378,9 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             letterSpacing: "0.14em",
             textTransform: "uppercase",
             color: "fg",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
+            /* Two lines before an ellipsis: the step's name is what the bar is for. */
+            lineClamp: 2,
+            overflowWrap: "anywhere",
         },
         barState: { flex: "none" },
         barFirst: { display: "flex" },
