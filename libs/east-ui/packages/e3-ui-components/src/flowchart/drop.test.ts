@@ -6,166 +6,295 @@
  *
  * No DOM is under test: the flowchart's modules load east-ui-components'
  * entry, which needs one as it loads.
+ */
+
+/**
+ * The Flowchart's drops (#1501, `Flowchart Records Spec.md` R14, D5, D8),
+ * pure, over rows as the read holds them: where a drag rests over the drawing
+ * for each kind of card — a lane and the row a state takes, a transition's
+ * line, a state, a lane's header, the gap between two lanes, a decision's
+ * diamond, or the canvas — and never a ghost, *No lane* or a row drawn as
+ * context; what a drop there does, as a plan and as the edits it writes; why
+ * one is refused, in its words or — what it lands on gone — in none; ⏎ on a
+ * card; its words and its marks; and what the canvas takes dropped from the
+ * tabs the payload lists.
  *
- * What a library card's drop does where it rests (#1249, `Flowchart Builder
- * Spec.md` §9.8, §10, FB30–FB34), decided over real East values and the
- * layout the canvas draws before anything is drawn or written: where a drag
- * rests — the lane and the row a state takes, after the states above the
- * pointer; a state; a transition near its line; a lane's header; a diamond;
- * else the canvas — what each drop does, every refusal in its words, where ⏎
- * on a card drops it, the caption, the announcement's name, the history's
- * label, the marks, and the landing line's geometry. The DOM test
- * (`flowchart-drop.dom.test`) carries them through the drag layer.
+ * @packageDocumentation
  */
 
 import { describe, expect, test } from "vitest";
-import { StringType, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { formatters } from "@elaraai/east-ui-components";
-import { Flowchart } from "@elaraai/e3-ui/internal";
+import { StringType, equalFor, none, printFor, some, variant } from "@elaraai/east";
+import { FlowchartLibraryTabType } from "@elaraai/e3-ui/internal";
 import {
-    DIAMOND_PAD, LINK_PAD, ON_CANVAS, cardOf, dropAtPoint, dropCaption, dropFlow, dropHostOf, dropLabel, dropName, dropRefusal,
-    enterAt, markEqual, markOf, planDrop, printDropAt, readDropAt,
+    DIAMOND_PAD, LINK_PAD, ON_CANVAS, cardOf, cardSort, dropAtPoint, dropCaption, dropEdits, dropHostOf, dropLabel, dropName, dropRefusal,
+    droppedSelection, enterAt, gapLine, landsOf, markEqual, markOf, planDrop, printDropAt, readDropAt,
     type FlowchartDropAt, type FlowchartDropCard, type FlowchartDropContext, type FlowchartDropPlan,
 } from "./drop.js";
-import * as edits from "./edits.js";
-import { computeLayout, landingSeam, rowCell, type FlowchartLayout } from "./layout.js";
-import { flowchartMessages as m, type FlowchartMessages } from "./messages.js";
-import { buildModel, type FlowchartModel } from "./model.js";
+import { computeLayout, landingSeam, rowCell, type FlowchartLayout, type LaneBand, type LinkRoute, type NodeRect } from "./layout.js";
+import type { FlowchartMessages } from "./messages.js";
+import { ALL_LANE_KEY, NO_LANE_KEY, type FlowchartModel, type FlowchartRow, type FlowchartRows } from "./model.js";
+import type { FlowchartSort } from "./read.js";
+import { bytes, decisionRow, holdingOf, laneRow, lines, modelOf, optionBytes, rowsOf, stateRow, transitionRow, w, words } from "./rows.test-utils.js";
 
-type Flow = ValueTypeOf<typeof Flowchart.Types.Flow>;
-
-const flowEqual = equalFor(Flowchart.Types.Flow);
-const stateEqual = equalFor(Flowchart.Types.State);
+const m = words.m;
 const keyEqual = equalFor(StringType);
 
-// ── The flow ──────────────────────────────────────────────────────────────
+/** Where a drag rests, printed through East: what a test compares. */
+const text = printDropAt;
 
-/** The inbound flow: three lanes holding states and an empty fourth; a decision on SCN → CH*, a keyless CH* → LDD, and SCN's in-place transition. */
-const INBOUND: Flow = Flowchart.value({
-    lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "load", label: "Load" }, { key: "hold" }],
+/** An author's card's writes, printed through East — their type the author's tab's on the wire. */
+const writes = printFor(FlowchartLibraryTabType.cases.tab.fields.cards.value.fields.sets);
+
+/** A card's values, as a drop hands them over. */
+const CARD = new Uint8Array([1, 2, 3]);
+
+/** An author's card: the fields its patch sets on a row of a kind. */
+type SetCard = Extract<FlowchartDropCard, { readonly does: "set" }>;
+
+const HELD: FlowchartDropCard = { does: "addState", label: "Held", values: CARD };
+const OBSERVED: FlowchartDropCard = { does: "retype", label: "Observed", values: CARD };
+const DOCK: FlowchartDropCard = { does: "addLane", label: "Dock", values: CARD };
+const NOTE: SetCard = { does: "set", sort: "states", label: "Checked", sets: [{ path: ["notes"], value: CARD }] };
+const TAGGED: SetCard = { does: "set", sort: "transitions", label: "Tagged", sets: [{ path: ["evidence"], value: CARD }] };
+const SORTATION: SetCard = { does: "set", sort: "lanes", label: "Sortation", sets: [{ path: ["label"], value: CARD }] };
+const CUSTOMS: SetCard = { does: "set", sort: "decisions", label: "Customs desk", sets: [{ path: ["owner"], value: CARD }] };
+
+/**
+ * The depot: Intake holding ARV then SCN, Sort holding CH*, Load holding LDD,
+ * and an empty Hold; ARV → SCN, SCN → CH* under the decision route, CH* →
+ * LDD observed, and SCN in place.
+ */
+const DEPOT = rowsOf({
+    lanes: [laneRow("intake", "Intake", 1), laneRow("sort", "Sort", 2), laneRow("load", "Load", 3), laneRow("hold", "Hold", 4)],
     states: [
-        { key: "ARV", label: "Arrived", lane: "intake" },
-        { key: "SCN", label: "Scanned", lane: "intake" },
-        { key: "CH*", label: "Sort chutes", lane: "sort", members: 12n },
-        { key: "LDD", label: "Loaded", lane: "load" },
+        stateRow("ARV", "Arrived", { lane: "intake", order: 1 }),
+        stateRow("SCN", "Scanned", { lane: "intake", order: 2 }),
+        stateRow("CH*", "Sort chutes", { lane: "sort", order: 1 }),
+        stateRow("LDD", "Loaded", { lane: "load", order: 1 }),
     ],
-    links: [
-        { from: "ARV", to: "SCN" },
-        { key: "SCN→CH*", from: "SCN", to: "CH*", trigger: "route" },
-        { from: "CH*", to: "LDD" },
-        { from: "SCN", to: "SCN", kind: "observed" },
+    transitions: [
+        transitionRow("t1", "ARV", "SCN"),
+        transitionRow("t2", "SCN", "CH*", { decision: "route" }),
+        transitionRow("t3", "CH*", "LDD", { kind: "observed" }),
+        transitionRow("t4", "SCN", "SCN"),
     ],
-    triggers: [{ key: "route", label: "route", owner: "sort-planner", queue: ["SCN"] }],
+    decisions: [decisionRow("route", "route")],
 });
 
-/** The flow as the canvas draws it over a canvas 0px wide, as jsdom measures one: lanes 166px wide, rows 96px apart from 56px down. */
-function drawn(flow: Flow, orientation: "LR" | "TD" = "LR"): { model: FlowchartModel; layout: FlowchartLayout } {
-    const model = buildModel(flow, formatters("en-US"));
+/** A state no lane is named for: drawn in *No lane*. */
+const LOOSE = stateRow("LOOSE", "Loose");
+
+/**
+ * Rows with some drawn as context, as the narrowing draws them.
+ *
+ * @param rows - The rows
+ * @param keys - The keys drawn as context
+ * @returns The rows, those keys dimmed
+ */
+function dimmed<R>(rows: readonly FlowchartRow<R>[], keys: readonly string[]): FlowchartRow<R>[] {
+    const context = new Set(keys);
+    return rows.map((row) => (context.has(row.key) ? { ...row, dimmed: true } : row));
+}
+
+/** The depot as the narrowing draws it: CH*, and CH* → LDD, as context; LOOSE in No lane; LDD → GONE ending at a ghost. */
+const NARROWED = rowsOf({
+    ...DEPOT,
+    states: [...dimmed(DEPOT.states, ["CH*"]), LOOSE],
+    transitions: [...dimmed(DEPOT.transitions, ["t3"]), transitionRow("t5", "LDD", "GONE")],
+});
+
+/**
+ * What the canvas draws of rows, laid out as wide as its lanes need.
+ *
+ * @param rows - The rows
+ * @param orientation - Left to right, or top down
+ * @returns The model and its layout
+ */
+function drawn(rows: FlowchartRows, orientation: "LR" | "TD" = "LR"): { readonly model: FlowchartModel; readonly layout: FlowchartLayout } {
+    const model = modelOf(rows);
     return { model, layout: computeLayout(model, { width: 0, orientation }) };
 }
 
-const { model, layout } = drawn(INBOUND);
-/** A lane's band, by its key. */
-const band = (drawing: FlowchartLayout, key: string) => drawing.lanes.find((l) => keyEqual(l.key, key))!;
-/** A transition's route, by the key it goes by. */
-const route = (drawing: FlowchartLayout, key: string) => drawing.routes.find((r) => keyEqual(r.key, key))!;
-/** A lane's middle, across it. */
-const MID = { intake: 83, sort: 249, load: 415, hold: 581 } as const;
+const { model, layout } = drawn(DEPOT);
 
-// ── The cards ─────────────────────────────────────────────────────────────
+const KIND_NAMES: { readonly [S in FlowchartSort]: string } = { states: "state", transitions: "transition", lanes: "lane", decisions: "decision" };
 
-type StatePatch = edits.FlowchartStatePatch;
-const statePatch = (fields: Partial<StatePatch>): StatePatch => ({ key: none, label: none, lane: none, members: none, notes: none, ...fields });
-const linkPatch = (fields: Partial<edits.FlowchartLinkPatch>): edits.FlowchartLinkPatch => ({ key: none, from: none, to: none, kind: none, trigger: none, evidence: none, ...fields });
-const lanePatch = (fields: Partial<edits.FlowchartLanePatch>): edits.FlowchartLanePatch => ({ key: none, label: none, ...fields });
-const decisionPatch = (fields: Partial<edits.FlowchartDecisionPatch>): edits.FlowchartDecisionPatch => ({ key: none, label: none, letter: none, owner: none, queue: none, outcomes: none, ...fields });
+/**
+ * What a drop reads: every kind edited and taking an edit now — unless given.
+ *
+ * @param over - What the Flowchart draws
+ * @param more - What differs
+ * @returns The drop's context
+ */
+function ctx(over: FlowchartModel = model, more: Partial<FlowchartDropContext> = {}): FlowchartDropContext {
+    return { model: over, editable: () => true, available: () => true, kindName: (sort) => KIND_NAMES[sort], ...more };
+}
 
-/** The hold step: its key, its label and an empty class, over a state's defaults — and a lane, which the lane it lands in overrides. */
-const HELD: FlowchartDropCard = { lands: "lane", label: "Held", sets: statePatch({ key: some("HLD"), label: some(some("Held")), lane: some("load"), members: some(none) }) };
-const OBSERVED: FlowchartDropCard = { lands: "transition", label: "Observed", sets: linkPatch({ kind: some(some(variant("observed", null))) }) };
-const NOTE: FlowchartDropCard = { lands: "state", label: "Checked", sets: statePatch({ notes: some(some("Checked at the bay")) }) };
-const SORTATION: FlowchartDropCard = { lands: "header", label: "Sortation", sets: lanePatch({ label: some(some("Sortation")) }) };
-const CUSTOMS: FlowchartDropCard = { lands: "decision", label: "Customs desk", sets: decisionPatch({ owner: some(some("customs-desk")) }) };
-
-/** A flowchart that edits, its session taking a gesture. */
-const EDITS: FlowchartDropContext = { flow: INBOUND, edits: true, available: true };
-
+/** A band and the row a new state takes in it. */
 const lane = (key: string, row: number): FlowchartDropAt => variant("lane", { lane: key, row: BigInt(row) });
-const at = (kind: "state" | "transition" | "header" | "decision", key: string): FlowchartDropAt => variant(kind, key);
-const atText = (a: FlowchartDropAt): string => printDropAt(a);
 
-/** The flow a plan leaves. */
-const after = (plan: FlowchartDropPlan, flow: Flow = INBOUND): Flow => dropFlow(flow, plan);
+/** The gap a new lane lands in. */
+const gap = (at: number): FlowchartDropAt => variant("gap", BigInt(at));
+
+/**
+ * A row a card lands on, by its key.
+ *
+ * @param kind - What it is
+ * @param key - Its key
+ * @returns Where the drag rests
+ */
+function at(kind: "state" | "transition" | "header" | "decision", key: string): FlowchartDropAt {
+    switch (kind) {
+        case "state": return variant("state", key);
+        case "transition": return variant("transition", key);
+        case "header": return variant("header", key);
+        case "decision": return variant("decision", key);
+    }
+}
+
+/**
+ * A layout's band, by its lane's key.
+ *
+ * @param drawing - The layout
+ * @param key - The lane's key
+ * @returns The band
+ */
+function bandOf(drawing: FlowchartLayout, key: string): LaneBand {
+    const band = drawing.lanes.find((l) => keyEqual(l.key, key));
+    if (band === undefined) throw new Error(`No band ${key}`);
+    return band;
+}
+
+/**
+ * A layout's line for a transition, by its key.
+ *
+ * @param drawing - The layout
+ * @param key - The transition's key
+ * @returns Its route
+ */
+function routeOf(drawing: FlowchartLayout, key: string): LinkRoute {
+    const route = drawing.routes.find((r) => keyEqual(r.key, key));
+    if (route === undefined) throw new Error(`No line for ${key}`);
+    return route;
+}
+
+/** The depot's card for a state. */
+const node = (key: string): NodeRect => layout.nodes.get(key)!;
+
+/** The middle of a lane of the depot's, across. */
+const mid = (key: string): number => { const band = bandOf(layout, key); return band.x + band.w / 2; };
+
+/**
+ * A plan as a test reads it: what it does, where, and in what words — a
+ * card's values and writes printed through East.
+ *
+ * @param plan - The plan
+ * @returns What the test compares
+ */
+function planned(plan: FlowchartDropPlan) {
+    switch (plan.kind) {
+        case "addState": return { kind: plan.kind, band: plan.band, row: plan.row, values: bytes(plan.values), place: plan.place };
+        case "retype": return { kind: plan.kind, key: plan.key, values: bytes(plan.values), what: plan.what };
+        case "addLane": return { kind: plan.kind, at: plan.at, values: bytes(plan.values), place: plan.place };
+        case "set": return { kind: plan.kind, sort: plan.sort, key: plan.key, sets: writes(plan.sets), what: plan.what };
+        case "refused": return { kind: plan.kind, why: plan.why };
+    }
+}
 
 // ============================================================================
 // Where a drag rests
 // ============================================================================
 
-describe("where a drag rests (FB31–FB33)", () => {
-    test("a state card rests on the lane under the pointer, at the row after the states whose middles lie above it — before the first, between two, after the last — its header the lane's start", () => {
-        // ARV's middle is 76px down, SCN's 172px.
-        expect(atText(dropAtPoint("lane", layout, model, { x: MID.intake, y: 60 }))).toBe(atText(lane("intake", 0)));
-        expect(atText(dropAtPoint("lane", layout, model, { x: MID.intake, y: 100 }))).toBe(atText(lane("intake", 1)));
-        expect(atText(dropAtPoint("lane", layout, model, { x: MID.intake, y: 172 }))).toBe(atText(lane("intake", 1)));
-        expect(atText(dropAtPoint("lane", layout, model, { x: MID.intake, y: 173 }))).toBe(atText(lane("intake", 2)));
-        expect(atText(dropAtPoint("lane", layout, model, { x: MID.intake, y: 280 }))).toBe(atText(lane("intake", 2)));
-        expect(atText(dropAtPoint("lane", layout, model, { x: 10, y: 20 }))).toBe(atText(lane("intake", 0)));
-        // A lane holding no state: its first row, wherever the pointer is.
-        expect(atText(dropAtPoint("lane", layout, model, { x: MID.hold, y: 250 }))).toBe(atText(lane("hold", 0)));
-        // Past the bands' end, no lane.
-        expect(atText(dropAtPoint("lane", layout, model, { x: MID.intake, y: band(layout, "intake").h + 4 }))).toBe(atText(ON_CANVAS));
+describe("where a drag rests", () => {
+    test("a state's card rests on the lane under the pointer, at the row after the states whose middles lie above it — before the first, between two, after the last; in a lane holding none, its first row; past the bands' end, the canvas", () => {
+        const x = mid("intake");
+        expect(text(dropAtPoint("lane", layout, model, { x, y: node("ARV").cy - 16 }))).toBe(text(lane("intake", 0)));
+        expect(text(dropAtPoint("lane", layout, model, { x, y: node("ARV").cy + 24 }))).toBe(text(lane("intake", 1)));
+        expect(text(dropAtPoint("lane", layout, model, { x, y: node("SCN").cy }))).toBe(text(lane("intake", 1)));
+        expect(text(dropAtPoint("lane", layout, model, { x, y: node("SCN").cy + 1 }))).toBe(text(lane("intake", 2)));
+        expect(text(dropAtPoint("lane", layout, model, { x, y: node("SCN").cy + 108 }))).toBe(text(lane("intake", 2)));
+        expect(text(dropAtPoint("lane", layout, model, { x: 10, y: 20 }))).toBe(text(lane("intake", 0)));
+        expect(text(dropAtPoint("lane", layout, model, { x: mid("hold"), y: 250 }))).toBe(text(lane("hold", 0)));
+        expect(text(dropAtPoint("lane", layout, model, { x, y: bandOf(layout, "intake").h + 4 }))).toBe(text(ON_CANVAS));
     });
 
-    test("outside every lane — the + LANE tail — a state card rests on the canvas; a flow with no lane has none to rest on", () => {
-        expect(atText(dropAtPoint("lane", layout, model, { x: 700, y: 100 }))).toBe(atText(ON_CANVAS));
-        const bare = drawn({ ...INBOUND, lanes: [] });
-        expect(atText(dropAtPoint("lane", bare.layout, bare.model, { x: 40, y: 100 }))).toBe(atText(ON_CANVAS));
+    test("outside every lane — the + LANE tail — and over No lane, a state's card rests on the canvas; a Flowchart given no lanes takes it in its one band", () => {
+        expect(text(dropAtPoint("lane", layout, model, { x: layout.laneTail.x + 10, y: 100 }))).toBe(text(ON_CANVAS));
+        const loose = drawn({ ...DEPOT, states: [...DEPOT.states, LOOSE] });
+        const noLane = bandOf(loose.layout, NO_LANE_KEY);
+        expect(text(dropAtPoint("lane", loose.layout, loose.model, { x: noLane.x + noLane.w / 2, y: 100 }))).toBe(text(ON_CANVAS));
+        const bare = drawn(rowsOf({ states: [stateRow("A", "A", { order: 1 }), stateRow("B", "B", { order: 2 })] }));
+        const all = bandOf(bare.layout, ALL_LANE_KEY);
+        expect(text(dropAtPoint("lane", bare.layout, bare.model, { x: all.x + all.w / 2, y: bare.layout.nodes.get("A")!.cy + 1 }))).toBe(text(lane(ALL_LANE_KEY, 1)));
     });
 
-    test("top down, the lanes are bands across, and the rows run along them", () => {
-        const td = drawn(INBOUND, "TD");
-        const sort = band(td.layout, "sort");
+    test("top down, the lanes are bands across, and the rows lie along them", () => {
+        const td = drawn(DEPOT, "TD");
+        const sort = bandOf(td.layout, "sort");
         const middle = sort.y + sort.h / 2;
-        // CH*'s card is the sort band's first, its middle 58px along the row past the rows' start.
         const chutes = td.layout.nodes.get("CH*")!;
-        expect(atText(dropAtPoint("lane", td.layout, td.model, { x: chutes.x + 10, y: middle }))).toBe(atText(lane("sort", 0)));
-        expect(atText(dropAtPoint("lane", td.layout, td.model, { x: chutes.x + chutes.w - 10, y: middle }))).toBe(atText(lane("sort", 1)));
+        expect(text(dropAtPoint("lane", td.layout, td.model, { x: chutes.x + 10, y: middle }))).toBe(text(lane("sort", 0)));
+        expect(text(dropAtPoint("lane", td.layout, td.model, { x: chutes.x + chutes.w - 10, y: middle }))).toBe(text(lane("sort", 1)));
     });
 
-    test("a transition card rests on the transition whose line runs nearest, within 10px; an in-place transition, folded into its state's ↻, has none", () => {
-        const loaded = route(layout, "CH*→LDD#2");
-        expect(atText(dropAtPoint("transition", layout, model, loaded.mid))).toBe(atText(at("transition", "CH*→LDD#2")));
-        // The run is level: off it across, by the pad and past it.
-        expect(atText(dropAtPoint("transition", layout, model, { x: loaded.mid.x, y: loaded.mid.y + LINK_PAD }))).toBe(atText(at("transition", "CH*→LDD#2")));
-        expect(atText(dropAtPoint("transition", layout, model, { x: loaded.mid.x, y: loaded.mid.y + LINK_PAD + 2 }))).toBe(atText(ON_CANVAS));
-        expect(layout.routes.map((r) => r.key)).not.toContain("SCN→SCN#3");
-        const scanned = layout.nodes.get("SCN")!;
-        expect(atText(dropAtPoint("transition", layout, model, { x: scanned.cx, y: scanned.cy }))).toBe(atText(ON_CANVAS));
+    test("a transition's card rests on the transition whose line lies nearest, within 10px; an in-place transition, folded into its state's ↻, has none", () => {
+        const loaded = routeOf(layout, "t3");
+        expect(text(dropAtPoint("transition", layout, model, loaded.mid))).toBe(text(at("transition", "t3")));
+        expect(text(dropAtPoint("transition", layout, model, { x: loaded.mid.x, y: loaded.mid.y + LINK_PAD }))).toBe(text(at("transition", "t3")));
+        expect(text(dropAtPoint("transition", layout, model, { x: loaded.mid.x, y: loaded.mid.y + LINK_PAD + 2 }))).toBe(text(ON_CANVAS));
+        expect(model.nodesByKey.get("SCN")!.inPlaceKeys).toEqual(["t4"]);
+        expect(layout.routes.map((r) => r.key)).not.toContain("t4");
+        expect(text(dropAtPoint("transition", layout, model, { x: node("SCN").cx, y: node("SCN").cy }))).toBe(text(ON_CANVAS));
     });
 
-    test("an author's card rests on a state — its card, or as near as the connect gesture's pad — never on an unresolved transition's ghost", () => {
-        const arrived = layout.nodes.get("ARV")!;
-        expect(atText(dropAtPoint("state", layout, model, { x: arrived.cx, y: arrived.cy }))).toBe(atText(at("state", "ARV")));
-        expect(atText(dropAtPoint("state", layout, model, { x: arrived.x + arrived.w + 10, y: arrived.cy }))).toBe(atText(at("state", "ARV")));
-        expect(atText(dropAtPoint("state", layout, model, { x: arrived.x + arrived.w + 20, y: arrived.cy }))).toBe(atText(ON_CANVAS));
-        const ghosted = drawn({ ...INBOUND, links: [...INBOUND.links, { key: none, from: "LDD", to: "GONE", kind: none, trigger: none, evidence: none }] });
-        const ghost = ghosted.layout.nodes.get("GONE")!;
-        expect(ghosted.model.nodesByKey.get("GONE")!.ghost).toBe(true);
-        expect(atText(dropAtPoint("state", ghosted.layout, ghosted.model, { x: ghost.cx, y: ghost.cy }))).toBe(atText(ON_CANVAS));
+    test("an author's card rests on a state — its card, or as near as the connect gesture's pad — never on a ghost", () => {
+        const arrived = node("ARV");
+        expect(text(dropAtPoint("state", layout, model, { x: arrived.cx, y: arrived.cy }))).toBe(text(at("state", "ARV")));
+        expect(text(dropAtPoint("state", layout, model, { x: arrived.x + arrived.w + 10, y: arrived.cy }))).toBe(text(at("state", "ARV")));
+        expect(text(dropAtPoint("state", layout, model, { x: arrived.x + arrived.w + 20, y: arrived.cy }))).toBe(text(ON_CANVAS));
+        const narrowed = drawn(NARROWED);
+        const ghost = narrowed.layout.nodes.get("GONE")!;
+        expect(narrowed.model.nodesByKey.get("GONE")!.ghost).toBe(true);
+        expect(text(dropAtPoint("state", narrowed.layout, narrowed.model, { x: ghost.cx, y: ghost.cy }))).toBe(text(ON_CANVAS));
     });
 
-    test("an author's card rests on a lane's header — the band before its first row — and on a decision's diamond, within its pad", () => {
-        expect(atText(dropAtPoint("header", layout, model, { x: MID.sort, y: 20 }))).toBe(atText(at("header", "sort")));
-        expect(atText(dropAtPoint("header", layout, model, { x: MID.sort, y: 60 }))).toBe(atText(ON_CANVAS));
-        const routed = route(layout, "SCN→CH*");
-        expect(atText(dropAtPoint("decision", layout, model, routed.mid))).toBe(atText(at("decision", "route")));
-        expect(atText(dropAtPoint("decision", layout, model, { x: routed.mid.x + DIAMOND_PAD, y: routed.mid.y }))).toBe(atText(at("decision", "route")));
-        expect(atText(dropAtPoint("decision", layout, model, { x: routed.mid.x + DIAMOND_PAD + 2, y: routed.mid.y }))).toBe(atText(ON_CANVAS));
+    test("an author's card rests on a lane's header — the band before its first row — and on a decision's diamond, within its pad; No lane has no header", () => {
+        expect(text(dropAtPoint("header", layout, model, { x: mid("sort"), y: 20 }))).toBe(text(at("header", "sort")));
+        expect(text(dropAtPoint("header", layout, model, { x: mid("sort"), y: layout.rows.start + 4 }))).toBe(text(ON_CANVAS));
+        const routed = routeOf(layout, "t2");
+        expect(text(dropAtPoint("decision", layout, model, routed.mid))).toBe(text(at("decision", "route")));
+        expect(text(dropAtPoint("decision", layout, model, { x: routed.mid.x + DIAMOND_PAD, y: routed.mid.y }))).toBe(text(at("decision", "route")));
+        expect(text(dropAtPoint("decision", layout, model, { x: routed.mid.x + DIAMOND_PAD + 2, y: routed.mid.y }))).toBe(text(ON_CANVAS));
+        const narrowed = drawn(NARROWED);
+        const noLane = bandOf(narrowed.layout, NO_LANE_KEY);
+        expect(text(dropAtPoint("header", narrowed.layout, narrowed.model, { x: noLane.x + noLane.w / 2, y: 20 }))).toBe(text(ON_CANVAS));
+    });
+
+    test("a row the narrowing draws as context takes no card — its state, its transition's line — yet keeps its row", () => {
+        const narrowed = drawn(NARROWED);
+        const chutes = narrowed.layout.nodes.get("CH*")!;
+        expect(text(dropAtPoint("state", narrowed.layout, narrowed.model, { x: chutes.cx, y: chutes.cy }))).toBe(text(ON_CANVAS));
+        expect(text(dropAtPoint("transition", narrowed.layout, narrowed.model, routeOf(narrowed.layout, "t3").mid))).toBe(text(ON_CANVAS));
+        expect(text(dropAtPoint("lane", narrowed.layout, narrowed.model, { x: chutes.cx, y: chutes.cy + 1 }))).toBe(text(lane("sort", 1)));
+    });
+
+    test("a lane's card rests in the gap before the first lane whose middle lies past the pointer — past the last, the band row's tail; a Flowchart given no lanes has none", () => {
+        expect(text(dropAtPoint("gap", layout, model, { x: 10, y: 100 }))).toBe(text(gap(0)));
+        expect(text(dropAtPoint("gap", layout, model, { x: mid("intake") + 1, y: 100 }))).toBe(text(gap(1)));
+        expect(text(dropAtPoint("gap", layout, model, { x: mid("load") - 1, y: 100 }))).toBe(text(gap(2)));
+        expect(text(dropAtPoint("gap", layout, model, { x: mid("hold") + 1, y: 100 }))).toBe(text(gap(4)));
+        expect(text(dropAtPoint("gap", layout, model, { x: layout.laneTail.x + 10, y: 100 }))).toBe(text(gap(4)));
+        const td = drawn(DEPOT, "TD");
+        const sort = bandOf(td.layout, "sort");
+        expect(text(dropAtPoint("gap", td.layout, td.model, { x: 10, y: sort.y + sort.h / 2 + 1 }))).toBe(text(gap(2)));
+        const bare = drawn(rowsOf({ states: [stateRow("A", "A")] }));
+        expect(text(dropAtPoint("gap", bare.layout, bare.model, { x: 10, y: 100 }))).toBe(text(ON_CANVAS));
     });
 
     test("where a drag rests rides a drop's CellRef printed, and reads back; another surface's text names nowhere", () => {
-        const where = lane("sort", 1);
-        expect(atText(readDropAt(printDropAt(where))!)).toBe(atText(where));
+        for (const where of [lane("sort", 1), at("state", "CH*"), at("transition", "t3"), at("header", "sort"), gap(2), at("decision", "route"), ON_CANVAS]) {
+            expect(text(readDropAt(printDropAt(where))!)).toBe(text(where));
+        }
         expect(readDropAt("row 3")).toBeUndefined();
     });
 });
@@ -174,172 +303,197 @@ describe("where a drag rests (FB31–FB33)", () => {
 // What a drop does
 // ============================================================================
 
-describe("a state card adds a state where it lands (FB31)", () => {
-    test("at its row, after the states above it — seeded with its fields over a state's defaults, in the lane it is dropped on, under the card's key", () => {
-        const plan = planDrop(HELD, lane("intake", 1), EDITS);
-        if (plan.kind !== "add") throw new Error(`expected an add, got ${plan.kind}`);
-        expect([plan.lane, plan.row, plan.index, plan.place]).toEqual(["intake", 1, 1, { place: "after", lane: "Intake", after: "ARV" }]);
-        expect(stateEqual(plan.state, { key: "HLD", label: some("Held"), lane: "intake", members: none, notes: none })).toBe(true);
-        expect(after(plan).states.map((s) => s.key)).toEqual(["ARV", "HLD", "SCN", "CH*", "LDD"]);
-        expect(flowEqual(after(plan), edits.insertState(INBOUND, 1, plan.state))).toBe(true);
+describe("a state's card adds a state where it lands", () => {
+    test("in the lane it lands on, at its row: after the state above it, at the start of a lane holding states, in a lane holding none — a row past the lane's last, its last's", () => {
+        expect(planned(planDrop(HELD, lane("intake", 1), ctx())))
+            .toEqual({ kind: "addState", band: "intake", row: 1, values: bytes(CARD), place: { place: "after", lane: "Intake", after: "ARV" } });
+        expect(planned(planDrop(HELD, lane("sort", 0), ctx()))).toEqual({ kind: "addState", band: "sort", row: 0, values: bytes(CARD), place: { place: "start", lane: "Sort" } });
+        expect(planned(planDrop(HELD, lane("hold", 0), ctx()))).toEqual({ kind: "addState", band: "hold", row: 0, values: bytes(CARD), place: { place: "in", lane: "Hold" } });
+        expect(planned(planDrop(HELD, lane("intake", 7), ctx()))).toMatchObject({ row: 2, place: { place: "after", lane: "Intake", after: "SCN" } });
     });
 
-    test("before a lane's first state, at its start; in a lane holding none; after its last, at the end of the flow's states — where the canvas draws a lane's states", () => {
-        const start = planDrop(HELD, lane("sort", 0), EDITS);
-        expect(start).toMatchObject({ kind: "add", index: 2, place: { place: "start", lane: "Sort" } });
-        expect(after(start).states.map((s) => s.key)).toEqual(["ARV", "SCN", "HLD", "CH*", "LDD"]);
-        // A lane with no label is named by its key.
-        expect(planDrop(HELD, lane("hold", 0), EDITS)).toMatchObject({ kind: "add", index: 4, place: { place: "in", lane: "hold" } });
-        const last = planDrop(HELD, lane("intake", 2), EDITS);
-        expect(last).toMatchObject({ kind: "add", row: 2, index: 4, place: { place: "after", after: "SCN" } });
-        // A row past the lane's last is its last's.
-        expect(planDrop(HELD, lane("intake", 7), EDITS)).toMatchObject({ kind: "add", row: 2, index: 4 });
+    test("one state from the card's values — keyed state-<n>, made unique — its lane the one it lands in, its order between the states it lands between; the drop selects it", () => {
+        const plan = planDrop(HELD, lane("intake", 1), ctx());
+        const made = dropEdits(plan, holdingOf(DEPOT));
+        expect(lines(made)).toEqual({ edits: [`createState state-5 ${w.state(undefined, "intake", 1.5)} ${optionBytes(some(CARD))}`], key: "state-5" });
+        expect(droppedSelection(plan, made!)).toEqual({ kind: "state", key: "state-5" });
+        // At a lane's start, one before its first; in a lane holding none, 1; after its last, one past it.
+        expect(lines(dropEdits(planDrop(HELD, lane("sort", 0), ctx()), holdingOf(DEPOT)))?.edits).toEqual([`createState state-5 ${w.state(undefined, "sort", 0)} ${optionBytes(some(CARD))}`]);
+        expect(lines(dropEdits(planDrop(HELD, lane("hold", 0), ctx()), holdingOf(DEPOT)))?.edits).toEqual([`createState state-5 ${w.state(undefined, "hold", 1)} ${optionBytes(some(CARD))}`]);
+        expect(lines(dropEdits(planDrop(HELD, lane("intake", 2), ctx()), holdingOf(DEPOT)))?.edits).toEqual([`createState state-5 ${w.state(undefined, "intake", 3)} ${optionBytes(some(CARD))}`]);
+        // state-5 held already — a row the rail hides, say — the next.
+        const taken = new Set(["state-5"]);
+        expect(lines(dropEdits(plan, holdingOf(DEPOT, { taken: (sort, key) => sort === "states" && taken.has(key) })))?.key).toBe("state-6");
     });
 
-    test("a state naming no lane the flow has is drawn in the last lane, and a drop there counts it", () => {
-        const stray: Flow = { ...INBOUND, states: [...INBOUND.states, { key: "STR", label: none, lane: "gone", members: none, notes: none }] };
-        expect(planDrop(HELD, lane("hold", 1), { ...EDITS, flow: stray })).toMatchObject({ kind: "add", row: 1, index: 5, place: { place: "after", after: "STR" } });
-    });
-
-    test("its key is the card's where the flow doesn't hold it; made unique where it does — HLD-2, then HLD-3; minted, state-<n>, where the card sets none", () => {
-        const once = after(planDrop(HELD, lane("hold", 0), EDITS));
-        const twice = planDrop(HELD, lane("hold", 1), { ...EDITS, flow: once });
-        expect(twice).toMatchObject({ kind: "add", state: { key: "HLD-2" } });
-        const thrice = planDrop(HELD, lane("hold", 2), { ...EDITS, flow: after(twice, once) });
-        expect(thrice).toMatchObject({ kind: "add", state: { key: "HLD-3" } });
-        // No key, or an empty one: minted past the states' count.
-        const bare: FlowchartDropCard = { lands: "lane", label: "Step", sets: statePatch({ label: some(some("Step")) }) };
-        expect(planDrop(bare, lane("hold", 0), EDITS)).toMatchObject({ kind: "add", state: { key: "state-5" } });
-        const blank: FlowchartDropCard = { lands: "lane", label: "Step", sets: statePatch({ key: some("") }) };
-        expect(planDrop(blank, lane("hold", 0), EDITS)).toMatchObject({ kind: "add", state: { key: "state-5" } });
-        const taken: Flow = { ...INBOUND, states: [...INBOUND.states, { key: "state-5", label: none, lane: "hold", members: none, notes: none }] };
-        expect(planDrop(bare, lane("hold", 1), { ...EDITS, flow: taken })).toMatchObject({ kind: "add", state: { key: "state-6" } });
+    test("a Flowchart given no lanes takes it in its one band, naming no lane", () => {
+        const bare = rowsOf({ states: [stateRow("A", "A", { order: 1 }), stateRow("B", "B", { order: 2 })] });
+        const plan = planDrop(HELD, lane(ALL_LANE_KEY, 1), ctx(modelOf(bare)));
+        expect(planned(plan)).toEqual({ kind: "addState", band: ALL_LANE_KEY, row: 1, values: bytes(CARD), place: { place: "after", lane: undefined, after: "A" } });
+        expect(lines(dropEdits(plan, holdingOf(bare)))?.edits).toEqual([`createState state-3 ${w.state(undefined, undefined, 1.5)} ${optionBytes(some(CARD))}`]);
     });
 });
 
-describe("a card sets its fields on what it lands on (FB32, FB33)", () => {
-    test("a transition card retypes the transition it lands on — connect, then retype — its key and its ends kept", () => {
-        const plan = planDrop(OBSERVED, at("transition", "CH*→LDD#2"), EDITS);
-        expect(plan).toMatchObject({ kind: "set", set: { onto: "transition", key: "CH*→LDD#2" }, what: { what: "transition", from: "CH*", to: "LDD" } });
-        expect(flowEqual(after(plan), {
-            ...INBOUND,
-            links: INBOUND.links.map((l, i) => (i === 2 ? { ...l, kind: some(variant("observed", null)) } : l)),
-        })).toBe(true);
-        // A connection's transition, keyed <from>→<to>, takes it the same way.
-        const connected = edits.connect(INBOUND, "LDD", "ARV");
-        expect(after(planDrop(OBSERVED, at("transition", connected.key), { ...EDITS, flow: connected.flow }), connected.flow).links[4]!.kind)
-            .toEqual(some(variant("observed", null)));
-    });
-
-    test("an author's card sets a state's fields, a lane's through its header and a decision's through its diamond", () => {
-        expect(flowEqual(after(planDrop(NOTE, at("state", "CH*"), EDITS)),
-            { ...INBOUND, states: INBOUND.states.map((s, i) => (i === 2 ? { ...s, notes: some("Checked at the bay") } : s)) })).toBe(true);
-        expect(planDrop(SORTATION, at("header", "sort"), EDITS)).toMatchObject({ kind: "set", what: { what: "header", lane: "Sort" } });
-        expect(flowEqual(after(planDrop(SORTATION, at("header", "sort"), EDITS)),
-            { ...INBOUND, lanes: INBOUND.lanes.map((l, i) => (i === 1 ? { ...l, label: some("Sortation") } : l)) })).toBe(true);
-        expect(planDrop(CUSTOMS, at("decision", "route"), EDITS)).toMatchObject({ kind: "set", what: { what: "decision", label: "route" } });
-        expect(flowEqual(after(planDrop(CUSTOMS, at("decision", "route"), EDITS)),
-            { ...INBOUND, triggers: [{ ...INBOUND.triggers[0]!, owner: some("customs-desk") }] })).toBe(true);
-    });
-
-    test("a card that sets a key: a state's follows into its transitions' ends and the decisions' queues (FB18), a lane's moves its states, a decision's renames it on the transitions it governs", () => {
-        const rekey: FlowchartDropCard = { lands: "state", label: "Rekey", sets: statePatch({ key: some("SCX") }) };
-        expect(flowEqual(after(planDrop(rekey, at("state", "SCN"), EDITS)), edits.editState(INBOUND, "SCN", "SCX", "Scanned"))).toBe(true);
-        const relane: FlowchartDropCard = { lands: "header", label: "Rekey", sets: lanePatch({ key: some("sorting") }) };
-        expect(flowEqual(after(planDrop(relane, at("header", "sort"), EDITS)), edits.rekeyLane(INBOUND, "sort", "sorting"))).toBe(true);
-        const redecide: FlowchartDropCard = { lands: "decision", label: "Rekey", sets: decisionPatch({ key: some("routing") }) };
-        const moved = after(planDrop(redecide, at("decision", "route"), EDITS));
-        expect([moved.triggers.map((t) => t.key), moved.links.map((l) => l.trigger)]).toEqual([["routing"], [none, some("routing"), none, none]]);
+describe("a transition's card gives the transition it lands on its values", () => {
+    test("its key and its ends kept — an in-place transition's too, by its key — and the drop selects nothing new", () => {
+        const plan = planDrop(OBSERVED, at("transition", "t3"), ctx());
+        expect(planned(plan)).toEqual({ kind: "retype", key: "t3", values: bytes(CARD), what: { what: "transition", from: "CH*", to: "LDD" } });
+        const made = dropEdits(plan, holdingOf(DEPOT));
+        expect(lines(made)).toEqual({ edits: [`retypeTransition t3 ${bytes(CARD)}`], key: undefined });
+        expect(droppedSelection(plan, made!)).toBeUndefined();
+        expect(planned(planDrop(OBSERVED, at("transition", "t4"), ctx()))).toMatchObject({ kind: "retype", key: "t4", what: { what: "transition", from: "SCN", to: "SCN" } });
     });
 });
 
-describe("a drop is refused, in its words (FB31–FB33)", () => {
-    test("anywhere but what its card lands on: Drop onto a lane, a transition, a state, a lane's header, a decision — naming where it lands", () => {
+describe("a lane's card adds a lane where it lands among the lanes", () => {
+    test("before the lane it lands before, or at the end of the lanes — keyed lane-<n>, its order between its neighbours'; the drop selects it", () => {
+        const plan = planDrop(DOCK, gap(1), ctx());
+        expect(planned(plan)).toEqual({ kind: "addLane", at: 1, values: bytes(CARD), place: { place: "before", lane: "Sort" } });
+        const made = dropEdits(plan, holdingOf(DEPOT));
+        expect(lines(made)).toEqual({ edits: [`createLane lane-5 ${w.lane(undefined, 1.5)} ${optionBytes(some(CARD))}`], key: "lane-5" });
+        expect(droppedSelection(plan, made!)).toEqual({ kind: "lane", key: "lane-5" });
+        expect(planned(planDrop(DOCK, gap(4), ctx()))).toMatchObject({ at: 4, place: { place: "end" } });
+        expect(planned(planDrop(DOCK, gap(9), ctx()))).toMatchObject({ at: 4, place: { place: "end" } });
+        expect(lines(dropEdits(planDrop(DOCK, gap(0), ctx()), holdingOf(DEPOT)))?.edits).toEqual([`createLane lane-5 ${w.lane(undefined, 0)} ${optionBytes(some(CARD))}`]);
+        expect(lines(dropEdits(planDrop(DOCK, gap(4), ctx()), holdingOf(DEPOT)))?.edits).toEqual([`createLane lane-5 ${w.lane(undefined, 5)} ${optionBytes(some(CARD))}`]);
+    });
+});
+
+describe("an author's card sets its fields on a row of the kind its patch names", () => {
+    test("a state's through its card, a transition's through its line, a lane's through its header, a decision's through its diamond: one set of the card's fields", () => {
+        const cases: [SetCard, FlowchartDropAt, string, ReturnType<typeof planned>][] = [
+            [NOTE, at("state", "CH*"), "set states CH*", { kind: "set", sort: "states", key: "CH*", sets: writes(NOTE.sets), what: { what: "state", key: "CH*" } }],
+            [TAGGED, at("transition", "t3"), "set transitions t3", { kind: "set", sort: "transitions", key: "t3", sets: writes(TAGGED.sets), what: { what: "transition", from: "CH*", to: "LDD" } }],
+            [SORTATION, at("header", "sort"), "set lanes sort", { kind: "set", sort: "lanes", key: "sort", sets: writes(SORTATION.sets), what: { what: "header", lane: "Sort" } }],
+            [CUSTOMS, at("decision", "route"), "set decisions route", { kind: "set", sort: "decisions", key: "route", sets: writes(CUSTOMS.sets), what: { what: "decision", label: "route" } }],
+        ];
+        for (const [card, where, edit, plan] of cases) {
+            const made = planDrop(card, where, ctx());
+            expect(planned(made), card.label).toEqual(plan);
+            expect(lines(dropEdits(made, holdingOf(DEPOT))), card.label).toEqual({ edits: [edit], key: undefined });
+        }
+    });
+});
+
+describe("a drop is refused, in its words", () => {
+    test("anywhere but what its card lands on — naming where it lands — and a state's card over No lane", () => {
         const cases: [FlowchartDropCard, FlowchartDropAt, string][] = [
             [HELD, ON_CANVAS, "Drop onto a lane"],
             [HELD, at("state", "ARV"), "Drop onto a lane"],
             [OBSERVED, ON_CANVAS, "Drop onto a transition"],
             [OBSERVED, lane("sort", 0), "Drop onto a transition"],
+            [DOCK, at("header", "sort"), "Drop between the lanes"],
             [NOTE, ON_CANVAS, "Drop onto a state"],
+            [TAGGED, at("state", "CH*"), "Drop onto a transition"],
             [SORTATION, ON_CANVAS, "Drop onto a lane's header"],
             [CUSTOMS, at("state", "ARV"), "Drop onto a decision"],
         ];
-        for (const [card, where, words] of cases) {
-            const plan = planDrop(card, where, EDITS);
-            expect(plan.kind, `${card.label} on ${atText(where)}`).toBe("refused");
-            expect(dropCaption(plan, m), `${card.label} on ${atText(where)}`).toBe(words);
-            expect(dropRefusal(plan, m)).toBe(words);
-            expect(flowEqual(after(plan), INBOUND)).toBe(true);
+        for (const [card, where, said] of cases) {
+            const plan = planDrop(card, where, ctx());
+            expect(plan.kind, `${card.label} on ${text(where)}`).toBe("refused");
+            expect([dropCaption(plan, m), dropRefusal(plan, m)]).toEqual([said, said]);
+            expect(dropEdits(plan, holdingOf(DEPOT))).toBeUndefined();
+            expect(markOf(plan)).toBeUndefined();
         }
+        expect(dropCaption(planDrop(HELD, lane(NO_LANE_KEY, 0), ctx(modelOf(NARROWED))), m)).toBe("Drop onto a lane");
+        // A Flowchart given no lanes has no gap to drop a lane in.
+        expect(dropCaption(planDrop(DOCK, gap(0), ctx(modelOf(rowsOf({ states: [stateRow("A", "A")] })))), m)).toBe("Drop between the lanes");
     });
 
-    test("over a flowchart that edits nothing, read only; while its session takes no gesture, not now; with no flow open, none — whatever the card and wherever it rests", () => {
-        for (const card of [HELD, OBSERVED, CUSTOMS]) {
-            expect(dropCaption(planDrop(card, lane("sort", 0), { ...EDITS, edits: false }), m)).toBe("The flowchart is read only");
-            expect(dropCaption(planDrop(card, lane("sort", 0), { ...EDITS, available: false }), m)).toBe("The flow takes no edit now");
-            expect(dropCaption(planDrop(card, lane("sort", 0), { ...EDITS, flow: undefined }), m)).toBe("No flow is open");
+    test("a card of a kind read only, or taking no edit now, is refused wherever it rests, naming its kind — the other kinds' cards landing", () => {
+        const readOnly = ctx(model, { editable: (sort) => sort !== "states" });
+        for (const [card, where] of [[HELD, lane("sort", 0)], [HELD, ON_CANVAS], [NOTE, at("state", "CH*")]] as const) {
+            expect(dropCaption(planDrop(card, where, readOnly), m)).toBe("States are read only");
         }
+        expect(planDrop(OBSERVED, at("transition", "t3"), readOnly).kind).toBe("retype");
+        const busy = ctx(model, { available: (sort) => sort !== "lanes" });
+        expect(dropCaption(planDrop(DOCK, gap(1), busy), m)).toBe("Lanes take no edit now");
+        expect(dropCaption(planDrop(SORTATION, at("header", "sort"), busy), m)).toBe("Lanes take no edit now");
+        expect(planDrop(HELD, lane("sort", 0), busy).kind).toBe("addState");
+        // Read only says so before busy.
+        expect(dropCaption(planDrop(CUSTOMS, ON_CANVAS, ctx(model, { editable: () => false, available: () => false })), m)).toBe("Decisions are read only");
     });
 
-    test("what it lands on gone from the flow — a stale coordinate — refuses it without words, asking no table for any: a host's that words every refusal alike is asked only where one is refused in words", () => {
+    test("what it lands on gone from the drawing — a stale coordinate, a ghost, a row drawn as context, No lane's header — refuses it without words, asking no table for any", () => {
         const host: FlowchartMessages = { ...m, dropRefused: () => "Not here" };
-        for (const [card, where] of [[HELD, lane("gone", 0)], [OBSERVED, at("transition", "GONE")], [NOTE, at("state", "GONE")], [SORTATION, at("header", "gone")], [CUSTOMS, at("decision", "gone")]] as const) {
-            const plan = planDrop(card, where, EDITS);
-            expect(plan).toEqual({ kind: "refused", why: { why: "gone" } });
+        const narrowed = ctx(modelOf(NARROWED));
+        const cases: [FlowchartDropCard, FlowchartDropAt][] = [
+            [HELD, lane("gone", 0)], [OBSERVED, at("transition", "GONE")], [OBSERVED, at("transition", "t3")], [TAGGED, at("transition", "t3")],
+            [NOTE, at("state", "GONE")], [NOTE, at("state", "CH*")], [NOTE, at("state", "LOST")],
+            [SORTATION, at("header", "gone")], [SORTATION, at("header", NO_LANE_KEY)], [CUSTOMS, at("decision", "gone")],
+        ];
+        for (const [card, where] of cases) {
+            const plan = planDrop(card, where, narrowed);
+            expect(plan, `${card.label} on ${text(where)}`).toEqual({ kind: "refused", why: { why: "gone" } });
             expect([dropCaption(plan, m), dropRefusal(plan, m)]).toEqual([undefined, undefined]);
             expect([dropCaption(plan, host), dropRefusal(plan, host)]).toEqual([undefined, undefined]);
         }
-        const elsewhere = planDrop(HELD, ON_CANVAS, EDITS);
+        const elsewhere = planDrop(HELD, ON_CANVAS, ctx());
         expect([dropCaption(elsewhere, host), dropRefusal(elsewhere, host)]).toEqual(["Not here", "Not here"]);
     });
 });
 
 // ============================================================================
-// ⏎ on a card (FB34)
+// ⏎ on a card
 // ============================================================================
 
-describe("⏎ on a card is a drop on the canvas's selection (FB34)", () => {
-    test("a state card: after the selected state, in its lane; with a lane selected, at the end of that lane (#1250); with neither, at the end of the first lane", () => {
-        expect(atText(enterAt("lane", { kind: "state", key: "ARV" }, INBOUND))).toBe(atText(lane("intake", 1)));
-        expect(atText(enterAt("lane", { kind: "state", key: "SCN" }, INBOUND))).toBe(atText(lane("intake", 2)));
-        expect(atText(enterAt("lane", { kind: "state", key: "CH*" }, INBOUND))).toBe(atText(lane("sort", 1)));
-        expect(atText(enterAt("lane", { kind: "lane", key: "sort" }, INBOUND))).toBe(atText(lane("sort", 1)));
-        expect(atText(enterAt("lane", { kind: "lane", key: "hold" }, INBOUND))).toBe(atText(lane("hold", 0)));
-        // Several states selected are none of these, as are a lane the flow no longer has and a transition.
-        for (const selection of [null, { kind: "link", key: "CH*→LDD#2" }, { kind: "state", key: "GONE" }, { kind: "lane", key: "gone" },
+describe("⏎ on a card is a drop on the canvas's selection", () => {
+    test("a state's card: after the selected state, in its lane; with a lane selected, at the end of that lane; with neither, at the end of the first lane", () => {
+        expect(text(enterAt("lane", { kind: "state", key: "ARV" }, model))).toBe(text(lane("intake", 1)));
+        expect(text(enterAt("lane", { kind: "state", key: "SCN" }, model))).toBe(text(lane("intake", 2)));
+        expect(text(enterAt("lane", { kind: "state", key: "CH*" }, model))).toBe(text(lane("sort", 1)));
+        expect(text(enterAt("lane", { kind: "lane", key: "sort" }, model))).toBe(text(lane("sort", 1)));
+        expect(text(enterAt("lane", { kind: "lane", key: "hold" }, model))).toBe(text(lane("hold", 0)));
+        // Several states selected are none of these, as are a lane or a state the drawing no longer holds and a transition.
+        for (const selection of [null, { kind: "link", key: "t3" }, { kind: "state", key: "GONE" }, { kind: "lane", key: "gone" },
             { kind: "states", keys: ["ARV", "CH*"] }] as const) {
-            expect(atText(enterAt("lane", selection, INBOUND))).toBe(atText(lane("intake", 2)));
+            expect(text(enterAt("lane", selection, model))).toBe(text(lane("intake", 2)));
         }
-        // A state naming no lane the flow has is drawn in the last: after it there.
-        const stray: Flow = { ...INBOUND, states: [...INBOUND.states, { key: "STR", label: none, lane: "gone", members: none, notes: none }] };
-        expect(atText(enterAt("lane", { kind: "state", key: "STR" }, stray))).toBe(atText(lane("hold", 1)));
-        // No lane, or no flow: nowhere.
-        expect(atText(enterAt("lane", null, { ...INBOUND, lanes: [] }))).toBe(atText(ON_CANVAS));
-        expect(atText(enterAt("lane", null, undefined))).toBe(atText(ON_CANVAS));
+        // A state in No lane, or one drawn as context, is none either.
+        const narrowed = modelOf(NARROWED);
+        expect(text(enterAt("lane", { kind: "state", key: "LOOSE" }, narrowed))).toBe(text(lane("intake", 2)));
+        expect(text(enterAt("lane", { kind: "state", key: "CH*" }, narrowed))).toBe(text(lane("intake", 2)));
+        // A Flowchart given no lanes: its one band's end. One with no band: nowhere.
+        expect(text(enterAt("lane", null, modelOf(rowsOf({ states: [stateRow("A", "A")] }))))).toBe(text(lane(ALL_LANE_KEY, 1)));
+        expect(text(enterAt("lane", null, modelOf(rowsOf({ lanes: [] }))))).toBe(text(ON_CANVAS));
     });
 
-    test("any other card on the selected state, transition, decision or lane when that is what it lands on — a lane's card on the lane a click on its header selected (#1250)", () => {
-        expect(atText(enterAt("header", { kind: "lane", key: "sort" }, INBOUND))).toBe(atText(at("header", "sort")));
-        expect(atText(enterAt("header", { kind: "lane", key: "gone" }, INBOUND))).toBe(atText(ON_CANVAS));
-        expect(atText(enterAt("state", { kind: "states", keys: ["ARV", "CH*"] }, INBOUND))).toBe(atText(ON_CANVAS));
-        expect(atText(enterAt("state", { kind: "lane", key: "sort" }, INBOUND))).toBe(atText(ON_CANVAS));
-        expect(dropRefusal(planDrop(SORTATION, enterAt("header", { kind: "state", key: "CH*" }, INBOUND), EDITS), m)).toBe("Drop onto a lane's header");
-        expect(flowEqual(after(planDrop(SORTATION, enterAt("header", { kind: "lane", key: "sort" }, INBOUND), EDITS)), edits.renameLane(INBOUND, "sort", "Sortation"))).toBe(true);
-        expect(atText(enterAt("transition", { kind: "link", key: "CH*→LDD#2" }, INBOUND))).toBe(atText(at("transition", "CH*→LDD#2")));
-        expect(atText(enterAt("transition", { kind: "state", key: "CH*" }, INBOUND))).toBe(atText(ON_CANVAS));
-        expect(atText(enterAt("transition", { kind: "link", key: "GONE" }, INBOUND))).toBe(atText(ON_CANVAS));
-        expect(atText(enterAt("state", { kind: "state", key: "CH*" }, INBOUND))).toBe(atText(at("state", "CH*")));
-        expect(atText(enterAt("state", null, INBOUND))).toBe(atText(ON_CANVAS));
-        expect(atText(enterAt("decision", { kind: "trigger", key: "route" }, INBOUND))).toBe(atText(at("decision", "route")));
-        expect(atText(enterAt("decision", { kind: "link", key: "SCN→CH*" }, INBOUND))).toBe(atText(ON_CANVAS));
-        expect(atText(enterAt("header", { kind: "state", key: "CH*" }, INBOUND))).toBe(atText(ON_CANVAS));
-        // An in-place transition has no line to drop on: its ↻ badge selects it, by the key the model gives it, and ⏎ retypes it.
-        const inPlace = model.nodesByKey.get("SCN")!.inPlaceKeys[0]!;
-        const planned: FlowchartDropCard = { lands: "transition", label: "Planned", sets: linkPatch({ kind: some(some(variant("planned", null))) }) };
-        expect(atText(enterAt("transition", { kind: "link", key: inPlace }, INBOUND))).toBe(atText(at("transition", inPlace)));
-        expect(after(planDrop(planned, enterAt("transition", { kind: "link", key: inPlace }, INBOUND), EDITS)).links[3]!.kind).toEqual(some(variant("planned", null)));
-        // Where it would be refused, the footer says why: the drop's own words.
-        expect(dropRefusal(planDrop(OBSERVED, enterAt("transition", { kind: "state", key: "CH*" }, INBOUND), EDITS), m)).toBe("Drop onto a transition");
+    test("a lane's card: after the selected lane, else at the band row's tail; a Flowchart given no lanes has no gap", () => {
+        expect(text(enterAt("gap", { kind: "lane", key: "sort" }, model))).toBe(text(gap(2)));
+        expect(text(enterAt("gap", { kind: "lane", key: "hold" }, model))).toBe(text(gap(4)));
+        expect(text(enterAt("gap", null, model))).toBe(text(gap(4)));
+        expect(text(enterAt("gap", { kind: "state", key: "CH*" }, model))).toBe(text(gap(4)));
+        expect(text(enterAt("gap", null, modelOf(rowsOf({ states: [stateRow("A", "A")] }))))).toBe(text(ON_CANVAS));
+    });
+
+    test("any other card on the selected state, transition, decision or lane when that is what it lands on — never a ghost or a row drawn as context", () => {
+        expect(text(enterAt("state", { kind: "state", key: "CH*" }, model))).toBe(text(at("state", "CH*")));
+        expect(text(enterAt("state", null, model))).toBe(text(ON_CANVAS));
+        expect(text(enterAt("state", { kind: "states", keys: ["ARV", "CH*"] }, model))).toBe(text(ON_CANVAS));
+        expect(text(enterAt("state", { kind: "lane", key: "sort" }, model))).toBe(text(ON_CANVAS));
+        expect(text(enterAt("transition", { kind: "link", key: "t3" }, model))).toBe(text(at("transition", "t3")));
+        // An in-place transition has no line to drop on: its ↻ badge selects it, by its key, and ⏎ gives it the card's values.
+        expect(text(enterAt("transition", { kind: "link", key: "t4" }, model))).toBe(text(at("transition", "t4")));
+        expect(text(enterAt("transition", { kind: "state", key: "CH*" }, model))).toBe(text(ON_CANVAS));
+        expect(text(enterAt("transition", { kind: "link", key: "GONE" }, model))).toBe(text(ON_CANVAS));
+        expect(text(enterAt("decision", { kind: "trigger", key: "route" }, model))).toBe(text(at("decision", "route")));
+        expect(text(enterAt("decision", { kind: "link", key: "t2" }, model))).toBe(text(ON_CANVAS));
+        expect(text(enterAt("header", { kind: "lane", key: "sort" }, model))).toBe(text(at("header", "sort")));
+        expect(text(enterAt("header", { kind: "lane", key: "gone" }, model))).toBe(text(ON_CANVAS));
+        expect(text(enterAt("header", { kind: "state", key: "CH*" }, model))).toBe(text(ON_CANVAS));
+        const narrowed = modelOf(NARROWED);
+        expect(text(enterAt("state", { kind: "state", key: "CH*" }, narrowed))).toBe(text(ON_CANVAS));
+        expect(text(enterAt("state", { kind: "state", key: "GONE" }, narrowed))).toBe(text(ON_CANVAS));
+        expect(text(enterAt("transition", { kind: "link", key: "t3" }, narrowed))).toBe(text(ON_CANVAS));
+        expect(text(enterAt("header", { kind: "lane", key: NO_LANE_KEY }, narrowed))).toBe(text(ON_CANVAS));
+    });
+
+    test("where it lands it does what a drop there does; where it would be refused, the footer says why in the drop's own words", () => {
+        expect(lines(dropEdits(planDrop(SORTATION, enterAt("header", { kind: "lane", key: "sort" }, model), ctx()), holdingOf(DEPOT)))?.edits).toEqual(["set lanes sort"]);
+        expect(lines(dropEdits(planDrop(OBSERVED, enterAt("transition", { kind: "link", key: "t4" }, model), ctx()), holdingOf(DEPOT)))?.edits)
+            .toEqual([`retypeTransition t4 ${bytes(CARD)}`]);
+        expect(dropRefusal(planDrop(OBSERVED, enterAt("transition", { kind: "state", key: "CH*" }, model), ctx()), m)).toBe("Drop onto a transition");
+        expect(dropRefusal(planDrop(SORTATION, enterAt("header", { kind: "state", key: "CH*" }, model), ctx()), m)).toBe("Drop onto a lane's header");
     });
 });
 
@@ -347,35 +501,48 @@ describe("⏎ on a card is a drop on the canvas's selection (FB34)", () => {
 // Its words, its marks, and where the canvas draws them
 // ============================================================================
 
-describe("its words and its marks (FB30)", () => {
-    test("the ghost says where a state lands, or what a card sets its fields on; the drag layer names the place; the history labels the drop", () => {
-        const between = planDrop(HELD, lane("intake", 1), EDITS);
+describe("its words and its marks", () => {
+    test("the ghost says where a card lands, or what it sets its fields on; the drag layer names the place; the history names the drop", () => {
+        const between = planDrop(HELD, lane("intake", 1), ctx());
         expect([dropCaption(between, m), dropName(between, m), dropLabel(between, HELD, m)])
             .toEqual(["after ARV in Intake", "Intake, after ARV", "Drop Held on Intake, after ARV"]);
-        const first = planDrop(HELD, lane("sort", 0), EDITS);
+        const first = planDrop(HELD, lane("sort", 0), ctx());
         expect([dropCaption(first, m), dropName(first, m)]).toEqual(["at the start of Sort", "the start of Sort"]);
-        const empty = planDrop(HELD, lane("hold", 0), EDITS);
-        expect([dropCaption(empty, m), dropName(empty, m)]).toEqual(["in hold", "hold"]);
-        const retype = planDrop(OBSERVED, at("transition", "CH*→LDD#2"), EDITS);
-        expect([dropCaption(retype, m), dropName(retype, m), dropLabel(retype, OBSERVED, m)])
-            .toEqual(["onto CH* → LDD", "CH* → LDD", "Drop Observed on CH* → LDD"]);
-        expect(dropCaption(planDrop(NOTE, at("state", "CH*"), EDITS), m)).toBe("onto CH*");
-        expect(dropCaption(planDrop(SORTATION, at("header", "sort"), EDITS), m)).toBe("onto lane Sort");
-        expect(dropCaption(planDrop(CUSTOMS, at("decision", "route"), EDITS), m)).toBe("onto decision route");
-        expect(dropName(planDrop(OBSERVED, ON_CANVAS, EDITS), m)).toBe("the canvas");
+        const empty = planDrop(HELD, lane("hold", 0), ctx());
+        expect([dropCaption(empty, m), dropName(empty, m)]).toEqual(["in Hold", "Hold"]);
+        // A Flowchart given no lanes names none.
+        const bare = modelOf(rowsOf({ states: [stateRow("A", "A")] }));
+        const after = planDrop(HELD, lane(ALL_LANE_KEY, 1), ctx(bare));
+        expect([dropCaption(after, m), dropName(after, m), dropLabel(after, HELD, m)]).toEqual(["after A", "the row after A", "Drop Held on the row after A"]);
+        const start = planDrop(HELD, lane(ALL_LANE_KEY, 0), ctx(bare));
+        expect([dropCaption(start, m), dropName(start, m)]).toEqual(["at the start", "the start"]);
+        const before = planDrop(DOCK, gap(1), ctx());
+        expect([dropCaption(before, m), dropName(before, m), dropLabel(before, DOCK, m)]).toEqual(["before Sort", "the gap before Sort", "Drop Dock on the gap before Sort"]);
+        const end = planDrop(DOCK, gap(4), ctx());
+        expect([dropCaption(end, m), dropName(end, m), dropLabel(end, DOCK, m)])
+            .toEqual(["at the end of the lanes", "the end of the lanes", "Drop Dock on the end of the lanes"]);
+        const retype = planDrop(OBSERVED, at("transition", "t3"), ctx());
+        expect([dropCaption(retype, m), dropName(retype, m), dropLabel(retype, OBSERVED, m)]).toEqual(["onto CH* → LDD", "CH* → LDD", "Drop Observed on CH* → LDD"]);
+        expect(dropCaption(planDrop(NOTE, at("state", "CH*"), ctx()), m)).toBe("onto CH*");
+        expect(dropCaption(planDrop(SORTATION, at("header", "sort"), ctx()), m)).toBe("onto lane Sort");
+        expect(dropCaption(planDrop(CUSTOMS, at("decision", "route"), ctx()), m)).toBe("onto decision route");
+        expect(dropName(planDrop(OBSERVED, ON_CANVAS, ctx()), m)).toBe("the canvas");
         expect(dropRefusal(between, m)).toBeUndefined();
     });
 
-    test("the canvas marks the lane and the row a state lands in, a lane whose header a card sets, or what a card sets its fields on — nothing where a drop is refused", () => {
-        expect(markOf(planDrop(HELD, lane("intake", 1), EDITS))).toEqual({ kind: "lane", lane: "intake", row: 1 });
-        expect(markOf(planDrop(SORTATION, at("header", "sort"), EDITS))).toEqual({ kind: "header", lane: "sort" });
-        expect(markOf(planDrop(OBSERVED, at("transition", "CH*→LDD#2"), EDITS))).toEqual({ kind: "transition", key: "CH*→LDD#2" });
-        expect(markOf(planDrop(NOTE, at("state", "ARV"), EDITS))).toEqual({ kind: "state", key: "ARV" });
-        expect(markOf(planDrop(CUSTOMS, at("decision", "route"), EDITS))).toEqual({ kind: "decision", key: "route" });
-        expect(markOf(planDrop(OBSERVED, ON_CANVAS, EDITS))).toBeUndefined();
+    test("the canvas marks the lane and the row a state lands in, the gap a lane lands in, a lane whose header a card sets, or what a card sets its fields on", () => {
+        expect(markOf(planDrop(HELD, lane("intake", 1), ctx()))).toEqual({ kind: "lane", lane: "intake", row: 1 });
+        expect(markOf(planDrop(DOCK, gap(1), ctx()))).toEqual({ kind: "gap", at: 1 });
+        expect(markOf(planDrop(SORTATION, at("header", "sort"), ctx()))).toEqual({ kind: "header", lane: "sort" });
+        expect(markOf(planDrop(OBSERVED, at("transition", "t3"), ctx()))).toEqual({ kind: "transition", key: "t3" });
+        expect(markOf(planDrop(TAGGED, at("transition", "t3"), ctx()))).toEqual({ kind: "transition", key: "t3" });
+        expect(markOf(planDrop(NOTE, at("state", "ARV"), ctx()))).toEqual({ kind: "state", key: "ARV" });
+        expect(markOf(planDrop(CUSTOMS, at("decision", "route"), ctx()))).toEqual({ kind: "decision", key: "route" });
         // One mark is another only where it marks the same place.
         expect(markEqual({ kind: "lane", lane: "sort", row: 1 }, { kind: "lane", lane: "sort", row: 1 })).toBe(true);
         expect(markEqual({ kind: "lane", lane: "sort", row: 1 }, { kind: "lane", lane: "sort", row: 2 })).toBe(false);
+        expect(markEqual({ kind: "gap", at: 1 }, { kind: "gap", at: 1 })).toBe(true);
+        expect(markEqual({ kind: "gap", at: 1 }, { kind: "gap", at: 2 })).toBe(false);
         expect(markEqual({ kind: "header", lane: "sort" }, { kind: "lane", lane: "sort", row: 0 })).toBe(false);
         expect(markEqual({ kind: "state", key: "ARV" }, { kind: "transition", key: "ARV" })).toBe(false);
         expect(markEqual({ kind: "state", key: "ARV" }, { kind: "state", key: "ARV" })).toBe(true);
@@ -383,18 +550,26 @@ describe("its words and its marks (FB30)", () => {
         expect(markEqual({ kind: "state", key: "ARV" }, undefined)).toBe(false);
     });
 
-    test("the landing line runs across a node's footprint, centred on the gap before its row: the 16px under the header before the first, half the gap between two rows before another — upright, top down", () => {
-        const intake = band(layout, "intake");
+    test("a state's landing line lies across a node's footprint, centred on the gap before its row: the 16px under the header before the first, half the gap between two rows before another — upright, top down", () => {
+        const intake = bandOf(layout, "intake");
         expect(rowCell(layout, intake, 1)).toEqual({ x: 25, y: 152, w: 116, h: 40 });
         expect(landingSeam(layout, intake, 0)).toEqual({ x: 25, y: 48, w: 116, h: 0 });
         expect(landingSeam(layout, intake, 1)).toEqual({ x: 25, y: 124, w: 116, h: 0 });
         expect(landingSeam(layout, intake, 2)).toEqual({ x: 25, y: 220, w: 116, h: 0 });
-        const td = drawn(INBOUND, "TD");
-        const sort = band(td.layout, "sort");
+        const td = drawn(DEPOT, "TD");
+        const sort = bandOf(td.layout, "sort");
         const chutes = td.layout.nodes.get("CH*")!;
         expect(rowCell(td.layout, sort, 0)).toEqual({ x: chutes.x, y: chutes.y, w: chutes.w, h: chutes.h });
         expect(landingSeam(td.layout, sort, 0)).toEqual({ x: chutes.x - 8, y: chutes.y, w: 0, h: 40 });
         expect(landingSeam(td.layout, sort, 1)).toEqual({ x: chutes.x + td.layout.rows.pitch - (td.layout.rows.pitch - 116) / 2, y: chutes.y, w: 0, h: 40 });
+    });
+
+    test("a lane's landing line stands at the start of the lane it lands before, or the end of the last — across, LR's x; top down, its y", () => {
+        const hold = bandOf(layout, "hold");
+        expect([0, 2, 4].map((g) => gapLine(layout, g))).toEqual([bandOf(layout, "intake").x, bandOf(layout, "load").x, hold.x + hold.w]);
+        const td = drawn(DEPOT, "TD");
+        const tdHold = bandOf(td.layout, "hold");
+        expect([gapLine(td.layout, 1), gapLine(td.layout, 4)]).toEqual([bandOf(td.layout, "sort").y, tdHold.y + tdHold.h]);
     });
 });
 
@@ -403,23 +578,30 @@ describe("its words and its marks (FB30)", () => {
 // ============================================================================
 
 describe("what the canvas takes dropped", () => {
-    test("each tab whose cards drop, under the library its cards drag from: the templates', and an author's tab by what its drop's type names — never the Flows tab, nor an author's tab without a drop", () => {
-        const host = dropHostOf("flowchart.surface", [
-            ["lib:flows", variant("flows", null)],
-            ["lib:states", variant("states", { name: none, icon: none, cards: [{ key: "HLD", label: "Held", meta: none, group: none, sets: HELD.sets }], source: "steps" })],
-            ["lib:transitions", variant("transitions", { name: none, icon: none, cards: [{ key: "obs", label: "Observed", meta: none, group: none, sets: OBSERVED.sets }], source: "moves" })],
-            ["lib:tab:Notes", variant("tab", { name: "Notes", icon: none, lands: variant("state", [{ key: "n", label: "Checked", meta: none, group: none, sets: NOTE.sets }]), source: none })],
-            ["lib:tab:Lanes", variant("tab", { name: "Lanes", icon: none, lands: variant("lane", [{ key: "s", label: "Sortation", meta: none, group: none, sets: SORTATION.sets }]), source: none })],
-            ["lib:tab:Owners", variant("tab", { name: "Owners", icon: none, lands: variant("decision", [{ key: "c", label: "Customs desk", meta: none, group: none, sets: CUSTOMS.sets }]), source: some("owners") })],
-            ["lib:tab:Moves", variant("tab", { name: "Moves", icon: none, lands: variant("transition", [{ key: "m", label: "Observed", meta: none, group: none, sets: OBSERVED.sets }]), source: none })],
-            ["lib:tab:Desks", variant("tab", { name: "Desks", icon: none, lands: variant("none", [{ key: "d", label: "Hold bay", meta: none, group: none }]), source: none })],
-        ]);
+    test("each tab whose cards drop, under the library its cards drag from: the Steps, Transitions and Lanes tabs' cards, and an author's tab's by the kind its patch names — never an author's tab with no drop", () => {
+        const kindCard = (key: string, name: string) => ({ key, name, group: none, values: CARD });
+        const card = (key: string, label: string, sets: SetCard["sets"]) => ({ key, label, meta: none, group: none, sets });
+        const host = dropHostOf("flowchart.surface", (tab) => `lib:${tab}`, [
+            variant("states", { name: none, icon: none }),
+            variant("transitions", { name: some("Moves"), icon: none }),
+            variant("lanes", { name: none, icon: none }),
+            variant("tab", { name: "Notes", icon: none, drop: some("states"), cards: [card("n", "Checked", NOTE.sets)], source: none }),
+            variant("tab", { name: "Owners", icon: some("user"), drop: some("decisions"), cards: [card("c", "Customs desk", CUSTOMS.sets)], source: some("owners") }),
+            variant("tab", { name: "Desks", icon: none, drop: none, cards: [card("d", "Hold bay", [])], source: none }),
+        ], { states: [kindCard("HLD", "Held")], transitions: [kindCard("obs", "Observed")], lanes: [kindCard("dock", "Dock")] });
         expect(host.surface).toBe("flowchart.surface");
-        expect([...host.libraries.keys()]).toEqual(["lib:states", "lib:transitions", "lib:tab:Notes", "lib:tab:Lanes", "lib:tab:Owners", "lib:tab:Moves"]);
-        expect(["lib:states", "lib:transitions", "lib:tab:Notes", "lib:tab:Lanes", "lib:tab:Owners", "lib:tab:Moves"]
-            .map((id) => { const [card] = [...host.libraries.get(id)!.values()]; return [card!.lands, card!.label]; }))
-            .toEqual([["lane", "Held"], ["transition", "Observed"], ["state", "Checked"], ["header", "Sortation"], ["decision", "Customs desk"], ["transition", "Observed"]]);
-        expect(cardOf(host, "lib:states", "HLD")?.label).toBe("Held");
-        expect([cardOf(host, "lib:states", "GONE"), cardOf(host, "lib:tab:Desks", "d"), cardOf(host, "lib:flows", "x")]).toEqual([undefined, undefined, undefined]);
+        expect([...host.libraries.keys()]).toEqual(["lib:states", "lib:transitions", "lib:lanes", "lib:tab:Notes", "lib:tab:Owners"]);
+        expect([...host.libraries.values()].map((cards) => [...cards.values()].map((c) => [c.does, c.label, cardSort(c), landsOf(c)]))).toEqual([
+            [["addState", "Held", "states", "lane"]],
+            [["retype", "Observed", "transitions", "transition"]],
+            [["addLane", "Dock", "lanes", "gap"]],
+            [["set", "Checked", "states", "state"]],
+            [["set", "Customs desk", "decisions", "decision"]],
+        ]);
+        const held = cardOf(host, "lib:states", "HLD");
+        expect(held?.does === "addState" ? bytes(held.values) : undefined).toBe(bytes(CARD));
+        const owner = cardOf(host, "lib:tab:Owners", "c");
+        expect(owner?.does === "set" ? writes(owner.sets) : undefined).toBe(writes(CUSTOMS.sets));
+        expect([cardOf(host, "lib:states", "GONE"), cardOf(host, "lib:tab:Desks", "d")]).toEqual([undefined, undefined]);
     });
 });
