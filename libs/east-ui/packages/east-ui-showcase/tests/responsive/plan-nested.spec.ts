@@ -291,8 +291,12 @@ function defineChecks(theme: "light" | "dark", tag: "@desktop" | "@mobile"): voi
         const sum = works.locator(`[data-cell="${at}"]`);
         const was = (await numberIn(cell))!;
         const before = (await numberIn(sum))!;
-        if (narrow) await cell.tap();
-        else await cell.dblclick();
+        // In the window's middle on a phone: a popover flips above a cell at the window's foot, and this one is held to below it.
+        if (narrow) {
+            await cell.evaluate((el) => { el.scrollIntoView({ block: "center" }); });
+            await settled(page);
+            await cell.tap();
+        } else await cell.dblclick();
         const field = page.locator("[data-plan-typing]");
         const input = field.locator("input");
         await expect(input).toBeFocused();

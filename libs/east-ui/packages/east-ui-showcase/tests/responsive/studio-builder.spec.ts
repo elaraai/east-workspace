@@ -340,6 +340,8 @@ test.describe("Studio on a phone (`Studio Mobile Spec.md`)", () => {
         await nothingFloats(page);
         const layer = frame.locator('[data-frame-slot="overlay"] [data-frame-layer-content]');
         await expect(layer).toBeVisible();
+        // Measured once it has slid in: under a moving transform the browser works a box out in floats, and 44 can read 43.99.
+        await layer.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished.then(() => undefined, () => undefined))));
         expect(await layer.evaluate((el) => {
             const box = el.getBoundingClientRect(), root = el.closest("[data-builder-frame]")!.getBoundingClientRect();
             return { covers: Math.abs(box.width - root.width) < 1 && Math.abs(box.height - root.height) < 1, rows: [...el.querySelectorAll("[data-part=item]")].every((r) => r.getBoundingClientRect().height >= 44) };
