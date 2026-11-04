@@ -4,27 +4,23 @@
  */
 
 /**
- * The Flowchart in its frame, measured in a real browser (#1245, `Flowchart
- * Builder Spec.md` §7, §7.1, §8, FB7–FB11), on the parcel depot's flowchart
- * over the host's tables: a borderless `BuilderFrame` filling the box its
- * example gives it — one 44px toolbar row, the canvas filling main, the
- * inspector at main's end (#1250) — on by default, and at the example's width
- * its 44px rail, the frame too narrow to pin it beside main — the footer's
- * counts along the foot — and no eyebrow of the canvas's own. The toolbar
- * folds by one ladder — the freshness chip goes, LR · TD folds into its chip
- * and find state into its icon — with no rail: the host's tables are never
- * narrowed (#1346). One row at every width from 1440px to 240px, nothing past
- * its edge, a narrower row never folding less. The canvas scrolls both ways
- * inside main under the viewer's wheel, its lanes running main's whole height,
- * the toolbar and the footer staying put; over the host's tables with no
- * `onApply` it edits nothing — no "+ LANE", no lane's ×, no history item
- * (#1247); find state's query, typed a key at a time, finds a state by its
- * label, and a pick selects it and scrolls it into the canvas's view. In both
- * themes; on a phone the row holds every item, the freshness chip folded and
- * LR · TD and find state whole, and in a 240px frame LR · TD's chip — Font
- * Awesome's caret, sized by the chip recipe — and find state's icon; and on a
- * touch screen 1920px wide every item unfolded. Every measurement is polled
- * until it holds, on a page at rest.
+ * The Flowchart in its frame, measured in a real browser (#1245, #1506,
+ * `Flowchart Records Spec.md`), on the parcel depot's flowchart over the app's
+ * records: a borderless `BuilderFrame` filling the box its example gives it —
+ * one 44px toolbar row, the canvas filling main, the library's 44px rail at
+ * main's start and the inspector's at its end (#1250), the frame too narrow to
+ * pin either beside it, the footer's counts along the foot — and no eyebrow of
+ * the canvas's own. The toolbar folds by one ladder: the rail's chips into its
+ * one trigger, the rail's summary, the freshness chip, LR · TD into its chip,
+ * find state into its icon, then the history. One row at every width from
+ * 1920px to 600px, nothing past its edge, a narrower row never folding less.
+ * The canvas scrolls both ways inside main under the viewer's wheel, its lanes
+ * filling main's whole height, the toolbar and the footer staying put; find
+ * state's query, typed a key at a time, finds a state by its label, and a pick
+ * selects it and scrolls it into the canvas's view. The layout is checked in
+ * the light theme, as every layout check is; and on a touch screen 1920px wide
+ * only the rail folds — its chips, then its summary — every other item whole.
+ * Every measurement is polled until it holds, on a page at rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test flowchart-frame --project desktop`.
@@ -33,11 +29,15 @@
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 const HASH = "e3/flowchart/flowchart/flowchartDepot";
 
-/** The fold ladder: the freshness chip, LR · TD and find state — no rail, the host's tables never narrowed (#1346). */
-const LADDER = "freshness>1 orientation>1 seek>1";
+/** The fold ladder: the rail's chips one at a time, its summary, the freshness chip, LR · TD, find state, then the history. */
+const LADDER = [
+    ...Array.from({ length: 9 }, (_, i) => `record-slices>${i + 1}`), "record-summary>1",
+    "freshness>1", "orientation>1", "seek>1", "seek>2", "orientation>2", "history>1",
+].join(" ");
 
 /** Open the depot's flowchart, at rest, and return its root: the box its frame fills. */
 async function openDepot(page: Page, theme: "light" | "dark" = "light"): Promise<Locator> {
@@ -59,7 +59,7 @@ async function sizeTo(page: Page, root: Locator, width: number, height?: number)
     await settled(page);
 }
 
-/** What the toolbar says of itself: each item's form, the ladder, how many steps it took, and what runs past its row. */
+/** What the toolbar says of itself: each item's form, the ladder, how many steps it took, and what lies past its row. */
 function toolbarOf(root: Locator) {
     return root.evaluate((el) => {
         const band = el.querySelector("[data-frame-slot='toolbar']")!;
@@ -90,8 +90,8 @@ function toolbarOf(root: Locator) {
 test.describe("The Flowchart's frame (#1245)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width; the phone's below");
 
-    for (const theme of ["light", "dark"] as const) {
-        test(`a borderless frame filling its box: one 44px toolbar row, the canvas filling main, the inspector's rail at its end, the footer along the foot, no eyebrow (${theme})`, async ({ page }) => {
+    for (const theme of LAYOUT_THEMES) {
+        test(`a borderless frame filling its box: one 44px toolbar row, the canvas filling main, the library's rail at its start and the inspector's at its end, the footer along the foot, no eyebrow (${theme})`, async ({ page }) => {
             const root = await openDepot(page, theme);
             await expect.poll(() => root.evaluate((el) => {
                 const round = (n: number) => Math.round(n * 10) / 10;
@@ -116,12 +116,10 @@ test.describe("The Flowchart's frame (#1245)", () => {
                     body: at("[data-frame-slot='main'] > [data-flowchart-body]"),
                     footer: at("[data-frame-slot='footer']"),
                     eyebrows: el.querySelectorAll("[data-flowchart-eyebrow]").length,
-                    // Read only: no gesture's control, and no history item (#1247).
-                    gestures: el.querySelectorAll("[data-flowchart-addlane], [data-flowchart-lane-delete], [data-flowchart-band], [data-toolbar-item='history']").length,
                     w: round(f.width),
                     h: round(f.height),
                 };
-            })).toEqual(expect.objectContaining({ root: [0, 0, 0, 0], frame: [0, 0, 0, 0], border: Array.from({ length: 8 }, () => "0px"), rows: 1, eyebrows: 0, gestures: 0 }));
+            })).toEqual(expect.objectContaining({ root: [0, 0, 0, 0], frame: [0, 0, 0, 0], border: Array.from({ length: 8 }, () => "0px"), rows: 1, eyebrows: 0 }));
             const read = await root.evaluate((el) => {
                 const f = el.querySelector("[data-builder-frame]")!.getBoundingClientRect();
                 const at = (sel: string) => {
@@ -130,23 +128,26 @@ test.describe("The Flowchart's frame (#1245)", () => {
                 };
                 return {
                     w: Math.round(f.width), h: Math.round(f.height), toolbar: at("[data-frame-slot='toolbar']"), main: at("[data-frame-slot='main']"),
-                    body: at("[data-flowchart-body]"), end: at("[data-frame-slot='end']"), footer: at("[data-frame-slot='footer']"),
+                    body: at("[data-flowchart-body]"), start: at("[data-frame-slot='start']"), end: at("[data-frame-slot='end']"), footer: at("[data-frame-slot='footer']"),
                     mode: el.querySelector("[data-frame-slot='end']")!.getAttribute("data-pane-mode"),
                 };
             });
             expect(read.toolbar).toEqual([0, 0, read.w, 44]);
             expect(read.footer).toEqual([0, read.h - 38, read.w, 38]);
-            // The inspector, on by default (#1250): too narrow a frame to pin it beside main, its 44px rail at main's end.
+            // The library and the inspector, each on by default (#1250): too narrow a frame to pin either beside main, a
+            // 44px rail at each of its ends.
+            expect(read.start).toEqual([0, 44, 44, read.h - 44 - 38]);
             expect([read.mode, read.end]).toEqual(["overlay", [read.w - 44, 44, 44, read.h - 44 - 38]]);
-            expect(read.main).toEqual([0, 44, read.w - 44, read.h - 44 - 38]);
+            expect(read.main).toEqual([44, 44, read.w - 88, read.h - 44 - 38]);
             expect(read.body).toEqual(read.main);
         });
 
-        test(`the toolbar folds by one ladder — the freshness chip, LR · TD into its chip, find state into its icon — one row at every width from 1440px to 240px, nothing past its edge (${theme})`, async ({ page }) => {
+        test(`the toolbar folds by one ladder — the rail's chips and its summary, the freshness chip, LR · TD into its chip, find state into its icon, the history — one row at every width from 1920px to 600px, nothing past its edge (${theme})`, async ({ page }) => {
+            // The page wide enough to hold the widest frame.
+            await page.setViewportSize({ width: 2160, height: 1080 });
             const root = await openDepot(page, theme);
             const seen: { row: number; folds: number }[] = [];
-            // With no rail the row keeps LR · TD and find state whole down to some 300px: the sweep runs on until each folds.
-            for (const width of [1440, 1200, 1000, 800, 640, 600]) {
+            for (const width of [1920, 1440, 1200, 1000, 800, 640, 600]) {
                 await sizeTo(page, root, width);
                 const bar = await toolbarOf(root);
                 expect(bar.ladder).toBe(LADDER);
@@ -165,7 +166,7 @@ test.describe("The Flowchart's frame (#1245)", () => {
         });
     }
 
-    test("the canvas scrolls both ways inside main, its lanes running main's whole height; the toolbar and the footer stay put", async ({ page }) => {
+    test("the canvas scrolls both ways inside main, its lanes filling main's whole height; the toolbar and the footer stay put", async ({ page }) => {
         const root = await openDepot(page);
         // At rest, the lanes run main's whole height.
         await expect.poll(() => root.evaluate((el) => {
@@ -223,14 +224,15 @@ test.describe("The Flowchart's frame (#1245)", () => {
 test.describe("The Flowchart's frame on a phone and on a touch screen (#1245)", () => {
     test.skip(({ isMobile }) => !isMobile, "the phone projects");
 
-    for (const theme of ["light", "dark"] as const) {
-
-        test(`on a touch screen 1920px wide the row holds every item unfolded, in its 44px band, nothing past its edge (${theme})`, async ({ page }) => {
+    for (const theme of LAYOUT_THEMES) {
+        test(`on a touch screen 1920px wide the row folds the rail alone — its chips, then its summary — every other item whole, in its 44px band, nothing past its edge (${theme})`, async ({ page }) => {
             await page.setViewportSize({ width: 1920, height: 1000 });
             const root = await openDepot(page, theme);
             const bar = await toolbarOf(root);
-            expect([bar.band, bar.rows, bar.past, bar.folds]).toEqual([44, 1, [], 0]);
+            expect([bar.band, bar.rows, bar.past]).toEqual([44, 1, []]);
             expect(bar.ladder).toBe(LADDER);
+            const folded = LADDER.split(" ").slice(0, bar.folds);
+            expect(folded.every((step) => step.startsWith("record-")), `folded: ${folded.join(" ")}`).toBe(true);
         });
     }
 });
