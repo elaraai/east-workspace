@@ -14,13 +14,14 @@
  * In a phone's frame it is the toolbar's second row (`phone`, `Mobile Builder
  * Frame Spec.md` FR6, FR8): the drafts' count at its start, then the issues —
  * there whatever their number, off at none — and the four buttons at touch
- * size, Save filled while it would save; Discard asks first, in a popover
- * hanging from it, never a dialog.
+ * size, Save filled while it would save; Discard asks first, in the band
+ * under the row (ruled 4 Nov 2026: no anchored popover on a phone), never a dialog.
  *
  * @packageDocumentation
  */
-import { useMemo, useState, type ReactNode } from "react";
-import { Box, chakra, Portal, Text, Tooltip, useRecipe, useSlotRecipe } from "@chakra-ui/react";
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
+import { createPortal } from "react-dom";
+import { Box, chakra, Portal, Text, Tooltip, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRotateLeft, faArrowRotateRight, faCheck, faRotate, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
@@ -30,7 +31,8 @@ import type { EditIssue, EditSession } from "./session.js";
 import { ConflictsControl } from "./conflicts.js";
 import { useDraftsKeeping } from "./keep.js";
 import { sessionErrorText, type EditingWords } from "./messages.js";
-import { SliceEditPopover } from "../slice/edit/index.js";
+import { FrameSessionBand } from "../layout/builder-frame/session-row.js";
+import { layerOpen } from "../layout/builder-frame/view-escape.js";
 
 /** A history bar action. */
 export type HistoryAction = "undo" | "redo" | "discard" | "apply" | "refresh";
@@ -115,13 +117,17 @@ export interface HistoryBarProps<W> {
 }
 
 /** Keep an accessible name and a hover/focus tooltip when the control has no text. */
-function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onClick, ready, content }: {
+function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onClick, ready, content, expanded, buttonRef }: {
     label: string; tip?: string | undefined; icon: IconDefinition; disabled: boolean; locked: boolean;
     styles: Styles; onClick: () => void;
     /** Save while it would save: filled, on a phone. */
     ready?: boolean | undefined;
     /** What it shows in place of its icon: the live dot while a Save is out, on a phone. */
     content?: ReactNode;
+    /** Whether what it opens shows: Discard's question, on a phone. */
+    expanded?: boolean | undefined;
+    /** The button: where the focus goes back to as what it opened closes. */
+    buttonRef?: Ref<HTMLButtonElement> | undefined;
 }) {
     const iconRecipe = useRecipe({ key: "iconButton" });
     const iconStyles = iconRecipe({ size: "sm", variant: "outline" });
@@ -132,7 +138,7 @@ function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onC
     return <Tooltip.Root openDelay={250}>
         <Tooltip.Trigger asChild>
             <span>
-                <chakra.button type="button" css={[iconStyles, styles.button]} aria-label={label}
+                <chakra.button ref={buttonRef} type="button" css={[iconStyles, styles.button]} aria-label={label} aria-expanded={expanded}
                     disabled={disabled && !focused} aria-disabled={locked || held ? true : undefined} data-ready={ready === true ? "" : undefined}
                     onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
                     onMouseDown={event => event.preventDefault()} onClick={locked || disabled ? undefined : onClick}>
@@ -145,6 +151,42 @@ function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onC
 }
 
 /**
+ * A phone's Discard asking first (FR8): the design's words and its two buttons,
+ * the focus on Cancel as it opens; Esc is Cancel, wherever the focus is.
+ */
+function DiscardAsk({ head, title, body, cancel, confirm, styles, confirmCss, cancelCss, onCancel, onConfirm }: {
+    head: string; title: string; body: string; cancel: string; confirm: string; styles: Styles;
+    confirmCss: SystemStyleObject; cancelCss: SystemStyleObject; onCancel: () => void; onConfirm: () => void;
+}) {
+    const cancelRef = useRef<HTMLButtonElement | null>(null);
+    const onEscape = useRef(onCancel);
+    onEscape.current = onCancel;
+    useEffect(() => {
+        const frame = requestAnimationFrame(() => cancelRef.current?.focus({ preventScroll: true }));
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key !== "Escape" || layerOpen()) return;
+            event.preventDefault();
+            event.stopPropagation();
+            onEscape.current();
+        };
+        document.addEventListener("keydown", onKeyDown, true);
+        return () => {
+            cancelAnimationFrame(frame);
+            document.removeEventListener("keydown", onKeyDown, true);
+        };
+    }, []);
+    return <Box css={styles.ask} role="group" aria-label={head} data-history-discard-ask="">
+        <Box css={styles.askHead}>{head}</Box>
+        <Box css={styles.askTitle}>{title}</Box>
+        <Box css={styles.askBody}>{body}</Box>
+        <Box css={styles.askActions}>
+            <chakra.button ref={cancelRef} type="button" css={[cancelCss, styles.askButton]} onClick={onCancel}>{cancel}</chakra.button>
+            <chakra.button type="button" css={[confirmCss, styles.askButton]} data-history-discard-confirm="" onClick={onConfirm}>{confirm}</chakra.button>
+        </Box>
+    </Box>;
+}
+
+/**
  * The history bar: a visible serial apply state, where a failed refresh and a
  * write of unknown outcome each have their own retry.
  *
@@ -154,8 +196,10 @@ function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onC
  */
 export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onConflict, conflictItem, conflictValue, where, issueText, buttonsOnly = false, showError = true, locked = false, phone = false }: HistoryBarProps<W>) {
     const buttonRecipe = useRecipe({ key: "button" });
-    // A phone's Discard asks first (FR8): its question hangs from it.
+    // A phone's Discard asks first (FR8), in the band under the row.
     const [asking, setAsking] = useState(false);
+    const band = useContext(FrameSessionBand);
+    const discardRef = useRef<HTMLButtonElement | null>(null);
     const recipe = useSlotRecipe({ key: "editHistory" });
     const styles = useMemo(() => recipe({}) as unknown as Styles, [recipe]);
     const { m } = words;
@@ -179,8 +223,13 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onCo
     const discardOff = !session.canDiscard || (pending === 0 && !commitEditor);
     const saveOff = !waiting && status !== "unknown" && !session.canApply && !commitEditor;
     if (phone) {
-        const discard = <HistoryButton styles={styles} label={m.discard()} tip={m.discardTip()} icon={faXmark} disabled={discardOff} locked={locked}
-            onClick={() => setAsking(true)} />;
+        const askingNow = asking && !discardOff;
+        // The focus back on Discard before what holds it goes.
+        const stopAsking = () => { discardRef.current?.focus({ preventScroll: true }); setAsking(false); };
+        const ask = askingNow && <DiscardAsk head={m.discardAskHead()} title={m.discardAskTitle({ n: pending, count: words.number(pending) })} body={m.discardAskBody()}
+            cancel={m.discardAskCancel()} confirm={m.discardAskConfirm()} styles={styles}
+            cancelCss={buttonRecipe({ variant: "outline", size: "md" })} confirmCss={buttonRecipe({ variant: "solid", size: "md" })}
+            onCancel={stopAsking} onConfirm={() => { stopAsking(); onAction("discard"); }} />;
         return <Box data-slot="history" data-history-form="phone" data-history-locked={locked ? "" : undefined} css={styles.root}>
             <Box css={styles.actions}>
                 {/* The row's start: what a Save is doing, else the drafts' count — a chip while there are any. */}
@@ -194,15 +243,8 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onCo
                     icon={faTriangleExclamation} disabled={n === 0} onClick={() => { if (issues[0]) onIssue(issues[0]); }} />
                 <HistoryButton styles={styles} label={m.undo()} tip={m.undoTip()} icon={faArrowRotateLeft} disabled={!session.canUndo && !commitEditor} locked={locked} onClick={() => onAction("undo")} />
                 <HistoryButton styles={styles} label={m.redo()} tip={m.redoTip()} icon={faArrowRotateRight} disabled={!session.canRedo} locked={locked} onClick={() => onAction("redo")} />
-                <SliceEditPopover open={asking && !discardOff} onOpenChange={setAsking} anchor={discard} label={m.discardAskHead()} still
-                    footActions={<>
-                        <chakra.button type="button" css={[buttonRecipe({ variant: "outline", size: "md" }), styles.askButton]} onClick={() => setAsking(false)}>{m.discardAskCancel()}</chakra.button>
-                        <chakra.button type="button" css={[buttonRecipe({ variant: "solid", size: "md" }), styles.askButton]} data-history-discard-confirm=""
-                            onClick={() => { setAsking(false); onAction("discard"); }}>{m.discardAskConfirm()}</chakra.button>
-                    </>}>
-                    <Box css={styles.askTitle}>{m.discardAskTitle({ n: pending, count: words.number(pending) })}</Box>
-                    <Box css={styles.askBody}>{m.discardAskBody()}</Box>
-                </SliceEditPopover>
+                <HistoryButton styles={styles} label={m.discard()} tip={m.discardTip()} icon={faXmark} disabled={discardOff} locked={locked} expanded={askingNow} buttonRef={discardRef}
+                    onClick={() => setAsking(!asking)} />
                 {status === "reconciling" ? <HistoryButton styles={styles} label={m.retryRefresh()} icon={faRotate} disabled={false} locked={locked} onClick={() => onAction("refresh")} />
                     : <HistoryButton styles={styles} label={status === "unknown" ? m.retryRequest() : m.apply()}
                         tip={waiting ? m.applySettleFirst({ n: unsettled, count: words.number(unsettled) }) : undefined}
@@ -210,6 +252,7 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onCo
                         content={status === "applying" ? <Box as="span" css={styles.live} aria-hidden /> : undefined}
                         locked={locked || waiting} onClick={() => onAction("apply")} />}
             </Box>
+            {ask !== false && (band !== null ? createPortal(ask, band) : ask)}
         </Box>;
     }
     return <Box data-slot="history" data-history-form={buttonsOnly ? "buttons" : "full"} data-history-locked={locked ? "" : undefined} css={styles.root}>

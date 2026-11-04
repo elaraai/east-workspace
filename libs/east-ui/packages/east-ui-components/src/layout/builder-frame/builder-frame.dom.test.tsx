@@ -554,7 +554,7 @@ describe("BuilderFrame — a phone's frame (Mobile Builder Frame Spec.md FR1, FR
         expect(frame().hasAttribute("data-phone")).toBe(true);
         // No status given: the footer stays, its loading line has no other home. Each pane is a view over the whole
         // builder, at the frame's root, and the overlay slot over every region.
-        expect([regions(), across()]).toEqual([["toolbar", "sessionRow", "body", "paneStrip", "footer", "start", "end", "overlay"], ["main"]]);
+        expect([regions(), across()]).toEqual([["toolbar", "sessionRow", "sessionBand", "body", "bottomPanel", "paneStrip", "footer", "start", "end", "overlay"], ["main"]]);
         expect([...slot("toolbar").querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"))).toEqual(["name"]);
         expect(slot("sessionRow").textContent).toBe("EYE ROWHISTORY ROW");
         frameAt(561);
@@ -577,7 +577,7 @@ describe("BuilderFrame — a phone's frame (Mobile Builder Frame Spec.md FR1, FR
     test("a footer with no loading line stays a phone's, and the row is drawn for the footer's line even with no item of its own", () => {
         mount({ footer: <div>STATUS</div> });
         frameAt(390);
-        expect([regions(), slot("footer").querySelector("[data-footer-line-moved]")]).toEqual([["sessionRow", "body", "footer", "overlay"], null]);
+        expect([regions(), slot("footer").querySelector("[data-footer-line-moved]")]).toEqual([["sessionRow", "sessionBand", "body", "bottomPanel", "footer", "overlay"], null]);
     });
 
     test("each described pane is a tab of the strip — its icon, its label and its detail or badge — and opens as a drawer from it; again, it closes, the focus back on the tab", async () => {

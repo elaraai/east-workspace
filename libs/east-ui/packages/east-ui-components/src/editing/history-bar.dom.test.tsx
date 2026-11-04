@@ -160,14 +160,14 @@ test("a phone's form (Mobile Builder Frame Spec.md FR6): the drafts' count first
     expect(ui.getByRole("button", { name: "⟦Save" }).hasAttribute("data-ready")).toBe(true);
 });
 
-test("a phone's Discard asks first, in a popover hanging from it (FR8, never a dialog): Cancel keeps the drafts, Discard changes is the collection's to run", async () => {
+test("a phone's Discard asks first, in the band under its row (FR8, no popover, never a dialog): Cancel keeps the drafts, Discard changes is the collection's to run", async () => {
     const ui = setup(false, true);
     ui.session.record([{ id: "a", before: version(1n), after: version(4n) }], "resize", "Resize a");
     ui.refresh();
     await act(async () => { fireEvent.click(ui.getByRole("button", { name: "⟦Discard" })); });
     expect(ui.onAction).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain(`⟦${editingMessages.discardAskTitle({ n: 1, count: "1" })}`);
-    expect(document.querySelector('[role="dialog"][aria-modal="true"]')).toBeNull();
+    expect(document.querySelector('[role="dialog"], [data-scope="popover"]')).toBeNull();
     await act(async () => { fireEvent.click(ui.getByRole("button", { name: "⟦Cancel" })); });
     expect(ui.onAction).not.toHaveBeenCalled();
     await act(async () => { fireEvent.click(ui.getByRole("button", { name: "⟦Discard" })); });

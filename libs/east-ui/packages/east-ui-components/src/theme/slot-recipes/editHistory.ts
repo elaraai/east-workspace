@@ -24,7 +24,10 @@
  * its start (`No changes` mono 11 `fg.subtle`, or a `brandTint` chip mono
  * 11/600 in `brandPressed`), shown whole or not at all, then 44px outline squares with a 16px icon, Save
  * filled `brand.solid` while it would save and a live dot in its place while
- * one is out; Discard's question below it, its title DM Sans 20/700.
+ * one is out; Discard's question in the band under the row (FR8, ruled 4 Nov
+ * 2026): `--paper-2` over a `--rule-strong`, padded 12 16 16, its eyebrow mono
+ * caps, its title DM Sans 20/700, its body 13 `--ink-2`, Cancel and Discard
+ * changes equal 44 halves; Discard on the third paper while it asks.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
@@ -33,7 +36,7 @@ import { wholeOrNone } from "../../style/whole-or-none.js";
 export const editHistorySlotRecipe = defineSlotRecipe({
     className: "elara-edit-history",
     slots: ["root", "actions", "status", "button", "issues", "conflicts", "conflictsCount", "error", "notice", "bannerIssues", "bannerIssue",
-        "summary", "changes", "live", "askTitle", "askBody", "askButton"],
+        "summary", "changes", "live", "ask", "askHead", "askTitle", "askBody", "askActions", "askButton"],
     base: {
         root: {
             flexShrink: "0",
@@ -67,6 +70,7 @@ export const editHistorySlotRecipe = defineSlotRecipe({
                 borderColor: "border.strong", background: "bg.surface", color: "fg", "& svg": { fontSize: "16px" },
                 "&:disabled, &[aria-disabled=true]": { borderColor: "border.subtle", color: "fg.faint", opacity: 1 },
                 "&[data-ready]": { background: "brand.solid", borderColor: "brand.solid", color: "brand.contrast" },
+                "&[aria-expanded=true]": { background: "bg.subtle" },
             },
             // Locked while a run of the app's optimiser is out (#1409, R2): the disabled look, the control kept.
             "&[aria-disabled=true]": { color: "fg.muted", cursor: "not-allowed", opacity: 0.5 },
@@ -85,7 +89,7 @@ export const editHistorySlotRecipe = defineSlotRecipe({
             "& svg": { color: "status.warn", fontSize: "14px" },
             // Every one chosen, its popover still open: the icon alone, in the ink of a settled control.
             "&[data-settled] svg": { color: "fg.muted" },
-            "&[data-state=open]": { background: "bg.subtle" },
+            "&[data-state=open], &[aria-expanded=true]": { background: "bg.subtle" },
         },
         conflictsCount: { fontFamily: "mono", fontSize: "11px", fontWeight: "semibold", color: "fg.warning", fontVariantNumeric: "tabular-nums" },
         error: {
@@ -122,9 +126,15 @@ export const editHistorySlotRecipe = defineSlotRecipe({
                 _motionReduce: { animation: "none" },
             },
         },
+        ask: {
+            display: "flex", flexDirection: "column", gap: "{spacing.2}", paddingTop: "12px", paddingX: "16px", paddingBottom: "16px",
+            background: "bg.canvas", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.strong",
+        },
+        askHead: { fontFamily: "mono", fontSize: "label.sm", fontWeight: "600", letterSpacing: "0.14em", textTransform: "uppercase", color: "fg.subtle" },
         askTitle: { fontFamily: "heading", fontSize: "title.lg", fontWeight: "700", letterSpacing: "-0.015em", color: "fg", lineHeight: "1.2" },
         askBody: { fontSize: "body", color: "fg.strong", lineHeight: "1.5" },
-        askButton: { minHeight: "44px" },
+        askActions: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "{spacing.2}", marginTop: "{spacing.1}" },
+        askButton: { minHeight: "44px", width: "100%" },
         /* An Apply's issues in a banner's body: one to a line, unmarked. */
         bannerIssues: {
             display: "flex",

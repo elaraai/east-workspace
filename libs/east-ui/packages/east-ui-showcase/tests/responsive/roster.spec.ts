@@ -207,6 +207,27 @@ for (const theme of LAYOUT_THEMES) {
         const entry = await open(page, 'rosterMobile', theme), frame = entry.locator('[data-roster-frame]').first();
         const card = frame.locator('[data-roster-card="s37"]');
         await card.getByRole('button', { name: 'Remove', exact: true }).click();
+        // Discard asks in the band under the session row (FR8), main giving way, no popover: Esc and Cancel keep the drafts.
+        const discard = frame.getByRole('button', { name: 'Discard', exact: true });
+        await discard.click();
+        const ask = frame.locator('[data-frame-slot="sessionBand"] [data-history-discard-ask]');
+        await expect(ask).toBeVisible();
+        await expect(discard).toHaveAttribute('aria-expanded', 'true');
+        await expect(page.locator('[data-scope="popover"][data-part="content"][data-state="open"]')).toHaveCount(0);
+        expect(await ask.evaluate(el => {
+            const a = el.getBoundingClientRect(), row = document.querySelector('[data-frame-slot="sessionRow"]')!.getBoundingClientRect();
+            const body = el.closest('[data-builder-frame]')!.querySelector('[data-frame-slot="body"]')!.getBoundingClientRect();
+            const halves = [...el.querySelectorAll('button')].map(b => b.getBoundingClientRect());
+            return { under: Math.abs(a.top - row.bottom) < 1, gives: body.top >= a.bottom - 1, tall: halves.every(b => b.height >= 44), equal: Math.abs(halves[0]!.width - halves[1]!.width) < 1 };
+        })).toEqual({ under: true, gives: true, tall: true, equal: true });
+        await page.keyboard.press('Escape');
+        await expect(ask).toHaveCount(0);
+        await expect(discard).toBeFocused();
+        await expect(card).toHaveAttribute('data-drafted', '');
+        await discard.click();
+        await ask.getByRole('button', { name: 'Cancel', exact: true }).click();
+        await expect(ask).toHaveCount(0);
+        await expect(card).toHaveAttribute('data-drafted', '');
         await view(page, frame, 'People');
         await expect(frame.locator('[data-roster-agenda="people"]')).toBeVisible();
         await expect(card).toHaveAttribute('data-drafted', '');

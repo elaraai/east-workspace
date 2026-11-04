@@ -83,7 +83,7 @@ Versus production: the start and end panes are 44 px side rails that open as 320
 - Head 44: the label in mono caps, ⌄ close 44 at its end. Body at touch size; a list edge to edge. Foot: the actions, 44 tall, at its end.
 - **FR9.1** Main, or the pane open over the builder, gives way above it, and the trigger is scrolled back into view. A pane's panel lies at the foot of the pane's own view.
 - **FR9.2** ⌄, Esc, an action and a tap anywhere else close it; so one is open at a time. A scroll of main does not. Esc closes the panel, not the pane under it.
-- **FR9.3** The toolbar's popovers stay views (FR7), Discard's stays anchored (FR8), and past 560 px every one stays the popover it was. The Sheet's own bar, Studio and the query builder do not take the frame's panel.
+- **FR9.3** The toolbar's popovers stay views (FR7), Discard asks in its band (FR8), the session row's conflicts open in main's panel in every builder, and past 560 px every one stays the popover it was. The Sheet's own bar, Studio and the query builder do not take the frame's panel for main.
 
 ## 6 · Session row (FR6) and Discard (FR8)
 
@@ -101,7 +101,7 @@ Versus production: the same five sit at the end of the toolbar's one row at 24�
 
 **FR8. Discard asks first.** Discard confirms before it clears the drafts and their history: eyebrow `Can't be undone`, title `Discard 3 draft changes?` (DM Sans 20/700), body `The drafts and their history go. The orders stay as they were when this session started.`, then Cancel (Default 44) and Discard changes (Primary 44). Cancel keeps the drafts; Discard changes clears them.
 
-The design draws this as a centred `<Dialog>` over a veil. **East has no dialogs** (east-ui CLAUDE.md, "Where the code departs from the design system"): confirmations are anchored popovers built from the design system's popover card. The proposal here keeps the copy and the buttons and anchors them to the Discard button, dropping from the session row (§9, R1).
+The design draws this as a centred `<Dialog>` over a veil. **East has no dialogs** (east-ui CLAUDE.md, "Where the code departs from the design system"): confirmations are anchored popovers built from the design system's popover card. It asks in a band under the session row instead (revised 4 Nov 2026, §9, R1): `--paper-2` over a 1 px `--rule-strong`, padded 12 16 16, Cancel and Discard changes as equal 44 halves, what is below giving way; Discard stays on `--paper-3` while it asks.
 
 ## 7 · Every builder, not only the Sheet
 
@@ -126,7 +126,7 @@ Every recommendation below is adopted. R3, R6 with R1–R2 were put to the user 
 
 | # | Question | The design | Production / rule | Ruled |
 |---|---|---|---|---|
-| R1 | Discard's confirmation | A centred `<Dialog>` | No dialogs, ever; confirmations are anchored popovers | An anchored popover from Discard, the design's copy and buttons |
+| R1 | Discard's confirmation | A centred `<Dialog>` | No dialogs, ever; confirmations are anchored popovers | A band under the session row, the design's copy and buttons (ruled 4 Nov 2026, in place of the anchored popover: no desktop-style popovers on a phone) |
 | R2 | Does Discard confirm at all? | Yes | Discard acts at once; Undo cannot bring it back | Confirm on a phone only, where a mis-tap is likely |
 | R3 | Scope of the frame changes (FR1, FR4–FR6) | Drawn on the Sheet | One frame for every builder | Every builder at ≤560 px, so the phone frame is one thing |
 | R4 | Where the Elara eye goes | Not drawn | Before the history item, never out of the toolbar | Into the session row, before Issues, a 44 px square like its neighbours — from a 312 px frame up (padding 16 + 12, six 44 px buttons, five 4 px gaps); below that it stays in the first row and folds there as before, into the View where the floor needs its room (ruled 3 Nov 2026) |

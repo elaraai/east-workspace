@@ -80,7 +80,9 @@
  * - in a frame given `phonePanel`, what main's popovers and an open pane's open
  *   draws in the bottom panel, in the flow above the strip, as the Sheet's
  *   action bar stands ({@link FrameBottomPanel}, FR9): main, or the pane, gives
- *   way to it. The toolbar's stay views, and Discard's stays anchored.
+ *   way to it. The toolbar's stay views. The second row's own conflicts open
+ *   in main's panel whichever frame it is, and Discard asks in a band under the
+ *   row ({@link FrameSessionBand}, FR8): a phone has no anchored popovers.
  *
  * @packageDocumentation
  */
@@ -94,7 +96,7 @@ import { Box, chakra, Skeleton, type SystemStyleObject } from "@chakra-ui/react"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { useFormatters } from "../../format/index.js";
-import { SessionRowSlot } from "./session-row.js";
+import { FrameSessionBand, SessionRowSlot } from "./session-row.js";
 import { useViewEscape } from "./view-escape.js";
 import { FrameOverlaySlot } from "./overlay-slot.js";
 import { FrameDrawer } from "./drawer-context.js";
@@ -108,7 +110,7 @@ import {
     MIN_MAIN, NARROW_FRAME, paneWidths, placePanes, type PaneMode, type PanePlacement, type PanePlacements, type PaneWeight, type PaneWidths,
 } from "./place.js";
 
-export { SessionRowSlot } from "./session-row.js";
+export { FrameSessionBand, SessionRowSlot } from "./session-row.js";
 
 /** A phone form's `version`: back on a wider row, what the toolbar measured of it says nothing of the item's own forms. */
 const PHONE_FORM = "phone";
@@ -534,6 +536,8 @@ export function BuilderFrame(props: BuilderFrameProps) {
     const [mainPanel, setMainPanel] = useState<HTMLElement | null>(null);
     const [startPanel, setStartPanel] = useState<HTMLElement | null>(null);
     const [endPanel, setEndPanel] = useState<HTMLElement | null>(null);
+    // The band under the second row, where its items ask something (FR8).
+    const [sessionBand, setSessionBand] = useState<HTMLElement | null>(null);
     const panelOf = (slot: HTMLElement | null) => (phone && phonePanel === true && !covered ? slot : null);
     const sessionRow = phone && (secondRow.length > 0 || given(footer));
     /** Whether a side's pane is a drawer: a described pane that collapses, on a phone — one that never does stays pinned. */
@@ -766,9 +770,14 @@ export function BuilderFrame(props: BuilderFrameProps) {
             {sessionRow && (
                 <Box css={styles.sessionRow} data-frame-slot="sessionRow" inert={covered} aria-hidden={covered ? true : undefined}>
                     <Box ref={setStatusSlot} css={styles.sessionStatus} data-session-status="" />
-                    {secondRow.map(({ key, node }) => <Fragment key={key}>{node}</Fragment>)}
+                    <FrameSessionBand.Provider value={!covered ? sessionBand : null}>
+                        <FrameBottomPanel.Provider value={!covered ? mainPanel : null}>
+                            {secondRow.map(({ key, node }) => <Fragment key={key}>{node}</Fragment>)}
+                        </FrameBottomPanel.Provider>
+                    </FrameSessionBand.Provider>
                 </Box>
             )}
+            {sessionRow && <Box ref={setSessionBand} css={styles.sessionBand} data-frame-slot="sessionBand" />}
             {given(banners) && <Box css={styles.banners} data-frame-slot="banners" inert={covered} aria-hidden={covered ? true : undefined}>{banners}</Box>}
             <Box css={styles.body} data-frame-slot="body" inert={covered} aria-hidden={covered ? true : undefined}>
                 {start !== undefined && !drawn("start") && pane("start", start)}
@@ -779,7 +788,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
                 </Box>
                 {end !== undefined && !drawn("end") && pane("end", end)}
             </Box>
-            {phone && phonePanel === true && <Box ref={setMainPanel} css={styles.bottomPanel} data-frame-slot="bottomPanel" />}
+            {phone && <Box ref={setMainPanel} css={styles.bottomPanel} data-frame-slot="bottomPanel" />}
             {strip.length > 0 && (
                 <Box css={styles.paneStrip} data-frame-slot="paneStrip" role="tablist" aria-label={label === undefined ? "Panes" : `${label} panes`}
                     inert={covered} aria-hidden={covered ? true : undefined}>

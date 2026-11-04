@@ -390,7 +390,8 @@ component, nothing in east-ui.
   its regions and gives main the frame's whole width. The items that draw a
   `secondRow` (`ToolbarItem.secondRow`: the history's phone form,
   `HistoryBar`'s `phone` — the drafts' count, Issues off at none, the four
-  buttons at 44px, Discard asking first in an anchored popover — and the
+  buttons at 44px, Discard asking first in a band under the row
+  (`FrameSessionBand`), its conflicts in the bottom panel — and the
   Elara eye before it) leave the first row for the toolbar's second row,
   44px, always shown. The footer's `LoadingLine` draws itself at that row's
   start in its short form (`SessionRowSlot`), the count stepping aside while
@@ -409,8 +410,7 @@ component, nothing in east-ui.
   the Roster, the Allocation: FR9) hears what main and an open pane open
   through `FrameBottomPanel`: `SliceEditPopover` draws in a slot in the flow
   over the strip, as the Sheet's action bar stands, what is above giving way,
-  rather than in a popover; the toolbar's stay views and Discard's stays
-  anchored. Every builder has a phone-sized example
+  rather than in a popover; the toolbar's stay views. Every builder has a phone-sized example
   (a 390px box) that the showcase's `builder-frame-phone.spec.ts` measures.
 - **Styles.** The `builderFrame` slot recipe owns every style the frame has.
   The frame sets data attributes (`data-builder-frame`, `data-frame-slot`,

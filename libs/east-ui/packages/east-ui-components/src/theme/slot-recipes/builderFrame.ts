@@ -72,7 +72,7 @@ const TOGGLE_MOTION = {
 export const builderFrameSlotRecipe = defineSlotRecipe({
     className: "elara-builder-frame",
     slots: ["root", "toolbar", "banners", "body", "pane", "sheet", "probe", "main", "scrim", "footer", "loading", "loadingBar", "loadingBody", "loadingRow", "loadingLine", "loadingCell", "loadingFooter",
-        "sessionRow", "sessionStatus", "paneStrip", "paneTab", "paneTabIcon", "paneTabLabel", "paneTabMeta", "paneTabMark", "drawer", "bottomPanel", "overlay"],
+        "sessionRow", "sessionStatus", "paneStrip", "paneTab", "paneTabIcon", "paneTabLabel", "paneTabMeta", "paneTabMark", "drawer", "bottomPanel", "sessionBand", "overlay"],
     base: {
         loading: { position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: "bg.surface", overflow: "hidden" },
         loadingBar: { gap: "{spacing.4}", "& > :last-child": { marginInlineStart: "auto" } },
@@ -235,6 +235,8 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             /* A row of no item of its own whose footer's line is idle: none. */
             "&:has(> [data-session-status]:only-child):not(:has([data-footer-line]:not([data-idle])))": { display: "none" },
         },
+        /* Under the row, where its items ask something (FR8): nothing while nothing asks. */
+        sessionBand: { flex: "none", "&:empty": { display: "none" } },
         sessionStatus: {
             /* As tall as the row, so its clip spares a Retry's halo. */
             order: -2, flex: "1 1 auto", alignSelf: "stretch", minWidth: "0", display: "flex", alignItems: "center", overflow: "hidden",
