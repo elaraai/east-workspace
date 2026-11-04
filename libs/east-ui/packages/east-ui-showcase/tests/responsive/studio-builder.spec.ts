@@ -237,7 +237,189 @@ test.describe("Studio builder — its builder frame on a desktop (#1125 F3)", ()
     });
 });
 
-test.describe("Studio builder — its builder frame on a phone (#1125 F3)", () => {
+test.describe("Studio on a phone (`Studio Mobile Spec.md`)", () => {
     test.skip(({ isMobile }) => !isMobile, "measured on the phone");
 
+    /** The builder in its phone's frame, at rest. */
+    async function openPhone(page: Page): Promise<{ builder: Locator; frame: Locator }> {
+        // Wide enough for the example's own 390: a phone's frame is the frame's width, not the screen's.
+        await page.setViewportSize({ width: 470, height: 1000 });
+        await page.goto("/?theme=light#e3/studio/studio/studioBuilderMobile");
+        await page.waitForSelector("header", { timeout: 20_000 });
+        const entry = page.locator("[data-index]", { has: page.locator('a[href="#e3/studio/studio/studioBuilderMobile"]') });
+        await entry.scrollIntoViewIfNeeded();
+        const builder = entry.locator("[data-studio-builder]").first();
+        const frame = builder.locator("[data-builder-frame][data-phone]");
+        await expect(frame.locator("[data-snap-grid-tile]").first()).toBeVisible({ timeout: 20_000 });
+        await settled(page);
+        return { builder, frame };
+    }
+    /** What no popover may be, on this phone. */
+    const nothingFloats = (page: Page) => expect(page.locator('[data-scope="popover"][data-part="content"][data-state="open"], [data-scope="menu"][data-part="content"][data-state="open"]')).toHaveCount(0);
+
+    test("the first row by width (ST1–ST3), the canvas's stack and captions (ST8–ST10), no grid, no drag, no zoom (D1, D3); select, the bar, the stepper as one undo step (ST12–ST16)", async ({ page }) => {
+        const { builder, frame } = await openPhone(page);
+        expect(await frame.evaluate((root) => {
+            const bar = root.querySelector("[data-studio-phone-bar]")!.getBoundingClientRect();
+            const box = root.querySelector("[data-studio-preview] > span")!.getBoundingClientRect();
+            const target = root.querySelector("[data-studio-preview]")!.getBoundingClientRect();
+            const publish = root.querySelector("[data-studio-open-publish] > span")!.getBoundingClientRect();
+            const meter = root.querySelector("[data-span-meter]")!;
+            return {
+                bar: bar.height, box: box.height, target: target.height, fromEdge: Math.round(root.getBoundingClientRect().right - publish.right), template: root.querySelector("[data-studio-save-template]") !== null,
+                grid: root.querySelector("[data-snap-grid-ruler], [data-snap-grid-bands], [data-snap-grid-zoom], [data-snap-grid-widths], [data-draggable]") === null,
+                cells: meter.children.length,
+                caption: Math.round(root.querySelector("[data-tile-caption]")!.getBoundingClientRect().height),
+            };
+        })).toEqual({ bar: 44, box: 32, target: 44, fromEdge: 12, template: true, grid: true, cells: 12, caption: 24 });
+        // Below 372 Save as template is ⋯'s, whose view it goes straight to: nothing floats (ST3, ST27, ST28).
+        await builder.evaluate((root) => { (root as HTMLElement).style.width = "324px"; });
+        await settled(page);
+        await expect(frame.locator("[data-studio-save-template]")).toHaveCount(0);
+        const more = frame.locator("[data-studio-more]");
+        await more.click(); await settled(page);
+        await expect(frame.locator('[data-frame-slot="overlay"]').getByRole("textbox", { name: "Template name" })).toBeVisible();
+        await nothingFloats(page);
+        await page.keyboard.press("Escape"); await settled(page);
+        await builder.evaluate((root) => { (root as HTMLElement).style.width = ""; });
+        await settled(page);
+
+        // A tap selects: the bar under the page, the tile in sight above it; every control 44.
+        const tile = frame.locator("[data-snap-grid-tile]").nth(1);
+        await tile.click(); await settled(page);
+        const bar = frame.locator("[data-snap-grid-tile-bar]");
+        await expect(bar).toContainText("Row 2 · Orders by week");
+        await expect(frame.locator("[data-tile-consequence]")).toHaveText("Columns 1–8 of 12 · row 2 is full");
+        await expect(frame.locator("[data-span-plus]")).toBeDisabled();
+        expect(await frame.evaluate((root) => {
+            const inSight = root.querySelector("[data-selected]")!.getBoundingClientRect();
+            const main = root.querySelector("[data-snap-grid-phone-scroll]")!.getBoundingClientRect();
+            return { inSight: inSight.top >= main.top - 1 && inSight.bottom <= main.bottom + 1, targets: [...root.querySelectorAll("[data-snap-grid-tile-bar] button")].every((b) => b.getBoundingClientRect().height >= 42) };
+        })).toEqual({ inSight: true, targets: true });
+        // Two steps: one Undo; the value marked dirty.
+        await frame.locator("[data-span-minus]").click();
+        await frame.locator("[data-span-minus]").click();
+        await expect(frame.locator("[data-span-value]")).toHaveText("6 / 12");
+        await expect(frame.locator("[data-span-value]")).toHaveAttribute("data-dirty", "");
+        await expect(frame.locator("[data-tile-consequence]")).toHaveText("Columns 1–6 of 12 · 2 free in row 2");
+        await frame.locator('[data-frame-slot="sessionRow"]').getByRole("button", { name: "Undo" }).click();
+        await expect(frame.locator("[data-span-value]")).toHaveText("8 / 12");
+        // Again taps it off.
+        await tile.click();
+        await expect(bar).toHaveCount(0);
+    });
+
+    test("pick, then place: Move's outline, no slot in a full row, a slot's tap places and selects (ST17–ST20, D4); a card starts it and Inspector's Move too (ST21–ST24); Height a view, Save as template a view (ruled)", async ({ page }) => {
+        const { frame } = await openPhone(page);
+        // Row 2 is full: moving the row's first tile offers its own row only by its own span.
+        await frame.locator("[data-snap-grid-tile]").nth(1).click(); await settled(page);
+        await frame.locator("[data-span-minus]").click();
+        await frame.locator("[data-tile-move]").click(); await settled(page);
+        const outline = frame.locator("[data-snap-grid-outline]");
+        await expect(outline).toBeVisible();
+        await expect(frame.locator("[data-snap-grid-place-bar]")).toContainText("Moving · Orders by week");
+        // Row 1, full, has no slot; the count is what is drawn.
+        const slots = await outline.locator("[data-place-slot]").count();
+        await expect(frame.locator("[data-place-count]")).toContainText(`${slots} slots · span 7 of 12`);
+        await expect(outline.locator('[data-place-slot="join"]', { hasText: "row 1" })).toHaveCount(0);
+        expect(await outline.locator("[data-place-slot]").evaluateAll((all) => all.every((s) => s.getBoundingClientRect().height >= 44))).toBe(true);
+        // Its own row keeps it in place: Into row 2 only past the row's next tile.
+        await outline.locator('[data-place-slot="join"]', { hasText: "row 2" }).first().click(); await settled(page);
+        await expect(frame.locator("[data-snap-grid-tile-bar]")).toContainText("Orders by week");
+        await expect(outline).toHaveCount(0);
+        await frame.locator('[data-frame-slot="sessionRow"]').getByRole("button", { name: "Undo" }).click(); await settled(page);
+
+        // Components: the intro, no grips; a tap closes the view and starts placing; a slot adds it.
+        await frame.locator("[data-pane-tab='start']").click(); await settled(page);
+        const pane = frame.locator("[data-frame-drawer][data-open]");
+        await expect(pane.locator("[data-studio-intro]").first()).toContainText("Tap a component");
+        await expect(pane.locator("[data-drag-grip]")).toHaveCount(0);
+        expect(await pane.locator("[data-clickable]").evaluateAll((cards) => cards.filter((c) => (c as HTMLElement).offsetHeight > 0).every((c) => c.getBoundingClientRect().height >= 56))).toBe(true);
+        const before = await frame.locator("[data-snap-grid-tile]").count();
+        await pane.locator("[data-clickable]", { hasText: "Visits sparkline" }).click(); await settled(page);
+        await expect(frame.locator("[data-frame-drawer][data-open]")).toHaveCount(0);
+        await expect(frame.locator("[data-snap-grid-place-bar]")).toContainText("Adding · Visits sparkline");
+        await outline.locator('[data-place-slot="gap"]').last().click(); await settled(page);
+        await expect(frame.locator("[data-snap-grid-tile]")).toHaveCount(before + 1);
+        await expect(frame.locator("[data-snap-grid-tile-bar]")).toContainText("Visits sparkline");
+
+        // The Inspector: its row a readout, Move starts placing; Height a view of its options, nothing floating.
+        await frame.locator("[data-pane-tab='end']").click(); await settled(page);
+        const inspector = frame.locator("[data-frame-drawer][data-open]");
+        await expect(inspector.locator("[data-inspector-row]")).toHaveText(/of/);
+        await inspector.locator("[data-inspector-height]").click(); await settled(page);
+        await expect(frame.locator('[data-frame-slot="overlay"] [data-inspector-heights] [role=option]').first()).toBeVisible();
+        await nothingFloats(page);
+        await frame.locator('[data-frame-slot="overlay"] [role=option]', { hasText: "240 px" }).click(); await settled(page);
+        await expect(inspector.locator("[data-inspector-height]")).toContainText("240 px");
+        await inspector.locator("[data-inspector-move]").click(); await settled(page);
+        await expect(frame.locator("[data-frame-drawer][data-open]")).toHaveCount(0);
+        await expect(frame.locator("[data-snap-grid-place-bar]")).toContainText("Moving");
+        await frame.locator("[data-place-cancel]").click();
+        await expect(frame.locator("[data-snap-grid-place-bar]")).toHaveCount(0);
+    });
+
+    test("the preview in the builder's place: Page and Changes as Preview and Publish open them, Mobile first, the wireframes by name, the foot's stacking (ST5, ST30–ST33); a page of none and Save's band (ST34, ST36)", async ({ page }) => {
+        const { builder, frame } = await openPhone(page);
+        await frame.locator("[data-studio-preview]").click(); await settled(page);
+        const preview = builder.locator("[data-publish-phone]");
+        await expect(preview.locator('[data-publish-tab="page"]')).toHaveAttribute("aria-selected", "true");
+        await expect(preview.locator('[data-publish-device="mobile"]')).toHaveAttribute("aria-pressed", "true");
+        await expect(preview.locator("[data-snap-grid-cell]").first()).toBeVisible();
+        await preview.locator('[data-publish-device="desktop"]').click(); await settled(page);
+        await expect(preview.locator("[data-publish-wire]")).toContainText("Orders by week");
+        await preview.locator("[data-publish-exit]").click(); await settled(page);
+        await frame.locator("[data-studio-open-publish]").click(); await settled(page);
+        await expect(preview.locator('[data-publish-tab="changes"]')).toHaveAttribute("aria-selected", "true");
+        await expect(preview.locator("[data-publish-changes] li").first()).toBeVisible();
+        expect(await preview.evaluate((root) => {
+            const save = root.querySelector("[data-publish-save]")!.getBoundingClientRect();
+            const publish = root.querySelector("[data-publish-publish]")!.getBoundingClientRect();
+            return { save: save.height, publish: publish.height, sideBySide: Math.abs(save.top - publish.top) < 1 };
+        })).toEqual({ save: 44, publish: 44, sideBySide: true });
+        await builder.evaluate((root) => { (root as HTMLElement).style.width = "324px"; });
+        await settled(page);
+        expect(await preview.evaluate((root) => root.querySelector("[data-publish-publish]")!.getBoundingClientRect().top > root.querySelector("[data-publish-save]")!.getBoundingClientRect().bottom)).toBe(true);
+        await builder.evaluate((root) => { (root as HTMLElement).style.width = ""; });
+        await preview.locator("[data-publish-exit]").click(); await settled(page);
+
+        // A page of none: every tile removed, a draft; what to do, and Add a component.
+        const tiles = frame.locator("[data-snap-grid-tile]");
+        for (let left = await tiles.count(); left > 0; left--) {
+            await tiles.first().click();
+            await frame.locator("[data-tile-remove]").click();
+        }
+        await expect(frame.locator("[data-snap-grid-empty]")).toContainText("No components on");
+        await expect(frame.locator("[data-snap-grid-add]")).toBeVisible();
+        await frame.locator('[data-frame-slot="sessionRow"]').getByRole("button", { name: "Discard" }).click();
+        await frame.locator("[data-history-discard-confirm]").click(); await settled(page);
+        await expect(tiles.first()).toBeVisible();
+
+        // Save's band.
+        await tiles.nth(1).click(); await settled(page);
+        await frame.locator("[data-span-minus]").click();
+        await frame.locator('[data-frame-slot="sessionRow"]').getByRole("button", { name: "Save" }).click();
+        await expect(frame.locator("[data-snap-grid-saved-band]")).toHaveText("Saved 1 change");
+    });
+
+    test("a change that meets someone else's save waits: its frame dashed, Conflict in its caption, the band over the strip, the choices in the bottom panel with the tile bar out of their way (ST37, as built)", async ({ page }) => {
+        await page.setViewportSize({ width: 430, height: 1000 });
+        await page.goto("/?theme=light#e3/studio/studio/studioConflicts");
+        await page.waitForSelector("header", { timeout: 20_000 });
+        const entry = page.locator("[data-index]", { has: page.locator('a[href="#e3/studio/studio/studioConflicts"]') });
+        await entry.scrollIntoViewIfNeeded();
+        const frame = entry.locator("[data-builder-frame][data-phone]");
+        await expect(frame.locator("[data-snap-grid-tile]").first()).toBeVisible({ timeout: 20_000 });
+        await settled(page);
+        await frame.locator("[data-snap-grid-tile]").nth(1).click();
+        await frame.locator("[data-span-minus]").click();
+        await frame.locator("[data-span-minus]").click();
+        await entry.getByRole("button", { name: "Someone else saves" }).click();
+        await expect(frame.locator("[data-tile-conflict]")).toHaveText("Conflict");
+        expect(await frame.locator("[data-snap-grid-tile][data-conflict] > [data-snap-grid-phone-frame]").evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe("dashed");
+        await frame.locator("[data-banner-action=choose]").click(); await settled(page);
+        await expect(frame.locator("[data-frame-panel]")).toBeVisible();
+        await expect(frame.locator("[data-snap-grid-tile-bar]")).toBeHidden();
+        await expect(page.locator('[data-scope="popover"][data-part="content"][data-state="open"]')).toHaveCount(0);
+    });
 });

@@ -41,6 +41,12 @@
  * id asked once they land or cannot. The history shortcuts work anywhere in
  * the frame, the panes too.
  *
+ * In a frame of 560 px or narrower the canvas draws its phone form by itself
+ * ({@link SnapGridPhoneCanvas}, `Studio Mobile Spec.md`): one column of tiles,
+ * pick then place, the same session and gestures. Its toolbar is then the host's
+ * items and the history; a host adds the page's head and Add a component through
+ * `phone`.
+ *
  * @packageDocumentation
  */
 
@@ -58,10 +64,14 @@ import type { SnapGrid } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
+import { useSlotStyles } from "../../theme/slot-styles.js";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import type { ToolbarItem } from "../../toolbar/index.js";
 import { ChipMenu } from "../../toolbar/chip-menu.js";
 import { BuilderFrame, type BuilderFramePane } from "../builder-frame/index.js";
+import { NARROW_FRAME } from "../builder-frame/place.js";
+import { useContainerWidth } from "../../contracts/adaptive.js";
+import { SnapGridPhoneCanvas, type SnapGridPhoneOptions, type SnapGridPlacing } from "./phone.js";
 import { historyToolbarItem } from "../../editing/history-item.js";
 import { SessionBanners } from "../../editing/banners.js";
 import type { HistoryAction } from "../../editing/HistoryBar.js";
@@ -449,6 +459,8 @@ export interface SnapGridEditorProps {
     panes?: { start?: BuilderFramePane | undefined; end?: BuilderFramePane | undefined } | undefined;
     /** Draws a tile's content, as React — in place of its East content. */
     renderContent?: ((cell: SnapGridEditorCell) => ReactNode) | undefined;
+    /** What a host says of the page on a phone, and does there ({@link SnapGridPhoneOptions}). The canvas's phone form needs none. */
+    phone?: SnapGridPhoneOptions | undefined;
 }
 
 /**
@@ -458,10 +470,11 @@ export interface SnapGridEditorProps {
  * @param props - The value, its storage key and any host toolbar items
  * @returns The canvas
  */
-export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, toolbarItems, toolbar, panes, renderContent }: SnapGridEditorProps) {
+export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, toolbarItems, toolbar, panes, renderContent, phone: phoneOptions }: SnapGridEditorProps) {
     const words = useSnapGridWords();
     const m = words.m;
     const recipe = useSlotRecipe({ key: "snapGrid" });
+    const phoneStyles = useSlotStyles("snapGridPhone");
     const surfaceTag = getSomeorUndefined(value.surface)?.type ?? "card";
     const styles = useMemo(() => recipe({ variant: "tiles", surface: surfaceTag }) as Styles, [recipe, surfaceTag]);
     // The toolbar's zoom and design widths are the shared stepper and seg strip.
@@ -475,14 +488,28 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     const editing = useSnapGridEditing(value, storageKey);
     const { session, available, tiles, cells, marks, creates, heights, move, rowTo, align, add, resize, height, remove, action: sessionAction } = editing;
 
+    // ── A phone's frame: the canvas's phone form, by itself at 560px and narrower ──
+    // Hidden, as under a preview, it stays what it was: its tiles' state is kept.
+    const widthRef = useRef<HTMLDivElement | null>(null);
+    const frameWidth = useContainerWidth(widthRef);
+    const wasPhone = useRef(false);
+    const phone = frameWidth > 0 ? frameWidth <= NARROW_FRAME : wasPhone.current;
+    wasPhone.current = phone;
+    const [ownPlacing, setOwnPlacing] = useState<SnapGridPlacing | undefined>(undefined);
+    const placing = phoneOptions?.onPlacing !== undefined ? phoneOptions.placing : ownPlacing;
+    const onPlacing = phoneOptions?.onPlacing ?? setOwnPlacing;
+
     // ── When the source last confirmed an Apply ──────────────────────────
     // An Apply is confirmed when the session leaves `reconciling` for `idle`
     // — heard from the session itself, since both can pass within one render;
     // a Discard clears the time, as it clears the drafts.
     const [savedAt, setSavedAt] = useState<Date | undefined>(undefined);
+    // How many a Save carried: what a phone's band says once it lands (ST36).
+    const carried = useRef(0);
     useEffect(() => {
         let was = session.status;
         return session.subscribe(() => {
+            if (was !== "applying" && session.status === "applying") carried.current = session.pending;
             if (was === "reconciling" && session.status === "idle") setSavedAt(new Date());
             was = session.status;
         });
@@ -577,7 +604,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     const onDrag = useCallback((event: DragEventValue): boolean => {
         if (event.type === "add") {
             const drop = dropOf(event.value.into);
-            return drop !== undefined && add({ library: event.value.from.library, key: event.value.from.key }, drop);
+            return drop !== undefined && add({ library: event.value.from.library, key: event.value.from.key }, drop) !== undefined;
         }
         if (event.type === "move") {
             const key = event.value.from.event.type === "some" ? event.value.from.event.value : undefined;
@@ -960,7 +987,13 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
             )}
         </ChipMenu>
     );
-    const items: ReadonlyArray<ToolbarItem | false | null | undefined> = [
+    const items: ReadonlyArray<ToolbarItem | false | null | undefined> = phone ? [
+        // A phone's: no grid chip, no zoom, no widths, the canvas being drawn at the frame's width (D3); the history its second row's.
+        ...(toolbar?.start ?? []),
+        ...(toolbarItems ?? []),
+        history,
+        ...(toolbar?.end ?? []),
+    ] : [
         // The value's start items go last of the canvas's own steps (#1229).
         ...value.toolbar.start.map((node, i): ToolbarItem => ({
             key: `start-${i}`, side: "start", rank: RANK_START,
@@ -1003,8 +1036,18 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     const paneEnd: BuilderFramePane | undefined = panes?.end ?? (eastPaneEnd !== undefined
         ? { element: <EastChakraComponent value={eastPaneEnd} storageKey={`${storageKey}.pane.end`} /> } : undefined);
 
+    // What the source holds of each tile's span: a span drafted away from it is a dirty value on a phone (ST16).
+    const savedSpans = useMemo(() => {
+        const spans = new Map<string, number>();
+        for (const cell of value.cells) spans.set(cell.key, Number(cell.span));
+        return spans;
+    }, [value.cells]);
+    const conflicted = useCallback((id: string) => session.conflicts.has(id), [session.conflicts]);
+    const banners = <SessionBanners session={session} words={words} onAction={action} where={tileWhere} />;
+
     return (
         <Box
+            ref={widthRef}
             css={styles.editor}
             data-snap-grid=""
             data-snap-grid-editor=""
@@ -1012,8 +1055,16 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
             height={parseCssSize(getSomeorUndefined(value.height))}
             maxHeight={parseCssSize(getSomeorUndefined(value.maxHeight))}
         >
-            <BuilderFrame storageKey={`${storageKey}.frame`} toolbar={items} start={paneStart} end={paneEnd} onKeyDown={onFrameKeyDown}
-                banners={<SessionBanners session={session} words={words} onAction={action} where={tileWhere} />}>
+            <BuilderFrame storageKey={`${storageKey}.frame`} toolbar={items} start={paneStart} end={paneEnd} onKeyDown={onFrameKeyDown} phonePanel phoneViews
+                banners={phone ? undefined : banners}
+                footer={phone ? <>{banners}{savedAt !== undefined && session.pending === 0 && carried.current > 0 && (
+                    <Box css={phoneStyles.saved} role="status" data-snap-grid-saved-band=""><Box as="span" css={phoneStyles.savedCheck} aria-hidden><FontAwesomeIcon icon={faCheck} /></Box>{m.phoneSaved({ n: carried.current, count: words.number(carried.current) })}</Box>
+                )}</> : undefined}>
+                {phone ? (
+                    <SnapGridPhoneCanvas rows={rows} cellOf={cellOf} savedSpans={savedSpans} selected={selected} select={select} available={available} conflicted={conflicted}
+                        words={words} storageKey={storageKey} renderContent={renderContent} register={register} options={phoneOptions} placing={placing} onPlacing={onPlacing}
+                        move={move} add={add} resize={resize} remove={onRemove} />
+                ) : (
                 <Box css={styles.column} data-snap-grid-main="">
                     <Box css={styles.selectionBar} data-snap-grid-selection="">
                         {selectedCell !== undefined ? (
@@ -1086,6 +1137,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                         </Box>
                     </Box>
                 </Box>
+                )}
             </BuilderFrame>
             <VisuallyHidden role="status" aria-live="polite" aria-atomic="true" data-snap-grid-announce="">{said}</VisuallyHidden>
         </Box>

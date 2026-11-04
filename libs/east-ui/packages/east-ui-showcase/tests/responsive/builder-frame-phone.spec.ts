@@ -122,11 +122,11 @@ function phoneFaults(entry: Locator, name: string): Promise<string[]> {
             if (getComputedStyle(tab).color !== token("fg-muted")) faults.push(`${tab.textContent} tab in ${getComputedStyle(tab).color}`);
         }
         // Every word of the frame whole, or not there at all: none cut by what clips it, none over another, none run into a
-        // control beside it in the chrome. Studio's main and footer are not yet a phone's.
+        // control beside it in the chrome.
         const seen: { words: string; at: DOMRect }[] = [];
         for (const region of ["toolbar", "sessionRow", "body", "paneStrip", "footer"]) {
             const box = slot(region);
-            if (box === null || ((region === "body" || region === "footer") && builder === "Studio")) continue;
+            if (box === null) continue;
             const controls = region === "body" ? [] : [...box.querySelectorAll("button")].filter((b) => b.getBoundingClientRect().width > 0);
             const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
             for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
@@ -167,10 +167,9 @@ function phoneFaults(entry: Locator, name: string): Promise<string[]> {
         const row = slot("toolbar")?.querySelector("[data-toolbar]");
         const last = row === null || row === undefined ? undefined : [...row.querySelectorAll("button")].filter((b) => b.getBoundingClientRect().width > 0).at(-1);
         const clear = row && last !== undefined ? row.getBoundingClientRect().right - last.getBoundingClientRect().right : 4;
-        // The query builder's Run stands 12 from the edge (QP1).
-        if (clear > (builder === "Query" ? 12.5 : 8)) faults.push("the first row's controls short of its end");
-        // Studio's row is not yet a phone's either.
-        if (clear < 3.5 && builder !== "Studio") faults.push(`the first row's last control ${round(clear)}px from its end`);
+        // The query builder's Run stands 12 from the edge (QP1), and Studio's Publish (ST1).
+        if (clear > (builder === "Query" || builder === "Studio" ? 12.5 : 8)) faults.push("the first row's controls short of its end");
+        if (clear < 3.5) faults.push(`the first row's last control ${round(clear)}px from its end`);
         // A Filters button that is set: a 44px target, its fill clear of the row's edges.
         const set = frame.querySelector<HTMLElement>("[data-rail-phone][data-active]");
         if (set !== null) {

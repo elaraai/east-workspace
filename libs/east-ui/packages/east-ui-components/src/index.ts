@@ -590,6 +590,7 @@ export { Toolbar, DEFAULT_RANK, FLOOR_RANK, type ToolbarItem, type ToolbarProps 
 // builder's ⋯ — and the first rank a SnapGrid editor's host's own items fold at.
 export { ChipMenu, type ChipMenuProps } from "./toolbar/chip-menu.js";
 export { SNAP_GRID_HOST_RANK } from "./layout/snap-grid/editor.js";
+export type { SnapGridPhoneOptions, SnapGridPlacing } from "./layout/snap-grid/phone.js";
 export { LibraryLayoutSwitch } from "./collections/library";
 // The key search as one item of a builder's toolbar (#1193) — the box, folding
 // to its icon — over a keyed paged source's `seek`, as the Plan and the Sheet

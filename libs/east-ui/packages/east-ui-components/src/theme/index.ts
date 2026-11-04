@@ -111,6 +111,8 @@ import { collapsibleSlotRecipe } from "./slot-recipes/collapsible.js";
 import { expandableSlotRecipe } from "./slot-recipes/expandable.js";
 import { dockSlotRecipe } from "./slot-recipes/dock.js";
 import { snapGridSlotRecipe } from "./slot-recipes/snapGrid.js";
+import { snapGridPhoneSlotRecipe } from "./slot-recipes/snapGridPhone.js";
+import { studioPhoneSlotRecipe } from "./slot-recipes/studioPhone.js";
 import { drawerStackRailSlotRecipe } from "./slot-recipes/drawerStack.js";
 import { optionListSlotRecipe } from "./slot-recipes/optionList.js";
 import { codeBlockSlotRecipe } from "./slot-recipes/codeBlock.js";
@@ -266,6 +268,8 @@ const config = defineConfig({
             expandable:      expandableSlotRecipe,
             dock:            dockSlotRecipe,
             snapGrid:        snapGridSlotRecipe,
+            snapGridPhone:   snapGridPhoneSlotRecipe,
+            studioPhone:     studioPhoneSlotRecipe,
             drawerStackRail: drawerStackRailSlotRecipe,
             optionList:      optionListSlotRecipe,
             codeBlock:       codeBlockSlotRecipe,

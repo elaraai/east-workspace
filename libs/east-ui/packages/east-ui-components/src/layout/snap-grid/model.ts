@@ -375,6 +375,48 @@ export function joinStops(tiles: readonly SnapGridBox[], gap: number): number[] 
     return stops;
 }
 
+/** A place a phone's outline offers a tile: a dashed slot (`Studio Mobile Spec.md` ST18, ST19). */
+export interface SnapGridSlot {
+    /** Where it lands. */
+    drop: SnapGridDrop;
+    /** The span the tile narrows to there, when the row is short of its own. */
+    narrows: number | undefined;
+}
+
+/**
+ * The slots a phone's outline offers, by row: a new row before, between and
+ * after every row, and a slot at each position of a row whose free columns
+ * take the tile — its own row counting its own span free. A row short of the
+ * tile's span narrows it to what is free; a full row offers none, and never
+ * rebalances (D4). A position that would leave the tile where it is offers
+ * none.
+ *
+ * @param rows - The canvas's rows
+ * @param span - The tile's span
+ * @param moving - The key of the tile being moved; `undefined` for a card
+ * @returns The slots, in reading order
+ */
+export function placeSlots(rows: readonly SnapGridRowModel[], span: number, moving: string | undefined): SnapGridSlot[] {
+    const slots: SnapGridSlot[] = [];
+    const gap = (at: number) => {
+        const drop: SnapGridDrop = { kind: "gap", at };
+        if (landingOf(rows, drop, moving).kind === "place") slots.push({ drop, narrows: undefined });
+    };
+    rows.forEach((row, r) => {
+        gap(r);
+        const own = row.tiles.some((t) => t.key === moving);
+        const free = SNAP_GRID_COLUMNS - row.tiles.reduce((sum, t) => sum + (t.key === moving ? 0 : t.span), 0);
+        if (!own && free < MIN_SPAN) return;
+        for (let pos = 0; pos <= row.tiles.length; pos++) {
+            const drop: SnapGridDrop = { kind: "join", row: r, pos };
+            if (landingOf(rows, drop, moving).kind !== "place") continue;
+            slots.push({ drop, narrows: free < span ? free : undefined });
+        }
+    });
+    gap(rows.length);
+    return slots;
+}
+
 /**
  * The column a tile starts at in its row — 1 plus the spans before it.
  *

@@ -78,7 +78,7 @@ export const librarySlotRecipe = defineSlotRecipe({
             flexDirection: "column",
             gap: "18px",
             padding: "14px",
-            "[data-query-phone-tab] &": { paddingX: "16px", paddingTop: "16px" },
+            "[data-library-phone] &": { paddingX: "16px", paddingTop: "16px" },
             "[data-hosted] > &": { padding: "0" },
             "&[data-scrollable]": {
                 overflowY: "auto",
@@ -137,7 +137,9 @@ export const librarySlotRecipe = defineSlotRecipe({
             overflow: "clip",
             flexShrink: "0",
             /* A query builder's phone tabs (QP35): a 56 band, its search 44. */
-            "[data-query-phone-tab] &": { height: "56px", paddingX: "16px", "& input": { height: "42px" } },
+            "[data-library-phone] &": { height: "56px", paddingX: "16px", "& input": { height: "42px" } },
+            /* Studio's fill the row, Group and Filter at its end (ST22). */
+            "[data-library-phone=studio] &": { "& [data-toolbar-item]:has(input)": { flex: "1 0 auto" } },
         },
         /* Its width is the form the toolbar folds it to: wide, then mid,
          * then narrow, without the key cap. */
@@ -161,7 +163,9 @@ export const librarySlotRecipe = defineSlotRecipe({
             /* In a phone's pane with no toolbar to fold it, as the Schematic's Index: the row's width. */
             "[data-frame-drawer] :not([data-toolbar-item]) > &": { width: "100%" },
             /* A query builder's phone tabs (QP35): a 44 search. */
-            "[data-query-phone-tab] &": { height: "44px", paddingLeft: "12px", boxSizing: "border-box" },
+            "[data-library-phone] &": { height: "44px", paddingLeft: "12px", boxSizing: "border-box" },
+            /* Across the row, each form still its width at least: what folds Group and Filter to their 44 icons. */
+            "[data-library-phone=studio] &": { width: "100%", "&[data-size=wide]": { minWidth: "300px" }, "&[data-size=mid]": { minWidth: "220px" }, "&[data-size=narrow]": { minWidth: "160px" } },
         },
         searchIcon: {
             flexShrink: "0",
@@ -208,7 +212,7 @@ export const librarySlotRecipe = defineSlotRecipe({
             ...CAPS,
             display: "inline-flex",
             alignItems: "center",
-            "[data-query-phone-tab] &": { minWidth: "44px", height: "44px", justifyContent: "center" },
+            "[data-library-phone] &": { minWidth: "44px", height: "44px", justifyContent: "center" },
             gap: "6px",
             padding: "0",
             background: "transparent",
@@ -298,8 +302,8 @@ export const librarySlotRecipe = defineSlotRecipe({
             transitionDuration: "fast",
             transitionTimingFunction: "out",
             _hover: { borderColor: "fg.muted" },
-            /* A query builder's phone tabs (QP36): at least 56, padded 8 12, 12 apart. */
-            "[data-query-phone-tab] &": { minHeight: "56px", gap: "12px", paddingY: "8px", paddingX: "12px", boxSizing: "border-box" },
+            /* A phone's library tabs (QP36, ST22): at least 56, padded 8 12, 12 apart. */
+            "[data-library-phone] &": { minHeight: "56px", gap: "12px", paddingY: "8px", paddingX: "12px", boxSizing: "border-box" },
             "&[data-clickable]": { cursor: "pointer" },
             "&[data-draggable]": { cursor: "grab" },
             "&[data-filtered]": { opacity: "0.45" },
@@ -340,7 +344,9 @@ export const librarySlotRecipe = defineSlotRecipe({
             flexShrink: "0",
             width: "30px",
             height: "30px",
-            "[data-query-phone-tab] &": { width: "36px", height: "36px", borderRadius: "md" },
+            "[data-library-phone] &": { width: "36px", height: "36px", borderRadius: "md" },
+            /* Studio's cards' (ST22). */
+            "[data-library-phone=studio] &": { width: "32px", height: "32px" },
             borderRadius: "{radii.sm}",
             background: "bg.subtle",
             color: "fg.muted",
@@ -370,7 +376,7 @@ export const librarySlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
-            "[data-query-phone-tab] &": { whiteSpace: "normal", lineHeight: "18px", overflowWrap: "anywhere" },
+            "[data-library-phone] &": { whiteSpace: "normal", lineHeight: "18px", overflowWrap: "anywhere" },
             "[data-placed] &": { color: "brand.fg" },
         },
         /* A host's figure at the end of the name's line: a quantity, a range, in tabular figures. */
@@ -395,8 +401,8 @@ export const librarySlotRecipe = defineSlotRecipe({
             overflow: "hidden",
             textOverflow: "ellipsis",
             /* Datasets' meta wraps at its joins; Library's description is prose, two lines at most (QP36). */
-            "[data-query-phone-tab] &": { whiteSpace: "normal", fontSize: "label.md", lineHeight: "14px" },
-            "[data-query-tab=library][data-query-phone-tab] &": {
+            "[data-library-phone] &": { whiteSpace: "normal", fontSize: "label.md", lineHeight: "14px" },
+            "[data-query-tab=library][data-library-phone] &": {
                 fontFamily: "body", fontSize: "body.sm", lineHeight: "18px", color: "fg.muted",
                 whiteSpace: "normal",
             },
@@ -535,7 +541,7 @@ export const librarySlotRecipe = defineSlotRecipe({
         },
         hiddenNote: {
             /* A query builder's phone tabs say so in their checklist. */
-            "[data-query-phone-tab] &": { display: "none" },
+            "[data-library-phone] &": { display: "none" },
             fontFamily: "mono",
             fontSize: "10px",
             color: "fg.subtle",

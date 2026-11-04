@@ -9,7 +9,7 @@
 
 import { expect, test } from "vitest";
 import {
-    dropAt, fitRow, heightAt, heldSpan, joinStops, landingOf, neighbourOf, newRowKey, placeTile, rowsOf, spanAt,
+    dropAt, fitRow, heightAt, heldSpan, joinStops, landingOf, neighbourOf, newRowKey, placeTile, rowsOf, placeSlots, spanAt,
     type SnapGridTile,
 } from "./model.js";
 
@@ -117,4 +117,25 @@ test("the arrows move the selection through the tiles in reading order, and up a
     expect(neighbourOf(rows, "bars", "up")).toBe("kpi");
     expect(neighbourOf(rows, "kpi", "down")).toBe("trend");
     expect(neighbourOf(rows, "board", "down")).toBeUndefined();
+});
+
+const OUTLINE = rowsOf([tile("a", "r1", 12), tile("b", "r2", 4), tile("c", "r2", 4), tile("d", "r3", 6)]);
+
+test("a phone's outline offers a card a new row around every row, nothing in a full row, every position of a row it fits", () => {
+    const slots = placeSlots(OUTLINE, 4, undefined);
+    expect(slots.filter((s) => s.drop.kind === "gap").length).toBe(4);
+    expect(slots.filter((s) => s.drop.kind === "join" && s.drop.row === 0).length).toBe(0);
+    expect(slots.filter((s) => s.drop.kind === "join" && s.drop.row === 1).length).toBe(3);
+    expect(slots.every((s) => s.narrows === undefined)).toBe(true);
+});
+
+test("a phone's outline narrows a tile to a short row's free columns", () => {
+    expect(placeSlots(OUTLINE, 8, undefined).find((s) => s.drop.kind === "join" && s.drop.row === 1)?.narrows).toBe(4);
+});
+
+test("a phone's outline counts a moved tile's span free in its own row, and offers no place that leaves it where it is", () => {
+    const own = placeSlots(OUTLINE, 4, "c").filter((s) => s.drop.kind === "join" && s.drop.row === 1);
+    expect(own.map((s) => (s.drop.kind === "join" ? s.drop.pos : -1))).toEqual([0]);
+    expect(own[0]?.narrows).toBeUndefined();
+    expect(placeSlots(OUTLINE, 6, "d").filter((s) => s.drop.kind === "gap").map((s) => (s.drop.kind === "gap" ? s.drop.at : -1))).toEqual([0, 1]);
 });

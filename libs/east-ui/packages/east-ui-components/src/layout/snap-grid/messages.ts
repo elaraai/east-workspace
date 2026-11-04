@@ -86,6 +86,56 @@ export interface SnapGridMessages extends EditingMessages {
     noSelectionHint: () => string;
     /** An Apply a screen asked for that cannot run here, when nothing else says why (#998). */
     applyRefused: () => string;
+    /** A phone's row eyebrow — `Row 2`. */
+    phoneRow: (p: { row: string }) => string;
+    /** After it, while the row is short — `4 columns free`. */
+    phoneFree: (p: { n: number; count: string }) => string;
+    /** A tile's span as a phone's caption and stepper read it — `8 / 12`. */
+    phoneSpan: (p: { span: string }) => string;
+    /** A tile's caption while a conflict waits. */
+    phoneConflict: () => string;
+    /** The page's last control, and a card's way in. */
+    phoneAdd: () => string;
+    /** The tile bar's eyebrow — `Row 2 · Orders by week`. */
+    phoneBarHead: (p: { row: string; label: string }) => string;
+    /** Closing the tile bar. */
+    phoneBarClose: () => string;
+    /** The tile bar's Move. */
+    phoneMove: () => string;
+    /** The tile bar's Remove. */
+    phoneRemove: () => string;
+    /** The span stepper's name. */
+    phoneSpanLabel: () => string;
+    /** The stepper's minus. */
+    phoneNarrower: () => string;
+    /** The stepper's plus. */
+    phoneWider: () => string;
+    /** What a span comes to — `Columns 1–4 of 12 · 4 free in row 2`, `Columns 1–8 of 12 · row 2 is full`. */
+    phoneColumns: (p: { first: string; last: string; free: number; freeCount: string; row: string }) => string;
+    /** A slot making a new row. */
+    phoneNewRow: () => string;
+    /** A slot in a row — `Into row 2`, `Into row 2 · narrows to 3`. */
+    phoneInto: (p: { row: string; narrows?: string | undefined }) => string;
+    /** The place bar's head while moving. */
+    phoneMoving: (p: { label: string }) => string;
+    /** The place bar's head while adding. */
+    phoneAdding: (p: { label: string }) => string;
+    /** The place bar's Cancel. */
+    phoneCancel: () => string;
+    /** What the place bar says while moving. */
+    phoneMoveLine: () => string;
+    /** What the place bar says while adding. */
+    phoneAddLine: () => string;
+    /** The place bar's count — `7 slots · span 4 of 12 · a new row always fits`. */
+    phoneSlots: (p: { n: number; count: string; span: string }) => string;
+    /** A page of no tiles — its heading; `page` its name, when it has one. */
+    phoneEmpty: (p: { page?: string | undefined }) => string;
+    /** Under it: what to do first. */
+    phoneEmptyFirst: () => string;
+    /** Then. */
+    phoneEmptyThen: () => string;
+    /** The band once a Save lands — `Saved 2 changes`. */
+    phoneSaved: (p: { n: number; count: string }) => string;
 }
 
 /** The SnapGrid's English messages — the default table. */
@@ -120,6 +170,31 @@ export const snapGridMessages: SnapGridMessages = {
     noSelection: () => "No selection",
     noSelectionHint: () => "Click a component on the grid to arrange it",
     applyRefused: () => "The drafts could not be saved",
+    phoneRow: ({ row }) => `Row ${row}`,
+    phoneFree: ({ n, count }) => `${count} ${n === 1 ? "column" : "columns"} free`,
+    phoneSpan: ({ span }) => `${span} / 12`,
+    phoneConflict: () => "Conflict",
+    phoneAdd: () => "Add a component",
+    phoneBarHead: ({ row, label }) => `Row ${row} · ${label}`,
+    phoneBarClose: () => "Clear the selection",
+    phoneMove: () => "Move",
+    phoneRemove: () => "Remove",
+    phoneSpanLabel: () => "Column span",
+    phoneNarrower: () => "Decrease span",
+    phoneWider: () => "Increase span",
+    phoneColumns: ({ first, last, free, freeCount, row }) => `Columns ${first}–${last} of 12 · ${free === 0 ? `row ${row} is full` : `${freeCount} free in row ${row}`}`,
+    phoneNewRow: () => "New row",
+    phoneInto: ({ row, narrows }) => (narrows === undefined ? `Into row ${row}` : `Into row ${row} · narrows to ${narrows}`),
+    phoneMoving: ({ label }) => `Moving · ${label}`,
+    phoneAdding: ({ label }) => `Adding · ${label}`,
+    phoneCancel: () => "Cancel",
+    phoneMoveLine: () => "Tap a dashed slot to move it there. Nothing moves until you do.",
+    phoneAddLine: () => "Tap a dashed slot to add it there. Nothing is added until you do.",
+    phoneSlots: ({ n, count, span }) => `${count} ${n === 1 ? "slot" : "slots"} · span ${span} of 12 · a new row always fits`,
+    phoneEmpty: ({ page }) => (page === undefined ? "No components" : `No components on ${page}`),
+    phoneEmptyFirst: () => "Tap Add a component and pick one.",
+    phoneEmptyThen: () => "Tap a dashed slot to place it.",
+    phoneSaved: ({ n, count }) => `Saved ${count} ${n === 1 ? "change" : "changes"}`,
 };
 
 const SnapGridMessagesContext = createContext<SnapGridMessages>(snapGridMessages);

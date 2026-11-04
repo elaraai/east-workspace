@@ -514,7 +514,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
                         name={editor.header.name} taken={taken} description={editor.header.description} generated={generated} onSave={onSave} />} />
                 : <QueryTabPanel editor={editor} ps={ps} workspace={workspace} focus={focus?.entry} />
             : (
-                <Box css={styles.tab} data-query-tab={key} data-query-phone-tab={phone ? "" : undefined}>
+                <Box css={styles.tab} data-query-tab={key} data-library-phone={phone ? "query" : undefined}>
                     {key === "datasets"
                         // Each tab's library has an id of its own, under the builder's keys.
                         ? <DatasetsTab root={root} reads={reads} onStart={onStart} id={`${recentKey}.datasets`} words={words} storageKey={`${storageKey}.datasets`} />

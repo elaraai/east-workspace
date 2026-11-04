@@ -68,16 +68,16 @@ export interface SnapGridEditing {
     aligns: boolean;
     /** Each drafted tile's mark, by its key. */
     marks: ReadonlyMap<string, SnapGridDraftMark>;
-    /** Move a tile to a drop. Stable. @returns Whether it was drafted */
-    move(key: string, drop: SnapGridDrop): boolean;
+    /** Move a tile to a drop, narrowed to `narrows` when given (a phone's slot, D4). Stable. @returns Whether it was drafted */
+    move(key: string, drop: SnapGridDrop, narrows?: number): boolean;
     /** Move a tile into row `row`, counting from 1 — a full row's, or a row past the last, is a new row after it. Stable. @returns Whether it was drafted */
     rowTo(key: string, row: number): boolean;
     /** Set where a tile sits in a taller row. Stable. @returns Whether it was drafted */
     align(key: string, align: "top" | "center" | "stretch"): boolean;
-    /** Add a card's new row at a drop. Stable. @returns Whether it was drafted */
-    add(card: { library: string; key: string }, drop: SnapGridDrop): boolean;
-    /** Set a tile's span, held to its row's room. Stable. @returns Whether it was drafted */
-    resize(key: string, span: number): boolean;
+    /** Add a card's new row at a drop, narrowed to `narrows` when given (a phone's slot, D4). Stable. @returns The new tile's key, when it was drafted */
+    add(card: { library: string; key: string }, drop: SnapGridDrop, narrows?: number): string | undefined;
+    /** Set a tile's span, held to its row's room; steps under one `joins` are one step of the history. Stable. @returns Whether it was drafted */
+    resize(key: string, span: number, joins?: string): boolean;
     /** Set a tile's height — `null` its content's own. Stable. @returns Whether it was drafted */
     height(key: string, height: number | null, span?: number): boolean;
     /** Remove a tile. Stable. @returns Whether it was drafted */
@@ -190,7 +190,7 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
      * it — each stated after the row before it in the order the gesture
      * leaves.
      */
-    const record = (edit: SnapGridEdit, origin: Origin, label: string, removed?: string, added?: Entry): boolean => {
+    const record = (edit: SnapGridEdit, origin: Origin, label: string, removed?: string, added?: Entry, joins?: string): boolean => {
         if (observed === undefined || !session.writable) return false;
         session.observeBase(observed.base);
         const byId = new Map(drafted.map((row) => [idOf(row), row] as const));
@@ -232,15 +232,18 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
                     : some(variant("ordered", variant("after", edit.order[at - 1]!)));
             updates.push({ id, before, after: { draft: variant("value", next), wire: { id }, place } });
         }
-        return updates.length > 0 && session.record(updates, origin, label);
+        return updates.length > 0 && session.record(updates, origin, label, joins);
     };
     const gestures = {
-        move(key: string, drop: SnapGridDrop): boolean {
+        move(key: string, drop: SnapGridDrop, narrows?: number): boolean {
             const tile = tiles.find((t) => t.key === key);
             if (tile === undefined) return false;
             const landing = landingOf(rowsOf(tiles), drop, key);
             if (landing.kind !== "place") return false;
-            return record(placeTile(tiles, tile, landing.drop), "move", `Move ${tile.label}`);
+            // Placed at the narrowed span, so its row never rebalances; the span written with its place.
+            const edit = placeTile(tiles, narrows === undefined ? tile : { ...tile, span: narrows }, landing.drop);
+            if (narrows !== undefined) edit.writes.set(tile.id, { ...edit.writes.get(tile.id), span: narrows });
+            return record(edit, "move", `Move ${tile.label}`);
         },
         rowTo(key: string, row: number): boolean {
             const drop = rowDrop(rowsOf(tiles), key, row);
@@ -254,22 +257,22 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
             return record({ order: tiles.map((t) => t.id), writes: new Map([[tile.id, { align }]]), placed: [] },
                 "typed", `Align ${tile.label}`);
         },
-        add(card: { library: string; key: string }, drop: SnapGridDrop): boolean {
-            if (editing.create.type !== "some") return false;
+        add(card: { library: string; key: string }, drop: SnapGridDrop, narrows?: number): string | undefined {
+            if (editing.create.type !== "some") return undefined;
             const landing = landingOf(rowsOf(tiles), drop, undefined);
-            if (landing.kind !== "place") return false;
+            if (landing.kind !== "place") return undefined;
             const rowKey = drop.kind === "join" ? rowsOf(tiles)[drop.row]!.key : newRowKey(tiles);
             const id = freshKey(card.key, new Set(tiles.map((t) => t.id)));
             let entry: Entry;
             try { entry = codec.decodeEntry(editing.create.value(card, { key: id, row: rowKey })) as Entry; }
             catch (err) {
                 console.error("[SnapGrid] a dropped card's row could not be built:", err);
-                return false;
+                return undefined;
             }
             // A row whose identity another row holds would be that row.
             if (tiles.some((t) => t.id === idOf(entry))) {
                 console.error(`[SnapGrid] edit.create returned a row whose ${fields.key} "${idOf(entry)}" another row holds — nothing was added`);
-                return false;
+                return undefined;
             }
             entry = { ...entry, [fields.row]: rowKey };
             // Its tile is its own cell's: the key and the name the author maps it to.
@@ -277,25 +280,26 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
             try { cell = editing.derive(codec.encodeRows([entry]))[0]; }
             catch (err) {
                 console.error("[SnapGrid] a dropped card's tile could not be drawn:", err);
-                return false;
+                return undefined;
             }
             const label = cell?.label.type === "some" ? cell.label.value : card.key;
             const tile: SnapGridTile = {
                 key: cell?.key ?? idOf(entry), id: idOf(entry), row: rowKey, span: Number(entry[fields.span] as bigint),
                 height: undefined, minHeight: undefined, label,
             };
+            if (narrows !== undefined) tile.span = narrows;
             const edit = placeTile(tiles, tile, landing.drop);
             // The new row is written whole: the row it lands in, and its fitted span.
-            edit.writes.set(tile.id, { ...edit.writes.get(tile.id), row: rowKey });
-            return record(edit, "drop", `Add ${label}`, undefined, entry);
+            edit.writes.set(tile.id, { ...edit.writes.get(tile.id), row: rowKey, ...(narrows !== undefined ? { span: narrows } : {}) });
+            return record(edit, "drop", `Add ${label}`, undefined, entry) ? tile.key : undefined;
         },
-        resize(key: string, span: number): boolean {
+        resize(key: string, span: number, joins?: string): boolean {
             const tile = tiles.find((t) => t.key === key);
             if (tile === undefined) return false;
             const held = heldSpan(tiles, key, span);
             if (held === tile.span) return false;
             return record({ order: tiles.map((t) => t.id), writes: new Map([[tile.id, { span: held }]]), placed: [] },
-                "resize", `Resize ${tile.label}`);
+                "resize", `Resize ${tile.label}`, undefined, undefined, joins);
         },
         height(key: string, height: number | null, span?: number): boolean {
             const tile = tiles.find((t) => t.key === key);
@@ -325,11 +329,11 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
     // Stable to the canvas and the drag layer: each runs the latest render's.
     const current = useRef(gestures);
     current.current = gestures;
-    const move = useCallback((key: string, drop: SnapGridDrop) => current.current.move(key, drop), []);
+    const move = useCallback((key: string, drop: SnapGridDrop, narrows?: number) => current.current.move(key, drop, narrows), []);
     const rowTo = useCallback((key: string, row: number) => current.current.rowTo(key, row), []);
     const align = useCallback((key: string, a: "top" | "center" | "stretch") => current.current.align(key, a), []);
-    const add = useCallback((card: { library: string; key: string }, drop: SnapGridDrop) => current.current.add(card, drop), []);
-    const resize = useCallback((key: string, span: number) => current.current.resize(key, span), []);
+    const add = useCallback((card: { library: string; key: string }, drop: SnapGridDrop, narrows?: number) => current.current.add(card, drop, narrows), []);
+    const resize = useCallback((key: string, span: number, joins?: string) => current.current.resize(key, span, joins), []);
     const height = useCallback((key: string, h: number | null, span?: number) => current.current.height(key, h, span), []);
     const remove = useCallback((key: string) => current.current.remove(key), []);
     const action = useCallback((a: HistoryAction) => current.current.action(a), []);
