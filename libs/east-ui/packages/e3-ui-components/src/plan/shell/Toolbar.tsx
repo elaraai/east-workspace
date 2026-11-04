@@ -147,10 +147,13 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
         ...(slices?.persist.type === "some" ? { persist: slices.persist.value.type } : {}),
     });
     // The key search over a seekable source: its box, or its icon on a row short of room.
-    // Over the `rows` source's record (#1513) it is the first thing the row folds, as a period builder's is: the box came
-    // to a row its rail, its dates and its zoom already fill, and they stay live.
-    const seekRank = chrome?.rowsPart !== undefined ? SEARCH_BOX_RANK : PLAN_RANK.seek;
+    // Beside a rail (#1513) it is the first thing the row folds, as a period builder's is: the box came to a row its rail,
+    // its dates and its zoom already fill, and they stay live.
+    const seekRank = slices !== undefined ? SEARCH_BOX_RANK : PLAN_RANK.seek;
     const seek = useKeySearchToolbarItem(search, { rank: seekRank, label: words.m.keySearch() });
+    // Over a paged resource kind's source, whose rows are read by the dates' window beside them, the search's icon leaves
+    // the row less room: the resolution folds to its menu before the dates lose their steps.
+    const timeRank = search !== undefined && slices !== undefined && chrome?.rowsPart === undefined ? PLAN_RANK.grain : PLAN_RANK.time;
 
     // What the Plan's own items are drawn from: the chrome's facts each reads, never the chrome, which is new each render.
     const drawn = chrome !== undefined;
@@ -196,13 +199,13 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
             {pairs > 0 && <OverlapsChip n={pairs} short={false} onSelect={selectFirst} />}
         </>;
         return {
-            key: "time-navigation", rank: [PLAN_RANK.time, PLAN_RANK.controls],
+            key: "time-navigation", rank: [timeRank, PLAN_RANK.controls],
             bundle: [undefined, "plan.controls"],
             forms: [<PlanTimeNavigator {...window} />, <PlanTimeNavigator {...window} compact />,
                 <PlanTimeNavigator {...window} compact controls={compactControls} />],
         };
     }, [timeNavigation, scale, windowParts, lead, moveWindow, folded, foldToggle, showResolution, words, resolutionItems, resolution,
-        pickResolution, pairs, selectFirst]);
+        pickResolution, pairs, selectFirst, timeRank]);
     // The segment writes the slice's resolution (`slice.setResolution`) — without a slice the effect runner drops it, so
     // mounting it would offer a control that does nothing. The unbound-canvas fallback story is #572's (resolution
     // persist fallback); until then, no slice ⇒ no segment.
