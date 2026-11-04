@@ -20,7 +20,7 @@
  */
 
 import { memo, useEffect, useState } from "react";
-import { Box, chakra, Menu as ChakraMenu, Portal } from "@chakra-ui/react";
+import { Box, chakra, Menu as ChakraMenu } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, faCaretUp, faCheck, faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
 import { FrameMenuLayer, useSlotStyles } from "@elaraai/east-ui-components/internal";

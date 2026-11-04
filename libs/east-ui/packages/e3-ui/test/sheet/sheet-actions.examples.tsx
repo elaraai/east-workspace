@@ -127,7 +127,7 @@ export const sheetActionsWorkOrders = example({
                 rows: {
                     source: Data.bindPaged(sheetWorkOrders, { indexes: ["sheet_work_orders_by_status"] }),
                     label: "Orders",
-                    fields: { status: { label: "Status", hints: ["in_progress", "on_hold", "done"] } },
+                    fields: { status: { label: "Status", hints: [{ value: "in_progress", label: "In progress" }, { value: "on_hold", label: "On hold" }, { value: "done", label: "Done" }] } },
                 },
             }));
             const statuses = $.let([
@@ -357,7 +357,7 @@ export const sheetActionsPhone = example({
                 rows: {
                     source: Data.bindPaged(sheetWorkOrders, { indexes: ["sheet_work_orders_by_status"] }),
                     label: "Orders",
-                    fields: { status: { label: "Status", hints: ["in_progress", "on_hold", "done"] } },
+                    fields: { status: { label: "Status", hints: [{ value: "in_progress", label: "In progress" }, { value: "on_hold", label: "On hold" }, { value: "done", label: "Done" }] } },
                 },
             }));
             const statuses = $.let([

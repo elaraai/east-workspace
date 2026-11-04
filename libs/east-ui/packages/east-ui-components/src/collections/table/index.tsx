@@ -425,6 +425,8 @@ const PHONE_SAMPLE = 500;
 const PHONE_TREE_STEP = 20;
 /** What a measured word gets past its measure: the page lays text on subpixels a canvas rounds, and an exact fit breaks the word. */
 const PHONE_SLACK = 2;
+/** A review's Decision column at a phone's width: its two 44 targets, and the room for its status dot. */
+const PHONE_DECISION = 100;
 
 /**
  * Renders an East UI Table value using Chakra UI Table components.
@@ -434,8 +436,8 @@ const PHONE_SLACK = 2;
  * many others as fit whole beside it (`fitPhoneColumns`), a pager over them when
  * some are off-screen; values wrapping rather than cut; a tap on a header sorts,
  * with no pin or resize. Selection, nested rows, expanded rows, a review's
- * Decision column and a footer stay; column groups, which span columns that may
- * not be in view, do not show. An aligned stack's plot gutter keeps its form.
+ * Decision column — its pair as two icons, 44 each — and a footer stay; a column
+ * group heads the columns of it in view. An aligned stack's plot gutter keeps its form.
  *
  * Features:
  * - Row virtualization for large datasets
@@ -969,7 +971,7 @@ const TableCore = function TableCore({
         if (!phone) return undefined;
         const taken = (getSomeorUndefined(value.expandedContent) !== undefined ? 32 : 0)
             + (getSomeorUndefined(value.selection) !== undefined ? 40 : 0)
-            + (getSomeorUndefined(value.review) !== undefined ? parseInt(DECISION_WIDTH, 10) : 0);
+            + (getSomeorUndefined(value.review) !== undefined ? PHONE_DECISION : 0);
         // Its client width: what a classic scrollbar leaves, on a page that draws one.
         const room = tableContainerRef.current?.clientWidth ?? containerWidth;
         const natural = (key: string) => Math.max(phoneNaturals.get(key) ?? 0, phoneWords[key] ?? 0);
@@ -1399,7 +1401,28 @@ const TableCore = function TableCore({
                         across the relevant `--col-*-size` variables. */}
                     {(() => {
                         const groups = getSomeorUndefined(value.columnGroups);
-                        if (!groups || groups.length === 0 || phone) return null;
+                        if (!groups || groups.length === 0) return null;
+                        if (phone) {
+                            // Over the columns in view, a run of one group's its one head; a column of none, nothing over it.
+                            const inView = value.columns.filter(c => phoneInView.has(c.key));
+                            const runs: { label: string | undefined; width: number; key: string }[] = [];
+                            for (const col of inView) {
+                                const label = groups.find(g => g.columnKeys.includes(col.key))?.label;
+                                const last = runs[runs.length - 1];
+                                if (last !== undefined && last.label === label) last.width += phoneInView.get(col.key)!;
+                                else runs.push({ label, width: phoneInView.get(col.key)!, key: col.key });
+                            }
+                            if (runs.every(run => run.label === undefined)) return null;
+                            const stands = (getSomeorUndefined(value.expandedContent) !== undefined ? 32 : 0) + (selectionMode !== undefined ? 40 : 0);
+                            return (
+                                <ChakraTable.Row key="column-groups" data-table-phone-groups="" style={{ display: "flex", width: "100%" }}>
+                                    {stands > 0 && <ChakraTable.ColumnHeader css={tableCustomSlots.phoneGroup} bg={headerBackground} aria-hidden style={{ width: `${stands}px`, flex: "none", borderColor }} />}
+                                    {runs.map(run => <ChakraTable.ColumnHeader key={run.key} css={tableCustomSlots.phoneGroup} bg={headerBackground} color={headerColor} data-table-phone-group={run.label === undefined ? undefined : ""}
+                                        style={{ width: `${run.width}px`, flex: "none", borderColor }}>{run.label}</ChakraTable.ColumnHeader>)}
+                                    {hasReview && <ChakraTable.ColumnHeader css={tableCustomSlots.phoneGroup} bg={headerBackground} aria-hidden style={{ flex: "1 0 auto", borderColor }} />}
+                                </ChakraTable.Row>
+                            );
+                        }
                         return (
                             <ChakraTable.Row key="column-groups" style={{ display: "flex", width: "100%" }}>
                                 {(() => {
@@ -1521,6 +1544,7 @@ const TableCore = function TableCore({
                                                 flex: 'none',
                                                 height: phone ? "32px" : `${effectiveRowHeight}px`,
                                                 ...getCommonPinningStyles(header.column),
+                                                ...(phone ? { width: `${PHONE_DECISION}px` } : {}),
                                                 zIndex: 3,
                                                 borderColor,
                                             }}
@@ -1888,12 +1912,13 @@ const TableCore = function TableCore({
                                                     ...getCommonPinningStyles(cell.column),
                                                     position: 'sticky',
                                                     zIndex: 2,
+                                                    ...(phone ? { width: `${PHONE_DECISION}px` } : {}),
                                                 }}
                                             >
                                                 {statusTag !== undefined && (
-                                                    <Box as="span" css={reviewDotStyles[statusTag]} data-slot="statusDot" position="absolute" left="12px" />
+                                                    <Box as="span" css={reviewDotStyles[statusTag]} data-slot="statusDot" position="absolute" left={phone ? "1px" : "12px"} />
                                                 )}
-                                                <DecisionButtons rowIndex={node.index} controller={reviewController} />
+                                                <DecisionButtons rowIndex={node.index} controller={reviewController} icons={phone} />
                                             </ChakraTable.Cell>
                                         );
                                     }

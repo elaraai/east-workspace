@@ -345,7 +345,7 @@ test.describe("Studio on a phone (`Studio Mobile Spec.md`)", () => {
             return { covers: Math.abs(box.width - root.width) < 1 && Math.abs(box.height - root.height) < 1, rows: [...el.querySelectorAll("[data-part=item]")].every((r) => r.getBoundingClientRect().height >= 44) };
         })).toEqual({ covers: true, rows: true });
         await page.keyboard.press("Escape"); await settled(page);
-        await expect(layer).toBeHidden();
+        await expect(layer).toHaveCount(0);
         await expect(frame.locator("[data-frame-drawer][data-open]")).toBeVisible();
         const before = await frame.locator("[data-snap-grid-tile]").count();
         await pane.locator("[data-clickable]", { hasText: "Visits sparkline" }).click(); await settled(page);

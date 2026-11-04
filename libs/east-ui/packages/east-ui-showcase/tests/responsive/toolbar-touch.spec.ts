@@ -455,9 +455,6 @@ test.describe("the builders' rails filtered, under a touch pointer (#1231)", () 
 
 // ── Studio's builder, the SnapGrid editor and the query builder folded into chips (#1229) ──
 
-/** A chip's menu, open. */
-const openChipMenu = (page: Page) => page.locator("[data-scope='menu'][data-part='content'][data-state='open']");
-
 /** A toolbar control by its selector, in the entry's builder frame's row. */
 const inRow = (entry: Locator, selector: string) => entry.locator(`[data-builder-frame] > [data-frame-slot='toolbar'] ${selector}`).first();
 
@@ -489,43 +486,6 @@ const widthsToIcons: Gesture = {
         })).toEqual({ icons: [["Desktop", "", 1], ["Tablet", "", 1]], apart: 0 });
     },
 };
-
-/** A chip's menu, tapped open, then an item tapped. */
-async function tapItem(entry: Locator, page: Page, chip: string, item: string): Promise<void> {
-    await inRow(entry, chip).tap();
-    await openChipMenu(page).getByRole("menuitem", { name: item, exact: true }).tap();
-}
-
-/**
- * The View chip's menu, by touch: Zoom in — the menu staying open — then
- * Tablet, a choice of one, which closes it.
- */
-const viewByTouch: Gesture = {
-    what: "the View chip's Zoom in, then its Tablet",
-    run: async (entry, page) => {
-        await tapItem(entry, page, "[data-snap-grid-view]", "Zoom in");
-        await expect(openChipMenu(page).locator("[data-snap-grid-view-zoom]")).toHaveText("110%");
-        await openChipMenu(page).getByRole("menuitemradio", { name: "Tablet" }).tap();
-        await expect(openChipMenu(page)).toHaveCount(0);
-        await expect(entry.locator("[data-snap-grid-canvas]").first()).toHaveCSS("max-width", "1024px");
-        await settled(page);
-    },
-};
-
-/** A ⋯ chip's item that opens its form, by touch — a phone's view, over the frame — and Cancel closes it. */
-function popoverFromChip(chip: string, item: string): Gesture {
-    return {
-        what: `the ⋯ chip's ${item}, its form opened, then cancelled`,
-        run: async (entry, page) => {
-            await tapItem(entry, page, chip, item);
-            const form = page.getByRole("dialog");
-            await expect(form).toBeVisible();
-            await form.getByRole("button", { name: "Cancel" }).tap();
-            await expect(form).toHaveCount(0);
-            await settled(page);
-        },
-    };
-}
 
 /** The Flowchart's lane headers' anchors (#1245): middle across the top in LR, start down the side in TD. */
 const laneAnchors = (entry: Locator) => entry.locator("[data-flowchart-lane]").evaluateAll((els) => els.map((el) => el.getAttribute("text-anchor")));

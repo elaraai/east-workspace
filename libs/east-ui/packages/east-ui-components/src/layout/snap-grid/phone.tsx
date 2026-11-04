@@ -35,6 +35,7 @@ import { useSlotStyles } from "../../theme/slot-styles.js";
 import { FrameBottomPanel } from "../builder-frame/bottom-panel.js";
 import { useTopViewEscape } from "../builder-frame/view-escape.js";
 import type { SnapGridWords } from "./messages.js";
+import { useTileGrows } from "./tile-grows.js";
 import {
     SNAP_GRID_COLUMNS, MIN_SPAN, placeSlots, startColumn,
     type SnapGridDrop, type SnapGridRowModel, type SnapGridSlot, type SnapGridTile,
@@ -87,6 +88,9 @@ export interface SnapGridPhoneCanvasProps {
     readonly remove: (key: string) => void;
 }
 
+/** A phone's tiles are all stacked. */
+const ALWAYS = () => true;
+
 /** A tile's twelve cells, its own columns lit (ST10). */
 function Meter({ first, span, styles }: { first: number; span: number; styles: ReturnType<typeof useSlotStyles> }) {
     return (
@@ -94,6 +98,16 @@ function Meter({ first, span, styles }: { first: number; span: number; styles: R
             {Array.from({ length: SNAP_GRID_COLUMNS }, (_, i) => (
                 <Box as="span" key={i} css={styles.cell} data-on={i + 1 >= first && i + 1 < first + span ? "" : undefined} />
             ))}
+        </Box>
+    );
+}
+
+/** A tile's frame on a phone: its fixed height applies (ST11), unless what it holds stacked needs more (ST39). */
+function PhoneFrame({ styles, fixed, children }: { styles: ReturnType<typeof useSlotStyles>; fixed: number | undefined; children: ReactNode }) {
+    const { ref, height } = useTileGrows<HTMLDivElement>(fixed, ALWAYS);
+    return (
+        <Box ref={ref} css={styles.frame} data-snap-grid-phone-frame="" data-frame="" style={height === undefined ? undefined : { height: `${height}px` }}>
+            {children}
         </Box>
     );
 }
@@ -225,11 +239,11 @@ export const SnapGridPhoneCanvas = memo(function SnapGridPhoneCanvas(props: Snap
                                 data-snap-grid-tile={tile.key} data-selected={isSelected ? "" : undefined} data-conflict={conflict ? "" : undefined}
                                 onClick={(e: MouseEvent) => { e.stopPropagation(); select(isSelected ? null : tile.key); }}
                                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(isSelected ? null : tile.key); } }}>
-                                <Box css={styles.frame} data-snap-grid-phone-frame="" data-frame="" style={height === undefined ? undefined : { height: `${height}px` }}>
+                                <PhoneFrame styles={styles} fixed={height === undefined ? undefined : Number(height)}>
                                     {renderContent !== undefined ? renderContent(cell)
                                         : cell.content !== undefined ? <EastChakraComponent value={cell.content} storageKey={`${storageKey}.${cell.key}`} />
                                             : null}
-                                </Box>
+                                </PhoneFrame>
                             </Box>
                         </Box>
                     );

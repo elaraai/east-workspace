@@ -164,6 +164,20 @@ test("with a column pinned, the Row column pages beside it: the pinned column ke
     expect(Math.abs(after!.x - titleHead!.x)).toBeLessThan(1);
 });
 
+test.describe("A phone's Sheet filters", () => {
+    test.skip(({ isMobile }) => !isMobile, "measured on the phone");
+
+    test("a field's values read by the words its hints give them, never the stored values @mobile", async ({ page }) => {
+        const card = await openPhone(page);
+        const frame = card.locator("xpath=ancestor::*[@data-builder-frame][1]");
+        await frame.locator("[data-rail-phone]").first().click();
+        const view = frame.locator('[data-frame-slot="overlay"]');
+        await view.getByText("Status", { exact: true }).first().click();
+        await expect(view.getByText("In progress").first()).toBeVisible();
+        await expect(view.getByText("in_progress")).toHaveCount(0);
+    });
+});
+
 test.describe("A phone's Sheet Library (SH11, R7)", () => {
     test("a tap on a status sets it on the selected order, the hint naming the order and the row marked current @mobile", async ({ page }) => {
         const card = await openPhone(page);

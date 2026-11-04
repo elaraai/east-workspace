@@ -66,10 +66,13 @@ type Choice<T extends EastType> = readonly RecordSliceValue<T>[] | (T extends Se
 /** Typed per-field narrowing; clauses must be answerable by one declared index. */
 export type RecordSliceWhere<R extends StructType, M extends StructType> = { [F in Field<M>]?: Choice<FieldType<R, M, F>> };
 
+/** A value a field offers: the value alone, shown as it is, or with the words the rail shows it by. */
+export type RecordSliceHint<V> = V | { readonly value: V; readonly label: string };
+
 /** Options inferred from the record's row and its binding's declared indexes. */
 export interface RecordSliceOptions<R extends StructType, M extends StructType> {
-    /** Offered fields; omitted means all indexed fields. */
-    fields?: { [F in Field<M>]?: { label?: string; format?: SliceFieldFormat; hints?: readonly RecordSliceValue<FieldType<R, M, F>>[] } };
+    /** Offered fields; omitted means all indexed fields. A hint is a value, or a value and the words the rail shows it by (`{ value: "in_progress", label: "In progress" }`). */
+    fields?: { [F in Field<M>]?: { label?: string; format?: SliceFieldFormat; hints?: readonly RecordSliceHint<RecordSliceValue<FieldType<R, M, F>>>[] } };
     /** Ranged field shared by the range control and a Plan's window. */
     range?: RangeField<R, M>;
     /** Prefix-search fields; omitted means all offered String fields. A String field with no hints is refused unless it is one of them: it would offer nothing to choose. */
@@ -269,8 +272,13 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
         const config = options.fields?.[field as Field<M>];
         const known = config?.hints ?? (schema.kind === "boolean" ? [true, false]
             : schema.inner.type === "Variant" ? Object.keys(schema.inner.cases) : []);
-        const values = [...known].map(value => ({ value: literal(schema, value), label: value === null ? "Unset" : schema.kind === "boolean" ? (value ? "Yes" : "No")
-            : schema.kind === "enum" ? label(value as string) : isValueOf(value, StringType) ? value as string : printFor(schema.inner)(value) }));
+        const values = [...known].map((hint: unknown) => {
+            // An authored `{ value, label }`: never an East value, which a field's scalar kinds are none of.
+            const labelled = hint !== null && typeof hint === "object" && "label" in hint && "value" in hint ? hint as { value: unknown; label: string } : undefined;
+            const value = labelled === undefined ? hint : labelled.value;
+            return { value: literal(schema, value), label: labelled?.label ?? (value === null ? "Unset" : schema.kind === "boolean" ? (value ? "Yes" : "No")
+                : schema.kind === "enum" ? label(value as string) : isValueOf(value, StringType) ? value as string : printFor(schema.inner)(value)) };
+        });
         if (schema.optional && !values.some(value => value.value === printFor(schema.key)(none))) values.unshift({ value: printFor(schema.key)(none), label: "Unset" });
         return { fieldId: field, label: config?.label ?? label(field), kind: schema.kind, optional: schema.optional,
             multiple: !schema.set, set: schema.set, values, format: config?.format === undefined ? none : some(toValueFormat(config.format)) };

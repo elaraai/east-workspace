@@ -143,18 +143,26 @@ async function rowFocused(page: Page): Promise<void> {
 
 /** Sends the view to a part of the rows not read — `at` of the way down — clicks into the run that stands for them there, and records each frame from then on. */
 async function clickRunAt(page: Page, entry: Locator, at: number): Promise<number> {
-    const sent = await scrollerOf(entry).evaluate((el, part) => {
-        el.scrollTop = Math.round((el.scrollHeight - el.clientHeight) * part);
-        return el.scrollTop;
-    }, at);
-    // A run stands for the rows the view was sent among, under the point the click lands on: the scroll set here draws
-    // it once the page has heard the scroll, at its next frame, which a click sent at once — as a CI run's was — can beat.
-    const box = await scrollerOf(entry).boundingBox();
-    const point = { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 };
-    await expect.poll(() => page.evaluate(({ x, y }) => (document.elementFromPoint(x, y)?.closest("[data-plan-window-band]") ?? null) !== null, point),
-        "a run stands for the rows the view was sent among, where the click lands").toBe(true);
-    await page.mouse.click(point.x, point.y);
-    expect(await page.evaluate(() => document.activeElement?.hasAttribute("data-plan-window-band") === true), "the click puts the keyboard on the run").toBe(true);
+    // Rows held already can land under the click after the run was seen and before the click lands, as a CI run's did: a
+    // press that lands on rows is no press on a run. The view is sent further on, among rows no read has reached.
+    let sent = 0;
+    let held = false;
+    for (let attempt = 0; attempt < 6 && !held; attempt++) {
+        const part = Math.min(0.95, at + attempt * 0.07);
+        sent = await scrollerOf(entry).evaluate((el, to) => {
+            el.scrollTop = Math.round((el.scrollHeight - el.clientHeight) * to);
+            return el.scrollTop;
+        }, part);
+        // A run stands for the rows the view was sent among, under the point the click lands on: the scroll set here draws
+        // it once the page has heard the scroll, at its next frame, which a click sent at once — as a CI run's was — can beat.
+        const box = await scrollerOf(entry).boundingBox();
+        const point = { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 };
+        await expect.poll(() => page.evaluate(({ x, y }) => (document.elementFromPoint(x, y)?.closest("[data-plan-window-band]") ?? null) !== null, point),
+            "a run stands for the rows the view was sent among, where the click lands").toBe(true);
+        await page.mouse.click(point.x, point.y);
+        held = await page.evaluate(() => document.activeElement?.hasAttribute("data-plan-window-band") === true);
+    }
+    expect(held, "the click puts the keyboard on the run").toBe(true);
     // Every frame from here on: the run holding the keyboard, until a row takes it.
     await record(entry);
     return sent;

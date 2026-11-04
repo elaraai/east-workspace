@@ -346,7 +346,9 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             "& [data-frame-layer-content]": {
                 display: "flex !important", flexDirection: "column", width: "100% !important", maxWidth: "none !important", height: "100% !important", maxHeight: "none !important",
                 padding: "0 !important", border: "none !important", borderRadius: "0 !important", boxShadow: "none !important", background: "bg.surface", overflowY: "auto", outline: "none",
-                animationName: "slide-from-right-full", animationDuration: "normal", animationTimingFunction: "{easings.out}", _motionReduce: { animation: "none" },
+                /* In as a view does; out at once, with nothing for what mounts it to wait on under its `display: none`. */
+                '&[data-state="open"]': { animationName: "slide-from-right-full", animationDuration: "normal", animationTimingFunction: "{easings.out}", _motionReduce: { animation: "none" } },
+                '&[data-state="closed"]': { animation: "none !important" },
                 "& [data-frame-layer-head]": { position: "sticky", top: "0", zIndex: "1", background: "bg.surface" },
                 /* Its rows at touch size, across the view. */
                 '& [data-part="item"], & [data-part="option-item"]': { flex: "none", minHeight: "44px", paddingX: "16px", borderRadius: "0", fontSize: "body", whiteSpace: "normal" },

@@ -39,7 +39,7 @@ export const tableSlotRecipe = defineSlotRecipe({
         "columnHeaderContent", "columnHeaderLabel", "columnControls",
         "columnControl", "columnSortIndex", "columnResizer",
         "footer", "caption", "scrollArea", "treeIndent", "treeToggle",
-        "phonePager", "phonePagerBand", "phonePagerRange", "phonePagerStep", "phoneColumns", "phoneColumn", "phoneColumnMark", "phoneColumnText", "phoneColumnName", "phoneColumnKind", "phoneColumnCheck", "phoneHeaderSort", "phoneAbsent", "phoneBar",
+        "phoneGroup", "phonePager", "phonePagerBand", "phonePagerRange", "phonePagerStep", "phoneColumns", "phoneColumn", "phoneColumnMark", "phoneColumnText", "phoneColumnName", "phoneColumnKind", "phoneColumnCheck", "phoneHeaderSort", "phoneAbsent", "phoneBar",
         "phoneView", "phoneViewHead", "phoneViewBack", "phoneViewTitle", "phoneViewContext", "phoneViewFoot",
     ],
     base: {
@@ -67,7 +67,7 @@ export const tableSlotRecipe = defineSlotRecipe({
             textAlign: "left",
             whiteSpace: "nowrap",
             "[data-table-phone] &": {
-                paddingY: "0", paddingX: "0", background: "bg.canvas", overflow: "hidden",
+                paddingY: "0", paddingX: "0", background: "bg.canvas", overflow: "visible",
             },
         },
         // A header's content (#951): its label, then its controls.
@@ -266,8 +266,17 @@ export const tableSlotRecipe = defineSlotRecipe({
         phoneViewContext: { flex: "1", minWidth: "0", fontFamily: "mono", fontSize: "label.md", color: "fg.subtle" },
         phoneViewFoot: { "&::first-letter": { textTransform: "uppercase" }, flex: "none", paddingTop: "12px", paddingX: "16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))", fontFamily: "mono", fontSize: "label.md", lineHeight: "1.4", color: "fg.subtle", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle" },
         /* The header's label, its whole height the tap that sorts. */
+        /* A column group's head over the columns of it in view: its words whole, wrapping at spaces. */
+        phoneGroup: {
+            minHeight: "28px", display: "flex", alignItems: "center", justifyContent: "center", paddingY: "4px", paddingX: "8px", boxSizing: "border-box", textAlign: "center",
+            fontFamily: "mono", fontSize: "label.xs", fontWeight: "600", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: "1.3", whiteSpace: "normal",
+            background: "bg.canvas", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",
+            "& + &[data-table-phone-group]": { borderInlineStartWidth: "1px", borderInlineStartStyle: "solid", borderInlineStartColor: "border.subtle" },
+        },
         phoneHeaderSort: {
-            all: "unset", boxSizing: "border-box", width: "100%", height: "100%", display: "flex", alignItems: "center", gap: "{spacing.1}", paddingX: "12px", cursor: "pointer",
+            all: "unset", position: "relative", boxSizing: "border-box", width: "100%", height: "100%", display: "flex", alignItems: "center", gap: "{spacing.1}", paddingX: "12px", cursor: "pointer",
+            /* The header stays the design's 32; its tap is 44, past it either side. */
+            "&::after": { content: '""', position: "absolute", insetInline: "0", top: "-6px", bottom: "-6px" },
             "th[data-pinned] > &": { paddingInlineStart: "16px" },
             "th[data-last] > &": { paddingInlineEnd: "16px" },
             "&[data-align=end]": { justifyContent: "flex-end" },

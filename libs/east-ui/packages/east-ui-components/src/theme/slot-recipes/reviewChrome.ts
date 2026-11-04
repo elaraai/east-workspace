@@ -24,7 +24,7 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 
 export const reviewChromeSlotRecipe = defineSlotRecipe({
     className: "elara-review-chrome",
-    slots: ["decisionHeader", "decisionCol", "statusDot", "batch", "batchSummary"],
+    slots: ["decisionHeader", "decisionCol", "statusDot", "decisionIcon", "batch", "batchSummary"],
     base: {
         // Review decision-column header — mirrors the column-header type rhythm
         // but right-anchored, with a left rule fencing the column off from the
@@ -48,6 +48,7 @@ export const reviewChromeSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             overflow: "hidden",
             minWidth: 0,
+            "[data-table-phone] &": { paddingY: "0", paddingX: "8px", fontSize: "10px", letterSpacing: "0.14em" },
         },
         // Per-row decision cell — the Approve/Reject pair, right-aligned and
         // fenced by the same left rule. Vertical rhythm comes from the row's
@@ -64,7 +65,11 @@ export const reviewChromeSlotRecipe = defineSlotRecipe({
             // On a card (the Plan's narrow layout, §10) there is no column to
             // fence: the pair sits in the card's own foot, rule-less.
             "[data-plan-narrow] &": { borderLeftWidth: 0, padding: 0 },
+            // A phone's table: the pair as two 44 targets, the column no wider than it needs.
+            "[data-table-phone] &": { padding: "0", gap: "0", minHeight: "44px" },
         },
+        // The pair's icon form, on a phone: 44 square, each named for what it does.
+        decisionIcon: { flex: "none", width: "44px", height: "44px", minWidth: "44px", padding: "0", "& svg": { fontSize: "14px" } },
         // The quiet status dot beside the subject's identity (some ⇒ flagged).
         // Colour rides the `status` variant; this is just the 8px disc geometry.
         // Reads as one flag per row, not a per-cell ring (which is too busy).

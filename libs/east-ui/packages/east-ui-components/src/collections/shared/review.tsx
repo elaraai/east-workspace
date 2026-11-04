@@ -28,7 +28,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Box, chakra, Menu as ChakraMenu, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCaretDown, faListCheck } from "@fortawesome/free-solid-svg-icons";
+import { faCaretDown, faCheck, faListCheck, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { type OptionType, type ValueTypeOf } from "@elaraai/east";
 import { type RowReviewType, type ApprovalStateType, type UIComponentType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -194,27 +194,31 @@ export function useReviewController(
  * approved ⇒ Approve fills (solid brand); rejected ⇒ Reject becomes the
  * danger call; pending ⇒ neither is pre-selected (Approve is a plain outline).
  */
-export function DecisionButtons({ rowIndex, controller }: {
+export function DecisionButtons({ rowIndex, controller, icons = false }: {
     /** The row the pair acts on. */
     rowIndex: number;
     /** The surface's review controller. */
     controller: ReviewController;
+    /** Each its icon alone, a 44 target, named for what it does: a phone's table, which leaves its words no room. */
+    icons?: boolean | undefined;
 }) {
     const buttonRecipe = useRecipe({ key: "button" });
+    const chrome = useSlotRecipe({ key: "reviewChrome" })({}) as Record<string, Record<string, unknown>>;
     const tag = controller.tagFor(rowIndex);
     const approveVariant = tag === "approved" ? "solid" : tag === "rejected" ? "ghost" : "outline";
     const rejectVariant = tag === "rejected" ? "danger" : "ghost";
+    const size = icons ? [chrome.decisionIcon] : [];
     return (
         <>
-            <Box as="button" css={buttonRecipe({ variant: approveVariant, size: "xs" })}
-                aria-pressed={tag === "approved"}
+            <Box as="button" css={[buttonRecipe({ variant: approveVariant, size: "xs" }), ...size]}
+                aria-pressed={tag === "approved"} aria-label={icons ? "Approve" : undefined} data-decision="approve"
                 onClick={(e) => { e.stopPropagation(); controller.approveRow(rowIndex); }}>
-                Approve
+                {icons ? <FontAwesomeIcon icon={faCheck} /> : "Approve"}
             </Box>
-            <Box as="button" css={buttonRecipe({ variant: rejectVariant, size: "xs" })}
-                aria-pressed={tag === "rejected"}
+            <Box as="button" css={[buttonRecipe({ variant: rejectVariant, size: "xs" }), ...size]}
+                aria-pressed={tag === "rejected"} aria-label={icons ? "Reject" : undefined} data-decision="reject"
                 onClick={(e) => { e.stopPropagation(); controller.rejectRow(rowIndex); }}>
-                Reject
+                {icons ? <FontAwesomeIcon icon={faXmark} /> : "Reject"}
             </Box>
         </>
     );
