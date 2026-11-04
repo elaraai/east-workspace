@@ -14,9 +14,16 @@
  * with tabular numerals. Controls stay visible at reduced opacity — no
  * hover-only affordances, so touch and keyboard users see the same
  * surface. Expanded collections end in an "Add …" ghost row.
+ *
+ * At 560 px of its own width or narrower (`data-tree-phone`, `Query Builder
+ * Phone Spec.md` QP13): a branch's row 44, its chevron 14, its label 13/500, its
+ * preview mono 10.5 `--ink-4` in whole parts; a field's row at least 36 behind a
+ * 1 px `--rule` guide, its key 13 `--ink-3` in a 96 column; values wrap, each row
+ * measured; every control a 44 target.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { wholeOrNone } from "../../style/whole-or-none.js";
 
 export const valueTreeSlotRecipe = defineSlotRecipe({
     className: "elara-value-tree",
@@ -24,7 +31,7 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
         "root", "row", "twist", "label", "value",
         "valueText", "summary", "opaque", "controls", "ctl",
         "setBtn", "keyInput", "tagWrap", "empty", "append",
-        "toolbar", "toolbarBtn",
+        "toolbar", "toolbarBtn", "phoneSummary",
     ],
     base: {
         /* Bare like Table / Deck — identity chrome is host composition. */
@@ -46,6 +53,12 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
             _hover: { background: "bg.subtle" },
             /* Transient search-jump highlight (#520). */
             "&[data-match]": { background: "bg.brand.subtle" },
+            "[data-tree-phone] &": {
+                position: "relative", height: "auto", minHeight: "36px", paddingY: "8px", boxSizing: "border-box", alignItems: "flex-start",
+                "&[data-branch]": { minHeight: "44px", alignItems: "center", paddingY: "4px", cursor: "pointer" },
+                /* The guide its parent's rows hang from. */
+                "&[data-nested]:not([data-branch])::before": { content: '""', position: "absolute", top: 0, bottom: 0, insetInlineStart: "var(--tree-guide, 0px)", width: "1px", background: "border.subtle" },
+            },
             _focusVisible: {
                 outline: "2px solid",
                 outlineColor: "border.brand",
@@ -66,6 +79,7 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
             cursor: "pointer",
             _hover: { background: "bg.emphasized", color: "fg.default" },
             _coarse: { width: "28px", height: "28px" },
+            "[data-tree-phone] &": { fontSize: "14px", width: "24px", height: "20px", _coarse: { width: "24px", height: "20px" } },
         },
         /* The form-like name column — a stable basis so values align. */
         label: {
@@ -77,6 +91,8 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
             flex: "0 1 200px",
             minWidth: "72px",
             maxWidth: "45%",
+            "[data-tree-phone] [data-part=row]:not([data-branch]) > &": { flex: "0 0 96px", maxWidth: "96px", whiteSpace: "normal", overflowWrap: "anywhere", fontWeight: "400", color: "fg.muted", lineHeight: "20px" },
+            "[data-tree-phone] [data-branch] > &": { flex: "0 0 auto", maxWidth: "none", minWidth: "0", whiteSpace: "normal", lineHeight: "20px" },
         },
         /* The value column — editors bound to it, numerics right-aligned.
          * Overflow clips (segmented editors like DateTime have intrinsic
@@ -89,6 +105,7 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
             minWidth: 0,
             maxWidth: "300px",
             overflow: "hidden",
+            "[data-tree-phone] &": { maxWidth: "none", flexWrap: "wrap", lineHeight: "20px", "& input": { height: "36px", minHeight: "36px" } },
             /* Editors are dense inline lines, not standalone form fields —
              * cap their height so adjacent rows keep visible air. */
             "& input": {
@@ -107,7 +124,10 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
+            "[data-tree-phone] &": { whiteSpace: "normal", overflow: "visible", overflowWrap: "anywhere" },
         },
+        /* A phone's preview: as many whole ` · ` parts as fit, mono 10.5 `--ink-4`. */
+        phoneSummary: { ...wholeOrNone("20px"), flex: "1 1 auto", minWidth: "0", columnGap: "4px", fontFamily: "mono", fontSize: "label.md", color: "fg.subtle", whiteSpace: "nowrap" },
         /* Branch preview / count — "Press · 2.5 · Running", "3 items". */
         summary: {
             fontSize: "{fontSizes.body.sm}",
@@ -150,6 +170,7 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
             cursor: "pointer",
             _hover: { background: "bg.emphasized", color: "fg.default" },
             _coarse: { width: "32px", height: "32px" },
+            "[data-tree-phone] &": { width: "44px", height: "44px", marginY: "-8px", _coarse: { width: "44px", height: "44px" } },
         },
         /* The option "Set" text affordance (none → some). */
         setBtn: {
@@ -164,6 +185,7 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
             cursor: "pointer",
             _hover: { background: "bg.emphasized", color: "fg.default" },
             _coarse: { height: "32px" },
+            "[data-tree-phone] &": { height: "44px", marginY: "-8px", _coarse: { height: "44px" } },
         },
         /* Inline new-dict-key entry (Enter commits, Escape cancels). */
         keyInput: {

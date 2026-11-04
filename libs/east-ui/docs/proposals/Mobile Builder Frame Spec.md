@@ -85,6 +85,10 @@ Versus production: the start and end panes are 44 px side rails that open as 320
 - **FR9.2** ⌄, Esc, an action and a tap anywhere else close it; so one is open at a time. A scroll of main does not. Esc closes the panel, not the pane under it.
 - **FR9.3** The toolbar's popovers stay views (FR7), Discard asks in its band (FR8), the session row's conflicts open in main's panel in every builder, and past 560 px every one stays the popover it was. The Sheet's own bar, Studio and the query builder do not take the frame's panel for main.
 
+## 5b · Table and Value tree (FR10)
+
+**FR10.** `Table` and `ValueTree` draw their phone forms by themselves at 560 px of their own width or narrower, wherever they stand, with no flag (ruled 4 Nov 2026). The forms are `Query Builder Phone Spec.md` QP8–QP13, generalised to what those parts can hold: sorting stays, as a tap on a header; selection, nested rows, expanded rows and a review's Decision column stay; column groups do not show; the pager lists its columns in place, not in a menu. An aligned stack's plot gutter keeps its own form.
+
 ## 6 · Session row (FR6) and Discard (FR8)
 
 **FR6. Session row.** Production's history buttons, as the toolbar's second row, always shown (ruled 3 Nov 2026, after review: the designer drew a session bar on the bottom edge; it moves to the top, under the first row).

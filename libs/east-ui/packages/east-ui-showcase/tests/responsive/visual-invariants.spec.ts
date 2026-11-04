@@ -524,7 +524,8 @@ test.describe("Visual invariants — the Table", () => {
                         }
                     });
                 }
-                if (seen === 0) out.push("no header carries a pin or sort control");
+                // A table held to 560px or narrower draws its phone form, which has no such controls.
+                if (seen === 0 && root.querySelector("[data-table-phone]") === null) out.push("no header carries a pin or sort control");
                 return out;
             });
             expect(bad).toEqual([]);
@@ -719,12 +720,96 @@ test.describe("Visual invariants — the Matrix", () => {
 test.describe("Visual invariants — the Table, on touch", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) >= 1000, "read on the touch viewport");
 
-    test("tableBasic: where nothing hovers, a header's controls rest at reduced emphasis", async ({ page }) => {
+    // A Table's phone form, automatic at 560px of its own width (ruled 4 Nov 2026): no sideways scroll, no pin or resize,
+    // every word whole, a pager over columns off-screen, and whatever it holds still working.
+    for (const name of ["tableBasic", "tableRichColumns", "tableTree", "tablePaginated", "tableExpandable"]) {
+        test(`${name}: at a phone's width the columns page rather than scroll, each word whole, a header's tap sorting`, async ({ page }) => {
+            const entry = await openTable(page, name);
+            const table = entry.locator("[data-table-phone]");
+            await expect(table).toHaveCount(1);
+            await expect(entry.locator("[data-slot='columnControls'], [data-slot='columnResizer']")).toHaveCount(0);
+            const faults = () => table.evaluate((root) => {
+                const out: string[] = [];
+                const box = root.getBoundingClientRect();
+                const scroller = root.parentElement!;
+                if (scroller.scrollWidth - scroller.clientWidth > 1) out.push(`scrolls sideways by ${scroller.scrollWidth - scroller.clientWidth}`);
+                for (const cell of root.querySelectorAll("th, td")) {
+                    const b = cell.getBoundingClientRect();
+                    if (b.left < box.left - 0.5 || b.right > box.right + 0.5) out.push(`"${cell.textContent}" leaves the table`);
+                    const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+                    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+                        for (const word of (node.textContent ?? "").matchAll(/[^\s-]+/g)) {
+                            const range = document.createRange();
+                            range.setStart(node, word.index);
+                            range.setEnd(node, word.index + word[0].length);
+                            if (range.getClientRects().length > 1) out.push(`"${word[0]}" is split`);
+                            if (range.getBoundingClientRect().right > b.right + 0.5) out.push(`"${word[0]}" is cut`);
+                        }
+                    }
+                }
+                return out;
+            });
+            expect(await faults()).toEqual([]);
+            const pager = entry.locator("[data-table-pager]");
+            if (await pager.count() > 0) {
+                const heads = () => table.locator("th").allTextContents();
+                const before = await heads();
+                const previous = pager.getByRole("button", { name: "Previous column" }), next = pager.getByRole("button", { name: "Next column" });
+                await expect(previous).toHaveAttribute("aria-disabled", "true");
+                await next.click(); await settled(page);
+                expect(await heads()).not.toEqual(before);
+                expect((await heads())[0], "the pinned column stays").toBe(before[0]);
+                expect(await faults()).toEqual([]);
+                await previous.click(); await settled(page);
+                expect(await heads()).toEqual(before);
+                // The columns listed in place: no floating menu, each 44 tall.
+                await pager.locator("[data-table-pager-range]").click();
+                const listed = pager.locator("[data-table-pager-columns] button");
+                expect((await listed.first().boundingBox())!.height).toBeGreaterThanOrEqual(44);
+                await expect(page.locator('[data-scope="menu"][data-part="content"][data-state="open"]')).toHaveCount(0);
+                await pager.locator("[data-table-pager-range]").click();
+            }
+        });
+    }
+
+    test("tableBasic: at a phone's width a header's tap sorts, and says so", async ({ page }) => {
         const entry = await openTable(page, "tableBasic");
-        expect(await page.evaluate(() => matchMedia("(hover: none)").matches), "the viewport cannot hover").toBe(true);
-        const controls = entry.locator("[data-slot='columnControls']:not([data-active])").first();
-        await expect(controls).toHaveCount(1);
-        await expect(controls).toHaveCSS("opacity", "0.6");
+        const head = entry.locator("th").first();
+        await head.locator("button").click(); await settled(page);
+        const first = await head.getAttribute("aria-sort");
+        expect(["ascending", "descending"]).toContain(first);
+        await head.locator("button").click(); await settled(page);
+        await expect(head).toHaveAttribute("aria-sort", first === "ascending" ? "descending" : "ascending");
+    });
+
+    test("valueTreeInspect: at a phone's width a branch's row is 44 and the whole of it toggles, a field's at least 36 with its key in a 96 column, no value cut", async ({ page }) => {
+        await page.goto("/#collections/value-tree/valueTreeInspect");
+        const entry = page.locator("[data-index]", { has: page.locator('a[href="#collections/value-tree/valueTreeInspect"]') });
+        await entry.scrollIntoViewIfNeeded();
+        const tree = entry.locator("[data-tree-phone]");
+        await expect(tree).toHaveCount(1, { timeout: 20_000 });
+        await settled(page);
+        expect(await tree.evaluate((root) => {
+            const out: string[] = [];
+            const rows = [...root.querySelectorAll<HTMLElement>("[data-part=row]")];
+            if (rows.length === 0) out.push("no rows");
+            let prev: DOMRect | undefined;
+            for (const row of rows) {
+                const r = row.getBoundingClientRect();
+                const branch = row.hasAttribute("data-branch");
+                if (branch && r.height < 43.5) out.push(`branch ${row.textContent} ${r.height} tall`);
+                if (!branch && r.height < 35.5) out.push(`field ${row.textContent} ${r.height} tall`);
+                if (prev !== undefined && r.top < prev.bottom - 0.5) out.push(`${row.textContent} over the row above`);
+                prev = r;
+                const value = row.querySelector<HTMLElement>("[data-leaf]");
+                if (value !== null && value.scrollWidth - value.clientWidth > 1) out.push(`${row.textContent}: its value is cut`);
+            }
+            return out;
+        })).toEqual([]);
+        const branch = tree.locator("[data-part=row][data-branch]").first();
+        const expanded = await branch.getAttribute("aria-expanded");
+        await branch.locator("span").first().click(); await settled(page);
+        await expect(tree.locator("[data-part=row][data-branch]").first()).not.toHaveAttribute("aria-expanded", expanded!);
     });
 });
 

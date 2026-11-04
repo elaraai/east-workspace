@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useRef, useState, useEffect, useCallback, type CSSProperties } from "react";
+import { memo, useMemo, useRef, useState, useEffect, useLayoutEffect, useCallback, type CSSProperties } from "react";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { keptRead } from "../../platform/kept.js";
 import {
@@ -17,7 +17,7 @@ import {
     type TableRootProps,
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faChevronUp, faChevronDown, faChevronLeft, faChevronRight, faAnglesDown, faThumbtack, faCaretDown } from "@fortawesome/free-solid-svg-icons";
+import { faCheck, faChevronUp, faChevronDown, faChevronLeft, faChevronRight, faAnglesDown, faThumbtack, faCaretDown } from "@fortawesome/free-solid-svg-icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
     useReactTable,
@@ -50,6 +50,9 @@ import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 import { useTablePagedRows, type TablePagedSourceValue, type TableRowValue } from "./use-paged-rows.js";
 import { windowedSourceOf } from "../windowed-source.js";
+import { useContainerWidth } from "../../contracts/adaptive.js";
+import { NARROW_FRAME } from "../../layout/builder-frame/place.js";
+import { fitPhoneColumns, measureText } from "./phone-fit.js";
 import { useFormatters, type Formatters, type TickFormatOpt } from "../../format/index.js";
 
 /* Touch (#351): 36px tap halo on the 24px row expander, the size the header's
@@ -407,8 +410,27 @@ const readTablePersisted = keptRead.record<TablePersistedState>({
     folds: keptRead.optional(keptRead.dict(keptRead.boolean)),
 });
 
+/** A column's padding at a phone's width: 12 each side, and the pinned column's 16 before it (QP10, QP11). */
+const PHONE_PAD = 24;
+const PHONE_PIN_PAD = 28;
+/** How many rows a phone's column widths read: enough to be stable, never the whole of a long table. */
+const PHONE_SAMPLE = 500;
+/** A nested row's indent step and a parent's caret, the `table` recipe's. */
+const PHONE_TREE_STEP = 20;
+/** What a measured word gets past its measure: the page lays text on subpixels a canvas rounds, and an exact fit breaks the word. */
+const PHONE_SLACK = 2;
+
 /**
  * Renders an East UI Table value using Chakra UI Table components.
+ *
+ * At 560 px of its own width or narrower it draws its phone form, whatever it
+ * holds (ruled 4 Nov 2026): the first frozen column, else the first, pinned; as
+ * many others as fit whole beside it (`fitPhoneColumns`), a pager over them when
+ * some are off-screen; values wrapping rather than cut; a tap on a header sorts,
+ * with no pin or resize. Selection, nested rows, expanded rows, a review's
+ * Decision column and a footer stay; column groups, which span columns that may
+ * not be in view, do not show. An aligned stack's plot gutter keeps its form.
+ *
  * Features:
  * - Row virtualization for large datasets
  * - Column sorting with multi-sort support
@@ -439,6 +461,7 @@ const TableCore = function TableCore({
 }) {
     const props = useMemo(() => toChakraTableRoot(value), [value]);
     const tableContainerRef = useRef<HTMLDivElement>(null);
+    const containerWidth = useContainerWidth(tableContainerRef);
     // Counts and cells, in the app's locale (#850).
     const words = useFormatters();
 
@@ -469,6 +492,15 @@ const TableCore = function TableCore({
     const onRowDoubleClickFn = getSomeorUndefined(value.onRowDoubleClick);
     const onSortChangeFn = getSomeorUndefined(value.onSortChange);
     const onRowSelectionChangeFn = getSomeorUndefined(value.onRowSelectionChange);
+
+    // Shared plot gutter (#147) — own field wins over an inherited plot-gutter context.
+    const ctxGutter = usePlotGutter();
+    const ownGutter = style ? getSomeorUndefined(style.plotGutter) : undefined;
+    const gLeft = (ownGutter ? getSomeorUndefined(ownGutter.left) : undefined) ?? ctxGutter?.left;
+    const gRight = (ownGutter ? getSomeorUndefined(ownGutter.right) : undefined) ?? ctxGutter?.right;
+    const gutterActive = gLeft !== undefined || gRight !== undefined;
+    // The phone's form: by the table's own width, as a frame's is.
+    const phone = containerWidth > 0 && containerWidth <= NARROW_FRAME && !gutterActive;
 
     // Column-resize gating — IR `value.columnResize` takes precedence
     // over the JS-side prop. When neither is defined, default to true
@@ -847,6 +879,115 @@ const TableCore = function TableCore({
     }), [pinnedColumns, hasReview]);
     const hasFrozen = pinnedColumns.length > 0;
 
+    // ── The phone's window over the columns ───────────────────────────────
+    const [phoneFirst, setPhoneFirst] = useState(0);
+    const [phoneMenu, setPhoneMenu] = useState(false);
+    const phonePin = phone ? ([...value.frozen][0] ?? value.columns[0]?.key) : undefined;
+    const phoneOthers = useMemo(() => value.columns.filter(c => c.key !== phonePin), [value.columns, phonePin]);
+    // Fonts arriving move what the columns measure.
+    const [fontsIn, setFontsIn] = useState(0);
+    useEffect(() => {
+        if (!phone) return undefined;
+        let live = true;
+        void document.fonts?.ready.then(() => { if (live) setFontsIn(n => n + 1); });
+        return () => { live = false; };
+    }, [phone]);
+    // Each column's natural width: its widest label or value, over a sample of its rows; a column that renders its own
+    // cells at its declared width. Measured as the recipe's type draws them.
+    const phoneNaturals = useMemo(() => {
+        if (!phone) return new Map<string, number>();
+        // The fonts as the page resolves them: a canvas refuses a font that names a CSS variable, and measures in its last.
+        const el = tableContainerRef.current;
+        const resolved = (token: string, fallback: string) => {
+            if (el === null) return fallback;
+            const probe = document.createElement("span");
+            probe.style.fontFamily = `var(--chakra-fonts-${token})`;
+            el.appendChild(probe);
+            const family = getComputedStyle(probe).fontFamily;
+            probe.remove();
+            return family || fallback;
+        };
+        const body = resolved("body", "sans-serif");
+        const mono = resolved("mono", "monospace");
+        const sample = tree.all.slice(0, PHONE_SAMPLE);
+        const depth = nested ? sample.reduce((most, r) => Math.max(most, r.depth), 0) * PHONE_TREE_STEP + PHONE_TREE_STEP : 0;
+        const out = new Map<string, number>();
+        for (const col of value.columns) {
+            const header = getSomeorUndefined(col.header) ?? col.key;
+            const label = measureText(header.toUpperCase(), `600 10px ${mono}`) + header.length * 1.6;
+            const numeric = col.valueType.type === "Integer" || col.valueType.type === "Float";
+            // A column that renders its own cells holds at least its declared width, and its value as it prints, so a
+            // narrow declared width never cuts a word.
+            const declared = getSomeorUndefined(col.render) === undefined ? 0 : parseSize(getSomeorUndefined(col.width), 150);
+            const format = getSomeorUndefined(col.format);
+            let widest = Math.max(declared, label);
+            const font = numeric ? `500 13px ${mono}` : `400 13px ${body}`;
+            for (const row of sample) {
+                const cell = subtotals.get(row.index)?.get(col.key) ?? row.cells.get(col.key);
+                if (cell !== undefined) widest = Math.max(widest, measureText(cell.type === "Null" ? "no data" : cellText(cell, format, words), font));
+            }
+            out.set(col.key, Math.ceil(Math.max(widest, label)) + PHONE_SLACK + (col.key === phonePin ? PHONE_PIN_PAD + depth : PHONE_PAD));
+        }
+        return out;
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- `fontsIn` is what measures them again.
+    }, [phone, value.columns, tree, subtotals, words, phonePin, nested, fontsIn]);
+    // A column that renders its own cells prints what its value does not say: each column at least as wide as the
+    // widest word its mounted cells draw, so none is split. It only grows, so it settles.
+    const [phoneWords, setPhoneWords] = useState<Record<string, number>>({});
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- after every commit: scrolling mounts cells no dependency names; it ends as it stops growing.
+    useLayoutEffect(() => {
+        if (!phone || value.columns.every(c => getSomeorUndefined(c.render) === undefined)) return;
+        const cells = tableContainerRef.current?.querySelectorAll<HTMLElement>("td[data-phone-col]") ?? [];
+        const widest: Record<string, number> = {};
+        for (const cell of cells) {
+            const key = cell.getAttribute("data-phone-col")!;
+            const pad = key === phonePin ? PHONE_PIN_PAD : PHONE_PAD;
+            const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+            for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+                const look = getComputedStyle(node.parentElement!);
+                const font = `${look.fontWeight} ${look.fontSize} ${look.fontFamily}`;
+                for (const word of (node.textContent ?? "").split(/\s+/)) {
+                    if (word !== "") widest[key] = Math.max(widest[key] ?? 0, Math.ceil(measureText(word, font)) + PHONE_SLACK + pad);
+                }
+            }
+        }
+        setPhoneWords(was => (Object.keys(widest).some(key => widest[key]! > (was[key] ?? 0))
+            ? Object.fromEntries(Object.keys({ ...was, ...widest }).map(key => [key, Math.max(was[key] ?? 0, widest[key] ?? 0)])) : was));
+    });
+    // The room the columns share: less what stands beside them whatever is in view.
+    const phoneFit = useMemo(() => {
+        if (!phone) return undefined;
+        const taken = (getSomeorUndefined(value.expandedContent) !== undefined ? 32 : 0)
+            + (getSomeorUndefined(value.selection) !== undefined ? 40 : 0)
+            + (getSomeorUndefined(value.review) !== undefined ? parseInt(DECISION_WIDTH, 10) : 0);
+        // Its client width: what a classic scrollbar leaves, on a page that draws one.
+        const room = tableContainerRef.current?.clientWidth ?? containerWidth;
+        const natural = (key: string) => Math.max(phoneNaturals.get(key) ?? 0, phoneWords[key] ?? 0);
+        return fitPhoneColumns(room - taken, phonePin === undefined ? 0 : natural(phonePin),
+            phoneOthers.map(c => natural(c.key)), phoneFirst);
+    }, [phone, containerWidth, phonePin, phoneNaturals, phoneWords, phoneOthers, phoneFirst, value.expandedContent, value.selection, value.review]);
+    const phoneInView = useMemo(() => {
+        const out = new Map<string, number>();
+        if (phoneFit === undefined) return out;
+        if (phonePin !== undefined) out.set(phonePin, phoneFit.pinned);
+        phoneFit.widths.forEach((w, i) => { const col = phoneOthers[phoneFit.first + i]; if (col !== undefined) out.set(col.key, w); });
+        return out;
+    }, [phoneFit, phonePin, phoneOthers]);
+    const columnVisibility = useMemo(() => {
+        const hidden: Record<string, boolean> = {};
+        if (phone) for (const col of value.columns) if (!phoneInView.has(col.key)) hidden[col.key] = false;
+        return hidden;
+    }, [phone, value.columns, phoneInView]);
+    const phoneLastInView = phoneFit === undefined || phoneFit.widths.length === 0 ? undefined : phoneOthers[phoneFit.first + phoneFit.widths.length - 1]?.key;
+    /** A column's place at a phone's width, over whatever its cell would otherwise take. */
+    const phonePlace = (id: string): CSSProperties => {
+        const width = phoneInView.get(id);
+        return width === undefined ? {} : {
+            width: `${width}px`, minWidth: 0, flex: "none", position: "relative",
+            borderRight: id === phonePin && phoneFit !== undefined && phoneFit.widths.length > 0 ? "1px solid var(--chakra-colors-border-strong)" : undefined,
+        };
+    };
+
     const toggleColumnPin = useCallback((columnId: string) => {
         setPersistedState(prev => {
             const current = prev.pinnedColumns ?? [...value.frozen];
@@ -909,7 +1050,8 @@ const TableCore = function TableCore({
             sorting,
             columnSizing,
             rowSelection,
-            columnPinning,
+            columnPinning: phone ? { left: phonePin === undefined ? [] : [phonePin], right: columnPinning.right } : columnPinning,
+            columnVisibility,
             expanded,
         },
         onSortingChange: handleSortingChange,
@@ -1091,18 +1233,12 @@ const TableCore = function TableCore({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hasFrozen, table.getState().columnSizing, table.getState().columnSizingInfo]);
 
-    // Shared plot gutter (#147) — own field wins over an inherited plot-gutter
-    // context. When active the data columns are pinned to [left, W−right]: the
+    // The shared plot gutter (#147), read above. When active the data columns are pinned to [left, W−right]: the
     // frozen pane is scaled to `left` (or a left spacer fills it when there are no
     // frozen columns), the centre columns flex-fill the lane, a `right` spacer
     // trails, and horizontal scroll is dropped so the lane is exactly the
     // container width. All of this is gated behind `gutterActive`, so a Table
     // without a gutter renders byte-identically to before.
-    const ctxGutter = usePlotGutter();
-    const ownGutter = style ? getSomeorUndefined(style.plotGutter) : undefined;
-    const gLeft = (ownGutter ? getSomeorUndefined(ownGutter.left) : undefined) ?? ctxGutter?.left;
-    const gRight = (ownGutter ? getSomeorUndefined(ownGutter.right) : undefined) ?? ctxGutter?.right;
-    const gutterActive = gLeft !== undefined || gRight !== undefined;
     const gutterRightPx = gRight ?? "0px";
     const gLeftPx = gutterPx(gLeft);
     // Scale the frozen pane so its columns sum to `left`; left spacer covers the
@@ -1163,32 +1299,67 @@ const TableCore = function TableCore({
             // Horizontal containment (#351): a wide table pans inside its own
             // scroll container instead of squeezing columns / overflowing the
             // page — frozen or not (gutter mode still owns clipping).
-            overflowX={gutterActive ? 'hidden' : 'auto'}
+            overflowX={gutterActive || phone ? 'hidden' : 'auto'}
             overscrollBehaviorX="contain"
             // Reserved-gutter bar only when the author bounded the table — an
             // unbounded (content-sized) table must not reserve a dead gutter.
-            css={styleHeightCss !== undefined || styleMaxHeightCss !== undefined ? virtualScrollbarCss : undefined}
+            css={!phone && (styleHeightCss !== undefined || styleMaxHeightCss !== undefined) ? virtualScrollbarCss : undefined}
             position="relative"
             {...(gutterActive ? { width: "100%" } : {})}
         >
+            {/* A phone's pager (QP8), while some column is off-screen: the range, which lists the columns in place, and ‹ ›. */}
+            {phoneFit !== undefined && phoneOthers.length > phoneFit.widths.length && (() => {
+                const shownFrom = phoneFit.first + 1, shownTo = phoneFit.first + phoneFit.widths.length;
+                const range = shownFrom === shownTo ? words.number(shownFrom) : `${words.number(shownFrom)}–${words.number(shownTo)}`;
+                return (
+                    <Box css={tableCustomSlots.phonePager} data-table-pager="">
+                        <Box css={tableCustomSlots.phonePagerBand}>
+                            <chakra.button type="button" css={tableCustomSlots.phonePagerRange} aria-expanded={phoneMenu} data-table-pager-range="" onClick={() => setPhoneMenu(!phoneMenu)}>
+                                <span>Columns <b>{range}</b> of {words.number(phoneOthers.length)}</span>
+                                <FontAwesomeIcon icon={faCaretDown} />
+                            </chakra.button>
+                            <chakra.button type="button" css={tableCustomSlots.phonePagerStep} aria-label="Previous column" aria-disabled={phoneFit.first <= 0 ? true : undefined}
+                                onClick={() => { if (phoneFit.first > 0) setPhoneFirst(phoneFit.first - 1); }}><FontAwesomeIcon icon={faChevronLeft} /></chakra.button>
+                            <chakra.button type="button" css={tableCustomSlots.phonePagerStep} aria-label="Next column" aria-disabled={phoneFit.first >= phoneFit.lastFirst ? true : undefined}
+                                onClick={() => { if (phoneFit.first < phoneFit.lastFirst) setPhoneFirst(phoneFit.first + 1); }}><FontAwesomeIcon icon={faChevronRight} /></chakra.button>
+                        </Box>
+                        {phoneMenu && <Box css={tableCustomSlots.phoneColumns} data-table-pager-columns="">
+                            {phoneOthers.map((col, i) => {
+                                const shown = phoneInView.has(col.key);
+                                return (
+                                    <chakra.button key={col.key} type="button" css={tableCustomSlots.phoneColumn} data-in-view={shown ? "" : undefined} onClick={() => {
+                                        if (i < phoneFit.first) setPhoneFirst(i);
+                                        else if (i >= phoneFit.first + phoneFit.widths.length) setPhoneFirst(i);
+                                        setPhoneMenu(false);
+                                    }}>
+                                        <span>{getSomeorUndefined(col.header) ?? col.key}</span>
+                                        {shown && <FontAwesomeIcon icon={faCheck} />}
+                                    </chakra.button>
+                                );
+                            })}
+                        </Box>}
+                    </Box>
+                );
+            })()}
             <ChakraTable.Root
                 {...props}
                 size={tableSize}
+                data-table-phone={phone ? "" : undefined}
                 style={{
                     ...columnSizeVars,
-                    width: gutterActive ? '100%' : (hasFrozen ? table.getCenterTotalSize() + frozenPanelWidth : '100%'),
-                    minWidth: gutterActive ? 0 : (hasFrozen ? table.getCenterTotalSize() + frozenPanelWidth : table.getCenterTotalSize()),
+                    width: gutterActive || phone ? '100%' : (hasFrozen ? table.getCenterTotalSize() + frozenPanelWidth : '100%'),
+                    minWidth: gutterActive || phone ? 0 : (hasFrozen ? table.getCenterTotalSize() + frozenPanelWidth : table.getCenterTotalSize()),
                     tableLayout: 'fixed',
                 }}
             >
-                <ChakraTable.Header style={{ display: 'block' }} position="sticky" top={0} zIndex={2} bg="bg.canvas">
+                <ChakraTable.Header style={{ display: 'block' }} position="sticky" top={phone && phoneFit !== undefined && phoneOthers.length > phoneFit.widths.length ? "44px" : 0} zIndex={2} bg="bg.canvas">
                     {/* Column-group row — rendered above the column headers when
                         `value.columnGroups` is defined. Each group spans the
                         columns whose keys it lists, computed via CSS `calc()`
                         across the relevant `--col-*-size` variables. */}
                     {(() => {
                         const groups = getSomeorUndefined(value.columnGroups);
-                        if (!groups || groups.length === 0) return null;
+                        if (!groups || groups.length === 0 || phone) return null;
                         return (
                             <ChakraTable.Row key="column-groups" style={{ display: "flex", width: "100%" }}>
                                 {(() => {
@@ -1308,7 +1479,7 @@ const TableCore = function TableCore({
                                             style={{
                                                 width: `var(--header-${header.id}-size)`,
                                                 flex: 'none',
-                                                height: `${effectiveRowHeight}px`,
+                                                height: phone ? "32px" : `${effectiveRowHeight}px`,
                                                 ...getCommonPinningStyles(header.column),
                                                 zIndex: 3,
                                                 borderColor,
@@ -1330,6 +1501,24 @@ const TableCore = function TableCore({
                                 // is a read-only display lane, and the controls' flex
                                 // space would pull the label off-centre).
                                 const centerInGutter = gutterActive && !isPinned;
+
+                                // A phone's header: its label, which sorts where the column does, its sort shown only once chosen (QP12).
+                                if (phone) {
+                                    const canSort = header.column.getCanSort();
+                                    return (
+                                        <ChakraTable.ColumnHeader key={header.id} css={tableSlotStyles.columnHeader} bg={headerBackground} color={headerColor}
+                                            data-pinned={header.id === phonePin ? "" : undefined} data-last={header.id === phoneLastInView ? "" : undefined}
+                                            aria-sort={isSorted ? (sortDirection === "asc" ? "ascending" : "descending") : undefined}
+                                            style={{ display: "flex", alignItems: "center", height: "32px", borderColor, ...phonePlace(header.id) }}>
+                                            <chakra.button type="button" css={tableCustomSlots.phoneHeaderSort} disabled={!canSort}
+                                                data-align={header.column.columnDef.meta?.numeric ? "end" : undefined}
+                                                onClick={() => header.column.toggleSorting(undefined, false)}>
+                                                <span>{flexRender(header.column.columnDef.header, header.getContext())}</span>
+                                                {isSorted && <FontAwesomeIcon icon={icon} />}
+                                            </chakra.button>
+                                        </ChakraTable.ColumnHeader>
+                                    );
+                                }
 
                                 return (
                                     <ChakraTable.ColumnHeader
@@ -1517,7 +1706,7 @@ const TableCore = function TableCore({
                         // real height so `expandedContent` still pushes siblings
                         // down (#127). Without an override, rows stay min-height
                         // so wrapping content can grow.
-                        const rowHeightStyle: React.CSSProperties = explicitRowHeight !== undefined && !isExpanded
+                        const rowHeightStyle: React.CSSProperties = explicitRowHeight !== undefined && !isExpanded && !phone
                             ? { height: `${effectiveRowHeight}px`, overflow: "hidden" }
                             : { minHeight: `${effectiveRowHeight}px` };
 
@@ -1671,7 +1860,7 @@ const TableCore = function TableCore({
                                     const cellValue = cell.getValue() as TableCellValue | undefined;
                                     const meta = cell.column.columnDef.meta;
                                     const columnKey = meta?.columnKey ?? cell.column.id;
-                                    const pinningStyles = hasFrozen ? getCommonPinningStyles(cell.column) : {};
+                                    const pinningStyles = hasFrozen && !phone ? getCommonPinningStyles(cell.column) : {};
                                     // A parent's subtotal (#954) draws like the
                                     // column's cells — save a `count`, which counts
                                     // rows, so wears neither its render nor its format.
@@ -1704,7 +1893,9 @@ const TableCore = function TableCore({
                                         ...(meta?.numeric ? { justifyContent: "flex-end" } : {}),
                                         // Gutter: centre columns flex-fill the lane (#147).
                                         ...gutterCenterStyle(cell.column),
+                                        ...phonePlace(cell.column.id),
                                     };
+                                    const phoneAttrs = phone ? { "data-pinned": cell.column.id === phonePin ? "" : undefined, "data-last": cell.column.id === phoneLastInView ? "" : undefined, "data-phone-col": columnKey } : {};
 
                                     const cellClickHandler = onCellClickFn ? (e: React.MouseEvent) => {
                                         e.stopPropagation();
@@ -1728,11 +1919,12 @@ const TableCore = function TableCore({
                                         return (
                                             <ChakraTable.Cell
                                                 key={cell.id}
-                                                css={tableSlotStyles.cell} style={cellStyle}
+                                                css={tableSlotStyles.cell} style={cellStyle} {...phoneAttrs}
                                                 onClick={cellClickHandler}
                                                 onDoubleClick={cellDoubleClickHandler}
                                             >
                                                 {lead}
+                                                {phone && <Box as="span" css={tableCustomSlots.phoneAbsent}>no data</Box>}
                                             </ChakraTable.Cell>
                                         );
                                     }
@@ -1751,7 +1943,7 @@ const TableCore = function TableCore({
                                         return (
                                             <ChakraTable.Cell
                                                 key={cell.id}
-                                                css={tableSlotStyles.cell} style={cellStyle}
+                                                css={tableSlotStyles.cell} style={cellStyle} {...phoneAttrs}
                                                 data-subtotal={isSubtotal ? "" : undefined}
                                                 onClick={cellClickHandler}
                                                 onDoubleClick={cellDoubleClickHandler}
@@ -1768,15 +1960,17 @@ const TableCore = function TableCore({
                                     return (
                                         <ChakraTable.Cell
                                             key={cell.id}
-                                            css={tableSlotStyles.cell} style={cellStyle}
+                                            css={tableSlotStyles.cell} style={cellStyle} {...phoneAttrs}
                                             data-subtotal={isSubtotal ? "" : undefined}
                                             onClick={cellClickHandler}
                                             onDoubleClick={cellDoubleClickHandler}
                                         >
                                             {lead}
-                                            <Text css={tableCustomSlots.cellText} data-numeric={meta?.numeric ? "" : undefined}>
+                                            {phone && cellValue.type === "Null"
+                                                ? <Box as="span" css={tableCustomSlots.phoneAbsent}>no data</Box>
+                                                : <Text css={tableCustomSlots.cellText} data-numeric={meta?.numeric ? "" : undefined}>
                                                 {isCount && cellValue.type === "Integer" ? words.number(cellValue.value) : cellText(cellValue, meta?.format, words)}
-                                            </Text>
+                                            </Text>}
                                         </ChakraTable.Cell>
                                     );
                                 })}
@@ -1836,8 +2030,10 @@ const TableCore = function TableCore({
                                 for (let i = 0; i < value.columns.length; i++) {
                                     if (skip > 0) { skip--; continue; }
                                     const colKey = value.columns[i]!.key;
+                                    // A phone's: a cell under each column in view, whatever it spans elsewhere.
+                                    if (phone && !phoneInView.has(colKey)) continue;
                                     const cellEntry = rowMap.get(colKey);
-                                    const span = cellEntry ? Number(getSomeorUndefined(cellEntry.colSpan) ?? 1n) : 1;
+                                    const span = phone ? 1 : cellEntry ? Number(getSomeorUndefined(cellEntry.colSpan) ?? 1n) : 1;
                                     skip = span - 1;
                                     const widthVar = Array.from({ length: span }, (_, k) =>
                                         `var(--col-${value.columns[i + k]!.key}-size)`
@@ -1868,6 +2064,7 @@ const TableCore = function TableCore({
                                         background: footerBackground,
                                         borderColor,
                                         fontWeight: 600,
+                                        ...phonePlace(colKey),
                                     };
                                     // `content` on the IR footer cell is `UIComponentType`
                                     // (not OptionType), so read directly — wrapping in

@@ -19,6 +19,12 @@
  *     indents one step per depth — a 14 px caret and its 6 px gap — so a
  *     child's label starts where its parent's does; a parent's subtotal
  *     cells are semibold.
+ *   - At 560 px of its own width or narrower (`data-table-phone`, `Query Builder
+ *     Phone Spec.md` QP8–QP12): the pager band, 44 tall, padded 0 4 0 16, its
+ *     range mono 10.5 and its ‹ › 44 ghosts, listing the columns in place; a
+ *     32 header on `--paper-2`; cells padded 8 12, the pinned column's 16 before
+ *     it, the last in view's 16 after it; values wrapping, numbers mono 13/500,
+ *     an absent value `no data` in mono italic `--ink-4`.
  *
  * @packageDocumentation
  */
@@ -33,6 +39,7 @@ export const tableSlotRecipe = defineSlotRecipe({
         "columnHeaderContent", "columnHeaderLabel", "columnControls",
         "columnControl", "columnSortIndex", "columnResizer",
         "footer", "caption", "scrollArea", "treeIndent", "treeToggle",
+        "phonePager", "phonePagerBand", "phonePagerRange", "phonePagerStep", "phoneColumns", "phoneColumn", "phoneHeaderSort", "phoneAbsent",
     ],
     base: {
         root: {
@@ -58,6 +65,9 @@ export const tableSlotRecipe = defineSlotRecipe({
             borderBottomColor: "border.strong",
             textAlign: "left",
             whiteSpace: "nowrap",
+            "[data-table-phone] &": {
+                paddingY: "0", paddingX: "0", background: "bg.canvas", overflow: "hidden",
+            },
         },
         // A header's content (#951): its label, then its controls.
         columnHeaderContent: {
@@ -203,6 +213,11 @@ export const tableSlotRecipe = defineSlotRecipe({
             // A parent's subtotal (#954) — an accounting subtotal: its
             // children's scale, heavier.
             "&[data-subtotal]": { fontWeight: "semibold" },
+            "[data-table-phone] &": {
+                fontSize: "{fontSizes.body}", paddingY: "8px", paddingX: "12px",
+                "&[data-pinned]": { paddingInlineStart: "16px" },
+                "&[data-last]": { paddingInlineEnd: "16px" },
+            },
         },
         // The text a cell prints itself when its column has no `render`
         // (#874) — one line, cut with an ellipsis in a narrow column.
@@ -211,7 +226,44 @@ export const tableSlotRecipe = defineSlotRecipe({
             overflow: "hidden",
             textOverflow: "ellipsis",
             "&[data-numeric]": { fontFamily: "mono", fontSize: "12px", textAlign: "right" },
+            /* A phone's: whole, a value too wide for its column wrapping at its spaces. */
+            "[data-table-phone] &": { whiteSpace: "normal", overflow: "visible", overflowWrap: "anywhere", "&[data-numeric]": { fontSize: "13px", fontWeight: "500", fontVariantNumeric: "tabular-nums" } },
         },
+        /* The pager: over the rows as they scroll under it. */
+        phonePager: { position: "sticky", top: 0, left: 0, zIndex: 3, background: "bg.surface", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle" },
+        phonePagerBand: { height: "44px", display: "flex", alignItems: "center", paddingInlineStart: "16px", paddingInlineEnd: "4px" },
+        phonePagerRange: {
+            flex: "1", minWidth: "0", height: "44px", display: "inline-flex", alignItems: "center", gap: "{spacing.2}", padding: "0", background: "transparent", border: "none", cursor: "pointer",
+            fontFamily: "mono", fontSize: "label.md", color: "fg.muted", whiteSpace: "nowrap", textAlign: "left",
+            "& b": { fontWeight: "600", color: "fg" }, "& svg": { fontSize: "10px", color: "fg.subtle" },
+            _focusVisible: { outline: "none", boxShadow: "focusInset" },
+        },
+        phonePagerStep: {
+            flex: "none", width: "44px", height: "44px", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0", border: "none", background: "transparent",
+            color: "fg.strong", cursor: "pointer", borderRadius: "md", "& svg": { fontSize: "16px" },
+            "&[aria-disabled=true]": { color: "fg.faint", cursor: "default" },
+            _focusVisible: { outline: "none", boxShadow: "focusInset" },
+        },
+        /* The columns, listed in place: no floating menu on a phone. */
+        phoneColumns: { maxHeight: "240px", overflowY: "auto", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle" },
+        phoneColumn: {
+            width: "100%", minHeight: "44px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "{spacing.2}", paddingX: "16px", paddingY: "8px",
+            border: "none", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle", background: "transparent", cursor: "pointer", textAlign: "left",
+            fontSize: "{fontSizes.body}", color: "fg", "& svg": { fontSize: "12px", color: "brand.solid" },
+            "&[data-in-view]": { background: "bg.subtle" },
+            _focusVisible: { outline: "none", boxShadow: "focusInset" },
+        },
+        /* The header's label, its whole height the tap that sorts. */
+        phoneHeaderSort: {
+            all: "unset", boxSizing: "border-box", width: "100%", height: "100%", display: "flex", alignItems: "center", gap: "{spacing.1}", paddingX: "12px", cursor: "pointer",
+            "th[data-pinned] > &": { paddingInlineStart: "16px" },
+            "th[data-last] > &": { paddingInlineEnd: "16px" },
+            "&[data-align=end]": { justifyContent: "flex-end" },
+            "&:disabled": { cursor: "default" },
+            "& svg": { width: "8px", height: "8px", flex: "none" },
+            _focusVisible: { boxShadow: "focusInset" },
+        },
+        phoneAbsent: { fontFamily: "mono", fontSize: "label.md", fontStyle: "italic", fontWeight: "400", color: "fg.subtle", whiteSpace: "nowrap" },
         row: {
             transitionProperty: "background",
             transitionDuration: "{durations.fast}",

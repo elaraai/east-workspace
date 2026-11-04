@@ -893,6 +893,10 @@ When adding persistence to Chakra components that support both
 )}
 ```
 
+### A Table's and a Value tree's phone form
+
+At 560 px of its own width or narrower each draws its phone form by itself, no flag (FR10, ruled 4 Nov 2026): the Table pins one column and pages the rest (`collections/table/phone-fit.ts`, pure), no sideways scroll, every word whole; the tree's rows are measured, a branch 44, a field at least 36. The showcase's `visual-invariants.spec.ts` holds both.
+
 ### Virtualization (Table, and the Plan and the Sheet in e3-ui-components)
 
 Row virtualization via `@tanstack/react-virtual`:

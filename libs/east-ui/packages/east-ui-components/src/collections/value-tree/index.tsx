@@ -31,10 +31,19 @@
  * expand/collapse, Enter/Space toggle) with roving tab index. A host that
  * draws the tree's controls itself collapses and expands it through
  * `controlsRef` (#1209).
+ *
+ * At 560 px of its own width or narrower it draws its phone form, whatever it
+ * holds (`Query Builder Phone Spec.md` QP13, automatic, ruled 4 Nov 2026): a
+ * branch's row 44 tall, the whole of it a toggle, its preview whole ` · ` parts or
+ * none; a field's row at least 36, indented 24 behind a guide, its key in a 96
+ * column; values wrap, each row measured, so nothing is cut. Editors and controls
+ * stay, at touch size.
  */
 
-import { memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
+import { memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import { Box, Skeleton, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { useContainerWidth } from "../../contracts/adaptive.js";
+import { NARROW_FRAME } from "../../layout/builder-frame/place.js";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faChevronRight, faMinus, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { equivalentFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
@@ -124,6 +133,11 @@ type SlotStyles = Record<string, SystemStyleObject>;
 const ROW_H = 32;
 /** Indent per depth level (px). */
 const INDENT = 18;
+/** A phone's rows (QP13): a branch's, a field's at least, their indent, and what the scroll's sums take a row at. */
+const PHONE_BRANCH_H = 44;
+const PHONE_FIELD_H = 36;
+const PHONE_INDENT = 24;
+const PHONE_ROW_H = 40;
 /** Context rows kept above a jumped-to row. */
 const JUMP_CONTEXT_ROWS = 2;
 
@@ -254,8 +268,10 @@ function DictAdd({ path, styles, onInsert }: {
     );
 }
 
-function Row({ row, styles, cbs, tabbable, matched, onToggle, onKeyNav, onFocusRow }: {
+function Row({ row, styles, cbs, tabbable, matched, phone, onToggle, onKeyNav, onFocusRow }: {
     row: RowModel;
+    /** The phone's form (QP13). */
+    phone: boolean;
     styles: SlotStyles;
     cbs: TreeCallbacks;
     tabbable: boolean;
@@ -280,7 +296,7 @@ function Row({ row, styles, cbs, tabbable, matched, onToggle, onKeyNav, onFocusR
                 tabIndex={tabbable ? 0 : -1}
                 onKeyDown={handleKeyDown}
                 onFocus={(e) => { if (e.target === e.currentTarget) onFocusRow(row.id); }}
-                style={{ paddingLeft: `${12 + row.depth * INDENT}px` }}>
+                style={{ paddingLeft: `${12 + row.depth * (phone ? PHONE_INDENT : INDENT)}px` }}>
                 <Box css={styles["twist"]} visibility="hidden" aria-hidden="true" />
                 {row.kind === "appendArray" ? (
                     <chakra.button type="button" css={styles["append"]} aria-label={row.label}
@@ -324,9 +340,10 @@ function Row({ row, styles, cbs, tabbable, matched, onToggle, onKeyNav, onFocusR
     } else if (row.kind === "opaque") {
         valueCell = <Box as="span" css={styles["opaque"]} title={row.opaque}>{row.opaque}</Box>;
     } else {
-        valueCell = row.summary !== undefined && row.summary !== ""
-            ? <Box as="span" css={styles["summary"]}>{row.summary}</Box>
-            : null;
+        valueCell = row.summary === undefined || row.summary === "" ? null
+            // A phone's preview: whole parts, as many as fit, or none.
+            : phone ? <Box as="span" css={styles["phoneSummary"]}>{row.summary.split(" · ").map((part, i) => <span key={i}>{i > 0 ? `· ${part}` : part}</span>)}</Box>
+            : <Box as="span" css={styles["summary"]}>{row.summary}</Box>;
     }
     return (
         <Box
@@ -342,7 +359,13 @@ function Row({ row, styles, cbs, tabbable, matched, onToggle, onKeyNav, onFocusR
             tabIndex={tabbable ? 0 : -1}
             onKeyDown={handleKeyDown}
             onFocus={(e) => { if (e.target === e.currentTarget) onFocusRow(row.id); }}
-            style={{ paddingLeft: `${12 + row.depth * INDENT}px` }}
+            data-branch={row.expandable ? "" : undefined}
+            data-nested={row.depth > 0 ? "" : undefined}
+            onClick={phone && row.expandable ? (e) => {
+                // The whole row toggles, but what its own controls and editors take.
+                if (!(e.target as Element).closest("button, input, select, [data-scope]")) onToggle(row.id, !row.expanded);
+            } : undefined}
+            style={{ paddingLeft: `${12 + row.depth * (phone ? PHONE_INDENT : INDENT)}px`, ...(phone ? { "--tree-guide": `${row.depth * PHONE_INDENT}px` } as CSSProperties : {}) }}
         >
             {row.expandable ? (
                 <chakra.button
@@ -472,6 +495,12 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
 
     // Roving tab index + arrow-key traversal (transient, not persisted).
     const rootElRef = useRef<HTMLDivElement | null>(null);
+    // The phone's form: by the tree's own width, as a frame's is.
+    const ownWidth = useContainerWidth(rootElRef);
+    const phone = ownWidth > 0 && ownWidth <= NARROW_FRAME;
+    const rowH = phone ? PHONE_ROW_H : ROW_H;
+    // A jump over rows measured as they mount goes by the row, never by a sum of heights.
+    const [phoneJump, setPhoneJump] = useState<{ index: number; nonce: number } | undefined>(undefined);
     const [focusId, setFocusId] = useState<string | undefined>(undefined);
     const onFocusRow = useCallback((rowId: string) => { setFocusId(rowId); }, []);
     const focusRowEl = useCallback((rowId: string) => {
@@ -528,8 +557,8 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
         if (restoredRef.current) return;
         restoredRef.current = true;
         const el = scrollElRef.current;
-        if (el !== null && persisted.topRow > 0) el.scrollTop = persisted.topRow * ROW_H;
-    }, [persisted.topRow]);
+        if (el !== null && persisted.topRow > 0) el.scrollTop = persisted.topRow * rowH;
+    }, [persisted.topRow, rowH]);
 
     // Paged mode: translate the visible flat window into a root-row range and
     // ask the host for it (the host dedupes). One page of margin each side so
@@ -537,14 +566,14 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
     const requestVisibleRows = useCallback(() => {
         if (paging === undefined || pagedFlat === undefined || paging.totalRows === 0) return;
         const el = scrollElRef.current;
-        const startFlat = el === null ? 0 : Math.max(0, Math.floor(el.scrollTop / ROW_H));
-        const viewRows = el === null ? 60 : Math.ceil(el.clientHeight / ROW_H) + 1;
+        const startFlat = el === null ? 0 : Math.max(0, Math.floor(el.scrollTop / rowH));
+        const viewRows = el === null ? 60 : Math.ceil(el.clientHeight / rowH) + 1;
         const endFlat = Math.min(pagedFlat.totalFlat - 1, startFlat + viewRows);
         const firstPage = Math.max(0, pageOfFlat(pagedFlat.prefix, startFlat) - 1);
         const lastPage = Math.min(pagedFlat.pageCount - 1, pageOfFlat(pagedFlat.prefix, endFlat) + 1);
         pagedDebug(`visible: scrollTop=${el?.scrollTop ?? 'null'} clientH=${el?.clientHeight ?? 'null'} flat[${startFlat},${endFlat}] → pages ${firstPage}..${lastPage} → rows [${firstPage * paging.pageSize}, ${Math.min(paging.totalRows, (lastPage + 1) * paging.pageSize)})`);
         paging.onNeedRows(firstPage * paging.pageSize, Math.min(paging.totalRows, (lastPage + 1) * paging.pageSize));
-    }, [paging, pagedFlat]);
+    }, [paging, pagedFlat, rowH]);
     useLayoutEffect(() => {
         requestVisibleRows();
     }, [requestVisibleRows]);
@@ -552,10 +581,10 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
     const onScroll = useCallback(() => {
         const el = scrollElRef.current;
         if (el === null) return;
-        const topRow = Math.round(el.scrollTop / ROW_H);
+        const topRow = Math.round(el.scrollTop / rowH);
         setPersisted(prev => (prev.topRow === topRow ? prev : { ...prev, topRow }));
         requestVisibleRows();
-    }, [setPersisted, requestVisibleRows]);
+    }, [setPersisted, requestVisibleRows, rowH]);
 
     // Controlled jump (#520): on each change of the target root row, scroll
     // it into view (with a couple of context rows above), highlight it, and
@@ -582,11 +611,12 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
             : flatIndexOfRoot(rows, jumpTarget);
         const el = scrollElRef.current;
         if (el !== null && flatIdx !== undefined) {
-            el.scrollTop = Math.max(0, (flatIdx - JUMP_CONTEXT_ROWS) * ROW_H);
+            if (phone) setPhoneJump(was => ({ index: Math.max(0, flatIdx - JUMP_CONTEXT_ROWS), nonce: (was?.nonce ?? 0) + 1 }));
+            else el.scrollTop = Math.max(0, (flatIdx - JUMP_CONTEXT_ROWS) * ROW_H);
         }
         requestVisibleRows();
         setMatchRow(jumpTarget);
-    }, [jumpTarget, pagedFlat, paging, rows, requestVisibleRows]);
+    }, [jumpTarget, pagedFlat, paging, rows, requestVisibleRows, phone]);
 
     const height = style !== undefined ? getSomeorUndefined(style.height) : undefined;
     const maxHeight = style !== undefined ? getSomeorUndefined(style.maxHeight) : undefined;
@@ -627,6 +657,7 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
             role="tree"
             aria-label="Value tree"
             ref={rootElRef}
+            data-tree-phone={phone ? "" : undefined}
             {...(frameFills && {
                 display: "flex",
                 flexDirection: "column",
@@ -642,8 +673,9 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
                 fillParent={frameFills}
                 header={toolbar}
                 count={rowCount}
-                estimateSize={() => ROW_H}
-                measureRows={false}
+                estimateSize={phone ? (i) => (rows[i]?.expandable === true ? PHONE_BRANCH_H : PHONE_FIELD_H) : () => ROW_H}
+                measureRows={phone}
+                {...(phone && phoneJump !== undefined && { scrollToIndex: phoneJump.index, scrollNonce: phoneJump.nonce, scrollAlign: "start" as const })}
                 overscan={8}
                 rootCss={styles["root"] as Record<string, unknown>}
                 scrollElRef={scrollElRef}
@@ -674,7 +706,7 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
                     if (row === undefined) return null;
                     return (
                         <Row key={row.id} row={row} styles={styles} cbs={cbs}
-                            tabbable={row.id === tabbableId}
+                            tabbable={row.id === tabbableId} phone={phone}
                             matched={matchRow !== undefined && row.depth === 0 && row.posinset - 1 === matchRow}
                             onToggle={onToggle} onKeyNav={onKeyNav} onFocusRow={onFocusRow} />
                     );
