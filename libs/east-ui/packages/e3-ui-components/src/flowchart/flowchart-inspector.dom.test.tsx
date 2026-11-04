@@ -697,17 +697,21 @@ describe("Issues (R16)", () => {
         const c = await open();
         await click(c.querySelector("[data-flowchart-lane='sort']")!);
         await retype(c, "label", "Sorting");
-        // e3 refuses the lanes' write: it answers that the mutation is invalid, and commits nothing.
+        // e3's answer to the lanes' write arrives saying the mutation is invalid: the session hears a refusal.
         const refused = encodeBeast2For(ResponseType(MutationResultType))(variant("success", { outcome: variant("invalid", { message: "The lanes are held for review" }) }));
         const stop = h.e3.fail((request) => request.kind === "mutate" && request.record === ex.depotLanes.name, { alter: () => new Uint8Array(refused) });
         await press(SAVE);
-        stop();
         await openTab(c, "Issues");
-        const said = `banners: ${[...c.querySelectorAll("[data-session-banner]")].map((b) => b.getAttribute("data-session-banner")).join(", ")}; `
+        // The write can reach e3 after the Save's click has settled, as a slow runner sends it: the refusal stays in
+        // place until the issue it raises is listed.
+        const said = () => `banners: ${[...c.querySelectorAll("[data-session-banner]")].map((b) => b.getAttribute("data-session-banner")).join(", ")}; `
             + `issues: ${issues(c).map((issue) => issue.join(" | ")).join("; ")}`;
-        const first = panel(c).querySelector<HTMLElement>("[data-inspector-issue]")!;
-        expect([first.getAttribute("data-inspector-issue"), first.querySelector("[data-kind]")?.textContent, first.querySelector("[data-kind]")?.getAttribute("data-kind")], said)
-            .toEqual(["save", "The lanes are held for review", "invalid"]);
+        const first = () => {
+            const issue = panel(c).querySelector<HTMLElement>("[data-inspector-issue]");
+            return [issue?.getAttribute("data-inspector-issue"), issue?.querySelector("[data-kind]")?.textContent, issue?.querySelector("[data-kind]")?.getAttribute("data-kind")];
+        };
+        await waitFor(() => expect(first(), said()).toEqual(["save", "The lanes are held for review", "invalid"]), { timeout: 15_000 });
+        stop();
     });
 });
 
