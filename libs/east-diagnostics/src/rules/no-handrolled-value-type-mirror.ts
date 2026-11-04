@@ -74,12 +74,14 @@ function holdsEastValue(shape: ts.InterfaceDeclaration | ts.TypeLiteralNode, ctx
 }
 
 /** A factory's options interface — members typed `SubtypeExprOrValue<…>` /
- * `ExprType<…>` — describes what an author passes IN, not a decoded value. */
+ * `ExprType<…>` — describes what an author passes IN, not a decoded value; and
+ * so does the declaration a factory hands back, whose method builds IR
+ * (`build(): ExprType<…>`), a method's return type read as a property's is. */
 function isFactoryInput(node: ts.InterfaceDeclaration | ts.TypeLiteralNode, ctx: RuleContext): boolean {
   const t = ctx.ts;
   const sf = ctx.sourceFile;
   return membersOf(node).some((m) => {
-    const type = t.isPropertySignature(m) ? m.type : undefined;
+    const type = t.isPropertySignature(m) || t.isMethodSignature(m) ? m.type : undefined;
     return type !== undefined && /\b(?:SubtypeExprOrValue|ExprType)</.test(type.getText(sf));
   });
 }
@@ -107,7 +109,8 @@ function report(ctx: RuleContext, node: ts.Node, messageText: string): void {
 // - an `as { type: …; value: … }` assertion — a variant's shape written by hand.
 //
 // A factory's options interface (`SubtypeExprOrValue<…>` members) is an input,
-// not a decoded mirror, and is left alone.
+// not a decoded mirror, and is left alone — as is a declaration whose method
+// builds IR (`build(): ExprType<…>`) beside the wire type it builds.
 export const noHandrolledValueTypeMirror: EastRule = {
   name: NAME,
   code: CODE,

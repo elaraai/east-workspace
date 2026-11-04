@@ -636,3 +636,18 @@ Each wire changed under this rule, with the kind it is.
   transitions, its lanes and its decisions, each keyed by String, each row its
   own type — is those records' own migration, as with any record whose type an
   application changes.
+- **e3-ui's `Flowchart`'s states and transitions gain their details (#1498,
+  #1507)** — package-borne. The `Flowchart` extension's payload's state and
+  transition kinds (`FlowchartStateKindType`, `FlowchartTransitionKindType`)
+  each gain a last field, `details`, an Option of `FlowchartDetailsType`: the
+  reads the app gives the kind — `Flowchart.figure`, `.histogram`, `.list` and
+  `.tags`, each described once with where it shows — and its rows' values,
+  read as the kind is, whole or by key, closed behind one function over a
+  row's bytes (`FlowchartDetailRowType`), so the payload stays one type
+  whatever the app's rows hold. `Flowchart.Types.TagColor` is new: a tag's
+  palette and variant, for an app that keeps its tags' looks as data. A UI
+  value encoded under either type does not decode under the other: packages
+  are re-exported, and the dataflow computes each UI task's output again under
+  the new type. A UI task's output is not stored state, and the details are
+  the app's own records, read only, so no repository upgrade step ships with
+  it.

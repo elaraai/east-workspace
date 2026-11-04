@@ -366,9 +366,10 @@ export function flowchartVocabulary(given: unknown): ValueTypeOf<typeof Flowchar
  *   holding no kind of its sort; a state's lane with no lanes, and lanes beside states that name none; a transition's
  *   decision with no decisions; a `slice` that is not `{ slice }`, or not `Slice.bindRecords`, or holding a source
  *   nothing names, a `lanes` or `decisions` source, or the brush; a cards list naming no source of the slice, or its
- *   kind's own; a `narrowed` of another form; an `inspector` that is no Boolean; each of `vocabulary`'s refusals
- *   ({@link flowchartVocabulary}); a `name` that is no string; each of the library's refusals (`library.ts`); and each
- *   kind's refusals of its binding (`kinds.ts`)
+ *   kind's own; a `narrowed` of another form; an `inspector` that is no Boolean, and `inspector={false}` beside a
+ *   details' read shown in the inspector alone; each of `vocabulary`'s refusals ({@link flowchartVocabulary}); a
+ *   `name` that is no string; each of the library's refusals (`library.ts`); and each kind's refusals of its binding
+ *   and its details (`kinds.ts`, `details.ts`)
  * @internal
  */
 export function createFlowchartPayload(props: object): ExprType<FlowchartPayloadType> {
@@ -443,6 +444,10 @@ export function createFlowchartPayload(props: object): ExprType<FlowchartPayload
         sources: sources.names,
     });
     const inspector = inspectorOf(given.inspector);
+    // A details' read shown in the inspector alone is drawn nowhere without its pane (#1507).
+    if (!inspector && (states.inspectorReads || transitions?.inspectorReads === true)) {
+        throw new Error("Flowchart: the inspector's reads have no pane — drop inspector={false}, or show them on the canvas");
+    }
     const vocabulary = flowchartVocabulary(given.vocabulary);
     const narrowed = narrowedOf(given.narrowed);
     const name = given.name;

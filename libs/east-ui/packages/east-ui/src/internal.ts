@@ -98,7 +98,8 @@ export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Library
 export { Chart, type AxisOptions, type ChartLayer, type RefLineOptions, type RefBandOptions, type RefDotOptions } from "./charts/chart/index.js";
 export { ChartXType, ChartDomainType, ChartTickValuesType } from "./charts/spec/index.js";
 export { MatrixFillType, type MatrixFillLiteral } from "./collections/matrix/types.js";
-export { ColorSchemeType, type ColorSchemeLiteral } from "./style/scheme.js";
+// A Tag's palette and variant — the look e3-ui's Flowchart gives each of a details row's tags (#1507).
+export { ColorSchemeType, StyleVariantType, type ColorSchemeLiteral, type StyleVariantLiteral } from "./style/scheme.js";
 export { ColorTokenType, ColorShadeType, COLOR_HUES, COLOR_SHADES, type ColorHueLiteral, type ColorShadeLiteral } from "./style/color.js";
 export { ValueFormatType } from "./contracts/format.js";
 export { Sparkline } from "./charts/index.js";

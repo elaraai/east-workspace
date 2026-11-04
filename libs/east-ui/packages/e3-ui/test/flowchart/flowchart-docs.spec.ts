@@ -5,7 +5,8 @@
 
 // The Flowchart's TypeDoc examples are tested examples (as the Plan's, the
 // Sheet's and the Schematic's are). Each `@example` under `src/flowchart/` —
-// the namespace's, `Flowchart.states`' and `Flowchart.templates`' (#1500) — is
+// the namespace's, `Flowchart.states`' and `Flowchart.templates`' (#1500), and
+// `Flowchart.details`' (#1507) — is
 // the verbatim `fn` of an `example()` in `test/flowchart/flowchart*.examples.tsx`
 // that a spec checks, behind imports from the public packages and the
 // module-scope statements of that file it reaches, each written as it is
@@ -22,5 +23,6 @@ test("every Flowchart @example is the verbatim fn of a tested example, imported 
     assert.ok(carries("index.ts", "flowchartDwell"), "<Flowchart> carries an @example: the depot's states, transitions and lanes, three records read whole");
     assert.ok(carries("kinds.ts", "flowchartDepotEditing"), "Flowchart.states carries an @example: the depot's four records bound editable, each saved through its own patch door");
     assert.ok(carries("templates.ts", "flowchartDepot"), "Flowchart.templates carries an @example: the depot, each kind's cards a record following its own source of the rail, and the library's tabs");
+    assert.ok(carries("details.ts", "flowchartTicketMinutes"), "Flowchart.details carries an @example: a support desk's minutes in state over the app's own bins, its axis naming the edges it lists");
     assert.deepEqual(failures, []);
 });

@@ -22,7 +22,9 @@
  *   on by default — with its kinds, cards, patches, library tabs and types on
  *   `Flowchart` (`Flowchart.states`, `Flowchart.transitions`,
  *   `Flowchart.lanes`, `Flowchart.decisions`, `Flowchart.templates`,
- *   `Flowchart.patch`, `Flowchart.library`, `Flowchart.Types`).
+ *   `Flowchart.patch`, `Flowchart.library`, `Flowchart.Types`), and the
+ *   details a state or a transition takes (`Flowchart.details` and its reads,
+ *   `Flowchart.figure`, `.histogram`, `.list` and `.tags`).
  * - `<Schematic>` — the 2D world-coordinate drawing of the app's own records:
  *   items, zones, links and nets, each record's fields mapped to its roles,
  *   with its kinds, details, templates, layers, library tabs, pattern and
@@ -179,13 +181,19 @@ export {
 // `Slice.bindRecords` — its kinds, cards, patches, library tabs and East
 // types (`Flowchart.states`, `Flowchart.transitions`, `Flowchart.lanes`,
 // `Flowchart.decisions`, `Flowchart.templates`, `Flowchart.patch`,
-// `Flowchart.library`, `Flowchart.Types`), and its props.
+// `Flowchart.library`, `Flowchart.Types`), its details and their reads
+// (`Flowchart.details`, `Flowchart.figure`, `Flowchart.histogram`,
+// `Flowchart.list`, `Flowchart.tags`), and its props.
 export {
     Flowchart, type FlowchartNamespace, type FlowchartTypes, type FlowchartProps,
     type FlowchartStatesSpec, type FlowchartTransitionsSpec, type FlowchartLanesSpec, type FlowchartDecisionsSpec,
     type FlowchartStates, type FlowchartTransitions, type FlowchartLanes, type FlowchartDecisions, type FlowchartBinding, type FlowchartWholeBinding,
     type FlowchartTextField, type FlowchartKeyField, type FlowchartKeysField, type FlowchartOrderField, type FlowchartValuesOf,
     type FlowchartTemplates, type FlowchartTemplatesSpec,
+    type FlowchartDetails, type FlowchartDetailsSpec, type FlowchartTransitionDetailsSpec, type FlowchartDetailsBinding,
+    type FlowchartRead, type FlowchartReadKind, type FlowchartShow, type FlowchartLabelDraws, type FlowchartLegendOnCanvas,
+    type FlowchartFigureField, type FlowchartHistogramField, type FlowchartListField, type FlowchartTagsField, type FlowchartListItem,
+    type FlowchartHistogramOptions, type FlowchartDurationUnit, type FlowchartBarScale, type FlowchartTick, type FlowchartTagColor,
     type FlowchartLibrary, type FlowchartLibraryTab, type FlowchartKindTab, type FlowchartKindTabOptions, type FlowchartAuthorTab,
     type FlowchartLibraryRows, type FlowchartTabConfig,
     type FlowchartCanvasOptions, type FlowchartFreshnessInput, type FlowchartOrientationLiteral,

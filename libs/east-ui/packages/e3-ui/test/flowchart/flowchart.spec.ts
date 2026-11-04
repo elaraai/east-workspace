@@ -17,6 +17,9 @@
  *   roles and writes read back at the record's own row type.
  * - The payload through the carrier's bytes; the library's tabs on the wire;
  *   and nothing of the Flow types left in the package.
+ * - The details (#1507, R18–R21): each read's check a type error, and past a
+ *   cast — or where only the built value shows it — the tag's words; the
+ *   binding a kind's read takes; and the reads and a row's values, decoded.
  *
  * e3-ui's specs read and write no e3: the examples build and compile here, and
  * the renderer's tests draw them on e3-web.
@@ -35,7 +38,8 @@ import { EditingReadinessType } from "@elaraai/east-ui/internal";
 import { DatasetStatusType, RecordCommitInfoType } from "@elaraai/e3-types";
 import * as E3UI from "@elaraai/e3-ui";
 import {
-    Data, DataBindHandleType, Flowchart as PublicFlowchart, Record, RecordBindHandleType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType,
+    Data, DataBindHandleType, DataPagedHandleType, Flowchart as PublicFlowchart, Record, RecordBindHandleType, RecordErrorType, RecordMutateStatusType,
+    RecordOutcomeType,
 } from "@elaraai/e3-ui";
 import * as E3UIInternal from "@elaraai/e3-ui/internal";
 import { Flowchart, FlowchartLibraryTabType, FlowchartPayloadType, buildFlowchartLibrary, flowchartKeys } from "@elaraai/e3-ui/internal";
@@ -50,6 +54,8 @@ describeEast("Flowchart", (test) => {
         flowchartDepotPhone: ex.flowchartDepotPhone,
         flowchartDepotTopDown: ex.flowchartDepotTopDown,
         flowchartWording: ex.flowchartWording,
+        flowchartFlagColors: ex.flowchartFlagColors,
+        flowchartTicketMinutes: ex.flowchartTicketMinutes,
     });
 }, { platformFns: TestImpl });
 
@@ -916,6 +922,323 @@ describe("the library's tabs (R14)", () => {
             "templates: Flowchart.templates(cards.read(), { name, values, source }) }) — and takes at most { name, icon } — `label` is neither");
         refused(() => PublicFlowchart.library.lanes({ name: "" }), "Flowchart.library.lanes(): `name` is the tab's name, a string");
         refused(() => PublicFlowchart.library.transitions({ icon: "" }), "Flowchart.library.transitions(): `icon` is a Font Awesome solid icon's name");
+    });
+});
+
+// ============================================================================
+// The details (#1507, R18–R21)
+// ============================================================================
+
+type EvidenceRow = ValueTypeOf<typeof ex.StateEvidence>;
+type MoveEvidenceRow = ValueTypeOf<typeof ex.MoveEvidence>;
+/** What the depot measured in its Hold state: the app's own row, keyed as the states are. */
+const HELD: EvidenceRow = {
+    flags: new Set(["Hazmat", "At risk", "Customs"]), equipment: new Set(["Scanner", "X-ray"]), shifts: new Set(["Early", "Late"]),
+    parcels: 1080n, waiting: 70n,
+    hours: [12n, 30n, 64n, 120n, 180n, 210n, 160n, 120n, 90n, 50n, 30n, 14n],
+    service: new Map([["International", 539n], ["Standard", 335n], ["Priority", 130n], ["Economy", 76n]]),
+    exceptions: new Map([["Missing documents", 412n], ["Duty unpaid", 236n]]),
+};
+/** What it measured on the move out of Hold: keyed as the transitions are. */
+const CLEARED: MoveEvidenceRow = {
+    region: new Map([["Overseas", 727n], ["Metro", 141n]]),
+    service: new Map([["International", 505n]]),
+    origins: new Map([["Air hub", { parcels: 293n, late: 5n }], ["Rail yard", { parcels: 122n, late: 0n }]]),
+};
+/** The depot's bins, in hours: a quarter hour apiece at first, then hours, days and a week. */
+const HOURS = [0, 0.25, 0.5, 1, 2, 4, 8, 12, 24, 48, 96, 168];
+/** A row of measures a figure reads: an Integer, an Option of one, and a Float. */
+const Measures = StructType({ parcels: IntegerType, held: OptionType(IntegerType), share: FloatType });
+
+const evidenceData = dataHandle(DictType(StringType, ex.StateEvidence), new Map([["HLD", HELD]]), "evidence");
+const evidenceRecord = recordHandle(DictType(StringType, ex.StateEvidence), new Map([["HLD", HELD]]), "evidence");
+const moveEvidenceData = dataHandle(DictType(StringType, ex.MoveEvidence), new Map([["l7", CLEARED]]), "moveEvidence");
+const minutesData = dataHandle(DictType(StringType, ex.TicketMinutes), new Map([["NEW", { minutes: [140n, 96n, 120n, 64n, 30n, 22n, 9n, 4n, 2n, 1n, 0n, 0n] }]]), "minutes");
+const measuresData = dataHandle(DictType(StringType, Measures), new Map([["HLD", { parcels: 1080n, held: some(70n), share: 0.5 }]]), "measures");
+/** A Data.bindPaged handle over the evidence, as the paged binding gives one. */
+const evidencePaged = East.function([], DataPagedHandleType(DictType(StringType, ex.StateEvidence)), (_$) => ({
+    id: ".records.evidence",
+    page: East.function([IntegerType, IntegerType], OptionType(DictType(StringType, ex.StateEvidence)), (_$2) => none),
+    total: East.function([], OptionType(IntegerType), (_$2) => none),
+    seek: none,
+    revision: East.function([], OptionType(StringType), (_$2) => none),
+    refresh: East.function([OptionType(StringType)], NullType, (_$2) => null),
+}));
+const evidenceBytes = encodeBeast2For(ex.StateEvidence);
+const moveEvidenceBytes = encodeBeast2For(ex.MoveEvidence);
+const minutesBytes = encodeBeast2For(ex.TicketMinutes);
+const measuresBytes = encodeBeast2For(Measures);
+const detailRowEqual = equalFor(Flowchart.Types.DetailRow);
+const readsEqual = equalFor(Flowchart.Types.Details.fields.reads);
+/** The tags' looks as the app keeps them: Flowchart.Types.TagColor rows, the first ranked first. */
+const LOOKS = [
+    { tag: "Hazmat", colorPalette: variant("danger", null), variant: variant("solid", null) },
+    { tag: "At risk", colorPalette: variant("warning", null), variant: variant("subtle", null) },
+] as const;
+
+/** The details' type checks (R20, R21): never called — `tsc` checks what each line says. */
+function detailsTypeChecks($: BlockBuilder<UIComponentType>): void {
+    const states = $.let(Data.bind(ex.depotStates));
+    const transitions = $.let(Data.bind(ex.depotTransitions));
+    const stateRows = $.let(Data.bind(ex.stateEvidence));
+    const moveRows = $.let(Data.bind(ex.moveEvidence));
+    // What fits, as the examples write it: any mix of the four, each where its show says.
+    PublicFlowchart.states(states, {
+        label: "name",
+        details: PublicFlowchart.details(stateRows, {
+            details: [
+                PublicFlowchart.figure("parcels", { label: "Parcels", unit: "parcels" }),
+                PublicFlowchart.tags("flags", { label: "Flags", colors: { Hazmat: { colorPalette: "danger", variant: "solid" } }, legend: true }),
+                PublicFlowchart.tags("shifts", { label: "Shifts", show: "inspector" }),
+                PublicFlowchart.histogram("hours", { unit: "hours", label: "Time in state", bins: HOURS, ticks: [1, 12, 48, 168] }),
+                PublicFlowchart.list("service", { label: "Service" }),
+            ],
+        }),
+    });
+    PublicFlowchart.transitions(transitions, {
+        from: "src", to: "dst",
+        details: PublicFlowchart.details(moveRows, {
+            details: [
+                PublicFlowchart.list("region", { label: "Region", top: 1 }),
+                PublicFlowchart.list("origins", { label: "Origin", show: "inspector" }, (item) => ({ value: item.parcels })),
+            ],
+        }),
+    });
+    // A transition's tags and histograms in the inspector alone: its label draws lines.
+    PublicFlowchart.transitions(transitions, { from: "src", to: "dst", details: PublicFlowchart.details(stateRows, { details: [PublicFlowchart.histogram("hours", { unit: "hours", bins: HOURS, show: "inspector" })] }) });
+    // @ts-expect-error — `service` is keyed by a String: a histogram reads a Dict from a duration to its count — "hours" fits
+    PublicFlowchart.details(stateRows, { details: [PublicFlowchart.histogram("service", { unit: "hours" })] });
+    // @ts-expect-error — `hours` is an Array of counts: beside one, the bins are required
+    PublicFlowchart.details(stateRows, { details: [PublicFlowchart.histogram("hours", { unit: "hours" })] });
+    // @ts-expect-error — `service` is a Dict: tags read an Array or a Set of strings — "flags", "equipment", "shifts" fit
+    PublicFlowchart.details(stateRows, { details: [PublicFlowchart.tags("service", { label: "Service" })] });
+    // @ts-expect-error — `parcels` is an Integer: a list reads a Dict from an item's name
+    PublicFlowchart.details(stateRows, { details: [PublicFlowchart.list("parcels")] });
+    // @ts-expect-error — `top` is 1, 2 or 3: the inspector lists every item
+    PublicFlowchart.details(moveRows, { details: [PublicFlowchart.list("region", { top: 5 })] });
+    // @ts-expect-error — `colorPalette` is one of east-ui's colour schemes
+    PublicFlowchart.details(stateRows, { details: [PublicFlowchart.tags("flags", { colors: { Hazmat: { colorPalette: "crimson" } } })] });
+    // @ts-expect-error — "Only tags on the canvas go in the legend — show them on the canvas, or drop legend"
+    PublicFlowchart.details(stateRows, { details: [PublicFlowchart.tags("shifts", { legend: true, show: "inspector" })] });
+    // @ts-expect-error — "A transition's label draws lines: a figure or a list — give the histogram show: "inspector""
+    PublicFlowchart.transitions(transitions, { from: "src", to: "dst", details: PublicFlowchart.details(stateRows, { details: [PublicFlowchart.histogram("hours", { unit: "hours", bins: HOURS })] }) });
+    // @ts-expect-error — "… give the tags show: "inspector""
+    PublicFlowchart.transitions(transitions, { from: "src", to: "dst", details: PublicFlowchart.details(stateRows, { details: [PublicFlowchart.tags("flags")] }) });
+}
+
+describe("the details: named, typed reads over the app's rows, read only and read as their kind is (R18–R21)", () => {
+    /** The depot's states read whole, with the details given; what the tag builds, and what it refuses. */
+    const whole = (details: ($: BlockBuilder<UIComponentType>) => unknown, props: object = {}) => () => built(($) => PublicFlowchart({
+        states: Flowchart.states($.let(statesRecord()), { label: "name", details: details($) as never }),
+        ...props,
+    } as never));
+    /** The depot's states read through their source of the slice, with the details given. */
+    const sourced = (details: ($: BlockBuilder<UIComponentType>) => unknown) => () => built(($) => {
+        const slice = $.let(Slice.bindRecords("flowchart.spec.details", { states: statesSource() }));
+        return PublicFlowchart({ slice: { slice }, states: Flowchart.states($.let(Data.bindPaged(ex.depotStates)), { label: "name", details: details($) as never }) });
+    });
+    /** The depot's transitions with the details given, beside its states. */
+    const moved = (details: ($: BlockBuilder<UIComponentType>) => unknown) => () => built(($) => PublicFlowchart({
+        states: Flowchart.states($.let(statesRecord()), { label: "name" }),
+        transitions: Flowchart.transitions($.let(movesRecord()), { from: "src", to: "dst", details: details($) as never }),
+    }));
+    const parcels = ($: BlockBuilder<UIComponentType>) => Flowchart.details($.let(evidenceData()), { details: [Flowchart.figure("parcels")] });
+
+    hostTest("each read's misfit is a type error naming what fits, and the words where a type error would not say why", () => {
+        assert.equal(typeof detailsTypeChecks, "function");
+    });
+
+    hostTest("the details are read only, and read as their kind is: whole beside a kind read whole, by key beside one read through its source (R18, R19)", () => {
+        const READ_ONLY = "Flowchart.details: details are read only: bind them with Data.bind(record), or Data.bindPaged(record) beside a kind read through its source";
+        refused(whole(($) => Flowchart.details($.let(evidenceRecord()), { details: [Flowchart.figure("parcels")] })), READ_ONLY);
+        refused(whole(($) => Flowchart.details($.let(evidenceData()).read() as never, { details: [Flowchart.figure("parcels")] } as never)),
+            `${READ_ONLY} — and this is ${printType(DictType(StringType, ex.StateEvidence))}`);
+        refused(sourced(parcels),
+            "Flowchart.states: the states are read through their source, so their details are read by key: bind them with Data.bindPaged(record)");
+        refused(whole(($) => Flowchart.details($.let(evidencePaged()), { details: [Flowchart.figure("parcels")] })),
+            "Flowchart.states: the states are read whole, so their details are read whole: bind them with Data.bind(record)");
+        // Each form it takes builds: Data.bind beside a kind read whole, and Data.bindPaged beside one read through its source.
+        whole(parcels)();
+        sourced(($) => Flowchart.details($.let(Data.bindPaged(ex.stateEvidence)), { details: [Flowchart.figure("parcels")] }))();
+    });
+
+    hostTest("a kind's details are Flowchart.details', and every element of their array a read (R21)", () => {
+        refused(whole(() => ({ details: [] })),
+            "Flowchart.states: `details` takes Flowchart.details(binding, { details: [ … ] }) — the reads over the app's rows, keyed as the states are");
+        refused(whole(($) => Flowchart.details($.let(evidenceData()), { details: [Flowchart.figure("parcels"), "waiting"] } as never)),
+            "Flowchart.details: `details` holds reads — Flowchart.figure, .histogram, .list or .tags — and the 2nd is none");
+    });
+
+    hostTest("past a cast, a read naming a field the row lacks, or one of another type, names the fields that fit (R20)", () => {
+        const read = (make: () => unknown) => whole(($) => Flowchart.details($.let(evidenceData()), { details: [make()] } as never));
+        refused(read(() => Flowchart.figure("dwell" as never)),
+            "Flowchart.figure: \"dwell\" is no field of the details' row (flags, equipment, shifts, parcels, waiting, hours, service, exceptions)");
+        refused(read(() => Flowchart.histogram("service" as never, { unit: "hours" } as never)),
+            `Flowchart.histogram: "service" holds ${printType(DictType(StringType, IntegerType))} — a histogram reads a Dict from a duration to its count, both numbers, ` +
+            "or an Array of counts beside its bins: \"hours\"");
+        refused(read(() => Flowchart.tags("service" as never)),
+            `Flowchart.tags: "service" holds ${printType(DictType(StringType, IntegerType))} — tags read an Array or a Set of strings: "flags", "equipment", "shifts"`);
+        refused(read(() => Flowchart.histogram("hours", { unit: "hours" } as never)),
+            "Flowchart.histogram: \"hours\" is an Array of counts — give the bins it counts in, bins: [0, …]");
+        refused(() => built(($) => PublicFlowchart({
+            states: Flowchart.states($.let(statesRecord()), { label: "name" }),
+            transitions: Flowchart.transitions($.let(movesRecord()), {
+                from: "src", to: "dst", details: Flowchart.details($.let(moveEvidenceData()), { details: [Flowchart.list("origins", { label: "Origin" })] }),
+            }),
+        })), "Flowchart.list: \"origins\" holds structs — give a draw, (item) => ({ value: item.parcels })");
+    });
+
+    hostTest("what only the read shows is refused as it is made: the bins' order, the looks, the lines and the legend", () => {
+        refused(() => Flowchart.histogram("hours", { unit: "hours", bins: [0, 12, 4] }), "Flowchart.histogram: the bins' edges ascend — 12, then 4");
+        refused(() => Flowchart.tags("flags", { colors: { Hazmat: { colorPalette: "crimson" } } } as never),
+            "Flowchart.tags: \"Hazmat\"'s colorPalette is one of east-ui's colour schemes — \"danger\", \"red\", \"brand\", … — and this is \"crimson\"");
+        refused(() => Flowchart.list("region", { top: 5 } as never), "Flowchart.list: `top` is 1, 2 or 3 — the inspector lists every item");
+        refused(() => Flowchart.tags("shifts", { legend: true, show: "inspector" }),
+            "Flowchart.tags: only tags on the canvas go in the legend — show them on the canvas, or drop legend");
+    });
+
+    hostTest("a transition's label draws figures and lists, three lines at most under its evidence (R21)", () => {
+        refused(moved(($) => Flowchart.details($.let(evidenceData()), { details: [Flowchart.histogram("hours", { unit: "hours", bins: HOURS })] } as never)),
+            "Flowchart.transitions: a transition's label draws lines: a figure or a list — give the histogram show: \"inspector\"");
+        refused(moved(($) => Flowchart.details($.let(evidenceData()), { details: [Flowchart.tags("flags")] } as never)),
+            "Flowchart.transitions: a transition's label draws lines: a figure or a list — give the tags show: \"inspector\"");
+        refused(moved(($) => Flowchart.details($.let(moveEvidenceData()), {
+            details: [Flowchart.list("region", { top: 2 }), Flowchart.list("service", { top: 2 })],
+        })), "Flowchart.transitions: a transition's label draws three lines at most under its evidence, and these draw 4 — give one show: \"inspector\", or lower its top");
+        // Three lines fit, and a read in the inspector alone draws none.
+        moved(($) => Flowchart.details($.let(moveEvidenceData()), {
+            details: [Flowchart.list("region", { top: 2 }), Flowchart.list("service"), Flowchart.list("origins", { show: "inspector" }, (o) => ({ value: o.parcels }))],
+        }))();
+    });
+
+    hostTest("a read shown in the inspector alone needs the inspector's pane", () => {
+        const shifts = ($: BlockBuilder<UIComponentType>) => Flowchart.details($.let(evidenceData()), { details: [Flowchart.tags("shifts", { show: "inspector" })] });
+        refused(whole(shifts, { inspector: false }), "Flowchart: the inspector's reads have no pane — drop inspector={false}, or show them on the canvas");
+        whole(shifts)();
+        whole(($) => Flowchart.details($.let(evidenceData()), { details: [Flowchart.tags("shifts", { show: "canvas" })] }), { inspector: false })();
+    });
+
+    hostTest("the tag colour example's reads cross: the app's looks, first defined first shown, and the legend; a row's tags (R30, R31)", () => {
+        const details = kindOf(Flowchart.Types.Details, ($) => {
+            const looks = $.const(LOOKS as never, ArrayType(Flowchart.Types.TagColor));
+            return Flowchart.details($.let(evidenceData()), {
+                details: [
+                    Flowchart.tags("flags", { label: "Flags", colors: looks, legend: true }),
+                    // A literal: each tag's look as a Tag takes it, subtle unless given.
+                    Flowchart.tags("equipment", { colors: { "X-ray": { colorPalette: "brand", variant: "outline" }, Scanner: { colorPalette: "neutral" } } }),
+                ],
+            }).build("states", "Flowchart.states", false);
+        });
+        assert.ok(readsEqual(details.reads, [
+            { show: variant("all", null), read: variant("tags", { label: "Flags", colors: [...LOOKS], legend: true }) },
+            { show: variant("all", null), read: variant("tags", {
+                label: "equipment",
+                colors: [
+                    { tag: "X-ray", colorPalette: variant("brand", null), variant: variant("outline", null) },
+                    { tag: "Scanner", colorPalette: variant("neutral", null), variant: variant("subtle", null) },
+                ],
+                legend: false,
+            }) },
+        ]));
+        if (details.rows.type !== "some") assert.fail("read whole beside a kind read whole");
+        const rows = details.rows.value();
+        if (rows.type !== "some") assert.fail("the details' rows, by key");
+        assert.ok(keysEqual([...rows.value.keys()], ["HLD"]));
+        assert.equal(details.paged.type, "none");
+        // A Set's tags in its order; the renderer draws them in the order their looks are defined.
+        assert.ok(detailRowEqual(details.values(rows.value.get("HLD")!), [
+            variant("tags", ["At risk", "Customs", "Hazmat"]),
+            variant("tags", ["Scanner", "X-ray"]),
+        ]));
+    });
+
+    hostTest("the bins example's reads cross: the app's bins, its scale and its ticks; each count at its bin's edge (R26–R28)", () => {
+        const details = kindOf(Flowchart.Types.Details, ($) => Flowchart.details($.let(minutesData()), {
+            details: [Flowchart.histogram("minutes", {
+                unit: "minutes", label: "Time in state", counts: "tickets",
+                bins: [0, 1, 2, 5, 10, 15, 30, 60, 120, 240, 480, 1440], scale: "band",
+                ticks: [5, 60, { at: 480, label: "a shift" }, { at: 1440, label: "a day" }],
+            })],
+        }).build("states", "Flowchart.states", false));
+        const bins = [0, 1, 2, 5, 10, 15, 30, 60, 120, 240, 480, 1440];
+        assert.ok(readsEqual(details.reads, [{
+            show: variant("all", null),
+            read: variant("histogram", {
+                label: "Time in state", unit: variant("minutes", null), counts: some("tickets"), bins: some(bins), scale: variant("band", null),
+                ticks: some([{ at: 5, label: none }, { at: 60, label: none }, { at: 480, label: some("a shift") }, { at: 1440, label: some("a day") }]),
+            }),
+        }]));
+        const counts = [140n, 96n, 120n, 64n, 30n, 22n, 9n, 4n, 2n, 1n, 0n, 0n];
+        assert.ok(detailRowEqual(details.values(minutesBytes({ minutes: counts })),
+            [variant("histogram", counts.map((count, i) => ({ from: bins[i]!, count: Number(count) })))]));
+        // Another number of counts than bins: each at NaN, which no bin holds — the renderer lists the row in Issues and draws its bars absent.
+        assert.ok(detailRowEqual(details.values(minutesBytes({ minutes: [3n, 4n] })),
+            [variant("histogram", [{ from: NaN, count: 3 }, { from: NaN, count: 4 }])]));
+        assert.ok(detailRowEqual(details.values(minutesBytes({ minutes: [] })), [variant("histogram", [{ from: NaN, count: 0 }])]));
+    });
+
+    hostTest("a figure reads a number or an Option of one, as a Float; a list a Dict, through its draw for structs; labels and lines unless given", () => {
+        const figures = kindOf(Flowchart.Types.Details, ($) => Flowchart.details($.let(measuresData()), {
+            details: [Flowchart.figure("parcels", { label: "Parcels", unit: "parcels" }), Flowchart.figure("held"), Flowchart.figure("share", { show: "canvas" })],
+        }).build("states", "Flowchart.states", false));
+        assert.ok(readsEqual(figures.reads, [
+            { show: variant("all", null), read: variant("figure", { label: "Parcels", unit: some("parcels") }) },
+            { show: variant("all", null), read: variant("figure", { label: "held", unit: none }) },
+            { show: variant("canvas", null), read: variant("figure", { label: "share", unit: none }) },
+        ]));
+        assert.ok(detailRowEqual(figures.values(measuresBytes({ parcels: 1080n, held: some(70n), share: 0.5 })),
+            [variant("figure", some(1080)), variant("figure", some(70)), variant("figure", some(0.5))]));
+        assert.ok(detailRowEqual(figures.values(measuresBytes({ parcels: 0n, held: none, share: 0 })),
+            [variant("figure", some(0)), variant("figure", none), variant("figure", some(0))]));
+
+        const lists = (noun: "states" | "transitions") => kindOf(Flowchart.Types.Details, ($) => Flowchart.details($.let(moveEvidenceData()), {
+            details: [
+                Flowchart.list("region", { label: "Region", unit: "parcels" }),
+                Flowchart.list("origins", { label: "Origin", show: "inspector" }, (o) => ({
+                    value: o.parcels,
+                    note: East.equal(o.late, 0n).ifElse((_$) => East.value(none, OptionType(StringType)), (_$) => East.value(some(East.str`${o.late} late`), OptionType(StringType))),
+                })),
+            ],
+        }).build(noun, `Flowchart.${noun}`, false));
+        const onCard = lists("states");
+        const onLabel = lists("transitions");
+        assert.ok(readsEqual(onCard.reads, [
+            { show: variant("all", null), read: variant("list", { label: "Region", unit: some("parcels"), top: 2n }) },
+            { show: variant("inspector", null), read: variant("list", { label: "Origin", unit: none, top: 2n }) },
+        ]), "a card draws a list's top 2 unless given");
+        assert.ok(readsEqual(onLabel.reads, [
+            { show: variant("all", null), read: variant("list", { label: "Region", unit: some("parcels"), top: 1n }) },
+            { show: variant("inspector", null), read: variant("list", { label: "Origin", unit: none, top: 1n }) },
+        ]), "a label its top 1");
+        assert.ok(detailRowEqual(onCard.values(moveEvidenceBytes(CLEARED)), [
+            variant("list", [{ name: "Metro", value: 141, note: none }, { name: "Overseas", value: 727, note: none }]),
+            variant("list", [{ name: "Air hub", value: 293, note: some("5 late") }, { name: "Rail yard", value: 122, note: none }]),
+        ]));
+    });
+
+    hostTest("the payload carries each kind's details: their reads and their rows read as the kind is; a kind without them, none (R19)", () => {
+        const payload = carried(($) => PublicFlowchart({
+            states: Flowchart.states($.let(statesRecord()), {
+                label: "name", details: Flowchart.details($.let(evidenceData()), { details: [Flowchart.figure("parcels"), Flowchart.list("service")] }),
+            }),
+            transitions: Flowchart.transitions($.let(movesRecord()), { from: "src", to: "dst" }),
+        }));
+        if (payload.states.details.type !== "some") assert.fail("the states' details cross");
+        assert.equal(payload.states.details.value.reads.length, 2);
+        assert.equal(payload.states.details.value.rows.type, "some", "read whole, beside the states read whole");
+        if (payload.transitions.type !== "some") assert.fail("the transitions cross");
+        assert.equal(payload.transitions.value.details.type, "none", "no details: today's labels");
+        // By key beside a kind read through its source: the paged read named, every drawn key asked of it in one request.
+        const paged = kindOf(Flowchart.Types.Details, ($) => Flowchart.details($.let(evidencePaged()), { details: [Flowchart.figure("parcels")] })
+            .build("states", "Flowchart.states", true));
+        assert.equal(paged.rows.type, "none");
+        assert.ok(optionString(paged.paged, some(".records.evidence")));
+        assert.ok(detailRowEqual(paged.values(evidenceBytes(HELD)), [variant("figure", some(1080))]));
+    });
+
+    hostTest("the reads and the tags' look are on the public namespace", () => {
+        for (const member of ["details", "figure", "histogram", "list", "tags"] as const) assert.equal(typeof PublicFlowchart[member], "function", `Flowchart.${member}`);
+        assert.ok(isTypeEqual(PublicFlowchart.Types.TagColor, Flowchart.Types.TagColor));
     });
 });
 

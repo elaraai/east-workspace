@@ -56,6 +56,7 @@ import {
     accessorRole, called, fieldTypeOf, kindSourceRows, kindWholeRows, readOf, recordSide, roleField, rowWith, rowsReadOf, storedRows, valuesTypeOf,
     type KindAccessor as Accessor, type KindBinding, type KindRowInspector as RowInspector, type RecordSide,
 } from "../utils/record-kind.js";
+import { isFlowchartDetails, type FlowchartDetails, type FlowchartDetailsSpec, type FlowchartTransitionDetailsSpec } from "./details.js";
 import { checkedFlowchartTemplates, type FlowchartTemplates } from "./templates.js";
 import {
     FlowchartDecisionEntryType, FlowchartDecisionKindType, FlowchartDecisionRolesType, FlowchartEvidenceType, FlowchartLaneEntryType,
@@ -359,12 +360,16 @@ export interface FlowchartKindDeclaration<D extends FlowchartKindSort, W extends
 export interface FlowchartStates extends FlowchartKindDeclaration<"states", typeof FlowchartStateKindType> {
     /** Whether a state names its lane: the lanes are its columns. */
     readonly lane: boolean;
+    /** Whether a read of its details shows in the inspector alone: refused beside `inspector={false}` (#1507). */
+    readonly inspectorReads: boolean;
 }
 
 /** The transitions, declared. */
 export interface FlowchartTransitions extends FlowchartKindDeclaration<"transitions", typeof FlowchartTransitionKindType> {
     /** Whether a transition names the decision that governs it. */
     readonly decision: boolean;
+    /** Whether a read of its details shows in the inspector alone: refused beside `inspector={false}` (#1507). */
+    readonly inspectorReads: boolean;
 }
 
 /** The lanes, declared. */
@@ -386,6 +391,26 @@ export function isFlowchartKind(value: unknown, sort: FlowchartKindSort): boolea
 
 /** A kind's roles, from its row and its key, as the record-kind machinery calls them. */
 type RolesOf = ExprType<FunctionType<[EastType, StringType], EastType>>;
+
+/**
+ * A state's or a transition's details, checked where the kind declares them
+ * (#1507, R21): `Flowchart.details`', and on a transition what its label draws.
+ *
+ * @param details - What the kind's `details` holds
+ * @param where - The kind, as a refusal names it
+ * @param noun - The kind's rows
+ * @returns The details; `undefined` for none
+ * @throws {Error} When they are not `Flowchart.details`', and on a transition, a tags or a histogram read on the canvas
+ *   and lines past three
+ */
+function detailsOf(details: unknown, where: string, noun: "states" | "transitions"): FlowchartDetails<StructType, unknown, unknown> | undefined {
+    if (details === undefined) return undefined;
+    if (!isFlowchartDetails(details)) {
+        throw new Error(`${where}: \`details\` takes Flowchart.details(binding, { details: [ … ] }) — the reads over the app's rows, keyed as the ${noun} are`);
+    }
+    details.check(noun, where);
+    return details;
+}
 
 // ============================================================================
 // Flowchart.states
@@ -412,6 +437,11 @@ export interface FlowchartStatesSpec<R extends StructType, L extends string, O e
     order?: O;
     /** A class of interchangeable states: the ×N badge. */
     members?: Accessor<R, OptionType<IntegerType>>;
+    /**
+     * Its details (#1507): `Flowchart.details(binding, { details: [ … ] })` over the app's rows keyed as the states are,
+     * drawn on each card and shown in full in the inspector, each read where its `show` says.
+     */
+    details?: FlowchartDetails<StructType, FlowchartDetailsSpec<StructType>, unknown>;
     /** The Steps tab's cards: `Flowchart.templates(rows, { name, values, source })`, each giving every field but `lane` and `order`. */
     templates?: FlowchartTemplates<FlowchartValuesOf<R, L | O>>;
     /** Hints for the inspector's form over the fields no role writes (`Fields`). */
@@ -573,6 +603,8 @@ export function flowchartStates<R extends StructType, L extends FlowchartKeyFiel
     }
     // The role the app computes.
     const membersOf = accessorRole(rowType, where, "members", OptionType(IntegerType), "an Option of an Integer", spec.members);
+    // Its details, read as the states are (#1507).
+    const details = detailsOf(spec.details, where, "states");
 
     // The cards: every field but the lane and the order.
     const placed = [laneField, orderField].filter((field): field is string => field !== undefined);
@@ -611,6 +643,7 @@ export function flowchartStates<R extends StructType, L extends FlowchartKeyFiel
         name,
         form: bound.form,
         lane: laneField !== undefined,
+        inspectorReads: details?.inspectorReads ?? false,
         hasTemplates: templates !== undefined,
         templatesSource: templates?.source,
         build(part, every) {
@@ -630,6 +663,8 @@ export function flowchartStates<R extends StructType, L extends FlowchartKeyFiel
                 templatesSource: templates?.source === undefined ? none : some(templates.source),
                 // The field naming a state's lane: a conflict on it named by the lane's label (#1503).
                 laneField: laneField === undefined ? none : some(laneField),
+                // Its details, read as the states are: whole, or by the drawn rows' keys (#1507, R19).
+                details: details === undefined ? none : some(details.build("states", where, part !== undefined)),
             } as never, FlowchartStateKindType) as ExprType<typeof FlowchartStateKindType>;
         },
     };
@@ -663,6 +698,12 @@ export interface FlowchartTransitionsSpec<R extends StructType, F extends string
     kind?: Accessor<R, typeof FlowchartLinkKindType>;
     /** The label's evidence line and the stroke's weight. */
     evidence?: Accessor<R, OptionType<typeof FlowchartEvidenceType>>;
+    /**
+     * Its details (#1507): `Flowchart.details(binding, { details: [ … ] })` over the app's rows keyed as the transitions
+     * are, drawn as lines under each label's evidence — figures and lists, three lines at most — and shown in full in the
+     * inspector; its tags and histograms show there alone, a type error otherwise, with its words.
+     */
+    details?: FlowchartDetails<StructType, FlowchartTransitionDetailsSpec>;
     /** The Transitions tab's cards: `Flowchart.templates(rows, { name, values, source })`, each giving every field but `from` and `to`. */
     templates?: FlowchartTemplates<FlowchartValuesOf<R, F | T>>;
     /** Hints for the inspector's form over the fields no role writes (`Fields`). */
@@ -712,6 +753,8 @@ export function flowchartTransitions<R extends StructType, F extends FlowchartKe
     // The roles the app computes.
     const kindOf = accessorRole(rowType, where, "kind", FlowchartLinkKindType, "a Flowchart.Types.Kind, planned or observed", spec.kind);
     const evidenceOf = accessorRole(rowType, where, "evidence", OptionType(FlowchartEvidenceType), "an Option of a Flowchart.Types.Evidence", spec.evidence);
+    // Its details, read as the transitions are (#1507): what its label draws, checked.
+    const details = detailsOf(spec.details, where, "transitions");
 
     // The cards: every field but the ends.
     const placed = [fromField, toField];
@@ -765,6 +808,7 @@ export function flowchartTransitions<R extends StructType, F extends FlowchartKe
         name,
         form: bound.form,
         decision: decision !== undefined,
+        inspectorReads: details?.inspectorReads ?? false,
         hasTemplates: templates !== undefined,
         templatesSource: templates?.source,
         build(part, every) {
@@ -784,6 +828,8 @@ export function flowchartTransitions<R extends StructType, F extends FlowchartKe
                 fromField,
                 toField,
                 decisionField: decision === undefined ? none : some(decision.field),
+                // Its details, read as the transitions are: whole, or by the drawn rows' keys (#1507, R19).
+                details: details === undefined ? none : some(details.build("transitions", where, part !== undefined)),
             } as never, FlowchartTransitionKindType) as ExprType<typeof FlowchartTransitionKindType>;
         },
     };

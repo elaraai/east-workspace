@@ -15,8 +15,10 @@
  */
 
 import {
-    ArrayType, BlobType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, VariantType,
+    ArrayType, BlobType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType,
+    VariantType,
 } from "@elaraai/east";
+import { ColorSchemeType, StyleVariantType } from "@elaraai/east-ui/internal";
 import { KindSideFields } from "../utils/record-kind.js";
 
 // ============================================================================
@@ -291,6 +293,122 @@ export const FlowchartTemplateType = StructType({
 export type FlowchartTemplateType = typeof FlowchartTemplateType;
 
 // ============================================================================
+// The details' wire (#1507, §3, R18–R21)
+// ============================================================================
+
+/**
+ * A tag's look, as a Tag takes it (R30): east-ui's `ColorSchemeType` and
+ * `StyleVariantType`. `Flowchart.Types.TagColor`, for an app that keeps its
+ * looks as data — an Array of them, the first ranked first.
+ *
+ * @property tag - The tag
+ * @property colorPalette - Its palette
+ * @property variant - Its variant: `subtle`, a 6% wash of its palette on a 1px rule of it, unless the app gives another
+ */
+export const FlowchartTagColorType = StructType({
+    tag: StringType,
+    colorPalette: ColorSchemeType,
+    variant: StyleVariantType,
+});
+
+/** Type representing a tag's look. */
+export type FlowchartTagColorType = typeof FlowchartTagColorType;
+
+/**
+ * Where a read shows (R21): `all`, the default — on the canvas, a state's
+ * card or a transition's label, and in the inspector; `canvas` — there alone;
+ * `inspector` — in the inspector alone. A variant, as the Schematic carries
+ * its narrowed `show`.
+ *
+ * @property all - On the canvas and in the inspector
+ * @property canvas - On the canvas alone
+ * @property inspector - In the inspector alone
+ */
+export const FlowchartShowType = VariantType({
+    all: NullType,
+    canvas: NullType,
+    inspector: NullType,
+});
+
+/** Type representing where a read shows. */
+export type FlowchartShowType = typeof FlowchartShowType;
+
+/**
+ * A read, described (R20): what it draws a row's value as, and in which
+ * words.
+ *
+ * @property figure - A number: its label, and its unit
+ * @property histogram - Counts by duration: its label, its durations' unit, what is counted, the app's bins — none, every
+ *   row's edges merged — how the bars space them, and the edges the axis names — none, round durations
+ * @property list - Items by name: its label, its unit, and how many lines it draws on the canvas — 2 on a card and 1 on a
+ *   label unless given, at most 3
+ * @property tags - The row's tags: its label, each tag's look, first defined first shown, and whether the canvas's legend lists them
+ */
+export const FlowchartReadType = VariantType({
+    figure: StructType({ label: StringType, unit: OptionType(StringType) }),
+    histogram: StructType({
+        label: StringType,
+        unit: VariantType({ minutes: NullType, hours: NullType, days: NullType }),
+        counts: OptionType(StringType),
+        bins: OptionType(ArrayType(FloatType)),
+        scale: VariantType({ band: NullType, linear: NullType }),
+        ticks: OptionType(ArrayType(StructType({ at: FloatType, label: OptionType(StringType) }))),
+    }),
+    list: StructType({ label: StringType, unit: OptionType(StringType), top: IntegerType }),
+    tags: StructType({
+        label: StringType,
+        colors: ArrayType(FlowchartTagColorType),
+        legend: BooleanType,
+    }),
+});
+
+/** Type representing a read, described. */
+export type FlowchartReadType = typeof FlowchartReadType;
+
+/**
+ * What a details row holds (R18): one value a read, in the reads' order.
+ *
+ * @property figure - The number; `none` where the row holds none
+ * @property histogram - Its counts, each at the lower edge of the bin it counts: a Dict's durations as they are, keyed; an
+ *   Array's counts at their bins' edges, in order — or, for an Array whose length is not its bins', every count at `NaN`,
+ *   which no bin holds, so the renderer lists the row in Issues and draws its bars absent (R27, R38)
+ * @property list - Its items as the row holds them, by name: each its value, and the note its draw gives
+ * @property tags - Its tags, in the row's order
+ */
+export const FlowchartDetailRowType = ArrayType(VariantType({
+    figure: OptionType(FloatType),
+    histogram: ArrayType(StructType({ from: FloatType, count: FloatType })),
+    list: ArrayType(StructType({ name: StringType, value: FloatType, note: OptionType(StringType) })),
+    tags: ArrayType(StringType),
+}));
+
+/** Type representing what a details row holds. */
+export type FlowchartDetailRowType = typeof FlowchartDetailRowType;
+
+/**
+ * A kind's details, closed (R18, R19): each read described once, and the
+ * rows' values, read as the kind is — whole, or by the drawn rows' keys
+ * through the paged read named. The details' row type never reaches the
+ * payload: `values` turns a row into one value a read.
+ *
+ * @property reads - Every read, in the details' order, each where it shows
+ * @property rows - The details read whole, beside a kind read whole: `()` → each row's bytes, by key, `none` while the read
+ *   is in flight; `none` beside a kind read through its source
+ * @property paged - The paged read the details are read by key through, beside a kind read through its source: the drawn
+ *   rows' keys, every key in one request; `none` beside a kind read whole
+ * @property values - A row's values, from its bytes: one a read, in the reads' order
+ */
+export const FlowchartDetailsType = StructType({
+    reads: ArrayType(StructType({ show: FlowchartShowType, read: FlowchartReadType })),
+    rows: OptionType(FunctionType([], OptionType(DictType(StringType, BlobType)))),
+    paged: OptionType(StringType),
+    values: FunctionType([BlobType], FlowchartDetailRowType),
+});
+
+/** Type representing a kind's details, closed. */
+export type FlowchartDetailsType = typeof FlowchartDetailsType;
+
+// ============================================================================
 // The kinds' wire (§3, "What the payload carries")
 // ============================================================================
 
@@ -322,6 +440,8 @@ const RowsOf = <E extends StructType>(entry: E) => FunctionType([], OptionType(D
  * @property laneField - The field naming a state's lane by the lane's key, `none` without lanes: a conflict on it named by the lane's label
  * @property templates - Its cards, the Steps tab's
  * @property templatesSource - The slice's source its cards follow
+ * @property details - Its details over the app's rows keyed as the states are, read only, drawn on each card and in the
+ *   inspector (#1507); `none` for states with none, which keep today's cards
  */
 export const FlowchartStateKindType = StructType({
     ...FlowchartKindFields,
@@ -333,6 +453,7 @@ export const FlowchartStateKindType = StructType({
     laneField: OptionType(StringType),
     templates: ArrayType(FlowchartTemplateType),
     templatesSource: OptionType(StringType),
+    details: OptionType(FlowchartDetailsType),
 });
 
 /** Type representing the states, closed. */
@@ -351,6 +472,8 @@ export type FlowchartStateKindType = typeof FlowchartStateKindType;
  * @property decisionField - The field naming its decision by the decision's key, `none` without one: a conflict on it named by the decision's label
  * @property templates - Its cards, the Transitions tab's: dropped on a transition, one gives it its values, its ends kept
  * @property templatesSource - The slice's source its cards follow
+ * @property details - Its details over the app's rows keyed as the transitions are, read only, drawn as lines under each
+ *   label's evidence and in the inspector (#1507); `none` for transitions with none
  */
 export const FlowchartTransitionKindType = StructType({
     ...FlowchartKindFields,
@@ -363,6 +486,7 @@ export const FlowchartTransitionKindType = StructType({
     decisionField: OptionType(StringType),
     templates: ArrayType(FlowchartTemplateType),
     templatesSource: OptionType(StringType),
+    details: OptionType(FlowchartDetailsType),
 });
 
 /** Type representing the transitions, closed. */

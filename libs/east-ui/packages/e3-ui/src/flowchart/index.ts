@@ -17,6 +17,9 @@
  * - `kinds.ts` — `Flowchart.states`, `transitions`, `lanes` and
  *   `decisions`: each role's check, the binding a kind's read takes, and the
  *   closed functions over beast2 bytes.
+ * - `details.ts` — `Flowchart.details` and its four reads, `Flowchart.figure`,
+ *   `.histogram`, `.list` and `.tags`: a state's or a transition's details
+ *   over the app's rows, read as the kind is.
  * - `templates.ts` — `Flowchart.templates`, a kind's cards read from a
  *   record.
  * - `library.ts` — `Flowchart.library`, the library pane's tabs, and their
@@ -31,16 +34,18 @@
 
 import { SchedulePatchTypeFor, schedulePatch } from "../schedule/patch.js";
 import { FlowchartCanvasType } from "./canvas.js";
+import { flowchartDetails, flowchartFigure, flowchartHistogram, flowchartList, flowchartTags } from "./details.js";
 import { FlowchartTag, type FlowchartTagType } from "./flowchart.js";
 import { flowchartDecisions, flowchartLanes, flowchartStates, flowchartTransitions } from "./kinds.js";
 import { FlowchartKindTabWireType, FlowchartLibraryFactories, FlowchartLibraryTabType, type FlowchartLibrary } from "./library.js";
 import { FlowchartComponent, FlowchartPayloadType, createFlowchartPayload } from "./payload.js";
 import { flowchartTemplates } from "./templates.js";
 import {
-    FlowchartDecisionEntryType, FlowchartDecisionKindType, FlowchartDecisionRolesType, FlowchartEvidenceType, FlowchartFreshnessType,
-    FlowchartLaneEntryType, FlowchartLaneKindType, FlowchartLaneRolesType, FlowchartLaneWriteType, FlowchartLinkKindType, FlowchartNarrowedType,
-    FlowchartOrientationType, FlowchartStateEntryType, FlowchartStateKindType, FlowchartStateRolesType, FlowchartStateWriteType, FlowchartTemplateType,
-    FlowchartTransitionEntryType, FlowchartTransitionKindType, FlowchartTransitionRolesType, FlowchartTransitionWriteType,
+    FlowchartDecisionEntryType, FlowchartDecisionKindType, FlowchartDecisionRolesType, FlowchartDetailRowType, FlowchartDetailsType, FlowchartEvidenceType,
+    FlowchartFreshnessType, FlowchartLaneEntryType, FlowchartLaneKindType, FlowchartLaneRolesType, FlowchartLaneWriteType, FlowchartLinkKindType,
+    FlowchartNarrowedType, FlowchartOrientationType, FlowchartReadType, FlowchartShowType, FlowchartStateEntryType, FlowchartStateKindType,
+    FlowchartStateRolesType, FlowchartStateWriteType, FlowchartTagColorType, FlowchartTemplateType, FlowchartTransitionEntryType,
+    FlowchartTransitionKindType, FlowchartTransitionRolesType, FlowchartTransitionWriteType,
 } from "./types.js";
 
 export { FlowchartTag, type FlowchartTagType } from "./flowchart.js";
@@ -76,6 +81,36 @@ export {
     type FlowchartValuesOf,
     type FlowchartWholeBinding,
 } from "./kinds.js";
+export {
+    FLOWCHART_DETAILS,
+    FlowchartDetailsBrand,
+    FlowchartReadBrand,
+    flowchartDetails,
+    flowchartFigure,
+    flowchartHistogram,
+    flowchartList,
+    flowchartTags,
+    isFlowchartDetails,
+    type FlowchartBarScale,
+    type FlowchartDetails,
+    type FlowchartDetailsBinding,
+    type FlowchartDetailsSpec,
+    type FlowchartDurationUnit,
+    type FlowchartFigureField,
+    type FlowchartHistogramField,
+    type FlowchartHistogramOptions,
+    type FlowchartLabelDraws,
+    type FlowchartLegendOnCanvas,
+    type FlowchartListField,
+    type FlowchartListItem,
+    type FlowchartRead,
+    type FlowchartReadKind,
+    type FlowchartShow,
+    type FlowchartTagColor,
+    type FlowchartTagsField,
+    type FlowchartTick,
+    type FlowchartTransitionDetailsSpec,
+} from "./details.js";
 export {
     FLOWCHART_TEMPLATES,
     checkedFlowchartTemplates,
@@ -126,6 +161,11 @@ export interface FlowchartTypes {
     Freshness: typeof FlowchartFreshnessType;
     /** `Patch(R)` — a patch over a kind's row type, every field an `Option` ({@link SchedulePatchTypeFor}). */
     Patch: typeof SchedulePatchTypeFor;
+    /**
+     * A tag's look — its palette and variant, the pair a Tag takes — for an app that keeps its tags' looks as data
+     * ({@link FlowchartTagColorType}).
+     */
+    TagColor: typeof FlowchartTagColorType;
 }
 
 /** The East types a Flowchart is written with. */
@@ -135,6 +175,7 @@ const TYPES: FlowchartTypes = {
     Orientation: FlowchartOrientationType,
     Freshness: FlowchartFreshnessType,
     Patch: SchedulePatchTypeFor,
+    TagColor: FlowchartTagColorType,
 };
 
 /**
@@ -150,6 +191,16 @@ export interface FlowchartNamespace extends FlowchartTagType {
     lanes: typeof flowchartLanes;
     /** The decisions, over a small record of the app's ({@link flowchartDecisions}). */
     decisions: typeof flowchartDecisions;
+    /** A state's or a transition's details, over the app's rows keyed as the kind's are, read only ({@link flowchartDetails}). */
+    details: typeof flowchartDetails;
+    /** A details' figure: a number, or an Option of one ({@link flowchartFigure}). */
+    figure: typeof flowchartFigure;
+    /** A details' histogram: a Dict from a duration to its count, or an Array of counts beside the app's bins ({@link flowchartHistogram}). */
+    histogram: typeof flowchartHistogram;
+    /** A details' list: a Dict from an item's name to a number, or to a struct its draw reads ({@link flowchartList}). */
+    list: typeof flowchartList;
+    /** A details' tags: an Array or a Set of strings, in the app's looks ({@link flowchartTags}). */
+    tags: typeof flowchartTags;
     /** A kind's cards, read from a record ({@link flowchartTemplates}). */
     templates: typeof flowchartTemplates;
     /** A patch over a kind's row type: what an author's card dropped on a row sets ({@link schedulePatch}). */
@@ -166,6 +217,11 @@ const MEMBERS = {
     transitions: flowchartTransitions,
     lanes: flowchartLanes,
     decisions: flowchartDecisions,
+    details: flowchartDetails,
+    figure: flowchartFigure,
+    histogram: flowchartHistogram,
+    list: flowchartList,
+    tags: flowchartTags,
     templates: flowchartTemplates,
     patch: schedulePatch,
     library: FlowchartLibraryFactories,
@@ -197,6 +253,12 @@ const MEMBERS = {
  *   slice with `entries: Data.bindPaged(record)` beside it — `Data.bind`,
  *   read only and whole, or `Data.bindPaged` alone, read only, through its
  *   source; a lane or a decision `Record.bind` or `Data.bind`, read whole.
+ * - **Its details** (R18–R21): a state or a transition takes `details`,
+ *   `Flowchart.details(binding, { details: [ … ] })` over the app's rows keyed
+ *   as the kind's are, read only and bound as the kind is read — four reads,
+ *   `Flowchart.figure`, `.histogram`, `.list` and `.tags`, in one array drawn
+ *   in its order on the cards and labels and shown in full in the inspector,
+ *   each where its `show` says.
  * - **Its narrowing** (R4) is one `Slice.bindRecords`, `slice={{ slice:
  *   Slice.bindRecords(key, { … }) }}`, its rail on the toolbar: its sources
  *   named `states` and `transitions` — each `Data.bindPaged(record, { indexes
@@ -384,6 +446,14 @@ export interface FlowchartInternalNamespace extends FlowchartNamespace {
         LibraryTab: typeof FlowchartLibraryTabType;
         /** A kind's tab on the wire ({@link FlowchartKindTabWireType}). */
         KindTab: typeof FlowchartKindTabWireType;
+        /** A kind's details on the wire: its reads, and its rows' values ({@link FlowchartDetailsType}). */
+        Details: typeof FlowchartDetailsType;
+        /** One read, described ({@link FlowchartReadType}). */
+        Read: typeof FlowchartReadType;
+        /** Where a read shows ({@link FlowchartShowType}). */
+        Show: typeof FlowchartShowType;
+        /** What a details row holds: one value a read ({@link FlowchartDetailRowType}). */
+        DetailRow: typeof FlowchartDetailRowType;
     };
 }
 
@@ -425,5 +495,9 @@ export const FlowchartInternal: FlowchartInternalNamespace = Object.assign(Flowc
         Narrowed: FlowchartNarrowedType,
         LibraryTab: FlowchartLibraryTabType,
         KindTab: FlowchartKindTabWireType,
+        Details: FlowchartDetailsType,
+        Read: FlowchartReadType,
+        Show: FlowchartShowType,
+        DetailRow: FlowchartDetailRowType,
     },
 });

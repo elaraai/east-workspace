@@ -4,7 +4,7 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import {
-    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, StringType, StructType, VariantType,
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType,
     example, none, some, variant,
 } from "@elaraai/east";
 import { Badge, Box, Fields, Reactive, Slice, State, UIComponentType, VStack } from "@elaraai/east-ui";
@@ -34,7 +34,11 @@ import e3 from "@elaraai/e3";
 //   drawn, no pane, and each selection and traced path heard by the host;
 // - `flowchartWording`, the depot in its own words (#1516): each kind named by
 //   its own `name`, and `vocabulary` naming a transition's planned and
-//   observed kinds.
+//   observed kinds;
+// - `flowchartFlagColors`, each state's flags as tags on its card and in the
+//   legend, their looks read from the app's own data;
+// - `flowchartTicketMinutes`, a support desk's minutes in state on each card,
+//   counted into the app's own uneven bins, the axis naming the edges it lists.
 //
 // Each binds its records from e3, so the showcase draws each on e3-web. A
 // flowchart fills its parent, as a ui task's page fills the window: each
@@ -150,6 +154,32 @@ export const depotQueuedDecisions = e3.record("flowchart_depot_queued_decisions"
         ["route", { name: "route", owner: "sort-planner", queue: ["IND", "SRD"] }],
         ["customs", { name: "customs", owner: "customs-desk", queue: ["HLD"] }],
     ]),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+// What the depot measured in each state and on each transition: the app's own rows, keyed as the states and
+// the transitions are, written by its evidence task through each record's door.
+export const StateEvidence = StructType({
+    flags: SetType(StringType),                       // what the app's task flags the state with
+    equipment: SetType(StringType),                   // what handles parcels there
+    shifts: SetType(StringType),                      // the shifts that staff it
+    parcels: IntegerType,                             // through the state
+    waiting: IntegerType,                             // still in it when measured
+    hours: ArrayType(IntegerType),                    // parcels by time in state: a count a bin, in the bins' order
+    service: DictType(StringType, IntegerType),       // parcels by service
+    exceptions: DictType(StringType, IntegerType),    // parcels by what went wrong
+});
+export const MoveEvidence = StructType({
+    region: DictType(StringType, IntegerType),
+    service: DictType(StringType, IntegerType),
+    origins: DictType(StringType, StructType({ parcels: IntegerType, late: IntegerType })),
+});
+export const stateEvidence = e3.record("flowchart_depot_state_evidence", DictType(StringType, StateEvidence), {
+    initial: new Map(),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+export const moveEvidence = e3.record("flowchart_depot_move_evidence", DictType(StringType, MoveEvidence), {
+    initial: new Map(),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
 
@@ -544,6 +574,110 @@ export const flowchartWording = example({
                         // The Steps tab keeps its name; the Hops and Stages tabs are named by their kinds.
                         library={[Flowchart.library.states(), Flowchart.library.transitions(), Flowchart.library.lanes()]}
                         name="wording"
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// The app's own tag looks, kept as data its users edit: a row a tag, the first ranked first.
+export const flagColors = e3.input("flowchart_depot_flag_colors", ArrayType(Flowchart.Types.TagColor), variant("value", [
+    { tag: "Hazmat", colorPalette: variant("danger", null), variant: variant("solid", null) },
+    { tag: "At risk", colorPalette: variant("warning", null), variant: variant("subtle", null) },
+    { tag: "Customs", colorPalette: variant("brand", null), variant: variant("outline", null) },
+]));
+
+export const flowchartFlagColors = example({
+    keywords: ["Flowchart", "details", "Flowchart.tags", "tags", "colors", "colorPalette", "StyleVariant", "legend", "Data.bind"],
+    description: "Each state's flags as tags on its card and in the legend, their looks read from the app's own data",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const states = $.let(Data.bind(depotStates));
+            const transitions = $.let(Data.bind(depotTransitions));
+            const lanes = $.let(Data.bind(depotLanes));
+            const stateRows = $.let(Data.bind(stateEvidence));
+            const looks = $.let(Data.bind(flagColors));
+            return (
+                <Box height="600px">
+                    <Flowchart
+                        states={Flowchart.states(states, {
+                            label: "name", lane: "phase", order: "seq",
+                            details: Flowchart.details(stateRows, {
+                                details: [Flowchart.tags("flags", { label: "Flags", colors: looks.read(), legend: true })],
+                            }),
+                        })}
+                        transitions={Flowchart.transitions(transitions, { from: "src", to: "dst" })}
+                        lanes={Flowchart.lanes(lanes, { label: "label", order: "seq" })}
+                        name="flagColors"
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// A support desk's tickets: the states they pass through, the transitions between them, and the minutes
+// each spent in each state. The app's task counts each state's tickets into the app's own bins — minutes at
+// first, then hours, a shift and a day — an Array of counts, one a bin, keyed as the states are.
+export const DeskState = StructType({ name: StringType, stage: StringType });
+export const DeskTransition = StructType({ from: StringType, to: StringType });
+export const DeskStage = StructType({ label: StringType, seq: IntegerType });
+export const deskStates = e3.input("flowchart_desk_states", DictType(StringType, DeskState), variant("value", new Map([
+    ["NEW", { name: "New", stage: "open" }], ["TRI", { name: "Triaged", stage: "open" }],
+    ["WIP", { name: "In progress", stage: "work" }], ["WAI", { name: "Waiting on customer", stage: "work" }],
+    ["RES", { name: "Resolved", stage: "close" }],
+])));
+export const deskTransitions = e3.input("flowchart_desk_transitions", DictType(StringType, DeskTransition), variant("value", new Map([
+    ["t1", { from: "NEW", to: "TRI" }], ["t2", { from: "TRI", to: "WIP" }], ["t3", { from: "WIP", to: "WAI" }],
+    ["t4", { from: "WAI", to: "WIP" }], ["t5", { from: "WIP", to: "RES" }],
+])));
+export const deskStages = e3.input("flowchart_desk_stages", DictType(StringType, DeskStage), variant("value", new Map([
+    ["open", { label: "Open", seq: 1n }], ["work", { label: "Work", seq: 2n }], ["close", { label: "Close", seq: 3n }],
+])));
+export const TicketMinutes = StructType({ minutes: ArrayType(IntegerType) });
+export const ticketMinutes = e3.input("flowchart_ticket_minutes", DictType(StringType, TicketMinutes), variant("value", new Map([
+    ["NEW", { minutes: [140n, 96n, 120n, 64n, 30n, 22n, 9n, 4n, 2n, 1n, 0n, 0n] }],
+    ["TRI", { minutes: [62n, 88n, 131n, 90n, 41n, 25n, 12n, 6n, 3n, 1n, 0n, 0n] }],
+    ["WIP", { minutes: [3n, 8n, 41n, 96n, 120n, 150n, 132n, 88n, 40n, 18n, 9n, 4n] }],
+    ["WAI", { minutes: [0n, 1n, 2n, 6n, 9n, 14n, 30n, 58n, 74n, 66n, 41n, 22n] }],
+    // A resolved ticket stays resolved: the app counts no time in it, so its row is absent and its card says no data.
+])));
+
+export const flowchartTicketMinutes = example({
+    keywords: ["Flowchart", "details", "Flowchart.histogram", "bins", "scale", "band", "linear", "ticks", "axis", "minutes", "time in state"],
+    description: "A support desk's flowchart with each state's minutes in state on its card, counted into the app's own uneven bins — a bar a bin — and the axis naming the edges the app lists, the last two in its own words",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const states = $.let(Data.bind(deskStates));
+            const transitions = $.let(Data.bind(deskTransitions));
+            const stages = $.let(Data.bind(deskStages));
+            const minutes = $.let(Data.bind(ticketMinutes));
+            return (
+                <Box height="560px">
+                    <Flowchart
+                        states={Flowchart.states(states, {
+                            label: "name", lane: "stage",
+                            details: Flowchart.details(minutes, {
+                                details: [Flowchart.histogram("minutes", {
+                                    unit: "minutes",
+                                    label: "Time in state",
+                                    counts: "tickets",
+                                    // The edges, in minutes: an Array of counts is a bin each, in this order.
+                                    bins: [0, 1, 2, 5, 10, 15, 30, 60, 120, 240, 480, 1440],
+                                    // A bar a bin, whatever its span — the default; "linear" draws them to scale.
+                                    scale: "band",
+                                    // The edges the axis names besides 0: 5m and 1h printed from the unit,
+                                    // the last two in the app's own words.
+                                    ticks: [5, 60, { at: 480, label: "a shift" }, { at: 1440, label: "a day" }],
+                                })],
+                            }),
+                        })}
+                        transitions={Flowchart.transitions(transitions, { from: "from", to: "to" })}
+                        lanes={Flowchart.lanes(stages, { label: "label", order: "seq" })}
+                        name="ticketMinutes"
                     />
                 </Box>
             );

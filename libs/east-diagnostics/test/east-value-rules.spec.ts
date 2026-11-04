@@ -169,6 +169,16 @@ test("no-handrolled-value-type-mirror: silent on a factory's options interface a
   assert.equal(hits(src, "no-handrolled-value-type-mirror").length, 0);
 });
 
+test("no-handrolled-value-type-mirror: silent on a declaration whose method builds IR beside its wire type — and a value's mirror with a method still flagged", () => {
+  // e3-ui's Flowchart.details hands back FlowchartDetails, whose build() closes
+  // the reads into a FlowchartDetailsType: a declaration of IR, never a decoded
+  // value (#1507).
+  const declared = `export const FooDetailsType = StructType({ gap: IntegerType });\nexport interface FooDetails { readonly inspectorReads: boolean; build(where: string): ExprType<typeof FooDetailsType> }\n`;
+  assert.equal(hits(declared, "no-handrolled-value-type-mirror").length, 0);
+  const mirrored = `export const FooType = StructType({ gap: IntegerType });\nexport interface Foo { gap: bigint; describe(): string }\n`;
+  assert.equal(hits(mirrored, "no-handrolled-value-type-mirror").length, 1);
+});
+
 // ── no-module-scope-east-macro (scoped) ──────────────────────────────────
 test("no-module-scope-east-macro: silent on helpers building decoded values over host data, and on host keys", () => {
   const src = `export const str = (s: string) => variant("String", s);\nexport const present = (n: bigint) => some(n);\nexport const channelKey = (w: string, n: string) => \`func:\${w}:\${n}\`;\nexport const cache = new Map<string, number>();\nexport const hit = cache.get(channelKey("ws", "f"));\n`;
