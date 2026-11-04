@@ -4,270 +4,97 @@
  */
 
 /**
- * The flowchart's payload (#1244, `Flowchart Builder Spec.md` §4.1, §4.4,
- * §5.2): what `<Flowchart>` hands the renderer through its `Flowchart`
- * carrier — its canvas, where its flows come from, its narrowing, the flow it
- * opens first, its library's tabs, its inspector, whether it is read only, and
- * its name — and every refusal of its props, made when the surface is built.
+ * The Flowchart's payload (#1500, `Flowchart Records Spec.md` §3, R1–R4): what
+ * `<Flowchart>` hands the renderer through its `Flowchart` carrier — its
+ * canvas, its kinds, its narrowing and how a narrowed-out row draws, its
+ * library's tabs, whether it has an inspector, the app's own words for a
+ * transition's kinds (#1516), whether it is read only, and its name — and
+ * every refusal of its props, made when the surface is built. A kind's noun
+ * is its own `name`, wherever the Flowchart says it.
  *
- * Its flows come from one of two sources:
- * - `record`, an e3 record of `Flowchart.Types.Flows` — flows by name — bound
- *   with its patch mutation. The handle crosses the payload as the query
- *   builder's does: its `read`, its `history` and its patch write — and, for
- *   the editing session over the flows (#1246), its Save: the session's keyed
- *   batch committed through the patch mutation by `Record.onApply(record, {
- *   keyed: true })`. A record always holds flows by name (ruled 2026-10-07:
- *   e3's patch mutation writes only keyed records), so a lone flow is a
- *   one-entry record, or the host's. With a `flows` source in its `slice`
- *   (#1346), the Flows tab pages what the rail narrows the record to, the open
- *   flow is read by its name, and the whole record is never read: only the
- *   paged window, the read by name and the tab's own search's page cross;
- * - `data`, the host's flows by name or one flow — a value, an expression or a
- *   bind handle — the value's type picking the arm. Given the host's
- *   `onApply`, the arm carries the session's Save through it (#1247): the
- *   session's batch restated as one patch of the host's value, which the
- *   host's `onApply` takes and answers. The host's flows are never narrowed
- *   (#1346): its `slice` holds only the sources its templates and its tabs
- *   name.
+ * Its kinds are the app's records (R1, `kinds.ts`): `states`, and beside them
+ * `transitions`, `lanes` and `decisions`, each closed over its record behind
+ * East functions over beast2 bytes, so the payload is one type whatever the
+ * rows hold.
  *
- * Its narrowing is one `Slice.bindRecords` (#1340, #1346): `flows` narrows the
- * Flows tab, and each other source the templates list or the author's tab
- * that names it. The payload carries the rail's chrome (`slice`) and each
- * source's narrowed keys (`narrowed`), as every builder's does.
+ * Its narrowing is one `Slice.bindRecords` (R4): a source named `states` or
+ * `transitions` narrows that kind, read complete through it — or, under
+ * `narrowed="dim"`, every row read through it and what the narrowing leaves
+ * out drawn as context — and each other source the cards list or the
+ * author's tab that names it. A source named `lanes` or `decisions` is
+ * refused: they are read whole. The payload's block binds each source once
+ * (`recordSources(…).bind($)`), and each kind reads its own source inside its
+ * functions; none reads a source's state, so a choice builds the Flowchart no
+ * more.
  *
- * The flowchart takes no callback for an edit (#1247, FB24): every gesture is
- * one transaction of its editing session, and each callback it took before is
- * refused when the surface is built, naming the remedy.
- *
- * Its library's tabs are the `Flowchart.library.*` calls `library` lists, on
- * the wire in that order: `library.ts` builds each — the Flows tab, and the
- * template and author's tabs, each card read from the tab's own rows — and
- * makes the library's refusals (#1248).
- *
- * Its inspector is on by default (#1250, ruled by the user on 2026-10-08):
- * the end pane, Details and Issues, unless `inspector={false}`; and
- * `inspector={{ state, transition }}` gives a kind its own Details in place of
- * its form, each an East function over the row and its writer, wrapped over
- * bytes as the Sheet's own Details are. The hover cards went with it: each
- * hover prop is refused, naming the inspector.
+ * Its inspector is on unless `inspector={false}`, and a kind's own Details is
+ * its kind's `inspector`. The props the records replace are refused when the
+ * surface is built, each naming the form that replaces it.
  *
  * @packageDocumentation
  */
 
 import {
-    ArrayType,
-    AsyncFunctionType,
-    BlobType,
-    BooleanType,
-    DictType,
-    East,
-    Expr,
-    FunctionType,
-    OptionType,
-    PatchType,
-    StringType,
-    StructType,
-    VariantType,
-    dictPatchOpsType,
-    isTypeEqual,
-    isValueOf,
-    none,
-    printType,
-    some,
-    variant,
-    type EastType,
-    type ExprType,
-    type NullType,
-    type SubtypeExprOrValue,
-    type ValueTypeOf,
+    ArrayType, BooleanType, DictType, East, Expr, OptionType, StringType, StructType, none, some, variant,
+    type ExprType, type SubtypeExprOrValue, type ValueTypeOf,
 } from "@elaraai/east";
-import { RecordCommitInfoType } from "@elaraai/e3-types";
-import { EastUI, Editing, RowSourceType, type UIComponentType } from "@elaraai/east-ui";
+import { EastUI, RowSourceType } from "@elaraai/east-ui";
 import { RecordSlicesChromeType, isRecordSlices, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
-import { Record as RecordBind, RecordOutcomeType } from "../bind/record.js";
-import { recordSources, sliceSourceNames } from "../utils/record-sources.js";
-import { VocabularyNounType, vocabularyNoun, vocabularyWord, type VocabularyNoun } from "../utils/vocabulary.js";
-import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
-import { buildCanvas, FlowchartCanvasType, type FlowchartCanvasOptions } from "./canvas.js";
-import { FlowchartLibraryTabType, buildLibrary, checkTemplatesSources, librarySources } from "./library.js";
-import { FlowchartFlowType, FlowchartFlowsType, FlowchartLinkType, FlowchartStateType } from "./types.js";
-import { FlowchartReadEntryType, FlowchartSearchType, FlowchartWindowType, flowchartWindow } from "./window.js";
-
-// ============================================================================
-// Where the flows come from
-// ============================================================================
-
-/** A record's commits, newest first: who changed it last, and when. */
-export const FlowchartHistoryType = FunctionType([], OptionType(ArrayType(RecordCommitInfoType)));
-
-/** Type representing {@link FlowchartHistoryType}. */
-export type FlowchartHistoryType = typeof FlowchartHistoryType;
-
-/**
- * The editing session's Save (#1246, #1247, FB22): the session's keyed batch —
- * the open flow's insert, update or delete by name — as the session hands it,
- * bytes of `Editing.Types.ChangeSet(Flowchart.Types.Flow, String)`, sent as
- * one commit and answered as the session's Save is: over a record, one patch
- * through its patch mutation by `Record.onApply(record, { keyed: true })`;
- * over the host's flows or flow, one patch of that value through the host's
- * `onApply`, handed the batch's request id with it (#1275).
- */
-export const FlowchartSessionApplyType = AsyncFunctionType([BlobType], Editing.Types.ApplyResult);
-
-/** Type representing {@link FlowchartSessionApplyType}. */
-export type FlowchartSessionApplyType = typeof FlowchartSessionApplyType;
-
-/**
- * A record of flows by name, bound with its patch mutation — what the
- * renderer reads the flows from and commits to, as the query builder's
- * `QueriesHandleType` is the saved queries record's.
- *
- * @property read - The record's flows
- * @property history - Its commits, newest first
- * @property commit - Its patch write, awaited: a request id and the patch, answered by the outcome
- * @property apply - The editing session's Apply through that patch write ({@link FlowchartSessionApplyType})
- */
-export const FlowchartFlowsHandleType = StructType({
-    read: FunctionType([], FlowchartFlowsType),
-    history: FlowchartHistoryType,
-    commit: StructType({ patch: AsyncFunctionType([StringType, PatchType(FlowchartFlowsType)], RecordOutcomeType) }),
-    apply: FlowchartSessionApplyType,
-});
-
-/** Type representing {@link FlowchartFlowsHandleType}. */
-export type FlowchartFlowsHandleType = typeof FlowchartFlowsHandleType;
-
-/**
- * The host's commit of its flows' edits (#1247, #1275): the session's request
- * id and one patch of the flows, as a record's patch write takes them, answered
- * as the editing session's Save is. A Retry after a write with no answer hands
- * the same id again, so a host that keys its write by it — as e3's `commit.patch`
- * does — writes once.
- */
-export const FlowchartFlowsApplyType = AsyncFunctionType([StringType, PatchType(FlowchartFlowsType)], Editing.Types.ApplyResult);
-
-/** Type representing {@link FlowchartFlowsApplyType}. */
-export type FlowchartFlowsApplyType = typeof FlowchartFlowsApplyType;
-
-/**
- * The host's commit of its one flow's edits (#1247, #1275): the session's
- * request id and the flow's own patch, answered as the editing session's Save
- * is — a Retry handing the same id again.
- */
-export const FlowchartFlowApplyType = AsyncFunctionType([StringType, PatchType(FlowchartFlowType)], Editing.Types.ApplyResult);
-
-/** Type representing {@link FlowchartFlowApplyType}. */
-export type FlowchartFlowApplyType = typeof FlowchartFlowApplyType;
-
-/**
- * The host's flows: its value, of either type, and — when the host takes the
- * flowchart's edits — the session's Save through the host's `onApply` (#1247,
- * FB22), which hands the host the batch's request id and one patch of its own
- * value's type (#1275).
- *
- * @property flows - Flows by name
- * @property flow - One flow
- */
-export const FlowchartDataType = VariantType({
-    flows: StructType({ value: FlowchartFlowsType, apply: OptionType(FlowchartSessionApplyType) }),
-    flow: StructType({ value: FlowchartFlowType, apply: OptionType(FlowchartSessionApplyType) }),
-});
-
-/** Type representing {@link FlowchartDataType}. */
-export type FlowchartDataType = typeof FlowchartDataType;
-
-/**
- * Where a flowchart's flows come from.
- *
- * @property record - A record of flows by name, bound with its patch mutation, read whole
- * @property paged - A record of flows by name its slice's `flows` source pages (#1346): the record's identity, the
- *   window of the flows the rail narrows it to, a flow read by its name whatever the narrowing, a page of a narrowing
- *   of the Flows tab's own search, the record's commits and the session's Save
- * @property data - The host's flows by name, or one flow: the arm its value's type picked
- */
-export const FlowchartSourceType = VariantType({
-    record: FlowchartFlowsHandleType,
-    paged: StructType({
-        recordId: StringType,
-        window: FlowchartWindowType,
-        entry: FlowchartReadEntryType,
-        search: FlowchartSearchType,
-        history: FlowchartHistoryType,
-        apply: FlowchartSessionApplyType,
-    }),
-    data: FlowchartDataType,
-});
-
-/** Type representing {@link FlowchartSourceType}. */
-export type FlowchartSourceType = typeof FlowchartSourceType;
-
-// ============================================================================
-// The inspector
-// ============================================================================
-
-/**
- * The inspector pane on the wire (#1250, `Flowchart Builder Spec.md` §5.3,
- * FB35–FB38, FB44, FB45): each kind's own Details, where the author gives them
- * — a state's, a transition's — in place of that kind's form, as the Sheet's
- * own Details (SB58) and a Plan event kind's inspector are: the row as bytes,
- * and the writer that takes the edited row back as bytes.
- *
- * @property state - A state's own Details; `none`, its form
- * @property transition - A transition's own Details; `none`, its form
- */
-export const FlowchartInspectorType = StructType({
-    state: OptionType(RowInspectorType),
-    transition: OptionType(RowInspectorType),
-});
-
-/** Type representing {@link FlowchartInspectorType}. */
-export type FlowchartInspectorType = typeof FlowchartInspectorType;
+import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
+import { vocabularyWord } from "../utils/vocabulary.js";
+import { FlowchartCanvasType, buildCanvas, type FlowchartCanvasOptions } from "./canvas.js";
+import {
+    isFlowchartKind, type FlowchartDecisions, type FlowchartKindSort, type FlowchartLanes, type FlowchartStates, type FlowchartTransitions,
+} from "./kinds.js";
+import { FlowchartLibraryTabType, buildFlowchartLibrary, flowchartTabSources, type FlowchartLibraryKind, type FlowchartLibraryTab } from "./library.js";
+import {
+    FlowchartDecisionKindType, FlowchartLaneKindType, FlowchartNarrowedType, FlowchartStateKindType, FlowchartTransitionKindType,
+} from "./types.js";
 
 // ============================================================================
 // The payload
 // ============================================================================
 
-/** Each source's narrowed keys on the wire, by the source's name. */
-const NarrowedType = DictType(StringType, RowSourceType(ArrayType(StringType)));
+/** Each source's shown keys on the wire, by the source's name. */
+const ShownType = DictType(StringType, RowSourceType(ArrayType(StringType)));
 
 /**
- * The app's own words for what the flowchart draws of its own (#1516), every one resolved.
+ * The app's own words for what the Flowchart draws of its own (#1516), every one resolved: a transition's kinds. A
+ * kind's noun is its own `name` (ruled 5 Nov 2026), so these are the words no kind names.
  *
- * @property flow - A flow (`Flow`, `Flows`)
- * @property lane - A lane (`Lane`, `Lanes`)
- * @property state - A state (`State`, `States`)
- * @property transition - A transition (`Transition`, `Transitions`)
- * @property decision - A decision (`Decision`, `Decisions`)
  * @property planned - A transition as it was designed (`Planned`)
  * @property observed - A transition as it was seen to run (`Observed`)
  */
-export const FlowchartVocabularyType = StructType({
-    flow: VocabularyNounType, lane: VocabularyNounType, state: VocabularyNounType, transition: VocabularyNounType, decision: VocabularyNounType,
-    planned: StringType, observed: StringType,
-});
+export const FlowchartVocabularyType = StructType({ planned: StringType, observed: StringType });
 
 /**
- * The `Flowchart` renderer's payload: the flowchart's interface.
+ * The `Flowchart` renderer's payload: the Flowchart's interface (§3).
  *
- * @property canvas - What the canvas draws its flow with ({@link FlowchartCanvasType})
- * @property source - Where the flows come from: a record of flows by name, read whole or paged through the slice's `flows` source, or the host's flows or flow
- * @property open - Over many flows, the one opened first
+ * @property canvas - What the canvas draws with besides its kinds ({@link FlowchartCanvasType})
+ * @property states - The states, each a card in its lane
+ * @property transitions - The transitions between them; `none`, no transitions
+ * @property lanes - The lanes, the canvas's columns; `none`, one column
+ * @property decisions - The decisions, each a lettered diamond on the transitions that name it; `none`, no decisions
  * @property library - The library pane's tabs, in the order `library` lists them; none, no library pane
- * @property slice - The narrowing's chrome: one rail over its `Slice.bindRecords` (#1346) — `flows`, and each source a templates list or a tab names; `none`, no rail
- * @property narrowed - Each source's narrowed keys, paged through its own data, by the source's name: what a templates list's and a tab's cards follow
- * @property inspector - The inspector pane — on by default — with each kind's own Details the author gives ({@link FlowchartInspectorType}); `none`, no inspector pane (`inspector={false}`)
- * @property vocabulary - The app's words for what the flowchart draws of its own (#1516)
- * @property readOnly - No gesture edits, no drop lands, the inspector edits nothing
- * @property name - Names the flowchart, when a surface holds two
+ * @property slice - The rail's chrome over the one `Slice.bindRecords`; `none`, no rail
+ * @property shown - Each source's shown keys, paged through its own data, by the source's name: what a cards list's and a tab's cards follow, and what dims a narrowed-out row
+ * @property narrowed - How a narrowed-out row draws: hidden, or dimmed as context
+ * @property inspector - Whether the inspector pane shows: on unless `inspector={false}`
+ * @property vocabulary - The app's words for a transition's kinds (#1516)
+ * @property readOnly - No gesture, drop or inspector edit; selection stays
+ * @property name - Keeps the Flowchart's state apart, when a surface holds two
  */
 export const FlowchartPayloadType = StructType({
     canvas: FlowchartCanvasType,
-    source: FlowchartSourceType,
-    open: OptionType(StringType),
+    states: FlowchartStateKindType,
+    transitions: OptionType(FlowchartTransitionKindType),
+    lanes: OptionType(FlowchartLaneKindType),
+    decisions: OptionType(FlowchartDecisionKindType),
     library: ArrayType(FlowchartLibraryTabType),
     slice: OptionType(RecordSlicesChromeType),
-    narrowed: NarrowedType,
-    inspector: OptionType(FlowchartInspectorType),
+    shown: ShownType,
+    narrowed: FlowchartNarrowedType,
+    inspector: BooleanType,
     vocabulary: FlowchartVocabularyType,
     readOnly: BooleanType,
     name: OptionType(StringType),
@@ -285,40 +112,34 @@ export type FlowchartPayloadType = typeof FlowchartPayloadType;
 export const FlowchartComponent = EastUI.component("Flowchart", FlowchartPayloadType, { optional: true });
 
 // ============================================================================
-// The flowchart's shared keys
+// The Flowchart's shared keys
 // ============================================================================
 
 /**
- * The names a flowchart keeps its viewer's state under, by its `name`: its
- * frame's panes — their open tab and collapsed state (#1245) — the flow open
- * in it, its library's id, LR · TD (#1246), and its drop target, where its
- * library's cards land (#1249).
+ * The names a Flowchart keeps its viewer's state under, by its `name`: its
+ * frame's panes — their open tab and collapsed state — its library's id, LR ·
+ * TD, and its drop surface, where its library's cards land.
  *
  * @remarks
- * As the Plan's `planKeys` and the Sheet's `sheetKeys`: two flowcharts on one
- * surface keep apart only when each is named, and two of one name open one
- * flow together, and turn together, as the query builder's open query is
- * shared by its id.
+ * As the Plan's `planKeys` and the Schematic's `schematicKeys`: two
+ * Flowcharts on one surface keep apart only when each is named.
  *
- * @param name - The flowchart's name, when a surface holds more than one; omitted, the one flowchart
+ * @param name - The Flowchart's name, when a surface holds more than one; omitted, the one Flowchart
  * @returns The keys
  */
 export function flowchartKeys(name: string | undefined): {
     /** The frame's storage key: each pane's open tab and collapsed state. */
     frame: string;
-    /** The open flow's UI store key: the name of the flow open in the flowchart, so a remount opens it again (FB12). */
-    flow: string;
     /** The library's id: what its tabs' cards are drawn from. */
     library: string;
-    /** LR · TD's UI store key: the orientation the viewer picked, so a remount keeps it (FB43). */
+    /** LR · TD's UI store key: the orientation the viewer picked, so a remount keeps it. */
     orientation: string;
-    /** The flowchart's drop target (#1249): the surface its canvas takes its library's cards on. */
+    /** The Flowchart's drop surface: where its canvas takes its library's cards. */
     surface: string;
 } {
     const suffix = name === undefined ? "" : `.${name}`;
     return {
         frame: `flowchart${suffix}.frame`,
-        flow: `flowchart${suffix}.flow`,
         library: `flowchart.library${suffix}`,
         orientation: `flowchart${suffix}.orientation`,
         surface: `flowchart${suffix}.surface`,
@@ -329,494 +150,325 @@ export function flowchartKeys(name: string | undefined): {
 // <Flowchart>'s props
 // ============================================================================
 
-/**
- * A record of flows by name bound with its patch mutation, as the flowchart
- * reads it — what `Record.bind(record), its record declaring patch: mutation.patch()` returns
- * for a record of `Flowchart.Types.Flows`.
- */
-export interface FlowchartRecordHandle {
-    /** The record's flows. */
-    read: (...args: never[]) => ExprType<FlowchartFlowsType>;
-    /** The record's commits. */
-    history: unknown;
-    /** The record's writes, awaited. */
-    commit: unknown;
-    /** The record's binding. */
-    binding: unknown;
-}
-
-/**
- * A whole-value bind handle (`Data.bind`, `State.bind`) over the host's flows
- * — `data={handle}` builds the flowchart over `handle.read()`.
- *
- * @typeParam T - The value's type: `Flowchart.Types.Flows` or `Flowchart.Types.Flow`
- */
-export interface FlowchartBindHandle<T extends EastType> {
-    /** The handle's read. */
-    read: (...args: never[]) => ExprType<T>;
-}
-
-/**
- * A kind's own Details in the inspector (#1250, FB45): an East function over
- * the selected row and its writer, returning what Details shows in place of
- * the kind's form — `update` writes the edited row back as one transaction of
- * the open flow's editing session, and writes nothing over a flowchart that
- * edits nothing.
- *
- * @typeParam R - The row: `Flowchart.Types.State` or `Flowchart.Types.Link`
- */
-export type FlowchartRowInspector<R extends StructType> = SubtypeExprOrValue<FunctionType<[R, FunctionType<[R], NullType>], UIComponentType>>;
-
-/**
- * The inspector's own Details, by kind (#1250, FB45): each given in place of
- * that kind's form, as the Sheet's own Details (SB58) are.
- */
-export interface FlowchartInspectorOptions {
-    /** A state's own Details — `East.function([Flowchart.Types.State, FunctionType([Flowchart.Types.State], NullType)], UIComponentType, ($, state, update) => …)`. */
-    state?: FlowchartRowInspector<FlowchartStateType>;
-    /** A transition's own Details — `East.function([Flowchart.Types.Link, FunctionType([Flowchart.Types.Link], NullType)], UIComponentType, ($, link, update) => …)`. */
-    transition?: FlowchartRowInspector<FlowchartLinkType>;
-}
-
-/** The app's words for what the flowchart draws of its own: any left out keeps its default. */
+/** The app's words for a transition's kinds (#1516): either left out keeps its default. A kind's noun is its own `name`. */
 export interface FlowchartVocabularyProp {
-    flow?: VocabularyNoun; lane?: VocabularyNoun; state?: VocabularyNoun; transition?: VocabularyNoun; decision?: VocabularyNoun;
-    planned?: string; observed?: string;
+    /** A transition as it was designed: `Planned` unless given. */
+    planned?: string;
+    /** A transition as it was seen to run: `Observed` unless given. */
+    observed?: string;
+}
+
+/** `<Flowchart>`'s props (§3). */
+export interface FlowchartProps extends FlowchartCanvasOptions {
+    /** The states, over the app's record: `Flowchart.states(Record.bind(steps), { label, lane?, order? })`. */
+    states: FlowchartStates;
+    /** The transitions between them, over the app's record: `Flowchart.transitions(Record.bind(moves), { from, to, decision? })`. */
+    transitions?: FlowchartTransitions;
+    /** The lanes, the canvas's columns, over a small record of the app's, read whole: `Flowchart.lanes(Data.bind(phases), { label, order? })`. */
+    lanes?: FlowchartLanes;
+    /** The decisions, over a small record of the app's, read whole: `Flowchart.decisions(Record.bind(rules), { label, owner?, queue? })`. */
+    decisions?: FlowchartDecisions;
+    /**
+     * The narrowing (R4): slice={{ slice: Slice.bindRecords(key, { … }), affordances?, persist? }}, one rail on the
+     * toolbar. Its sources named `states` and `transitions` — each `Data.bindPaged(record, { indexes })` over that
+     * kind's own record — narrow that kind; each other source the cards list or the author's tab that names it.
+     */
+    slice?: RecordSlicesChromeOptions;
+    /** How a narrowed-out row draws: `"hide"` (the default), or `"dim"`, drawn as context. */
+    narrowed?: "hide" | "dim";
+    /** The library pane's tabs, in order, each a `Flowchart.library.*` call; left out, or empty, no library pane. */
+    library?: readonly FlowchartLibraryTab[];
+    /** The inspector pane — Details and Issues: on unless `false`. A kind's own Details is its kind's `inspector`. */
+    inspector?: boolean;
+    /**
+     * The app's own words for a transition's kinds, `planned` and `observed`, each keeping its default where left out
+     * (#1516). A kind's noun is its own `name` — `Flowchart.states(record, { label, name: "Stop" })` — wherever the
+     * Flowchart says it.
+     */
+    vocabulary?: FlowchartVocabularyProp;
+    /** No gesture, drop or inspector edit; selection stays. */
+    readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** Keeps this Flowchart's panes, library and orientation apart when one surface holds two (`flowchartKeys(name)`). */
+    name?: string;
+}
+
+/** The props, erased: what the implementation reads. */
+type FlowchartAnyProps = { [K in keyof FlowchartProps]?: unknown } & Record<string, unknown>;
+
+/** The refusal of the flows: the kinds over the app's records replace them (R1). */
+const RECORDS = "the Flowchart takes no `record`, `data`, `flow` or `onApply` — its records are its kinds: " +
+    "states={Flowchart.states(Record.bind(steps), { label, lane, order })}, transitions={Flowchart.transitions(Record.bind(moves), { from, to })}, " +
+    "lanes={Flowchart.lanes(Data.bind(phases), { label })} and decisions={Flowchart.decisions(Data.bind(rules), { label })}";
+
+/** The refusal of a row mapper: a kind maps its record's fields to its roles (R2). */
+const MAPPERS = "a kind maps its record's fields to its roles — Flowchart.states(record, { label, lane, order }), " +
+    "Flowchart.transitions(record, { from, to, decision }), Flowchart.lanes(record, { label, order }) and Flowchart.decisions(record, { label })";
+
+/** The refusal of a callback for an edit: the editing session's gestures replace them. */
+const SESSION = "every gesture is a transaction of the Flowchart's editing session, and Save writes each record through its patch door — " +
+    "bind a kind with Record.bind(record), its record declaring patch: mutation.patch(), to edit it";
+
+/** The refusal of a hover card: the inspector replaces them. */
+const HOVER = "the inspector shows what is selected, and a kind's own Details is its kind's `inspector`: " +
+    "Flowchart.states(record, { …, inspector: East.function([RowType, FunctionType([RowType], NullType)], UIComponentType, ($, row, update) => …) })";
+
+/** The refusal of a size: the Flowchart fills the box it is given. */
+const SIZE = "the Flowchart fills the box it is given — give it a box of its own height: <Box height=\"560px\"><Flowchart … /></Box>";
+
+/** Each prop the records and the editing session replace, with the form that replaces it. */
+const REMOVED: Readonly<Record<string, string>> = {
+    record: RECORDS,
+    data: RECORDS,
+    flow: RECORDS,
+    onApply: RECORDS,
+    window: "the states and the transitions read through their sources of the slice, `states` and `transitions` — " +
+        "slice={{ slice: Slice.bindRecords(key, { states: { source: Data.bindPaged(steps, { indexes }) } }) }}",
+    links: "the transitions are `transitions`: transitions={Flowchart.transitions(record, { from, to })}",
+    triggers: "the decisions are `decisions`: decisions={Flowchart.decisions(record, { label })}",
+    state: MAPPERS,
+    link: MAPPERS,
+    lane: MAPPERS,
+    trigger: MAPPERS,
+    height: SIZE,
+    maxHeight: SIZE,
+    density: "the canvas draws at one rhythm — leave `density` out",
+    linkMode: SESSION,
+    onCreateLink: SESSION,
+    onDeleteLink: SESSION,
+    onAddLane: SESSION,
+    onRenameLane: SESSION,
+    onDeleteLane: SESSION,
+    onAddState: SESSION,
+    onEditState: SESSION,
+    onMoveState: SESSION,
+    stateHover: HOVER,
+    linkHover: HOVER,
+    triggerHover: HOVER,
+    affordances: "it moved into `slice`: slice={{ slice: Slice.bindRecords(key, { … }), affordances }}",
+};
+
+/** Every prop `<Flowchart>` takes. */
+const PROPS: ReadonlySet<string> = new Set([
+    "states", "transitions", "lanes", "decisions", "slice", "narrowed", "library", "inspector", "vocabulary", "readOnly", "name",
+    "orientation", "freshness", "minimap", "legend", "onSelectState", "onSelectLink", "onSelectTrigger", "onTracePath", "canConnect", "narrow",
+]);
+
+/** The canvas's props, which the payload's `canvas` carries. */
+const CANVAS: readonly (keyof FlowchartCanvasOptions)[] = [
+    "orientation", "freshness", "minimap", "legend", "onSelectState", "onSelectLink", "onSelectTrigger", "onTracePath", "canConnect", "narrow",
+];
+
+/** The declaration each kind's prop takes, as a refusal names it. */
+const DECLARE: { readonly [K in FlowchartKindSort]: string } = {
+    states: "Flowchart.states(record, { label, lane?, order? })",
+    transitions: "Flowchart.transitions(record, { from, to, decision? })",
+    lanes: "Flowchart.lanes(record, { label, order? })",
+    decisions: "Flowchart.decisions(record, { label, owner?, queue? })",
+};
+
+/**
+ * Reads one kind's prop, checked to hold a kind of its sort.
+ *
+ * @param sort - The prop
+ * @param given - What it was given
+ * @returns The kind; `undefined` when it is left out
+ * @throws {Error} When it holds anything but a kind of its sort, naming the declaration it takes — and the prop the kind it holds belongs under
+ */
+function kindOf<K>(sort: FlowchartKindSort, given: unknown): K | undefined {
+    if (given === undefined) return undefined;
+    if (isFlowchartKind(given, sort)) return given as K;
+    const other = (["states", "transitions", "lanes", "decisions"] as const).find((s) => isFlowchartKind(given, s));
+    throw new Error(`Flowchart: \`${sort}\` is ${DECLARE[sort]} over the app's record` + (other === undefined ? "" : ` — and this is ${DECLARE[other]}: give it as \`${other}\``));
 }
 
 /**
- * The flowchart's words, resolved.
+ * How a narrowed-out row draws, on the wire; and whether it is dimmed, when
+ * each kind read through its source reads every row and the renderer draws
+ * what the narrowing leaves out as context.
  *
- * @param given - The prop
- * @returns Every word
- * @throws {Error} Naming an entry given empty
+ * @param narrowed - The Flowchart's `narrowed`
+ * @returns It on the wire, and whether a narrowed-out row is dimmed
+ * @throws {Error} For a `narrowed` of another form, naming the forms it takes
+ */
+function narrowedOf(narrowed: unknown): { wire: ExprType<FlowchartNarrowedType>; dim: boolean } {
+    if (narrowed !== undefined && narrowed !== "hide" && narrowed !== "dim") {
+        throw new Error("Flowchart: `narrowed` is \"hide\" (the default), which leaves what the narrowing leaves out off the canvas, or \"dim\", which draws it as context");
+    }
+    const dim = narrowed === "dim";
+    return { wire: East.value(variant(dim ? "dim" : "hide", null), FlowchartNarrowedType), dim };
+}
+
+/**
+ * The inspector pane: on unless `false`.
+ *
+ * @param inspector - The Flowchart's `inspector`
+ * @returns Whether the pane shows
+ * @throws {Error} For an `inspector` that is no Boolean — the `{ state, transition }` the Flowchart took before among
+ *   them — naming the kind's own `inspector`, the one way to give it Details
+ */
+function inspectorOf(inspector: unknown): boolean {
+    if (inspector === undefined || inspector === true) return true;
+    if (inspector === false) return false;
+    throw new Error("Flowchart: `inspector` is true or false — on unless false — and a kind's own Details is its kind's `inspector`: " +
+        "Flowchart.states(record, { …, inspector: East.function([RowType, FunctionType([RowType], NullType)], UIComponentType, ($, row, update) => …) })");
+}
+
+/** Each kind's noun as the vocabulary would give it, by the kind its own `name` names instead. */
+const KIND_WORDS: ReadonlyMap<string, FlowchartKindSort> = new Map([["state", "states"], ["transition", "transitions"], ["lane", "lanes"], ["decision", "decisions"]]);
+
+/** Each kind's declaration, its `name` among its options, as a refusal of a kind's noun in the vocabulary shows it. */
+const NAMED: { readonly [K in FlowchartKindSort]: string } = {
+    states: "Flowchart.states(record, { label, name })",
+    transitions: "Flowchart.transitions(record, { from, to, name })",
+    lanes: "Flowchart.lanes(record, { label, name })",
+    decisions: "Flowchart.decisions(record, { label, name })",
+};
+
+/**
+ * The Flowchart's words, resolved: a transition's kinds, each the app's or its default.
+ *
+ * @param given - The Flowchart's `vocabulary`
+ * @returns Both words
+ * @throws {Error} For a `vocabulary` that is no object; an entry naming a kind's noun, naming the kind's `name` that
+ *   gives it; an entry the Flowchart has no word for; and an entry given empty
  * @internal
  */
-export function flowchartVocabulary(given: FlowchartVocabularyProp | undefined): ValueTypeOf<typeof FlowchartVocabularyType> {
-    const noun = (name: "flow" | "lane" | "state" | "transition" | "decision", one: string) => vocabularyNoun("Flowchart", name, given?.[name], one);
-    return {
-        flow: noun("flow", "Flow"), lane: noun("lane", "Lane"), state: noun("state", "State"), transition: noun("transition", "Transition"), decision: noun("decision", "Decision"),
-        planned: vocabularyWord("Flowchart", "planned", given?.planned, "Planned"), observed: vocabularyWord("Flowchart", "observed", given?.observed, "Observed"),
-    };
-}
-
-/**
- * What every `<Flowchart>` takes beside its flows: the canvas's options, its
- * inspector, read only and its name.
- */
-export interface FlowchartCommon extends FlowchartCanvasOptions {
-    /**
-     * The inspector pane (#1250): on by default — Details · Issues, Details
-     * showing what is selected through its form, each edit one transaction.
-     * `false` removes it; `{ state, transition }` gives a kind its own
-     * Details in place of its form ({@link FlowchartInspectorOptions}).
-     */
-    inspector?: boolean | FlowchartInspectorOptions;
-    /**
-     * The app's own words for what the flowchart draws of its own, each keeping its default where left out: `flow`, `lane`, `state`,
-     * `transition` and `decision`, and a transition's kinds, `planned` and `observed`.
-     */
-    vocabulary?: FlowchartVocabularyProp;
-    /** No gesture edits, no drop lands, the inspector shows every field and edits none; selection stays. */
-    readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
-    /** Names the flowchart — needed only when one surface holds two. */
-    name?: string;
-}
-
-/** The props, erased — what the implementation reads. */
-type FlowchartAnyProps = {
-    record?: unknown;
-    window?: unknown;
-    data?: unknown;
-    onApply?: unknown;
-    flow?: SubtypeExprOrValue<StringType>;
-    library?: unknown;
-    slice?: unknown;
-    inspector?: unknown;
-    vocabulary?: FlowchartVocabularyProp;
-    readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
-    name?: string;
-} & Record<string, unknown>;
-
-/** The tables and row mappers the flowchart took before it held flows, which `Flowchart.over` takes now. */
-const TABLES = ["states", "links", "lanes", "triggers", "state", "link", "lane", "trigger"] as const;
-
-/** The sizes the flowchart took before it filled the box it is given (#1245). */
-const SIZES = ["height", "maxHeight"] as const;
-
-/**
- * The refusal of `density`, which the flowchart took and never drew by (#1251,
- * ruled by the user on 2026-10-09: "Remove it"): the canvas draws at one
- * rhythm, the spec's.
- */
-const DENSITY = "Flowchart: `density` is not a prop — the canvas draws at one rhythm, the spec's 116×40 state cards in their lanes; leave `density` out";
-
-/** The callbacks the flowchart took for its edits before each gesture was a transaction of its editing session (#1247, FB24). */
-const EDIT_CALLBACKS = ["linkMode", "onCreateLink", "onDeleteLink", "onAddLane", "onRenameLane", "onDeleteLane", "onAddState", "onEditState", "onMoveState"] as const;
-
-/**
- * The hover cards the flowchart took before its inspector showed what is
- * selected (#1250, FB46, ruled by the user on 2026-10-08), each with its
- * remedy: a state's or a transition's own Details, or a decision's form.
- */
-const HOVERS = {
-    stateHover: "give a state its own Details with inspector={{ state: East.function([Flowchart.Types.State, FunctionType([Flowchart.Types.State], NullType)], UIComponentType, ($, state, update) => …) }}",
-    linkHover: "give a transition its own Details with inspector={{ transition: East.function([Flowchart.Types.Link, FunctionType([Flowchart.Types.Link], NullType)], UIComponentType, ($, link, update) => …) }}",
-    triggerHover: "a decision's Details are its form — every field, and the transitions it governs",
-} as const;
-
-/** The refusal of `window`, which the `flows` source of `slice` replaced (#1346). */
-const WINDOW = "Flowchart: `window={Slice.rows(slice)}` is gone — the Flows tab pages the `flows` source of `slice`: slice={{ slice: Slice.bindRecords(key, { flows: { source: Data.bindPaged(record, { indexes }), fields } }) }}";
-
-/** The refusal of a `slice` that is not `{ slice }` — the bare handle a flow from the host's tables was narrowed by (#1346). */
-const SLICE = "Flowchart: `slice` takes { slice } — slice={{ slice: Slice.bindRecords(key, { flows, … }) }} over a record of flows; the bare handle is gone, and a flow built from the host's tables (Flowchart.over over `data`) is never narrowed: narrow its rows in the task that builds them";
-
-/** What the flowchart's slice narrows, as the refusal of a source nothing names says it. */
-const NARROWS = "its flows, and the templates lists and tabs that name a source";
-
-/**
- * The refusal of a kind's own Details of another type than its row's.
- *
- * @param kind - The kind, as `inspector` names it
- * @param type - Its row's type, as `Flowchart.Types` names it
- * @param row - What the function calls its row
- * @returns The refusal
- */
-function rowRefusal(kind: "state" | "transition", type: "State" | "Link", row: string): string {
-    return `Flowchart: \`inspector.${kind}\` is a ${kind}'s own Details — an East function over the ${kind} and its writer: East.function([Flowchart.Types.${type}, FunctionType([Flowchart.Types.${type}], NullType)], UIComponentType, ($, ${row}, update) => …)`;
-}
-
-/**
- * The inspector pane on the wire (#1250, FB44, FB45): on by default, or given
- * `true`; none for `false`; and each kind's own Details where `{ state,
- * transition }` gives them, checked against the row's type and wrapped over
- * bytes, as the Sheet's own Details are.
- *
- * @param inspector - The flowchart's `inspector`
- * @returns The pane, or none
- * @throws {Error} Naming the prop and the remedy: an `inspector` of another
- *   kind, a key other than `state` and `transition`, and a function of another
- *   type than `(Row, (Row) => Null) => UIComponentType`
- */
-function inspectorOf(inspector: unknown): ExprType<OptionType<FlowchartInspectorType>> {
-    if (inspector === false) return East.value(none, OptionType(FlowchartInspectorType));
-    if (inspector === undefined || inspector === true) {
-        return East.value(some({ state: none, transition: none }), OptionType(FlowchartInspectorType));
+export function flowchartVocabulary(given: unknown): ValueTypeOf<typeof FlowchartVocabularyType> {
+    if (given !== undefined && (typeof given !== "object" || given === null || given instanceof Expr)) {
+        throw new Error("Flowchart: `vocabulary` takes the app's words for a transition's kinds — vocabulary={{ planned?, observed? }}");
     }
-    if (inspector === null || typeof inspector !== "object" || inspector instanceof Expr || Array.isArray(inspector)) {
-        throw new Error("Flowchart: `inspector` is on by default — inspector={false} removes the pane, and inspector={{ state, transition }} gives a state or a transition its own Details, each an East function over the row and its writer");
-    }
-    const given = inspector as { readonly state?: unknown; readonly transition?: unknown } & Record<string, unknown>;
-    for (const key of Object.keys(given)) {
-        if (key !== "state" && key !== "transition") {
-            throw new Error(`Flowchart: \`inspector\` gives a state or a transition its own Details — { state, transition } — and \`${key}\` is neither: every other kind's Details are its form`);
+    const words = (given ?? {}) as FlowchartVocabularyProp;
+    for (const entry of Object.keys(words)) {
+        const kind = KIND_WORDS.get(entry);
+        if (kind !== undefined) {
+            throw new Error(`Flowchart: \`vocabulary.${entry}\` is not one of its words — a kind's noun is its own \`name\`: ${NAMED[kind]}`);
+        }
+        if (entry !== "planned" && entry !== "observed") {
+            throw new Error(`Flowchart: \`vocabulary.${entry}\` is not one of its words — it takes \`planned\` and \`observed\`, a transition's kinds, and a kind's noun is its own \`name\``);
         }
     }
-    const state = given.state === undefined ? none : some(rowInspector(given.state, FlowchartStateType, rowRefusal("state", "State", "state")));
-    const transition = given.transition === undefined ? none : some(rowInspector(given.transition, FlowchartLinkType, rowRefusal("transition", "Link", "link")));
-    return East.value(some({ state, transition }), OptionType(FlowchartInspectorType));
-}
-
-/** The refusal of a record not bound with its patch mutation. */
-const UNBOUND = "Flowchart: `record` is an e3 record bound with its patch mutation — Record.bind(record), its record declaring patch: mutation.patch()";
-
-/** The arm the flows' type picked, and whether it holds many flows. */
-interface FlowchartArm {
-    /** The payload's `source`. */
-    readonly source: unknown;
-    /** Whether the source holds flows by name, rather than one flow. */
-    readonly many: boolean;
-}
-
-/** A field of a struct type, or `undefined`. */
-function fieldOf(type: EastType | undefined, name: string): EastType | undefined {
-    return type?.type === "Struct" ? (type.fields as Record<string, EastType>)[name] : undefined;
-}
-
-/** A record of flows, checked: its handle's members, and the editing session's Apply through its patch door. */
-interface FlowchartRecord {
-    /** The `Record.bind` handle's read, history and patch write. */
-    readonly handle: { read: unknown; history: unknown; commit: { patch: unknown }; binding: { name: ExprType<StringType> } };
-    /** The session's Apply through the patch door. */
-    readonly apply: unknown;
-}
-
-/**
- * A `Record.bind` handle over flows by name, bound with its patch mutation,
- * checked — and the editing session's Apply through its patch door. A record
- * of one flow is refused: e3's patch mutation writes only keyed records (ruled
- * 2026-10-07), so a lone flow is a one-entry record, or the host's `data`.
- */
-function checkedRecord(record: unknown): FlowchartRecord {
-    if (!(record instanceof Expr)) throw new Error(UNBOUND);
-    const type = Expr.type(record) as EastType;
-    const read = fieldOf(type, "read");
-    if (read === undefined || read.type !== "Function" || read.inputs.length !== 0
-        || fieldOf(type, "history")?.type !== "Function" || fieldOf(type, "binding") === undefined) {
-        throw new Error(UNBOUND);
-    }
-    const recordType = read.output as EastType;
-    if (isTypeEqual(recordType, FlowchartFlowType)) {
-        throw new Error("Flowchart: `record` holds flows by name, Flowchart.Types.Flows — e3's patch mutation writes only keyed records — and this record holds one flow: make it a record of flows with one entry (Flowchart.values({ [name]: flow })), or pass the flow as `data`");
-    }
-    if (!isTypeEqual(recordType, FlowchartFlowsType)) {
-        throw new Error(`Flowchart: \`record\` holds flows by name, Flowchart.Types.Flows — declare it with that type — and this record holds ${printType(recordType)}`);
-    }
-    // The patch door: the record's mutation.patch(), the mutation named `patch` taking
-    // the record's patch.
-    const door = fieldOf(fieldOf(type, "commit"), "patch");
-    if (door === undefined || !isTypeEqual(door, AsyncFunctionType([StringType, PatchType(FlowchartFlowsType)], RecordOutcomeType))) {
-        throw new Error(`${UNBOUND}, and this binding ${door === undefined ? "has no `patch`" : "has a `patch` that takes another patch than the record's"}`);
-    }
-    // The session's Apply (#1246): its keyed batch, decoded at its own type
-    // and committed as it is — each flow's insert, update or delete by name —
-    // through the patch door, by Record.onApply's keyed form.
-    const keyed = RecordBind.onApply(record as never, { keyed: true }) as unknown as ExprType<AsyncFunctionType<[EastType], typeof Editing.Types.ApplyResult>>;
-    const batchType = Editing.Types.ChangeSet(FlowchartFlowType, StringType);
-    const apply = East.asyncFunction([BlobType], Editing.Types.ApplyResult, ($, blob) => {
-        const commit = $.const(keyed);
-        return commit(blob.decodeBeast(batchType, "v2"));
-    });
-    return { handle: record as unknown as FlowchartRecord["handle"], apply };
-}
-
-/** The record arm: the checked record, its read, its history, its patch write and the session's Apply through it, read whole. */
-function recordArm(record: unknown): FlowchartArm {
-    const { handle, apply } = checkedRecord(record);
     return {
-        many: true,
-        source: variant("record", { read: handle.read, history: handle.history, commit: { patch: handle.commit.patch }, apply }),
+        planned: vocabularyWord("Flowchart", "planned", words.planned, "Planned"),
+        observed: vocabularyWord("Flowchart", "observed", words.observed, "Observed"),
     };
 }
 
-/** The slice's `flows` source, as the payload's block bound it (#1356): its part and its narrowed data. */
-interface FlowchartFlowsSource {
-    /** Its part of the slice: a narrowing's page, and a flow by its name. */
-    readonly part: ExprType<StructType>;
-    /** Its narrowed data — `Slice.rows(slice, "flows")`. */
-    readonly rows: ExprType<StructType>;
-}
-
 /**
- * The paged arm (#1346): the checked record — its identity, its history and
- * the session's Apply through its patch door — and the `flows` source's reads,
- * each over the source alone, as the payload's block bound it: the Flows
- * tab's window, a flow by its name, and the tab's own search's page. The whole
- * record is never read.
- */
-function pagedArm(record: unknown, flows: FlowchartFlowsSource): FlowchartArm {
-    const { handle, apply } = checkedRecord(record);
-    const view = flowchartWindow(flows.part, flows.rows);
-    return { many: true, source: variant("paged", { recordId: handle.binding.name, ...view, history: handle.history, apply }) };
-}
-
-/** The host's flows as an expression: an expression, a bind handle's read, or a value of either type. */
-function dataValue(data: unknown): ExprType<EastType> {
-    if (data instanceof Expr) {
-        const read = fieldOf(Expr.type(data) as EastType, "read");
-        return read !== undefined && read.type === "Function" && read.inputs.length === 0
-            ? (data as unknown as { read: () => ExprType<EastType> }).read()
-            : data as ExprType<EastType>;
-    }
-    if (isValueOf(data, FlowchartFlowsType)) return East.value(data as ValueTypeOf<FlowchartFlowsType>, FlowchartFlowsType) as unknown as ExprType<EastType>;
-    if (isValueOf(data, FlowchartFlowType)) return East.value(data as ValueTypeOf<FlowchartFlowType>, FlowchartFlowType) as unknown as ExprType<EastType>;
-    throw new Error("Flowchart: `data` is Flowchart.Types.Flows, flows by name, or Flowchart.Types.Flow, one flow — a value, an expression or a bind handle of either; Flowchart.over builds one flow from an app's tables — and this value is neither");
-}
-
-/** The host's `onApply`, checked against a request id and the patch of its flows' type. */
-function applyOf(onApply: unknown, applyType: EastType, value: string): ExprType<EastType> {
-    const apply = (onApply instanceof Expr ? onApply : East.value(onApply as SubtypeExprOrValue<EastType>, applyType)) as ExprType<EastType>;
-    const type = Expr.type(apply as unknown as Expr) as EastType;
-    if (!isTypeEqual(type, applyType)) {
-        throw new Error(`Flowchart: \`onApply\` commits \`data\`'s edits, one patch of the value at a time — an East.asyncFunction from the session's request id and PatchType(${value}), [StringType, PatchType(${value})], to Editing.Types.ApplyResult; a Retry hands the same id again — and this one is ${printType(type)}`);
-    }
-    return apply;
-}
-
-/**
- * The data arm: the host's flows, of either type, and — when the host takes
- * the edits — the session's Save through its `onApply` (#1247, FB22). The
- * session's batch is keyed by name, as over a record: over flows by name it is
- * restated as one patch of the flows, each change the open flow's insert,
- * update or delete by name, as `Record.onApply(record, { keyed: true })`
- * restates it for a record — never the whole value replaced, so the host's
- * other flows stay as they are; over one flow, its one change is the flow's
- * own patch. The host's `onApply` is handed the batch's request id with it
- * (#1275) — the same id on a Retry, which resends the same batch — and answers
- * the session.
- */
-function dataArm(data: unknown, onApply: unknown): FlowchartArm {
-    const value = dataValue(data);
-    const type = Expr.type(value as unknown as Expr) as EastType;
-    const many = isTypeEqual(type, FlowchartFlowsType);
-    if (!many && !isTypeEqual(type, FlowchartFlowType)) {
-        throw new Error(`Flowchart: \`data\` is Flowchart.Types.Flows, flows by name, or Flowchart.Types.Flow, one flow — a value, an expression or a bind handle of either; Flowchart.over builds one flow from an app's tables — and this is ${printType(type)}`);
-    }
-    if (onApply === undefined) return { many, source: variant("data", variant(many ? "flows" : "flow", { value, apply: none })) };
-    // The host's commit, its patch opaque here, as in `Record.onApply`; its runtime type is exact.
-    const host = applyOf(onApply, many ? FlowchartFlowsApplyType : FlowchartFlowApplyType, many ? "Flowchart.Types.Flows" : "Flowchart.Types.Flow") as
-        ExprType<AsyncFunctionType<[typeof StringType, EastType], typeof Editing.Types.ApplyResult>>;
-    const batchType = Editing.Types.ChangeSet(FlowchartFlowType, StringType);
-    const apply = many
-        ? East.asyncFunction([BlobType], Editing.Types.ApplyResult, ($, blob) => {
-            const commit = $.const(host);
-            const batch = $.const(blob.decodeBeast(batchType, "v2"));
-            // Each change is its flow's insert, update or delete, by name: the
-            // batch's own values and patches, carrying what the flow was when
-            // the edit began.
-            const ops = $.let(new Map(), DictType(StringType, dictPatchOpsType(FlowchartFlowType)));
-            $.for(batch.changes, ($, change) => {
-                $.match(change.patch, {
-                    replace: ($, swap) => {
-                        $.match(swap.after, {
-                            some: ($, after) => {
-                                $.match(swap.before, {
-                                    none: ($) => { $(ops.insert(change.id, variant("insert", after))); },
-                                    some: ($, before) => { $(ops.insert(change.id, variant("update", East.diff(before, after)))); },
-                                });
-                            },
-                            none: ($) => {
-                                $.match(swap.before, { some: ($, before) => { $(ops.insert(change.id, variant("delete", before))); } });
-                            },
-                        });
-                    },
-                    patch: ($, entry) => {
-                        $.match(entry, { some: ($, update) => { $(ops.insert(change.id, variant("update", update))); } });
-                    },
-                });
-            });
-            return commit(batch.requestId, variant("patch", ops));
-        })
-        : East.asyncFunction([BlobType], Editing.Types.ApplyResult, ($, blob) => {
-            const commit = $.const(host);
-            const batch = $.const(blob.decodeBeast(batchType, "v2"));
-            // One flow is one entry, changed in place: its change is the flow's own patch.
-            const result = $.let(variant("rejected", [{ entry: "", row: none, field: none,
-                message: "One flow is changed in place: Save never adds or removes it" }]), Editing.Types.ApplyResult);
-            $.for(batch.changes, ($, change) => {
-                $.match(change.patch, {
-                    replace: ($, swap) => {
-                        $.match(swap.before, {
-                            some: ($, before) => {
-                                $.match(swap.after, { some: ($, after) => { $.assign(result, commit(batch.requestId, East.diff(before, after))); } });
-                            },
-                        });
-                    },
-                    patch: ($, entry) => {
-                        $.match(entry, { some: ($, update) => { $.assign(result, commit(batch.requestId, update)); } });
-                    },
-                });
-            });
-            return result;
-        });
-    return { many, source: variant("data", variant(many ? "flows" : "flow", { value, apply: some(apply) })) };
-}
-
-/**
- * Creates the flowchart's payload alone — what `<Flowchart>` returns through
+ * Creates the Flowchart's payload alone — what `<Flowchart>` returns through
  * the `Flowchart` carrier — for the tests and the renderer's fixtures, which
  * read it whole.
  *
- * @param props - The flowchart's props, as `<Flowchart>` takes them
+ * @param props - The Flowchart's props ({@link FlowchartProps})
  * @returns An East expression of {@link FlowchartPayloadType}
- * @throws {Error} Naming the prop and the remedy: flows from both `record` and
- *   `data`, or from neither; `onApply` over a record; `window`, which the
- *   `flows` source of `slice` replaced; a `slice` that is not `{ slice }` —
- *   the bare handle a flow from the host's tables was narrowed by — or not
- *   `Slice.bindRecords`, or holding a source nothing names, or the brush;
- *   `affordances` outside `slice`; a `flows` source over `data`, whose flows
- *   are the host's; a templates list written in the code — naming no source
- *   of the slice — or naming `flows`, and the two templates lists naming one
- *   source; `flow` over one flow; a record of one flow, or of another type
- *   than `Flowchart.Types.Flows`, or not bound with its patch mutation;
- *   `data` of neither flow type; an `onApply` that does not take a request id
- *   and the patch of `data`'s type; a table or row mapper, which
- *   `Flowchart.over` takes; `height` or `maxHeight`, which the box the
- *   flowchart fills sets; a callback for an edit, or `linkMode`, which the
- *   editing session's gestures replace; a hover card's builder (`stateHover`,
- *   `linkHover`, `triggerHover`), which the inspector replaces; `density`,
- *   which the canvas's one rhythm replaces; an `inspector` of another kind
- *   than a Boolean or `{ state, transition }`, a key other than those two, or
- *   a kind's own Details of another type than `(Row, (Row) => Null) =>
- *   UIComponentType`; and each of the library's refusals (`library.ts`'s
- *   `buildLibrary`): a tab listed twice, the Flows tab over one flow, a tab's
- *   source the slice lacks, a data tab's rows of neither an Array nor a
- *   `Dict<String, T>` — a record's for a templates list or a tab that follows
- *   a source — and a `drop` of another type than its tab's
+ * @throws {Error} Naming the prop and the remedy (§3): `record`, `data`, `flow` and `onApply`, which its kinds replace;
+ *   `window`; the tables and row mappers; `height` and `maxHeight`; `density`; a callback for an edit and `linkMode`;
+ *   a hover card's builder; `affordances` outside `slice`; a prop the Flowchart doesn't take; no states; a kind's prop
+ *   holding no kind of its sort; a state's lane with no lanes, and lanes beside states that name none; a transition's
+ *   decision with no decisions; a `slice` that is not `{ slice }`, or not `Slice.bindRecords`, or holding a source
+ *   nothing names, a `lanes` or `decisions` source, or the brush; a cards list naming no source of the slice, or its
+ *   kind's own; a `narrowed` of another form; an `inspector` that is no Boolean; each of `vocabulary`'s refusals
+ *   ({@link flowchartVocabulary}); a `name` that is no string; each of the library's refusals (`library.ts`); and each
+ *   kind's refusals of its binding (`kinds.ts`)
  * @internal
  */
 export function createFlowchartPayload(props: object): ExprType<FlowchartPayloadType> {
-    const { record, window, data, onApply, flow, library, slice, inspector, vocabulary, readOnly, name, ...canvas } = props as FlowchartAnyProps;
-    for (const table of TABLES) {
-        if (table in canvas) {
-            throw new Error(`Flowchart: \`${table}\` is one of the tables, or the row mappers, Flowchart.over builds a flow from — pass data={Flowchart.over(states, { … })}, or bind a record of flows as \`record\``);
+    const given = props as FlowchartAnyProps;
+    for (const [prop, remedy] of Object.entries(REMOVED)) {
+        if (prop in given) throw new Error(`Flowchart: \`${prop}\` is gone — ${remedy}`);
+    }
+    for (const prop of Object.keys(given)) {
+        if (!PROPS.has(prop) && !(prop === "children" && given[prop] === undefined)) {
+            throw new Error(`Flowchart: \`${prop}\` is not a prop of <Flowchart> — it takes ${[...PROPS].join(", ")}`);
         }
     }
-    for (const size of SIZES) {
-        if (size in canvas) {
-            throw new Error(`Flowchart: \`${size}\` is not a prop — the flowchart fills the box it is given; give it a box of its own height: <Box height="560px"><Flowchart … /></Box>`);
-        }
+
+    // The kinds (R1): the states, and beside them the transitions, the lanes and the decisions.
+    const states = kindOf<FlowchartStates>("states", given.states);
+    if (states === undefined) throw new Error(`Flowchart: needs its states — states={${DECLARE.states}}, over the app's record`);
+    const transitions = kindOf<FlowchartTransitions>("transitions", given.transitions);
+    const lanes = kindOf<FlowchartLanes>("lanes", given.lanes);
+    const decisions = kindOf<FlowchartDecisions>("decisions", given.decisions);
+    // A role naming another kind's key needs that kind (R3).
+    if (states.lane && lanes === undefined) {
+        throw new Error("Flowchart: a state's lane names a lane — give lanes={Flowchart.lanes(…)}, or drop lane");
     }
-    if ("density" in canvas) throw new Error(DENSITY);
-    for (const callback of EDIT_CALLBACKS) {
-        if (callback in canvas) {
-            throw new Error(`Flowchart: \`${callback}\` is not a prop — every gesture is a transaction of the flowchart's editing session, and Save commits them as one patch: over \`record\`, through its patch mutation; over \`data\`, through the host's \`onApply\``);
-        }
+    if (lanes !== undefined && !states.lane) {
+        throw new Error("Flowchart: the lanes are columns: give the states their lane — Flowchart.states(record, { label, lane })");
     }
-    for (const [hover, remedy] of Object.entries(HOVERS)) {
-        if (hover in canvas) {
-            throw new Error(`Flowchart: \`${hover}\` is not a prop — the hover cards went, and the inspector, on by default, shows what is selected: ${remedy}`);
-        }
+    if (transitions?.decision === true && decisions === undefined) {
+        throw new Error("Flowchart: a transition's decision names a decision — give decisions={Flowchart.decisions(…)}, or drop decision");
     }
-    // The narrowing's props #1346 retired, each refused by name for an app that still passes it.
-    if (window !== undefined) throw new Error(WINDOW);
-    if ("affordances" in canvas) throw new Error("Flowchart: `affordances` moved into `slice` — slice={{ slice, affordances }}");
-    if (slice !== undefined && (slice instanceof Expr || typeof slice !== "object" || slice === null || !("slice" in slice))) throw new Error(SLICE);
+    const kinds = [
+        { sort: "states" as const, kind: states },
+        ...(transitions === undefined ? [] : [{ sort: "transitions" as const, kind: transitions }]),
+        ...(lanes === undefined ? [] : [{ sort: "lanes" as const, kind: lanes }]),
+        ...(decisions === undefined ? [] : [{ sort: "decisions" as const, kind: decisions }]),
+    ];
+
+    // The narrowing (R4): one Slice.bindRecords, its states and transitions sources each named after its kind.
+    const slice = given.slice;
+    if (slice !== undefined && (slice instanceof Expr || typeof slice !== "object" || slice === null || !("slice" in slice))) {
+        throw new Error("Flowchart: `slice` takes { slice } — slice={{ slice: Slice.bindRecords(key, { … }), affordances?, persist? }}, " +
+            "its sources `states` and `transitions` each named after the kind it narrows");
+    }
     const narrowing = slice as RecordSlicesChromeOptions | undefined;
     if (narrowing?.affordances?.includes("brush") === true) {
         throw new Error("Flowchart: `slice`'s affordances list \"brush\", and a flowchart has no continuous axis to brush along — mount fields, search, presets or summary");
     }
-    if (record !== undefined && data !== undefined) {
-        throw new Error("Flowchart: takes its flows from `record` or from `data`, never both");
+    const sliceNames = sliceSourceNames(narrowing);
+    for (const whole of ["lanes", "decisions"] as const) {
+        if (sliceNames.includes(whole)) throw new Error(`Flowchart: the ${whole} are read whole: drop the ${whole} source`);
     }
-    if (record === undefined && data === undefined) {
-        throw new Error("Flowchart: needs its flows — `record`, an e3 record of Flowchart.Types.Flows bound with its patch mutation, or `data`: flows by name or one flow, as a value, an expression or a bind handle");
-    }
-    if (record !== undefined && onApply !== undefined) {
-        throw new Error("Flowchart: `onApply` commits `data`'s edits — a flowchart over `record` commits through the record's patch mutation; leave `onApply` out");
-    }
-    // Templates are records (#1340, ruling 9): each list names its source of the slice, and a list written in the code
-    // names none — refused before a source no list names is, so the refusal says the change to make. A slice of
-    // another kind is refused below, as such.
-    if (narrowing === undefined || isRecordSlices(narrowing.slice)) checkTemplatesSources(library, sliceSourceNames(narrowing));
-    // The slice's sources: its flows, and each a templates list or a tab names.
-    const named = librarySources(library);
-    const sources = recordSources(narrowing, {
-        builder: "Flowchart", names: ["flows", ...named.filter((source) => source !== "flows")], what: NARROWS,
-        takes: (source) => source === "flows" || named.includes(source),
-    });
-    const pagesFlows = sources.names.includes("flows");
-    if (pagesFlows && record === undefined) {
-        throw new Error("Flowchart: `slice`'s `flows` source pages a record of flows, and these flows are the host's, which nothing narrows — bind the record as record={Record.bind(record), its record declaring patch: mutation.patch()}, or leave `flows` out of the slice");
-    }
-    return Expr.block(($) => {
-        const bound = sources.bind($);
-        const narrowed = East.value(new Map(Object.entries(bound.keys)) as never, NarrowedType) as ExprType<typeof NarrowedType>;
-        const arm = pagesFlows ? pagedArm(record, { part: bound.parts["flows"]!, rows: bound.data["flows"]! })
-            : record !== undefined ? recordArm(record) : dataArm(data, onApply);
-        if (flow !== undefined && !arm.many) {
-            throw new Error("Flowchart: `flow` opens one of many flows first, and this `data` is one flow, Flowchart.Types.Flow — leave `flow` out");
+    // Each kind's cards are a record of their own, their list naming its source of the slice — refused with the change
+    // to make before a source no list names is.
+    const cardSources: string[] = [];
+    if (narrowing === undefined || isRecordSlices(narrowing.slice)) {
+        for (const { sort, kind } of kinds) {
+            if (!kind.hasTemplates) continue;
+            const source = templatesSource("Flowchart", "Flowchart.templates(rows, { …, source })", kind.templatesSource, sliceNames);
+            if (source === "states" || source === "transitions") {
+                throw new Error(`Flowchart: the ${sort}' cards name the source '${source}', which narrows the ${source} — ` +
+                    "a kind's cards are a record of their own, and their own source of the slice");
+            }
+            cardSources.push(source);
         }
+    }
+    const tabSources = flowchartTabSources(given.library);
+    const names = [...new Set(["states", ...(transitions === undefined ? [] : ["transitions"]), ...cardSources, ...tabSources])];
+    const sources = recordSources(narrowing, {
+        builder: "Flowchart", names, what: "its states and its transitions, each by the source named after it, and the cards lists and tabs that name a source",
+    });
+    const library = buildFlowchartLibrary(given.library, {
+        kinds: kinds.map(({ sort, kind }): FlowchartLibraryKind => ({ sort, rowType: kind.rowType, templates: kind.hasTemplates })),
+        sources: sources.names,
+    });
+    const inspector = inspectorOf(given.inspector);
+    const vocabulary = flowchartVocabulary(given.vocabulary);
+    const narrowed = narrowedOf(given.narrowed);
+    const name = given.name;
+    if (name !== undefined && (typeof name !== "string" || name === "")) {
+        throw new Error("Flowchart: `name` keeps the Flowchart's state apart — a string, needed only when one surface holds two");
+    }
+    const canvas = buildCanvas(Object.fromEntries(CANVAS.filter((prop) => given[prop] !== undefined).map((prop) => [prop, given[prop]])) as FlowchartCanvasOptions);
+
+    return Expr.block(($) => {
+        // Each source bound once: a kind reads its own source inside its functions.
+        const bound = sources.bind($);
+        const shown = East.value(new Map(Object.entries(bound.keys)) as never, ShownType) as ExprType<typeof ShownType>;
+        // Dimmed, a kind read through its source reads every row: the renderer draws what the narrowing leaves out as context.
         return East.value({
-            canvas: buildCanvas(canvas as FlowchartCanvasOptions),
-            source: arm.source,
-            open: flow === undefined ? none : some(flow),
-            library: buildLibrary(library, arm.many, sources.names),
+            canvas,
+            states: states.build(bound.parts["states"], narrowed.dim),
+            transitions: transitions === undefined ? none : some(transitions.build(bound.parts["transitions"], narrowed.dim)),
+            lanes: lanes === undefined ? none : some(lanes.build(undefined, false)),
+            decisions: decisions === undefined ? none : some(decisions.build(undefined, false)),
+            library,
             slice: sources.chrome,
-            narrowed,
-            inspector: inspectorOf(inspector),
-            vocabulary: flowchartVocabulary(vocabulary),
-            readOnly: readOnly ?? false,
+            shown,
+            narrowed: narrowed.wire,
+            inspector,
+            vocabulary,
+            readOnly: given.readOnly ?? false,
             name: name === undefined ? none : some(name),
         } as never, FlowchartPayloadType);
     });

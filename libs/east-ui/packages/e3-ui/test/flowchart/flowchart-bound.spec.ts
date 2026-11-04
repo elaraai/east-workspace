@@ -3,16 +3,16 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-// Every Flowchart example reads its flows from e3 (#1251, `Flowchart Builder
-// Spec.md` §2a): a record of flows, an input of one flow, or the host's
-// tables, each an input — declared beside it in its module. That is what lets
-// the showcase run it on e3-web, whose package carries every definition an
-// example module exports; an inline collection as the flowchart's data runs
+// Every Flowchart example reads its records from e3 (`Flowchart Records
+// Spec.md` R1): its states, transitions, lanes and decisions, and the records
+// of its cards — each declared beside it in its module. That is what lets the
+// showcase draw it on e3-web, whose package carries every definition an
+// example module exports; an inline collection as the flowchart's data draws
 // nowhere but the page it is written in.
 
 import { describe, test as hostTest } from "node:test";
 import assert from "node:assert/strict";
-import { pathToString } from "@elaraai/e3-types";
+import { pathToString, type TreePath } from "@elaraai/e3-types";
 import { deriveManifest } from "@elaraai/e3-ui";
 import * as ex from "./flowchart.examples.js";
 
@@ -21,9 +21,12 @@ const EXAMPLES = Object.entries(ex).flatMap(([name, value]) =>
     "keywords" in value && "fn" in value ? [{ name, fn: value.fn }] : []);
 
 /** The path of every dataset the module's e3 definitions provide — an input's
- *  or a record's own — as e3 prints it (`.inputs.flowchart_depot_scans`). */
+ *  or a record's own — as e3 prints it (`.records.flowchart_depot_states`). */
 const PROVIDED = new Set(Object.values(ex).flatMap((value) =>
     "kind" in value && value.kind === "dataset" ? [pathToString(value.path)] : []));
+
+/** A dataset's path, as e3 prints it. */
+const printed = (dataset: { path: TreePath }): string => pathToString(dataset.path);
 
 describe("Flowchart examples read e3", () => {
     hostTest("every example reads a dataset or a record of e3", () => {
@@ -43,8 +46,18 @@ describe("Flowchart examples read e3", () => {
         assert.deepEqual(undeclared, []);
     });
 
-    hostTest("the host's tables are the flowchart's: the depot's flow reads its states, its scans and its decisions, each an input", () => {
-        const { paths } = deriveManifest(ex.flowchartDepot.fn as never);
-        assert.deepEqual(new Set(paths.map(pathToString)), new Set([ex.depotStates, ex.scanTransitions, ex.depotDecisions].map((input) => pathToString(input.path))));
+    hostTest("the depot binds its four records for editing; it reads its states and its transitions a page at a time, never whole, and its lanes, its decisions and its cards whole", () => {
+        const { paths, pages, records } = deriveManifest(ex.flowchartDepot.fn as never);
+        assert.deepEqual(new Set(records), new Set([ex.depotStates, ex.depotTransitions, ex.depotLanes, ex.depotDecisions].map((record) => record.name)));
+        assert.deepEqual(new Set(pages.map(pathToString)), new Set([ex.depotStates, ex.depotTransitions, ex.stepCards, ex.moveCards, ex.laneCards].map(printed)));
+        assert.deepEqual(new Set(paths.map(pathToString)),
+            new Set([ex.depotLanes, ex.depotDecisions, ex.stepCards, ex.moveCards, ex.laneCards, ex.decisionOwners].map(printed)));
+    });
+
+    hostTest("the dimmed depot reads its states and its transitions through their sources alone, read only, and its lanes whole", () => {
+        const { paths, pages, records } = deriveManifest(ex.flowchartDepotDimmed.fn as never);
+        assert.deepEqual(records, []);
+        assert.deepEqual(new Set(pages.map(pathToString)), new Set([ex.depotStates, ex.depotTransitions].map(printed)));
+        assert.deepEqual(paths.map(pathToString), [printed(ex.depotLanes)]);
     });
 });

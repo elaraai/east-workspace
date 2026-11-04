@@ -4,26 +4,24 @@
  */
 
 /**
- * The Flowchart (#1243–#1250): the state-transition flowchart, e3-ui's as the
- * Plan (#1177) and the Sheet (#1179) are. `<Flowchart>` takes its flows from
- * an e3 record of flows by name, or from the host — flows by name, or one
- * flow — and returns its payload through the `Flowchart` carrier, which
- * e3-ui-components' renderer draws in its builder frame and edits through its
- * editing session.
+ * The Flowchart (#1498): the state-transition flowchart over the app's own
+ * records, e3-ui's as the Plan, the Sheet and the Schematic are.
+ * `<Flowchart>` declares its kinds over the app's records — its states, and
+ * beside them its transitions, lanes and decisions, each record's fields
+ * mapped to the Flowchart's roles — and returns its payload through the
+ * `Flowchart` carrier, which e3-ui-components' renderer draws in its builder
+ * frame and edits through its editing session.
  *
- * - `types.ts` — the flow, the record of flows, and the row and closed-set
- *   types (`Flowchart.Types.*`).
- * - `values.ts` — `Flowchart.value` and `Flowchart.values`, a record's value
- *   written as literals and checked when the package builds.
- * - `over.ts` — `Flowchart.over`, one flow from an app's own tables.
- * - `patch.ts` — `Flowchart.patch`, a patch over one of a flow's rows.
- * - `library.ts` — `Flowchart.library`, the library pane's tabs — the Flows
- *   tab, the state and transition templates and the author's tabs, each
- *   reading its own rows and following the source of the slice it names —
- *   and their wire.
- * - `canvas.ts` — the canvas: what the flowchart draws its flow with.
- * - `window.ts` — the `flows` source of its slice: the Flows tab's pages, a
- *   flow read by its name, and the tab's own search (#1346).
+ * - `types.ts` — the value types its accessors return and its canvas
+ *   carries, and the kinds' wire (`Flowchart.Types.*`).
+ * - `kinds.ts` — `Flowchart.states`, `transitions`, `lanes` and
+ *   `decisions`: each role's check, the binding a kind's read takes, and the
+ *   closed functions over beast2 bytes.
+ * - `templates.ts` — `Flowchart.templates`, a kind's cards read from a
+ *   record.
+ * - `library.ts` — `Flowchart.library`, the library pane's tabs, and their
+ *   wire.
+ * - `canvas.ts` — the canvas: what the Flowchart draws with besides its kinds.
  * - `payload.ts` — the payload, its carrier, the shared keys, the props and
  *   their refusals.
  * - `flowchart.ts` — the tag.
@@ -31,44 +29,19 @@
  * @packageDocumentation
  */
 
-import { FlowchartTag, type FlowchartTagType } from "./flowchart.js";
+import { SchedulePatchTypeFor, schedulePatch } from "../schedule/patch.js";
 import { FlowchartCanvasType } from "./canvas.js";
+import { FlowchartTag, type FlowchartTagType } from "./flowchart.js";
+import { flowchartDecisions, flowchartLanes, flowchartStates, flowchartTransitions } from "./kinds.js";
+import { FlowchartKindTabWireType, FlowchartLibraryFactories, FlowchartLibraryTabType, type FlowchartLibrary } from "./library.js";
+import { FlowchartComponent, FlowchartPayloadType, createFlowchartPayload } from "./payload.js";
+import { flowchartTemplates } from "./templates.js";
 import {
-    FlowchartCardType,
-    FlowchartDecisionCardType,
-    FlowchartLandsType,
-    FlowchartLaneCardType,
-    FlowchartLibraryFactories,
-    FlowchartLibraryTabType,
-    FlowchartStateCardType,
-    FlowchartTransitionCardType,
-    type FlowchartLibrary,
-} from "./library.js";
-import { flowchartOver } from "./over.js";
-import { FlowchartPatchTypeFor, flowchartPatch } from "./patch.js";
-import {
-    FlowchartComponent,
-    FlowchartDataType,
-    FlowchartFlowsHandleType,
-    FlowchartInspectorType,
-    FlowchartPayloadType,
-    FlowchartSessionApplyType,
-    FlowchartSourceType,
-    createFlowchartPayload,
-} from "./payload.js";
-import {
-    FlowchartEvidenceType,
-    FlowchartFlowType,
-    FlowchartFlowsType,
-    FlowchartFreshnessType,
-    FlowchartLaneType,
-    FlowchartLinkKindType,
-    FlowchartLinkType,
-    FlowchartOrientationType,
-    FlowchartStateType,
-    FlowchartTriggerType,
+    FlowchartDecisionEntryType, FlowchartDecisionKindType, FlowchartDecisionRolesType, FlowchartEvidenceType, FlowchartFreshnessType,
+    FlowchartLaneEntryType, FlowchartLaneKindType, FlowchartLaneRolesType, FlowchartLaneWriteType, FlowchartLinkKindType, FlowchartNarrowedType,
+    FlowchartOrientationType, FlowchartStateEntryType, FlowchartStateKindType, FlowchartStateRolesType, FlowchartStateWriteType, FlowchartTemplateType,
+    FlowchartTransitionEntryType, FlowchartTransitionKindType, FlowchartTransitionRolesType, FlowchartTransitionWriteType,
 } from "./types.js";
-import { flowchartValue, flowchartValues } from "./values.js";
 
 export { FlowchartTag, type FlowchartTagType } from "./flowchart.js";
 export {
@@ -79,331 +52,276 @@ export {
     type FlowchartOrientationLiteral,
 } from "./canvas.js";
 export {
-    flowchartOver,
-    type RowElement,
-    type FlowchartTables,
-    type FlowchartStateFields,
-    type FlowchartLinkFields,
-    type FlowchartLaneFields,
-    type FlowchartTriggerFields,
-    type FlowchartEvidenceFields,
-    type FlowchartLaneLiteral,
-} from "./over.js";
-export { FlowchartPatchTypeFor, flowchartPatch, type FlowchartRowType, type FlowchartPatchOf, type FlowchartPatchInput } from "./patch.js";
+    FLOWCHART_DEF,
+    flowchartDecisions,
+    flowchartLanes,
+    flowchartStates,
+    flowchartTransitions,
+    isFlowchartKind,
+    type FlowchartBinding,
+    type FlowchartDecisions,
+    type FlowchartDecisionsSpec,
+    type FlowchartKeyField,
+    type FlowchartKeysField,
+    type FlowchartKindDeclaration,
+    type FlowchartKindSort,
+    type FlowchartLanes,
+    type FlowchartLanesSpec,
+    type FlowchartOrderField,
+    type FlowchartStates,
+    type FlowchartStatesSpec,
+    type FlowchartTextField,
+    type FlowchartTransitions,
+    type FlowchartTransitionsSpec,
+    type FlowchartValuesOf,
+    type FlowchartWholeBinding,
+} from "./kinds.js";
 export {
-    FlowchartCardType,
-    FlowchartDecisionCardType,
-    FlowchartLandsType,
-    FlowchartLaneCardType,
+    FLOWCHART_TEMPLATES,
+    checkedFlowchartTemplates,
+    flowchartTemplates,
+    isFlowchartTemplates,
+    type FlowchartTemplates,
+    type FlowchartTemplatesSpec,
+} from "./templates.js";
+export {
+    FlowchartKindTabWireType,
+    FlowchartLibraryCardType,
     FlowchartLibraryFactories,
     FlowchartLibraryTabType,
-    FlowchartStateCardType,
-    FlowchartTransitionCardType,
-    buildLibrary as buildFlowchartLibrary,
-    libraryFlows,
+    buildFlowchartLibrary,
+    flowchartTabSources,
+    libraryLanes,
     libraryStates,
     libraryTab,
     libraryTransitions,
     type FlowchartAuthorTab,
-    type FlowchartCardAccessors,
-    type FlowchartFlowsTab,
+    type FlowchartCardKind,
+    type FlowchartKindTab,
+    type FlowchartKindTabOptions,
     type FlowchartLibrary,
+    type FlowchartLibraryContext,
+    type FlowchartLibraryKind,
     type FlowchartLibraryRows,
     type FlowchartLibraryTab,
-    type FlowchartOneFlowLibraryTab,
-    type FlowchartStatesConfig,
-    type FlowchartStatesTab,
     type FlowchartTabConfig,
-    type FlowchartTemplateRows,
-    type FlowchartTransitionsConfig,
-    type FlowchartTransitionsTab,
 } from "./library.js";
 export {
     FlowchartComponent,
-    FlowchartDataType,
-    FlowchartFlowApplyType,
-    FlowchartFlowsApplyType,
-    FlowchartFlowsHandleType,
-    FlowchartHistoryType,
-    FlowchartInspectorType,
     FlowchartPayloadType,
-    FlowchartSessionApplyType,
-    FlowchartSourceType,
     createFlowchartPayload,
     flowchartKeys,
-    type FlowchartBindHandle,
-    type FlowchartCommon,
-    type FlowchartInspectorOptions,
-    type FlowchartRecordHandle,
-    type FlowchartRowInspector,
+    type FlowchartProps,
 } from "./payload.js";
-export {
-    flowchartValue,
-    flowchartValues,
-    type FlowchartFlowInput,
-    type FlowchartLaneInput,
-    type FlowchartStateInput,
-    type FlowchartLinkInput,
-    type FlowchartEvidenceInput,
-    type FlowchartTriggerInput,
-    type FlowchartLinkKindLiteral,
-} from "./values.js";
 
-/** The East types a flowchart is written with — `Flowchart.Types`. */
+/** The East types a Flowchart is written with — `Flowchart.Types`. */
 export interface FlowchartTypes {
-    /** One flow: its lanes, states, transitions and decisions, and a sentence about it ({@link FlowchartFlowType}). */
-    Flow: typeof FlowchartFlowType;
-    /** A record of flows, by name ({@link FlowchartFlowsType}). */
-    Flows: typeof FlowchartFlowsType;
-    /** One state node ({@link FlowchartStateType}). */
-    State: typeof FlowchartStateType;
-    /** One transition ({@link FlowchartLinkType}). */
-    Link: typeof FlowchartLinkType;
-    /** One ordered phase band ({@link FlowchartLaneType}). */
-    Lane: typeof FlowchartLaneType;
-    /** One decision trigger ({@link FlowchartTriggerType}). */
-    Trigger: typeof FlowchartTriggerType;
-    /** Imported link evidence ({@link FlowchartEvidenceType}). */
+    /** A transition's evidence: its volume, its count, when it was measured and its unit ({@link FlowchartEvidenceType}). */
     Evidence: typeof FlowchartEvidenceType;
-    /** Link kind — planned | observed ({@link FlowchartLinkKindType}). */
+    /** A transition's kind — planned | observed ({@link FlowchartLinkKindType}). */
     Kind: typeof FlowchartLinkKindType;
-    /** Canvas orientation — LR | TD ({@link FlowchartOrientationType}). */
+    /** The canvas's orientation — LR | TD ({@link FlowchartOrientationType}). */
     Orientation: typeof FlowchartOrientationType;
     /** The toolbar's freshness chip ({@link FlowchartFreshnessType}). */
     Freshness: typeof FlowchartFreshnessType;
-    /** `Patch(R)` — a patch over one of a flow's rows, every field an `Option` ({@link FlowchartPatchTypeFor}). */
-    Patch: typeof FlowchartPatchTypeFor;
+    /** `Patch(R)` — a patch over a kind's row type, every field an `Option` ({@link SchedulePatchTypeFor}). */
+    Patch: typeof SchedulePatchTypeFor;
 }
 
-/** The East types a flowchart is written with. */
+/** The East types a Flowchart is written with. */
 const TYPES: FlowchartTypes = {
-    Flow: FlowchartFlowType,
-    Flows: FlowchartFlowsType,
-    State: FlowchartStateType,
-    Link: FlowchartLinkType,
-    Lane: FlowchartLaneType,
-    Trigger: FlowchartTriggerType,
     Evidence: FlowchartEvidenceType,
     Kind: FlowchartLinkKindType,
     Orientation: FlowchartOrientationType,
     Freshness: FlowchartFreshnessType,
-    Patch: FlowchartPatchTypeFor,
+    Patch: SchedulePatchTypeFor,
 };
 
 /**
- * The type of the {@link Flowchart} namespace: `<Flowchart>`, the values and
- * patches a flowchart is written with, and its East types.
+ * The type of the {@link Flowchart} namespace: `<Flowchart>`, its kinds, its
+ * cards, its patches, its library's tabs and its East types.
  */
 export interface FlowchartNamespace extends FlowchartTagType {
-    /** One flow's value — written as a literal and checked when the package builds ({@link flowchartValue}). */
-    value: typeof flowchartValue;
-    /** A record of flows' value, by name — each flow written as a literal and checked when the package builds ({@link flowchartValues}). */
-    values: typeof flowchartValues;
-    /** One flow built from an app's own tables, through their row mappers ({@link flowchartOver}). */
-    over: typeof flowchartOver;
-    /** A patch over one of a flow's rows ({@link flowchartPatch}). */
-    patch: typeof flowchartPatch;
+    /** The states, over the app's record ({@link flowchartStates}). */
+    states: typeof flowchartStates;
+    /** The transitions between them, over the app's record ({@link flowchartTransitions}). */
+    transitions: typeof flowchartTransitions;
+    /** The lanes, the canvas's columns, over a small record of the app's ({@link flowchartLanes}). */
+    lanes: typeof flowchartLanes;
+    /** The decisions, over a small record of the app's ({@link flowchartDecisions}). */
+    decisions: typeof flowchartDecisions;
+    /** A kind's cards, read from a record ({@link flowchartTemplates}). */
+    templates: typeof flowchartTemplates;
+    /** A patch over a kind's row type: what an author's card dropped on a row sets ({@link schedulePatch}). */
+    patch: typeof schedulePatch;
     /** The library pane's tabs, each a factory `library` lists ({@link FlowchartLibrary}). */
     library: FlowchartLibrary;
-    /** The East types a flowchart is written with ({@link FlowchartTypes}). */
+    /** The East types a Flowchart is written with ({@link FlowchartTypes}). */
     Types: FlowchartTypes;
 }
 
 /** The namespace's members — everything `Flowchart` carries beside the tag itself. */
 const MEMBERS = {
-    value: flowchartValue,
-    values: flowchartValues,
-    over: flowchartOver,
-    patch: flowchartPatch,
+    states: flowchartStates,
+    transitions: flowchartTransitions,
+    lanes: flowchartLanes,
+    decisions: flowchartDecisions,
+    templates: flowchartTemplates,
+    patch: schedulePatch,
     library: FlowchartLibraryFactories,
     Types: TYPES,
 };
 
 /**
- * `<Flowchart>` — the state-transition flowchart: states as nodes in ordered
- * phase lanes (the layout derived, no coordinates), H/V-routed transitions,
- * decision triggers (lettered diamonds) and evidence-weighted strokes. The
- * selection — a state, a transition, a decision, a lane by its header, or
- * several states — and the pointer-highlight grammar are built in, and the
- * inspector shows what is selected.
+ * `<Flowchart>` — one state-transition flowchart over the app's own records:
+ * its states as cards in ordered lanes (the layout derived, no coordinates),
+ * H/V-routed transitions between them, the decisions that govern them as
+ * lettered diamonds, and evidence-weighted strokes. The selection — a state,
+ * a transition, a decision, a lane by its header, or several states — and the
+ * pointer-highlight grammar are built in, and the inspector shows what is
+ * selected.
  *
  * @remarks
- * - **Its frame**: it renders in its builder frame wherever it is used — one
- *   toolbar (find state, LR · TD, the freshness chip, the slice's rail and,
- *   where it edits, the history item), the canvas filling main and scrolling
- *   both ways inside it, and the footer's counts; a library pane when
- *   `library` lists tabs, and the inspector pane unless `inspector={false}`.
- *   It fills the box it is given and draws no border: give it a box of its
- *   own height.
- * - **Its inspector** (#1250, on by default, ruled by the user on
- *   2026-10-08): the end pane, Details and Issues — Issues with its count, and
- *   collapsed a rail with its icon and the issue count. Details shows what is
- *   selected through its form, every field by the shared input its type
- *   takes: a state (its key — a new one rekeying its transitions and the
- *   decisions' queues — label, lane, members and notes; its transitions in and
- *   out, each selecting it; Duplicate, Delete), a transition (its ends, its
- *   kind, its decision and its key; its evidence read only; Delete), a
- *   decision (its fields, its queue as tags over the flow's states; the
- *   transitions it governs; Delete), a lane — a click on its header selects
- *   it — (its key, which moves its states, and its label; its states' count;
- *   Delete while it holds none), several states (their count; moved to a
- *   lane, or deleted, together) or, with nothing selected, the open flow (its
- *   name and description — a new name renames it — Duplicate and Delete over
- *   many flows; its counts, its last save and who made it, and three hints).
- *   Each edit is one transaction, a field the drafts changed tinted against
- *   the record; read only, Details shows every field and edits none. Issues
- *   lists a transition naming a missing state, a state naming a missing lane,
- *   two of one key — which holds Save off — a decision's queue naming a
- *   missing state, and a Save's conflict or refusal, a click selecting what
- *   each names. `inspector={{ state, transition }}` gives a kind its own
- *   Details in place of its form: an East function over the row and its
- *   writer, `update` writing the edited row back as one transaction. The
- *   hover cards went: the inspector is where details live.
- * - **Its open flow**, over many flows: `flow`, else the first by name, until
- *   the viewer opens another — from the Flows tab
- *   (`Flowchart.library.flows()`), which lists every flow by name — kept in
- *   the UI store under its `name`, so a remount opens it again; a `flow` it
- *   doesn't hold is named in a banner above main. LR · TD is the viewer's
- *   too, kept under its `name`. Where it edits, "+ New flow" names a new
- *   flow, opened empty with one lane; each flow keeps its own drafts until
- *   the history item saves or discards them.
- * - **Its library** (#1248): the tabs `library` lists, in its order, each with
- *   its count and a search — the Flows tab; state templates
- *   (`Flowchart.library.states(rows, …)`) and transition templates
- *   (`Flowchart.library.transitions(rows, …)`), each card a drag source; and
- *   the author's own cards (`Flowchart.library.tab(rows, …)`), a drag source
- *   when the tab declares a `drop`. Each data tab reads its own rows apart
- *   from the flows and from the other tabs. Templates are records (#1340,
- *   ruling 9): each list's rows are its record's (`Data.bind(record).read()`,
- *   a `Dict<String, T>`), and it names its `source` of the slice. An author's
- *   tab reads an Array or a `Dict<String, T>`, and naming a `source` follows
- *   it. A click selects a card, and a click on the selected card lets it go;
- *   an empty tab says so in the shared empty state, and one the rail leaves
- *   none says so, with a Clear.
- * - **Its drops** (#1249): a card carried onto the canvas lands where its tab
- *   says — a state template on a lane, adding a state at the row under the
- *   pointer, its key the drop's, made unique or minted; a transition template
- *   on a transition, retyping it; an author's card on what its drop's type
- *   names — the ghost saying where, or, red, why not. ⏎ on a card drops it on
- *   the canvas's selection, and on a touch screen so does a tap on the
- *   selected card. Each drop is one transaction of the open flow's session.
- * - **Its edits** are its editing session's (#1247): over a record, and over
- *   `data` given `onApply`, every gesture — "+ LANE", a lane's header
- *   double-clicked into its rename (a click selects the lane, #1250) or its ×
- *   (off while the lane holds states), the "+ STATE" ghost, a state
- *   double-clicked into its editor (a new key rekeys its transitions and the
- *   decisions' queues) or dragged across lanes, a handle dragged to another
- *   state, Del on the selected state, states, transition, decision or empty
- *   lane, and every edit the inspector makes — is one transaction the history
- *   item undoes and redoes (⌘Z, ⇧⌘Z or ⌘Y anywhere in the frame but a field
- *   being typed into), and Save sends the open flow's drafts as one commit:
- *   through the record's patch mutation, or as one patch of `data`'s value to
- *   the host's `onApply`, handed the session's request id with it — the same
- *   id on a Retry, so a host that keys its write by it writes once (#1275).
- *   Two lanes, states, transitions or decisions of one
- *   key hold Save off. The footer counts the changes waiting on Save.
- * - **Its flows** are an e3 record's (`record`): `Flowchart.Types.Flows`,
- *   flows by name, bound with its patch mutation, the canvas showing `flow`,
- *   else the first by name. A record always holds flows by name (ruled
- *   2026-10-07: e3's patch mutation writes only keyed records), so a lone flow
- *   is a record of one entry. Or they are the host's (`data`): flows by name
- *   or one flow — a value, an expression or a bind handle — the value's type
- *   picking the arm, one prop taking either; `Flowchart.over` builds one flow
- *   from the host's own tables through their row mappers. The host's flows
- *   are never narrowed: a task narrows the rows it builds them from.
- * - **Its narrowing** (#1346) is one `Slice.bindRecords`, `slice={{ slice:
- *   Slice.bindRecords(key, { flows, … }) }}`, its rail on the toolbar. Over a
- *   record, its `flows` source — `Data.bindPaged(record, { indexes })` over
- *   the same record, its `fields` the indexes' — narrows the Flows tab, which
- *   pages it a window at a time with its count, the tab's own search finding
- *   within the narrowing by the source's `search` fields; the open flow is
- *   read by its name whatever the narrowing, and keeps its drafts. Each other
- *   source narrows the templates list or the author's tab that names it, by
- *   its cards' keys.
- * - **A dataset's value** is written as literals with `Flowchart.values`
- *   (flows by name) or `Flowchart.value` (one flow), checked when the package
- *   builds.
+ * - **Its kinds** are the app's records (R1): `states`, and beside them
+ *   `transitions`, `lanes` and `decisions` — `Flowchart.states(record, { … })`
+ *   and the rest — whose roles are the record's fields where a gesture
+ *   writes them or they name another row's key (a state's `label`, `lane`
+ *   and `order`; a transition's `from`, `to` and `decision`; a lane's `label`
+ *   and `order`; a decision's `queue`), and accessors over a row and its key
+ *   for the rest (R2). A role naming a field the row lacks, or one of another
+ *   type, is a type error naming the fields that fit. No record of the app's
+ *   holds a type of the Flowchart's.
+ * - **How a kind is bound follows how it is read** (R3): a state or a
+ *   transition `Record.bind(record)`, its record declaring `patch:
+ *   mutation.patch()`, to edit it — read whole, or through its source of the
+ *   slice with `entries: Data.bindPaged(record)` beside it — `Data.bind`,
+ *   read only and whole, or `Data.bindPaged` alone, read only, through its
+ *   source; a lane or a decision `Record.bind` or `Data.bind`, read whole.
+ * - **Its narrowing** (R4) is one `Slice.bindRecords`, `slice={{ slice:
+ *   Slice.bindRecords(key, { … }) }}`, its rail on the toolbar: its sources
+ *   named `states` and `transitions` — each `Data.bindPaged(record, { indexes
+ *   })` over that kind's own record — narrow that kind, and each other source
+ *   the cards list or the author's tab that names it. A preset may narrow
+ *   both at once: a record holding many flows shows one through a preset over
+ *   the field both share. `narrowed="dim"` draws what the narrowing leaves
+ *   out as context.
+ * - **Its edits** are its editing session's: every gesture — "+ LANE", a
+ *   lane's rename, the "+ STATE" ghost, a state's rename or move across lanes
+ *   or between two cards, a handle dragged to another state, Del, a card
+ *   dropped from the library, and every edit the inspector makes — writes
+ *   only its roles' fields, one transaction the history item undoes and
+ *   redoes, and Save writes each record through its own patch door.
+ * - **Its library** (R14): the Steps, Transitions and Lanes tabs
+ *   (`Flowchart.library.states()`, `.transitions()`, `.lanes()`) list each
+ *   kind's cards — `Flowchart.templates(rows, { name, values, source })` on
+ *   the kind — and `Flowchart.library.tab(rows, { … })` the app's own, its
+ *   `drop` a `Flowchart.patch(R, { … })` over one kind's row type.
+ * - **Its inspector** is on unless `inspector={false}`: Details shows what is
+ *   selected through its kind's form, or its kind's own `inspector`, and
+ *   Issues what holds Save off.
  * - **The host hears** the selection (`onSelectState`, `onSelectLink`,
  *   `onSelectTrigger`) and a traced path (`onTracePath`), and vetoes a
  *   connection with `canConnect`.
- * - **Refused when the surface is built**, each naming the prop and the
- *   remedy: flows from both `record` and `data`, or neither; `onApply` over a
- *   record; `window`, which the slice's `flows` source replaced; a `slice`
- *   that is not `{ slice }` — the bare handle a flow from the host's tables
- *   was narrowed by — or not `Slice.bindRecords` (`Slice.bind`,
- *   `Slice.bindRecord`), or holding a source nothing names; a `flows` source
- *   over `data`; `affordances` outside `slice`; a templates list written in
- *   the code, naming no source, or naming `flows`, and the two lists naming
- *   one source; `flow` over one flow; a record of one flow, or of another
- *   type, or not bound with its patch mutation; `"brush"` among the
- *   affordances; `height` or `maxHeight`, which the box it fills sets; `density`, which nothing drew by — the canvas draws at one
- *   rhythm, the spec's 116×40 cards in their lanes (#1251); a callback for an
- *   edit (`onAddState`, `onCreateLink`, …)
- *   or `linkMode`, which the session's gestures replace; a hover card's
- *   builder (`stateHover`, `linkHover`, `triggerHover`), which the inspector
- *   replaces; an `inspector` of another kind than a Boolean or `{ state,
- *   transition }`, a key other than those two, or a kind's own Details of
- *   another type than `(Row, (Row) => Null) => UIComponentType`; a library
- *   that lists a tab twice — the Flows tab or a template tab, or two of the
- *   author's tabs of one name — or the Flows tab over one flow; a data tab
- *   whose rows are neither an Array nor a `Dict<String, T>`, or a templates
- *   list's or a sourced tab's that are no `Dict<String, T>`; a tab's source
- *   the slice lacks; a `states` drop
- *   over another type than a state's patch, a `transitions` drop over another
- *   than a transition's, and a `tab` drop over none of a flow's row types.
- *
- * The closed-set fields in data (`kind`, `orientation`) are typed variant
- * values, `Flowchart.Types.*`.
+ * - It fills the box it is given and draws no border: give it a box of its
+ *   own height.
  *
  * @example
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
- * import { East } from "@elaraai/east";
+ * import { DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, none, some, variant } from "@elaraai/east";
  * import { Box, Reactive, UIComponentType } from "@elaraai/east-ui";
- * import { Flowchart, Record } from "@elaraai/e3-ui";
+ * import { Data, Flowchart } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
- * export const depotFlows = e3.record("flowchart_depot_flows", Flowchart.Types.Flows, {
- *     initial: Flowchart.values({
- *         "Inbound parcels": {
- *             description: "From the trailer to the van",
- *             lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "load", label: "Load" }],
- *             states: [
- *                 { key: "ARV", label: "Arrived", lane: "intake" },
- *                 { key: "SCN", label: "Scanned", lane: "intake" },
- *                 { key: "CH*", label: "Sort chutes", lane: "sort", members: 12n },
- *                 { key: "LDD", label: "Loaded", lane: "load" },
- *             ],
- *             links: [
- *                 { from: "ARV", to: "SCN" },
- *                 { from: "SCN", to: "CH*", trigger: "route" },
- *                 { from: "CH*", to: "LDD" },
- *                 { from: "SCN", to: "SCN", kind: "observed" },
- *             ],
- *             triggers: [{ key: "route", label: "route", owner: "sort-planner" }],
- *         },
- *         "Returns": {
- *             description: "From the counter back to the sender",
- *             lanes: [{ key: "counter", label: "Counter" }, { key: "check", label: "Check" }, { key: "out", label: "Out" }],
- *             states: [
- *                 { key: "RCV", label: "Received", lane: "counter" },
- *                 { key: "INS", label: "Inspected", lane: "check" },
- *                 { key: "RSD", label: "Resent", lane: "out" },
- *             ],
- *             links: [{ from: "RCV", to: "INS" }, { from: "INS", to: "RSD" }, { from: "INS", to: "BIN", kind: "observed" }],
- *         },
- *     }),
- *     mutations: (mutation) => ({
- *         patch: mutation.patch(),
+ * // The depot's states, transitions and lanes: three records of the app's, keyed by String, each row its own type.
+ * export const DepotState = StructType({
+ *     name: StringType,                         // what its card calls it
+ *     phase: StringType,                        // the lane it stands in, by the lane's key
+ *     seq: FloatType,                           // its place in its lane
+ *     slots: OptionType(IntegerType),           // a class of interchangeable states: the ×N badge
+ *     flow: StringType,                         // the flow it belongs to: one record holds the depot's flows
+ * });
+ * export const DepotTransition = StructType({
+ *     src: StringType,                          // the state it leaves, by its key
+ *     dst: StringType,                          // the state it enters
+ *     kind: VariantType({ planned: NullType, observed: NullType }),
+ *     trigger: OptionType(StringType),          // the decision that governs it, by its key
+ *     volume: OptionType(FloatType),            // the parcels measured on it
+ *     n: OptionType(IntegerType),               // the moves behind them
+ *     at: OptionType(DateTimeType),             // when they were measured
+ *     flow: StringType,
+ * });
+ * export const DepotLane = StructType({ label: StringType, seq: FloatType });
+ * export const depotStates = e3.record("flowchart_depot_states", DictType(StringType, DepotState), {
+ *     initial: new Map([
+ *         ["ARV", { name: "Arrived", phase: "intake", seq: 1, slots: none, flow: "Parcels" }],
+ *         ["SCN", { name: "Scanned", phase: "intake", seq: 2, slots: none, flow: "Parcels" }],
+ *         ["IND", { name: "Inducted", phase: "induct", seq: 1, slots: none, flow: "Parcels" }],
+ *         ["LBL", { name: "Relabelled", phase: "induct", seq: 2, slots: none, flow: "Parcels" }],
+ *         ["CH*", { name: "Sort chutes (class)", phase: "sort", seq: 1, slots: some(14n), flow: "Parcels" }],
+ *         ["SRD", { name: "Sorted", phase: "sort", seq: 2, slots: none, flow: "Parcels" }],
+ *         ["HLD", { name: "Held", phase: "hold", seq: 1, slots: none, flow: "Parcels" }],
+ *         ["CLR", { name: "Cleared", phase: "hold", seq: 2, slots: none, flow: "Parcels" }],
+ *         ["LDD", { name: "Loaded", phase: "dispatch", seq: 1, slots: none, flow: "Parcels" }],
+ *         ["DSP", { name: "Dispatched", phase: "dispatch", seq: 2, slots: none, flow: "Parcels" }],
+ *         // The returns flow's states, beside the parcels'.
+ *         ["RCV", { name: "Received", phase: "intake", seq: 3, slots: none, flow: "Returns" }],
+ *         ["INS", { name: "Inspected", phase: "hold", seq: 3, slots: none, flow: "Returns" }],
+ *         ["RSD", { name: "Resent", phase: "dispatch", seq: 3, slots: none, flow: "Returns" }],
+ *     ]),
+ *     mutations: (mutation) => ({ patch: mutation.patch() }),
+ *     indexes: (index) => ({
+ *         flowchart_states_by_flow: index.on(["flow"]),
+ *         flowchart_states_by_lane: index.on(["flow", "phase"]),
  *     }),
  * });
+ * export const depotTransitions = e3.record("flowchart_depot_transitions", DictType(StringType, DepotTransition), {
+ *     initial: new Map([
+ *         ["l1", { src: "ARV", dst: "SCN", kind: variant("planned", null), trigger: none, volume: some(18460), n: some(412n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+ *         ["l2", { src: "SCN", dst: "IND", kind: variant("planned", null), trigger: none, volume: some(18390), n: some(409n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+ *         // In place: parcels inducted again, counted but not weighed.
+ *         ["l3", { src: "IND", dst: "IND", kind: variant("observed", null), trigger: none, volume: none, n: some(2n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+ *         ["l4", { src: "IND", dst: "CH*", kind: variant("planned", null), trigger: some("route"), volume: some(17350), n: some(386n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+ *         ["l5", { src: "CH*", dst: "SRD", kind: variant("planned", null), trigger: none, volume: some(18210), n: some(405n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+ *         ["l6", { src: "SRD", dst: "HLD", kind: variant("planned", null), trigger: none, volume: some(8420), n: some(188n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+ *         ["l7", { src: "HLD", dst: "CLR", kind: variant("planned", null), trigger: some("customs"), volume: some(8350), n: some(186n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+ *         ["l8", { src: "CLR", dst: "LDD", kind: variant("planned", null), trigger: none, volume: some(8240), n: some(183n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+ *         ["l9", { src: "LDD", dst: "DSP", kind: variant("planned", null), trigger: none, volume: some(17030), n: some(378n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+ *         // Its far end names a state no row is keyed by: drawn as a ghost, and listed in Issues.
+ *         ["l10", { src: "DSP", dst: "DLV", kind: variant("planned", null), trigger: none, volume: none, n: none, at: none, flow: "Parcels" }],
+ *         // Observed, not planned: parcels relabelled before they are sorted.
+ *         ["l11", { src: "IND", dst: "LBL", kind: variant("observed", null), trigger: none, volume: some(980), n: some(22n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+ *         ["l12", { src: "LBL", dst: "CH*", kind: variant("observed", null), trigger: none, volume: some(975), n: some(22n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+ *         ["l13", { src: "SRD", dst: "LDD", kind: variant("planned", null), trigger: none, volume: some(8790), n: some(195n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+ *         ["r1", { src: "RCV", dst: "INS", kind: variant("planned", null), trigger: none, volume: some(640), n: some(15n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Returns" }],
+ *         ["r2", { src: "INS", dst: "RSD", kind: variant("planned", null), trigger: none, volume: some(610), n: some(14n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Returns" }],
+ *     ]),
+ *     mutations: (mutation) => ({ patch: mutation.patch() }),
+ *     indexes: (index) => ({
+ *         flowchart_transitions_by_flow: index.on(["flow"]),
+ *     }),
+ * });
+ * export const depotLanes = e3.record("flowchart_depot_lanes", DictType(StringType, DepotLane), {
+ *     initial: new Map([
+ *         ["intake", { label: "Intake", seq: 1 }], ["induct", { label: "Induct", seq: 2 }], ["sort", { label: "Sort", seq: 3 }],
+ *         ["hold", { label: "Hold", seq: 4 }], ["dispatch", { label: "Dispatch", seq: 5 }],
+ *     ]),
+ *     mutations: (mutation) => ({ patch: mutation.patch() }),
+ * });
  *
- * const flowchart = East.function([], UIComponentType, (_$) => (
+ * const flowchartDwell = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         const flows = $.let(Record.bind(depotFlows));
+ *         const states = $.let(Data.bind(depotStates));
+ *         const transitions = $.let(Data.bind(depotTransitions));
+ *         const lanes = $.let(Data.bind(depotLanes));
  *         return (
- *             <Box height="500px">
- *                 <Flowchart record={flows} flow="Inbound parcels" library={[Flowchart.library.flows()]} />
+ *             <Box height="600px">
+ *                 <Flowchart
+ *                     states={Flowchart.states(states, { label: "name", lane: "phase", order: "seq" })}
+ *                     transitions={Flowchart.transitions(transitions, { from: "src", to: "dst" })}
+ *                     lanes={Flowchart.lanes(lanes, { label: "label", order: "seq" })}
+ *                     name="dwell"
+ *                 />
  *             </Box>
  *         );
  *     }}</Reactive>
@@ -418,46 +336,60 @@ export const Flowchart: FlowchartNamespace = Object.assign(FlowchartTag, MEMBERS
  * against, and the payload's own East types.
  */
 export interface FlowchartInternalNamespace extends FlowchartNamespace {
-    /** Creates the flowchart's payload alone — what `<Flowchart>` returns through the `Flowchart` carrier ({@link createFlowchartPayload}). */
+    /** Creates the Flowchart's payload alone — what `<Flowchart>` returns through the `Flowchart` carrier ({@link createFlowchartPayload}). */
     Payload: typeof createFlowchartPayload;
     /** The `Flowchart` carrier ({@link FlowchartComponent}). */
     Component: typeof FlowchartComponent;
-    /** The East types a flowchart is written with, and its payload's. */
+    /** The East types a Flowchart is written with, and its payload's. */
     Types: FlowchartTypes & {
         /** The renderer's payload ({@link FlowchartPayloadType}). */
         Payload: typeof FlowchartPayloadType;
-        /** What the canvas draws its flow with ({@link FlowchartCanvasType}). */
+        /** What the canvas draws with besides its kinds ({@link FlowchartCanvasType}). */
         Canvas: typeof FlowchartCanvasType;
-        /** Where the flows come from ({@link FlowchartSourceType}). */
-        Source: typeof FlowchartSourceType;
-        /** The host's flows ({@link FlowchartDataType}). */
-        Data: typeof FlowchartDataType;
-        /** A record of flows, bound ({@link FlowchartFlowsHandleType}). */
-        FlowsHandle: typeof FlowchartFlowsHandleType;
-        /** The editing session's Save, over a record or the host's flows ({@link FlowchartSessionApplyType}). */
-        SessionApply: typeof FlowchartSessionApplyType;
-        /** The inspector pane: each kind's own Details ({@link FlowchartInspectorType}). */
-        Inspector: typeof FlowchartInspectorType;
+        /** The states, closed over their record ({@link FlowchartStateKindType}). */
+        StateKind: typeof FlowchartStateKindType;
+        /** The transitions ({@link FlowchartTransitionKindType}). */
+        TransitionKind: typeof FlowchartTransitionKindType;
+        /** The lanes ({@link FlowchartLaneKindType}). */
+        LaneKind: typeof FlowchartLaneKindType;
+        /** The decisions ({@link FlowchartDecisionKindType}). */
+        DecisionKind: typeof FlowchartDecisionKindType;
+        /** A state's roles, as its kind reads them from the app's row ({@link FlowchartStateRolesType}). */
+        StateRoles: typeof FlowchartStateRolesType;
+        /** A transition's roles ({@link FlowchartTransitionRolesType}). */
+        TransitionRoles: typeof FlowchartTransitionRolesType;
+        /** A lane's roles ({@link FlowchartLaneRolesType}). */
+        LaneRoles: typeof FlowchartLaneRolesType;
+        /** A decision's roles ({@link FlowchartDecisionRolesType}). */
+        DecisionRoles: typeof FlowchartDecisionRolesType;
+        /** What a gesture writes of a state's roles ({@link FlowchartStateWriteType}). */
+        StateWrite: typeof FlowchartStateWriteType;
+        /** What a gesture writes of a transition's roles ({@link FlowchartTransitionWriteType}). */
+        TransitionWrite: typeof FlowchartTransitionWriteType;
+        /** What a gesture writes of a lane's roles ({@link FlowchartLaneWriteType}). */
+        LaneWrite: typeof FlowchartLaneWriteType;
+        /** A stored state: its roles and its row's bytes ({@link FlowchartStateEntryType}). */
+        StateEntry: typeof FlowchartStateEntryType;
+        /** A stored transition ({@link FlowchartTransitionEntryType}). */
+        TransitionEntry: typeof FlowchartTransitionEntryType;
+        /** A stored lane ({@link FlowchartLaneEntryType}). */
+        LaneEntry: typeof FlowchartLaneEntryType;
+        /** A stored decision ({@link FlowchartDecisionEntryType}). */
+        DecisionEntry: typeof FlowchartDecisionEntryType;
+        /** One card ({@link FlowchartTemplateType}). */
+        Template: typeof FlowchartTemplateType;
+        /** How a narrowed-out row draws ({@link FlowchartNarrowedType}). */
+        Narrowed: typeof FlowchartNarrowedType;
         /** One tab of the library ({@link FlowchartLibraryTabType}). */
         LibraryTab: typeof FlowchartLibraryTabType;
-        /** An author's tab's cards, by what they land on ({@link FlowchartLandsType}). */
-        Lands: typeof FlowchartLandsType;
-        /** A card that drops nothing ({@link FlowchartCardType}). */
-        Card: typeof FlowchartCardType;
-        /** A state template's card ({@link FlowchartStateCardType}). */
-        StateCard: typeof FlowchartStateCardType;
-        /** A transition template's card ({@link FlowchartTransitionCardType}). */
-        TransitionCard: typeof FlowchartTransitionCardType;
-        /** An author's card that lands on a lane ({@link FlowchartLaneCardType}). */
-        LaneCard: typeof FlowchartLaneCardType;
-        /** An author's card that lands on a decision ({@link FlowchartDecisionCardType}). */
-        DecisionCard: typeof FlowchartDecisionCardType;
+        /** A kind's tab on the wire ({@link FlowchartKindTabWireType}). */
+        KindTab: typeof FlowchartKindTabWireType;
     };
 }
 
 /** `<Flowchart>`, for the internal namespace: the tag, on an object of its own, so the public `Flowchart` carries none of the internal members. */
-function FlowchartInternalTag(props: object): ReturnType<FlowchartTagType> {
-    return (FlowchartTag as (p: object) => ReturnType<FlowchartTagType>)(props);
+function FlowchartInternalTag(props: Parameters<FlowchartTagType>[0]): ReturnType<FlowchartTagType> {
+    return FlowchartTag(props);
 }
 
 /**
@@ -474,17 +406,24 @@ export const FlowchartInternal: FlowchartInternalNamespace = Object.assign(Flowc
         ...TYPES,
         Payload: FlowchartPayloadType,
         Canvas: FlowchartCanvasType,
-        Source: FlowchartSourceType,
-        Data: FlowchartDataType,
-        FlowsHandle: FlowchartFlowsHandleType,
-        SessionApply: FlowchartSessionApplyType,
-        Inspector: FlowchartInspectorType,
+        StateKind: FlowchartStateKindType,
+        TransitionKind: FlowchartTransitionKindType,
+        LaneKind: FlowchartLaneKindType,
+        DecisionKind: FlowchartDecisionKindType,
+        StateRoles: FlowchartStateRolesType,
+        TransitionRoles: FlowchartTransitionRolesType,
+        LaneRoles: FlowchartLaneRolesType,
+        DecisionRoles: FlowchartDecisionRolesType,
+        StateWrite: FlowchartStateWriteType,
+        TransitionWrite: FlowchartTransitionWriteType,
+        LaneWrite: FlowchartLaneWriteType,
+        StateEntry: FlowchartStateEntryType,
+        TransitionEntry: FlowchartTransitionEntryType,
+        LaneEntry: FlowchartLaneEntryType,
+        DecisionEntry: FlowchartDecisionEntryType,
+        Template: FlowchartTemplateType,
+        Narrowed: FlowchartNarrowedType,
         LibraryTab: FlowchartLibraryTabType,
-        Lands: FlowchartLandsType,
-        Card: FlowchartCardType,
-        StateCard: FlowchartStateCardType,
-        TransitionCard: FlowchartTransitionCardType,
-        LaneCard: FlowchartLaneCardType,
-        DecisionCard: FlowchartDecisionCardType,
+        KindTab: FlowchartKindTabWireType,
     },
 });

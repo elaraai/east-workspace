@@ -4,146 +4,87 @@
  *
  * @vitest-environment jsdom
  *
- * The Flowchart through its carrier (#1243, #1244, #1245, #1247). `<Flowchart>`
- * returns the flowchart as the `Flowchart` extension — its payload's bytes
- * beside its kind — and the dispatcher hands it to the renderer registered
- * against that kind, decoding the payload's functions against the registered
- * platform: a record's read, which the canvas draws the open flow from, a
- * state's own Details (#1250), which return UI for the inspector, and a
- * select callback, which writes a bound State. Every flowchart here is built
- * by `<Flowchart>`, compiled, and rendered through `EastChakraComponent`, as
- * an app renders it — and one given a callback for an edit, or a hover card's
- * builder, is refused as it is built (#1247, FB24; #1250, FB46).
+ * The Flowchart through its carrier (#1243, #1500; `Flowchart Records Spec.md`
+ * R1–R3, R13). `<Flowchart>` returns the flowchart as the `Flowchart`
+ * extension — its payload's bytes beside its kind — and the dispatcher hands
+ * it to the renderer registered against that kind, decoding the payload's
+ * functions against the registered platform: each kind's rows, read from the
+ * depot's records on e3 itself — whole, or through its source of the rail; a
+ * state's own Details, its kind's `inspector`, which return UI for the
+ * inspector; and a select callback, which writes a bound State. Every
+ * flowchart here is built by `<Flowchart>` over the app's records, compiled,
+ * and rendered through the dispatcher, as an app renders it — and one given a
+ * callback for an edit, or a hover card's builder, is refused as it is built.
  */
 
-import { describe, test, expect, afterEach } from "vitest";
-import { render, cleanup, waitFor, fireEvent, act } from "@testing-library/react";
-import { ChakraProvider } from "@chakra-ui/react";
-import {
-    ArrayType, BooleanType, East, FunctionType, NullType, OptionType, PatchType, StringType, StructType, encodeBeast2For, none, variant, type ValueTypeOf,
-} from "@elaraai/east";
-import { DatasetStatusType, RecordCommitInfoType } from "@elaraai/e3-types";
-import { Reactive, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
-import { EastChakraComponent, UIStore, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
-import { getStore, initializeStore } from "@elaraai/east-ui-components/internal";
-import {
-    Flowchart, RecordBindHandleType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType,
-} from "@elaraai/e3-ui/internal";
-// The flowchart is an extension: its renderer registers as it loads.
-import "./index.js";
+import { describe, test, expect } from "vitest";
+import { fireEvent, waitFor } from "@testing-library/react";
+import { East, FunctionType, NullType, StringType, StructType, compareFor, encodeBeast2For } from "@elaraai/east";
+import { State, Text, UIComponentType } from "@elaraai/east-ui/internal";
+import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
+import { getStore } from "@elaraai/east-ui-components/internal";
+import { Data, Flowchart, Record } from "@elaraai/e3-ui/internal";
+import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
+import { programOf } from "../e3-web-mount.test-utils.js";
+import { act, flowchartHarness, settle } from "./flowchart.test-utils.js";
 
-afterEach(() => {
-    cleanup();
-    localStorage.clear();
-});
-
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
-
-type UIValue = ValueTypeOf<typeof UIComponentType>;
+const h = flowchartHarness();
 
 const encodeString = encodeBeast2For(StringType);
-
-/** Render a compiled UI value through the dispatcher. */
-function mount(value: UIValue, storageKey: string) {
-    return render(
-        <ChakraProvider value={system}>
-            <EastChakraComponent value={value} storageKey={storageKey} />
-        </ChakraProvider>,
-    );
-}
+const compareString = compareFor(StringType);
 
 /** Every state card drawn, by its key. */
-const stateKeys = (container: HTMLElement): (string | null)[] =>
-    [...container.querySelectorAll("[data-flowchart-node]")].map((el) => el.getAttribute("data-flowchart-node"));
+const stateKeys = (container: HTMLElement): string[] =>
+    [...container.querySelectorAll("[data-flowchart-node]")].map((el) => el.getAttribute("data-flowchart-node") ?? "");
 
-/** Three states over two lanes and two links, one of them observed — module
- *  scope, so the East bodies call no host helper. */
-const STATES = [
-    { code: "ARV", name: "Arrived", phase: "intake" },
-    { code: "SCN", name: "Scanned", phase: "intake" },
-    { code: "SRT", name: "Sorting", phase: "sort" },
-];
-const LINKS = [
-    { src: "ARV", dst: "SCN", kind: variant("planned", null) },
-    { src: "SCN", dst: "SRT", kind: variant("observed", null) },
-];
-const LANES = [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }];
+/** The footer's words. */
+const footerText = (container: HTMLElement): string => container.querySelector("[data-frame-slot='footer'] [data-flowchart-footer]")?.textContent ?? "";
 
-/** A flowchart of the three states: the host's one flow, built from its tables. */
-const VIEW = East.function([], UIComponentType, (_$) => Flowchart({
-    data: Flowchart.over(STATES, {
-        state: (s) => ({ key: s.code, label: s.name, lane: s.phase }),
-        links: LINKS,
-        link: (l) => ({ from: l.src, to: l.dst, kind: l.kind }),
-        lanes: LANES,
-    }),
-}));
-
-/** The depot's flows by name, as a record of flows holds them. */
-const FLOWS = Flowchart.values({
-    "Inbound parcels": {
-        lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }],
-        states: [{ key: "ARV", label: "Arrived", lane: "intake" }, { key: "SRT", label: "Sorting", lane: "sort" }],
-        links: [{ from: "ARV", to: "SRT" }],
-    },
-    "Returns": {
-        lanes: [{ key: "counter", label: "Counter" }],
-        states: [{ key: "RCV", label: "Received", lane: "counter" }, { key: "INS", label: "Inspected", lane: "counter" }],
-        links: [{ from: "RCV", to: "INS", kind: "observed" }],
-    },
+/** The depot's states, transitions and lanes, each read whole: a flowchart `<Flowchart>` builds alone, in no Reactive root. */
+const view = East.function([], UIComponentType, ($) => {
+    const states = $.let(Data.bind(ex.depotStates));
+    const transitions = $.let(Data.bind(ex.depotTransitions));
+    const lanes = $.let(Data.bind(ex.depotLanes));
+    return Flowchart({
+        states: Flowchart.states(states, { label: "name", lane: "phase", order: "seq", members: (s) => s.slots }),
+        transitions: Flowchart.transitions(transitions, { from: "src", to: "dst", kind: (t) => t.kind }),
+        lanes: Flowchart.lanes(lanes, { label: "label", order: "seq" }),
+    });
 });
 
-/**
- * A record of the flows, bound with its patch mutation, as the record runtime
- * gives one — its read, its history and its patch write East functions the
- * payload carries, and the renderer calls once decoded.
- */
-const FlowsHandle = RecordBindHandleType(Flowchart.Types.Flows, { patch: [PatchType(Flowchart.Types.Flows)] });
-const boundFlows = East.function([], FlowsHandle, (_$) => ({
-    read: East.function([], Flowchart.Types.Flows, (_$2) => FLOWS),
-    status: East.function([], DatasetStatusType, (_$2) => variant("up-to-date", null)),
-    history: East.function([], OptionType(ArrayType(RecordCommitInfoType)), (_$2) => none),
-    mutate: {
-        pending: East.function([], BooleanType, (_$2) => false),
-        status: East.function([], RecordMutateStatusType, (_$2) => variant("idle", null)),
-        error: East.function([], OptionType(RecordErrorType), (_$2) => none),
-        cancel: East.function([], NullType, (_$2) => null),
-        patch: East.function([PatchType(Flowchart.Types.Flows)], NullType, (_$2) => null),
-    },
-    commit: {
-        patch: East.asyncFunction([StringType, PatchType(Flowchart.Types.Flows)], RecordOutcomeType, (_$2) => variant("committed", { commitHash: "c", stateHash: "s" })),
-    },
-    start: East.function([], NullType, (_$2) => null),
-    binding: { name: "depot_flows", mutations: ["patch"] },
-}) as never);
+/** What a State holds now. */
+const stateOf = (key: string) => East.compile(East.function([], StringType, ($) => {
+    const bound = $.const(State.bind([StringType], key, ""));
+    return bound.read();
+}), getRegisteredPlatformImplementations())();
 
-/** A flowchart over the record of flows, the returns flow opened first. */
-const RECORD_VIEW = East.function([], UIComponentType, ($) => {
-    const flows = $.let(boundFlows());
-    return Flowchart({ record: flows, flow: "Returns" });
-});
-
-describe("<Flowchart> through its carrier (#1243, #1244)", () => {
-    test("the flowchart is the Flowchart extension — its payload carried as bytes beside its kind — and the dispatcher draws it", async () => {
-        initializeStore(new UIStore());
-        const value = East.compile(VIEW, getRegisteredPlatformImplementations())();
+describe("<Flowchart> through its carrier (#1243, #1500)", () => {
+    test("the flowchart is the Flowchart extension — its payload carried as bytes beside its kind — and the dispatcher draws it in its frame", async () => {
+        // Built under the runtimes a surface installs, what it reads whole loaded.
+        const leave = await h.install({ fn: view });
+        const value = programOf({ fn: view })();
+        leave();
         if (value.type !== "Extension") throw new Error(`expected the Flowchart extension, got the ${value.type} arm`);
         expect(value.value.kind).toBe("Flowchart");
-        const { container } = mount(value, "flowchart-carrier-view");
-        await waitFor(() => expect(stateKeys(container)).toEqual(["ARV", "SCN", "SRT"]));
+        const { container } = await h.mount({ fn: view });
+        // Every state the record holds, and the ghost of the one transition l10 names that no row is keyed by.
+        await waitFor(() => expect(stateKeys(container)).toHaveLength(14));
         expect(container.querySelector('[data-flowchart-node="SCN"]')!.textContent).toContain("Scanned");
         // In its frame (#1245): the canvas in main, the counts in the frame's footer.
         expect(container.querySelector("[data-builder-frame] [data-frame-slot='main'] [data-flowchart-node='SCN']")).not.toBeNull();
-        expect(container.querySelector("[data-frame-slot='footer'] [data-flowchart-footer]")!.textContent).toContain("1 planned · 1 observed");
+        expect(footerText(container)).toContain("11 planned · 2 observed · 1 unresolved");
     });
 
-    test("over a record of flows, the decoded handle's read gives the flows, and the canvas draws the one `flow` opens first", async () => {
-        initializeStore(new UIStore());
-        const value = East.compile(RECORD_VIEW, getRegisteredPlatformImplementations())();
-        const { container } = mount(value, "flowchart-carrier-record");
-        await waitFor(() => expect(stateKeys(container)).toEqual(["RCV", "INS"]));
-        expect(container.querySelector("[data-flowchart-footer]")!.textContent).toContain("0 planned · 1 observed");
+    test("over records bound to be edited, the decoded kinds read the states and the transitions through their sources of the rail, and the lanes and the decisions whole", async () => {
+        const { container } = await h.mountExample(ex.flowchartDepot);
+        // The rail opens on the parcels' flow: its ten states, and the ghost of DLV; the returns' are not read.
+        await waitFor(() => expect(stateKeys(container)).toContain("DSP"));
+        expect(stateKeys(container).sort(compareString)).toEqual(["ARV", "CH*", "CLR", "DLV", "DSP", "HLD", "IND", "LBL", "LDD", "SCN", "SRD"]);
+        expect(container.querySelector('[data-flowchart-node="CH*"]')!.textContent).toContain("×14");
+        // The parcels' thirteen transitions, the decisions' diamonds on the two they govern, the five lanes.
+        expect(footerText(container)).toContain("9 planned · 2 observed · 1 unresolved");
+        expect(container.querySelectorAll("[data-flowchart-trigger]")).toHaveLength(2);
+        expect(container.querySelectorAll("[data-flowchart-lane]")).toHaveLength(5);
     });
 });
 
@@ -152,62 +93,53 @@ describe("<Flowchart> through its carrier (#1243, #1244)", () => {
 const LABEL_KEY = "flowchart.carrier.label";
 const SELECTED_KEY = "flowchart.carrier.selected";
 
-/** A Reactive flowchart: a state's own Details (#1250) build UI from the
- *  label READ from State (a value, not the handle), and a state's click writes
- *  the selected key to State. A label write rebuilds a flowchart of the same
- *  data whose own Details captured another label. */
-const reactiveFlowchart = East.compile(East.function([], UIComponentType, (_$) =>
-    Reactive.Root(East.function([], UIComponentType, ($) => {
+/**
+ * A Reactive flowchart over the depot's records: the states' own Details (their
+ * kind's `inspector`) build UI from the label READ from State — a value, not
+ * the handle — and a state's click writes its key to State. A label write
+ * builds the same records' flowchart again, its own Details capturing another
+ * label.
+ */
+function mountReactive() {
+    return h.mountFlowchart(($) => {
         const labelBind = $.let(State.bind([StringType], LABEL_KEY, "ALPHA"));
         const label = $.const(labelBind.read());
         const selected = $.let(State.bind([StringType], SELECTED_KEY, ""));
-        const own = $.const(East.function([Flowchart.Types.State, FunctionType([Flowchart.Types.State], NullType)], UIComponentType,
-            (_$2, state) => Text.Root(East.str`${label} · ${state.key}`)));
-        return Flowchart({
-            data: Flowchart.over(STATES, {
-                state: (s) => ({ key: s.code, label: s.name, lane: s.phase }),
-                links: LINKS,
-                link: (l) => ({ from: l.src, to: l.dst, kind: l.kind }),
-                lanes: LANES,
-            }),
-            inspector: { state: own },
+        const own = $.const(East.function([ex.DepotState, FunctionType([ex.DepotState], NullType)], UIComponentType,
+            (_$2, row) => Text.Root(East.str`${label} · ${row.name}`)));
+        return {
+            states: Flowchart.states($.let(Record.bind(ex.depotStates)), { label: "name", lane: "phase", order: "seq", inspector: own }),
+            transitions: Flowchart.transitions($.let(Data.bind(ex.depotTransitions)), { from: "src", to: "dst", kind: (t) => t.kind }),
+            lanes: Flowchart.lanes($.let(Data.bind(ex.depotLanes)), { label: "label", order: "seq" }),
             onSelectState: selected.write,
-        });
-    })),
-), getRegisteredPlatformImplementations());
-
-/** The selected key, as the State holds it. */
-const readSelected = East.compile(East.function([], StringType, ($) => {
-    const selected = $.const(State.bind([StringType], SELECTED_KEY, ""));
-    return selected.read();
-}), getRegisteredPlatformImplementations());
+        };
+    });
+}
 
 describe("functions across the carrier (#1243)", () => {
     test("a state's click calls the decoded onSelectState, which writes the bound State", async () => {
-        initializeStore(new UIStore());
-        const { container } = mount(reactiveFlowchart(), "flowchart-carrier-select");
-        await waitFor(() => expect(stateKeys(container)).toEqual(["ARV", "SCN", "SRT"]));
-        fireEvent.click(container.querySelector('[data-flowchart-node="SCN"]')!);
-        await waitFor(() => expect(readSelected()).toBe("SCN"));
+        const { container } = await mountReactive();
+        await waitFor(() => expect(stateKeys(container)).toContain("SCN"));
+        await act(async () => { fireEvent.click(container.querySelector('[data-flowchart-node="SCN"]')!); });
+        await waitFor(() => expect(stateOf(SELECTED_KEY)).toBe("SCN"));
     });
 
-    test("a state's own Details, decoded across the carrier, build the inspector's UI over the state selected, and a closure-only change builds them again (#1250, FB45)", async () => {
-        initializeStore(new UIStore());
-        const { container } = mount(reactiveFlowchart(), "flowchart-carrier-own");
-        await waitFor(() => expect(stateKeys(container)).toEqual(["ARV", "SCN", "SRT"]));
+    test("a state's own Details, decoded across the carrier, build the inspector's UI over the state selected, and a closure-only change builds them again (#1250, R13)", async () => {
+        const { container } = await mountReactive();
+        await waitFor(() => expect(stateKeys(container)).toContain("ARV"));
         const own = () => container.querySelector("[data-frame-slot='end'] [data-inspector-fields='custom']")?.textContent ?? null;
-        fireEvent.click(container.querySelector('[data-flowchart-node="ARV"]')!);
-        await waitFor(() => expect(own()).toBe("ALPHA · ARV"));
-        // Only the function's capture moves: the data is the same, the
-        // flowchart's memo (`equivalentFor`) lets it through, and the state's
-        // own Details build again with the new label.
-        act(() => { getStore().write(LABEL_KEY, encodeString("BETA")); });
-        await waitFor(() => expect(own()).toBe("BETA · ARV"));
+        await act(async () => { fireEvent.click(container.querySelector('[data-flowchart-node="ARV"]')!); });
+        await waitFor(() => expect(own()).toBe("ALPHA · Arrived"));
+        // Only the function's capture moves: the records are the same, the flowchart's memo (`equivalentFor`) lets it
+        // through, and the state's own Details build again with the new label.
+        await act(async () => { getStore().write(LABEL_KEY, encodeString("BETA")); });
+        await settle();
+        await waitFor(() => expect(own()).toBe("BETA · Arrived"));
     });
 });
 
-describe("no callback for an edit (#1247, FB24), and no hover card (#1250, FB46)", () => {
-    test("`<Flowchart>` given a callback it took for an edit, or `linkMode`, is refused as the surface is built, naming the remedy", () => {
+describe("no callback for an edit, and no hover card (#1247, #1250)", () => {
+    test("`<Flowchart>` given a callback it took for an edit, or `linkMode`, is refused as the surface is built, naming the editing session", () => {
         const given = {
             onAddState: East.function([StructType({ lane: StringType, key: StringType, label: StringType })], NullType, (_$) => null),
             onCreateLink: East.function([StructType({ from: StringType, to: StringType })], NullType, (_$) => null),
@@ -215,20 +147,22 @@ describe("no callback for an edit (#1247, FB24), and no hover card (#1250, FB46)
         };
         for (const [prop, value] of Object.entries(given)) {
             const built = () => East.function([], UIComponentType, ($) => Flowchart({
-                record: $.let(boundFlows()),
+                states: Flowchart.states($.let(Record.bind(ex.depotStates)), { label: "name" }),
                 [prop]: value,
             } as never));
-            expect(built).toThrow(`Flowchart: \`${prop}\` is not a prop — every gesture is a transaction of the flowchart's editing session, and Save commits them as one patch: over \`record\`, through its patch mutation; over \`data\`, through the host's \`onApply\``);
+            expect(built).toThrow(`Flowchart: \`${prop}\` is gone — every gesture is a transaction of the Flowchart's editing session, and Save writes ` +
+                "each record through its patch door — bind a kind with Record.bind(record), its record declaring patch: mutation.patch(), to edit it");
         }
     });
 
-    test("`<Flowchart>` given a hover card's builder is refused as the surface is built, naming the inspector", () => {
+    test("`<Flowchart>` given a hover card's builder is refused as the surface is built, naming the inspector and a kind's own Details", () => {
         for (const prop of ["stateHover", "linkHover", "triggerHover"]) {
             const built = () => East.function([], UIComponentType, ($) => Flowchart({
-                record: $.let(boundFlows()),
+                states: Flowchart.states($.let(Record.bind(ex.depotStates)), { label: "name" }),
                 [prop]: East.function([StringType], UIComponentType, (_$, key) => Text.Root(key)),
             } as never));
-            expect(built).toThrow(`Flowchart: \`${prop}\` is not a prop — the hover cards went, and the inspector, on by default, shows what is selected`);
+            expect(built).toThrow(`Flowchart: \`${prop}\` is gone — the inspector shows what is selected, and a kind's own Details is its kind's \`inspector\`: ` +
+                "Flowchart.states(record, { …, inspector: East.function([RowType, FunctionType([RowType], NullType)], UIComponentType, ($, row, update) => …) })");
         }
     });
 });

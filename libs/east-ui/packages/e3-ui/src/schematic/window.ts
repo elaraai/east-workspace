@@ -4,40 +4,31 @@
  */
 
 /**
- * A Schematic kind's reads (#1386, `Schematic Builder Spec.md` §10.4): its
- * record read whole, or its narrowing read complete through its source of the
- * Schematic's `Slice.bindRecords` — the record slice's `PagedScan`, over
- * `recordSliceReadPlatform` — each answering `none` while a read is in flight.
- * Reading by area — a viewport's window from an area index alone, and the
- * density at overview (§10.4, #1393) — is the renderer's reader's, which reads
- * a window by its cells as the Plan's events are read (D41): what this module
- * gives it is which index and which searches a window reads
+ * A Schematic kind's reads by area (#1386, `Schematic Builder Spec.md` §10.4):
+ * a kind's record read whole, or its narrowing read complete through its
+ * source of the Schematic's `Slice.bindRecords`, are the reads every kind over
+ * the app's record shares (`utils/record-kind.ts`). Reading by area — a
+ * viewport's window from an area index alone, and the density at overview
+ * (§10.4, #1393) — is the renderer's reader's, which reads a window by its
+ * cells as the Plan's events are read (D41): what this module gives it is
+ * which index and which searches a window reads
  * ({@link schematicAreaIndexes}, {@link schematicWindowPlan}), the agreement
  * of an area index's box with the kind's roles (SC34), and the density's
  * raster ({@link schematicRaster}); the kind's `rowsOf` makes the rows it
  * reads its stored rows.
  *
- * Through its source a kind reads what its narrowing holds and nothing else:
- * the source's choices, each as the rail holds it. Under `narrowed="dim"` it
- * reads every row through its source instead, and never the narrowing, so a
- * choice reads none of its rows again: the renderer draws the rows the
- * narrowing leaves out as context, from the source's shown keys (§10.3,
- * #1392). An entry's row is its `row` — the source joins it — or its `value`,
- * for an index that carries the whole row (D29).
- *
  * @packageDocumentation
  */
 
 import {
-    BooleanType, DictType, East, Expr, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, equalFor, isSubtype, isTypeEqual, none, some,
-    variant, type ArrayType, type EastType, type ExprType, type FunctionType, type ValueTypeOf,
+    BooleanType, OptionType, SortedMap, StringType, StructType, compareFor, equalFor, some, variant,
+    type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import {
-    MAX_AREA_RASTER, MAX_LANDED_SEARCHES, MAX_RECORD_SLICE_RUNS, RecordSliceBindType, RecordSliceConfigType, RecordSliceReadType, RecordSliceStateType,
-    areaQueries, areaRaster, recordOnPrinter, recordSliceReadPlatform,
+    MAX_AREA_RASTER, MAX_LANDED_SEARCHES, MAX_RECORD_SLICE_RUNS, RecordSliceReadType,
+    areaQueries, areaRaster, recordOnPrinter,
     type AreaCell, type AreaWindow, type RecordOnPrinter, type RecordSliceChoiceType, type RecordSliceIndexType,
 } from "@elaraai/east-ui/internal";
-import { optionOf } from "../schedule/window.js";
 import type { SchematicBoxFieldsType } from "./types.js";
 
 /**
@@ -48,109 +39,6 @@ import type { SchematicBoxFieldsType } from "./types.js";
  * its function, so it holds this one source, never the whole slice.
  */
 export type SchematicKindPart = ExprType<StructType>;
-
-/** A kind's rows, by key: what a read of it gives; `none` while it is in flight. */
-type RowsRead = ExprType<FunctionType<[], OptionType<DictType<StringType, EastType>>>>;
-
-/**
- * A kind's record read whole: its binding's `read()` — `Record.bind`'s or
- * `Data.bind`'s — by key.
- *
- * @param handle - The record's binding
- * @param rowType - Its row type
- * @returns `()` → the record's rows, by key
- */
-export function schematicWholeRows(handle: ExprType<EastType>, rowType: StructType): RowsRead {
-    const Held = DictType(StringType, rowType);
-    const read = (handle as unknown as { read: () => ExprType<DictType<StringType, StructType>> }).read;
-    return East.function([], OptionType(Held), (_$) => East.value(some(read()), OptionType(Held))) as unknown as RowsRead;
-}
-
-/**
- * A kind's narrowing read complete through its source of the slice (see the
- * module docs).
- *
- * @param part - The kind's source of the slice, bound in the payload
- * @param slot - The kind's slot, which names the source
- * @param rowType - The kind's record's row type
- * @param where - The kind, as a refusal names it
- * @param every - Whether it reads every row, the narrowing read nowhere: under `narrowed="dim"`, what the narrowing
- *   leaves out draws as context
- * @returns `()` → the rows the narrowing holds — or every row — by key; `none` while a search or a page is in flight
- * @throws {Error} When the source narrows another record, or reads neither its rows nor an index carrying them
- */
-export function schematicSourceRows(part: SchematicKindPart, slot: string, rowType: StructType, where: string, every = false): RowsRead {
-    const type = Expr.type(part as unknown as Expr) as EastType;
-    const fields = type.type === "Struct" ? type.fields as Record<string, EastType> : {};
-    const data = fields["data"];
-    const page = fields["pageWhere"];
-    const output = page?.type === "Function" ? page.output : undefined;
-    const collection = output === undefined ? undefined : optionOf(output);
-    const entry = collection?.type === "Array" ? collection.value as EastType : undefined;
-    const entryFields = entry?.type === "Struct" ? entry.fields as Record<string, EastType> : undefined;
-    const keyed = entryFields?.["key"] !== undefined && isTypeEqual(entryFields["key"], StringType);
-    // An entry's row: its `row`, which a joined read fills, or its `value`, when the index carries the whole row (D29).
-    const joined = entryFields?.["row"] !== undefined && isTypeEqual(entryFields["row"], OptionType(rowType));
-    const carried = entryFields?.["value"] !== undefined && isTypeEqual(entryFields["value"], rowType);
-    const pages = page?.type === "Function" && page.inputs.length === 3 && isTypeEqual(page.inputs[0]!, RecordSliceReadType)
-        && isTypeEqual(page.inputs[1]!, IntegerType) && isTypeEqual(page.inputs[2]!, IntegerType);
-    const identified = data?.type === "Struct" && data.fields["id"] !== undefined && isTypeEqual(data.fields["id"], StringType)
-        && data.fields["revision"] !== undefined && data.fields["revision"].type === "Function";
-    const sliced = Object.entries(RecordSliceBindType.fields).every(([name, expected]) => fields[name] !== undefined && isSubtype(fields[name]!, expected));
-    if (!pages || !keyed || !(joined || carried) || !identified || !sliced) {
-        throw new Error(`${where}: the slice's source "${slot}" narrows another record — name it after this kind's slot, over the kind's own record: ` +
-            `Data.bindPaged(record, { indexes }), its rows joined or carried by its indexes`);
-    }
-    const Held = DictType(StringType, rowType);
-    const Entries = collection as ArrayType<StructType<{ key: StringType; row: OptionType<EastType>; value: EastType }>>;
-    const noRows = `${where}: the slice's source "${slot}" reads no rows — bind it with Data.bindPaged(record, { indexes, join: true })`;
-    return East.function([], OptionType(Held), ($) => {
-        // The source as the payload bound it, its members read here: the read captures the source alone.
-        const source = $.const(part as unknown as ExprType<StructType<{
-            config: RecordSliceConfigType;
-            read: FunctionType<[], RecordSliceStateType>;
-            countWhere: FunctionType<[RecordSliceReadType], OptionType<IntegerType>>;
-            pageWhere: FunctionType<[RecordSliceReadType, IntegerType, IntegerType], OptionType<typeof Entries>>;
-            data: StructType<{ id: StringType; revision: FunctionType<[], OptionType<StringType>> }>;
-        }>>);
-        const countWhere = $.const(source.countWhere);
-        const pageWhere = $.const(source.pageWhere);
-        const id = $.const(source.data.id);
-        const revision = $.const(source.data.revision);
-        // The read: no narrowing under `dim` — every row, the source's state read nowhere, so a choice reads nothing
-        // again and the renderer dims what it leaves out (§10.3) — else the rail's, each of the source's choices. Never
-        // a read by area (#1432).
-        let taken: ExprType<typeof RecordSliceReadType>;
-        if (every) {
-            taken = $.const({ where: new Map(), area: none }, RecordSliceReadType);
-        } else {
-            const read = $.const(source.read);
-            const state = $.const(read());
-            taken = $.let({ where: state.where, area: none }, RecordSliceReadType);
-        }
-        const result = $.let(none, OptionType(Held));
-        $.match(recordSliceReadPlatform([Entries], id, revision, countWhere, pageWhere, taken), {
-            some: ($2, entries) => {
-                const held = $2.let(new Map(), Held);
-                $2.for(entries, ($3, e) => {
-                    if (joined) {
-                        $3.match(e.row, {
-                            some: ($4, row) => { $4(held.insert(e.key, row as never)); },
-                            none: ($4) => {
-                                if (carried) $4(held.insert(e.key, e.value as never));
-                                else $4.error(noRows);
-                            },
-                        });
-                    } else {
-                        $3(held.insert(e.key, e.value as never));
-                    }
-                });
-                $2.assign(result, some(held));
-            },
-        });
-        return result;
-    }) as unknown as RowsRead;
-}
 
 // ============================================================================
 // Reading by area (§10.4, §11.4, #1393)

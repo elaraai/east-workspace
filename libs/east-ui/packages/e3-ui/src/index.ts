@@ -15,12 +15,13 @@
  * - `<Sheet>` — the planning spreadsheet, rendered in its frame with its
  *   panes as optional props, and its authoring vocabulary on `Sheet`
  *   (`Sheet.column.*`, `Sheet.register.*`, `Sheet.driver`, `Sheet.Types`).
- * - `<Flowchart>` — the state-transition flowchart: states in ordered phase
- *   lanes, H/V-routed transitions, decision triggers and evidence, over a
- *   record of flows or the host's flow, rendered in its frame — its library
- *   pane an optional prop, its inspector on by default — with the values,
- *   patches, library tabs and types it is written with on `Flowchart`
- *   (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`,
+ * - `<Flowchart>` — the state-transition flowchart over the app's records:
+ *   its states in ordered lanes, the transitions between them and the
+ *   decisions that govern them, each record's fields mapped to its roles,
+ *   rendered in its frame — its library pane an optional prop, its inspector
+ *   on by default — with its kinds, cards, patches, library tabs and types on
+ *   `Flowchart` (`Flowchart.states`, `Flowchart.transitions`,
+ *   `Flowchart.lanes`, `Flowchart.decisions`, `Flowchart.templates`,
  *   `Flowchart.patch`, `Flowchart.library`, `Flowchart.Types`).
  * - `<Schematic>` — the 2D world-coordinate drawing of the app's own records:
  *   items, zones, links and nets, each record's fields mapped to its roles,
@@ -169,26 +170,25 @@ export {
     type SheetLibraryTab, type SheetLibraryTabConfig, type SheetOptimiseRequestType, type SheetOptimiseResultType,
 } from './sheet/index.js';
 
-// The Flowchart (#1243–#1250): the state-transition flowchart a solution
-// mounts, `<Flowchart>` — states in ordered phase lanes, H/V-routed
-// transitions, decision triggers and evidence-weighted strokes, over a record
-// of flows or the host's flow, in its frame, its library pane an optional
-// prop and its inspector on by default, every gesture a transaction of its
-// editing session, narrowed through one `Slice.bindRecords` (#1346) — the
-// values, patches, library tabs and East types it is written with
-// (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`,
-// `Flowchart.patch`, `Flowchart.library`, `Flowchart.Types`), and its props.
+// The Flowchart (#1498): the state-transition flowchart a solution mounts,
+// `<Flowchart>` — one flowchart over the app's own records, its states in
+// ordered lanes, the transitions between them and the decisions that govern
+// them, each kind's fields mapped to its roles, in its frame, its library
+// pane an optional prop and its inspector on by default, every gesture a
+// transaction of its editing session, narrowed through one
+// `Slice.bindRecords` — its kinds, cards, patches, library tabs and East
+// types (`Flowchart.states`, `Flowchart.transitions`, `Flowchart.lanes`,
+// `Flowchart.decisions`, `Flowchart.templates`, `Flowchart.patch`,
+// `Flowchart.library`, `Flowchart.Types`), and its props.
 export {
-    Flowchart, type FlowchartNamespace, type FlowchartTypes, type FlowchartCommon, type FlowchartRecordHandle, type FlowchartBindHandle,
-    type FlowchartInspectorOptions, type FlowchartRowInspector,
-    type FlowchartLibrary, type FlowchartLibraryTab, type FlowchartOneFlowLibraryTab, type FlowchartLibraryRows, type FlowchartTemplateRows,
-    type FlowchartFlowsTab, type FlowchartStatesTab, type FlowchartTransitionsTab, type FlowchartAuthorTab,
-    type FlowchartCardAccessors, type FlowchartStatesConfig, type FlowchartTransitionsConfig, type FlowchartTabConfig,
+    Flowchart, type FlowchartNamespace, type FlowchartTypes, type FlowchartProps,
+    type FlowchartStatesSpec, type FlowchartTransitionsSpec, type FlowchartLanesSpec, type FlowchartDecisionsSpec,
+    type FlowchartStates, type FlowchartTransitions, type FlowchartLanes, type FlowchartDecisions, type FlowchartBinding, type FlowchartWholeBinding,
+    type FlowchartTextField, type FlowchartKeyField, type FlowchartKeysField, type FlowchartOrderField, type FlowchartValuesOf,
+    type FlowchartTemplates, type FlowchartTemplatesSpec,
+    type FlowchartLibrary, type FlowchartLibraryTab, type FlowchartKindTab, type FlowchartKindTabOptions, type FlowchartAuthorTab,
+    type FlowchartLibraryRows, type FlowchartTabConfig,
     type FlowchartCanvasOptions, type FlowchartFreshnessInput, type FlowchartOrientationLiteral,
-    type FlowchartTables, type FlowchartStateFields, type FlowchartLinkFields, type FlowchartLaneFields,
-    type FlowchartTriggerFields, type FlowchartEvidenceFields, type FlowchartLaneLiteral, type FlowchartFlowInput, type FlowchartLaneInput,
-    type FlowchartStateInput, type FlowchartLinkInput, type FlowchartEvidenceInput, type FlowchartTriggerInput, type FlowchartLinkKindLiteral,
-    type FlowchartRowType, type FlowchartPatchOf, type FlowchartPatchInput,
 } from './flowchart/index.js';
 
 // The Schematic (#1381): the 2D world-coordinate drawing a solution mounts,
