@@ -193,6 +193,11 @@ export interface BuilderFrameProps {
      * `false` unless given.
      */
     phonePanel?: boolean | undefined;
+    /**
+     * Whether, in a phone's frame, what main and an open pane open draws as a view over the whole builder, as the
+     * toolbar's does: a builder whose choices want the height (`Query Builder Phone Spec.md` QP33). `false` unless given.
+     */
+    phoneViews?: boolean | undefined;
     /** Where each pane keeps its open tab, and its collapsed state when it persists. */
     storageKey: string;
     /** The narrowest main may get beside pinned panes before an `auto` pane overlays it: 480 (px) by default. */
@@ -230,6 +235,11 @@ export interface BuilderFrameDock {
     tab?: string | undefined;
     /** Told each time a tab is opened from the pane, with its key. */
     onTabChange?: ((key: string) => void) | undefined;
+    /**
+     * In a phone's frame, one tab of the strip for each of the pane's own tabs, in place of the one for the pane: a tap
+     * opens the pane at that tab (`Query Builder Phone Spec.md` QP17, the builder with a single pane).
+     */
+    phoneTabs?: ReadonlyArray<{ key: string; label: string; icon?: string | undefined; detail?: string | undefined }> | undefined;
     /** The rail's icon: a Font Awesome solid name. */
     icon?: string | undefined;
     /** A badge on the rail. Numeric counts use the shared compact formatter; their exact value remains accessible. */
@@ -388,7 +398,7 @@ function unmeasured(start: BuilderFramePane | undefined, end: BuilderFramePane |
  * @returns The frame
  */
 export function BuilderFrame(props: BuilderFrameProps) {
-    const { children, toolbar, banners, start, end, footer, storageKey, label, ref, rootCss, rootProps, toolbarRef, onKeyDown, loading, busy, liveFooter, phonePanel } = props;
+    const { children, toolbar, banners, start, end, footer, storageKey, label, ref, rootCss, rootProps, toolbarRef, onKeyDown, loading, busy, liveFooter, phonePanel, phoneViews } = props;
     const formatters = useFormatters();
     const minMain = props.minMain ?? MIN_MAIN;
     const loadingPitch = props.loadingPitch ?? DEFAULT_LOADING_PITCH;
@@ -598,7 +608,11 @@ export function BuilderFrame(props: BuilderFrameProps) {
         const side = railFocus.current;
         if (side === undefined) return;
         railFocus.current = undefined;
-        if (drawn(side)) rootRef.current?.querySelector<HTMLElement>(`[data-pane-tab="${side}"]`)?.focus();
+        if (drawn(side)) {
+            const dock = dockOf(side);
+            const key = dock?.phoneTabs === undefined ? side : `${side}:${dock.tab ?? dock.phoneTabs[0]?.key}`;
+            rootRef.current?.querySelector<HTMLElement>(`[data-pane-tab="${key}"]`)?.focus();
+        }
         else slotRefs[side].current?.querySelector<HTMLElement>(":scope > * > [data-collapsed] > :first-child > button")?.focus();
     });
     // A drawer opened from its tab takes the focus: its open tab, or its first control.
@@ -610,9 +624,12 @@ export function BuilderFrame(props: BuilderFrameProps) {
         const drawer = slotRefs[side].current;
         (drawer?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? drawer?.querySelector<HTMLElement>("button, [href], input, [tabindex]"))?.focus();
     });
-    /** A strip tab: its drawer opens, or, open, closes. */
-    const onPaneTab = (side: Side) => {
+    /** A strip tab: its drawer opens, or, open, closes; one of the pane's own tabs opens it there. */
+    const onPaneTab = (side: Side, tab?: string) => {
         const open = !collapseOf(side).collapsed;
+        const dock = dockOf(side);
+        if (tab !== undefined && open && dock?.tab !== tab) { dock?.onTabChange?.(tab); return; }
+        if (tab !== undefined && !open) dock?.onTabChange?.(tab);
         if (open) railFocus.current = side;
         else drawerFocus.current = side;
         toggled(side, open);
@@ -710,6 +727,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
                 {/* A tray whose collapse points down, toward the strip; it is drawn collapsed only while the drawer is closed.
                     What it holds is told it is in a phone's drawer: a pane's phone form (SH12). */}
                 <FrameDrawer.Provider value={true}>
+                <FrameOverlaySlot.Provider value={phoneViews === true && !covered ? overlaySlot : null}>
                 <FrameBottomPanel.Provider value={panelOf(side === "start" ? startPanel : endPanel)}>
                 <DockPane
                     storageKey={`${storageKey}.${side}`}
@@ -728,6 +746,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
                     onCollapsedChange={(next) => { if (next) { railFocus.current = side; toggled(side, true); } }}
                 />
                 </FrameBottomPanel.Provider>
+                </FrameOverlaySlot.Provider>
                 </FrameDrawer.Provider>
                 {phonePanel === true && <Box ref={side === "start" ? setStartPanel : setEndPanel} css={styles.bottomPanel} data-frame-slot="bottomPanel" />}
             </Box>
@@ -749,9 +768,22 @@ export function BuilderFrame(props: BuilderFrameProps) {
             </chakra.button>
         );
     };
+    /** One of a pane's own tabs on the strip (`BuilderFrameDock.phoneTabs`). */
+    const ownTab = (side: Side, dock: BuilderFrameDock, tab: NonNullable<BuilderFrameDock["phoneTabs"]>[number]) => {
+        const selected = !collapseOf(side).collapsed && dock.tab === tab.key;
+        return (
+            <chakra.button key={`${side}:${tab.key}`} type="button" role="tab" css={styles.paneTab} data-pane-tab={`${side}:${tab.key}`} aria-selected={selected}
+                aria-controls={`${storageKey}.${side}.drawer`} onClick={() => onPaneTab(side, tab.key)}>
+                {tab.icon !== undefined && <Box as="span" css={styles.paneTabIcon}><FontAwesomeIcon icon={tab.icon as IconName} /></Box>}
+                <Box as="span" css={styles.paneTabLabel}>{tab.label}</Box>
+                {tab.detail !== undefined && <>{" "}<Box as="span" css={styles.paneTabMeta}>{tab.detail}</Box></>}
+            </chakra.button>
+        );
+    };
     const strip = SIDES.flatMap((side) => {
         const dock = dockOf(side);
-        return dock !== undefined && drawn(side) ? [paneTab(side, dock)] : [];
+        if (dock === undefined || !drawn(side)) return [];
+        return dock.phoneTabs === undefined ? [paneTab(side, dock)] : dock.phoneTabs.map((tab) => ownTab(side, dock, tab));
     });
 
     return (
@@ -783,7 +815,9 @@ export function BuilderFrame(props: BuilderFrameProps) {
                 {start !== undefined && !drawn("start") && pane("start", start)}
                 {/* The region a read after cold load is in flight for (#1398, CL12): nothing covered, main busy. */}
                 <Box css={styles.main} data-frame-slot="main" aria-busy={busy === undefined ? undefined : busy && !covered}>
-                    <FrameBottomPanel.Provider value={panelOf(mainPanel)}>{children}</FrameBottomPanel.Provider>
+                    <FrameOverlaySlot.Provider value={phoneViews === true && !covered ? overlaySlot : null}>
+                        <FrameBottomPanel.Provider value={panelOf(mainPanel)}>{children}</FrameBottomPanel.Provider>
+                    </FrameOverlaySlot.Provider>
                     {scrim && <Box css={styles.scrim} data-scrim="" aria-hidden onClick={onScrim} />}
                 </Box>
                 {end !== undefined && !drawn("end") && pane("end", end)}

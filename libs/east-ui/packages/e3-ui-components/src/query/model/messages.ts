@@ -652,6 +652,17 @@ export interface QueryMessages {
     planBadge: (p: { kind: "one_shot" | "split" | "rekey"; detail: string }) => string;
     /** The plan's popover's title, and the read-out's name for a screen reader. */
     planTitle: () => string;
+    /** A phone's count line and its view (`Query Builder Phone Spec.md` QP3, QP34). */
+    notRunYet: () => string;
+    thisResult: () => string;
+    thisResultQuery: () => string;
+    thisResultGives: () => string;
+    thisResultRun: () => string;
+    thisResultReads: () => string;
+    thisResultPlan: () => string;
+    /** A phone's band of one notice (QP16). */
+    dismissNotice: () => string;
+    savedNotice: (p: { name: string; time: string }) => string;
     /**
      * A split call, and why — `Split call over orders: it weighs 1.4 GB, more
      * than one piece (16 MB).`; with a dataset cut at the same keys that weighs
@@ -1328,6 +1339,15 @@ export const queryMessages: QueryMessages = {
         return detail === "" ? word : `${word} · ${detail}`;
     },
     planTitle: () => "How this run reads its data",
+    notRunYet: () => "not run",
+    thisResult: () => "This result",
+    thisResultQuery: () => "Query",
+    thisResultGives: () => "Gives",
+    thisResultRun: () => "Run",
+    thisResultReads: () => "Reads",
+    thisResultPlan: () => "Plan",
+    dismissNotice: () => "Dismiss",
+    savedNotice: ({ name, time }) => `Saved “${name}” · ${time}`,
     planSplit: ({ over, heaviest, bytes, piece }) => (heaviest === over
         ? `Split call over ${over}: it weighs ${bytes}, more than one piece (${piece}).`
         : `Split call over ${over}: ${heaviest}, cut with it, weighs ${bytes}, more than one piece (${piece}).`),

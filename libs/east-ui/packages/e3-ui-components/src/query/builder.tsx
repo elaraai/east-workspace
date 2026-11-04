@@ -56,7 +56,7 @@ import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { StringType, checkJq, equalFor, equivalentFor, none, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import { QueryBuilderComponent, QueryBuilderPayloadType, queryKeys } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, EmptyStateView, SessionBanners, historyShortcut, historyToolbarItem, implementUIComponent, sessionErrorText, typedInto, usePersistedState,
+    BannerView, BuilderFrame, EmptyStateView, NARROW_FRAME, SessionBanners, historyShortcut, historyToolbarItem, implementUIComponent, sessionErrorText, typedInto, useContainerWidth, usePersistedState,
     useTrackedEvaluation,
     type BuilderFrameDock, type EditIssue, type EditSession, type EditingWords,
 } from "@elaraai/east-ui-components";
@@ -75,6 +75,7 @@ import { LibraryTab } from "./library-tab.js";
 import { newQuery, useOpenQuery, type OpenQueryWrite, type QueryArrival, type QueryOpen } from "./open-query.js";
 import { usePartStyles, type Styles } from "./parts.js";
 import { QueryTabPanel } from "./query-tab.js";
+import { QueryLiveBand, phoneQueryToolbar } from "./phone.js";
 import { QueryResults, ResultStrips, pickedView, resultToolbarItems, type DownloadFormat, type ResultView } from "./results.js";
 import { canonicalProgram, planRun, useQueryRun, type RunPlan } from "./run.js";
 import { QuerySavePopover } from "./save-popover.js";
@@ -212,6 +213,11 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     const workspace = useE3ConfigOptional()?.workspace;
     const [element, setElement] = useState<HTMLDivElement | null>(null);
     const bounds = useCallback(() => element, [element]);
+    // A phone's frame: the builder's own width, as the frame's is (`Query Builder Phone Spec.md`).
+    const widthRef = useRef<HTMLDivElement | null>(null);
+    const setRoot = useCallback((el: HTMLDivElement | null) => { widthRef.current = el; setElement(el); }, []);
+    const width = useContainerWidth(widthRef);
+    const phone = width > 0 && width <= NARROW_FRAME;
 
     // ── The pane: its open tab and its collapse, the builder's to drive ──
     const [tab, setTab] = useState<QueryTab>("query");
@@ -412,12 +418,14 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
 
     // ── The save state: Saved for a moment after a save, then quiet ─────
     const [fresh, setFresh] = useState(false);
+    const [savedAt, setSavedAt] = useState<Date | undefined>(undefined);
     useEffect(() => {
         let was = session.status;
         let timer: ReturnType<typeof setTimeout> | undefined;
         const unsubscribe = session.subscribe(() => {
             if (was === "reconciling" && session.status === "idle") {
                 setFresh(true);
+                setSavedAt(new Date());
                 clearTimeout(timer);
                 timer = setTimeout(() => setFresh(false), SAVED_MS);
             }
@@ -432,8 +440,11 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     const save: QuerySaveLine = { state: saveState, fresh: fresh && saveState === "saved", word: m.saveState({ state: saveState }) };
 
     // ── The layout: the builder frame (#1125) ───────────────────────────
-    const toolbar = queryToolbarItems({
-        history: historyToolbarItem({ session, words: editingWords, editing: false, onIssue, onAction }),
+    const history = historyToolbarItem({ session, words: editingWords, editing: false, onIssue, onAction });
+    const toolbar = phone ? phoneQueryToolbar({
+        history, state: run, view: output === undefined ? undefined : view, onView, onDownload, onRun, name: editor.header.name, gives: editor.gives?.text, width, words,
+    }) : queryToolbarItems({
+        history,
         copyText: () => editor.program,
         save: savePopover,
         saveFrom,
@@ -461,7 +472,20 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
             ),
     }));
     // The pane: its open tab and its collapse, the builder's to drive.
+    const openedNotice = phone && arrival !== undefined && (open.type === "saved" || open.value.from.type === "some")
+        ? editor.notices.find((notice) => notice.text === arrival.text) : undefined;
+    // A phone's one notice over the strip (QP16): the newest of a download's, a save's and the query opened's.
+    const liveBand = !phone ? undefined
+        : note !== undefined ? <QueryLiveBand text={note} saved={false} onDismiss={onDismissNote} words={words} />
+        : savedAt !== undefined ? <QueryLiveBand text={m.savedNotice({ name: editor.header.name, time: words.formatters.time(savedAt) })} saved onDismiss={() => setSavedAt(undefined)} words={words} />
+        : openedNotice !== undefined ? <QueryLiveBand text={openedNotice.text} saved={false} onDismiss={() => editor.dismiss(openedNotice.id)} words={words} />
+        : undefined;
     const queryPane: BuilderFrameDock = {
+        phoneTabs: [
+            { key: "query", label: m.tab({ tab: "query" }), icon: "diagram-project", detail: words.formatters.number(editor.query.steps.length) },
+            { key: "datasets", label: m.tab({ tab: "datasets" }), icon: "database", detail: words.formatters.number(root.entries.length) },
+            { key: "library", label: m.tab({ tab: "library" }), icon: "layer-group", detail: words.formatters.number(record.size + recent.length) },
+        ],
         label: m.pane(),
         icon: "diagram-project",
         badge: words.formatters.number(editor.query.steps.length),
@@ -475,7 +499,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     };
     const popover = editor.popover;
     return (
-        <Box ref={setElement} css={styles.root} data-query-builder="" data-query-open={sourceId} data-query-naming={naming ? "" : undefined}
+        <Box ref={setRoot} css={styles.root} data-query-builder="" data-query-open={sourceId} data-query-naming={naming ? "" : undefined}
             data-query-focus={focus === undefined ? undefined : focus.entry} onKeyDown={onKeyDown}>
             <QueryDropTarget id={id} refusal={dropRefusal} steps={dropSteps} onOpen={onDrop} words={words}>
                 <BuilderFrame
@@ -484,12 +508,13 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
                     banners={<>
                         {/* The session's: a query saved elsewhere under these edits, which its Discard takes; a Save refused. */}
                         <SessionBanners session={session} words={editingWords} onAction={onAction} />
-                        <ResultStrips state={run} stale={stale} note={note} onDismissNote={onDismissNote} onRunAgain={onRun} words={words} />
+                        <ResultStrips state={run} stale={stale} note={note} onDismissNote={onDismissNote} onRunAgain={onRun} words={words} phone={phone} />
                     </>}
                     start={queryPane}
-                    footer={<QueryStatusLine check={editor.check} gives={editor.gives} save={save} name={editor.header.name} />}
+                    phoneViews
+                    footer={phone ? liveBand : <QueryStatusLine check={editor.check} gives={editor.gives} save={save} name={editor.header.name} />}
                 >
-                    <QueryResults state={run} stale={stale} view={view ?? "table"} words={words} storageKey={storageKey} controls={controls} />
+                    <QueryResults state={run} stale={stale} view={view ?? "table"} words={words} storageKey={storageKey} controls={controls} phone={phone} />
                 </BuilderFrame>
             </QueryDropTarget>
             {popover !== undefined && element !== null && (

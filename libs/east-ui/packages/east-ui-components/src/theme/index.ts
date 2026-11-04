@@ -156,6 +156,7 @@ import { studioLibrarySlotRecipe } from "./slot-recipes/studioLibrary.js";
 import { studioPublishSlotRecipe } from "./slot-recipes/studioPublish.js";
 import { queryBuilderSlotRecipe } from "./slot-recipes/queryBuilder.js";
 import { queryResultsSlotRecipe } from "./slot-recipes/queryResults.js";
+import { queryPhoneSlotRecipe } from "./slot-recipes/queryPhone.js";
 import { queryLibrarySlotRecipe } from "./slot-recipes/queryLibrary.js";
 import { jqEditorSlotRecipe } from "./slot-recipes/jqEditor.js";
 import { stepperSlotRecipe } from "./slot-recipes/stepper.js";
@@ -310,6 +311,7 @@ const config = defineConfig({
             studioPublish:   studioPublishSlotRecipe,
             queryBuilder:    queryBuilderSlotRecipe,
             queryResults:    queryResultsSlotRecipe,
+            queryPhone:      queryPhoneSlotRecipe,
             queryLibrary:    queryLibrarySlotRecipe,
             jqEditor:        jqEditorSlotRecipe,
             stepper:         stepperSlotRecipe,

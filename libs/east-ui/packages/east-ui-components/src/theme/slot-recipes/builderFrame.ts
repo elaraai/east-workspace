@@ -248,6 +248,7 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             order: 1,
             flex: "none",
             display: "flex",
+            containerType: "inline-size",
             height: "calc(44px + env(safe-area-inset-bottom, 0px))",
             paddingBottom: "env(safe-area-inset-bottom, 0px)",
             background: "bg.surface",
@@ -279,7 +280,11 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             _focusVisible: { outline: "none", boxShadow: "focusInset" },
             "&[aria-selected=true]": { color: "fg", borderBottomColor: "fg" },
         },
-        paneTabIcon: { display: "inline-flex", flexShrink: 0, fontSize: "14px", "[data-active] > &": { color: "brand.solid" } },
+        paneTabIcon: {
+            display: "inline-flex", flexShrink: 0, fontSize: "14px", "[data-active] > &": { color: "brand.solid" },
+            /* Three tabs on a strip have room for their icons only from 360 (QP17). */
+            "@container (max-width: 359px)": { "[data-pane-tab*=':'] > &": { display: "none" } },
+        },
         /* Its label whole: the tab's name. What follows it, whole or not at all, in the room it leaves. */
         paneTabLabel: {
             flexShrink: 0, whiteSpace: "nowrap",

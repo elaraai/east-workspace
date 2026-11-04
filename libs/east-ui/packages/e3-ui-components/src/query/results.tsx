@@ -192,6 +192,8 @@ export interface QueryResultsProps {
     readonly storageKey: string;
     /** The result's controls, for the band ({@link resultToolbarItems}). */
     readonly controls: readonly ToolbarItem[];
+    /** A phone's: no band and no footer, whose parts have moved to the first row and *This result* (QP3, QP4). */
+    readonly phone?: boolean | undefined;
 }
 
 /**
@@ -200,7 +202,7 @@ export interface QueryResultsProps {
  * @param props - The run, whether it is stale, the view, the words and the result's controls ({@link QueryResultsProps})
  * @returns The results
  */
-export const QueryResults = memo(function QueryResults({ state, stale, view, words, storageKey, controls }: QueryResultsProps) {
+export const QueryResults = memo(function QueryResults({ state, stale, view, words, storageKey, controls, phone = false }: QueryResultsProps) {
     const m = words.messages;
     const styles = useSlotRecipe({ key: "queryResults" })() as Styles;
     // The band a Library draws over its cards: as tall as the pane's tab row, which it lines up with.
@@ -269,11 +271,11 @@ export const QueryResults = memo(function QueryResults({ state, stale, view, wor
 
     return (
         <Box ref={rootRef} css={styles.root} data-query-results="" data-query-results-view={output === undefined ? undefined : view} data-width={width}>
-            <Box css={band.toolbar} role="toolbar" aria-label={m.resultControls()} data-slot="toolbar" data-query-results-bar="">
+            {!phone && <Box css={band.toolbar} role="toolbar" aria-label={m.resultControls()} data-slot="toolbar" data-query-results-bar="">
                 <Toolbar items={controls} />
-            </Box>
+            </Box>}
             <Box css={styles.body} data-stale={stale && output !== undefined ? "" : undefined}>{body}</Box>
-            <Box css={styles.footer} data-query-results-footer="">
+            {!phone && <Box css={styles.footer} data-query-results-footer="">
                 <Box as="span" css={styles.footerCount} data-query-result-count="">{footer.count}</Box>
                 {footer.fields !== "" && <Box as="span" css={styles.footerFields} data-query-result-fields="">{footer.fields}</Box>}
                 <Box css={styles.footerSpacer} />
@@ -288,7 +290,7 @@ export const QueryResults = memo(function QueryResults({ state, stale, view, wor
                     </Tip>
                 )}
                 {footer.reads !== "" && <Box as="span" css={styles.footerReads} data-query-result-reads="">{footer.reads}</Box>}
-            </Box>
+            </Box>}
         </Box>
     );
 });
@@ -307,6 +309,8 @@ export interface ResultStripsProps {
     readonly onRunAgain: () => void;
     /** The words. */
     readonly words: QueryWords;
+    /** A phone's: its note in the band over the strip instead (QP16). */
+    readonly phone?: boolean | undefined;
 }
 
 /**
@@ -319,7 +323,7 @@ export interface ResultStripsProps {
  * @param props - The run, whether it is stale, the note and the words ({@link ResultStripsProps})
  * @returns The strips
  */
-export const ResultStrips = memo(function ResultStrips({ state, stale, note, onDismissNote, onRunAgain, words }: ResultStripsProps) {
+export const ResultStrips = memo(function ResultStrips({ state, stale, note, onDismissNote, onRunAgain, words, phone = false }: ResultStripsProps) {
     const m = words.messages;
     const styles = useSlotRecipe({ key: "queryResults" })() as Styles;
     // The note's close draws its xmark at the size Chakra's icon took in a 2xs button.
@@ -333,7 +337,7 @@ export const ResultStrips = memo(function ResultStrips({ state, stale, note, onD
                     <Box as="span" css={styles.stripTag}>{m.staleTag()}</Box>
                     <Box as="span" css={styles.stripText}>{m.staleResult()}</Box>
                     <Button size="xs" variant="ghost" colorPalette="brand" css={styles.stripAction} data-query-run-again="" onClick={onRunAgain}>
-                        {m.runAgain()}<Box as="span" css={styles.stripKeys}>{m.runKeys()}</Box>
+                        {m.runAgain()}{!phone && <Box as="span" css={styles.stripKeys}>{m.runKeys()}</Box>}
                     </Button>
                 </Box>
             )}
@@ -346,7 +350,7 @@ export const ResultStrips = memo(function ResultStrips({ state, stale, note, onD
                     </Box>
                 </Box>
             )}
-            {note !== undefined && (
+            {note !== undefined && !phone && (
                 <Box css={styles.strip} data-tone="note" role="status">
                     <Box as="span" css={styles.stripIcon} aria-hidden><FontAwesomeIcon icon={faCircleInfo} /></Box>
                     <Box as="span" css={styles.stripText}>{note}</Box>

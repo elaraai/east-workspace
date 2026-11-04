@@ -225,9 +225,11 @@ for (const theme of ["light", "dark"] as const) {
                 if (found.length > 0) faults[`${route} in its box`] = found;
                 const frame = entry.locator(ROOT).first();
                 const tabs = frame.locator("[data-pane-tab]");
-                const sides = await tabs.evaluateAll((els) => els.map((el) => el.getAttribute("data-pane-tab")!));
-                for (const side of sides) {
-                    const tab = frame.locator(`[data-pane-tab='${side}']`);
+                const keys = await tabs.evaluateAll((els) => els.map((el) => el.getAttribute("data-pane-tab")!));
+                for (const key of keys) {
+                    // A strip tab per pane, or, a single pane's, one per its own tabs: `start:query`.
+                    const side = key.split(":")[0]!;
+                    const tab = frame.locator(`[data-pane-tab='${key}']`);
                     await tab.click();
                     await settled(page);
                     expect(await drawerAt(entry, side), `${route}: ${side}'s drawer open`).toEqual({ open: true, height: true, width: true });
