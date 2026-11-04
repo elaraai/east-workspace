@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
-import { eastOwnDirs, get_location, normalizeFramePath, resolveLocIds, setLocationBasePath, setLocationCapture, SourceMap } from "./location.js";
+import { eastOwnDirs, get_location, locationsFromStack, normalizeFramePath, resolveLocIds, setLocationBasePath, setLocationCapture, SourceMap } from "./location.js";
 
 describe("normalizeFramePath", () => {
   // Reset to the automatic (cwd) base after every test so cases don't leak.
@@ -374,6 +374,32 @@ describe("setLocationCapture (#834)", () => {
     assert.ok(errorsConstructedBy(body) > 0, "with capture on, every node constructs one");
     setLocationCapture(false);
     assert.equal(errorsConstructedBy(body), 0);
+  });
+});
+
+describe("locationsFromStack", () => {
+  afterEach(() => setLocationBasePath(undefined));
+  const stack = "Error\n    at build (/home/u/proj/src/app.ts:3:9)\n    at node:internal/main:1:1\n    at /opt/other/lib.ts:7:2";
+
+  test("a stack read again gives the same locations, its own array each time", () => {
+    setLocationBasePath("/home/u/proj");
+    const first = locationsFromStack(stack);
+    const second = locationsFromStack(stack);
+    assert.deepEqual(first, [
+      { filename: "src/app.ts", line: 3n, column: 9n },
+      { filename: "/opt/other/lib.ts", line: 7n, column: 2n },
+    ]);
+    assert.deepEqual(second, first);
+    assert.notEqual(second, first);
+  });
+
+  test("a line read before a new base is named against the new base", () => {
+    setLocationBasePath("/home/u/proj");
+    assert.equal(locationsFromStack(stack)[0]!.filename, "src/app.ts");
+    setLocationBasePath("/home/u");
+    assert.equal(locationsFromStack(stack)[0]!.filename, "proj/src/app.ts");
+    setLocationBasePath("/elsewhere");
+    assert.equal(locationsFromStack(stack)[0]!.filename, "/home/u/proj/src/app.ts");
   });
 });
 
