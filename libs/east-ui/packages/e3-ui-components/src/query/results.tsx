@@ -338,6 +338,8 @@ export interface ResultStripsProps {
     /** A phone's: the run the rows below are from, and when. */
     readonly shownRun?: number | undefined;
     readonly shownAt?: Date | undefined;
+    /** A phone's: the first problem in the steps' plain words, for a run the checker refused (5d). */
+    readonly problem?: { readonly n: number; readonly text: string } | undefined;
 }
 
 /**
@@ -350,7 +352,7 @@ export interface ResultStripsProps {
  * @param props - The run, whether it is stale, the note and the words ({@link ResultStripsProps})
  * @returns The strips
  */
-export const ResultStrips = memo(function ResultStrips({ state, stale, note, onDismissNote, onRunAgain, words, phone = false, onShowProblem, shownRun, shownAt }: ResultStripsProps) {
+export const ResultStrips = memo(function ResultStrips({ state, stale, note, onDismissNote, onRunAgain, words, phone = false, onShowProblem, shownRun, shownAt, problem }: ResultStripsProps) {
     const m = words.messages;
     const styles = useSlotRecipe({ key: "queryResults" })() as Styles;
     // The note's close draws its xmark at the size Chakra's icon took in a 2xs button.
@@ -371,7 +373,7 @@ export const ResultStrips = memo(function ResultStrips({ state, stale, note, onD
             {failure !== undefined && phone && (
                 <Box css={styles.phoneNotRun} data-tone="error" role="alert" data-query-not-run="">
                     <Box css={styles.phoneNotRunHead}><FontAwesomeIcon icon={faCircleExclamation} aria-hidden /><span>{m.notRun()}</span></Box>
-                    <Box css={styles.phoneNotRunText}>{state.status === "failed" && state.reason === "unreachable" ? `${failure.title}.` : failure.message === "" ? failure.title : /[.!?]$/.test(failure.message) ? failure.message : `${failure.message}.`}{shownRun !== undefined && shownAt !== undefined && ` ${m.rowsFromRun({ n: words.formatters.bare(shownRun), time: words.formatters.time(shownAt) })}`}</Box>
+                    <Box css={styles.phoneNotRunText}>{failure.title === m.notRunProblems() && problem !== undefined ? m.checkerFound({ n: problem.n, count: words.formatters.number(problem.n), text: problem.text }) : state.status === "failed" && state.reason === "unreachable" ? `${failure.title}.` : failure.message === "" ? failure.title : /[.!?]$/.test(failure.message) ? failure.message : `${failure.message}.`}{shownRun !== undefined && shownAt !== undefined && ` ${m.rowsFromRun({ n: words.formatters.bare(shownRun), time: words.formatters.time(shownAt) })}`}</Box>
                     {failure.title === m.notRunProblems() && onShowProblem !== undefined
                         ? <chakra.button type="button" css={styles.phoneNotRunLink} onClick={onShowProblem}>{m.showProblem()} →</chakra.button>
                         : <chakra.button type="button" css={styles.phoneNotRunLink} onClick={onRunAgain}>{m.runAgain()} →</chakra.button>}

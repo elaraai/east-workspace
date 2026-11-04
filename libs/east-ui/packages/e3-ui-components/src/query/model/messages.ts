@@ -668,6 +668,7 @@ export interface QueryMessages {
     stepActions: () => string;
     backToStep: () => string;
     removeCondition: () => string;
+    checkerFound: (p: { n: number; count: string; text: string }) => string;
     clearSearchEvery: () => string;
     rowsFromRun: (p: { n: string; time: string }) => string;
     showProblem: () => string;
@@ -1385,6 +1386,7 @@ export const queryMessages: QueryMessages = {
     stepActions: () => "Step actions",
     backToStep: () => "Back to the step",
     removeCondition: () => "Remove condition",
+    checkerFound: ({ n, count, text }) => `The checker found ${count} ${n === 1 ? "problem" : "problems"}: ${text.charAt(0).toLowerCase()}${text.slice(1)}`,
     clearSearchEvery: () => "Clear the search to see every query.",
     rowsFromRun: ({ n, time }) => `The rows below are from run #${n} at ${time}.`,
     showProblem: () => "Show the problem",

@@ -549,8 +549,18 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     };
     const popover = editor.popover;
     const shownRun = lastRun.current;
+    // The steps' own words for what the checker refused, as a phone's Not run says it (5d).
+    const firstProblem = useMemo(() => {
+        const found: string[] = [];
+        const walk = (lines: Card["lines"]) => { for (const line of lines) {
+            for (const problem of line.problems) if (problem.severity === "error") found.push(problem.text);
+            walk(line.lines ?? []);
+        } };
+        for (const card of editor.cards) walk(card.lines);
+        return found[0] === undefined ? undefined : { n: found.length, text: found[0] };
+    }, [editor.cards]);
     const phoneStrips = useMemo(() => (phone ? <ResultStrips state={run} stale={stale} note={note} onDismissNote={onDismissNote} onRunAgain={onRun} words={words} phone
-        onShowProblem={onShowQuery} shownRun={shownRun} shownAt={lastRunAt.current} /> : undefined), [phone, run, stale, note, onDismissNote, onRun, words, onShowQuery, shownRun]);
+        onShowProblem={onShowQuery} shownRun={shownRun} shownAt={lastRunAt.current} problem={firstProblem} /> : undefined), [phone, run, stale, note, onDismissNote, onRun, words, onShowQuery, shownRun, firstProblem]);
     // A picker's view on a phone (QP34): what it is for; Add a step's Quick add's five first, each row its name alone.
     const phoneContext = useMemo(() => {
         if (popover === undefined) return undefined;

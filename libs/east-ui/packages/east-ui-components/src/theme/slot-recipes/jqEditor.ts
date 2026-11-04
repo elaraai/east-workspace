@@ -205,7 +205,7 @@ export const jqEditorSlotRecipe = defineSlotRecipe({
             overflow: "hidden",
             /* A phone's dock between the code and the foot (QP32): three 44 rows, then the active one's doc. */
             "[data-jq-phone] &": {
-                position: "static", flex: "none", width: "100%", border: "none", borderRadius: "0", boxShadow: "none",
+                position: "static", flex: "none", width: "100%", minWidth: "100%", maxWidth: "100%", alignSelf: "stretch", border: "none", borderRadius: "0", boxShadow: "none",
                 borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle",
                 "& [role=listbox]": { maxHeight: "132px", padding: "0" }, "& [role=option]": { minHeight: "44px" }, "& kbd": { display: "none" },
             },
@@ -341,6 +341,8 @@ export const jqEditorSlotRecipe = defineSlotRecipe({
             display: "flex",
             alignItems: "baseline",
             gap: "{spacing.2}",
+            /* A phone's: its position, then its code (QP32). */
+            "[data-jq-phone] &": { flexDirection: "row-reverse", justifyContent: "flex-end" },
         },
         problemCode: {
             fontFamily: "mono",
@@ -365,6 +367,8 @@ export const jqEditorSlotRecipe = defineSlotRecipe({
             fontSize: "xs",
             color: INK_2,
             textWrap: "pretty",
+            /* A phone's: 13 in ink (QP32). */
+            "[data-jq-phone] &": { fontFamily: "body", fontSize: "body", color: "fg", lineHeight: "20px" },
         },
         problemFixes: {
             display: "flex",
