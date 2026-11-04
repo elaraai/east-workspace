@@ -53,9 +53,9 @@ test("on a phone Filters opens its view over the builder, never a popover: a row
         await press(status);
         const editor = view(container)!.querySelector<HTMLElement>("[data-slice-filters-editor]")!;
         expect(editor).not.toBeNull();
-        await press(within(editor).getByText("on_hold").closest("button")!);
+        await press(within(editor).getByText("On hold").closest("button")!);
         const row = view(container)!.querySelector<HTMLElement>("[data-slice-section][data-record-slice-field=status]")!;
-        expect(row.textContent).toContain("on_hold");
+        expect(row.textContent).toContain("On hold");
         expect(row.textContent).toContain("Applied");
         expect(view(container)!.querySelector("[data-filters-active]")?.textContent).toBe("1 active");
         // Clear all clears it, and the view stays open.

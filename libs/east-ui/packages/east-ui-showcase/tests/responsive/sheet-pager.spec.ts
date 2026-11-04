@@ -173,7 +173,7 @@ test.describe("A phone's Sheet filters", () => {
         await frame.locator("[data-rail-phone]").first().click();
         const view = frame.locator('[data-frame-slot="overlay"]');
         await view.getByText("Status", { exact: true }).first().click();
-        await expect(view.getByText("In progress").first()).toBeVisible();
+        await expect(view.getByText("In progress", { exact: true }).locator("visible=true").first()).toBeVisible();
         await expect(view.getByText("in_progress")).toHaveCount(0);
     });
 });
