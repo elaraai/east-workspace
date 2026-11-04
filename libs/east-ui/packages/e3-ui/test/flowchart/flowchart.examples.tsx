@@ -4,225 +4,222 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType,
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, StringType, StructType, VariantType,
     example, none, some, variant,
 } from "@elaraai/east";
-import { Badge, Box, Button, Configurator, Editing, HStack, Reactive, Slice, State, Switch, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Badge, Box, Fields, Reactive, Slice, State, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Flowchart, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
 // ============================================================================
-// The Flowchart's examples (#1251): the one `<Flowchart>`, each in its frame —
-// one toolbar holding every control the flowchart has, the banners, the open
-// flow's canvas in main, the footer, and the panes it is given. The slots of
-// EXAMPLES_AUTHORING.md §8, few and full (FB40):
+// The Flowchart's examples (#1500, `Flowchart Records Spec.md` §2): one
+// flowchart over the app's records — its states and its transitions, and
+// beside them its lanes and its decisions, each a record of the app's keyed by
+// String, its rows the app's own type and its fields mapped to the
+// Flowchart's roles. No record here holds a type of the Flowchart's.
 //
-// - `flowchartFlows`, the front door: a record of the depot's flows by name,
-//   and its Flows tab (§3.1);
-// - `flowchartVariants`, THE configurator: the legend, the minimap and read
-//   only as axes over the host's flows (`data`), which its `onApply` commits,
-//   the selection and a traced path heard in its aside;
-// - `flowchartLibrary`, the depot's flows (§3.3): the Flows tab, the step and
-//   transition templates and the decisions' owners, each a record of its own
-//   that one rail narrows, each card dropped on the canvas;
-// - `flowchartDepot`, a flow from the host's tables (§3.4): decisions,
-//   evidence, a state class, an in-place transition and an unresolved one,
-//   read only;
-// - `flowchartHandover`, the host's one flow, top down, with no pane;
-// - `flowchartDetail`, a record's one flow edited on the canvas, a
-//   connection veto, and a state's and a transition's own Details.
+// - `flowchartDwell`, the front door: the states, the transitions and the
+//   lanes, three records read whole, read only;
+// - `flowchartDepot`, the depot in full: the states and the transitions read
+//   through their sources of the rail and edited through their patch doors, a
+//   preset narrowing both to one flow; the lanes and the decisions read
+//   whole; and the library's Steps, Transitions, Lanes and Owners tabs, each
+//   list of cards following its own source;
+// - `flowchartDepotEditing`, the four records bound editable and read whole,
+//   and the app's check on a drafted state;
+// - `flowchartDepotDimmed`, the rail's choices drawn as context: every row
+//   read through its source, those the narrowing leaves out faded;
+// - `flowchartDepotPhone`, the depot at a phone's width;
+// - `flowchartDepotTopDown`, the depot read only and top down, its minimap
+//   drawn, no pane, and each selection and traced path heard by the host;
+// - `flowchartWording`, the depot in its own words (#1516): each kind named by
+//   its own `name`, and `vocabulary` naming a transition's planned and
+//   observed kinds.
 //
-// Its panes are optional props, and the examples show each combination: none
-// (`flowchartHandover`), a library (`flowchartVariants`), an inspector
-// (`flowchartDepot`, read only; `flowchartDetail`, its own Details), and both
-// (`flowchartFlows`, `flowchartLibrary`). Between them, one flow
-// (`flowchartHandover`, `flowchartDepot`, `flowchartDetail`) and many
-// (`flowchartFlows`, `flowchartVariants`, `flowchartLibrary`).
-//
-// Every flowchart binds its flows from e3, so each runs on e3-web in the
-// showcase (§2a): a record of flows written with `Flowchart.values`, whose
-// patch mutation every Save commits through; an input of one flow written
-// with `Flowchart.value`; or the host's tables, each an input. A flowchart's
-// narrowing is one `Slice.bindRecords` (#1346): a `flows` source over a record
-// of flows narrows the Flows tab, which pages it, and each other source the
-// templates list or the tab that names it; the host's tables are never
-// narrowed. `State` holds only what the viewer owns: the configurator's axes
-// and what it heard.
-//
-// A flowchart fills its parent, as a ui task's page fills the window: each
-// example gives it a box of its own height. One page shows them all, so every
-// flowchart but the first is named (`name`), and keeps its viewer's state
-// apart.
+// Each binds its records from e3, so the showcase draws each on e3-web. A
+// flowchart fills its parent, as a ui task's page fills the window: each
+// example gives it a box of its own height, and its own `name`, which keeps
+// its viewer's state apart on a page showing them all. Every figure is made
+// up.
 // ============================================================================
 
-// The depot's flows, by name: each a whole flowchart, written as literals and
-// checked when the package builds.
-export const depotFlows = e3.record("flowchart_depot_flows", Flowchart.Types.Flows, {
-    initial: Flowchart.values({
-        "Inbound parcels": {
-            description: "From the trailer to the van",
-            lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "load", label: "Load" }],
-            states: [
-                { key: "ARV", label: "Arrived", lane: "intake" },
-                { key: "SCN", label: "Scanned", lane: "intake" },
-                { key: "CH*", label: "Sort chutes", lane: "sort", members: 12n },
-                { key: "LDD", label: "Loaded", lane: "load" },
-            ],
-            links: [
-                { from: "ARV", to: "SCN" },
-                { from: "SCN", to: "CH*", trigger: "route" },
-                { from: "CH*", to: "LDD" },
-                { from: "SCN", to: "SCN", kind: "observed" },
-            ],
-            triggers: [{ key: "route", label: "route", owner: "sort-planner" }],
-        },
-        "Returns": {
-            description: "From the counter back to the sender",
-            lanes: [{ key: "counter", label: "Counter" }, { key: "check", label: "Check" }, { key: "out", label: "Out" }],
-            states: [
-                { key: "RCV", label: "Received", lane: "counter" },
-                { key: "INS", label: "Inspected", lane: "check" },
-                { key: "RSD", label: "Resent", lane: "out" },
-            ],
-            links: [{ from: "RCV", to: "INS" }, { from: "INS", to: "RSD" }, { from: "INS", to: "BIN", kind: "observed" }],
-        },
-    }),
-    mutations: (mutation) => ({
-        patch: mutation.patch(),
-    }),
+// The depot's states, transitions, lanes and decisions: four records of the app's, keyed by String. A state's key
+// is its code; a transition names its ends by their keys and its decision by the decision's, and a state its lane by
+// the lane's.
+export const DepotState = StructType({
+    name: StringType,                         // what its card calls it
+    phase: StringType,                        // the lane it stands in, by the lane's key
+    seq: FloatType,                           // its place in its lane
+    slots: OptionType(IntegerType),           // a class of interchangeable states: the ×N badge
+    flow: StringType,                         // the flow it belongs to: one record holds the depot's flows
 });
-
-// A lone flow, edited on the canvas: a record of flows with one entry, bound
-// with its patch mutation.
-export const collectionFlows = e3.record("flowchart_collection_flows", Flowchart.Types.Flows, {
-    initial: Flowchart.values({
-        "Collections": {
-            description: "From the booking to the depot's door",
-            lanes: [{ key: "book", label: "Book" }, { key: "van", label: "Van" }, { key: "depot", label: "Depot" }],
-            states: [
-                { key: "BKD", label: "Booked", lane: "book" },
-                { key: "CLD", label: "Collected", lane: "van" },
-                { key: "RCV", label: "Received", lane: "depot" },
-            ],
-            links: [{ key: "BKD→CLD", from: "BKD", to: "CLD" }, { key: "CLD→RCV", from: "CLD", to: "RCV" }],
-        },
-    }),
-    mutations: (mutation) => ({
-        patch: mutation.patch(),
-    }),
+export const DepotTransition = StructType({
+    src: StringType,                          // the state it leaves, by its key
+    dst: StringType,                          // the state it enters
+    kind: VariantType({ planned: NullType, observed: NullType }),
+    trigger: OptionType(StringType),          // the decision that governs it, by its key
+    volume: OptionType(FloatType),            // the parcels measured on it
+    n: OptionType(IntegerType),               // the moves behind them
+    at: OptionType(DateTimeType),             // when they were measured
+    flow: StringType,
 });
+export const DepotLane = StructType({ label: StringType, seq: FloatType });
+export const DepotDecision = StructType({ name: StringType, owner: StringType });
 
-// One flow, for an app that has only one: the host's, read only.
-export const handoverFlow = e3.input("flowchart_handover", Flowchart.Types.Flow, variant("value", Flowchart.value({
-    description: "From the last scan to the driver's signature",
-    lanes: [{ key: "load", label: "Load" }, { key: "road", label: "Road" }, { key: "door", label: "Door" }],
-    states: [
-        { key: "LDD", label: "Loaded", lane: "load" },
-        { key: "DSP", label: "Dispatched", lane: "road" },
-        { key: "DLV", label: "Delivered", lane: "door" },
-        { key: "RTN", label: "Returned", lane: "door" },
-    ],
-    links: [
-        { from: "LDD", to: "DSP" },
-        { from: "DSP", to: "DLV", trigger: "attempt" },
-        { from: "DSP", to: "RTN", kind: "observed", trigger: "attempt" },
-    ],
-    triggers: [{ key: "attempt", label: "attempt", owner: "driver" }],
-})));
-
-// The library's records (#1248, #1346): each tab its own bound data, apart
-// from the flows and from the other tabs — the step types by code, the
-// transition types by name and the roles that own a decision, each a record
-// of its own, its cards its rows by key, and each indexed on the field the
-// rail narrows it by.
-export const StepTemplate = StructType({ name: StringType, kind: StringType, slots: OptionType(IntegerType) });
-export const stepTemplates = e3.record("flowchart_step_templates", DictType(StringType, StepTemplate), {
+export const depotStates = e3.record("flowchart_depot_states", DictType(StringType, DepotState), {
     initial: new Map([
-        ["ARV", { name: "Arrived", kind: "Intake", slots: none }],
-        ["SCN", { name: "Scanned", kind: "Intake", slots: none }],
-        ["CH*", { name: "Sort chutes", kind: "Sort", slots: some(12n) }],
-        ["HLD", { name: "Held", kind: "Hold", slots: none }],
-        ["LDD", { name: "Loaded", kind: "Load", slots: none }],
+        ["ARV", { name: "Arrived", phase: "intake", seq: 1, slots: none, flow: "Parcels" }],
+        ["SCN", { name: "Scanned", phase: "intake", seq: 2, slots: none, flow: "Parcels" }],
+        ["IND", { name: "Inducted", phase: "induct", seq: 1, slots: none, flow: "Parcels" }],
+        ["LBL", { name: "Relabelled", phase: "induct", seq: 2, slots: none, flow: "Parcels" }],
+        ["CH*", { name: "Sort chutes (class)", phase: "sort", seq: 1, slots: some(14n), flow: "Parcels" }],
+        ["SRD", { name: "Sorted", phase: "sort", seq: 2, slots: none, flow: "Parcels" }],
+        ["HLD", { name: "Held", phase: "hold", seq: 1, slots: none, flow: "Parcels" }],
+        ["CLR", { name: "Cleared", phase: "hold", seq: 2, slots: none, flow: "Parcels" }],
+        ["LDD", { name: "Loaded", phase: "dispatch", seq: 1, slots: none, flow: "Parcels" }],
+        ["DSP", { name: "Dispatched", phase: "dispatch", seq: 2, slots: none, flow: "Parcels" }],
+        // The returns flow's states, beside the parcels'.
+        ["RCV", { name: "Received", phase: "intake", seq: 3, slots: none, flow: "Returns" }],
+        ["INS", { name: "Inspected", phase: "hold", seq: 3, slots: none, flow: "Returns" }],
+        ["RSD", { name: "Resent", phase: "dispatch", seq: 3, slots: none, flow: "Returns" }],
     ]),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
     indexes: (index) => ({
-        flowchart_steps_by_kind: index.on(["kind"]),
-    }),
-    mutations: (mutation) => ({
-        // The step types' patch door: what another writer adds a step type through, the Steps tab's cards following.
-        patch: mutation.patch(),
+        flowchart_states_by_flow: index.on(["flow"]),
+        flowchart_states_by_lane: index.on(["flow", "phase"]),
     }),
 });
-export const MoveTemplate = StructType({ kind: Flowchart.Types.Kind, decision: OptionType(StringType), note: StringType });
-export const moveTemplates = e3.record("flowchart_move_templates", DictType(StringType, MoveTemplate), {
+export const depotTransitions = e3.record("flowchart_depot_transitions", DictType(StringType, DepotTransition), {
     initial: new Map([
-        ["Observed", { kind: variant("observed", null), decision: none, note: "Mined from the scans" }],
-        ["Planned", { kind: variant("planned", null), decision: none, note: "The designed path" }],
-        ["Routed", { kind: variant("planned", null), decision: some("route"), note: "Governed by the route decision" }],
+        ["l1", { src: "ARV", dst: "SCN", kind: variant("planned", null), trigger: none, volume: some(18460), n: some(412n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+        ["l2", { src: "SCN", dst: "IND", kind: variant("planned", null), trigger: none, volume: some(18390), n: some(409n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+        // In place: parcels inducted again, counted but not weighed.
+        ["l3", { src: "IND", dst: "IND", kind: variant("observed", null), trigger: none, volume: none, n: some(2n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+        ["l4", { src: "IND", dst: "CH*", kind: variant("planned", null), trigger: some("route"), volume: some(17350), n: some(386n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+        ["l5", { src: "CH*", dst: "SRD", kind: variant("planned", null), trigger: none, volume: some(18210), n: some(405n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+        ["l6", { src: "SRD", dst: "HLD", kind: variant("planned", null), trigger: none, volume: some(8420), n: some(188n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+        ["l7", { src: "HLD", dst: "CLR", kind: variant("planned", null), trigger: some("customs"), volume: some(8350), n: some(186n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+        ["l8", { src: "CLR", dst: "LDD", kind: variant("planned", null), trigger: none, volume: some(8240), n: some(183n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+        ["l9", { src: "LDD", dst: "DSP", kind: variant("planned", null), trigger: none, volume: some(17030), n: some(378n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+        // Its far end names a state no row is keyed by: drawn as a ghost, and listed in Issues.
+        ["l10", { src: "DSP", dst: "DLV", kind: variant("planned", null), trigger: none, volume: none, n: none, at: none, flow: "Parcels" }],
+        // Observed, not planned: parcels relabelled before they are sorted.
+        ["l11", { src: "IND", dst: "LBL", kind: variant("observed", null), trigger: none, volume: some(980), n: some(22n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+        ["l12", { src: "LBL", dst: "CH*", kind: variant("observed", null), trigger: none, volume: some(975), n: some(22n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+        ["l13", { src: "SRD", dst: "LDD", kind: variant("planned", null), trigger: none, volume: some(8790), n: some(195n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Parcels" }],
+        ["r1", { src: "RCV", dst: "INS", kind: variant("planned", null), trigger: none, volume: some(640), n: some(15n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Returns" }],
+        ["r2", { src: "INS", dst: "RSD", kind: variant("planned", null), trigger: none, volume: some(610), n: some(14n), at: some(new Date("2026-06-30T00:00:00Z")), flow: "Returns" }],
     ]),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
     indexes: (index) => ({
-        flowchart_moves_by_kind: index.on(["kind"]),
+        flowchart_transitions_by_flow: index.on(["flow"]),
     }),
 });
+export const depotLanes = e3.record("flowchart_depot_lanes", DictType(StringType, DepotLane), {
+    initial: new Map([
+        ["intake", { label: "Intake", seq: 1 }], ["induct", { label: "Induct", seq: 2 }], ["sort", { label: "Sort", seq: 3 }],
+        ["hold", { label: "Hold", seq: 4 }], ["dispatch", { label: "Dispatch", seq: 5 }],
+    ]),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+export const depotDecisions = e3.record("flowchart_depot_decisions", DictType(StringType, DepotDecision), {
+    initial: new Map([["route", { name: "route", owner: "sort-planner" }], ["customs", { name: "customs", owner: "customs-desk" }]]),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+// Two records a flowchart can bind beside the depot's: its lanes as the sort plan fixes them, whose door refuses every
+// change; and its decisions with the states queued at each.
+/** The depot's lanes as the sort plan fixes them: the same lanes, which no Save changes. */
+export const depotFixedLanes = e3.record("flowchart_depot_fixed_lanes", DictType(StringType, DepotLane), {
+    initial: new Map([
+        ["intake", { label: "Intake", seq: 1 }], ["induct", { label: "Induct", seq: 2 }], ["sort", { label: "Sort", seq: 3 }],
+        ["hold", { label: "Hold", seq: 4 }], ["dispatch", { label: "Dispatch", seq: 5 }],
+    ]),
+    mutations: (mutation) => ({
+        // A checked door: it refuses every change, naming why — what a Save over these lanes is answered.
+        patch: mutation.reduce(East.function([DictType(StringType, DepotLane), PatchType(DictType(StringType, DepotLane))], DictType(StringType, DepotLane), ($, lanes, _patch) => {
+            $.error("the lanes are fixed by the sort plan");
+            return lanes;
+        })),
+    }),
+});
+/** A decision with the states queued at it, by key: a state's Del takes its key out of the queue. */
+export const DepotQueuedDecision = StructType({ name: StringType, owner: StringType, queue: ArrayType(StringType) });
+export const depotQueuedDecisions = e3.record("flowchart_depot_queued_decisions", DictType(StringType, DepotQueuedDecision), {
+    initial: new Map([
+        ["route", { name: "route", owner: "sort-planner", queue: ["IND", "SRD"] }],
+        ["customs", { name: "customs", owner: "customs-desk", queue: ["HLD"] }],
+    ]),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+// The library's cards, records the app's users keep: each a name, a group and the values a new row takes — a state's
+// every field but its lane and its place, a transition's every field but its ends.
+export const StepCard = StructType({
+    name: StringType,
+    group: StringType,
+    values: StructType({ name: StringType, slots: OptionType(IntegerType), flow: StringType }),
+});
+export const MoveCard = StructType({
+    name: StringType,
+    group: StringType,
+    values: StructType({
+        kind: VariantType({ planned: NullType, observed: NullType }), trigger: OptionType(StringType),
+        volume: OptionType(FloatType), n: OptionType(IntegerType), at: OptionType(DateTimeType), flow: StringType,
+    }),
+});
+export const stepCards = e3.record("flowchart_step_cards", DictType(StringType, StepCard), {
+    initial: new Map([
+        ["scan", { name: "Scan point", group: "Intake", values: { name: "Scan point", slots: none, flow: "Parcels" } }],
+        ["chutes", { name: "Sort chutes", group: "Sort", values: { name: "Sort chutes", slots: some(12n), flow: "Parcels" } }],
+        ["desk", { name: "Exception desk", group: "Hold", values: { name: "Exception desk", slots: none, flow: "Parcels" } }],
+    ]),
+    indexes: (index) => ({ flowchart_step_cards_by_group: index.on(["group"]) }),
+});
+export const moveCards = e3.record("flowchart_move_cards", DictType(StringType, MoveCard), {
+    initial: new Map([
+        ["planned", { name: "Planned", group: "Kinds",
+            values: { kind: variant("planned", null), trigger: none, volume: none, n: none, at: none, flow: "Parcels" } }],
+        ["reroute", { name: "Observed reroute", group: "Kinds",
+            values: { kind: variant("observed", null), trigger: none, volume: none, n: none, at: none, flow: "Parcels" } }],
+        ["routed", { name: "Routed by the sort plan", group: "Decisions",
+            values: { kind: variant("planned", null), trigger: some("route"), volume: none, n: none, at: none, flow: "Parcels" } }],
+    ]),
+    indexes: (index) => ({ flowchart_move_cards_by_group: index.on(["group"]) }),
+});
+// The Lanes tab's cards: one dropped between two lanes adds a lane there, from its values — a lane's every field but its place.
+export const LaneCard = StructType({ name: StringType, group: StringType, values: StructType({ label: StringType }) });
+export const laneCards = e3.record("flowchart_lane_cards", DictType(StringType, LaneCard), {
+    initial: new Map([
+        ["returns", { name: "Returns", group: "Lanes", values: { label: "Returns" } }],
+        ["check", { name: "Quality check", group: "Lanes", values: { label: "Quality check" } }],
+    ]),
+    indexes: (index) => ({ flowchart_lane_cards_by_group: index.on(["group"]) }),
+});
+// The people who own the depot's decisions: an owner's card dropped on a decision's diamond makes them its owner.
 export const DecisionOwner = StructType({ name: StringType, desk: StringType });
-export const decisionOwners = e3.record("flowchart_decision_owners", DictType(StringType, DecisionOwner), {
-    initial: new Map([
-        ["sort-planner", { name: "Sort planner", desk: "Sort hall" }],
-        ["customs-desk", { name: "Customs desk", desk: "Hold bay" }],
-    ]),
-    indexes: (index) => ({
-        flowchart_owners_by_desk: index.on(["desk"]),
-    }),
-});
+export const decisionOwners = e3.input("flowchart_decision_owners", DictType(StringType, DecisionOwner), variant("value", new Map([
+    ["sp", { name: "sort-planner", desk: "Sort office" }],
+    ["cd", { name: "customs-desk", desk: "Customs" }],
+    ["ns", { name: "night-supervisor", desk: "Night shift" }],
+])));
 
-// The depot's own tables (§3.4), each an input of the app's own rows: its
-// steps by phase, the transitions mined from its scans and its decisions.
-// `Flowchart.over` builds one flow from them; a task narrows the rows it
-// builds one from, for the flowchart narrows no table of the host's (#1346).
-export const DepotState = StructType({ code: StringType, name: StringType, phase: StringType, slots: OptionType(IntegerType) });
-export const depotStates = e3.input("flowchart_depot_states", ArrayType(DepotState), variant("value", [
-    { code: "ARV", name: "Arrived", phase: "intake", slots: none },
-    { code: "SCN", name: "Scanned", phase: "intake", slots: none },
-    { code: "IND", name: "Inducting", phase: "induct", slots: none },
-    { code: "LBL", name: "Labelled", phase: "induct", slots: none },
-    { code: "CH*", name: "Sort chutes (class)", phase: "sort", slots: some(14n) },
-    { code: "SRD", name: "Sorted", phase: "sort", slots: none },
-    { code: "HLD", name: "Held", phase: "hold", slots: none },
-    { code: "CLR", name: "Cleared", phase: "hold", slots: none },
-    { code: "LDD", name: "Loaded", phase: "dispatch", slots: none },
-    { code: "DSP", name: "Dispatched", phase: "dispatch", slots: none },
-]));
-export const ScanTransition = StructType({
-    id: StringType, src: StringType, dst: StringType, kind: Flowchart.Types.Kind,
-    trigger: OptionType(StringType), parcels: OptionType(FloatType), n: OptionType(IntegerType),
-    at: DateTimeType, service: StringType, units: ArrayType(StringType),
-});
-export const scanTransitions = e3.input("flowchart_depot_scans", ArrayType(ScanTransition), variant("value", [
-    { id: "l1", src: "ARV", dst: "SCN", kind: variant("planned", null), trigger: none, parcels: some(18460.0), n: some(412n), at: new Date("2026-06-30T00:00:00Z"), service: "standard", units: ["C"] },
-    { id: "l2", src: "SCN", dst: "IND", kind: variant("planned", null), trigger: none, parcels: some(7720.0), n: some(171n), at: new Date("2026-06-30T00:00:00Z"), service: "standard", units: ["C"] },
-    { id: "l3", src: "IND", dst: "IND", kind: variant("planned", null), trigger: none, parcels: none, n: some(2n), at: new Date("2026-06-30T00:00:00Z"), service: "standard", units: ["C"] },
-    { id: "l4", src: "IND", dst: "CH*", kind: variant("planned", null), trigger: some("route"), parcels: some(17350.0), n: some(386n), at: new Date("2026-06-30T00:00:00Z"), service: "standard", units: ["C", "T"] },
-    { id: "l5", src: "CH*", dst: "SRD", kind: variant("planned", null), trigger: none, parcels: some(17210.0), n: some(383n), at: new Date("2026-06-30T00:00:00Z"), service: "standard", units: ["T"] },
-    { id: "l6", src: "SRD", dst: "HLD", kind: variant("observed", null), trigger: none, parcels: some(1080.0), n: some(24n), at: new Date("2026-06-30T00:00:00Z"), service: "express", units: ["T"] },
-    { id: "l7", src: "HLD", dst: "CLR", kind: variant("planned", null), trigger: some("customs"), parcels: some(8350.0), n: some(186n), at: new Date("2026-06-30T00:00:00Z"), service: "standard", units: ["T"] },
-    { id: "l8", src: "CLR", dst: "LDD", kind: variant("planned", null), trigger: none, parcels: some(8240.0), n: some(183n), at: new Date("2026-06-30T00:00:00Z"), service: "standard", units: ["T"] },
-    { id: "l9", src: "LDD", dst: "DSP", kind: variant("planned", null), trigger: none, parcels: some(8160.0), n: some(181n), at: new Date("2026-06-30T00:00:00Z"), service: "standard", units: [] },
-    { id: "l10", src: "DSP", dst: "DLV", kind: variant("planned", null), trigger: none, parcels: none, n: none, at: new Date("2026-06-30T00:00:00Z"), service: "standard", units: [] },
-]));
-export const DepotDecision = StructType({ id: StringType, name: StringType, who: StringType });
-export const depotDecisions = e3.input("flowchart_depot_decisions", ArrayType(DepotDecision), variant("value", [
-    { id: "route", name: "route", who: "sort-planner" },
-    { id: "customs", name: "customs", who: "customs-desk" },
-]));
-
-export const flowchartFlows = example({
-    keywords: ["Flowchart", "record", "Flows", "Flowchart.values", "Record.bind", "flow", "many flows", "e3.record", "Flowchart.library.flows", "Flows tab", "New flow"],
-    description: "A record of flows by name — the depot's inbound parcels and its returns — bound with its patch mutation, the inbound flow opened first and the Flows tab listing every flow",
+export const flowchartDwell = example({
+    keywords: ["Flowchart", "Flowchart.states", "Flowchart.transitions", "Flowchart.lanes", "records", "Data.bind", "read only", "minimal"],
+    description: "The depot's states, transitions and lanes, three records of the app's read whole, read only: each state in its lane, in the order its seq gives, and the transitions routed between them",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const flows = $.let(Record.bind(depotFlows));
+            const states = $.let(Data.bind(depotStates));
+            const transitions = $.let(Data.bind(depotTransitions));
+            const lanes = $.let(Data.bind(depotLanes));
             return (
-                <Box height="500px">
-                    <Flowchart record={flows} flow="Inbound parcels" library={[Flowchart.library.flows()]} />
+                <Box height="600px">
+                    <Flowchart
+                        states={Flowchart.states(states, { label: "name", lane: "phase", order: "seq" })}
+                        transitions={Flowchart.transitions(transitions, { from: "src", to: "dst" })}
+                        lanes={Flowchart.lanes(lanes, { label: "label", order: "seq" })}
+                        name="dwell"
+                    />
                 </Box>
             );
         }}</Reactive>
@@ -230,206 +227,255 @@ export const flowchartFlows = example({
     inputs: [],
 });
 
-export const flowchartFlowsMobile = example({
-    keywords: ["Flowchart", "record", "Flows", "mobile", "phone", "pane strip", "drawer", "second row", "history", "Slice.bindRecords", "Flowchart.library.states", "narrow", "lanes", "lane pager"],
-    description: "The same record of flows in a phone's 390-wide frame: the toolbar over its second row — the history at 44px — the canvas the frame's whole width with two lanes in view (narrow), ‹ › stepping through them, the rail's Filters narrowing the step types, and the library and the inspector a strip of views along the bottom edge",
+export const flowchartDepot = example({
+    keywords: [
+        "Flowchart", "Flowchart.states", "Flowchart.transitions", "Flowchart.lanes", "Flowchart.decisions",
+        "Flowchart.templates", "Flowchart.library", "Flowchart.library.lanes", "Flowchart.library.tab", "Flowchart.patch", "Record.bind", "Data.bindPaged",
+        "Slice.bindRecords", "presets", "records", "entries", "inspector", "editing", "Save",
+    ],
+    description: "A parcel depot's flowchart over four records of the app's: its states and transitions read through their sources of the rail and edited through their patch doors, a preset narrowing both to one flow; its lanes and decisions, small records read whole; the Steps, Transitions and Lanes tabs listing each kind's cards, and an owners tab whose card dropped on a decision makes it the decision's owner",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const flows = $.let(Record.bind(depotFlows));
-            const steps = $.let(Data.bind(stepTemplates));
-            // One rail: the step types by kind, through the source the Steps tab names.
-            const slice = $.let(Slice.bindRecords("flowchart.flowsMobile", {
-                steps: { source: Data.bindPaged(stepTemplates, { indexes: ["flowchart_steps_by_kind"] }), label: "Steps", icon: { prefix: "fas", name: "box" },
-                    fields: { kind: { label: "Step kind", hints: ["Intake", "Sort", "Hold", "Load"] } } },
+            // The states and the transitions: editable through their patch doors, read through their sources of the rail.
+            const states = $.let(Record.bind(depotStates));
+            const stateEntries = $.let(Data.bindPaged(depotStates));
+            const transitions = $.let(Record.bind(depotTransitions));
+            const transitionEntries = $.let(Data.bindPaged(depotTransitions));
+            // The lanes and the decisions: small records, read whole.
+            const lanes = $.let(Record.bind(depotLanes));
+            const decisions = $.let(Record.bind(depotDecisions));
+            const steps = $.let(Data.bind(stepCards));
+            const moves = $.let(Data.bind(moveCards));
+            const laneRows = $.let(Data.bind(laneCards));
+            const owners = $.let(Data.bind(decisionOwners));
+            // One rail: the states and the transitions by their flow — the states by their lane too — and each list of
+            // cards by its group. The flowchart opens on the parcels' flow; a preset picks a flow for both at once.
+            const slice = $.let(Slice.bindRecords("flowchart.depot", {
+                states: {
+                    source: Data.bindPaged(depotStates, { indexes: ["flowchart_states_by_flow", "flowchart_states_by_lane"] }),
+                    icon: { prefix: "fas", name: "circle-nodes" },
+                    fields: { flow: { label: "Flow", hints: ["Parcels", "Returns"] }, phase: { label: "Lane" } },
+                    initial: { flow: ["Parcels"] },
+                },
+                transitions: {
+                    source: Data.bindPaged(depotTransitions, { indexes: ["flowchart_transitions_by_flow"] }),
+                    icon: { prefix: "fas", name: "arrow-right-long" },
+                    fields: { flow: { label: "Flow", hints: ["Parcels", "Returns"] } },
+                    initial: { flow: ["Parcels"] },
+                },
+                stepCards: { source: Data.bindPaged(stepCards, { indexes: ["flowchart_step_cards_by_group"] }), fields: { group: { label: "Group" } } },
+                moveCards: { source: Data.bindPaged(moveCards, { indexes: ["flowchart_move_cards_by_group"] }), fields: { group: { label: "Group" } } },
+                laneCards: { source: Data.bindPaged(laneCards, { indexes: ["flowchart_lane_cards_by_group"] }), fields: { group: { label: "Group" } } },
+            }, { presets: [
+                { id: "parcels", name: "Parcels", where: { states: { flow: ["Parcels"] }, transitions: { flow: ["Parcels"] } } },
+                { id: "returns", name: "Returns", where: { states: { flow: ["Returns"] }, transitions: { flow: ["Returns"] } } },
+            ] }));
+            return (
+                <Box height="640px">
+                    <Flowchart
+                        slice={{ slice }}
+                        states={Flowchart.states(states, {
+                            name: "State", icon: "circle-nodes", entries: stateEntries,
+                            label: "name", lane: "phase", order: "seq",
+                            members: (s) => s.slots,
+                            // the Steps tab's cards: a card dropped on a lane adds a state there, from its values
+                            templates: Flowchart.templates(steps.read(), {
+                                name: (c) => c.name, group: (c) => some(c.group), values: (c) => c.values, source: "stepCards",
+                            }),
+                        })}
+                        transitions={Flowchart.transitions(transitions, {
+                            name: "Transition", icon: "arrow-right-long", entries: transitionEntries,
+                            from: "src", to: "dst", decision: "trigger",
+                            kind: (t) => t.kind,
+                            evidence: (t) => some({ volume: t.volume, count: t.n, measuredAt: t.at, unit: some("parcels") }),
+                            // Evidence shows them, so the form leaves them out.
+                            fields: { volume: Fields.hidden(), n: Fields.hidden(), at: Fields.hidden() },
+                            // the Transitions tab's cards: a card dropped on a transition gives it its values
+                            templates: Flowchart.templates(moves.read(), {
+                                name: (c) => c.name, group: (c) => some(c.group), values: (c) => c.values, source: "moveCards",
+                            }),
+                        })}
+                        lanes={Flowchart.lanes(lanes, {
+                            label: "label", order: "seq",
+                            // the Lanes tab's cards: one dropped between two lanes adds a lane there, from its values
+                            templates: Flowchart.templates(laneRows.read(), {
+                                name: (c) => c.name, group: (c) => some(c.group), values: (c) => c.values, source: "laneCards",
+                            }),
+                        })}
+                        decisions={Flowchart.decisions(decisions, { label: (d) => d.name, owner: (d) => some(d.owner) })}
+                        library={[
+                            Flowchart.library.states(),             // Steps: the states' cards, by group
+                            Flowchart.library.transitions(),        // Transitions: the transitions' cards
+                            Flowchart.library.lanes(),              // Lanes: the lanes' cards
+                            Flowchart.library.tab(owners.read(), {
+                                name: "Owners", icon: "user-tie", label: (o) => o.name, meta: (o) => some(o.desk),
+                                // its patch is over a decision's row: dropped on a diamond, the card sets the decision's owner
+                                drop: (o) => Flowchart.patch(DepotDecision, { owner: o.name }),
+                            }),
+                        ]}
+                        freshness={{ label: "evidence-2026.06", date: new Date("2026-06-30T00:00:00Z") }}
+                        name="depot"
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const flowchartDepotEditing = example({
+    keywords: ["Flowchart", "records", "Record.bind", "editing", "Save", "undo", "add lane", "add state", "move", "rename",
+        "Connect", "Del", "keys", "ready", "patch door"],
+    description: "The depot's four records bound editable and read whole: a lane added and renamed, a state added in its lane's editor and moved between two others, a transition connected, a state deleted with the transitions naming it, a drafted state held back until it names its flow, and Save writing each record through its own patch door",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const states = $.let(Record.bind(depotStates));
+            const transitions = $.let(Record.bind(depotTransitions));
+            const lanes = $.let(Record.bind(depotLanes));
+            const decisions = $.let(Record.bind(depotDecisions));
+            return (
+                <Box height="600px">
+                    <Flowchart
+                        states={Flowchart.states(states, {
+                            label: "name", lane: "phase", order: "seq", members: (s) => s.slots,
+                            // The app's check on a drafted state: Save waits until it names its flow, and Issues says why.
+                            ready: (s) => s.flow.equal("").ifElse(
+                                () => variant("incomplete", [{ field: "flow", message: "Give the state its flow" }]),
+                                () => variant("ready", null),
+                            ),
+                        })}
+                        transitions={Flowchart.transitions(transitions, { from: "src", to: "dst", decision: "trigger", kind: (t) => t.kind })}
+                        lanes={Flowchart.lanes(lanes, { label: "label", order: "seq" })}
+                        decisions={Flowchart.decisions(decisions, { label: (d) => d.name, owner: (d) => some(d.owner) })}
+                        name="depotEditing"
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const flowchartDepotDimmed = example({
+    keywords: ["Flowchart", "Slice.bindRecords", "narrowed", "dim", "Data.bindPaged", "read only", "records", "context"],
+    description: "The depot's states and transitions read only through their sources of the rail, the narrowing drawn as context: every row read, the states and transitions it leaves out faded and selected by no path",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // Read only, through their sources: bound with Data.bindPaged alone.
+            const states = $.let(Data.bindPaged(depotStates));
+            const transitions = $.let(Data.bindPaged(depotTransitions));
+            const lanes = $.let(Data.bind(depotLanes));
+            // The parcels' Hold lane in focus: an index on the flow and the lane answers the two together.
+            const slice = $.let(Slice.bindRecords("flowchart.depotDimmed", {
+                states: {
+                    source: Data.bindPaged(depotStates, { indexes: ["flowchart_states_by_flow", "flowchart_states_by_lane"] }),
+                    fields: { flow: { label: "Flow", hints: ["Parcels", "Returns"] }, phase: { label: "Lane" } },
+                    initial: { flow: ["Parcels"], phase: ["hold"] },
+                },
+                transitions: {
+                    source: Data.bindPaged(depotTransitions, { indexes: ["flowchart_transitions_by_flow"] }),
+                    fields: { flow: { label: "Flow", hints: ["Parcels", "Returns"] } },
+                },
+            }));
+            return (
+                <Box height="640px">
+                    <Flowchart
+                        slice={{ slice }}
+                        narrowed="dim"
+                        states={Flowchart.states(states, { label: "name", lane: "phase", order: "seq", members: (s) => s.slots })}
+                        transitions={Flowchart.transitions(transitions, { from: "src", to: "dst", kind: (t) => t.kind })}
+                        lanes={Flowchart.lanes(lanes, { label: "label", order: "seq" })}
+                        name="depotDimmed"
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const flowchartDepotPhone = example({
+    keywords: ["Flowchart", "records", "mobile", "phone", "390px", "pane strip", "second row", "history", "narrow", "lanes", "lane pager",
+        "Flowchart.library.states", "Slice.bindRecords", "Find state", "inspector"],
+    description: "The depot's flowchart in a phone's 390-wide frame, its states, transitions and lanes bound editable: the toolbar over its second row — the history at 44px — and the canvas the frame's whole width with two lanes in view (narrow), ‹ › stepping through them; the rail narrowing the Steps tab's cards by their group, and the library and the inspector a strip of views along the bottom edge; Find state selects a state, the inspector shows its form, and its lane is chosen there",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const states = $.let(Record.bind(depotStates));
+            const transitions = $.let(Record.bind(depotTransitions));
+            const lanes = $.let(Record.bind(depotLanes));
+            const steps = $.let(Data.bind(stepCards));
+            // One rail: the Steps tab's cards by their group, through the source the tab names.
+            const slice = $.let(Slice.bindRecords("flowchart.depotPhone", {
+                stepCards: {
+                    source: Data.bindPaged(stepCards, { indexes: ["flowchart_step_cards_by_group"] }), label: "Steps", icon: { prefix: "fas", name: "box" },
+                    fields: { group: { label: "Group" } },
+                },
             }));
             return (
                 <Box width="390px" maxWidth="100%" height="720px">
-                    <Flowchart record={flows} name="flowsMobile" flow="Inbound parcels" slice={{ slice }} narrow={{ lanes: 2 }}
-                        library={[
-                            Flowchart.library.flows(),
-                            Flowchart.library.states(steps.read(), {
-                                name: "Steps", icon: "box", source: "steps",
-                                label: s => s.name, meta: (_s, code) => some(code), group: s => s.kind,
-                                drop: (s, code) => Flowchart.patch(Flowchart.Types.State, { key: code, label: some(s.name), members: s.slots }),
-                            }),
-                        ]} />
-                </Box>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-/**
- * THE Flowchart configurator — ONE live flowchart in its frame; every axis is
- * an expression-fed prop on that single instance: the legend, the minimap and
- * read only. Its flows are the host's (`data`): the depot's flows, read from
- * their e3 record, and Save hands `onApply` the session's request id with the
- * open flow's patch, which it commits through the record's patch mutation
- * under that id and answers with what e3 said — committed, refused, out of
- * time or beaten by another write. A write that got no answer throws, so the
- * session's Retry sends the same request id again, and e3 answers it with the
- * first write's commit rather than writing twice (#1275). The host hears what is selected — a
- * state, a transition, a decision — and a path ⌥-clicked in the reactive
- * aside, so it is given no inspector; its library is the Flows tab over the
- * host's flows. Its panes are fixed when it is built, so they are no axis
- * here. The configurator's axes are the viewer's own state.
- */
-export const flowchartVariants = example({
-    keywords: ["Flowchart", "configurator", "Configurator", "legend", "minimap", "readOnly", "read only", "onSelectState", "onSelectLink", "onSelectTrigger", "onTracePath", "selection", "trace", "callbacks", "data", "onApply", "commit", "requestId", "request id", "Retry", "Record.bind", "commit.patch", "Editing.Types.ApplyResult", "Flows tab", "Flowchart.library.flows", "many flows", "inspector={false}", "library", "Switch", "State", "Reactive"],
-    description: "Flowchart configurator — the legend, the minimap and read only, each expression-fed into one live flowchart in its frame over the host's flows by name (data, from the depot's e3 record), its Flows tab over them, Save committed by the host's onApply through the record's patch mutation under the session's request id, a Retry safe to repeat; onSelectState, onSelectLink, onSelectTrigger and onTracePath heard in the aside, with no inspector",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const flows = $.let(Record.bind(depotFlows));
-            // The host's commit: the open flow's patch through the record's patch mutation under the session's request id, e3's outcome as Save's answer.
-            const onApply = $.const(East.asyncFunction([StringType, PatchType(Flowchart.Types.Flows)], Editing.Types.ApplyResult, ($2, requestId, patch) => {
-                const outcome = $2.let(flows.commit.patch(requestId, patch));
-                const answer = $2.let(variant("rejected", [{ entry: "", row: none, field: none, message: "The write was refused" }]), Editing.Types.ApplyResult);
-                $2.match(outcome, {
-                    committed: ($3, done) => { $3.assign(answer, variant("applied", { revision: some(done.stateHash) })); },
-                    invalid: ($3, refused) => { $3.assign(answer, variant("rejected", [{ entry: "", row: none, field: none, message: refused.message }])); },
-                    failed: ($3, refused) => { $3.assign(answer, variant("rejected", [{ entry: "", row: none, field: none, message: East.str`The write failed: ${refused.stderr}` }])); },
-                    timed_out: ($3, refused) => { $3.assign(answer, variant("rejected", [{ entry: "", row: none, field: none, message: East.str`The write ran out of time after ${refused.ms} ms and wrote nothing` }])); },
-                    conflict: ($3, lost) => {
-                        const why = $3.let(lost.detail.match({ some: (_$4, detail) => detail, none: (_$4) => "Another write changed the flows first" }));
-                        $3.assign(answer, variant("conflict", [{ entry: "", row: none, field: none, message: why }]));
-                    },
-                    // No answer: it may have committed, so the session's Retry sends the same request id, which resolves to that commit.
-                    transport: ($3, lost) => { $3.error(East.str`The write got no answer, so it may have committed — retry to find out: ${lost.message}`); },
-                });
-                return answer;
-            }));
-
-            const legendBind   = $.let(State.bind([BooleanType], "flowchart_variants_legend", true));
-            const minimapBind  = $.let(State.bind([BooleanType], "flowchart_variants_minimap", false));
-            const readOnlyBind = $.let(State.bind([BooleanType], "flowchart_variants_readonly", false));
-            const heardBind    = $.let(State.bind([StringType], "flowchart_variants_heard", ""));
-
-            const legendOn = $.let(legendBind.read());
-            const minimapOn = $.let(minimapBind.read());
-            const readOnly = $.let(readOnlyBind.read());
-            const heard = $.let(heardBind.read());
-
-            const onLegend   = $.const(East.function([BooleanType], NullType, ($2, next) => { $2(legendBind.write(next)); }));
-            const onMinimap  = $.const(East.function([BooleanType], NullType, ($2, next) => { $2(minimapBind.write(next)); }));
-            const onReadOnly = $.const(East.function([BooleanType], NullType, ($2, next) => { $2(readOnlyBind.write(next)); }));
-
-            // What the host hears: a state, a transition or a decision selected, and a path ⌥-clicked.
-            const onSelectState   = $.const(East.function([StringType], NullType, ($2, key) => { $2(heardBind.write(East.str`onSelectState: ${key}`)); }));
-            const onSelectLink    = $.const(East.function([StringType], NullType, ($2, key) => { $2(heardBind.write(East.str`onSelectLink: ${key}`)); }));
-            const onSelectTrigger = $.const(East.function([StringType], NullType, ($2, key) => { $2(heardBind.write(East.str`onSelectTrigger: ${key}`)); }));
-            const onTracePath     = $.const(East.function([StringType], NullType, ($2, key) => { $2(heardBind.write(East.str`onTracePath: ${key}`)); }));
-
-            return (
-                <Configurator
-                    controls={[
-                        Configurator.Slot("Canvas",
-                            <HStack gap="5" align="center" wrap="wrap">
-                                <Switch checked={legendOn} label="Legend" onChange={onLegend} />
-                                <Switch checked={minimapOn} label="Minimap" onChange={onMinimap} />
-                                <Switch checked={readOnly} label="Read-only" onChange={onReadOnly} />
-                            </HStack>),
-                    ]}
-                    preview={
-                        <Box width="100%" height="480px">
-                            <Flowchart
-                                data={flows.read()}
-                                flow="Inbound parcels"
-                                onApply={onApply}
-                                library={[Flowchart.library.flows()]}
-                                inspector={false}
-                                legend={legendOn}
-                                minimap={minimapOn}
-                                readOnly={readOnly}
-                                onSelectState={onSelectState}
-                                onSelectLink={onSelectLink}
-                                onSelectTrigger={onSelectTrigger}
-                                onTracePath={onTracePath}
-                                name="variants"
-                            />
-                        </Box>
-                    }
-                    aside={{
-                        label: "Heard · Reactive",
-                        body: (
-                            <Badge colorPalette="brand" variant="outline">
-                                {East.equal(heard.length(), 0n).ifElse((_$2) => "Select a state, a transition or a decision", (_$2) => heard)}
-                            </Badge>
-                        ),
-                    }}
-                    spec={[
-                        Configurator.Spec("Legend", legendOn.ifElse((_$2) => "shown", (_$2) => "hidden")),
-                        Configurator.Spec("Minimap", minimapOn.ifElse((_$2) => "shown", (_$2) => "hidden")),
-                        Configurator.Spec("Read only", readOnly.ifElse((_$2) => "yes", (_$2) => "no")),
-                        Configurator.Spec("Flows", East.str`${flows.read().size()} by name`),
-                    ]}
-                />
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-/**
- * The library (#1248, #1346): the Flows tab, then the step types, the
- * transition types and the roles that own a decision — each tab its own
- * bound data, apart from the flows and from the other tabs: a templates
- * record by code, one by name, and a record of roles. One rail narrows them,
- * a source each: each templates list and the Owners tab follow the source
- * they name, counting what they show (`2 of 5`) and saying so, with Clear
- * filters, when the rail leaves them none. Each template card is a drag
- * source, as is each of the author's cards, whose tab declares a `drop`; a
- * click selects a card, and a click on the selected card lets it go.
- */
-export const flowchartLibrary = example({
-    keywords: ["Flowchart", "library", "Flowchart.library.states", "Flowchart.library.transitions", "Flowchart.library.tab", "templates", "state templates", "transition templates", "templates records", "author's tab", "bound data", "Data.bind", "Data.bindPaged", "indexes", "Slice.bindRecords", "source", "narrowing", "Record.bind", "drag", "cards", "Flowchart.patch"],
-    description: "A record of flows with its library — the Flows tab, step types and transition types from templates records, and the author's own cards from a record of roles — each tab its own bound data, one Slice.bindRecords rail narrowing each through the source it names, each card a drag source a click selects",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const flows = $.let(Record.bind(depotFlows));
-            // What a tab reads whole binds with Data.bind, which keeps it loaded beside its pages.
-            const steps = $.let(Data.bind(stepTemplates));
-            const moves = $.let(Data.bind(moveTemplates));
-            const owners = $.let(Data.bind(decisionOwners));
-            // One rail over the library's records, a source each (#1346): each tab follows the source it names.
-            const slice = $.let(Slice.bindRecords("flowchart.depot", {
-                steps: { source: Data.bindPaged(stepTemplates, { indexes: ["flowchart_steps_by_kind"] }), label: "Steps", icon: { prefix: "fas", name: "box" },
-                    fields: { kind: { label: "Step kind", hints: ["Intake", "Sort", "Hold", "Load"] } } },
-                moves: { source: Data.bindPaged(moveTemplates, { indexes: ["flowchart_moves_by_kind"] }), label: "Transitions", icon: { prefix: "fas", name: "arrow-right" },
-                    fields: { kind: { label: "Transition kind" } } },
-                owners: { source: Data.bindPaged(decisionOwners, { indexes: ["flowchart_owners_by_desk"] }), label: "Owners", icon: { prefix: "fas", name: "user-tie" },
-                    fields: { desk: { label: "Desk", hints: ["Sort hall", "Hold bay"] } } },
-            }));
-            return (
-                <Box height="560px">
                     <Flowchart
-                        record={flows}
-                        flow="Inbound parcels"
-                        name="depot"
                         slice={{ slice }}
-                        library={[
-                            Flowchart.library.flows(),
-                            // Step types, a templates record by code: a card dropped on a lane adds a state seeded with what its drop sets.
-                            Flowchart.library.states(steps.read(), {
-                                name: "Steps", icon: "box", source: "steps",
-                                label: s => s.name, meta: (_s, code) => some(code), group: s => s.kind,
-                                drop: (s, code) => Flowchart.patch(Flowchart.Types.State, { key: code, label: some(s.name), members: s.slots }),
+                        states={Flowchart.states(states, {
+                            label: "name", lane: "phase", order: "seq", members: (s) => s.slots,
+                            templates: Flowchart.templates(steps.read(), {
+                                name: (c) => c.name, group: (c) => some(c.group), values: (c) => c.values, source: "stepCards",
                             }),
-                            // Transition types, a templates record by name: a card dropped on a transition retypes it.
-                            Flowchart.library.transitions(moves.read(), {
-                                icon: "arrow-right", source: "moves",
-                                label: (_m, name) => name, meta: m => some(m.note),
-                                drop: m => Flowchart.patch(Flowchart.Types.Link, { kind: some(m.kind), trigger: m.decision }),
-                            }),
-                            // The author's own cards, a record of roles: a role dropped on a decision owns it.
-                            Flowchart.library.tab(owners.read(), {
-                                name: "Owners", icon: "user-tie", source: "owners",
-                                key: (_o, role) => role, label: o => o.name, meta: o => some(o.desk),
-                                drop: (_o, role) => Flowchart.patch(Flowchart.Types.Trigger, { owner: some(role) }),
-                            }),
-                        ]}
+                        })}
+                        transitions={Flowchart.transitions(transitions, { from: "src", to: "dst", kind: (t) => t.kind })}
+                        lanes={Flowchart.lanes(lanes, { label: "label", order: "seq" })}
+                        library={[Flowchart.library.states()]}
+                        narrow={{ lanes: 2 }}
+                        name="depotPhone"
                     />
                 </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const flowchartDepotTopDown = example({
+    keywords: ["Flowchart", "orientation", "TD", "top down", "minimap", "legend", "readOnly", "read only", "inspector={false}", "no pane",
+        "onSelectState", "onSelectLink", "onSelectTrigger", "onTracePath", "selection", "trace", "State.bind", "records"],
+    description: "The depot's four records shown read only and top down — its lanes stacked down the canvas, the minimap drawn and the legend left out, with no inspector and no library — the host hearing each state, transition and decision selected and each path traced by an ⌥-click, and showing what it heard last",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // Bound editable, shown read only: `readOnly` turns every gesture off, whatever the bindings could write.
+            const states = $.let(Record.bind(depotStates));
+            const transitions = $.let(Record.bind(depotTransitions));
+            const lanes = $.let(Record.bind(depotLanes));
+            const decisions = $.let(Record.bind(depotDecisions));
+            // What the host heard last: the viewer's own, kept under its key.
+            const heardBind = $.let(State.bind([StringType], "flowchart_depot_heard", ""));
+            const heard = $.let(heardBind.read());
+            const onSelectState = $.const(East.function([StringType], NullType, ($2, key) => { $2(heardBind.write(East.str`onSelectState: ${key}`)); }));
+            const onSelectLink = $.const(East.function([StringType], NullType, ($2, key) => { $2(heardBind.write(East.str`onSelectLink: ${key}`)); }));
+            const onSelectTrigger = $.const(East.function([StringType], NullType, ($2, key) => { $2(heardBind.write(East.str`onSelectTrigger: ${key}`)); }));
+            const onTracePath = $.const(East.function([StringType], NullType, ($2, key) => { $2(heardBind.write(East.str`onTracePath: ${key}`)); }));
+            return (
+                <VStack align="stretch" gap="3">
+                    <Badge colorPalette="brand" variant="outline">
+                        {East.equal(heard.length(), 0n).ifElse((_$2) => "Select a state, a transition or a decision", (_$2) => heard)}
+                    </Badge>
+                    <Box height="640px">
+                        <Flowchart
+                            states={Flowchart.states(states, { label: "name", lane: "phase", order: "seq", members: (s) => s.slots })}
+                            transitions={Flowchart.transitions(transitions, { from: "src", to: "dst", decision: "trigger", kind: (t) => t.kind })}
+                            lanes={Flowchart.lanes(lanes, { label: "label", order: "seq" })}
+                            decisions={Flowchart.decisions(decisions, { label: (d) => d.name, owner: (d) => some(d.owner) })}
+                            orientation="TD"
+                            minimap
+                            legend={false}
+                            readOnly
+                            inspector={false}
+                            onSelectState={onSelectState}
+                            onSelectLink={onSelectLink}
+                            onSelectTrigger={onSelectTrigger}
+                            onTracePath={onTracePath}
+                            name="depotTopDown"
+                        />
+                    </Box>
+                </VStack>
             );
         }}</Reactive>
     )),
@@ -437,369 +483,69 @@ export const flowchartLibrary = example({
 });
 
 export const flowchartWording = example({
-    keywords: ["Flowchart", "vocabulary", "flow", "lane", "state", "transition", "decision", "planned", "observed"],
-    description: "The depot's flows in its own words (#1516): `vocabulary` names flows, lanes, states, transitions, decisions and a transition's planned and observed kinds, wherever the flowchart draws them.",
+    keywords: ["Flowchart", "name", "vocabulary", "planned", "observed", "words", "Flowchart.states", "Flowchart.transitions",
+        "Flowchart.lanes", "Flowchart.decisions", "Flowchart.library", "Slice.bindRecords", "records"],
+    description: "The depot in its own words (#1516): each kind named by its own `name` — a stop, a hop, a stage and a choice — and `vocabulary` naming a transition's planned and observed kinds, wherever the flowchart draws them: its tabs, canvas, legend, inspector, footer, find box and refusals",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const flows = $.let(Record.bind(depotFlows));
-            // What a tab reads whole binds with Data.bind, which keeps it loaded beside its pages.
-            const steps = $.let(Data.bind(stepTemplates));
-            const moves = $.let(Data.bind(moveTemplates));
-            const owners = $.let(Data.bind(decisionOwners));
-            // One rail over the library's records, a source each (#1346): each tab follows the source it names.
+            const states = $.let(Record.bind(depotStates));
+            const stateEntries = $.let(Data.bindPaged(depotStates));
+            const transitions = $.let(Record.bind(depotTransitions));
+            const transitionEntries = $.let(Data.bindPaged(depotTransitions));
+            const lanes = $.let(Record.bind(depotLanes));
+            const decisions = $.let(Record.bind(depotDecisions));
+            const steps = $.let(Data.bind(stepCards));
+            const moves = $.let(Data.bind(moveCards));
+            const laneRows = $.let(Data.bind(laneCards));
+            // The rail is the app's to word: each source's label, and its fields'.
             const slice = $.let(Slice.bindRecords("flowchart.wording", {
-                steps: { source: Data.bindPaged(stepTemplates, { indexes: ["flowchart_steps_by_kind"] }), label: "Steps", icon: { prefix: "fas", name: "box" },
-                    fields: { kind: { label: "Step kind", hints: ["Intake", "Sort", "Hold", "Load"] } } },
-                moves: { source: Data.bindPaged(moveTemplates, { indexes: ["flowchart_moves_by_kind"] }), label: "Hops", icon: { prefix: "fas", name: "arrow-right" },
-                    fields: { kind: { label: "Hop kind" } } },
-                owners: { source: Data.bindPaged(decisionOwners, { indexes: ["flowchart_owners_by_desk"] }), label: "Owners", icon: { prefix: "fas", name: "user-tie" },
-                    fields: { desk: { label: "Desk", hints: ["Sort hall", "Hold bay"] } } },
-            }));
-            return (
-                <Box height="560px">
-                    <Flowchart
-                        record={flows}
-                        flow="Inbound parcels"
-                        name="wording"
-                        vocabulary={{ flow: "Route", lane: "Stage", state: "Stop", transition: "Hop", decision: "Choice", planned: "Designed", observed: "Seen" }}
-                        slice={{ slice }}
-                        library={[
-                            Flowchart.library.flows(),
-                            // Step types: a card dropped on a stage adds a stop.
-                            Flowchart.library.states(steps.read(), {
-                                name: "Steps", icon: "box", source: "steps",
-                                label: s => s.name, meta: (_s, code) => some(code), group: s => s.kind,
-                                drop: (s, code) => Flowchart.patch(Flowchart.Types.State, { key: code, label: some(s.name), members: s.slots }),
-                            }),
-                            // Hop types: a card dropped on a hop retypes it.
-                            Flowchart.library.transitions(moves.read(), {
-                                icon: "arrow-right", source: "moves",
-                                label: (_m, name) => name,
-                                drop: m => Flowchart.patch(Flowchart.Types.Link, { kind: some(m.kind), trigger: m.decision }),
-                            }),
-                            // A role dropped on a choice owns it.
-                            Flowchart.library.tab(owners.read(), {
-                                name: "Owners", icon: "user-tie", source: "owners",
-                                key: (_o, role) => role, label: o => o.name, meta: o => some(o.desk),
-                                drop: (_o, role) => Flowchart.patch(Flowchart.Types.Trigger, { owner: some(role) }),
-                            }),
-                        ]}
-                    />
-                </Box>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-/**
- * A flow from the host's tables (§3.4) — the depot's steps by phase, the
- * transitions mined from its scans and its decisions, each an e3 input of the
- * app's own rows, built into one flow by `Flowchart.over` through their row
- * mappers and shown read only: decision triggers, evidence-weighted links, a
- * ×14 state class, an ↻ in-place loop and an unresolved ghost. The freshness
- * chip names the evidence. Its one pane is the inspector, every field of what
- * is selected printed, its Issues the unresolved transition.
- */
-export const flowchartDepot = example({
-    keywords: ["Flowchart", "Flowchart.over", "data", "states", "links", "lanes", "tables", "row mappers", "minimal", "planned", "observed", "triggers", "evidence", "Data.bind", "e3.input", "scans", "inspector", "Details", "Issues", "read only", "state class", "in-place", "unresolved", "freshness"],
-    description: "Parcel-depot flowchart over the host's tables, each an e3 input bound with Data.bind and built into one flow by Flowchart.over, read only — decision triggers, evidence-weighted links, a ×14 state class, an ↻ in-place loop, an unresolved ghost, the freshness chip, and the inspector showing the selected state, transition or decision read only, its Issues the unresolved transition",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const states = $.let(Data.bind(depotStates));
-            const scans = $.let(Data.bind(scanTransitions));
-            const decisions = $.let(Data.bind(depotDecisions));
-            return (
-                <Box height="600px">
-                    <Flowchart
-                        data={Flowchart.over(states.read(), {
-                            state: s => ({ key: s.code, label: s.name, lane: s.phase, members: s.slots }),
-                            links: scans.read(),
-                            link: l => ({
-                                key: l.id, from: l.src, to: l.dst, kind: l.kind, trigger: l.trigger,
-                                evidence: { volume: l.parcels, count: l.n, measuredAt: some(l.at), unit: "parcels" },
-                            }),
-                            lanes: [
-                                { key: "intake", label: "Intake" }, { key: "induct", label: "Induct" },
-                                { key: "sort", label: "Sort" }, { key: "hold", label: "Hold" },
-                                { key: "dispatch", label: "Dispatch" },
-                            ],
-                            triggers: decisions.read(),
-                            trigger: t => ({ key: t.id, label: t.name, owner: t.who }),
-                        })}
-                        freshness={{ label: "evidence-2026.06", date: new Date("2026-06-30T00:00:00Z") }}
-                        name="scans"
-                    />
-                </Box>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-/**
- * One flow of the host's — the hand-over from the last scan to the door — an
- * input of one flow, its value written with `Flowchart.value`, bound with
- * `Data.bind` and shown read only, top down. It is given no pane: no
- * library, and `inspector={false}` — its toolbar, its canvas and its footer.
- */
-export const flowchartHandover = example({
-    keywords: ["Flowchart", "data", "Flow", "Flowchart.value", "Data.bind", "one flow", "e3.input", "read only", "orientation", "TD", "top down", "inspector={false}", "no pane", "toolbar", "footer"],
-    description: "One flow of the host's — the hand-over from the last scan to the door — an input bound with Data.bind and shown read only, top down, with no pane: its toolbar, its canvas and its footer",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const handover = $.let(Data.bind(handoverFlow));
-            return (
-                <Box height="500px">
-                    <Flowchart data={handover} orientation="TD" inspector={false} name="handover" />
-                </Box>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-/**
- * A record's one flow, edited, with its own Details (#1247, #1250): the
- * collections, a record of flows with one entry bound with its patch
- * mutation. Every gesture on the canvas is a draft of its editing session —
- * "+ LANE", a lane's header renamed and its ×, the "+ STATE" ghost, a state
- * double-clicked into its editor or dragged across lanes, a handle dragged to
- * another state, Del on the selection — which the history item undoes,
- * redoes and discards, and Save commits as one patch through the record's
- * patch mutation. `canConnect` keeps every transition out of the booking: a
- * draft never snaps onto BKD from another state. The inspector shows a
- * state's own Details — its key and label, its lane, and a button that gives
- * it one more member — and a transition's own — its ends, its kind, and a
- * button that marks it observed — each in place of its kind's form, each
- * button's `update` one transaction of the flow's session. A decision's and a
- * lane's Details are their forms, and Issues lists the flow's issues.
- */
-export const flowchartDetail = example({
-    keywords: ["Flowchart", "record", "Record.bind", "one flow", "one entry", "lone flow", "editing", "builder", "Save", "undo", "redo", "history", "+ LANE", "+ STATE", "connect", "canConnect", "Del", "rename", "move", "authoring", "interactive", "edit", "inspector", "Details", "own Details", "update", "one transaction", "state", "transition", "Button", "Issues"],
-    description: "A record's one flow — the collections, from the booking to the depot's door — edited on the canvas: + LANE, lane rename and ×, the + STATE ghost, double-click edit, cross-lane drag, handle-drag connecting and Del, each a draft the history item undoes and Save commits through the record's patch mutation, a canConnect veto keeping transitions out of the booking; and the inspector's own Details by kind — a state's, whose button gives it one more member, and a transition's, whose button marks it observed — each in place of its form, each button's update one transaction",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const flows = $.let(Record.bind(collectionFlows));
-            // The connection veto: nothing comes back to the booking, though a
-            // drop on BKD from BKD is its in-place transition.
-            const canConnect = $.const(East.function([StringType, StringType], BooleanType,
-                (_$2, from, to) => East.equal(to, "BKD").not().or(() => East.equal(from, to))));
-            // A state's own Details: its key, its label and its lane, and one more member — the edited state goes back through `update`.
-            const state = $.const(East.function([Flowchart.Types.State, FunctionType([Flowchart.Types.State], NullType)], UIComponentType, ($2, s, update) => {
-                const label = $2.let(s.label.match({ none: () => s.key, some: (_$3, l) => l }));
-                const members = $2.let(s.members.match({ none: () => 1n, some: (_$3, n) => n.add(1n) }));
-                const grow = $2.const(East.function([], NullType, ($3) => {
-                    // East has no struct spread: the state, rebuilt with its new members.
-                    const edited = $3.const({ key: s.key, label: s.label, lane: s.lane, members: some(members), notes: s.notes }, Flowchart.Types.State);
-                    $3(update(edited));
-                }));
-                return (
-                    <VStack gap="2" align="stretch">
-                        <Text fontFamily="mono" fontWeight="bold">{East.str`${s.key} · ${label}`}</Text>
-                        <Text color="fg.muted">{East.str`In the ${s.lane} lane`}</Text>
-                        <Button variant="outline" onClick={grow}>One more member</Button>
-                    </VStack>
-                );
-            }));
-            // A transition's own Details: its ends and its kind, and a mark of it observed — the edited transition goes back through `update`.
-            const transition = $.const(East.function([Flowchart.Types.Link, FunctionType([Flowchart.Types.Link], NullType)], UIComponentType, ($2, l, update) => {
-                const kind = $2.let(l.kind.match({ none: () => "planned", some: (_$3, k) => k.getTag() }));
-                const observe = $2.const(East.function([], NullType, ($3) => {
-                    const edited = $3.const({ key: l.key, from: l.from, to: l.to, kind: some(variant("observed", null)), trigger: l.trigger, evidence: l.evidence }, Flowchart.Types.Link);
-                    $3(update(edited));
-                }));
-                return (
-                    <VStack gap="2" align="stretch">
-                        <Text fontFamily="mono" fontWeight="bold">{East.str`${l.from} → ${l.to}`}</Text>
-                        <Text color="fg.muted">{East.str`Its kind: ${kind}`}</Text>
-                        <Button variant="outline" onClick={observe}>Mark it observed</Button>
-                    </VStack>
-                );
-            }));
-            return (
-                <Box height="560px">
-                    <Flowchart record={flows} canConnect={canConnect} inspector={{ state, transition }} name="detail" />
-                </Box>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-
-// A network's route flowcharts: enough independent record entries to exercise
-// multiple pages and eviction. Each entry remains one complete graph.
-export const indexedFlows = e3.record("flowchart_indexed_flows", Flowchart.Types.Flows, {
-    initial: Flowchart.values(Object.fromEntries(Array.from({ length: 2048 }, (_, i) => {
-        const checks = [
-            { key: "CHK", label: "Checked", lane: "review" },
-            { key: "HLD", label: "Held", lane: "review" },
-            { key: "REL", label: "Released", lane: "review" },
-        ].slice(0, i % 4);
-        const states = [
-            { key: "ARV", label: "Arrived", lane: "intake" },
-            { key: "SCN", label: "Scanned", lane: "intake" },
-            ...checks,
-            { key: "LDD", label: "Loaded", lane: "dispatch" },
-        ];
-        return [`FLOW-${10000 + i}`, {
-            description: ["Inbound parcels", "Returns", "Collections"][i % 3]!,
-            lanes: [{ key: "intake", label: "Intake" },
-                ...(checks.length ? [{ key: "review", label: "Review" }] : []),
-                { key: "dispatch", label: "Dispatch" }],
-            states,
-            links: states.slice(1).map((state, j) => ({ from: states[j]!.key, to: state.key,
-                ...(j === 0 && i % 5 !== 0 ? { trigger: "route" } : {}) })),
-            triggers: i % 5 === 0 ? [] : [{ key: "route", label: "Route", owner:
-                ["sort-planner", "customs-desk", "shift-lead"][Math.floor(i / 4) % 3]! }],
-        }];
-    }))),
-    indexes: (index) => ({
-        // A flow's name is its record's key: an index of its own, so the Flows tab's
-        // search finds a flow by its name (#1346), alone and after a description.
-        name: index.key(East.function([StringType, Flowchart.Types.Flow], StringType, (_$, name, _flow) => name)),
-        flowchart_by_description: index.on(["description"]),
-        flowchart_by_description_name: index.key(East.function([StringType, Flowchart.Types.Flow], StructType({ description: OptionType(StringType), name: StringType }),
-            (_$, name, flow) => ({ description: flow.description, name }))),
-        // Slice derives controls from each computed index’s declared key type. Scalar
-        // keys use the index name; a composite key supplies its field names.
-        stateCount: index.key(East.function([StringType, Flowchart.Types.Flow], IntegerType,
-            (_$, _id, flow) => flow.states.size())),
-        flowchart_by_description_state_count: index.key(East.function([StringType, Flowchart.Types.Flow], StructType({ description: OptionType(StringType), stateCount: IntegerType }),
-            (_$, _id, flow) => ({ description: flow.description, stateCount: flow.states.size() }))),
-        lane: index.keys(East.function([StringType, Flowchart.Types.Flow], SetType(StringType),
-            (_$, _id, flow) => flow.lanes.toSet((_$2, lane) => lane.key))),
-        decisionOwner: index.keys(East.function([StringType, Flowchart.Types.Flow], SetType(OptionType(StringType)),
-            (_$, _id, flow) => flow.triggers.toSet((_$2, trigger) => trigger.owner))),
-    }),
-    mutations: (mutation) => ({
-        patch: mutation.patch(),
-    }),
-});
-
-export const flowchartRecordIndexes = example({
-    keywords: ["Flowchart", "record", "indexes", "computed indexes", "state count", "lane", "decision owner", "Slice.bindRecords", "flows", "Data.bindPaged", "paging", "Flows tab", "count", "search", "mobile", "Save"],
-    description: "2,048 route flowcharts in a paged record, narrowed through the rail's flows source by maintained indexes on name, description, computed state count, lane and decision owner. Choose an exact description plus a state-count range together; lane and owner use exact membership. The Flows tab pages and counts what the rail narrows to, its search box finds a flow by name within it, and drafts keep their original record ID through filtering and Save.",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const flows = $.let(Record.bind(indexedFlows));
-            // One rail over the flows (#1346): its `flows` source narrows the Flows tab, which pages and counts what it narrows to.
-            const slice = $.let(Slice.bindRecords("flowchart.recordIndexes", {
-                flows: {
-                    source: Data.bindPaged(indexedFlows, { indexes: ["name", "flowchart_by_description", "flowchart_by_description_name", "stateCount", "flowchart_by_description_state_count", "lane", "decisionOwner"] }),
-                    fields: {
-                        description: { label: "Flows" },
-                        stateCount: { label: "State count" },
-                        lane: { label: "Lane" },
-                        decisionOwner: { label: "Decision owner" },
-                        name: { label: "Name" },
-                    },
-                    search: ["name", "description", "lane", "decisionOwner"],
+                states: {
+                    source: Data.bindPaged(depotStates, { indexes: ["flowchart_states_by_flow"] }), label: "Stops",
+                    fields: { flow: { label: "Route", hints: ["Parcels", "Returns"] } },
+                    initial: { flow: ["Parcels"] },
                 },
-            }, {
-                presets: [
-                    { id: "inbound", name: "Inbound", where: { flows: { description: ["Inbound parcels"] } } },
-                    { id: "inbound-review", name: "Inbound · 4–6 states", where: { flows: { description: ["Inbound parcels"], stateCount: { from: 4n, to: 7n } } } },
-                    { id: "review", name: "Review lane", where: { flows: { lane: ["review"] } } },
-                    { id: "customs", name: "Customs decisions", where: { flows: { decisionOwner: ["customs-desk"] } } },
-                ],
+                transitions: {
+                    source: Data.bindPaged(depotTransitions, { indexes: ["flowchart_transitions_by_flow"] }), label: "Hops",
+                    fields: { flow: { label: "Route", hints: ["Parcels", "Returns"] } },
+                    initial: { flow: ["Parcels"] },
+                },
+                stepCards: { source: Data.bindPaged(stepCards, { indexes: ["flowchart_step_cards_by_group"] }), label: "Stop cards", fields: { group: { label: "Group" } } },
+                moveCards: { source: Data.bindPaged(moveCards, { indexes: ["flowchart_move_cards_by_group"] }), label: "Hop cards", fields: { group: { label: "Group" } } },
+                laneCards: { source: Data.bindPaged(laneCards, { indexes: ["flowchart_lane_cards_by_group"] }), label: "Stage cards", fields: { group: { label: "Group" } } },
             }));
             return (
-                <Box width="100%" height="640px">
-                    <Flowchart record={flows} slice={{ slice, affordances: ["fields", "search", "presets", "summary"] }}
-                        library={[Flowchart.library.flows()]} name="recordIndexes" />
+                <Box height="640px">
+                    <Flowchart
+                        slice={{ slice }}
+                        // Each kind's name is the app's word for it, which the flowchart says wherever it speaks of one.
+                        states={Flowchart.states(states, {
+                            name: "Stop", entries: stateEntries,
+                            label: "name", lane: "phase", order: "seq", members: (s) => s.slots,
+                            templates: Flowchart.templates(steps.read(), {
+                                name: (c) => c.name, group: (c) => some(c.group), values: (c) => c.values, source: "stepCards",
+                            }),
+                        })}
+                        transitions={Flowchart.transitions(transitions, {
+                            name: "Hop", entries: transitionEntries,
+                            from: "src", to: "dst", decision: "trigger", kind: (t) => t.kind,
+                            templates: Flowchart.templates(moves.read(), {
+                                name: (c) => c.name, group: (c) => some(c.group), values: (c) => c.values, source: "moveCards",
+                            }),
+                        })}
+                        lanes={Flowchart.lanes(lanes, {
+                            name: "Stage", label: "label", order: "seq",
+                            templates: Flowchart.templates(laneRows.read(), {
+                                name: (c) => c.name, group: (c) => some(c.group), values: (c) => c.values, source: "laneCards",
+                            }),
+                        })}
+                        decisions={Flowchart.decisions(decisions, { name: "Choice", label: (d) => d.name, owner: (d) => some(d.owner) })}
+                        // What no kind names: a transition's two kinds.
+                        vocabulary={{ planned: "Designed", observed: "Seen" }}
+                        // The Steps tab keeps its name; the Hops and Stages tabs are named by their kinds.
+                        library={[Flowchart.library.states(), Flowchart.library.transitions(), Flowchart.library.lanes()]}
+                        name="wording"
+                    />
                 </Box>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-// ============================================================================
-// flowchartConflicts — your edits meeting someone else's save
-// ============================================================================
-
-/** The flows the conflicts example edits, in a record of their own, so no other example's edits meet them. */
-export const conflictFlows = e3.record("flowchart_conflict_flows", Flowchart.Types.Flows, {
-    initial: Flowchart.values({
-        "Inbound parcels": {
-            description: "From the trailer to the van",
-            lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "load", label: "Load" }],
-            states: [
-                { key: "ARV", label: "Arrived", lane: "intake" },
-                { key: "SCN", label: "Scanned", lane: "intake" },
-                { key: "CH*", label: "Sort chutes", lane: "sort", members: 12n },
-                { key: "LDD", label: "Loaded", lane: "load" },
-            ],
-            links: [
-                { from: "ARV", to: "SCN" },
-                { from: "SCN", to: "CH*", trigger: "route" },
-                { from: "CH*", to: "LDD" },
-            ],
-            triggers: [{ key: "route", label: "route", owner: "sort-planner" }],
-        },
-        "Returns": {
-            description: "From the counter back to the sender",
-            lanes: [{ key: "counter", label: "Counter" }, { key: "check", label: "Check" }, { key: "out", label: "Out" }],
-            states: [
-                { key: "RCV", label: "Received", lane: "counter" },
-                { key: "INS", label: "Inspected", lane: "check" },
-                { key: "RSD", label: "Resent", lane: "out" },
-            ],
-            links: [{ from: "RCV", to: "INS" }, { from: "INS", to: "RSD" }],
-        },
-    }),
-    mutations: (mutation) => ({
-        // The flows' patch door — every Save commits through it.
-        patch: mutation.patch(),
-        // Someone else's save: every step of every flow renamed, " (theirs)" put on its name, or taken off again; its lane
-        // and its other fields as they were.
-        elsewhere: mutation.reduce(East.function([Flowchart.Types.Flows], Flowchart.Types.Flows, (_$, flows) =>
-            flows.map((_$2, flow) => ({
-                description: flow.description,
-                lanes: flow.lanes,
-                states: flow.states.map(($3, state) => {
-                    const named = $3.let(state.label.match({ some: (_$4, label) => label, none: (_$4) => state.key }));
-                    return {
-                        key: state.key,
-                        label: East.value(some(named.endsWith(" (theirs)").ifElse(() => named.replace(" (theirs)", ""), () => named.concat(" (theirs)"))), OptionType(StringType)),
-                        lane: state.lane,
-                        members: state.members,
-                        notes: state.notes,
-                    };
-                }),
-                links: flow.links,
-                triggers: flow.triggers,
-            })))),
-    }),
-});
-
-/**
- * Your edits meeting someone else's save, in one window: edit, then press
- * Someone else saves, which saves another person's change to the same flows —
- * every step renamed. A step you renamed too is a conflict, waiting for you to
- * choose; a step you moved to another lane combines with theirs. Each press
- * saves their change again.
- */
-export const flowchartConflicts = example({
-    keywords: ["Flowchart", "conflict", "conflicts", "combine", "someone else", "Choose", "rename", "step", "Record.bind", "mutate", "Button", "Save"],
-    description: "Your edits meeting someone else's save, in one window — rename a step, then press Someone else saves, which saves another person's change to the same flows (every step renamed, \"(theirs)\" put on its name or taken off), so yours conflict and wait to be chosen; a step moved to another lane combines with theirs",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const flows = $.let(Record.bind(conflictFlows, ["patch"]));
-            const others = $.let(Record.bind(conflictFlows, ["elsewhere"]));
-            const theirs = $.const(East.function([], NullType, ($) => { $(others.mutate.elsewhere()); }));
-            return (
-                <VStack gap="3" align="stretch">
-                    <HStack gap="3">
-                        <Button variant="outline" onClick={theirs} loading={others.mutate.pending()}>Someone else saves</Button>
-                        <Text color="fg.muted">Their change: every step renamed</Text>
-                    </HStack>
-                    <Box height="500px">
-                        <Flowchart name="conflicts" record={flows} flow="Inbound parcels" library={[Flowchart.library.flows()]} />
-                    </Box>
-                </VStack>
             );
         }}</Reactive>
     )),

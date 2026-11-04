@@ -275,8 +275,8 @@ export const flowchartDepot = example({
                 states: {
                     source: Data.bindPaged(depotStates, { indexes: ["flowchart_states_by_flow", "flowchart_states_by_lane"] }),
                     icon: { prefix: "fas", name: "circle-nodes" },
-                    search: ["name"],
-                    fields: { flow: { label: "Flow", hints: ["Parcels", "Returns"] }, phase: { label: "Lane" }, name: { label: "State" } },
+                    // Each field the rail offers is one an index answers: the flow, and the lane after it.
+                    fields: { flow: { label: "Flow", hints: ["Parcels", "Returns"] }, phase: { label: "Lane" } },
                     initial: { flow: ["Parcels"] },
                 },
                 transitions: {
@@ -293,9 +293,8 @@ export const flowchartDepot = example({
                 { id: "returns", name: "Returns", where: { states: { flow: ["Returns"] }, transitions: { flow: ["Returns"] } } },
             ] }));
             return (
-                <Box height="760px">
+                <Box height="640px">
                     <Flowchart
-                        id="depot"
                         slice={{ slice }}
                         states={Flowchart.states(states, {
                             name: "State", icon: "circle-nodes", entries: stateEntries,
@@ -598,11 +597,12 @@ export const flowchartDepotDimmed = example({
             const transitions = $.let(Data.bindPaged(depotTransitions));
             const lanes = $.let(Data.bind(depotLanes));
             const stateRows = $.let(Data.bindPaged(stateEvidence));
+            // The parcels' Hold lane in focus: an index on the flow and the lane answers the two together.
             const slice = $.let(Slice.bindRecords("flowchart.depotDimmed", {
                 states: {
                     source: Data.bindPaged(depotStates, { indexes: ["flowchart_states_by_flow", "flowchart_states_by_lane"] }),
                     fields: { flow: { label: "Flow", hints: ["Parcels", "Returns"] }, phase: { label: "Lane" } },
-                    initial: { phase: ["hold"] },
+                    initial: { flow: ["Parcels"], phase: ["hold"] },
                 },
                 transitions: {
                     source: Data.bindPaged(depotTransitions, { indexes: ["flowchart_transitions_by_flow"] }),
@@ -668,6 +668,60 @@ export const flowchartDepotPhone = example({
                         name="depotPhone"
                     />
                 </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+```
+
+#### Example — Read only and top down (orientation · minimap · the host's handlers)
+
+The lanes stack down the canvas, the minimap is drawn and the legend left out, with no inspector and no library. The records are bound editable and shown read only: `readOnly` turns every gesture off, whatever the bindings could write. The host hears each state, transition and decision selected and each path traced by an ⌥-click, and shows what it heard last.
+
+```tsx
+export const flowchartDepotTopDown = example({
+    keywords: ["Flowchart", "orientation", "TD", "top down", "minimap", "legend", "readOnly", "read only", "inspector={false}", "no pane",
+        "onSelectState", "onSelectLink", "onSelectTrigger", "onTracePath", "selection", "trace", "State.bind", "records"],
+    description: "The depot's four records shown read only and top down — its lanes stacked down the canvas, the minimap drawn and the legend left out, with no inspector and no library — the host hearing each state, transition and decision selected and each path traced by an ⌥-click, and showing what it heard last",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // Bound editable, shown read only: `readOnly` turns every gesture off, whatever the bindings could write.
+            const states = $.let(Record.bind(depotStates));
+            const transitions = $.let(Record.bind(depotTransitions));
+            const lanes = $.let(Record.bind(depotLanes));
+            const decisions = $.let(Record.bind(depotDecisions));
+            // What the host heard last: the viewer's own, kept under its key.
+            const heardBind = $.let(State.bind([StringType], "flowchart_depot_heard", ""));
+            const heard = $.let(heardBind.read());
+            const onSelectState = $.const(East.function([StringType], NullType, ($2, key) => { $2(heardBind.write(East.str`onSelectState: ${key}`)); }));
+            const onSelectLink = $.const(East.function([StringType], NullType, ($2, key) => { $2(heardBind.write(East.str`onSelectLink: ${key}`)); }));
+            const onSelectTrigger = $.const(East.function([StringType], NullType, ($2, key) => { $2(heardBind.write(East.str`onSelectTrigger: ${key}`)); }));
+            const onTracePath = $.const(East.function([StringType], NullType, ($2, key) => { $2(heardBind.write(East.str`onTracePath: ${key}`)); }));
+            return (
+                <VStack align="stretch" gap="3">
+                    <Badge colorPalette="brand" variant="outline">
+                        {East.equal(heard.length(), 0n).ifElse((_$2) => "Select a state, a transition or a decision", (_$2) => heard)}
+                    </Badge>
+                    <Box height="640px">
+                        <Flowchart
+                            states={Flowchart.states(states, { label: "name", lane: "phase", order: "seq", members: (s) => s.slots })}
+                            transitions={Flowchart.transitions(transitions, { from: "src", to: "dst", decision: "trigger", kind: (t) => t.kind })}
+                            lanes={Flowchart.lanes(lanes, { label: "label", order: "seq" })}
+                            decisions={Flowchart.decisions(decisions, { label: (d) => d.name, owner: (d) => some(d.owner) })}
+                            orientation="TD"
+                            minimap
+                            legend={false}
+                            readOnly
+                            inspector={false}
+                            onSelectState={onSelectState}
+                            onSelectLink={onSelectLink}
+                            onSelectTrigger={onSelectTrigger}
+                            onTracePath={onTracePath}
+                            name="depotTopDown"
+                        />
+                    </Box>
+                </VStack>
             );
         }}</Reactive>
     )),
@@ -795,11 +849,11 @@ export declare const library: {
         label: (row: ExprType<T>, key: ExprType<StringType>) => SubtypeExprOrValue<StringType>;
         meta?: (row: ExprType<T>, key: ExprType<StringType>) => SubtypeExprOrValue<OptionType<StringType>>;
         group?: (row: ExprType<T>, key: ExprType<StringType>) => SubtypeExprOrValue<StringType>;
-        drop: (row: ExprType<T>, key: ExprType<StringType>) => FlowchartPatch<StructType>;
+        drop?: (row: ExprType<T>, key: ExprType<StringType>) => FlowchartPatch<StructType>;   // left out, its cards are read, never dragged
     }): FlowchartLibraryTab;
 };
 
-// The tag's props. Kept from today: id, name, readOnly, orientation, legend, minimap, freshness, canConnect,
+// The tag's props. Kept from today: name, readOnly, orientation, legend, minimap, freshness, canConnect,
 // onSelectState, onSelectLink, onSelectTrigger and onTracePath. Removed: record, data, flow, onApply, and
 // inspector's { state, transition } — a kind's own Details is its kind's inspector.
 export interface FlowchartRecordsProps {
@@ -1004,6 +1058,7 @@ FlowchartStateKindType = StructType({
     read: FunctionType([BlobType, StringType], FlowchartStateRolesType),               // a drafted row's roles
     write: FunctionType([BlobType, FlowchartStateWriteType], OptionType(BlobType)),    // a gesture's roles written in
     create: FunctionType([FlowchartStateWriteType, OptionType(BlobType)], OptionType(BlobType)),   // its roles, over a card's values or its type's defaults
+    laneField: OptionType(StringType),   // the field naming its lane: a conflict on it named by the lane's label, never its key
     details: OptionType(FlowchartDetailsType),
     templates: ArrayType(FlowchartTemplateType),
     templatesSource: OptionType(StringType),
@@ -1015,8 +1070,10 @@ FlowchartTransitionKindType = StructType({
     ...FlowchartKindFields,
     rows: FunctionType([], OptionType(DictType(StringType, FlowchartTransitionEntryType))),
     read: FunctionType([BlobType, StringType], FlowchartTransitionRolesType),
-    write: FunctionType([BlobType, FlowchartEndsType], OptionType(BlobType)),          // its ends
-    create: FunctionType([FlowchartEndsType, OptionType(BlobType)], OptionType(BlobType)),
+    write: FunctionType([BlobType, FlowchartTransitionWriteType], OptionType(BlobType)),   // its ends and its decision
+    create: FunctionType([FlowchartTransitionWriteType, OptionType(BlobType)], OptionType(BlobType)),
+    fromField: StringType, toField: StringType,   // the fields naming its ends: a conflict on one named by its state's label
+    decisionField: OptionType(StringType),        // the field naming its decision: a conflict on it named by the decision's label
     details: OptionType(FlowchartDetailsType),
     templates: ArrayType(FlowchartTemplateType),
     templatesSource: OptionType(StringType),
@@ -1025,6 +1082,8 @@ FlowchartTransitionRolesType = StructType({
     from: StringType, to: StringType, decision: OptionType(StringType),
     kind: FlowchartLinkKindType, evidence: OptionType(FlowchartEvidenceType),
 });
+// none: as it was; a decision's some(none) clears it, as a decision's Del does.
+FlowchartTransitionWriteType = StructType({ from: OptionType(StringType), to: OptionType(StringType), decision: OptionType(OptionType(StringType)) });
 
 // Lanes and decisions: read whole, so no entries and no read by key.
 FlowchartLaneKindType = StructType({
@@ -1036,7 +1095,8 @@ FlowchartLaneKindType = StructType({
     templates: ArrayType(FlowchartTemplateType),
     templatesSource: OptionType(StringType),
 });
-FlowchartLaneWriteType = StructType({ label: OptionType(StringType), order: OptionType(FloatType) });   // none: as it was, or the card's
+// none: as it was, or the card's. An Integer order takes a whole number alone: write and create give none for another.
+FlowchartLaneWriteType = StructType({ label: OptionType(StringType), order: OptionType(FloatType) });
 FlowchartDecisionKindType = StructType({
     ...FlowchartKindFields,
     rows: FunctionType([], OptionType(DictType(StringType, FlowchartDecisionEntryType))),
@@ -1478,7 +1538,7 @@ The work lands in two pull requests. The first is the records cutover — tasks 
 
 1. **The kinds** (e3-ui) — `Flowchart.states`, `transitions`, `lanes` and `decisions` over the app's records: their roles typed over the row, the binding forms and every refusal's words; each kind closed behind East functions over its rows' bytes — rows with their roles, `write`, `create`, `set`, a read by key, its form, its `ready` and its own Details; the slice's `states` and `transitions` sources through `recordSources`, and `narrowed`; the payload. `record`, `data`, `flow`, `onApply`, `Flowchart.over`, `values`, `value` and the Flow types removed.
 
-   **Done when:** the minimal, depot, editing, dimmed and phone examples build and decode on e3-web; each refusal is a type error or the tag's words; nothing of the Flow types is left in the package.
+   **Done when:** the minimal, depot, editing, dimmed, phone and top-down examples build and decode on e3-web; each refusal is a type error or the tag's words; nothing of the Flow types is left in the package.
 
 2. **The library** (e3-ui and the renderer) — `Flowchart.templates` on the kinds; `Flowchart.library.states()`, `transitions()` and `lanes()` listing them, each following its source; `Flowchart.library.tab` with a `Flowchart.patch` over any kind's row; the Flows tab and its code removed.
 

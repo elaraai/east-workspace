@@ -22,6 +22,16 @@ export const FLOWCHARTS = "e3/flowchart/flowchart";
 /** The library's open width (`Flowchart Builder Spec.md` §8). */
 export const PANE = 272;
 
+/**
+ * The desktop window a card is carried in, larger than the project's 1280 ×
+ * 800: wide enough that the page's entry holds a 900px frame whole — a frame
+ * wider than its entry scrolls it, and a card resting in the 48px along the
+ * entry's edge would scroll the page under it — and tall enough that the
+ * depot's 640px box, centred under the page's header, stands clear of the 48px
+ * at the window's top and foot (`sizeTo`).
+ */
+export const CARRY_WINDOW = { width: 1600, height: 900 } as const;
+
 /** A box, in client px. */
 export interface Box {
     readonly x: number;
@@ -35,7 +45,7 @@ export interface Box {
  * flowchart's root: the box its frame fills.
  *
  * @param page - The page
- * @param name - The example's name (`flowchartLibrary`)
+ * @param name - The example's name (`flowchartDepot`)
  * @param theme - The theme to open it in
  * @returns The example's entry and the flowchart's root
  */
@@ -220,7 +230,7 @@ export async function captionOf(page: Page): Promise<{ text: string; refused: bo
  * A point halfway along a transition's line, in client px.
  *
  * @param root - The flowchart's root
- * @param key - The transition's key, as the canvas draws it (`CH*→LDD#2`)
+ * @param key - The transition's key in its record (`l9`)
  * @returns The point
  */
 export function midLine(root: Locator, key: string): Promise<{ x: number; y: number }> {

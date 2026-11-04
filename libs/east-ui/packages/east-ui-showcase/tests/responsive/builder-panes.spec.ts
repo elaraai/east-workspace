@@ -10,8 +10,8 @@
  * menu, the open tab always on the row — on each builder the showcase holds:
  * Studio's, the query builder's, the Sheet's frame (#1216), the Plan's
  * library (#1195) and inspector (#1197), and the Flowchart's library — its
- * Flows tab alone (#1246), and beside its templates and the author's owners
- * (#1248) — and its inspector, on by default (#1250). At the desktop width
+ * Steps, Transitions and Lanes tabs beside the author's owners (#1248, #1501)
+ * — and its inspector, on by default (#1250). At the desktop width
  * the panes are measured open, as they rest; on a phone each is opened from
  * its tab and measured over the frame, and where its row folds, a tap on its
  * `+n` opens the menu, which stays open, and a tab picked from it opens on
@@ -48,9 +48,8 @@ const BUILDERS: readonly BuilderPage[] = [
     { name: "the Sheet", hash: "e3/sheet/sheet/sheetWorkshop", ready: "[data-sheet-card]", box: null, width: 1440, panes: ["Library", "Inspector"], folds: [] },
     // The Plan's frame fills its wrapper, which its host bounds: the host is the box sized.
     { name: "the Plan", hash: "e3/plan/plan-events/planPrintWorks", ready: "[data-plan-body]", box: ":has(> [data-plan-frame])", width: 1440, panes: ["Library", "Inspector"], folds: ["Library"] },
-    { name: "the Flowchart", hash: "e3/flowchart/flowchart/flowchartFlows", ready: "[data-flowchart-node]", box: null, width: 1440, panes: ["Library", "Inspector"], folds: [] },
-    // Four tabs — the Flows tab, the step and transition templates, the author's owners — fold on the phone (#1248).
-    { name: "the Flowchart's library", hash: "e3/flowchart/flowchart/flowchartLibrary", ready: "[data-flowchart-node]", box: null, width: 1440, panes: ["Library", "Inspector"], folds: ["Library"] },
+    // Four tabs — the Steps, Transitions and Lanes tabs and the author's owners — fold on the phone (#1248, #1501).
+    { name: "the Flowchart", hash: "e3/flowchart/flowchart/flowchartDepot", ready: "[data-flowchart-node]", box: null, width: 1440, panes: ["Library", "Inspector"], folds: ["Library"] },
 ];
 
 /**

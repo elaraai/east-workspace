@@ -16,18 +16,21 @@ stay in east-ui-components' theme. The Flowchart's renderer
 (`src/flowchart/`, #1243) registers against its `Flowchart` extension the
 same way, renders in its `BuilderFrame` too (#1245) — its canvas
 (`canvas.tsx`), its toolbar's items (`toolbar.tsx`), its footer
-(`footer.tsx`) and find state (`find.ts`) laid out by `index.tsx`, and over
-flows by name (#1246) its Flows tab (`flows.tsx`), the open flow, kept in
-the UI store (`open-flow.ts`), as LR · TD is (`orientation.ts`), each flow's
-editing session (`session.ts`) — every canvas gesture one transaction of it,
-each gesture's flow `edits.ts`'s (#1247) — its library pane (`library.tsx`,
-#1248: the tabs `library` lists, each data tab a `Library` of its own rows'
-cards), its drops (#1249: `drop.ts` plans what a card does where it lands,
-pure; `use-drop.ts` is the drop target, each drop and each card's ⏎ one
-transaction), its inspector (#1250: `inspector.tsx`, the end pane on by
-default — Details through `FieldForm`, or a state's or a transition's own,
-and Issues; what is selected, per open flow, `selection.ts`; the open flow's
-issues, `issues.ts`, pure) and its words (`messages.ts`) — builds on the same
+(`footer.tsx`) and find state (`find.ts`) laid out by `index.tsx` — over the
+app's records (#1500–#1505): each kind's rows read in a component of their
+own (`read.ts`), whole or complete through its source of the rail; the
+sources it follows (`sources.ts`); the model made from the four records' rows
+with the drafts in place (`drafted.ts`, `model.ts`); LR · TD, kept in the UI
+store (`orientation.ts`); one history over a session a record (`editing.ts`),
+what each gesture writes `edits.ts`'s, its roles' fields alone; its library
+pane (`library.tsx`: the Steps, Transitions and Lanes tabs, each kind's
+cards, and the author's tabs), its drops (`drop.ts` plans what a card does
+where it lands, pure; `use-drop.ts` is the drop target, each drop and each
+card's ⏎ one step of the history), its inspector (`inspector.tsx`, the end
+pane on by default — Details through `FieldForm` by its kind's form over the
+fields no role writes, or a kind's own, and Issues; what is selected,
+`selection.ts`; the issues, `issues.ts`, pure), a phone's lane pager
+(`lane-pager.tsx`) and its words (`messages.ts`) — builds on the same
 parts, and
 keeps its slot recipes there too, the canvas's and the inspector's. Its
 canvas hears its Esc from inside its frame as the key leaves the frame (the
@@ -425,8 +428,8 @@ event kind through its own (#1344), the Sheet draws its `rows` source's
 narrowing over the record's rows as the lens (#1349: e3 places the narrowing's
 rows from the index, `recordSlicePlace`, and the lens reads the segments that
 hold them near the view, a page and one `recordSliceWithinAt` each, never a
-segment with no match) and the Flowchart pages
-its `flows` source (#1346), Calendar event kinds read its interval queries, the
+segment with no match) and the Flowchart reads its states and
+transitions complete through their sources (#1502), Calendar event kinds read its interval queries, the
 Roster and the Allocation read their period's events through their kind's
 source, the period their navigation writes into it
 (`shared/schedule/source-window.ts`), and the Roster reads the selected staff
@@ -675,52 +678,46 @@ preparation sends no mutation and preserves drafts; a failed feedback read offer
 a read retry, never another Save. An indexed source's `recordId` names the primary
 record across all index lists and must back the shared editing identity.
 
-### Flowchart records and indexed Flows lists
+### Flowchart records, sources and the narrow layout
 
-One flow is one complete record entry. Bind the mutation door with
-`Record.bind`, and narrow the flows through the `flows` source of the one
-`Slice.bindRecords`: `Data.bindPaged(record, { indexes })` over the same record,
-passed as `slice={{ slice }}` (#1346). The Flows tab pages that source through
-shared `PagedLibrary`/`VirtualRows` and counts what it shows (`Flows 683 of
-2,048`), the count read in a component of its own (`FlowsCountReader`); never
-fetch every flow to render or search its cards. Record Slice owns indexed field
-choices, prefix search and counts; the Flows tab's own search (`PagedLibrary`'s
-`search`) pages the narrowing and the search's prefix through the source's
-`pageWhere`, never writing the rail (#1340, ruling 11). Each templates list and
-each tab that names a source follows it through `FollowSources`, as `sourceTab`
-draws it. `Find state` searches the complete open graph by state key and label;
-it does not search all flow records. Keep those purposes clear in labels and
-examples.
+Each kind is one of the app's records (#1500) — the states', the transitions',
+the lanes' and the decisions' — read in a component of its own (`read.ts`),
+as the Schematic's are: its record read whole, or a state or a transition
+kind's narrowing read complete through its source of the rail, page by page
+until done (#1502, the shared `PagedScan`), so the canvas draws the whole
+flowchart the rail chooses, never a window of it, and the frame hears what was
+read only as that moves. Lanes and decisions are read whole. Hidden — the
+default — a row the narrowing leaves out is never read, and a transition whose
+end it hides leaves the canvas; an end no drawn state stands for is read by
+key, which tells a hidden end from one e3 holds no state of — an issue, drawn
+as its ghost card (`issues.ts`). Under `narrowed="dim"` every row is read, and
+the states' and the transitions' own sources say by their shown keys which
+rows draw as context (`sources.ts`), faded and selected by no path. Each
+kind's cards, and each author's tab that names a source, follow it through
+`FollowSources`, as `sourceTab` draws them. Find state seeks the states read
+through their source in their record, through e3 (`find.ts`), and a pick of
+one the rail hides is the frame's hidden pick (`HideSources`).
 
-Computed filters use the index's own key type, including values derived from
-nested graph data. Scalar keys use the index name; Struct keys expose their
-named components. Never require a second field-type declaration or evaluate
-index functions over every record in the browser. Keep one-field fan-out
-filters to exact single-value membership so a flow with repeated nested values
-appears and counts once. Composite single-key indexes support combined choices;
-unsupported combinations must be explained by shared Slice, never approximated
-with loaded-page filtering. The example must cover a computed key changing on
-Save through real e3, in addition to primary-key draft retention.
+Every gesture is one step of one history over a session a record
+(`editing.ts`, #1503, over `shared/schedule/editing.ts`' `useScheduleEditing`,
+as the Schematic's is): what each gesture writes is pure in `edits.ts` — its
+roles' fields alone, through each kind's own `write` and `create` — and
+`drafted.ts` lays the drafts over the stored rows by each row's original key,
+whatever the narrowing or a remount. A draft the narrowing hides waits in its
+session — Issues lists it, naming the choices that hide it — and Save writes it
+with the rest, each record's changes through its patch door as a request of its
+own; a refusal keeps that record's drafts and leaves the others' commits
+standing.
 
-The open graph is read separately by its original primary key. Filtering the
-list must not close it, split its states across pages, or discard its drafts.
-Opening a flow covers nothing (#1398, CL5): the frame's cold-load cover is its
-first read's alone, and a flow opened after it is read with the toolbar, the
-panes and Save live, main busy and the footer naming it, drawn once it lands.
-Sessions use the primary record identity and original flow name, independent
-of the browse query. A save that moves the flow outside the narrowing still
-confirms through primary reads and reports the shared Save notice. Keep a
-pending session's confirmation subscribed when the user opens another flow.
-New-flow, rename and duplicate checks must look up the destination primary key,
-including names outside every loaded page and active filter.
-
-Use shared cards and card-sized recipe skeletons for pending rows. Do not wrap
-loaded cards in a text-line Skeleton: its fixed height breaks virtualization
-and makes cards overlap. Assert adjacent card bounds and bounded mounted counts.
-At phone widths, bundle orientation and Find state into the shared search
-popover's final View form before history folds; Filters and Save must remain
-inside the toolbar and clickable. Exercise indexed search, far scrolling,
-Save leaving a filter and draft retention in one real e3 workflow per device.
+Below 480px of main nothing drags (#1505): no draggable card and no drop
+cell. Details carries the gestures — a state's lane, a transition's ends —
+through the same edits, and a phone's lane pager (`lane-pager.tsx`) steps the
+canvas's sideways scroll a lane at a time. On a phone, orientation and Find
+state bundle into the shared search popover's final View form before history
+folds; the rail's chip and Save stay inside the toolbar and clickable. Test the
+narrow flow in a real browser at 390 and 360px and in a 294px parent — Find
+state, a state's form, its lane chosen, Save reached with the state selected
+and a remount reading it back (`flowchart-records.spec.ts`).
 
 ### The Sheet in a phone's frame
 

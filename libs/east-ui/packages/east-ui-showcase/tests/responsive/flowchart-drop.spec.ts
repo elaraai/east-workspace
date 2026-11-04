@@ -4,25 +4,25 @@
  */
 
 /**
- * The Flowchart's drag and drop in a real browser (#1249, `Flowchart Builder
- * Spec.md` §9.8, §10, FB30–FB34), where jsdom has no layout to measure it —
- * on the depot's flows with their library (`flowchartLibrary`), its record
- * held by the e3 the page runs. In both themes: a step's card carried from
- * the library over the Sort lane says where it lands; the lane takes the
- * brand's tint inside a dashed brand rule, its band's box; the landing line
- * runs 2px of the brand across the state's footprint, in the middle of the
- * gap under the chutes — both hidden while it rests on the "+ LANE" tail,
- * where the drop is refused; dropped, the state is drawn in that row, selected. A
- * transition's card over a transition says what it retypes, and the
- * transition takes the brand wash under its line — 12px of the brand mark at
- * 0.3 — which goes once the drag rests where the drop is refused, the caption
- * turning red; dropped, the transition is drawn observed. An owner's card over
- * a decision's diamond gives it the brand — its fill the brand's tint, its
- * rule 2px — which goes where the drop is refused. And the library:
- * where the frame is too narrow to pin it, it opens over main and slides off
- * it while a card is carried, so the canvas under the pointer takes the drop,
- * and comes back after; where it pins, it stays beside main. On a phone a tap
- * on the selected card drops it on the canvas's selection.
+ * The Flowchart's drag and drop in a real browser (#1249, #1501, `Flowchart
+ * Records Spec.md` R14), where jsdom has no layout to measure it — on the
+ * depot's records with their library (`flowchartDepot`), held by the e3 the
+ * page runs. In both themes: a step's card carried from the library over the
+ * Sort lane says where it lands; the lane takes the brand's tint inside a
+ * dashed brand rule, its band's box; the landing line lies 2px of the brand
+ * across the state's footprint, in the middle of the gap under the chutes —
+ * both hidden while it rests on the "+ LANE" tail, where the drop is refused;
+ * dropped, a new state is drawn in that row, selected. A transition's card
+ * over a transition says what it gives its values to, and the transition takes
+ * the brand wash under its line — 12px of the brand mark at 0.3 — which goes
+ * once the drag rests where the drop is refused, the caption turning red;
+ * dropped, the transition is drawn observed. An owner's card over a decision's
+ * diamond gives it the brand — its fill the brand's tint, its rule 2px — which
+ * goes where the drop is refused. And the library: where the frame is too
+ * narrow to pin it, it opens over main and slides off it while a card is
+ * carried, so the canvas under the pointer takes the drop, and comes back
+ * after; where it pins, it stays beside main. On a phone a tap on the selected
+ * card drops it on the canvas's selection.
  *
  * Every measurement is polled until it holds, on a page at rest; nothing reads
  * a screenshot.
@@ -34,22 +34,27 @@
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { settled } from "./settle";
-import { boxOf, boxesOf, captionOf, cardOf, carryTo, midLine, openFlowchart, openTab, paneOpen, pickUp, sizeTo } from "./flowchart-page";
+import { CARRY_WINDOW, boxOf, boxesOf, captionOf, cardOf, carryTo, midLine, openFlowchart, openTab, paneOpen, pickUp, sizeTo } from "./flowchart-page";
+import { LAYOUT_THEMES } from "./themes";
 
-/** Open the depot's flows with their library, at rest, and return the flowchart's root. */
-async function openLibrary(page: Page, theme: "light" | "dark" = "light"): Promise<Locator> {
-    return (await openFlowchart(page, "flowchartLibrary", theme)).root;
+/** Open the depot with its library, at rest, and return the flowchart's root. */
+async function openDepot(page: Page, theme: "light" | "dark" = "light"): Promise<Locator> {
+    return (await openFlowchart(page, "flowchartDepot", theme)).root;
 }
 
 /**
  * A frame wide enough to pin the library beside main's 480px, inside the
- * desktop window. The page's own right-hand column covers its canvas's last
- * lane and the + LANE tail, so a card carried there rests on the lanes before
- * them.
+ * carrying window. Main shows the depot's first lanes: its last lanes and the
+ * + LANE tail lie past main's right edge, so a card carried there rests on the
+ * lanes before them.
  */
 const PINNED = 900;
 
-/** A frame too narrow to pin the library — it opens over main from its rail — whose canvas the page leaves wholly uncovered. */
+/**
+ * A frame too narrow to pin the library — it opens over main from its rail.
+ * Main holds less than the depot's five lanes and the + LANE tail: the canvas
+ * scrolls to show its end.
+ */
 const OVERLAID = 700;
 
 /** A token's colour as the page resolves it. */
@@ -82,17 +87,27 @@ function regionAt(page: Page, at: { x: number; y: number }): Promise<string | nu
         document.elementFromPoint(x, y)?.closest("[data-frame-slot]")?.getAttribute("data-frame-slot") ?? null, at);
 }
 
+/** The state the canvas has selected: a drop selects the state it adds, keyed `state-<n>`. */
+function selectedState(root: Locator): Locator {
+    return root.locator("[data-flowchart-node][data-selected='true']");
+}
+
 test.describe("The Flowchart's drag and drop (#1249)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "carried by the mouse at the desktop width; the phone's tap below");
+    test.beforeEach(async ({ page }) => { await page.setViewportSize(CARRY_WINDOW); });
 
+    // These hold the marks' colours: each theme's.
     for (const theme of ["light", "dark"] as const) {
-        test(`a step's card over the Sort lane: the ghost says where it lands, the lane takes the brand's tint in a dashed brand rule, and the landing line runs 2px of the brand across the state's footprint in the middle of the gap under the chutes; dropped, the state is drawn there, selected (${theme})`, async ({ page }) => {
-            // The whole canvas uncovered: the library opens over main, and slides off it once a card is carried.
-            const root = await openLibrary(page, theme);
+        test(`a step's card over the Sort lane: the ghost says where it lands, the lane takes the brand's tint in a dashed brand rule, and the landing line lies 2px of the brand across the state's footprint in the middle of the gap under the chutes; dropped, a new state is drawn there, selected (${theme})`, async ({ page }) => {
+            // The library opens over main, and slides off it once a card is carried; the canvas, scrolled to its end,
+            // shows the Sort lane and the band row's tail both.
+            const root = await openDepot(page, theme);
             await sizeTo(page, root, OVERLAID);
+            await root.locator("[data-flowchart-scroll]").evaluate((el) => { el.scrollLeft = el.scrollWidth; });
+            await settled(page);
             await paneOpen(page, root, "overlay");
             await openTab(page, root, "Steps");
-            await pickUp(page, cardOf(root, "HLD"));
+            await pickUp(page, cardOf(root, "desk"));
             // Below the chutes' middle: after them.
             const [chutes, band] = await boxesOf(root, ["[data-flowchart-node='CH*']", "[data-flowchart-band='sort']"]);
             const rest = { x: band.x + band.width / 2, y: chutes.y + chutes.height + 20 };
@@ -135,9 +150,11 @@ test.describe("The Flowchart's drag and drop (#1249)", () => {
             await carryTo(page, root, rest, 6);
             await expect.poll(() => captionOf(page)).toEqual({ text: "after CH* in Sort", refused: false });
             await page.mouse.up();
-            await expect(root.locator("[data-flowchart-node='HLD']")).toHaveAttribute("data-selected", "true");
-            // In the chutes' lane, the next row down.
-            const [drawn, above] = await boxesOf(root, ["[data-flowchart-node='HLD']", "[data-flowchart-node='CH*']"]);
+            // A new state, selected: in the chutes' lane, the next row down.
+            await expect(selectedState(root)).toHaveCount(1);
+            const key = await selectedState(root).getAttribute("data-flowchart-node");
+            expect(key).toMatch(/^state-\d+$/);
+            const [drawn, above] = await boxesOf(root, [`[data-flowchart-node='${key}']`, "[data-flowchart-node='CH*']"]);
             expect([drawn.x, drawn.width]).toEqual([above.x, above.width]);
             expect(drawn.y - above.y).toBeCloseTo(96, 1);
             // The drag over, nothing stays marked.
@@ -146,23 +163,24 @@ test.describe("The Flowchart's drag and drop (#1249)", () => {
         });
 
         test(`a transition's card over a transition gives it the brand wash under its line — 12px of the brand mark at 0.3 — gone where the drop is refused, the caption red; dropped, the transition is drawn observed (${theme})`, async ({ page }) => {
-            const root = await openLibrary(page, theme);
+            const root = await openDepot(page, theme);
             await sizeTo(page, root, PINNED);
             await paneOpen(page, root, "pinned");
             await openTab(page, root, "Transitions");
-            await pickUp(page, cardOf(root, "Observed"));
-            const on = await midLine(root, "CH*→LDD#2");
+            await pickUp(page, cardOf(root, "reroute"));
+            // CH* → SRD, down the Sort lane.
+            const on = await midLine(root, "l5");
             await carryTo(page, root, on);
-            await expect.poll(() => captionOf(page)).toEqual({ text: "onto CH* → LDD", refused: false });
+            await expect.poll(() => captionOf(page)).toEqual({ text: "onto CH* → SRD", refused: false });
             const mark = await inkOf(page, "brand-mark");
             const wash = () => root.evaluate((el) => {
                 const path = el.querySelector("[data-flowchart-dropwash]");
                 if (path === null) return null;
                 const s = getComputedStyle(path);
-                const line = el.querySelector("[data-flowchart-link='CH*→LDD#2']")!;
+                const line = el.querySelector("[data-flowchart-link='l5']")!;
                 return { key: path.getAttribute("data-flowchart-dropwash"), sameLine: path.getAttribute("d") === line.getAttribute("d"), display: s.display, stroke: s.stroke, width: s.strokeWidth, opacity: s.opacity, fill: s.fill };
             });
-            expect(await wash()).toEqual({ key: "CH*→LDD#2", sameLine: true, display: "inline", stroke: mark, width: "12px", opacity: "0.3", fill: "none" });
+            expect(await wash()).toEqual({ key: "l5", sameLine: true, display: "inline", stroke: mark, width: "12px", opacity: "0.3", fill: "none" });
             // Over a state, no transition: refused, red — the wash hidden while the drop is refused.
             const scanned = await boxOf(root.locator("[data-flowchart-node='SCN']"));
             await carryTo(page, root, { x: scanned.x + scanned.width / 2, y: scanned.y + scanned.height / 2 }, 6);
@@ -177,14 +195,14 @@ test.describe("The Flowchart's drag and drop (#1249)", () => {
                 badge: getComputedStyle(cell, "::after").content,
                 cursor: getComputedStyle(cell).cursor,
             }))).toEqual({ refused: true, fill: "rgba(0, 0, 0, 0)", frame: "none", badge: "none", cursor: "not-allowed" });
-            await expect(root.locator("[data-flowchart-node='LDD']")).toHaveCSS("opacity", "1");
+            await expect(root.locator("[data-flowchart-node='SRD']")).toHaveCSS("opacity", "1");
             await carryTo(page, root, on, 6);
-            await expect.poll(() => captionOf(page)).toEqual({ text: "onto CH* → LDD", refused: false });
+            await expect.poll(() => captionOf(page)).toEqual({ text: "onto CH* → SRD", refused: false });
             await page.mouse.up();
             // Observed: the line's own stroke dashed in the info ink.
             const info = await inkOf(page, "status-info");
             await expect.poll(() => root.evaluate((el) => {
-                const hit = el.querySelector("[data-flowchart-link='CH*→LDD#2']")!;
+                const hit = el.querySelector("[data-flowchart-link='l5']")!;
                 const line = hit.previousElementSibling!;
                 return [line.getAttribute("stroke-dasharray"), getComputedStyle(line).stroke];
             })).toEqual(["5 4", info]);
@@ -192,14 +210,14 @@ test.describe("The Flowchart's drag and drop (#1249)", () => {
         });
 
         test(`an owner's card over the route decision's diamond gives it the brand — its fill the brand's tint, its rule 2px — gone where the drop is refused, the caption red; dropped, it is one change (${theme})`, async ({ page }) => {
-            const root = await openLibrary(page, theme);
+            const root = await openDepot(page, theme);
             await sizeTo(page, root, PINNED);
             await paneOpen(page, root, "pinned");
             await openTab(page, root, "Owners");
             const diamond = root.locator("[data-flowchart-trigger='route']");
             const drawn = () => diamond.evaluate((g) => { const s = getComputedStyle(g.querySelector("rect")!); return [s.fill, s.strokeWidth]; });
             const plain = await drawn();
-            await pickUp(page, cardOf(root, "customs-desk"));
+            await pickUp(page, cardOf(root, "cd"));
             const box = await boxOf(diamond);
             const on = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
             await carryTo(page, root, on);
@@ -218,26 +236,28 @@ test.describe("The Flowchart's drag and drop (#1249)", () => {
         });
     }
 
-    for (const { placement, width } of [{ placement: "overlay", width: OVERLAID }, { placement: "pinned", width: PINNED }] as const) {
-        test(`the library ${placement === "overlay" ? "opened over main, where the frame is too narrow to pin it, slides off main while a card is carried — the canvas under the pointer takes the drop — and comes back after" : "pinned beside main stays where it is while a card is carried"} (#1125)`, async ({ page }) => {
-            const root = await openLibrary(page);
-            await sizeTo(page, root, width);
-            const pane = root.locator("[data-frame-slot='start']");
-            await paneOpen(page, root, placement);
-            await openTab(page, root, "Steps");
-            const from = await pickUp(page, cardOf(root, "HLD"));
-            // Overlaid, the pane slides off main as the drag begins: where the card lay is main's; pinned, the pane's.
-            await expect.poll(() => regionAt(page, from)).toBe(placement === "overlay" ? "main" : "start");
-            await expect(root.locator("[data-scrim]")).toHaveCount(0);
-            const [sort, chutes] = await boxesOf(root, ["[data-flowchart-band='sort']", "[data-flowchart-node='CH*']"]);
-            await carryTo(page, root, { x: sort.x + sort.width / 2, y: chutes.y + chutes.height + 20 });
-            await expect.poll(() => captionOf(page)).toEqual({ text: "after CH* in Sort", refused: false });
-            await page.mouse.up();
-            await expect(root.locator("[data-flowchart-node='HLD']")).toHaveAttribute("data-selected", "true");
-            // The drag over, the library is back where it was.
-            await expect.poll(() => regionAt(page, from)).toBe("start");
-            await expect(pane).toHaveAttribute("data-pane-mode", placement);
-        });
+    for (const theme of LAYOUT_THEMES) {
+        for (const { placement, width } of [{ placement: "overlay", width: OVERLAID }, { placement: "pinned", width: PINNED }] as const) {
+            test(`the library ${placement === "overlay" ? "opened over main, where the frame is too narrow to pin it, slides off main while a card is carried — the canvas under the pointer takes the drop — and comes back after" : "pinned beside main stays where it is while a card is carried"} (#1125, ${theme})`, async ({ page }) => {
+                const root = await openDepot(page, theme);
+                await sizeTo(page, root, width);
+                const pane = root.locator("[data-frame-slot='start']");
+                await paneOpen(page, root, placement);
+                await openTab(page, root, "Steps");
+                const from = await pickUp(page, cardOf(root, "desk"));
+                // Overlaid, the pane slides off main as the drag begins: where the card lay is main's; pinned, the pane's.
+                await expect.poll(() => regionAt(page, from)).toBe(placement === "overlay" ? "main" : "start");
+                await expect(root.locator("[data-scrim]")).toHaveCount(0);
+                const [sort, chutes] = await boxesOf(root, ["[data-flowchart-band='sort']", "[data-flowchart-node='CH*']"]);
+                await carryTo(page, root, { x: sort.x + sort.width / 2, y: chutes.y + chutes.height + 20 });
+                await expect.poll(() => captionOf(page)).toEqual({ text: "after CH* in Sort", refused: false });
+                await page.mouse.up();
+                await expect(selectedState(root)).toHaveAttribute("data-flowchart-node", /^state-\d+$/);
+                // The drag over, the library is back where it was.
+                await expect.poll(() => regionAt(page, from)).toBe("start");
+                await expect(pane).toHaveAttribute("data-pane-mode", placement);
+            });
+        }
     }
 });
 
@@ -245,18 +265,20 @@ test.describe("The Flowchart's drops on a phone (#1249)", () => {
     test.skip(({ isMobile }) => !isMobile, "a coarse pointer: the phone projects");
 
     test("a tap on a state selects it; in the library opened from its rail, a tap selects a step's card, and a tap on the selected card drops it after the state — the card staying selected", async ({ page }) => {
-        const root = await openLibrary(page);
+        const root = await openDepot(page);
+        const states = root.locator("[data-flowchart-node]");
         await root.locator("[data-flowchart-node='SCN']").tap();
         await expect(root.locator("[data-flowchart-node='SCN']")).toHaveAttribute("data-selected", "true");
+        const before = await states.count();
         await root.locator("[data-pane-tab='start']").click();
         await settled(page);
         await openTab(page, root, "Steps");
-        const card = cardOf(root, "HLD");
+        const card = cardOf(root, "desk");
         await card.tap();
         await expect(card).toHaveAttribute("data-placed", "");
-        await expect(root.locator("[data-flowchart-node='HLD']")).toHaveCount(0);
+        await expect(states).toHaveCount(before);
         await card.tap();
-        await expect(root.locator("[data-flowchart-node='HLD']")).toHaveCount(1);
+        await expect(states).toHaveCount(before + 1);
         await expect(card).toHaveAttribute("data-placed", "");
         await expect(root.locator("[data-flowchart-pending]")).toHaveText(" · 1 pending");
     });

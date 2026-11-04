@@ -14,7 +14,7 @@ import { DEFAULT_FLOWCHART_NOUNS, flowchartMessages, flowchartMessagesOf } from 
 import "./index.js";
 
 const h = e3Harness({ "flowchart/flowchart": ex }, { measure: false });
-const DEFAULTS = /\b[Ff]lows?\b|\b[Ll]anes?\b|\b[Ss]tates?\b|\b[Tt]ransitions?\b|\b[Dd]ecisions?\b|\bPlanned\b|\bplanned\b|\bObserved\b|\bobserved\b/u;
+const DEFAULTS = /\b[Ll]anes?\b|\b[Ss]tates?\b|\b[Tt]ransitions?\b|\b[Dd]ecisions?\b|\bPlanned\b|\bplanned\b|\bObserved\b|\bobserved\b/u;
 /** The default words in all a region says: its text, its tooltips and what it tells a screen reader, each with what is around it. */
 function found(root: Element): string[] {
     const named = [...root.querySelectorAll("[title], [aria-label], [placeholder]")].flatMap(el => [el.getAttribute("title") ?? "", el.getAttribute("aria-label") ?? "", el.getAttribute("placeholder") ?? ""]);
@@ -22,12 +22,14 @@ function found(root: Element): string[] {
 }
 
 describe("a Flowchart's words", () => {
-    test("its panes and its toolbar say the app's words", async () => {
+    test("its panes, its canvas and its toolbar say the app's words", async () => {
         const { container: c } = await h.mount(ex.flowchartWording);
-        const tabs = [...slot(c, "start").querySelectorAll('[role="tab"]')].map(tab => tab.textContent ?? "");
-        expect(tabs.some(tab => tab.startsWith("Routes"))).toBe(true);
+        // The Steps tab keeps its name; the Hops and Stages tabs are named by their kinds.
+        const tabs = [...slot(c, "start").querySelectorAll('[role="tab"]')].map(tab => (tab.textContent ?? "").match(/^\p{L}+/u)?.[0]);
+        expect(tabs).toEqual(["Steps", "Hops", "Stages"]);
         expect(found(slot(c, "start"))).toEqual([]);
         expect(found(slot(c, "toolbar"))).toEqual([]);
+        expect(found(slot(c, "main"))).toEqual([]);
         expect(found(slot(c, "end"))).toEqual([]);
         expect(found(slot(c, "footer"))).toEqual([]);
     });

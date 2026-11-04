@@ -188,20 +188,19 @@ Task → What do you need?
     │   ├─ Narrow it — one rail, one date window              → slice={{ slice: Slice.bindRecords(key, { job: { source, range: "start" }, machines?, jobTemplates? }) }}
     │   └─ The app's optimiser                                → optimise={Func.bind(e3.function)}
     │
-    ├─ Draw a state-transition or process flow — the Flowchart
-    │   ├─ An e3 record of flows by name                      → <Flowchart record={…} flow="…" /> (record = Record.bind(r), r of Flowchart.Types.Flows)
-    │   ├─ The record's value, written as literals            → Flowchart.values({ [name]: { lanes, states, links, triggers? } }) (a lone flow: one entry)
-    │   ├─ One flow of the host's, an input's value           → <Flowchart data={Data.bind(input)} /> (the input's value Flowchart.value({ … }))
-    │   ├─ One flow from the app's own tables                 → <Flowchart data={Flowchart.over(states, { state, links, link, lanes, triggers?, trigger? })} />
-    │   ├─ Decision triggers and evidence on the transitions  → a flow's triggers, a link's trigger / evidence
-    │   ├─ Selection and ⌥-click path tracing                 → onSelect*, onTracePath
-    │   ├─ Its inspector                                      → on by default (inspector={false} takes it away); a state's or a transition's own Details → inspector={{ state, transition }}
-    │   ├─ The flows listed by name, one opened, new started  → library={[Flowchart.library.flows()]}
-    │   ├─ The app's own words for what it draws              → vocabulary={{ flow, lane, state, transition, decision, planned, observed }}
-    │   ├─ State and transition templates, the author's cards → library={[…, Flowchart.library.states(templates.read(), {…, source }), Flowchart.library.transitions(…), Flowchart.library.tab(rows, {…})]}
-    │   ├─ Narrow its flows, templates and tabs — one rail    → slice={{ slice: Slice.bindRecords(key, { flows?, steps?, … }) }}
+    ├─ Draw a state-transition flow over the app's records — the Flowchart
+    │   ├─ A kind per record: its states, transitions, lanes, decisions → <Flowchart states={Flowchart.states(record, { label, lane, order, members? })} transitions={Flowchart.transitions(record, { from, to, decision?, kind?, evidence? })} lanes={Flowchart.lanes(record, { label, order })} decisions={Flowchart.decisions(record, { label, owner? })} />
+    │   ├─ Editable, or read only                              → Record.bind(record) · Data.bind(record) (lanes and decisions: small records, read whole)
+    │   ├─ Narrow its states, transitions and cards — one rail → slice={{ slice: Slice.bindRecords(key, { states: { source: Data.bindPaged(record, { indexes }) }, transitions: { … }, <a cards list's source>? }, { presets? }) }} (+ the kind's entries: Data.bindPaged(record))
+    │   ├─ What a narrowing leaves out: gone, or faded         → narrowed="hide" (the default) · narrowed="dim"
+    │   ├─ Each kind's cards, and the Steps, Transitions and Lanes tabs → Flowchart.templates(rows, { name, group?, values, source? }) on the kind · library={[Flowchart.library.states(), .transitions(), .lanes()]}
+    │   ├─ The app's own words for what it draws              → each kind's own name: Flowchart.states(record, { …, name: "Stop" }) — its tabs, canvas, inspector, footer and Find say it · vocabulary={{ planned, observed }}, a transition's kinds
+    │   ├─ An author's card dropped onto any kind's row        → Flowchart.library.tab(rows, { …, drop: (r) => Flowchart.patch(R, { … }) })
+    │   ├─ The inspector, a kind's form and the app's check    → on by default (inspector={false} takes it away) · Flowchart.states(record, { …, fields?, ready? })
+    │   ├─ What the host hears, and the connect veto           → onSelectState · onSelectLink · onSelectTrigger · onTracePath (⌥-click) · canConnect={fn → Option<String>}
+    │   ├─ Top down, a minimap, no legend, read only           → orientation="TD" · minimap · legend={false} · readOnly
     │   ├─ On a phone: how many lanes in view, ‹ › through them → narrow={{ lanes?: 1 | 2 | 3 }} (2 by default)
-    │   └─ Edit a flow: lanes, states, transitions, one Save  → record={…}, or data={…} + onApply (canConnect vetoes a pair)
+    │   └─ Edit it: lanes, states, transitions, one Save       → each kind Record.bind(record) over a record declaring mutation.patch(); Save writes each through its patch door
     │
     ├─ Draw the app's records at world coordinates — a floor, a site — the Schematic
     │   ├─ A kind per record, under its slot                   → <Schematic extent={{ width, height }} items={{ racks: Schematic.items(record, { name, icon, x, y, label, … }) }} zones={{ … }} links={{ … }} nets={{ … }} />
@@ -390,7 +389,7 @@ and `<Schematic>` share one contract:
 | `<Calendar>` | Calendar, Resources and Timeline layouts over event records with a backlog | `e3-ui:calendar.examples.tsx:calendarMinimal` (smallest), `e3-ui:calendar.examples.tsx:calendarOperations`, `e3-ui:calendar-records.examples.tsx:calendarRecordIndexes` |
 | `<Roster>` | Weekly staffing: duties over people by shift, cover targets, pay, fit, publish | `e3-ui:roster.examples.tsx:rosterMinimal` (smallest), `e3-ui:roster.examples.tsx:rosterWarehouse`, `e3-ui:roster.examples.tsx:rosterPeople` |
 | `<Allocation>` | A day's arrivals booked into lane slots, each bin on resources | `e3-ui:allocation.examples.tsx:allocationMinimal` (smallest), `e3-ui:allocation.examples.tsx:allocationKilnYard`, `e3-ui:allocation.examples.tsx:allocationFitRule` |
-| `<Flowchart>` | States in ordered phase lanes, transitions, decision triggers | `e3-ui:flowchart.examples.tsx:flowchartFlows` (smallest), `e3-ui:flowchart.examples.tsx:flowchartDepot`, `e3-ui:flowchart.examples.tsx:flowchartDetail` |
+| `<Flowchart>` | States in ordered lanes, transitions and decisions, a record of the app's each | `e3-ui:flowchart.examples.tsx:flowchartDwell` (smallest), `e3-ui:flowchart.examples.tsx:flowchartDepot`, `e3-ui:flowchart.examples.tsx:flowchartDepotEditing`, `e3-ui:flowchart.examples.tsx:flowchartDepotTopDown` |
 | `<Schematic>` | Items, zones, links and nets at world coordinates | `e3-ui:schematic.examples.tsx:schematicFloor` (smallest), `e3-ui:schematic.examples.tsx:schematicDataCentre`, `e3-ui:schematic-records.examples.tsx:schematicRecordIndexes` |
 
 Field types matter: a `Sheet.column.quantity` sits on a `Float` field, a

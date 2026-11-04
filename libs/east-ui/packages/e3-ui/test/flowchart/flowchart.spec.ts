@@ -49,6 +49,7 @@ describeEast("Flowchart", (test) => {
         flowchartDepotDimmed: ex.flowchartDepotDimmed,
         flowchartDepotPhone: ex.flowchartDepotPhone,
         flowchartDepotTopDown: ex.flowchartDepotTopDown,
+        flowchartWording: ex.flowchartWording,
     });
 }, { platformFns: TestImpl });
 
