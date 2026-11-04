@@ -69,7 +69,7 @@ Versus production: today the same contents open in the 380 px `SliceEditPopover`
 - Field row 44: magnifier 14 `--ink-4`, the input (mono 13, `Search Records`), Cancel (12.5/500 `--brand-d`).
 - An eyebrow (`Type a reference, such as 10040` until typed; then `Records`, or `No record matches`).
 - 44 result rows: the key mono 13/500, its row and name 13 `--ink-3`, a note mono 10.5 `--ink-4`.
-- A hint under them: `Jumps to the row. The filters stay as they are.`
+- A hint under them: `Jumps to the row.` (ruled 4 Nov 2026: a pick of a row the filters hide clears what hides it.)
 - **SL10.1** A tap closes the field, selects the row (unfolding its group) and scrolls it under the header.
 - **SL10.2** The design: a record the filters hide reads `hidden by the filters` in `--ink-4` and does nothing on tap. See R2.
 

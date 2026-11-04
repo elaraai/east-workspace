@@ -104,7 +104,7 @@ test("on a phone Search Records opens its view over the builder, never a popover
         const rows = searchView(container)!.querySelectorAll<HTMLElement>("[data-key-search-row]");
         expect(rows.length).toBe(1);
         expect(rows[0]!.textContent).toContain("WO-1043");
-        expect(searchView(container)!.textContent).toContain("Jumps to the row. The filters stay as they are.");
+        expect(searchView(container)!.textContent).toContain("Jumps to the row.");
         await press(rows[0]!);
         expect(searchView(container)).toBeNull();
         await settle();

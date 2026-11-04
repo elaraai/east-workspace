@@ -4,10 +4,11 @@
  */
 
 /**
- * Search Records over a Plan's `rows` source (#1513): primary-key navigation
- * over the whole record, never a field search, which is the rail's. The box
- * seeks and lists the record's own rows, in its key's order, so it finds a row
- * the rail hides, and a line says what hides it (the shared hidden pick,
+ * Search Records over a Plan's `rows` source (#1513): navigation over the whole
+ * record, never a field search, which is the rail's. The box seeks and lists the
+ * rows as the binding reads them with no narrowing — by primary key where it
+ * joins its rows, else by its default index, a lean binding reading no rows by
+ * their keys — so it finds a row the rail hides, and a line says what hides it (the shared hidden pick,
  * `shared/schedule/hidden.ts`). The canvas pages the narrowing's rows in its
  * index's order, so a row's place in the record says nothing of its place on
  * the canvas: a pick asks e3 where the row stands among the rows the narrowing
@@ -33,7 +34,7 @@ import type { PlanWords } from "./words.js";
 type Where = ValueTypeOf<typeof RecordSliceWhereType>;
 
 const printWhere = printFor(RecordSliceWhereType);
-/** No narrowing: the record's own rows, in its key's order. */
+/** No narrowing: the record's rows, as the binding reads them by default. */
 const WHOLE_RECORD: Where = new Map();
 
 /**
