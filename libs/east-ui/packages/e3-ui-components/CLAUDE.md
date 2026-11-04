@@ -502,7 +502,8 @@ builder supplies only its own:
   lines are listed again as the layout comes to lay resources out or leaves
   off, and a pick steps to the event's period and selects it. The time grids,
   the month and the agenda narrow no event by its resource, and name none.
-- **The Plan**: its `rows` source (`plan/find.ts`, #1513): the box seeks and
+- **The Plan**: the source of the rows it pages, its `rows` source or a paged
+  resource kind's (`plan/find.ts`, #1513): the box seeks and
   lists the whole record as the binding reads it with no narrowing — by key
   where it joins its rows, a lean binding by its default index — a line naming
   what hides a row; a
@@ -823,9 +824,10 @@ to it, and the eye's entry to a run and its Stop).
 A row with nothing left to fold bundles host controls into the shared key
 search's compact popover, one move, as the Flowchart's orientation and the
 Sheet's views do (#1345); a control there that moves the focus away closes it.
-The Plan, which has no key search over a rail, bundles its fold toggle, its
+The Plan bundles its fold toggle, its
 resolution and its overlaps chip into the date navigator's View, one move
-(#1344): a phone's row holds the rail's icon, the View and the history item.
+(#1344): a phone's row holds the rail's icon, the search's where it pages a
+source of the rail, the View and the history item.
 Use the established 44px row and coarse-pointer targets. Range/date and count
 readouts share one baseline; do not introduce a stacked two-line toolbar label.
 

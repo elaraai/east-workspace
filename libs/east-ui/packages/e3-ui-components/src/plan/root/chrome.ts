@@ -122,7 +122,7 @@ export interface PlanChrome {
     busy: boolean;
     /** The rows' pitch, in px: the cold-load skeleton's rows draw at it. */
     pitch: number;
-    /** Key search over the source, when a paged source declares `seek` (#574), or over the `rows` source's record (#1513). */
+    /** Key search over the source, when a paged source declares `seek` (#574), or over the record of the source the canvas pages: its `rows` source's, or a paged resource kind's (#1513). */
     search: KeySearchSource | undefined;
     /** What the canvas carried on past (#811). */
     diagnostics: PlanDiagnostics;

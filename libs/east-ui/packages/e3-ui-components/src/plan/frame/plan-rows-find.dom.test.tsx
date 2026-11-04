@@ -6,10 +6,11 @@
  */
 
 /**
- * Search Records over a Plan's `rows` source (#1513), on e3, over the works:
- * the box finds a row the rail hides, its line names the choices hiding it, and
- * a pick clears just those and goes to the row where the narrowing left holds
- * it, in that narrowing's index's order, its row taking the keyboard.
+ * Search Records over the source of the rows a Plan pages (#1513), on e3 — the
+ * works' `rows` source, and the work orders' paged resource kind's: the box finds
+ * a row the rail hides, its line names the choices hiding it, and a pick clears
+ * just those and goes to the row where the narrowing left holds it, in that
+ * narrowing's index's order, its row taking the keyboard.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
@@ -18,10 +19,12 @@ import { SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, no
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { getStore } from "@elaraai/east-ui-components/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-nested";
+import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
+import * as sheet from "@elaraai/e3-ui/examples/sheet/sheet-records";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
 import { act, planHarness, settle, slot } from "./harness.test-utils.js";
 
-const h = planHarness({ "plan/plan-nested": ex });
+const h = planHarness({ "plan/plan-nested": ex, "plan/plan-records": records, "sheet/sheet-records": sheet });
 const KEY = "ex.planNestedAll.rows";
 
 const decodeState = decodeBeast2For(RecordSliceStateType);
@@ -98,5 +101,38 @@ describe("Search Records over a Plan's rows source (#1513)", () => {
         fireEvent.keyDown(input(c), { key: "Enter" });
         await settle();
         await waitFor(() => expect(labels(c).some((label) => label.includes("Works 10002"))).toBe(true));
+    });
+});
+
+describe("Search Records over a paged resource kind's source", () => {
+    /** The orders' source narrowing, as the rail holds it. */
+    const ordersNarrowing = () => [...decodeState(getStore().read("ex.planRecordIndexes.orders")!).where.keys()];
+
+    test("finds an order the rail hides, names what hides it, and a pick clears that and goes to its row", async () => {
+        const { container: c } = await h.mount(records.planRecordIndexes);
+        await settle();
+        // It opens on the Ready orders due in the first fortnight: JOB-10001 is Scheduled, and due later.
+        expect(ordersNarrowing().length).toBeGreaterThan(0);
+        expect(labels(c).some((label) => label.includes("JOB-10001"))).toBe(false);
+        await paste(c, "JOB-10001");
+        await waitFor(() => expect(lines(c)[0]).toMatch(/^JOB-10001 · hidden by .*Status: Ready/));
+        fireEvent.keyDown(input(c), { key: "Enter" });
+        await settle();
+        await waitFor(() => expect(labels(c).some((label) => label.includes("JOB-10001"))).toBe(true), { timeout: 4000 });
+        expect(ordersNarrowing()).not.toContain("status");
+        await waitFor(() => expect(document.activeElement?.closest("[role='row']")?.textContent ?? "").toContain("JOB-10001"));
+    });
+
+    test("an order the narrowing holds, far down its rows, is gone to with nothing cleared", async () => {
+        const { container: c } = await h.mount(records.planRecordIndexes);
+        await settle();
+        const before = ordersNarrowing();
+        // Ready, due 1 October, as the first is: thousands of the narrowing's rows on.
+        await paste(c, "JOB-49960");
+        await waitFor(() => expect(lines(c)[0]).toBe("JOB-49960"));
+        fireEvent.keyDown(input(c), { key: "Enter" });
+        await settle();
+        await waitFor(() => expect(labels(c).some((label) => label.includes("JOB-49960"))).toBe(true), { timeout: 4000 });
+        expect(ordersNarrowing()).toEqual(before);
     });
 });

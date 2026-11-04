@@ -4,7 +4,9 @@
  */
 
 /**
- * Search Records over a Plan's `rows` source (#1513): navigation over the whole
+ * Search Records over the source of the rows a Plan pages (#1513) — its `rows`
+ * source, or a paged resource kind's, whose windows are its narrowing's rows just
+ * as theirs are: navigation over the whole
  * record, never a field search, which is the rail's. The box seeks and lists the
  * rows as the binding reads them with no narrowing — by primary key where it
  * joins its rows, else by its default index, a lean binding reading no rows by
@@ -51,7 +53,7 @@ function knownHiding(pick: SourceHidden, id: string): readonly SourceHiding[] | 
 
 /** What {@link usePlanRowsFind} reads. */
 export interface PlanRowsFindProps {
-    /** The `rows` source's part; `undefined` with none, or over inline rows: no box. */
+    /** The part of the source the canvas pages its rows from; `undefined` with none, or over inline rows: no box. */
     readonly part: PlanSourcePart | undefined;
     /** The hidden pick over it. */
     readonly pick: SourceHidden;
@@ -66,7 +68,7 @@ export interface PlanRowsFindProps {
 }
 
 /**
- * Search Records' source over the `rows` source — see the module docs.
+ * Search Records' source over the source the canvas pages — see the module docs.
  *
  * @param props - The source's part, its hidden pick, the clear, the controller, the words and where an error is said
  * @returns The source; `undefined` with no part

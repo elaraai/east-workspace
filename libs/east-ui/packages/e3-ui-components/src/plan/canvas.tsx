@@ -766,8 +766,9 @@ export function usePlanCanvas({
     // snapshot of the source's data, whose rows the matches it holds no longer
     // index (#821, #1199). New rows over the same data — a pan reading the
     // event kinds' rows again, a draft — move neither, so the search stands.
-    // The `rows` source's own Search Records stays primary-key navigation over its whole record (#1513, `find.ts`): the
-    // rail narrows, never the key search, and a pick clears what hides its row.
+    // The source of the rows the canvas pages — its `rows` source, or a paged resource kind's — keeps its own Search
+    // Records, navigation over its whole record (#1513, `find.ts`): the rail narrows, never the key search, and a pick
+    // clears what hides its row.
     const seekable = rowsPart === undefined && data.rows.type !== "inline" && data.rows.value.seek.type === "some";
     const sourceId = data.rows.type !== "inline" ? data.rows.value.id : "";
     // A pick in it hands the keyboard to the canvas (#1398): the row it brings in takes the focus — the grid's one stop,
@@ -779,7 +780,9 @@ export function usePlanCanvas({
     const seekSearch = useMemo<PlanSearch | undefined>(
         () => (seekable ? { ...picking, resetKey: sourceId, requery: seek.again } : undefined),
         [seekable, picking, sourceId, seek.again]);
-    const findsRows = rowsPart !== undefined && data.rows.type !== "inline" ? rowsPart : undefined;
+    const findsRows = useMemo(
+        () => (data.rows.type !== "inline" ? planPart(slices, pagedSlot ?? ROWS_SOURCE) : undefined),
+        [data.rows.type, slices, pagedSlot]);
     const rowsHiding = useSourceHidden("Plan", findsRows);
     const rowsFind = usePlanRowsFind({ part: findsRows, pick: rowsHiding, clear: hiddenPick.clear, controller, words, onError: setFindError });
     const search = useMemo(

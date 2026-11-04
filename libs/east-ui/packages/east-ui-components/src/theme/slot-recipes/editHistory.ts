@@ -113,10 +113,13 @@ export const editHistorySlotRecipe = defineSlotRecipe({
         },
         changes: {
             fontFamily: "mono", fontSize: "label.lg", fontWeight: "500", color: "fg.subtle", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums",
-            /* Each word whole or gone, the number first, so a row with little room still counts: `1 change`, then `1`. */
+            /* Each word whole or gone, the number first, so a row with little room still counts: `1 change`, then `1`. The
+             * number is the box's first item, on its one line however narrow the box, so it has no line-holder before it to
+             * wrap away from, and the gap is the noun's: a gap between items sent the `1` under the clip in a 26px box. */
             "&[data-changes]": {
-                ...wholeOrNone("24px"), maxWidth: "100%", boxSizing: "border-box", columnGap: "0.6ch", paddingX: "{spacing.2}", borderRadius: "sm",
+                ...wholeOrNone("24px"), "&::before": { display: "none" }, lineHeight: "24px", maxWidth: "100%", boxSizing: "border-box", paddingX: "{spacing.1.5}", borderRadius: "sm",
                 background: "brandTint", color: "brandPressed", fontWeight: "600",
+                "& [data-changes-noun]": { marginInlineStart: "0.6ch" },
             },
         },
         /* A phone's Issues while any stands (FR6.3, QP6): `--warn`, then the count in mono 11/600. */

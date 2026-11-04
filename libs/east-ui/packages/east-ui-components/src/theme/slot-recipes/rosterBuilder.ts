@@ -99,7 +99,9 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         openPosition: { textStyle: "mono.xs", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "6px", border: "1px dashed", borderColor: "fg.warning", padding: "4px 6px", borderRadius: "3px", color: "fg.warning" },
         proposal: { borderStyle: "dashed", borderColor: "border.emphasized", background: "transparent", padding: "0 3px 0 6px", _hover: { borderColor: "fg.subtle" } },
         proposalMark: { color: "brand.fg", fontWeight: "semibold", letterSpacing: "0.1em", textTransform: "uppercase" },
-        proposalName: { fontStyle: "italic", color: "fg.muted", textAlign: "left", ...planRowFocus },
+        proposalName: { fontStyle: "italic", color: "fg.muted", textAlign: "left", ...planRowFocus,
+            // A phone's card (its proposal has no density: the desktop's chip does): the name selects it, a finger's height.
+            "[data-roster-proposal]:not([data-density]) &": { _coarse: { minHeight: "44px" } } },
         proposalReason: { whiteSpace: "nowrap", flexShrink: 0, fontSize: "label.xs" },
         proposalAction: { opacity: 1, width: "18px", height: "18px", borderRadius: "3px", "&[data-accept]": { border: "1px solid", borderColor: "border.emphasized", background: "bg.surface", color: "fg.success", _hover: { borderColor: "fg.success" } }, _hover: { background: "bg.panel" } },
         weekCell: { padding: "5px 2px", textAlign: "center", borderLeftWidth: "1px", borderColor: "border.subtle", minWidth: 0, ...planRowFocus, "&[data-drop-active]": { background: "brand.subtle" },

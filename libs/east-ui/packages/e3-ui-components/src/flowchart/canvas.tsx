@@ -548,9 +548,12 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
         const at = revealPoint(layout, model, reveal.selection);
         const box = scrollRef.current;
         if (at === undefined || box === null) return;
-        box.scrollLeft = Math.max(0, at.x - box.clientWidth / 2);
+        const left = Math.max(0, at.x - box.clientWidth / 2);
+        // A phone's window of lanes opens on whole lanes, the nearest that hold it, and never past the last lane's start: a
+        // state in the last lane, centred, would stop at the canvas's end, with the lane before it cut (hand test row 14).
+        box.scrollLeft = laneWidth === undefined ? left : Math.min(Math.round(left / laneWidth), Math.max(0, layout.lanes.length - lanesInView)) * laneWidth;
         box.scrollTop = Math.max(0, at.y - box.clientHeight / 2);
-    }, [reveal, layout, model, select]);
+    }, [reveal, layout, model, select, laneWidth, lanesInView]);
 
     // Esc restores everything at once (the spec): nothing selected, nothing dimmed, no transition being drawn — and says
     // whether it had any of them to put back: an Esc with nothing to put back does nothing, and goes on as it came.

@@ -77,11 +77,18 @@ test.describe("A phone's hand test", () => {
         await unlink.tap();
         const count = frame.locator("[data-frame-slot='sessionRow'] [data-changes]");
         await expect(count).toHaveText("1 change");
-        expect(await count.evaluate((el) => {
+        // At a phone's width, and at 360, where the row leaves a box too narrow for the noun.
+        const shown = () => count.evaluate((el) => {
             const box = el.getBoundingClientRect();
             const number = el.children[0]!.getBoundingClientRect();
-            return [number.top >= box.top - 0.5 && number.bottom <= box.bottom + 0.5, number.width > 0];
-        })).toEqual([true, true]);
+            return [number.top >= box.top - 0.5 && number.bottom <= box.bottom + 0.5, number.left >= box.left - 0.5 && number.right <= box.right + 0.5, number.width > 0];
+        });
+        expect(await shown()).toEqual([true, true, true]);
+        await page.setViewportSize({ width: 360, height: 844 });
+        await settled(page);
+        expect(await shown()).toEqual([true, true, true]);
+        await page.setViewportSize({ width: 390, height: 844 });
+        await settled(page);
         await frame.locator("[data-frame-slot='sessionRow']").getByRole("button", { name: "Undo", exact: true }).tap();
         await expect(count).toHaveCount(0);
     });
@@ -115,6 +122,34 @@ test.describe("A phone's hand test", () => {
         const at = await card.boundingBox();
         expect(at!.y).toBeGreaterThanOrEqual(list!.y);
         expect(at!.y + at!.height).toBeLessThanOrEqual(list!.y + list!.height);
+    });
+
+    test("a Plan over a paged resource kind has Search Records: a hidden order's line says why, and a pick clears that and selects its card", async ({ page }) => {
+        const frame = await open(page, "e3/plan/plan-records/planRecordIndexesMobile");
+        await frame.locator("[data-toolbar-item] [data-key-search='icon']").first().tap();
+        const view = page.locator("[data-key-search-phone]");
+        await view.getByRole("textbox").fill("JOB-10001");
+        const row = view.locator("[data-key-search-row]").first();
+        await expect(row).toContainText("hidden by Status: Ready");
+        await row.tap();
+        const card = frame.locator("[data-plan-card][data-selected]");
+        await expect(card).toHaveCount(1, { timeout: 30_000 });
+        await expect(card).toContainText("JOB-10001");
+    });
+
+    test("a state Find picks in a phone's last lane opens on whole lanes, the lane before it uncut", async ({ page }) => {
+        const frame = await open(page, "e3/flowchart/flowchart/flowchartFlowsMobile");
+        await frame.locator("[data-toolbar-item='seek'] [data-key-search='icon']").first().tap();
+        const view = page.locator("[data-key-search-phone]");
+        await view.getByRole("textbox").fill("LDD");
+        await view.locator("[data-key-search-row]").first().tap();
+        await settled(page);
+        await expect(frame.locator("[data-flowchart-lane-pager] [data-slot='pagerReadout']")).toHaveText("Lanes 2–3 of 3");
+        const scroll = frame.locator("[data-flowchart-scroll]");
+        const [left, width] = await scroll.evaluate((el) => [el.scrollLeft, el.clientWidth]);
+        expect(left).toBe(Math.floor(width! / 2));
+        const [node, box] = await Promise.all([frame.locator("[data-flowchart-node='LDD']").boundingBox(), scroll.boundingBox()]);
+        expect(node!.x + node!.width).toBeLessThanOrEqual(box!.x + box!.width);
     });
 
     test("a Select in a form opens headed with its field's name", async ({ page }) => {

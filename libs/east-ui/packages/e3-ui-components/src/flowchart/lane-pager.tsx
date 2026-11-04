@@ -10,8 +10,8 @@
  * scroll: the pager reads where it rests and moves it — smoothly, at once
  * under reduced motion — so a swipe and a step are one window, and › reaches
  * what stands past the last lane, `+ LANE`, as a swipe does. A window that comes
- * to rest between two lanes — a Find's pick centres its state, wherever that
- * leaves the lanes — settles on the nearer, as a step would. Its looks are the
+ * to rest between two lanes — a swipe let go there — settles on the nearer, as a
+ * step would; a Find's pick opens on whole lanes (the canvas's). Its looks are the
  * Sheet's pager's, in the `sheet` recipe.
  *
  * @packageDocumentation
