@@ -36,6 +36,19 @@ import type { PlanWords } from "./words.js";
 type Where = ValueTypeOf<typeof RecordSliceWhereType>;
 
 const printWhere = printFor(RecordSliceWhereType);
+/** The box's `resetKey`: what tells this search from a paged source's own. */
+const PLAN_ROWS_FIND = "plan-rows";
+
+/**
+ * Whether a search is this one, over the source the canvas pages: where the toolbar folds it first (`shell/Toolbar.tsx`).
+ *
+ * @param search - The Plan's search; `undefined` with none
+ * @returns Whether it is {@link usePlanRowsFind}'s
+ */
+export function isPlanRowsFind(search: KeySearchSource | undefined): boolean {
+    return search?.resetKey === PLAN_ROWS_FIND;
+}
+
 /** No narrowing: the record's rows, as the binding reads them by default. */
 const WHOLE_RECORD: Where = new Map();
 
@@ -148,6 +161,6 @@ export function usePlanRowsFind({ part, pick, clear, controller, words, onError 
     const noMatchesText = words.m.keySearchNoMatches();
     const present = part !== undefined;
     return useMemo(() => (present ? {
-        resetKey: "plan-rows", requery, relist, keyType: CANVAS_KEY_TYPE, find, listRange, jump, clear: clearBox, noMatchesText,
+        resetKey: PLAN_ROWS_FIND, requery, relist, keyType: CANVAS_KEY_TYPE, find, listRange, jump, clear: clearBox, noMatchesText,
     } : undefined), [present, requery, relist, find, listRange, jump, clearBox, noMatchesText]);
 }
