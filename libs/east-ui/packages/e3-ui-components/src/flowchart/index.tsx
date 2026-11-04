@@ -561,7 +561,7 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
                         message={notice} words={words} notices={notices} line={line} />}
                     onKeyDown={onKeyDown}
                 >
-                    <FlowchartCanvasView ref={canvasRef} canvas={value.canvas} model={model} orientation={orientation} reveal={reveal} conflicted={conflicted}
+                    <FlowchartCanvasView ref={canvasRef} canvas={value.canvas} model={model} details={detailsModel} orientation={orientation} reveal={reveal} conflicted={conflicted}
                         edit={canvasEdits} drop={drop.canvas} selection={selection} onSelect={setSelected} words={words} storageKey={storageKey}
                         onElement={onCanvasElement} failure={failure} />
                 </BuilderFrame>

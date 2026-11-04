@@ -31,7 +31,10 @@
  *
  * And the Flowchart's lane pager (`narrow.lanes`, ruled 3 Nov 2026): its window
  * shows the lanes the example asks, each half of main's width, and ‹ › step it
- * a lane, the readout following.
+ * a lane, the readout following. Where the details draw on the cards (R40,
+ * D24), at 390, 360 and in a 294px parent, the window holds one lane: after
+ * each step, and as the window resizes, its card stands whole in the window's
+ * middle, and no label stands on a card.
  *
  * Run: `pnpm exec playwright test builder-frame-phone`.
  */
@@ -39,6 +42,7 @@
 import { expect, type Locator } from "playwright/test";
 import { test } from "./kept-page";
 import { sizeBuilder, visitBuilder } from "./builder-page";
+import { FLOWCHARTS, laneWindowFaults } from "./flowchart-page";
 import { settled } from "./settle";
 
 const ROOT = "[data-builder-frame]";
@@ -333,4 +337,52 @@ test("Flowchart: a frame too narrow for the lanes it is told to show shows as ma
     const scroll = frame.locator("[data-flowchart-scroll]");
     const [node, box] = await Promise.all([frame.locator("[data-flowchart-node]").first().boundingBox(), scroll.boundingBox()]);
     expect(node!.x + node!.width).toBeLessThanOrEqual(box!.x + box!.width);
+});
+
+/** The depot, its flags on its cards: the details draw on them, 272 wide. */
+const DETAILED = `${FLOWCHARTS}/flowchartFlagColors`;
+
+/** What is wrong with the Flowchart's window, resting on a lane. */
+const windowFaults = (entry: Locator, lane: number): Promise<string[]> => laneWindowFaults(entry.locator(ROOT).first(), lane);
+
+for (const width of [390, 360, 294]) {
+    test(`Flowchart: where the details draw on the cards, a ${width}px frame's window holds one lane, each step bringing its card whole to the window's middle, no label on a card`, async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 900 });
+        const entry = await visitBuilder(page, DETAILED, ROOT, "light");
+        await sizeBuilder(page, entry, ROOT, width);
+        const pager = entry.locator(ROOT).first().locator("[data-flowchart-lane-pager]");
+        const readout = pager.locator("[data-slot='pagerReadout']");
+        await expect(readout).toHaveText("Lanes 1 of 5");
+        await expect.poll(() => windowFaults(entry, 0)).toEqual([]);
+        for (const lane of [1, 2, 3, 4]) {
+            await pager.locator("[data-slot='pagerNext']").click();
+            await expect(readout).toHaveText(`Lanes ${lane + 1} of 5`);
+            await expect.poll(() => windowFaults(entry, lane)).toEqual([]);
+        }
+        for (const lane of [3, 2, 1, 0]) {
+            await pager.locator("[data-slot='pagerPrevious']").click();
+            await expect(readout).toHaveText(`Lanes ${lane + 1} of 5`);
+            await expect.poll(() => windowFaults(entry, lane)).toEqual([]);
+        }
+        await expect(pager.locator("[data-slot='pagerPrevious']")).toHaveAttribute("aria-disabled", "true");
+    });
+}
+
+test("Flowchart: where the details draw on the cards, a window resized keeps the lane it rests on, its card in the middle", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const entry = await visitBuilder(page, DETAILED, ROOT, "light");
+    await sizeBuilder(page, entry, ROOT, 390);
+    const pager = entry.locator(ROOT).first().locator("[data-flowchart-lane-pager]");
+    const readout = pager.locator("[data-slot='pagerReadout']");
+    await expect(readout).toHaveText("Lanes 1 of 5");
+    for (const lane of [2, 3]) {
+        await pager.locator("[data-slot='pagerNext']").click();
+        await expect(readout).toHaveText(`Lanes ${lane} of 5`);
+    }
+    await expect.poll(() => windowFaults(entry, 2)).toEqual([]);
+    for (const width of [294, 360]) {
+        await sizeBuilder(page, entry, ROOT, width);
+        await expect(readout).toHaveText("Lanes 3 of 5");
+        await expect.poll(() => windowFaults(entry, 2), `at ${width}px`).toEqual([]);
+    }
 });

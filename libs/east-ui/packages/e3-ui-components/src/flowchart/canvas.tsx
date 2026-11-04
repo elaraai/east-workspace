@@ -92,9 +92,10 @@ import { LoadingFailedBox } from "@elaraai/east-ui-components/internal";
 import { keyFromPage, keyInFrame } from "../shared/frame-keys.js";
 import type { FlowchartWords } from "./messages.js";
 import type { FlowchartCanvasValue, FlowchartModel, ModelBand, ModelLink, ModelNode } from "./model.js";
+import { DETAILS_CARD_W, detailsCardOf, detailsLabelOf, type FlowchartDetailsModel, type FlowchartLabelLine } from "./details.js";
 import {
-    computeLayout, landingSeam, previewCursorPath, previewLinkPath,
-    type FlowchartLayout, type LinkRoute, type Pt,
+    computeLayout, labelBox, landingSeam, previewCursorPath, previewLinkPath,
+    type FlowchartLayout, type LabelBox, type LinkRoute, type Pt,
     BADGE_H, LANE_HEADER_H, NODE_W, RING_R,
 } from "./layout.js";
 import { FlowchartLanePager } from "./lane-pager.js";
@@ -186,6 +187,8 @@ export interface FlowchartCanvasViewProps {
     readonly conflicted?: ReadonlySet<string> | undefined;
     /** The view model: the records, the drafts in place. */
     readonly model: FlowchartModel;
+    /** The details model: each card's size where the details draw on the cards, and each label's lines (R22, R32). */
+    readonly details: FlowchartDetailsModel;
     /** Left to right, or top down. */
     readonly orientation: FlowchartOrientation;
     /** What the frame asked the canvas to select and bring into view last, or `null`. */
@@ -301,8 +304,26 @@ function portColor(attached: ModelLink[], selectedLink: string | null): string {
 const PHONE_LANES = 2;
 /** A phone's main: 560 wide or narrower, as the frame's phone is. */
 const PHONE_MAIN = 560;
-/** The narrowest a phone's lane gets, however many it is told to show: a state's card, and room for its handles. */
-const PHONE_LANE_MIN = NODE_W + 16;
+/** Beside a phone's lane's card, however many lanes it is told to show: room for its handles. A lane is counted at its card's width and this (R40). */
+const PHONE_LANE_ROOM = 16;
+
+/**
+ * A label line's words (R32): a figure's label, its value in the app's locale
+ * and its unit — *no data* where the row lacks it (R25); an item's name and
+ * its share (R29); *none*; a placeholder's, none.
+ *
+ * @param line - The line
+ * @param words - The flowchart's words
+ * @returns Its words
+ */
+function labelLineText(line: FlowchartLabelLine, words: FlowchartWords): string {
+    switch (line.kind) {
+        case "placeholder": return "";
+        case "figure": return line.value === undefined ? `${line.label} ${words.m.detailsNoData()}` : `${line.label} ${words.number(line.value)}${line.unit === undefined ? "" : ` ${line.unit}`}`;
+        case "item": return `${line.name} ${words.percent(line.share)}`;
+        case "none": return words.m.detailsNone();
+    }
+}
 
 /** A lane's ×: its box's side, centred on its glyph. */
 const CLOSE_BOX = 14;
@@ -410,7 +431,7 @@ interface MoveDrag {
  * @param props - The canvas's options, the view model, the orientation, what to reveal, the gestures, the drop cell, the selection and what selects, the words, the storage key and the frame's handle
  * @returns The canvas's box, which scrolls the records inside it
  */
-export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, drop, selection, onSelect, words, storageKey, onElement, failure, ref, conflicted }: FlowchartCanvasViewProps) {
+export function FlowchartCanvasView({ canvas, model, details, orientation, reveal, edit, drop, selection, onSelect, words, storageKey, onElement, failure, ref, conflicted }: FlowchartCanvasViewProps) {
     const styles = useSlotRecipe({ key: "flowchart" })();
 
     // ── decode ────────────────────────────────────────────────────────────
@@ -504,15 +525,44 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
         return () => ro.disconnect();
     }, []);
 
+    // ── sizes: each card's where the details draw on the cards, and each label's (R22, R32) ──
+    const cards = useMemo(() => {
+        const kind = details.states;
+        if (kind === undefined || !kind.onCanvas) return undefined;
+        // A ghost stands for no row, so it has no reads: the card's width and 40.
+        const heights = new Map<string, number>();
+        for (const node of model.nodes) {
+            const card = node.ghost ? undefined : detailsCardOf(kind, node.key);
+            if (card !== undefined) heights.set(node.key, card.height);
+        }
+        return { width: DETAILS_CARD_W, heights };
+    }, [model, details.states]);
+    const labels = useMemo(() => {
+        const kind = details.transitions;
+        if (kind === undefined || !kind.onCanvas) return undefined;
+        // Its evidence line, then its details' lines: a label with neither draws none.
+        const sizes = new Map<string, LabelBox>();
+        for (const link of model.links) {
+            const lines = [...(link.badgeText === undefined ? [] : [link.badgeText]), ...detailsLabelOf(kind, link.key).map((line) => labelLineText(line, words))];
+            if (lines.length > 0) sizes.set(link.key, labelBox(lines));
+        }
+        return sizes;
+    }, [model, details.transitions, words]);
+
     // A phone's window of lanes, left to right: as many across main's width as the canvas's `narrow.lanes` says, which
-    // its pager steps through — as many whole lanes as main holds at their least width, so none is cut however many it
-    // is told to show, and the readout says what shows. Top down, the lanes stack and the view scrolls down them.
+    // its pager steps through — as many whole lanes as main holds, each counted at its card's width and 16, so none is
+    // cut however many it is told to show, and the readout says what shows. The lanes fill the window; where the
+    // details draw on the cards a phone holds one, keeping its width — at least the window's — and each step brings
+    // its card to the window's middle (R40, D24). Top down, the lanes stack and the view scrolls down them.
     const narrow = getSomeorUndefined(canvas.narrow);
     const narrowLanes = narrow === undefined ? undefined : getSomeorUndefined(narrow.lanes);
     const lanesAsked = narrowLanes === undefined ? PHONE_LANES : Number(narrowLanes);
+    const laneLeast = (cards?.width ?? NODE_W) + PHONE_LANE_ROOM;
     const windowed = size !== null && size.w > 0 && size.w <= PHONE_MAIN && orientation === "LR";
-    const lanesInView = windowed ? Math.max(1, Math.min(lanesAsked, Math.floor(size.w / PHONE_LANE_MIN))) : lanesAsked;
-    const laneWidth = windowed ? Math.max(PHONE_LANE_MIN, Math.floor(size.w / lanesInView)) : undefined;
+    const lanesInView = windowed ? Math.max(1, Math.min(lanesAsked, Math.floor(size.w / laneLeast))) : lanesAsked;
+    const laneWidth = windowed && cards === undefined ? Math.max(laneLeast, Math.floor(size.w / lanesInView)) : undefined;
+    // The one lane the window holds where the details draw on the cards: at least the window's width, so no other lane shows beside it.
+    const laneWindow = windowed && cards !== undefined ? size.w : undefined;
     const layout: FlowchartLayout | null = useMemo(
         () => (size === null ? null : computeLayout(model, {
             width: size.w,
@@ -521,9 +571,14 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
             // The lanes run the whole of main's height.
             minHeight: size.h > 0 ? size.h : undefined,
             laneWidth,
+            laneWindow,
+            cards,
+            labels,
         })),
-        [model, size, orientation, legendOn, laneWidth],
+        [model, size, orientation, legendOn, laneWidth, laneWindow, cards, labels],
     );
+    // The window's lane: where the details draw on the cards, wider than the window, which rests with its card in the middle.
+    const laneSlot = layout?.lanes[0]?.w ?? 0;
 
     // ── drops ─────────────────────────────────────────────────────────────
     // The canvas is one drop cell: where a drag rests is worked out from the
@@ -981,25 +1036,28 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
                                 );
                             })}
 
-                            {/* evidence badges — collision-resolved in layout; chrome
-                                inherits the link class; numerals mono tabular ink */}
+                            {/* labels — collision-resolved in layout over their boxes, each
+                                as big as its lines (R32); chrome inherits the link class; its
+                                evidence line's numerals mono tabular ink */}
                             {orderedRoutes.map(r => {
                                 const l = linksByKey.get(r.key)!;
-                                if (l.badgeText === undefined || r.badge === undefined) return null;
-                                const w = l.badgeText.length * 5.8 + 14;
+                                const box = r.label;
+                                if (box === undefined) return null;
                                 const bs = badgeStyle(l.cls, isSelectedLink(r.key));
                                 return (
                                     // Ornament, not a control — pointer-transparent so the
                                     // link's hit path beneath stays hoverable.
-                                    <g key={`bdg-${r.key}`}
+                                    <g key={`bdg-${r.key}`} data-flowchart-label={r.key}
                                         style={{ opacity: linkOpacity(l), transition: fade(dim.active), pointerEvents: "none" }}
-                                        transform={`translate(${r.badge.x},${r.badge.y})`}>
-                                        <rect x={-w / 2} y={-BADGE_H / 2} width={w} height={BADGE_H} rx={4}
+                                        transform={`translate(${box.x + box.w / 2},${box.y + box.h / 2})`}>
+                                        <rect x={-box.w / 2} y={-box.h / 2} width={box.w} height={box.h} rx={4}
                                             fill={PAPER} stroke={bs.stroke} strokeWidth={1} strokeDasharray={bs.dash} />
-                                        <text y={3.5} textAnchor="middle"
-                                            style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, fill: bs.text, fontVariantNumeric: "tabular-nums" }}>
-                                            {l.badgeText}
-                                        </text>
+                                        {l.badgeText !== undefined && (
+                                            <text y={-box.h / 2 + BADGE_H / 2 + 3.5} textAnchor="middle"
+                                                style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, fill: bs.text, fontVariantNumeric: "tabular-nums" }}>
+                                                {l.badgeText}
+                                            </text>
+                                        )}
                                     </g>
                                 );
                             })}
@@ -1527,8 +1585,8 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
     // A phone's lane pager over the canvas, while the window holds fewer lanes than the flow has.
     return (
         <>
-            {layout !== null && !empty && laneWidth !== undefined && layout.lanes.length > lanesInView && (
-                <FlowchartLanePager frame={scrollEl} total={layout.lanes.length} inView={lanesInView} slotPx={laneWidth} words={words} />
+            {layout !== null && !empty && windowed && layout.lanes.length > lanesInView && (
+                <FlowchartLanePager frame={scrollEl} total={layout.lanes.length} inView={lanesInView} slotPx={laneSlot} centred={cards !== undefined} words={words} />
             )}
             {body}
         </>

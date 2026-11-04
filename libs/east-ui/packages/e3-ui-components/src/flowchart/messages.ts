@@ -140,6 +140,10 @@ export interface FlowchartMessages extends EditingMessages, HiddenWords, PagedLo
     lanePager: (p: { range: string; total: string }) => string;
     /** The pager's ‹ and ›. */
     laneStep: (p: { more: boolean }) => string;
+    /** What a read with nothing to show says, on a card, a label or in the inspector — `no data` (R33, R41). */
+    detailsNoData: () => string;
+    /** What a list or a tag list with no items says — `none` (R41). */
+    detailsNone: () => string;
     /** The "+ STATE" ghost: the word beside its plus. */
     stateWord: () => string;
     /** A lane's ×: its accessible name, and its tooltip while it can delete — `Delete lane Sort`. */
@@ -397,6 +401,8 @@ export function flowchartMessagesOf(nouns: FlowchartNouns): FlowchartMessages {
         addLane: () => `Add ${lane}`,
         lanePager: ({ range, total }) => `${kindPlural(nouns.lane)} ${range} of ${total}`,
         laneStep: ({ more }) => (more ? `Next ${lane}` : `Previous ${lane}`),
+        detailsNoData: () => "no data",
+        detailsNone: () => "none",
         stateWord: () => state,
         deleteLane: ({ label }) => `Delete ${lane} ${label}`,
         laneHoldsStates: ({ n, count, name }) => `Move its ${count} ${counted(n, name ?? state)} first`,

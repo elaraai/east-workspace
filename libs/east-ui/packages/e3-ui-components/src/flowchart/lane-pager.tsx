@@ -11,13 +11,17 @@
  * under reduced motion — so a swipe and a step are one window, and › reaches
  * what stands past the last lane, `+ LANE`, as a swipe does. A window that comes
  * to rest between two lanes — a swipe let go there — settles on the nearer, as a
- * step would; a Find's pick opens on whole lanes (the canvas's). Its looks are the
- * Sheet's pager's, in the `sheet` recipe.
+ * step would; a Find's pick opens on whole lanes (the canvas's). Where the
+ * details draw on the cards a lane keeps its width, wider than the window, and
+ * each step brings its card to the window's middle — the middle of what the
+ * window shows, its scrollbar left out — as the window opens, as it resizes and
+ * as a swipe settles too (R40, D24). Its looks are the Sheet's pager's, in the
+ * `sheet` recipe.
  *
  * @packageDocumentation
  */
 
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
@@ -34,6 +38,8 @@ export interface FlowchartLanePagerProps {
     inView: number;
     /** A lane's width, px. */
     slotPx: number;
+    /** Whether each step brings its lane's card to the window's middle — where the details draw on the cards, a lane wider than the window; otherwise the lanes fill the window, each step bringing a lane to its start. */
+    centred: boolean;
     /** The flowchart's words. */
     words: FlowchartWords;
 }
@@ -44,21 +50,34 @@ function reducedMotion(): boolean {
 }
 
 /** Renders a phone's lane pager — see the module docs. */
-export const FlowchartLanePager = memo(function FlowchartLanePager({ frame, total, inView, slotPx, words }: FlowchartLanePagerProps) {
+export const FlowchartLanePager = memo(function FlowchartLanePager({ frame, total, inView, slotPx, centred, words }: FlowchartLanePagerProps) {
     const styles = useSlotStyles("sheet");
     const last = Math.max(0, total - inView);
+    // What the window shows across, its scrollbar left out: read as it opens and each time it resizes.
+    const [shows, setShows] = useState(0);
+    useLayoutEffect(() => {
+        if (frame === null || !centred) return undefined;
+        const measure = () => setShows(frame.clientWidth);
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(frame);
+        return () => observer.disconnect();
+    }, [frame, centred]);
+    // Where the window rests on a lane: past its start by half what the lane is wider than what the window shows, so its card stands in the middle.
+    const offset = centred && shows > 0 ? Math.round((slotPx - shows) / 2) : 0;
     // The first lane in view, and whether the view is at the canvas's end: where the window rests, read off the canvas as it scrolls.
     const [first, setFirst] = useState(0);
     const [atEnd, setAtEnd] = useState(false);
     useEffect(() => {
         if (frame === null || slotPx <= 0) return undefined;
         const read = () => {
-            setFirst(Math.min(last, Math.max(0, Math.round(frame.scrollLeft / slotPx))));
+            setFirst(Math.min(last, Math.max(0, Math.round((frame.scrollLeft - offset) / slotPx))));
             setAtEnd(frame.scrollLeft + frame.clientWidth >= frame.scrollWidth - 1);
         };
-        // At rest between two lanes it settles on the nearer, never at the canvas's end, which stands past the last lane's start.
+        // At rest between two lanes it settles on the nearer — its card in the middle where a lane is wider than the window —
+        // never at the canvas's end, which stands past the last lane's start.
         const settle = () => {
-            const at = Math.round(frame.scrollLeft / slotPx) * slotPx;
+            const at = Math.max(0, Math.round((frame.scrollLeft - offset) / slotPx)) * slotPx + offset;
             if (Math.abs(frame.scrollLeft - at) > 1 && frame.scrollLeft + frame.clientWidth < frame.scrollWidth - 1) {
                 frame.scrollTo({ left: at, behavior: reducedMotion() ? "auto" : "smooth" });
             }
@@ -70,13 +89,23 @@ export const FlowchartLanePager = memo(function FlowchartLanePager({ frame, tota
             frame.removeEventListener("scroll", read);
             frame.removeEventListener("scrollend", settle);
         };
-    }, [frame, slotPx, last]);
+    }, [frame, slotPx, offset, last]);
+    // A lane wider than the window: its card to the window's middle as the window opens, and on the lane it rests on as it resizes.
+    const rested = useRef<{ slotPx: number; offset: number } | undefined>(undefined);
+    useLayoutEffect(() => {
+        if (frame === null || slotPx <= 0) return;
+        const was = rested.current;
+        rested.current = { slotPx, offset };
+        if (offset === 0 && (was === undefined || was.offset === 0)) return;
+        const lane = was === undefined ? 0 : Math.min(last, Math.max(0, Math.round((frame.scrollLeft - was.offset) / was.slotPx)));
+        frame.scrollLeft = lane * slotPx + offset;
+    }, [frame, slotPx, offset, last]);
     // The canvas's end holds it past the last lane's start; the browser stops the scroll there.
     const go = (to: number) => {
-        if (frame !== null) frame.scrollTo({ left: Math.max(0, to) * slotPx, behavior: reducedMotion() ? "auto" : "smooth" });
+        if (frame !== null) frame.scrollTo({ left: Math.max(0, Math.max(0, to) * slotPx + offset), behavior: reducedMotion() ? "auto" : "smooth" });
     };
     // Past the last lane's start, at what stands after it: a step back comes to that lane first.
-    const pastLast = atEnd && frame !== null && frame.scrollLeft > first * slotPx + 1;
+    const pastLast = atEnd && frame !== null && frame.scrollLeft > first * slotPx + offset + 1;
     const from = words.number(first + 1);
     const to = words.number(Math.min(total, first + inView));
     const range = inView === 1 ? from : `${from}–${to}`;

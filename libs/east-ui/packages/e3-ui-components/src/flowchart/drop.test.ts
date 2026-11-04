@@ -260,7 +260,7 @@ describe("where a drag rests", () => {
 
     test("an author's card rests on a lane's header — the band before its first row — and on a decision's diamond, within its pad; No lane has no header", () => {
         expect(text(dropAtPoint("header", layout, model, { x: mid("sort"), y: 20 }))).toBe(text(at("header", "sort")));
-        expect(text(dropAtPoint("header", layout, model, { x: mid("sort"), y: layout.rows.start + 4 }))).toBe(text(ON_CANVAS));
+        expect(text(dropAtPoint("header", layout, model, { x: mid("sort"), y: layout.rows[0]!.start + 4 }))).toBe(text(ON_CANVAS));
         const routed = routeOf(layout, "t2");
         expect(text(dropAtPoint("decision", layout, model, routed.mid))).toBe(text(at("decision", "route")));
         expect(text(dropAtPoint("decision", layout, model, { x: routed.mid.x + DIAMOND_PAD, y: routed.mid.y }))).toBe(text(at("decision", "route")));
@@ -561,7 +561,30 @@ describe("its words and its marks", () => {
         const chutes = td.layout.nodes.get("CH*")!;
         expect(rowCell(td.layout, sort, 0)).toEqual({ x: chutes.x, y: chutes.y, w: chutes.w, h: chutes.h });
         expect(landingSeam(td.layout, sort, 0)).toEqual({ x: chutes.x - 8, y: chutes.y, w: 0, h: 40 });
-        expect(landingSeam(td.layout, sort, 1)).toEqual({ x: chutes.x + td.layout.rows.pitch - (td.layout.rows.pitch - 116) / 2, y: chutes.y, w: 0, h: 40 });
+        const pitch = td.layout.rows[1]!.start - td.layout.rows[0]!.start;
+        expect(landingSeam(td.layout, sort, 1)).toEqual({ x: chutes.x + pitch - (pitch - 116) / 2, y: chutes.y, w: 0, h: 40 });
+    });
+
+    test("over cards as tall as their reads, a state lands by its row's middle, its cell the row's span across the card, its line in the middle of the gap before the row — top down, across the tallest card", () => {
+        const cards = { width: 272, heights: new Map([["ARV", 120], ["SCN", 200], ["CH*", 80], ["LDD", 160]]) };
+        const sized = computeLayout(model, { width: 0, orientation: "LR", cards });
+        const intake = bandOf(sized, "intake");
+        // Row 0 holds ARV, CH* and LDD, as tall as LDD's 160; row 1, SCN's 200; 56 between them.
+        expect(rowCell(sized, intake, 0)).toEqual({ x: 25, y: 56, w: 272, h: 160 });
+        expect(rowCell(sized, intake, 1)).toEqual({ x: 25, y: 272, w: 272, h: 200 });
+        expect([0, 1, 2].map((row) => landingSeam(sized, intake, row))).toEqual([
+            { x: 25, y: 48, w: 272, h: 0 }, { x: 25, y: 244, w: 272, h: 0 }, { x: 25, y: 500, w: 272, h: 0 },
+        ]);
+        const x = intake.x + intake.w / 2;
+        const arrived = sized.nodes.get("ARV")!, scanned = sized.nodes.get("SCN")!;
+        expect(text(dropAtPoint("lane", sized, model, { x, y: arrived.cy }))).toBe(text(lane("intake", 0)));
+        expect(text(dropAtPoint("lane", sized, model, { x, y: arrived.cy + 1 }))).toBe(text(lane("intake", 1)));
+        expect(text(dropAtPoint("lane", sized, model, { x, y: scanned.cy }))).toBe(text(lane("intake", 1)));
+        expect(text(dropAtPoint("lane", sized, model, { x, y: scanned.cy + 1 }))).toBe(text(lane("intake", 2)));
+        const td = computeLayout(model, { width: 0, orientation: "TD", cards });
+        const tdIntake = bandOf(td, "intake");
+        expect(rowCell(td, tdIntake, 1)).toEqual({ x: 380, y: 36, w: 272, h: 200 });
+        expect(landingSeam(td, tdIntake, 1)).toEqual({ x: 354, y: 36, w: 0, h: 200 });
     });
 
     test("a lane's landing line stands at the start of the lane it lands before, or the end of the last — across, LR's x; top down, its y", () => {

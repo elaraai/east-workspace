@@ -990,3 +990,62 @@ export function detailsCardOf(kind: FlowchartKindDetails, key: string, measure: 
     });
     return { width: DETAILS_CARD_W, height: top - READ_GAP + CARD_PAD + CARD_EDGE, reads };
 }
+
+// ============================================================================
+// A transition label's lines
+// ============================================================================
+
+/** One line under a transition label's evidence (R32). */
+export type FlowchartLabelLine =
+    /** Its row has not landed: a placeholder, a line high (R34). */
+    | { readonly kind: "placeholder" }
+    /** A figure: its label, its value — `undefined` where the row lacks it, *no data* — and its unit (R25). */
+    | { readonly kind: "figure"; readonly label: string; readonly value: number | undefined; readonly unit: string | undefined }
+    /** One of a list's top items: its name, and its share of the list's total (R29). */
+    | { readonly kind: "item"; readonly name: string; readonly share: number }
+    /** A list with no items: *none*. */
+    | { readonly kind: "none" };
+
+/** A placeholder line, while the row lands. */
+const PLACEHOLDER_LINE: FlowchartLabelLine = { kind: "placeholder" };
+/** *None*, in a list's place. */
+const NONE_LINE: FlowchartLabelLine = { kind: "none" };
+
+/**
+ * A transition label's lines under its evidence (R32): each read it shows on
+ * the canvas, in the details' order — a figure a line, a list its top items by
+ * value, or *none* — no line for a row there is none of, which keeps its
+ * evidence line alone (R33), and while the row lands each read's lines as
+ * placeholders, so the label is as tall as it will be (R34). The build refuses
+ * tags and histograms on a label, and lines past three (R21).
+ *
+ * @param kind - The transitions' details
+ * @param key - The transition's key
+ * @returns Its lines, in order; none where no read shows on the canvas
+ */
+export function detailsLabelOf(kind: FlowchartKindDetails, key: string): FlowchartLabelLine[] {
+    if (!kind.onCanvas) return [];
+    const row = kind.rows.get(key);
+    if (row === null) return [];
+    const lines: FlowchartLabelLine[] = [];
+    kind.reads.forEach((entry, index) => {
+        if (entry.show.type === "inspector") return;
+        const read = entry.read;
+        const at = row?.values[index];
+        if (read.type === "figure") {
+            lines.push(row === undefined ? PLACEHOLDER_LINE : {
+                kind: "figure", label: read.value.label, value: at?.type === "figure" ? getSomeorUndefined(at.value) : undefined, unit: getSomeorUndefined(read.value.unit),
+            });
+        } else if (read.type === "list") {
+            const top = topOf(read.value);
+            if (row === undefined) {
+                for (let i = 0; i < top; i++) lines.push(PLACEHOLDER_LINE);
+                return;
+            }
+            const items = at?.type === "list" ? listLines(at.value, top) : [];
+            if (items.length === 0) lines.push(NONE_LINE);
+            for (const item of items) lines.push({ kind: "item", name: item.name, share: item.share });
+        }
+    });
+    return lines;
+}

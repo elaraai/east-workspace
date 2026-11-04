@@ -46,7 +46,7 @@ import { getSomeorUndefined, type DragPayload, type DropCellOptions, type DropVe
 import { dropTargetAt, laneAt } from "./connect.js";
 import type { FlowchartFieldWrites } from "./editing.js";
 import { dropLane, dropState, dropTransition, setFields, type FlowchartHolding, type GestureEdits } from "./edits.js";
-import { NODE_H, NODE_W, type FlowchartLayout, type Pt, type RouteSeg } from "./layout.js";
+import type { FlowchartLayout, Pt, RouteSeg } from "./layout.js";
 import type { FlowchartDropPlaceWord, FlowchartDropRefusalWord, FlowchartDropWhatWord, FlowchartLandsWord, FlowchartMessages } from "./messages.js";
 import type { FlowchartModel, FlowchartValue, ModelNode } from "./model.js";
 import type { FlowchartSort } from "./read.js";
@@ -239,9 +239,11 @@ const alongOf = (layout: FlowchartLayout, p: Pt): number => (layout.orientation 
  * @returns The row, from 0 — before the band's first state — to `held`, after its last
  */
 export function rowAt(layout: FlowchartLayout, held: number, p: Pt): number {
-    const middle = layout.rows.start + (layout.orientation === "TD" ? NODE_W : NODE_H) / 2;
-    const above = Math.ceil((crossOf(layout, p) - middle) / layout.rows.pitch);
-    return Math.max(0, Math.min(held, above));
+    const cross = crossOf(layout, p);
+    // Each row's middle is its states': each card stands centred in its row.
+    let above = 0;
+    while (above < held && above < layout.rows.length && cross > layout.rows[above]!.start + layout.rows[above]!.size / 2) above += 1;
+    return above;
 }
 
 /** How far a point is from a straight run of a transition's line. */
@@ -307,7 +309,7 @@ export function diamondAt(layout: FlowchartLayout, model: FlowchartModel, p: Pt)
  * @returns The lane's key, or `undefined`
  */
 export function headerAt(layout: FlowchartLayout, model: FlowchartModel, p: Pt): string | undefined {
-    if (crossOf(layout, p) >= layout.rows.start) return undefined;
+    if (crossOf(layout, p) >= layout.rows[0]!.start) return undefined;
     const key = laneAt(layout, p);
     const lane = key === null ? undefined : model.lanes.find((l) => keyEqual(l.key, key));
     return lane?.band === "lane" ? lane.key : undefined;

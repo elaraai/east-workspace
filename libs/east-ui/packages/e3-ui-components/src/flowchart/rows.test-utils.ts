@@ -66,6 +66,8 @@ export interface TransitionOptions {
     readonly kind?: "planned" | "observed";
     /** Whether the narrowing draws it as context. */
     readonly dimmed?: boolean;
+    /** Its evidence — its volume, in its unit, over its count — drawn as its badge; none, the default, draws no badge. */
+    readonly evidence?: { readonly volume: number; readonly unit: string; readonly count: bigint };
 }
 
 /**
@@ -74,17 +76,18 @@ export interface TransitionOptions {
  * @param key - Its key
  * @param from - The state it leaves, by its key
  * @param to - The state it enters
- * @param options - Its decision, its kind and whether it is drawn as context
+ * @param options - Its decision, its kind, its evidence and whether it is drawn as context
  * @returns The row
  */
 export function transitionRow(key: string, from: string, to: string, options: TransitionOptions = {}): FlowchartRow<FlowchartTransitionRoles> {
+    const evidence = options.evidence;
     return {
         key, dimmed: options.dimmed ?? false,
         roles: {
             from, to,
             decision: options.decision === undefined ? none : some(options.decision),
             kind: options.kind === "observed" ? variant("observed", null) : variant("planned", null),
-            evidence: none,
+            evidence: evidence === undefined ? none : some({ volume: some(evidence.volume), count: some(evidence.count), measuredAt: none, unit: some(evidence.unit) }),
         },
     };
 }

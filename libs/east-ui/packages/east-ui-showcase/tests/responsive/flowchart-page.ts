@@ -10,7 +10,8 @@
  * a tab of it, picking a card up and carrying it, what the drag's ghost says,
  * where a transition's line runs, and leaving the page for another e3 page
  * and coming back, its e3 kept in memory, so the flowchart mounts afresh over
- * what its record holds. Every box is the page's own, in client px.
+ * what its record holds; and what is wrong with a phone's window of lanes.
+ * Every box is the page's own, in client px.
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
@@ -240,4 +241,47 @@ export function midLine(root: Locator, key: string): Promise<{ x: number; y: num
         const at = path.getPointAtLength(path.getTotalLength() / 2);
         return { x: svg.left + at.x, y: svg.top + at.y };
     }, key);
+}
+
+/**
+ * What is wrong with a phone's window of lanes, resting on a lane, where the
+ * details draw on the cards (R40, D24): each card it shows not whole, off the
+ * middle of what it shows — its scrollbar left out — or not that lane's; and
+ * any label drawn on a card anywhere on the canvas. Each fault, in words.
+ *
+ * @param frame - The flowchart's builder frame
+ * @param lane - The lane the window rests on, from the first
+ * @returns The faults; none for a window at rest on its lane's card
+ */
+export function laneWindowFaults(frame: Locator, lane: number): Promise<string[]> {
+    return frame.evaluate((el, at) => {
+        const faults: string[] = [];
+        // What the window shows across: the scroll's box, its scrollbar left out.
+        const scroll = el.querySelector<HTMLElement>("[data-flowchart-scroll]")!;
+        const left = scroll.getBoundingClientRect().left + scroll.clientLeft;
+        const right = left + scroll.clientWidth;
+        const middle = (left + right) / 2;
+        // A lane's header stands in its middle, as its cards do.
+        const headBox = el.querySelectorAll("[data-flowchart-lane]")[at]?.getBoundingClientRect();
+        if (headBox === undefined) faults.push(`no lane ${at}`);
+        const cards = [...el.querySelectorAll<HTMLElement>("[data-flowchart-node]")]
+            .map((card) => ({ key: card.getAttribute("data-flowchart-node")!, box: card.getBoundingClientRect() }));
+        const shown = cards.filter(({ box }) => box.right > left && box.left < right);
+        if (shown.length === 0) faults.push("no card in the window");
+        for (const { key, box } of shown) {
+            const centre = (box.left + box.right) / 2;
+            if (box.left < left - 0.5 || box.right > right + 0.5) faults.push(`${key} cut: ${box.left}–${box.right} in ${left}–${right}`);
+            if (Math.abs(centre - middle) > 1) faults.push(`${key} off the window's middle by ${centre - middle}px`);
+            if (headBox !== undefined && Math.abs((headBox.left + headBox.right) / 2 - centre) > 1) faults.push(`${key} not lane ${at}'s`);
+        }
+        const labels = [...el.querySelectorAll("[data-flowchart-label] > rect")]
+            .map((label) => ({ key: label.parentElement!.getAttribute("data-flowchart-label")!, box: label.getBoundingClientRect() }));
+        for (const label of labels) {
+            for (const card of cards) {
+                const on = label.box.left < card.box.right && label.box.right > card.box.left && label.box.top < card.box.bottom && label.box.bottom > card.box.top;
+                if (on) faults.push(`${label.key}'s label on ${card.key}`);
+            }
+        }
+        return faults;
+    }, lane);
 }

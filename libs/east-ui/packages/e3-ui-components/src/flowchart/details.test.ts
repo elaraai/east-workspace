@@ -9,13 +9,14 @@
  */
 
 /**
- * The Flowchart's details model (#1508, `Flowchart Records Spec.md` R19, R22,
- * R26, R27, R33, R34, R38), over details as the payload decodes them and rows
- * as bytes: the rows drawn; the details read whole, and by the drawn rows'
- * keys in one request — delayed, and failing, the last settled read standing;
- * the app's bins over a Dict's durations and an Array's counts, refused as they
- * land, and every drawn row's edges merged; bars and the axis on both scales;
- * a list's top lines; and each card's size, as the visual spec measures it.
+ * The Flowchart's details model (#1508, #1509, `Flowchart Records Spec.md`
+ * R19, R22, R26, R27, R32, R33, R34, R38), over details as the payload decodes
+ * them and rows as bytes: the rows drawn; the details read whole, and by the
+ * drawn rows' keys in one request — delayed, and failing, the last settled
+ * read standing; the app's bins over a Dict's durations and an Array's counts,
+ * refused as they land, and every drawn row's edges merged; bars and the axis
+ * on both scales; a list's top lines; each card's size, as the visual spec
+ * measures it; and a transition label's lines.
  *
  * @packageDocumentation
  */
@@ -25,7 +26,7 @@ import { renderHook } from "@testing-library/react";
 import { SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, some, variant, type option } from "@elaraai/east";
 import { Flowchart } from "@elaraai/e3-ui/internal";
 import {
-    axisAt, barsOf, binsRefusal, countIntoBins, detailsCardOf, drawnKeysOf, flowchartDetailsModel, listLines, useFlowchartDetails,
+    axisAt, barsOf, binsRefusal, countIntoBins, detailsCardOf, detailsLabelOf, drawnKeysOf, flowchartDetailsModel, listLines, useFlowchartDetails,
     type FlowchartDetailBytes, type FlowchartDetailRowValue, type FlowchartDetailsData, type FlowchartDetailsKinds, type FlowchartDetailsValue,
     type FlowchartDrawnKeys, type FlowchartPagedRows, type FlowchartReadValue,
 } from "./details.js";
@@ -380,5 +381,45 @@ describe("each card's size, as the visual spec draws it (R22, R29, R30, R33)", (
         const hidden = statesOnly(wholeDetails([inspectorOnly(PARCELS)], () => some(held)));
         const { result: none } = renderHook(() => useFlowchartDetails(hidden, drawnStates("CH*"), 0));
         expect(detailsCardOf(modelOver(hidden, none.current, drawnStates("CH*")).states!, "CH*")).toBeUndefined();
+    });
+});
+
+describe("a transition label's lines (R32, R33, R34)", () => {
+    /** A move's figure: the parcels it moved. */
+    const MOVED: FlowchartReadValue = variant("figure", { label: "Moved", unit: some("parcels") });
+    /** The moves' reads: the figure and the services on the label, the parcels in the inspector alone. */
+    const READS: readonly Shown[] = [all(MOVED), inspectorOnly(PARCELS), all(SERVICE)];
+    /** One move with every value, one lacking its figure and holding no service, and none for a third. */
+    const MOVES = record(
+        ["t1", bytesOf(variant("figure", some(4200)), variant("figure", some(1)), list(["Economy", 600], ["Standard", 2100], ["Priority", 1500]))],
+        ["t2", bytesOf(variant("figure", none), variant("figure", none), list())],
+    );
+    /** The transitions' details alone. */
+    const movesOnly = (details: FlowchartDetailsValue): FlowchartDetailsKinds => ({ states: undefined, transitions: { name: "Move", details } });
+    const drawn: FlowchartDrawnKeys = { states: [], transitions: ["t1", "t2", "t3"] };
+
+    /** The transitions' details as read. */
+    function moves(kinds: FlowchartDetailsKinds) {
+        const { result } = renderHook(() => useFlowchartDetails(kinds, drawn, 0));
+        return modelOver(kinds, result.current, drawn).transitions!;
+    }
+
+    test("a figure a line and a list its top items by value, each its share of the whole list, in the details' order — a read in the inspector alone adds none; a figure the row lacks says no data, a list with no items none", () => {
+        const read = moves(movesOnly(wholeDetails(READS, () => some(MOVES))));
+        expect(detailsLabelOf(read, "t1")).toEqual([
+            { kind: "figure", label: "Moved", value: 4200, unit: "parcels" },
+            { kind: "item", name: "Standard", share: 0.5 },
+            { kind: "item", name: "Priority", share: 1500 / 4200 },
+        ]);
+        expect(detailsLabelOf(read, "t2")).toEqual([{ kind: "figure", label: "Moved", value: undefined, unit: "parcels" }, { kind: "none" }]);
+        // A row there is none of: no line, so its label is its evidence line alone.
+        expect(detailsLabelOf(read, "t3")).toEqual([]);
+    });
+
+    test("while the row lands, each read's lines as placeholders — a list's its top — so the label is as tall as it will be; with no read on the canvas, no line", () => {
+        const landing = moves(movesOnly(wholeDetails(READS, () => none)));
+        expect(detailsLabelOf(landing, "t1")).toEqual([{ kind: "placeholder" }, { kind: "placeholder" }, { kind: "placeholder" }]);
+        const hidden = moves(movesOnly(wholeDetails([inspectorOnly(MOVED)], () => some(MOVES))));
+        expect(detailsLabelOf(hidden, "t1")).toEqual([]);
     });
 });
