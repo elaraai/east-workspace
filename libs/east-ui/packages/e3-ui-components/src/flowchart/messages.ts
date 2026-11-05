@@ -27,8 +27,13 @@
 
 import { StringType, printFor } from "@elaraai/east";
 import { editingMessages, type EditingMessages, type EditingWords } from "@elaraai/east-ui-components";
+import { lowerWord } from "../shared/schedule/words.js";
 import type { FlowKeyKind, FlowchartEdit } from "./edits.js";
 import type { FlowchartIssueWord } from "./issues.js";
+import type { FlowchartValue } from "./model.js";
+
+/** The app's words for what the flowchart draws, as the payload carries them. */
+export type FlowchartVocabulary = FlowchartValue["vocabulary"];
 
 /** A count as a message takes it: the number, for its plural, and the number as the locale prints it. */
 export interface FlowchartCount {
@@ -228,6 +233,20 @@ export interface FlowchartMessages extends EditingMessages {
     sourceFailed: (p: { name: string }) => string;
     /** The banner's button, which reads the source again. */
     retry: () => string;
+    /** Find state's placeholder, its icon's accessible name and its popover's head. */
+    findState: () => string;
+    /** What Find state says when a query finds nothing. */
+    findNoMatches: () => string;
+    /** The inline editor's name field's placeholder. */
+    nameState: () => string;
+    /** The legend's decision. */
+    legendDecision: () => string;
+    /** The legend's in-place transition. */
+    legendInPlace: () => string;
+    /** What the footer counts, `n` of them. */
+    footerNoun: (p: { n: number }) => string;
+    /** The footer's split of its transitions, each number as the locale prints it. */
+    footerSplit: (p: { planned: string; observed: string }) => string;
 }
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
@@ -235,182 +254,215 @@ const plural = (n: number, one: string, many: string): string => (n === 1 ? one 
 /** A key as the issue quotes it: East's printing of the string. */
 const quoted = printFor(StringType);
 
-/** Each gesture's name. */
-const EDIT_LABELS: { readonly [E in FlowchartEdit]: string } = {
-    addLane: "Add lane",
-    renameLane: "Rename lane",
-    deleteLane: "Delete lane",
-    editLane: "Edit lane",
-    addState: "Add state",
-    editState: "Edit state",
-    moveState: "Move state",
-    deleteState: "Delete state",
-    duplicateState: "Duplicate state",
-    moveStates: "Move states",
-    deleteStates: "Delete states",
-    connect: "Connect states",
-    deleteLink: "Delete transition",
-    editTransition: "Edit transition",
-    deleteDecision: "Delete decision",
-    editDecision: "Edit decision",
-    renameFlow: "Rename flow",
-    describeFlow: "Describe flow",
-    duplicateFlow: "Duplicate flow",
-    deleteFlow: "Delete flow",
-};
-
-/** Each field's label in the inspector's form. */
-const FIELDS: { readonly [F in FlowchartFieldWord]: string } = {
-    key: "Key", label: "Label", lane: "Lane", members: "Members", notes: "Notes",
-    from: "From", to: "To", kind: "Kind", trigger: "Decision",
-    letter: "Letter", owner: "Owner", queue: "Queue", outcomes: "Outcomes",
-    name: "Name", description: "Description",
-    volume: "Volume", count: "Count", measured: "Measured",
-    moveTo: "Move to lane",
-};
-
-/** Each field's line under it. */
-const HELPS: { readonly [H in FlowchartHelpWord]: string } = {
-    stateKey: "A new key renames it on its transitions and the decisions' queues.",
-    laneKey: "A new key moves its states with it.",
-    decisionKey: "A new key renames it on the transitions it governs.",
-    linkKey: "Left empty, it goes by its ends.",
-    flowName: "A new name renames the flow when it is saved.",
-    moveTo: "Every state selected moves to the lane.",
-};
-
-/** The three hints nothing selected shows. */
-const HINTS = {
-    1: "Click a state, a transition, a decision or a lane's header to see its details here.",
-    2: "Shift-click states to select several, and move or delete them together.",
-    3: "Double-click a state or a lane's header to rename it where it stands.",
-} as const;
-
-/** What a row of each kind is called, one of them. */
-const ROW: { readonly [K in FlowKeyKind]: string } = { lane: "lane", state: "state", transition: "transition", decision: "decision" };
-
-/** What each kind of row is called, many of them. */
-const ROWS: { readonly [K in FlowKeyKind]: string } = { lane: "lanes", state: "states", transition: "transitions", decision: "decisions" };
-
-/** What a card lands on, as a refusal names it. */
-const LANDS: { readonly [L in FlowchartLandsWord]: string } = { lane: "a lane", state: "a state", transition: "a transition", header: "a lane's header", decision: "a decision" };
-
-/** Why a drop is refused where the card would land somewhere it can. */
-const REFUSED: { readonly [W in Exclude<FlowchartDropRefusalWord["why"], "onto">]: string } = {
-    readOnly: "The flowchart is read only",
-    busy: "The flow takes no edit now",
-    noFlow: "No flow is open",
-};
-
 /** A name as a sentence starts with it. */
 const capital = (name: string): string => `${name.charAt(0).toUpperCase()}${name.slice(1)}`;
 
-/** The English table. */
-export const flowchartMessages: FlowchartMessages = {
-    ...editingMessages,
-    flowsTab: () => "Flows",
-    flowNoun: ({ n }) => plural(n, "flow", "flows"),
-    flowCounts: ({ lanes, states, transitions }) => [
-        `${lanes.count} ${plural(lanes.n, "lane", "lanes")}`,
-        `${states.count} ${plural(states.n, "state", "states")}`,
-        `${transitions.count} ${plural(transitions.n, "transition", "transitions")}`,
-    ].join(" · "),
-    flowPending: () => "Pending",
-    flowsEmpty: () => "No flows",
-    flowsEmptyHint: ({ canAdd }) => (canAdd ? "Name a flow to start one." : "There is no flow to show."),
-    newFlow: () => "New flow",
-    flowName: () => "Flow name",
-    flowNameMissing: () => "Give the flow a name to create it.",
-    flowNameTaken: ({ name }) => `${name} is already a flow here.`,
-    createFlow: () => "Create flow",
-    cancel: () => "Cancel",
-    newLane: ({ count }) => `Lane ${count}`,
-    laneWord: () => "Lane",
-    addLane: () => "Add lane",
-    lanePager: ({ range, total }) => `Lanes ${range} of ${total}`,
-    laneStep: ({ more }) => (more ? "Next lane" : "Previous lane"),
-    stateWord: () => "state",
-    deleteLane: ({ label }) => `Delete lane ${label}`,
-    laneHoldsStates: ({ n, count }) => `Move its ${count} ${plural(n, "state", "states")} first`,
-    editLabel: ({ edit }) => EDIT_LABELS[edit],
-    duplicateKey: ({ what, key }) => `Two ${ROWS[what]} are keyed ${quoted(key)}`,
-    footerPending: ({ count }) => `${count} pending`,
-    libraryPane: () => "Library",
-    libraryTab: ({ tab }) => (tab === "states" ? "States" : "Transitions"),
-    libraryEmpty: ({ tab, name }) => (tab === "tab" ? `Nothing in ${name}` : "No templates"),
-    libraryEmptyHint: ({ tab, name }) => (tab === "states" ? "No state template to drag onto a lane."
-        : tab === "transitions" ? "No transition template to drag onto a transition."
-            : `${name} lists nothing yet.`),
-    libraryNoun: ({ tab, n }) => (tab === "tab" ? plural(n, "card", "cards") : plural(n, "template", "templates")),
-    libraryGroupBy: () => "Group",
-    flowMissing: ({ name, shown }) => (shown === undefined ? `${name} isn't a flow here` : `${name} isn't a flow here — showing ${shown}`),
-    dropPlace: (p) => (p.place === "after" ? `after ${p.after} in ${p.lane}` : p.place === "start" ? `at the start of ${p.lane}` : `in ${p.lane}`),
-    dropPlaceName: (p) => (p.place === "after" ? `${p.lane}, after ${p.after}` : p.place === "start" ? `the start of ${p.lane}` : p.lane),
-    dropWhat: (p) => {
-        switch (p.what) {
-            case "state": return p.key;
-            case "transition": return `${p.from} → ${p.to}`;
-            case "header": return `lane ${p.lane}`;
-            case "decision": return `decision ${p.label}`;
-        }
-    },
-    dropOnto: ({ what }) => `onto ${what}`,
-    dropRefused: (p) => (p.why === "onto" ? `Drop onto ${LANDS[p.lands]}` : REFUSED[p.why]),
-    dropCanvas: () => "the canvas",
-    dropLabel: ({ card, onto }) => `Drop ${card} on ${onto}`,
-    inspectorPane: () => "Inspector",
-    inspectorTab: ({ tab }) => (tab === "details" ? "Details" : "Issues"),
-    inspectorWhat: (p) => {
-        switch (p.what) {
-            case "state": return `State · ${p.key}`;
-            case "transition": return `Transition · ${p.from} → ${p.to}`;
-            case "decision": return `Decision · ${p.letter}`;
-            case "lane": return `Lane · ${p.label}`;
-            case "states": return `${p.count} ${plural(p.n, "state", "states")}`;
-            case "flow": return "Flow";
-        }
-    },
-    inspectorField: ({ field }) => FIELDS[field],
-    inspectorHelp: ({ help }) => HELPS[help],
-    kindLabel: ({ kind }) => (kind === "planned" ? "Planned" : "Observed"),
-    noDecision: () => "No decision",
-    inspectorSection: ({ section, count }) => (section === "evidence" ? "Evidence"
-        : section === "transitions" ? `Transitions · ${count}` : `Transitions it governs · ${count}`),
-    inspectorLinkKind: ({ kind, decision }) => (decision === undefined ? kind : `${kind} · ${decision}`),
-    inspectorChip: ({ state }) => ({ pending: "Pending", new: "New", deleted: "Deleted", noRow: "No state row" })[state],
-    inspectorAction: ({ action }) => (action === "duplicate" ? "Duplicate" : "Delete"),
-    inspectorLaneStates: ({ n, count }) => (n === 0 ? "Holds no state" : `Holds ${count} ${plural(n, "state", "states")}`),
-    inspectorNoRow: ({ n, count }) => `Named by ${count} ${plural(n, "transition", "transitions")}, and the flow has no state of this key`,
-    inspectorCount: ({ what, n }) => ({
-        lanes: plural(n, "Lane", "Lanes"), states: plural(n, "State", "States"),
-        transitions: plural(n, "Transition", "Transitions"), decisions: plural(n, "Decision", "Decisions"),
-    })[what],
-    inspectorSplit: ({ planned, observed, unresolved }) => `${planned} planned · ${observed} observed · ${unresolved} unresolved`,
-    inspectorSaved: ({ when, by }) => (when === undefined ? "Not saved yet" : by === undefined ? `Saved ${when}` : `Saved ${when} by ${by}`),
-    inspectorHint: ({ n }) => HINTS[n],
-    inspectorHintTouch: () => "Tap a state, a transition, a decision or a lane's header to see its details here.",
-    inspectorNoIssues: ({ part }) => (part === "title" ? "No issues" : "Every transition, state and decision of the flow resolves."),
-    issueText: (p) => {
-        switch (p.issue) {
-            case "duplicate": return `Two ${ROWS[p.what]} are keyed ${quoted(p.key)}`;
-            case "lane": return `${p.state} names the lane ${p.lane}, which the flow has none of`;
-            case "end": return `${p.from} → ${p.to} names ${p.missing.join(" and ")}, which the flow has no state of`;
-            case "queue": return `${p.decision}'s queue names ${p.state}, which the flow has no state of`;
-            case "save": return p.message;
-        }
-    },
-    inspectorNoFlow: ({ part }) => (part === "title" ? "No flow is open" : "Open a flow in the Flows tab, or start one."),
-    flowDeleted: ({ part, name }) => (part === "title" ? `${name} is deleted` : "Save removes it; Undo brings it back."),
-    flowCopy: ({ name, n }) => (n === 1 ? `${name} copy` : `${name} copy ${n}`),
-    inspectorRefused: (p) => (p.why === "emptyKey" ? `A ${ROW[p.what]} needs a key`
-        : p.why === "emptyName" ? "A flow needs a name" : `${p.name} is already a flow here`),
-    flowsFiltered: ({ part }) => (part === "title" ? "No flows match the filters" : "Change or clear the filters to see more flows."),
-    templatesNoun: ({ tab }) => (tab === "states" ? "state templates" : "transition templates"),
-    sourceUnavailable: ({ name }) => `${capital(name)} results unavailable`,
-    sourceChanged: ({ name }) => `${capital(name)} results changed; retry the narrowing.`,
-    sourceFailed: ({ name }) => `Could not load ${name} results`,
-    retry: () => "Retry",
+/** The article a noun takes, by the sound English spelling gives its first letter. */
+const articleOf = (noun: string): string => (/^[aeiou]/i.test(noun) ? "an" : "a");
+
+/** The words the flowchart draws with none given. */
+export const DEFAULT_FLOWCHART_VOCABULARY: FlowchartVocabulary = {
+    flow: { one: "Flow", other: "Flows" }, lane: { one: "Lane", other: "Lanes" }, state: { one: "State", other: "States" },
+    transition: { one: "Transition", other: "Transitions" }, decision: { one: "Decision", other: "Decisions" }, planned: "Planned", observed: "Observed",
 };
+
+/**
+ * The English table, in the app's words for what the flowchart draws (#1516).
+ *
+ * @param v - The app's words
+ * @returns The table
+ */
+export function flowchartMessagesOf(v: FlowchartVocabulary): FlowchartMessages {
+    const flow = lowerWord(v.flow.one), flows = lowerWord(v.flow.other), lane = lowerWord(v.lane.one), lanes = lowerWord(v.lane.other);
+    const state = lowerWord(v.state.one), states = lowerWord(v.state.other), transition = lowerWord(v.transition.one), transitions = lowerWord(v.transition.other);
+    const decision = lowerWord(v.decision.one), decisions = lowerWord(v.decision.other);
+    const aFlow = `${articleOf(flow)} ${flow}`, aLane = `${articleOf(lane)} ${lane}`, aState = `${articleOf(state)} ${state}`;
+    const aTransition = `${articleOf(transition)} ${transition}`, aDecision = `${articleOf(decision)} ${decision}`;
+    /** A transition's kind in running text. */
+    const linkWord = (kind: "planned" | "observed" | "unresolved"): string => (kind === "planned" ? lowerWord(v.planned) : kind === "observed" ? lowerWord(v.observed) : kind);
+    /** Each gesture's name. */
+    const EDIT_LABELS: { readonly [E in FlowchartEdit]: string } = {
+        addLane: `Add ${lane}`,
+        renameLane: `Rename ${lane}`,
+        deleteLane: `Delete ${lane}`,
+        editLane: `Edit ${lane}`,
+        addState: `Add ${state}`,
+        editState: `Edit ${state}`,
+        moveState: `Move ${state}`,
+        deleteState: `Delete ${state}`,
+        duplicateState: `Duplicate ${state}`,
+        moveStates: `Move ${states}`,
+        deleteStates: `Delete ${states}`,
+        connect: `Connect ${states}`,
+        deleteLink: `Delete ${transition}`,
+        editTransition: `Edit ${transition}`,
+        deleteDecision: `Delete ${decision}`,
+        editDecision: `Edit ${decision}`,
+        renameFlow: `Rename ${flow}`,
+        describeFlow: `Describe ${flow}`,
+        duplicateFlow: `Duplicate ${flow}`,
+        deleteFlow: `Delete ${flow}`,
+    };
+
+    /** Each field's label in the inspector's form. */
+    const FIELDS: { readonly [F in FlowchartFieldWord]: string } = {
+        key: "Key", label: "Label", lane: v.lane.one, members: "Members", notes: "Notes",
+        from: "From", to: "To", kind: "Kind", trigger: v.decision.one,
+        letter: "Letter", owner: "Owner", queue: "Queue", outcomes: "Outcomes",
+        name: "Name", description: "Description",
+        volume: "Volume", count: "Count", measured: "Measured",
+        moveTo: `Move to ${lane}`,
+    };
+
+    /** Each field's line under it. */
+    const HELPS: { readonly [H in FlowchartHelpWord]: string } = {
+        stateKey: `A new key renames it on its ${transitions} and the ${decisions}' queues.`,
+        laneKey: `A new key moves its ${states} with it.`,
+        decisionKey: `A new key renames it on the ${transitions} it governs.`,
+        linkKey: "Left empty, it goes by its ends.",
+        flowName: `A new name renames the ${flow} when it is saved.`,
+        moveTo: `Every ${state} selected moves to the ${lane}.`,
+    };
+
+    /** The three hints nothing selected shows. */
+    const HINTS = {
+        1: `Click ${aState}, ${aTransition}, ${aDecision} or ${aLane}'s header to see its details here.`,
+        2: `Shift-click ${states} to select several, and move or delete them together.`,
+        3: `Double-click ${aState} or ${aLane}'s header to rename it where it stands.`,
+    };
+
+    /** What a row of each kind is called, one of them. */
+    const ROW: { readonly [K in FlowKeyKind]: string } = { lane, state, transition, decision };
+
+    /** What each kind of row is called, many of them. */
+    const ROWS: { readonly [K in FlowKeyKind]: string } = { lane: lanes, state: states, transition: transitions, decision: decisions };
+
+    /** What a card lands on, as a refusal names it. */
+    const LANDS: { readonly [L in FlowchartLandsWord]: string } = { lane: aLane, state: aState, transition: aTransition, header: `${aLane}'s header`, decision: aDecision };
+
+    /** Why a drop is refused where the card would land somewhere it can. */
+    const REFUSED: { readonly [W in Exclude<FlowchartDropRefusalWord["why"], "onto">]: string } = {
+        readOnly: "The flowchart is read only",
+        busy: `The ${flow} takes no edit now`,
+        noFlow: `No ${flow} is open`,
+    };
+
+    return {
+        ...editingMessages,
+        flowsTab: () => v.flow.other,
+        flowNoun: ({ n }) => plural(n, flow, flows),
+        flowCounts: ({ lanes: inLanes, states: inStates, transitions: inTransitions }) => [
+            `${inLanes.count} ${plural(inLanes.n, lane, lanes)}`,
+            `${inStates.count} ${plural(inStates.n, state, states)}`,
+            `${inTransitions.count} ${plural(inTransitions.n, transition, transitions)}`,
+        ].join(" · "),
+        flowPending: () => "Pending",
+        flowsEmpty: () => `No ${flows}`,
+        flowsEmptyHint: ({ canAdd }) => (canAdd ? `Name ${aFlow} to start one.` : `There is no ${flow} to show.`),
+        newFlow: () => `New ${flow}`,
+        flowName: () => `${v.flow.one} name`,
+        flowNameMissing: () => `Give the ${flow} a name to create it.`,
+        flowNameTaken: ({ name }) => `${name} is already ${aFlow} here.`,
+        createFlow: () => `Create ${flow}`,
+        cancel: () => "Cancel",
+        newLane: ({ count }) => `${v.lane.one} ${count}`,
+        laneWord: () => v.lane.one,
+        addLane: () => `Add ${lane}`,
+        lanePager: ({ range, total }) => `${v.lane.other} ${range} of ${total}`,
+        laneStep: ({ more }) => (more ? `Next ${lane}` : `Previous ${lane}`),
+        stateWord: () => state,
+        deleteLane: ({ label }) => `Delete ${lane} ${label}`,
+        laneHoldsStates: ({ n, count }) => `Move its ${count} ${plural(n, state, states)} first`,
+        editLabel: ({ edit }) => EDIT_LABELS[edit],
+        duplicateKey: ({ what, key }) => `Two ${ROWS[what]} are keyed ${quoted(key)}`,
+        footerPending: ({ count }) => `${count} pending`,
+        libraryPane: () => "Library",
+        libraryTab: ({ tab }) => (tab === "states" ? v.state.other : v.transition.other),
+        libraryEmpty: ({ tab, name }) => (tab === "tab" ? `Nothing in ${name}` : "No templates"),
+        libraryEmptyHint: ({ tab, name }) => (tab === "states" ? `No ${state} template to drag onto ${aLane}.`
+            : tab === "transitions" ? `No ${transition} template to drag onto ${aTransition}.`
+                : `${name} lists nothing yet.`),
+        libraryNoun: ({ tab, n }) => (tab === "tab" ? plural(n, "card", "cards") : plural(n, "template", "templates")),
+        libraryGroupBy: () => "Group",
+        flowMissing: ({ name, shown }) => (shown === undefined ? `${name} isn't ${aFlow} here` : `${name} isn't ${aFlow} here — showing ${shown}`),
+        dropPlace: (p) => (p.place === "after" ? `after ${p.after} in ${p.lane}` : p.place === "start" ? `at the start of ${p.lane}` : `in ${p.lane}`),
+        dropPlaceName: (p) => (p.place === "after" ? `${p.lane}, after ${p.after}` : p.place === "start" ? `the start of ${p.lane}` : p.lane),
+        dropWhat: (p) => {
+            switch (p.what) {
+                case "state": return p.key;
+                case "transition": return `${p.from} → ${p.to}`;
+                case "header": return `${lane} ${p.lane}`;
+                case "decision": return `${decision} ${p.label}`;
+            }
+        },
+        dropOnto: ({ what }) => `onto ${what}`,
+        dropRefused: (p) => (p.why === "onto" ? `Drop onto ${LANDS[p.lands]}` : REFUSED[p.why]),
+        dropCanvas: () => "the canvas",
+        dropLabel: ({ card, onto }) => `Drop ${card} on ${onto}`,
+        inspectorPane: () => "Inspector",
+        inspectorTab: ({ tab }) => (tab === "details" ? "Details" : "Issues"),
+        inspectorWhat: (p) => {
+            switch (p.what) {
+                case "state": return `${v.state.one} · ${p.key}`;
+                case "transition": return `${v.transition.one} · ${p.from} → ${p.to}`;
+                case "decision": return `${v.decision.one} · ${p.letter}`;
+                case "lane": return `${v.lane.one} · ${p.label}`;
+                case "states": return `${p.count} ${plural(p.n, state, states)}`;
+                case "flow": return v.flow.one;
+            }
+        },
+        inspectorField: ({ field }) => FIELDS[field],
+        inspectorHelp: ({ help }) => HELPS[help],
+        kindLabel: ({ kind }) => (kind === "planned" ? v.planned : v.observed),
+        noDecision: () => `No ${decision}`,
+        inspectorSection: ({ section, count }) => (section === "evidence" ? "Evidence"
+            : section === "transitions" ? `${v.transition.other} · ${count}` : `${v.transition.other} it governs · ${count}`),
+        inspectorLinkKind: ({ kind, decision: given }) => (given === undefined ? linkWord(kind) : `${linkWord(kind)} · ${given}`),
+        inspectorChip: ({ state: chip }) => ({ pending: "Pending", new: "New", deleted: "Deleted", noRow: `No ${state} row` })[chip],
+        inspectorAction: ({ action }) => (action === "duplicate" ? "Duplicate" : "Delete"),
+        inspectorLaneStates: ({ n, count }) => (n === 0 ? `Holds no ${state}` : `Holds ${count} ${plural(n, state, states)}`),
+        inspectorNoRow: ({ n, count }) => `Named by ${count} ${plural(n, transition, transitions)}, and the ${flow} has no ${state} of this key`,
+        inspectorCount: ({ what, n }) => ({
+            lanes: plural(n, v.lane.one, v.lane.other), states: plural(n, v.state.one, v.state.other),
+            transitions: plural(n, v.transition.one, v.transition.other), decisions: plural(n, v.decision.one, v.decision.other),
+        })[what],
+        inspectorSplit: ({ planned, observed, unresolved }) => `${planned} ${lowerWord(v.planned)} · ${observed} ${lowerWord(v.observed)} · ${unresolved} unresolved`,
+        inspectorSaved: ({ when, by }) => (when === undefined ? "Not saved yet" : by === undefined ? `Saved ${when}` : `Saved ${when} by ${by}`),
+        inspectorHint: ({ n }) => HINTS[n],
+        inspectorHintTouch: () => `Tap ${aState}, ${aTransition}, ${aDecision} or ${aLane}'s header to see its details here.`,
+        inspectorNoIssues: ({ part }) => (part === "title" ? "No issues" : `Every ${transition}, ${state} and ${decision} of the ${flow} resolves.`),
+        issueText: (p) => {
+            switch (p.issue) {
+                case "duplicate": return `Two ${ROWS[p.what]} are keyed ${quoted(p.key)}`;
+                case "lane": return `${p.state} names the ${lane} ${p.lane}, which the ${flow} has none of`;
+                case "end": return `${p.from} → ${p.to} names ${p.missing.join(" and ")}, which the ${flow} has no ${state} of`;
+                case "queue": return `${p.decision}'s queue names ${p.state}, which the ${flow} has no ${state} of`;
+                case "save": return p.message;
+            }
+        },
+        inspectorNoFlow: ({ part }) => (part === "title" ? `No ${flow} is open` : `Open ${aFlow} in the ${v.flow.other} tab, or start one.`),
+        flowDeleted: ({ part, name }) => (part === "title" ? `${name} is deleted` : "Save removes it; Undo brings it back."),
+        flowCopy: ({ name, n }) => (n === 1 ? `${name} copy` : `${name} copy ${n}`),
+        inspectorRefused: (p) => (p.why === "emptyKey" ? `${capital(articleOf(ROW[p.what]))} ${ROW[p.what]} needs a key`
+            : p.why === "emptyName" ? `${capital(aFlow)} needs a name` : `${p.name} is already ${aFlow} here`),
+        flowsFiltered: ({ part }) => (part === "title" ? `No ${flows} match the filters` : `Change or clear the filters to see more ${flows}.`),
+        templatesNoun: ({ tab }) => (tab === "states" ? `${state} templates` : `${transition} templates`),
+        sourceUnavailable: ({ name }) => `${capital(name)} results unavailable`,
+        sourceChanged: ({ name }) => `${capital(name)} results changed; retry the narrowing.`,
+        sourceFailed: ({ name }) => `Could not load ${name} results`,
+        retry: () => "Retry",
+        findState: () => `Find ${state}`,
+        findNoMatches: () => `No matching ${states}. Search by ${state} key or label.`,
+        nameState: () => `Name ${state}…`,
+        legendDecision: () => `${v.decision.one} trigger`,
+        legendInPlace: () => `In-place ${transition}`,
+        footerNoun: ({ n }) => plural(n, transition, transitions),
+        footerSplit: ({ planned, observed }) => `${planned} ${lowerWord(v.planned)} · ${observed} ${lowerWord(v.observed)}`,
+    };
+}
+
+/** The English table, in the flowchart's own words. */
+export const flowchartMessages: FlowchartMessages = flowchartMessagesOf(DEFAULT_FLOWCHART_VOCABULARY);
 
 /** The words a flowchart speaks: its message table, and its locale's formatters. */
 export interface FlowchartWords extends EditingWords {

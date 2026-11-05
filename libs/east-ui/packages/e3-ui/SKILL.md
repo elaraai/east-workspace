@@ -195,6 +195,7 @@ Task → What do you need?
     │   ├─ Selection and ⌥-click path tracing                 → onSelect*, onTracePath
     │   ├─ Its inspector                                      → on by default (inspector={false} takes it away); a state's or a transition's own Details → inspector={{ state, transition }}
     │   ├─ The flows listed by name, one opened, new started  → library={[Flowchart.library.flows()]}
+    │   ├─ The app's own words for what it draws              → vocabulary={{ flow, lane, state, transition, decision, planned, observed }}
     │   ├─ State and transition templates, the author's cards → library={[…, Flowchart.library.states(templates.read(), {…, source }), Flowchart.library.transitions(…), Flowchart.library.tab(rows, {…})]}
     │   ├─ Narrow its flows, templates and tabs — one rail    → slice={{ slice: Slice.bindRecords(key, { flows?, steps?, … }) }}
     │   ├─ On a phone: how many lanes in view, ‹ › through them → narrow={{ lanes?: 1 | 2 | 3 }} (2 by default)

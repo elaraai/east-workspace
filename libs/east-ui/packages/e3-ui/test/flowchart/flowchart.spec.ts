@@ -80,6 +80,7 @@ describeEast("Flowchart", (test) => {
         flowchartRecordIndexes: ex.flowchartRecordIndexes,
         flowchartVariants: ex.flowchartVariants,
         flowchartLibrary: ex.flowchartLibrary,
+        flowchartWording: ex.flowchartWording,
         flowchartDepot: ex.flowchartDepot,
         flowchartHandover: ex.flowchartHandover,
         flowchartDetail: ex.flowchartDetail,

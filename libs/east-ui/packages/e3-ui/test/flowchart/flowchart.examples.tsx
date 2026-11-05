@@ -436,6 +436,62 @@ export const flowchartLibrary = example({
     inputs: [],
 });
 
+export const flowchartWording = example({
+    keywords: ["Flowchart", "vocabulary", "flow", "lane", "state", "transition", "decision", "planned", "observed"],
+    description: "The depot's flows in its own words (#1516): `vocabulary` names flows, lanes, states, transitions, decisions and a transition's planned and observed kinds, wherever the flowchart draws them.",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const flows = $.let(Record.bind(depotFlows));
+            // What a tab reads whole binds with Data.bind, which keeps it loaded beside its pages.
+            const steps = $.let(Data.bind(stepTemplates));
+            const moves = $.let(Data.bind(moveTemplates));
+            const owners = $.let(Data.bind(decisionOwners));
+            // One rail over the library's records, a source each (#1346): each tab follows the source it names.
+            const slice = $.let(Slice.bindRecords("flowchart.wording", {
+                steps: { source: Data.bindPaged(stepTemplates, { indexes: ["flowchart_steps_by_kind"] }), label: "Steps", icon: { prefix: "fas", name: "box" },
+                    fields: { kind: { label: "Step kind", hints: ["Intake", "Sort", "Hold", "Load"] } } },
+                moves: { source: Data.bindPaged(moveTemplates, { indexes: ["flowchart_moves_by_kind"] }), label: "Hops", icon: { prefix: "fas", name: "arrow-right" },
+                    fields: { kind: { label: "Hop kind" } } },
+                owners: { source: Data.bindPaged(decisionOwners, { indexes: ["flowchart_owners_by_desk"] }), label: "Owners", icon: { prefix: "fas", name: "user-tie" },
+                    fields: { desk: { label: "Desk", hints: ["Sort hall", "Hold bay"] } } },
+            }));
+            return (
+                <Box height="560px">
+                    <Flowchart
+                        record={flows}
+                        flow="Inbound parcels"
+                        name="wording"
+                        vocabulary={{ flow: "Route", lane: "Stage", state: "Stop", transition: "Hop", decision: "Choice", planned: "Designed", observed: "Seen" }}
+                        slice={{ slice }}
+                        library={[
+                            Flowchart.library.flows(),
+                            // Step types: a card dropped on a stage adds a stop.
+                            Flowchart.library.states(steps.read(), {
+                                name: "Steps", icon: "box", source: "steps",
+                                label: s => s.name, meta: (_s, code) => some(code), group: s => s.kind,
+                                drop: (s, code) => Flowchart.patch(Flowchart.Types.State, { key: code, label: some(s.name), members: s.slots }),
+                            }),
+                            // Hop types: a card dropped on a hop retypes it.
+                            Flowchart.library.transitions(moves.read(), {
+                                icon: "arrow-right", source: "moves",
+                                label: (_m, name) => name,
+                                drop: m => Flowchart.patch(Flowchart.Types.Link, { kind: some(m.kind), trigger: m.decision }),
+                            }),
+                            // A role dropped on a choice owns it.
+                            Flowchart.library.tab(owners.read(), {
+                                name: "Owners", icon: "user-tie", source: "owners",
+                                key: (_o, role) => role, label: o => o.name, meta: o => some(o.desk),
+                                drop: (_o, role) => Flowchart.patch(Flowchart.Types.Trigger, { owner: some(role) }),
+                            }),
+                        ]}
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
 /**
  * A flow from the host's tables (§3.4) — the depot's steps by phase, the
  * transitions mined from its scans and its decisions, each an e3 input of the

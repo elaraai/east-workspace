@@ -78,9 +78,11 @@ export function stateLine(state: FindableState): string {
  * @param states - The open flow's states; none, and there is no search
  * @param resetKey - The open flow's identity: another flow's opening starts the box again, empty
  * @param onPick - Told the key of the state a pick lands on
+ * @param noMatchesText - What the box says when a query finds nothing
  * @returns The source, or `undefined` over a flow with no state
  */
-export function useFindState(states: readonly FindableState[], resetKey: string, onPick: (key: string) => void): KeySearchSource | undefined {
+export function useFindState(states: readonly FindableState[], resetKey: string, onPick: (key: string) => void,
+    noMatchesText = "No matching states. Search by state key or label."): KeySearchSource | undefined {
     // What the last find found, by row: the box asks for the rows' lines, and
     // jumps to one, with what it captured before the find answered.
     const found = useRef<readonly FindableState[]>([]);
@@ -102,7 +104,7 @@ export function useFindState(states: readonly FindableState[], resetKey: string,
     const clear = useCallback(() => { found.current = []; }, []);
     const any = states.length > 0;
     return useMemo(() => (any ? { resetKey, keyType: KEY_TYPE, find, listRange, jump, clear,
-        browseQuery: BROWSE_QUERY, noMatchesText: "No matching states. Search by state key or label.",
+        browseQuery: BROWSE_QUERY, noMatchesText,
     } : undefined),
-        [any, resetKey, find, listRange, jump, clear]);
+        [any, resetKey, find, listRange, jump, clear, noMatchesText]);
 }

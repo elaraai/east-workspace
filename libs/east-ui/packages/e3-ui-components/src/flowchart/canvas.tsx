@@ -1229,7 +1229,7 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
                                         onKeyDown={keys}
                                     />
                                     <input
-                                        placeholder="Name state…"
+                                        placeholder={words.m.nameState()}
                                         value={stateEditor.label}
                                         onChange={e => setStateEditor(ed => (ed === null ? ed : { ...ed, label: e.target.value }))}
                                         onKeyDown={keys}
@@ -1330,21 +1330,21 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
                                 <Box css={styles.legendTitle}>Legend</Box>
                                 <Box css={styles.legendRow}>
                                     <svg width={28} height={8}><line x1={1} y1={4} x2={27} y2={4} stroke={INK} strokeWidth={2} /></svg>
-                                    <span>Planned</span>
+                                    <span>{words.m.kindLabel({ kind: "planned" })}</span>
                                 </Box>
                                 <Box css={styles.legendRow}>
                                     <svg width={28} height={8}><line x1={1} y1={4} x2={27} y2={4} stroke={INFO} strokeWidth={1.6} strokeDasharray="5 4" /></svg>
-                                    <span>Observed</span>
+                                    <span>{words.m.kindLabel({ kind: "observed" })}</span>
                                 </Box>
                                 <Box css={styles.legendRow}>
                                     <svg width={28} height={16}>
                                         <rect x={9} y={3} width={10} height={10} rx={2} transform="rotate(45 14 8)" fill={PAPER} stroke={BRAND_D} strokeWidth={1.2} />
                                     </svg>
-                                    <span>Decision trigger</span>
+                                    <span>{words.m.legendDecision()}</span>
                                 </Box>
                                 <Box css={styles.legendRow}>
                                     <Box as="span" css={styles.nodeBadge}><FontAwesomeIcon icon={faRotateRight} style={{ fontSize: "8px" }} /> n</Box>
-                                    <span>In-place transition</span>
+                                    <span>{words.m.legendInPlace()}</span>
                                 </Box>
                             </Box>
                         )}

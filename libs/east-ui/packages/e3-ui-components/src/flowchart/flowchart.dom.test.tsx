@@ -31,7 +31,7 @@ import { initializeStore, keptName } from "@elaraai/east-ui-components/internal"
 import { flowchartKeys, type FlowchartLibraryTabType } from "@elaraai/e3-ui/internal";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { EastChakraFlowchart, type FlowchartCanvasValue, type FlowchartFlowValue, type FlowchartValue } from "./index.js";
-import { flowchartMessages } from "./messages.js";
+import { DEFAULT_FLOWCHART_VOCABULARY, flowchartMessages } from "./messages.js";
 import { openFlowName } from "./open-flow.js";
 
 beforeAll(() => {
@@ -107,7 +107,7 @@ const CANVAS: FlowchartCanvasValue = {
 
 /** A payload over `source`, its canvas the one above, no slice narrowing it, its inspector taken away (`inspector={false}`). */
 function payload(source: FlowchartValue["source"], open: FlowchartValue["open"] = none): FlowchartValue {
-    return { canvas: CANVAS, source, open, library: [], slice: none, narrowed: new SortedMap([], compareFor(StringType)), inspector: none, readOnly: false, name: none };
+    return { canvas: CANVAS, source, open, library: [], slice: none, narrowed: new SortedMap([], compareFor(StringType)), inspector: none, vocabulary: DEFAULT_FLOWCHART_VOCABULARY, readOnly: false, name: none };
 }
 
 /** The host's one flow. */
@@ -175,7 +175,7 @@ describe("EastChakraFlowchart", () => {
         expect(stateKeys(container)).toEqual(["IND", "CH*", "SRD", "GONE"]);
         // The footer counts the flow's ROWS (4, the ↻-folded in-place loop
         // among them); the ghost's transition counts as unresolved. One flow: no name.
-        expect(footerText(container).replace(/\s+/g, "")).toMatch(/^4links/);
+        expect(footerText(container).replace(/\s+/g, "")).toMatch(/^4transitions/);
         expect(footerText(container)).toContain("1 planned · 1 observed · 1 unresolved");
         expect(container.querySelector("[data-flowchart-flow]")).toBeNull();
         // No pane: no library listed, the inspector taken away.
@@ -189,7 +189,7 @@ describe("EastChakraFlowchart", () => {
                 <EastChakraFlowchart value={payload(hostFlow(sortFlow(LINKS.slice(0, 2))))} storageKey="test.flowchart" />
             </ChakraProvider>,
         );
-        expect(footerText(container).replace(/\s+/g, "")).toMatch(/^2links/);
+        expect(footerText(container).replace(/\s+/g, "")).toMatch(/^2transitions/);
     });
 
     it("the payload's readOnly takes the canvas's edit affordances away, as the host's data without onApply does (#1247)", () => {

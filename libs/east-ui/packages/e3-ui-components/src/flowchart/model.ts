@@ -138,6 +138,7 @@ export function linkKey(from: string, to: string, index: number): string {
  *
  * @param value - The flowchart's tables
  * @param words - The formatters the evidence badges print with (the app's locale)
+ * @param noRow - What a state no row stands for is called
  * @returns The view model
  */
 export function buildModel(value: {
@@ -145,7 +146,7 @@ export function buildModel(value: {
     links: ReadonlyArray<FlowchartLinkValue>,
     lanes: ReadonlyArray<FlowchartLaneValue>,
     triggers: ReadonlyArray<FlowchartTriggerValue>,
-}, words: Formatters): FlowchartModel {
+}, words: Formatters, noRow = "No state row"): FlowchartModel {
     const lanes: ModelLane[] = value.lanes.map(l => ({
         key: l.key,
         label: getSomeorUndefined(l.label) ?? l.key.toUpperCase(),
@@ -190,7 +191,7 @@ export function buildModel(value: {
         const li = Math.min(Math.max(nearLane, 0), Math.max(lanes.length - 1, 0));
         const ghost: ModelNode = {
             key,
-            label: "No state row",
+            label: noRow,
             laneIndex: li,
             laneOrder: nextLaneOrder(li),
             members: undefined,

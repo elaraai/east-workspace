@@ -128,7 +128,7 @@ import { FlowsCountReader, FlowsTab, PagedFlowsTab, NoFlows, type FlowCard, type
 import { inspectorPane, type FlowchartInspectorEdit } from "./inspector.js";
 import { conflictRowName, conflictStateKey, conflictTarget, conflictValueName, flowIssues, issueTarget, saveIssues } from "./issues.js";
 import { useFlowchartLibrary } from "./library.js";
-import { flowchartMessages, type FlowchartRefusedWord, type FlowchartWords } from "./messages.js";
+import { flowchartMessagesOf, type FlowchartRefusedWord, type FlowchartWords } from "./messages.js";
 import { missingFlow, openFlowName, useOpenedFlow } from "./open-flow.js";
 import { useViewerOrientation } from "./orientation.js";
 import { selectionHeld, type FlowchartSelection } from "./selection.js";
@@ -150,6 +150,7 @@ const flowEqual = equalFor(Flowchart.Types.Flow);
 /** Flows by name, in East's order. */
 const nameOrder = compareFor(StringType);
 const nameEqual = equalFor(StringType);
+const vocabularyEqual = equalFor(Flowchart.Types.Payload.fields.vocabulary);
 
 /** No state holds a conflict. */
 const NO_STATES: ReadonlySet<string> = new Set();
@@ -303,9 +304,11 @@ function FlowchartFollows(props: FlowchartFrameProps) {
     const { value } = props;
     const { locale } = useFormatters();
     const sources = useMemo(() => followedSources(value), [value]);
-    const nouns = useMemo(() => sourceNouns(value, flowchartMessages, locale), [value, locale]);
+    const vocabulary = useDataStable(value.vocabulary, vocabularyEqual);
+    const m = useMemo(() => flowchartMessagesOf(vocabulary), [vocabulary]);
+    const nouns = useMemo(() => sourceNouns(value, m, locale), [value, m, locale]);
     // What a source's failed narrowing says, in the flowchart's words.
-    const said = useCallback((name: string): KeyVisibilityWords => ({ changed: flowchartMessages.sourceChanged({ name }), failed: flowchartMessages.sourceFailed({ name }) }), []);
+    const said = useCallback((name: string): KeyVisibilityWords => ({ changed: m.sourceChanged({ name }), failed: m.sourceFailed({ name }) }), [m]);
     return (
         <FollowSources chrome={props.chrome} narrowed={value.narrowed} sources={sources} nouns={nouns} said={said}>
             {(followed) => <FlowchartFrame {...props} followed={followed} nouns={nouns} />}
@@ -323,7 +326,8 @@ function FlowchartFrame({ value, held, storageKey, chrome, flowsPart, followed, 
     const styles = useSlotRecipe({ key: "flowchart" })() as Styles;
     // The counts, the dates and the badges, in the app's locale (#850), and the flowchart's words.
     const formatters = useFormatters();
-    const words = useMemo((): FlowchartWords => ({ ...formatters, m: flowchartMessages }), [formatters]);
+    const vocabulary = useDataStable(value.vocabulary, vocabularyEqual);
+    const words = useMemo((): FlowchartWords => ({ ...formatters, m: flowchartMessagesOf(vocabulary) }), [formatters, vocabulary]);
     const canvas = value.canvas;
     // Keyed on the name's text: each payload decodes its Option afresh, and the keys must hold while the name does.
     const flowchartName = getSomeorUndefined(value.name);
@@ -500,7 +504,7 @@ function FlowchartFrame({ value, held, storageKey, chrome, flowsPart, followed, 
     // The open flow's model, the canvas's and the footer's — keyed on the
     // flow's DATA (#809): a closure-only change keeps it.
     const data = useDataStable(flow, flowEqual);
-    const model = useMemo(() => buildModel(data, words), [data, words]);
+    const model = useMemo(() => buildModel(data, words, words.m.inspectorChip({ state: "noRow" })), [data, words]);
     // LR · TD (FB43): the viewer's, kept under the flowchart's name; the canvas's `orientation` until they pick.
     const [orientation, setOrientation] = useViewerOrientation(keys.orientation, getSomeorUndefined(canvas.orientation)?.type ?? "LR");
     // Find state over the open flow's states: a pick reveals the state on the canvas.
@@ -524,7 +528,7 @@ function FlowchartFrame({ value, held, storageKey, chrome, flowsPart, followed, 
         selection: () => selectionRef.current, select: selectState, notice: setNotice, words,
     });
     const findable = useMemo(() => data.states.map((s) => ({ key: s.key, label: getSomeorUndefined(s.label) })), [data]);
-    const find = useFindState(findable, openName ?? "", onPick);
+    const find = useFindState(findable, openName ?? "", onPick, words.m.findNoMatches());
     const freshnessValue = getSomeorUndefined(canvas.freshness);
     const freshness = useMemo(
         () => (freshnessValue === undefined ? undefined : { label: freshnessValue.label, date: getSomeorUndefined(freshnessValue.date) }),
@@ -587,7 +591,7 @@ function FlowchartFrame({ value, held, storageKey, chrome, flowsPart, followed, 
     }, [edits, onAction]);
     // The rail (#1346): each source counted in its noun on the rail's summary.
     const railNouns = useMemo(() => Object.fromEntries(nouns), [nouns]);
-    const items = useFlowchartToolbarItems({ styles, find, orientation, onOrientation: setOrientation, freshness, words, history, chrome, nouns: railNouns });
+    const items = useFlowchartToolbarItems({ styles, find, findLabel: words.m.findState(), orientation, onOrientation: setOrientation, freshness, words, history, chrome, nouns: railNouns });
     const saved = useLastSave(value.source, words);
 
     // ── The Flows tab (FB13, FB14) ──────────────────────────────────────

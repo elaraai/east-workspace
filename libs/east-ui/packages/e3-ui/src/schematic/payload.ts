@@ -46,6 +46,7 @@ import {
 import { EastUI, RowSourceType } from "@elaraai/east-ui";
 import { RecordSlicesChromeType, isRecordSlices, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
+import { VocabularyNounType, vocabularyNoun, vocabularyWord, type VocabularyNoun } from "../utils/vocabulary.js";
 import { isSchematicKind, type SchematicItems, type SchematicLinks, type SchematicNets, type SchematicZones } from "./kinds.js";
 import { SchematicLibraryTabType, buildSchematicLibrary, schematicTabSources, type SchematicLibraryKind, type SchematicLibraryTab } from "./library.js";
 import { isSchematicLayers, type SchematicLayers } from "./layers.js";
@@ -61,9 +62,6 @@ import {
 /** Each source's shown keys on the wire, by the source's name. */
 const ShownType = DictType(StringType, RowSourceType(ArrayType(StringType)));
 
-/** One of the Schematic's nouns, resolved: as a heading writes it, and its plural. */
-const SchematicNounType = StructType({ one: StringType, other: StringType });
-
 /**
  * The app's own words for what the Schematic draws of its own (#1516), every one resolved.
  *
@@ -78,8 +76,8 @@ const SchematicNounType = StructType({ one: StringType, other: StringType });
  * @property destination - A net's destination (`Destination`, `Destinations`)
  */
 export const SchematicVocabularyType = StructType({
-    templates: SchematicNounType, backlog: StringType, index: StringType, layer: SchematicNounType, zone: SchematicNounType,
-    net: SchematicNounType, link: SchematicNounType, source: SchematicNounType, destination: SchematicNounType,
+    templates: VocabularyNounType, backlog: StringType, index: StringType, layer: VocabularyNounType, zone: VocabularyNounType,
+    net: VocabularyNounType, link: VocabularyNounType, source: VocabularyNounType, destination: VocabularyNounType,
 });
 
 /**
@@ -209,13 +207,10 @@ export interface SchematicNarrowedOptions {
     fit?: boolean;
 }
 
-/** One of the Schematic's nouns, as the app gives it: its singular, its plural that and `s` — or both, where it isn't regular. */
-export type SchematicNoun = string | { one: string; other?: string };
-
 /** The app's words for what the Schematic draws of its own: any left out keeps its default. */
 export interface SchematicVocabularyProp {
-    templates?: SchematicNoun; backlog?: string; index?: string; layer?: SchematicNoun; zone?: SchematicNoun;
-    net?: SchematicNoun; link?: SchematicNoun; source?: SchematicNoun; destination?: SchematicNoun;
+    templates?: VocabularyNoun; backlog?: string; index?: string; layer?: VocabularyNoun; zone?: VocabularyNoun;
+    net?: VocabularyNoun; link?: VocabularyNoun; source?: VocabularyNoun; destination?: VocabularyNoun;
 }
 
 /**
@@ -227,20 +222,10 @@ export interface SchematicVocabularyProp {
  * @internal
  */
 export function schematicVocabulary(given: SchematicVocabularyProp | undefined): ValueTypeOf<typeof SchematicVocabularyType> {
-    const said = (name: string, word: string | undefined): void => {
-        if (word !== undefined && word.trim() === "") throw new Error(`Schematic: \`vocabulary.${name}\` must not be empty — leave it out to keep its default`);
-    };
-    const noun = (name: string, input: SchematicNoun | undefined, one: string): { one: string; other: string } => {
-        const word = input === undefined ? { one } : typeof input === "string" ? { one: input } : input;
-        said(name, word.one);
-        return { one: word.one, other: word.other ?? `${word.one}s` };
-    };
-    said("backlog", given?.backlog);
-    said("index", given?.index);
+    const noun = (name: keyof SchematicVocabularyProp, one: string) => vocabularyNoun("Schematic", name, given?.[name], one);
     return {
-        templates: noun("templates", given?.templates, "Template"), backlog: given?.backlog ?? "Backlog", index: given?.index ?? "Index", layer: noun("layer", given?.layer, "Layer"),
-        zone: noun("zone", given?.zone, "Zone"), net: noun("net", given?.net, "Net"), link: noun("link", given?.link, "Link"),
-        source: noun("source", given?.source, "Source"), destination: noun("destination", given?.destination, "Destination"),
+        templates: noun("templates", "Template"), backlog: vocabularyWord("Schematic", "backlog", given?.backlog, "Backlog"), index: vocabularyWord("Schematic", "index", given?.index, "Index"),
+        layer: noun("layer", "Layer"), zone: noun("zone", "Zone"), net: noun("net", "Net"), link: noun("link", "Link"), source: noun("source", "Source"), destination: noun("destination", "Destination"),
     };
 }
 

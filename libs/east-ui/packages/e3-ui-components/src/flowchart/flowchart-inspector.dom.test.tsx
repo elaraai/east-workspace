@@ -46,7 +46,7 @@ import { Flowchart } from "@elaraai/e3-ui/internal";
 import * as edits from "./edits.js";
 import { act, enabled, flowchartHarness, press, settle, type FlowchartHarness } from "./flowchart.test-utils.js";
 import { EastChakraFlowchart, type FlowchartValue } from "./index.js";
-import { flowchartMessages } from "./messages.js";
+import { DEFAULT_FLOWCHART_VOCABULARY, flowchartMessages } from "./messages.js";
 
 const h = flowchartHarness();
 
@@ -154,6 +154,7 @@ function payload(source: FlowchartValue["source"], options: Partial<Pick<Flowcha
         slice: none,
         narrowed: new SortedMap([], compareFor(StringType)),
         inspector: options.inspector ?? some({ state: none, transition: none }),
+        vocabulary: DEFAULT_FLOWCHART_VOCABULARY,
         readOnly: options.readOnly ?? false,
         name: none,
     };

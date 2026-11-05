@@ -71,6 +71,8 @@ export interface FlowchartToolbarProps {
     readonly styles: Styles;
     /** Find state's source — `undefined` over a flow with no state. */
     readonly find: KeySearchSource | undefined;
+    /** What find state is called: `Find state` unless the app's words say otherwise. */
+    readonly findLabel?: string | undefined;
     /** The canvas's orientation. */
     readonly orientation: FlowchartOrientation;
     /** Turns the canvas. */
@@ -94,12 +96,12 @@ export interface FlowchartToolbarProps {
  * @param props - What the items show and drive
  * @returns The items, a falsy entry for each the flowchart has no use for
  */
-export function useFlowchartToolbarItems({ styles, find, orientation, onOrientation, freshness, words, history, chrome, nouns }: FlowchartToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
+export function useFlowchartToolbarItems({ styles, find, findLabel, orientation, onOrientation, freshness, words, history, chrome, nouns }: FlowchartToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
     // Find state: its box, or its icon, which opens the box, on a row short of room — and, beside a rail, last its
     // popover holding LR · TD over its box, the orientation's chip gone in the same move.
     const combine = chrome !== undefined && find !== undefined;
     const seek = useKeySearchToolbarItem(find, {
-        rank: FLOWCHART_RANK.seek, label: "Find state",
+        rank: FLOWCHART_RANK.seek, label: findLabel ?? "Find state",
         compact: combine ? {
             label: "View",
             controls: <Box css={styles.toolbarControls}><Seg label="Orientation" name="orientation" scope="flowchart"

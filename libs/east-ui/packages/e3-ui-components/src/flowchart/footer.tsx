@@ -74,13 +74,13 @@ export function FlowchartFooter({ styles, name, links, counts, pending, saved, m
                 </>
             )}
             <Box as="span" css={styles.footerStrong}>{words.number(links)}</Box>
-            <Box as="span">{links === 1 ? "link" : "links"}</Box>
+            <Box as="span">{words.m.footerNoun({ n: links })}</Box>
             {message !== undefined && <Box as="span">·</Box>}
             {/* Always there, so a screen reader hears each line it takes. */}
             <Box as="span" css={styles.footerMessage} data-flowchart-message="" aria-live="polite">{message ?? ""}</Box>
-            {recordSlice !== undefined && <RecordSliceSaveNotice slice={recordSlice} singular="flow" plural="flows" />}
+            {recordSlice !== undefined && <RecordSliceSaveNotice slice={recordSlice} singular={words.m.flowNoun({ n: 1 })} plural={words.m.flowNoun({ n: 2 })} />}
             <Box css={styles.footerSplit}>
-                {words.number(counts.planned)} planned · {words.number(counts.observed)} observed
+                {words.m.footerSplit({ planned: words.number(counts.planned), observed: words.number(counts.observed) })}
                 {counts.unresolved > 0 ? ` · ${words.number(counts.unresolved)} unresolved` : ""}
                 {pending !== undefined && <Box as="span" data-flowchart-pending="">{` · ${words.m.footerPending({ n: pending, count: words.number(pending) })}`}</Box>}
                 {saved !== undefined && <Box as="span" data-flowchart-saved="">{` · saved ${saved}`}</Box>}

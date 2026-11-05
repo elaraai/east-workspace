@@ -86,6 +86,7 @@ import { EastUI, Editing, RowSourceType, type UIComponentType } from "@elaraai/e
 import { RecordSlicesChromeType, isRecordSlices, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
 import { Record as RecordBind, RecordOutcomeType } from "../bind/record.js";
 import { recordSources, sliceSourceNames } from "../utils/record-sources.js";
+import { VocabularyNounType, vocabularyNoun, vocabularyWord, type VocabularyNoun } from "../utils/vocabulary.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { buildCanvas, FlowchartCanvasType, type FlowchartCanvasOptions } from "./canvas.js";
 import { FlowchartLibraryTabType, buildLibrary, checkTemplatesSources, librarySources } from "./library.js";
@@ -230,6 +231,22 @@ export type FlowchartInspectorType = typeof FlowchartInspectorType;
 const NarrowedType = DictType(StringType, RowSourceType(ArrayType(StringType)));
 
 /**
+ * The app's own words for what the flowchart draws of its own (#1516), every one resolved.
+ *
+ * @property flow - A flow (`Flow`, `Flows`)
+ * @property lane - A lane (`Lane`, `Lanes`)
+ * @property state - A state (`State`, `States`)
+ * @property transition - A transition (`Transition`, `Transitions`)
+ * @property decision - A decision (`Decision`, `Decisions`)
+ * @property planned - A transition as it was designed (`Planned`)
+ * @property observed - A transition as it was seen to run (`Observed`)
+ */
+export const FlowchartVocabularyType = StructType({
+    flow: VocabularyNounType, lane: VocabularyNounType, state: VocabularyNounType, transition: VocabularyNounType, decision: VocabularyNounType,
+    planned: StringType, observed: StringType,
+});
+
+/**
  * The `Flowchart` renderer's payload: the flowchart's interface.
  *
  * @property canvas - What the canvas draws its flow with ({@link FlowchartCanvasType})
@@ -239,6 +256,7 @@ const NarrowedType = DictType(StringType, RowSourceType(ArrayType(StringType)));
  * @property slice - The narrowing's chrome: one rail over its `Slice.bindRecords` (#1346) — `flows`, and each source a templates list or a tab names; `none`, no rail
  * @property narrowed - Each source's narrowed keys, paged through its own data, by the source's name: what a templates list's and a tab's cards follow
  * @property inspector - The inspector pane — on by default — with each kind's own Details the author gives ({@link FlowchartInspectorType}); `none`, no inspector pane (`inspector={false}`)
+ * @property vocabulary - The app's words for what the flowchart draws of its own (#1516)
  * @property readOnly - No gesture edits, no drop lands, the inspector edits nothing
  * @property name - Names the flowchart, when a surface holds two
  */
@@ -250,6 +268,7 @@ export const FlowchartPayloadType = StructType({
     slice: OptionType(RecordSlicesChromeType),
     narrowed: NarrowedType,
     inspector: OptionType(FlowchartInspectorType),
+    vocabulary: FlowchartVocabularyType,
     readOnly: BooleanType,
     name: OptionType(StringType),
 });
@@ -359,6 +378,28 @@ export interface FlowchartInspectorOptions {
     transition?: FlowchartRowInspector<FlowchartLinkType>;
 }
 
+/** The app's words for what the flowchart draws of its own: any left out keeps its default. */
+export interface FlowchartVocabularyProp {
+    flow?: VocabularyNoun; lane?: VocabularyNoun; state?: VocabularyNoun; transition?: VocabularyNoun; decision?: VocabularyNoun;
+    planned?: string; observed?: string;
+}
+
+/**
+ * The flowchart's words, resolved.
+ *
+ * @param given - The prop
+ * @returns Every word
+ * @throws {Error} Naming an entry given empty
+ * @internal
+ */
+export function flowchartVocabulary(given: FlowchartVocabularyProp | undefined): ValueTypeOf<typeof FlowchartVocabularyType> {
+    const noun = (name: "flow" | "lane" | "state" | "transition" | "decision", one: string) => vocabularyNoun("Flowchart", name, given?.[name], one);
+    return {
+        flow: noun("flow", "Flow"), lane: noun("lane", "Lane"), state: noun("state", "State"), transition: noun("transition", "Transition"), decision: noun("decision", "Decision"),
+        planned: vocabularyWord("Flowchart", "planned", given?.planned, "Planned"), observed: vocabularyWord("Flowchart", "observed", given?.observed, "Observed"),
+    };
+}
+
 /**
  * What every `<Flowchart>` takes beside its flows: the canvas's options, its
  * inspector, read only and its name.
@@ -371,6 +412,11 @@ export interface FlowchartCommon extends FlowchartCanvasOptions {
      * Details in place of its form ({@link FlowchartInspectorOptions}).
      */
     inspector?: boolean | FlowchartInspectorOptions;
+    /**
+     * The app's own words for what the flowchart draws of its own, each keeping its default where left out: `flow`, `lane`, `state`,
+     * `transition` and `decision`, and a transition's kinds, `planned` and `observed`.
+     */
+    vocabulary?: FlowchartVocabularyProp;
     /** No gesture edits, no drop lands, the inspector shows every field and edits none; selection stays. */
     readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
     /** Names the flowchart — needed only when one surface holds two. */
@@ -387,6 +433,7 @@ type FlowchartAnyProps = {
     library?: unknown;
     slice?: unknown;
     inspector?: unknown;
+    vocabulary?: FlowchartVocabularyProp;
     readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
     name?: string;
 } & Record<string, unknown>;
@@ -699,7 +746,7 @@ function dataArm(data: unknown, onApply: unknown): FlowchartArm {
  * @internal
  */
 export function createFlowchartPayload(props: object): ExprType<FlowchartPayloadType> {
-    const { record, window, data, onApply, flow, library, slice, inspector, readOnly, name, ...canvas } = props as FlowchartAnyProps;
+    const { record, window, data, onApply, flow, library, slice, inspector, vocabulary, readOnly, name, ...canvas } = props as FlowchartAnyProps;
     for (const table of TABLES) {
         if (table in canvas) {
             throw new Error(`Flowchart: \`${table}\` is one of the tables, or the row mappers, Flowchart.over builds a flow from — pass data={Flowchart.over(states, { … })}, or bind a record of flows as \`record\``);
@@ -768,6 +815,7 @@ export function createFlowchartPayload(props: object): ExprType<FlowchartPayload
             slice: sources.chrome,
             narrowed,
             inspector: inspectorOf(inspector),
+            vocabulary: flowchartVocabulary(vocabulary),
             readOnly: readOnly ?? false,
             name: name === undefined ? none : some(name),
         } as never, FlowchartPayloadType);

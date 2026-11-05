@@ -50,7 +50,7 @@ import * as edits from "./edits.js";
 import { act, enabled, flowchartHarness, press, settle, toolbar } from "./flowchart.test-utils.js";
 import { conflictCards } from "../e3-web-mount.test-utils.js";
 import { EastChakraFlowchart, type FlowchartValue } from "./index.js";
-import { flowchartMessages } from "./messages.js";
+import { DEFAULT_FLOWCHART_VOCABULARY, flowchartMessages } from "./messages.js";
 
 const h = flowchartHarness();
 
@@ -168,6 +168,7 @@ function payload(source: FlowchartValue["source"], canConnect?: (from: string, t
         slice: none,
         narrowed: new SortedMap([], compareFor(StringType)),
         inspector: none,
+        vocabulary: DEFAULT_FLOWCHART_VOCABULARY,
         readOnly: false,
         name: none,
     };
