@@ -268,7 +268,6 @@ function dispatchEast(name: string, run: () => unknown): void {
 // ── Palette — recipe-defined vars mirroring the spec's DS tokens ──────────
 const INK = "var(--fc-ink)";            // planned stroke + badge numerals (--ink-2)
 const INK_3 = "var(--fc-ink3)";         // secondary text (--ink-3)
-const INK_4 = "var(--fc-ink4)";         // lane headers, legend title (--ink-4)
 const PAPER = "var(--fc-paper)";        // card / badge fill (--paper)
 const LANE_TINT = "var(--fc-lane)";     // alternating band fill (--paper-2)
 const RULE_STRONG = "var(--fc-rule-strong)";
@@ -374,13 +373,13 @@ const LABEL_BASELINE = BADGE_H / 2 + 3.5;
 
 /** A lane's ×: its box's side, centred on its glyph. */
 const CLOSE_BOX = 14;
-/** A lane header's middle above its baseline: mono 10px caps. */
-const HEAD_MIDDLE = 4;
+/** A lane header's middle above its baseline: half the height of its caps, mono 12px. */
+const HEAD_MIDDLE = 4.5;
 
 /**
  * Where a lane's header stands: its anchor — the band's middle across the top
  * in LR, its start down the side in TD — its baseline, and the middle of its
- * ×, past the label's end (mono 10 / ls 2.2 ⇒ ~8.2px a glyph).
+ * ×, past the label's end (mono 12 / ls 2.6 ⇒ ~9.8px a glyph).
  *
  * @param layout - The laid-out records
  * @param lane - The lane's band
@@ -390,7 +389,7 @@ function laneHead(layout: FlowchartLayout, lane: FlowchartLayout["lanes"][number
     const td = layout.orientation === "TD";
     const x = td ? 12 : lane.cx;
     const y = td ? lane.y + 24 : 26;
-    const labelW = lane.label.length * 8.2;
+    const labelW = lane.label.length * 9.8;
     return { x, y, td, close: (td ? x + labelW + 12 : x + labelW / 2 + 14) + 3.5 };
 }
 
@@ -1109,18 +1108,16 @@ export function FlowchartCanvasView({
                                         </g>
                                     );
                                 })()}
-                                {/* lane headers — mono 10/600 ls 2.2 ink-4 (inline styles:
-                                    presentation attributes lose to the app CSS reset). A
-                                    click on the header's strip selects its lane, and a
-                                    double-click renames it in place where the lanes edit;
-                                    No lane, and the one band of a Flowchart given no lanes,
-                                    are neither. Each lane's × and "+ LANE" are the HTML
-                                    layer's, below. */}
+                                {/* lane headers — their look the recipe's (#1520): mono 12/600,
+                                    caps spaced 2.6px, ink-4. A click on the header's strip
+                                    selects its lane, and a double-click renames it in
+                                    place where the lanes edit; No lane, and the one band
+                                    of a Flowchart given no lanes, are neither. Each lane's
+                                    × and "+ LANE" are the HTML layer's, below. */}
                                 {layout.lanes.map(lane => {
                                     const head = laneHead(layout, lane);
                                     const text = (
                                         <text x={head.x} y={head.y} textAnchor={head.td ? "start" : "middle"}
-                                            style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: "2.2px", fill: INK_4 }}
                                             data-flowchart-lane={lane.key}>
                                             {lane.label.toUpperCase()}
                                         </text>

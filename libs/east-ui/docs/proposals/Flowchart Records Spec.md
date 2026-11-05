@@ -1568,6 +1568,7 @@ The reference mock is evidence for what to show, not for how the Flowchart behav
 18. **Kinds name themselves.** A kind's `name` — `Flowchart.states(record, { …, name: "Stop" })` — is the app's word for it, which the Flowchart says wherever it speaks of one: its tabs, canvas, legend, inspector, footer, find box and refusals. `vocabulary` keeps only the words no kind names, a transition's two kinds: `vocabulary={{ planned?, observed? }}`. One way to name each thing, as the Schematic's kinds are named. — *Ruled 5 Nov 2026*
 19. **Zoom.** Zoom out, Zoom in and Fit, the Schematic's strip as it is: Fit puts the whole flowchart in view, Zoom out stops at Fit and Zoom in at the cards' own size, each click ×1.5 about the view's middle. The Flowchart opens at the cards' own size, as today, and the zoom is not remembered, as the scroll is not. As on the Schematic, the strip folds with LR · TD into the popover of a phone's row, and zoomed out more lanes fit in view, the lane pager stepping by the zoomed lane's width. In this pull request. — *Ruled 5 Nov 2026*
 20. **Zoom towards the selection.** With a state selected, each click of Zoom in or Zoom out zooms, then brings it to the view's middle, as finding a state does; a selected link, lane or several states the same way. With nothing selected, the view's middle stays put. The Flowchart only, for now: the Schematic's zoom stays about the view's middle. — *Ruled 5 Nov 2026*
+21. **Lane names a little bigger.** A lane's name draws at 12px, the size of a card's state code, where it drew at 10px, the spacing between its letters scaled to match; its × stays just past the name's end. — *Ruled 5 Nov 2026*
 
 ### The design's decisions
 
@@ -1600,7 +1601,7 @@ The design takes D1 to D24, each naming what it leaves; the user's rulings above
 
 ## 9. Tasks
 
-The work lands in one pull request (ruling 10): the records cutover first — tasks 1 to 6 — since removing the Flow types takes the renderer and the examples with it, then the details — tasks 7 to 10 — each part closed by task 11. The details look as the visual spec draws them (ruling 11). The zoom, task 12, follows (rulings 19 and 20).
+The work lands in one pull request (ruling 10): the records cutover first — tasks 1 to 6 — since removing the Flow types takes the renderer and the examples with it, then the details — tasks 7 to 10 — each part closed by task 11. The details look as the visual spec draws them (ruling 11). The zoom, task 12, follows (rulings 19 and 20), then the lane names, task 13 (ruling 21).
 
 1. **The kinds** (e3-ui) — `Flowchart.states`, `transitions`, `lanes` and `decisions` over the app's records: their roles typed over the row, the binding forms and every refusal's words; each kind closed behind East functions over its rows' bytes — rows with their roles, `write`, `create`, `set`, a read by key, its form, its `ready` and its own Details; the slice's `states` and `transitions` sources through `recordSources`, and `narrowed`; the payload. `record`, `data`, `flow`, `onApply`, `Flowchart.over`, `values`, `value` and the Flow types removed.
 
@@ -1649,5 +1650,9 @@ The work lands in one pull request (ruling 10): the records cutover first — ta
 12. **Zoom** (the renderer) — the Schematic's zoom strip shared, and the Schematic drawing it; the Flowchart's strip, its words, its fold into Find's View and the phone's View; the canvas at a zoom — laid out for main's size over it, Fit from the layout's own size, and the pointer, Find's scroll, the drops and the lane pager through it; Zoom out and Zoom in towards what is selected (R42).
 
    **Done when:** DOM tests cover the strip's words and bounds — both off on a flowchart that fits — its steps and Fit, and on a phone the View holding it; the responsive suite measures the whole flowchart inside main at Fit, the cards at the zoom's scale, the view's middle held across a zoom and a selected state brought to it, a drop, a move and a new transition landing where the pointer is zoomed out, the ladder with the strip, and on a phone the View holding the strip and the pager stepping a zoomed lane.
+
+13. **Lane names** (the renderer) — a lane's name at 12px, its look in the `flowchart` recipe and its place alone the renderer's, and its × placed past the longer name, level with it (ruling 21).
+
+   **Done when:** a responsive check finds each lane's name at 12px, its × just past the name's end, clear of it and level with it, across the top in LR and down the side in TD.
 
 Every figure on this page is made up: the depot's in the visual spec, and the examples'.

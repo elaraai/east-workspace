@@ -14,8 +14,8 @@
  *   Zoom out is off there, and Zoom in steps back up, ×1.5 a click, to the
  *   cards' own size, where it is off.
  * - **At a zoom** the canvas draws at its scale: each card's box and each lane
- *   header's — where it stands and its size — and the box main scrolls are
- *   their own times the zoom.
+ *   header's — where it stands and its size — the point each lane's name
+ *   stands at, and the box main scrolls are their own times the zoom.
  * - **The view's middle** stays put: across Zoom out and Zoom in, each card's
  *   offset from main's middle scales with the zoom. With a state selected,
  *   Zoom out and Zoom in bring it to main's middle instead, at each zoom; and
@@ -117,9 +117,15 @@ function fitFaults(root: Locator): Promise<string[]> {
     });
 }
 
-/** What the canvas draws: each card's box and each lane header's, from the corner of the box main scrolls, and that box's size. */
+/**
+ * What the canvas draws: each card's box and each lane header's, and the
+ * point each lane's name stands at, from the corner of the box main scrolls,
+ * and that box's size. A name's glyphs are the font renderer's, which sets
+ * them in whole pixels at the size each zoom draws them, so its width is read
+ * nowhere here.
+ */
 interface Drawn {
-    /** Each, by name: its left and top from the box's corner, its width and its height. */
+    /** Each, by name: its left and top from the box's corner — and a box's width and height. */
     readonly parts: Readonly<Record<string, readonly number[]>>;
     /** The box main scrolls: its width and its height. */
     readonly box: readonly number[];
@@ -130,10 +136,17 @@ function drawnOf(root: Locator): Promise<Drawn> {
     return root.evaluate((el) => {
         const box = el.querySelector("[data-flowchart-zoom-box]")!.getBoundingClientRect();
         const parts: Record<string, number[]> = {};
-        for (const part of el.querySelectorAll("[data-flowchart-node], [data-flowchart-lane]")) {
-            const r = part.getBoundingClientRect();
-            const name = part.hasAttribute("data-flowchart-node") ? `state ${part.getAttribute("data-flowchart-node")}` : `lane ${part.getAttribute("data-flowchart-lane")}`;
-            parts[name] = [r.left - box.left, r.top - box.top, r.width, r.height];
+        for (const card of el.querySelectorAll("[data-flowchart-node]")) {
+            const r = card.getBoundingClientRect();
+            parts[`state ${card.getAttribute("data-flowchart-node")}`] = [r.left - box.left, r.top - box.top, r.width, r.height];
+        }
+        for (const head of el.querySelectorAll("[data-flowchart-lane-head]")) {
+            const r = head.querySelector(":scope > rect")!.getBoundingClientRect();
+            parts[`lane ${head.getAttribute("data-flowchart-lane-head")}'s header`] = [r.left - box.left, r.top - box.top, r.width, r.height];
+        }
+        for (const name of el.querySelectorAll<SVGTextElement>("[data-flowchart-lane]")) {
+            const at = new DOMPoint(name.x.baseVal[0]!.value, name.y.baseVal[0]!.value).matrixTransform(name.getScreenCTM()!);
+            parts[`lane ${name.getAttribute("data-flowchart-lane")}'s name`] = [at.x - box.left, at.y - box.top];
         }
         return { parts, box: [box.width, box.height] };
     });
@@ -254,7 +267,7 @@ test.describe("The Flowchart's zoom (#1519, R42)", () => {
         expect([await zoomOf(root), await stripOn(strip)]).toEqual([1, [true, false, true]]);
     });
 
-    test("at a zoom the canvas draws at its scale: each card's box and each lane header's — where it stands and its size — and the box main scrolls are their own times the zoom", async ({ page }) => {
+    test("at a zoom the canvas draws at its scale: each card's box and each lane header's — where it stands and its size — the point each lane's name stands at, and the box main scrolls are their own times the zoom", async ({ page }) => {
         const { root } = await openFlowchart(page, "flowchartDepot");
         await sizeTo(page, root, FRAME);
         const own = await drawnOf(root);

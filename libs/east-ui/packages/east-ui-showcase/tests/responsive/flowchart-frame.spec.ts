@@ -5,7 +5,7 @@
 
 /**
  * The Flowchart in its frame, measured in a real browser (#1245, #1506, #1519,
- * `Flowchart Records Spec.md`), on the parcel depot's flowchart over the app's
+ * #1520, `Flowchart Records Spec.md`), on the parcel depot's flowchart over the app's
  * records: a borderless `BuilderFrame` filling the box its example gives it —
  * one 44px toolbar row, the canvas filling main, the library's 44px rail at
  * main's start and the inspector's at its end (#1250), the frame too narrow to
@@ -20,7 +20,9 @@
  * footer staying put; find
  * state's query, typed a key at a time where its box stands in the row, finds a
  * state by its label, and a pick
- * selects it and scrolls it into the canvas's view. The layout is checked in
+ * selects it and scrolls it into the canvas's view. Each lane's name is mono
+ * 12px, its × just past the name's end, clear of it and level with it, across
+ * the top in LR and down the side in TD. The layout is checked in
  * the light theme, as every layout check is; and on a touch screen 1920px wide
  * only the rail folds — its chips, then its summary — every other item whole.
  * Every measurement is polled until it holds, on a page at rest.
@@ -63,6 +65,34 @@ async function sizeTo(page: Page, root: Locator, width: number, height?: number)
         if (h !== undefined) (el as HTMLElement).style.height = `${h}px`;
     }, [width, height] as const);
     await settled(page);
+}
+
+/**
+ * Each lane's name drawn other than mono 12/600, or its × not just past the
+ * name's end — over it, or more than 14px past it — or not level with it.
+ */
+function laneNameFaults(root: Locator): Promise<string[]> {
+    return root.evaluate((el) => {
+        const names = [...el.querySelectorAll("[data-flowchart-lane]")];
+        const faults = names.length === 0 ? ["no lane's name"] : [];
+        for (const name of names) {
+            const key = name.getAttribute("data-flowchart-lane")!;
+            const look = getComputedStyle(name);
+            if (look.fontSize !== "12px" || look.fontWeight !== "600") faults.push(`${key}: its name ${look.fontSize}/${look.fontWeight}`);
+            const close = el.querySelector(`[data-flowchart-lane-delete="${key}"]`);
+            if (close === null) {
+                faults.push(`${key}: no ×`);
+                continue;
+            }
+            const n = name.getBoundingClientRect();
+            const x = close.getBoundingClientRect();
+            const gap = x.left - n.right;
+            if (gap < 6 || gap > 14) faults.push(`${key}: its × ${gap.toFixed(1)}px past its name's end`);
+            const level = x.top + x.height / 2 - (n.top + n.height / 2);
+            if (Math.abs(level) > 1.5) faults.push(`${key}: its × ${level.toFixed(1)}px below its name's middle`);
+        }
+        return faults;
+    });
 }
 
 /** What the toolbar says of itself: each item's form, the ladder, how many steps it took, and what lies past its row. */
@@ -229,6 +259,19 @@ test.describe("The Flowchart's frame (#1245)", () => {
             const n = el.querySelector("[data-flowchart-node='DSP']")!.getBoundingClientRect();
             return n.left >= view.left && n.right <= view.right && n.top >= view.top && n.bottom <= view.bottom;
         })).toBe(true);
+    });
+
+    test("each lane's name is mono 12px, its × just past the name's end, clear of it and level with it: across the top in LR, down the side in TD", async ({ page }) => {
+        await page.setViewportSize({ width: 1600, height: 900 });
+        const root = await openDepot(page);
+        // A frame whose row holds LR · TD whole.
+        await sizeTo(page, root, 1400);
+        await expect.poll(() => laneNameFaults(root)).toEqual([]);
+        const orientation = root.locator("[data-flowchart-seg='orientation']");
+        await orientation.getByRole("radio", { name: "TD" }).click();
+        await expect(orientation.locator("[aria-checked='true']")).toHaveText("TD");
+        await settled(page);
+        await expect.poll(() => laneNameFaults(root)).toEqual([]);
     });
 });
 

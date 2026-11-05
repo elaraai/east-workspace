@@ -249,6 +249,14 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             "& [data-flowchart-trigger][data-selected] > rect": { fill: "brandTint", strokeWidth: "2.4px" },
             /* A transition, or its diamond, the narrowing leaves out (#1502, R6): drawn as context, selected by no path. */
             "& g[data-context]": { pointerEvents: "none" },
+            /* A lane's name over its band (#1520): mono 12/600 in `--ink-4`, its caps spaced 2.6px. */
+            "& [data-flowchart-lane]": {
+                fontFamily: "mono",
+                fontSize: "12px",
+                fontWeight: "600",
+                letterSpacing: "2.6px",
+                fill: "fg.subtle",
+            },
             /* A label's details lines under its evidence (#1510, R32): mono 10 in `--ink-3`, `--brand-dd` while its
              * transition is selected (R39); a line not landed, a placeholder bar the loading recipe's fill (R34). */
             "& [data-flowchart-label] [data-line=detail]": {
