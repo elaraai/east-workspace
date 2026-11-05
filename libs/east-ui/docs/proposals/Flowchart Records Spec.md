@@ -893,8 +893,9 @@ export declare const library: {
 };
 
 // The tag's props. Kept from today: name, readOnly, orientation, legend, minimap, freshness, canConnect,
-// onSelectState, onSelectLink, onSelectTrigger and onTracePath. Removed: record, data, flow, onApply, and
-// inspector's { state, transition } — a kind's own Details is its kind's inspector.
+// onSelectState, onSelectLink, onSelectTrigger, onTracePath, and vocabulary's planned and observed. Removed:
+// record, data, flow, onApply; inspector's { state, transition } — a kind's own Details is its kind's inspector;
+// and vocabulary's flow, lane, state, transition and decision — a kind's noun is its own name (ruling 18).
 export interface FlowchartRecordsProps {
     states: FlowchartStates<StructType>;
     transitions?: FlowchartTransitions<StructType>;
@@ -904,6 +905,7 @@ export interface FlowchartRecordsProps {
     narrowed?: "hide" | "dim";                                         // "hide" unless given
     library?: FlowchartLibraryTab[];
     inspector?: boolean;                                               // the end pane: on unless false
+    vocabulary?: { planned?: string; observed?: string };              // a transition's kinds: Planned, Observed unless given
 }
 
 // e3-ui/src/flowchart/details.ts — the reads, typed over the details' row R, as plan/reads.ts types
@@ -1077,6 +1079,7 @@ decisions: OptionType(FlowchartDecisionKindType),
 narrowed: VariantType({ hide: NullType, dim: NullType }),
 library: ArrayType(FlowchartLibraryTabType),   // states, transitions, lanes, tab — no flows
 inspector: BooleanType,                         // the end pane: a kind's own Details is its kind's
+vocabulary: StructType({ planned: StringType, observed: StringType }),   // a transition's kinds, resolved
 
 // What every kind carries, as the Schematic's RecordSideFields and KindFields: its name and icon; whether it is
 // editable; its session over the record's patch door; the record read by key, where it is read through its
@@ -1551,6 +1554,7 @@ The reference mock is evidence for what to show, not for how the Flowchart behav
 15. **Units in the inspector.** A figure in the inspector shows its unit after its value, small and muted as on a card. — *Ruled 4 Nov 2026*
 16. **The legend's tag groups.** A group for each tag list given `legend`, its label drawn even before any of its tags show. — *Ruled 4 Nov 2026*
 17. **The legend's tag groups stack.** Beside the rows, the groups stand one over another, where each had stood beside the last with empty room under it. — *Ruled 5 Nov 2026*
+18. **Kinds name themselves.** A kind's `name` — `Flowchart.states(record, { …, name: "Stop" })` — is the app's word for it, which the Flowchart says wherever it speaks of one: its tabs, canvas, legend, inspector, footer, find box and refusals. `vocabulary` keeps only the words no kind names, a transition's two kinds: `vocabulary={{ planned?, observed? }}`. One way to name each thing, as the Schematic's kinds are named. — *Ruled 5 Nov 2026*
 
 ### The design's decisions
 
