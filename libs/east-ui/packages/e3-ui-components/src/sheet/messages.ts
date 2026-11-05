@@ -28,12 +28,13 @@
  */
 
 import { createContext, createElement, useContext, useMemo, type ReactNode } from "react";
-import { editingMessages, type EditingMessages } from "@elaraai/east-ui-components";
+import { editingMessages, getSomeorUndefined, type EditingMessages } from "@elaraai/east-ui-components";
 import { type EditHistoryWord } from "@elaraai/east-ui-components/internal";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
 import { hiddenByText } from "../shared/schedule/hidden.js";
 import { pluralKind } from "./link/grammar.js";
 import type { SheetKind } from "./model.js";
+import type { SheetValue } from "./frame/index.js";
 
 /** A date column's level, as the words name it (#844). */
 export type SheetLevelWord = "week" | "day" | "range" | "time";
@@ -1069,6 +1070,55 @@ export const sheetMessages: SheetMessages = {
     cellEditorTimeHelp: () => "24-hour time · digits fill a segment",
 };
 
+/** The app's words for what the sheet draws of its own, as the payload carries them (#1516). */
+export type SheetVocabulary = SheetValue["vocabulary"];
+
+/**
+ * A table in the app's own words (#1516): each word the app gave over the table above it, wherever the table says it, and
+ * the rest as they stood, so a host's translation stands where the app gave none.
+ *
+ * @param parent - The table above
+ * @param v - The app's words
+ * @returns The table
+ */
+export function sheetMessagesIn(parent: SheetMessages, v: SheetVocabulary): SheetMessages {
+    const members = getSomeorUndefined(v.members);
+    const unassigned = getSomeorUndefined(v.unassigned);
+    const source = getSomeorUndefined(v.source);
+    const destination = getSomeorUndefined(v.destination);
+    const wanted = getSomeorUndefined(v.wanted);
+    const actual = getSomeorUndefined(v.actual);
+    const holds = (n: number): string | undefined => (members === undefined ? undefined : plural(n, members.one, members.other));
+    /** A half, in the app's word where it gave one. */
+    const halfWord = (half: SheetHalfWord): string | undefined => (half === "from" ? source : destination);
+    const capital = (word: string): string => `${word.charAt(0).toUpperCase()}${word.slice(1)}`;
+    /** The hop to the to half, in the key hints. */
+    const hops = (text: string): string => (destination === undefined ? text : text.replace("the To half", `the ${capital(destination)} half`));
+    return {
+        ...parent,
+        unassigned: () => unassigned ?? parent.unassigned(),
+        rangeSpan: (p) => (p.kind === undefined && members !== undefined ? `${p.count} ${members.other}` : parent.rangeSpan(p)),
+        candidateEnumerate: (p) => (members === undefined ? parent.candidateEnumerate(p) : `enumerate · ${p.count} ${members.other}`),
+        noticeMembersAdded: (p) => (members === undefined ? parent.noticeMembersAdded(p) : `Added ${p.count} ${holds(p.n)}`),
+        noticeMembersRemoved: (p) => (members === undefined ? parent.noticeMembersRemoved(p) : `${p.count} ${holds(p.n)} removed`),
+        noticePredictedTaken: (p) => (members === undefined ? parent.noticePredictedTaken(p) : `Took ${p.count} predicted ${holds(p.n)}`),
+        halfLabel: ({ half }) => halfWord(half) ?? parent.halfLabel({ half }),
+        halfTitle: ({ half }) => { const word = halfWord(half); return word === undefined ? parent.halfTitle({ half }) : capital(word); },
+        stripHalf: (p) => { const word = p.half === undefined ? undefined : halfWord(p.half); return word === undefined ? parent.stripHalf(p) : `${p.header} · ${word}`; },
+        editorLocked: (p) => { const word = halfWord(p.half); return word === undefined ? parent.editorLocked(p) : `This ${word} is locked — anything here is kept but flagged`; },
+        halfNone: (p) => { const word = halfWord(p.half); return word === undefined ? parent.halfNone(p) : `${p.driver} has no ${word}${p.lock !== undefined ? ` · ${p.lock}` : ""}`; },
+        noticeLockedHalf: (p) => (destination === undefined ? parent.noticeLockedHalf(p) : `${p.driver} has no ${destination} — kept, but flagged`),
+        stripKeysLinkTake: (p) => hops(parent.stripKeysLinkTake(p)),
+        stripKeysLinkAdd: (p) => hops(parent.stripKeysLinkAdd(p)),
+        actualTag: (p) => (p.tone === "on" && actual !== undefined ? actual : parent.actualTag(p)),
+        stripKeysDetail: (p) => (p.date && wanted !== undefined ? `⏎ edits the ${wanted} date` : parent.stripKeysDetail(p)),
+        detailNoWanted: () => (wanted === undefined ? parent.detailNoWanted() : `no ${wanted} date`),
+        detailHappenedTitle: (p) => (wanted === undefined ? parent.detailHappenedTitle(p) : `Happened ${p.when} — no ${wanted} date`),
+        detailWanted: (p) => (wanted === undefined ? parent.detailWanted(p) : `${wanted} ${p.text} · ${p.tag}`),
+        detailTitle: (p) => (wanted === undefined ? parent.detailTitle(p) : `Happened ${p.when} — ${wanted} ${p.text} (${p.tag}) · ${p.words}`),
+    };
+}
+
 const SheetMessagesContext = createContext<SheetMessages>(sheetMessages);
 
 /**
@@ -1079,6 +1129,26 @@ const SheetMessagesContext = createContext<SheetMessages>(sheetMessages);
  */
 export function useSheetMessages(): SheetMessages {
     return useContext(SheetMessagesContext);
+}
+
+/** Props of {@link SheetVocabularyProvider}. */
+export interface SheetVocabularyProviderProps {
+    /** The app's words, the same object while they hold. */
+    vocabulary: SheetVocabulary;
+    /** The subtree they apply to. */
+    children?: ReactNode;
+}
+
+/**
+ * The app's own words for a sheet (#1516), over whatever table a host gives it.
+ *
+ * @param props - The words and the subtree
+ * @returns The provider
+ */
+export function SheetVocabularyProvider({ vocabulary, children }: SheetVocabularyProviderProps) {
+    const parent = useSheetMessages();
+    const value = useMemo(() => sheetMessagesIn(parent, vocabulary), [parent, vocabulary]);
+    return createElement(SheetMessagesContext.Provider, { value }, children);
 }
 
 /** Props of {@link SheetMessagesProvider}. */

@@ -57,6 +57,7 @@ import {
     type EastType,
     type ExprType,
     type SubtypeExprOrValue,
+    type ValueTypeOf,
 } from "@elaraai/east";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { RowSourceType, UIComponentType, type UIElement } from "@elaraai/east-ui";
@@ -80,6 +81,7 @@ import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { FuncBindingType } from "../bind/func.js";
 import type { OptimiseHandle } from "../utils/optimise.js";
 import { sheetOptimiseBinding } from "./optimise.js";
+import { VocabularyNounType, vocabularyNoun, vocabularyWord, type VocabularyNoun } from "../utils/vocabulary.js";
 
 // ============================================================================
 // The sheet's shared keys
@@ -153,6 +155,23 @@ export const SheetHistoryType = FunctionType([], OptionType(ArrayType(RecordComm
 export type SheetHistoryType = typeof SheetHistoryType;
 
 /**
+ * The app's own words for what the sheet draws of its own (#1516): each one given, `none` where the sheet's message table
+ * keeps its word, so a host's translation (`SheetMessagesProvider`) stands where the app gave none.
+ *
+ * @property members - What a link cell holds (`member`, `members`)
+ * @property unassigned - A counted member, which names no one in particular (`unassigned`)
+ * @property source - A link's from half (`source`)
+ * @property destination - A link's to half (`destination`)
+ * @property wanted - The date a dated column's work is wanted (`wanted`)
+ * @property actual - An instant that came on time (`actual`)
+ */
+export const SheetVocabularyType = StructType({
+    members: OptionType(VocabularyNounType),
+    unassigned: OptionType(StringType), source: OptionType(StringType), destination: OptionType(StringType),
+    wanted: OptionType(StringType), actual: OptionType(StringType),
+});
+
+/**
  * The `Sheet` renderer's payload: the sheet's interface.
  *
  * @property sheet - The sheet whole — its grid, its rows, its narrowing's chrome and its session wired to its source
@@ -163,6 +182,7 @@ export type SheetHistoryType = typeof SheetHistoryType;
  * @property optimise - The app's optimiser, by its `e3.function`'s name (#1409): what the Elara eye calls over the rows in view, its result one edit of the session; `none`, no eye
  * @property history - Over a record, its commits: the last save, and who changed it; `none` over `data`
  * @property missing - With `entry`, the entry's key while the record does not hold it: what the frame's banner names
+ * @property vocabulary - The app's words for what the sheet draws of its own (#1516)
  * @property name - Names the sheet, when a surface holds two
  */
 export const SheetPayloadType = StructType({
@@ -174,6 +194,7 @@ export const SheetPayloadType = StructType({
     optimise: OptionType(FuncBindingType),
     history: OptionType(SheetHistoryType),
     missing: OptionType(StringType),
+    vocabulary: SheetVocabularyType,
     name: OptionType(StringType),
 });
 
@@ -251,6 +272,30 @@ export interface SheetLooseEntryRows<K extends EastType, V extends StructType, P
     id: SheetStringField<P> & SheetStringField<SheetLineOf<P, F>>;
 }
 
+/** The app's words for what the sheet draws of its own: any left out keeps the sheet's word. */
+export interface SheetVocabularyProp {
+    members?: VocabularyNoun; unassigned?: string; source?: string; destination?: string; wanted?: string; actual?: string;
+}
+
+/**
+ * The sheet's words as the payload carries them.
+ *
+ * @param given - The prop
+ * @returns Each word given, and none for the rest
+ * @throws {Error} Naming an entry given empty
+ * @internal
+ */
+export function sheetVocabulary(given: SheetVocabularyProp | undefined): ValueTypeOf<typeof SheetVocabularyType> {
+    const word = (name: Exclude<keyof SheetVocabularyProp, "members">) => {
+        const said = given?.[name];
+        return said === undefined ? none : some(vocabularyWord("Sheet", name, said, name));
+    };
+    return {
+        members: given?.members === undefined ? none : some(vocabularyNoun("Sheet", "members", given.members, "member")),
+        unassigned: word("unassigned"), source: word("source"), destination: word("destination"), wanted: word("wanted"), actual: word("actual"),
+    };
+}
+
 /**
  * What every `<Sheet>` takes beside its rows, its columns and the sheet's
  * own options: its narrowing, its panes, its templates, its views and its
@@ -312,6 +357,11 @@ export interface SheetCommon<L extends StructType, G extends StructType = never>
     groupFields?: [G] extends [never] ? never : FieldHints<G["fields"]>;
     /** The saved views — a bind handle of `Array<Sheet.Types.RecordView>`, each every source's narrowing: `State.bind` keeps them per viewer, `Data.bind` shares them. Their tabs show while `slice` narrows the rows. */
     views?: unknown;
+    /**
+     * The app's own words for what the sheet draws of its own (#1516), each keeping the sheet's where left out: `members`,
+     * `unassigned`, a link's `source` and `destination`, and a dated column's `wanted` and `actual`.
+     */
+    vocabulary?: SheetVocabularyProp;
     /** Names the sheet — needed only when one surface holds two. */
     name?: string;
 }
@@ -338,6 +388,7 @@ type SheetAnyProps = {
     inspector?: unknown;
     optimise?: unknown;
     views?: unknown;
+    vocabulary?: SheetVocabularyProp;
     name?: string;
     readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
     newRow?: unknown;
@@ -366,7 +417,8 @@ const NarrowedType = DictType(StringType, RowSourceType(ArrayType(StringType)));
  * @internal
  */
 export function createSheetPayload(props: { columns: unknown } & { [prop: string]: unknown }): ExprType<SheetPayloadType> {
-    const { record, entry, window, data, columns, slice, templates, library, fields, groupFields, inspector, optimise, views, name, ...sheet } = props as SheetAnyProps;
+    const { record, entry, window, data, columns, slice, templates, library, fields, groupFields, inspector, optimise, views, vocabulary, name, ...sheet } = props as SheetAnyProps;
+    const words = sheetVocabulary(vocabulary);
     // The narrowing's props #1345 retired, refused by name for an app that still passes them.
     if (slice instanceof Expr || (slice !== undefined && (typeof slice !== "object" || slice === null || !("slice" in slice)))) {
         throw new Error("Sheet: `slice` takes { slice } — slice={{ slice: Slice.bindRecords(key, { rows }) }}: the bare handle and data={Slice.rows(slice)} are gone, and the sheet reads its rows from the slice's `rows` source");
@@ -443,7 +495,7 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
         // The bridge's functions, each bound once here for every wire function the sheet builds to refer to.
         const hold = <T extends EastType>(value: ExprType<T>): ExprType<T> => $.const(value) as ExprType<T>;
         const narrowed = East.value(new Map(Object.entries(bound.keys)) as never, NarrowedType) as ExprType<typeof NarrowedType>;
-        const parts = { templates: checked, library, sources: sources.names, narrowed, fields, groupFields, inspector, optimise, name, newRow: sheet.newRow, newGroup: sheet.newGroup };
+        const parts = { templates: checked, library, sources: sources.names, narrowed, fields, groupFields, inspector, optimise, vocabulary: words, name, newRow: sheet.newRow, newGroup: sheet.newGroup };
         if (pagesRows) {
             // The rows source's record, every row in its own order (#1349) — the renderer draws the source's narrowing
             // over them as the lens — and its record's identity, which names the session over them.
@@ -529,6 +581,7 @@ function payloadOf(built: SheetBuild, parts: {
     groupFields: SheetAnyProps["groupFields"];
     inspector: unknown;
     optimise: unknown;
+    vocabulary: ValueTypeOf<typeof SheetVocabularyType>;
     name: string | undefined;
     newRow: unknown;
     newGroup: unknown;
@@ -546,6 +599,7 @@ function payloadOf(built: SheetBuild, parts: {
         optimise: parts.optimise === undefined ? none : some(sheetOptimiseBinding(parts.optimise, built.bridge.rowType, built.keyType)),
         history: parts.history,
         missing: parts.missing,
+        vocabulary: parts.vocabulary,
         name: parts.name === undefined ? none : some(parts.name),
     }, SheetPayloadType);
 }

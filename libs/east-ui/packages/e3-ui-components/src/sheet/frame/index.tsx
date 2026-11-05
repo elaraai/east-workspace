@@ -69,7 +69,7 @@ import { Box, Button } from "@chakra-ui/react";
 import { StringType, equalFor, equivalentFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import { SheetComponent, SheetPayloadType, sheetKeys } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, usePersistedState, useTrackedEvaluation,
+    BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, useDataStable, usePersistedState, useTrackedEvaluation,
     type EditIssue,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, keptRead } from "@elaraai/east-ui-components/internal";
@@ -82,6 +82,7 @@ import {
 } from "../index.js";
 import { todayUtc } from "../parse/date.js";
 import { authorOf } from "../../shared/records/author.js";
+import { SheetVocabularyProvider } from "../messages.js";
 import { issueText, useSheetWords, type SheetWords } from "../words.js";
 import { sheetCellEditor, useSheetInspector, type SheetLastCommit } from "./inspector.js";
 import { tabLibrary, templateCardKey, templatesLibrary, useSheetLibrary } from "./library.js";
@@ -95,6 +96,8 @@ type SheetKeys = ReturnType<typeof sheetKeys>;
 
 /** The payload's equivalence: its data, and its functions by their IR and what they capture. */
 const payloadEquivalent = equivalentFor(SheetPayloadType);
+/** Whether two sets of the app's words are one. */
+const vocabularyEqual = equalFor(SheetPayloadType.fields.vocabulary);
 const stringEqual = equalFor(StringType);
 
 /** No column hidden: what a viewer who has hidden none keeps. */
@@ -177,7 +180,14 @@ function useLastCommit(history: SheetValue["history"], words: SheetWords): Sheet
  * @param props - The payload and its storage key
  * @returns The sheet, in its frame
  */
-export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey }: EastChakraSheetProps) {
+export function EastChakraSheet({ value, storageKey }: EastChakraSheetProps) {
+    // The app's words (#1516), over whatever table a host gives it: everything below reads them.
+    const vocabulary = useDataStable(value.vocabulary, vocabularyEqual);
+    return <SheetVocabularyProvider vocabulary={vocabulary}><SheetPayloadFrame value={value} storageKey={storageKey} /></SheetVocabularyProvider>;
+}
+
+/** The sheet, inside the app's words. */
+const SheetPayloadFrame = memo(function SheetPayloadFrame({ value, storageKey }: EastChakraSheetProps) {
     const name = getSomeorUndefined(value.name);
     const keys = useMemo(() => sheetKeys(name), [name]);
     // The columns this viewer hides (SB36), kept under the sheet's name: the

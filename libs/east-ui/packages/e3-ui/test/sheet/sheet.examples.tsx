@@ -1157,6 +1157,115 @@ export const sheetWeeks = example({
     inputs: [],
 });
 
+export const sheetWording = example({
+    keywords: ["Sheet", "vocabulary", "members", "unassigned", "source", "destination", "wanted", "actual", "words", "#1516"],
+    description: "A workshop's weeks in its own words (#1516): `vocabulary` names what a link cell holds, a counted member, a link's halves and a date's wanted and actual, wherever the sheet says them, each keeping the sheet's word where left out.",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const plans = $.let(Record.bind(sheetWeekPlans));
+            // The week the viewer picked, the journal and the id counter: a viewer's own state.
+            const week = $.let(State.bind([StringType], "sheet.weeks.week", "2026-W42"));
+            const log = $.let(State.bind([ArrayType(StringType)], "sheet.weeks.journal", []));
+            const counter = $.let(State.bind([IntegerType], "sheet.weeks.counter", 1n));
+            const weeks = $.let(["2026-W42", "2026-W43", "2026-W44"], ArrayType(StringType));
+            const pick = $.const(East.function([StringType], NullType, ($, w) => { $(week.write(w)); }));
+            const StatusType = StructType({ word: StringType, tone: StatusValueType });
+            const statuses = $.let([
+                { word: "PLANNED", tone: variant("neutral", null) }, { word: "RELEASED", tone: variant("info", null) },
+                { word: "IN PROGRESS", tone: variant("warning", null) }, { word: "COMPLETE", tone: variant("success", null) },
+            ], ArrayType(StatusType));
+            const sites = $.let(["Machine shop", "Bench room", "Fitting shop", "Spray shop"], ArrayType(StringType));
+            const machines = $.let(["S101", "S102", "S103", "E201", "E202", "R301", "R302", "R303", "A701", "A702"], ArrayType(StringType));
+            const Ctx = Sheet.Types.DraftContext(WeekRow);
+            // Until a row has an order code it may only be planned or released.
+            const statusOptions = $.const(East.function([Ctx], OptionType(ArrayType(StringType)), ($, ctx) => {
+                const whole = $.const(none, OptionType(ArrayType(StringType)));
+                const early = $.const(some(["PLANNED", "RELEASED"]), OptionType(ArrayType(StringType)));
+                return ctx.row.code.match({ value: (_$2, code) => code.length().equal(0n).ifElse(() => early, () => whole) }, () => early);
+            }));
+            // A row is ready once its quantity is positive.
+            const readyRow = $.const(East.function([Sheet.Types.Draft(WeekRow), Ctx], Sheet.Types.Readiness, ($, row) => {
+                $.if(row.qty.hasTag("value").and(() => row.qty.unwrap("value").match({ some: (_$2, q) => q.lessEqual(0.0), none: () => false })), $ => {
+                    $.return(East.value(variant("incomplete", [{ field: "qty", message: "Quantity must be positive" }]), Sheet.Types.Readiness));
+                });
+                return East.value(variant("ready", null), Sheet.Types.Readiness);
+            }));
+            // Every gesture, journalled once with where it came from.
+            const onPatch = $.const(East.function([Sheet.Types.PatchEvent(WeekRow)], NullType, ($, e) => {
+                $(log.write(log.read().concat([East.str`${e.origin.getTag()} · ${e.label} · ${e.readiness.getTag()}`])));
+            }));
+            // The host mints a new row's id.
+            const newRowId = $.const(East.function([], StringType, ($) => {
+                const n = $.let(counter.read());
+                $(counter.write(n.add(1n)));
+                return East.str`new-${n}`;
+            }));
+            const newRow = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(WeekRow), () => Sheet.patch(WeekRow, {
+                setups: none, site: "", status: "PLANNED", code: "", level: variant("day", null), started: none, machines: { from: [], to: [] },
+            })));
+            // A row's own Details: its task, and its quantity on a slider — released, the edited row goes back through `update`.
+            const inspect = $.const(East.function([WeekRow, FunctionType([WeekRow], NullType)], UIComponentType, ($, row, update) => {
+                const qty = $.let(row.qty.match({ none: () => 0.0, some: (_$, q) => q }));
+                const setQty = $.const(East.function([FloatType], NullType, ($2, next) => {
+                    // East has no struct spread: the row, rebuilt with its new quantity.
+                    const edited = $2.const({
+                        id: row.id, task: row.task, start: row.start, qty: some(next), setups: row.setups, site: row.site,
+                        status: row.status, code: row.code, level: row.level, started: row.started, machines: row.machines,
+                    }, WeekRow);
+                    $2(update(edited));
+                }));
+                return (
+                    <VStack gap="3" align="stretch">
+                        <Text>{row.task}</Text>
+                        <Field.Slider label="Quantity" value={qty} min={0} max={200} step={1}
+                            helperText="Released, it is one step the history undoes" onChangeEnd={setQty} />
+                    </VStack>
+                );
+            }));
+            const entries = $.let(log.read());
+            return (
+                <VStack gap="3" align="stretch">
+                    <SegmentGroup value={week.read()} onChange={pick} size="sm"
+                        items={weeks.map((_$, w) => SegmentGroup.Item(w, <Text>{w}</Text>))} />
+                    <Box height="480px">
+                        <Sheet
+                            vocabulary={{ members: "machine", unassigned: "anyone free", source: "start bay", destination: "end bay", wanted: "promised", actual: "as promised" }}
+                            record={plans}
+                            entry={{ key: week.read(), rows: "rows", id: "id" }}
+                            name="weeks"
+                            inspector={inspect}
+                            owned={r => r.code.length().greater(0n)}
+                            registers={{
+                                statuses: Sheet.register.members(statuses, { kind: "status", key: s => s.word, label: s => s.word, tone: s => some(s.tone) }),
+                                sites:    Sheet.register.members(sites, { kind: "site", key: s => s, label: s => s }),
+                                machines: Sheet.register.members(machines, { kind: "machine", key: m => m, label: m => m }),
+                            }}
+                            columns={{
+                                task:     Sheet.column.text(WeekRow, { header: "Task", width: "260px" }),
+                                start:    Sheet.column.date(WeekRow, { header: "Start", sub: "at the row's level", width: "168px", level: r => r.level, actual: r => r.started }),
+                                qty:      Sheet.column.quantity(WeekRow, { header: "Qty", width: "96px" }),
+                                setups:   Sheet.column.integer(WeekRow, { header: "Set-ups", width: "72px" }),
+                                site:     Sheet.column.reference(WeekRow, "sites", { header: "Site", width: "128px" }),
+                                status:   Sheet.column.enum(WeekRow, "statuses", { header: "Status", width: "132px", options: statusOptions, detail: r => r.code }),
+                                code:     Sheet.column.stamped(WeekRow, { header: "Order code", sub: "stamped on release", owner: "ERP", width: "112px" }),
+                                machines: Sheet.column.set(WeekRow, "machines", { header: "Machines", sub: "S101-03 · a run", width: "200px",
+                                              members: [{ kind: "machine", identified: true, ranged: true }] }),
+                            }}
+                            ready={{ row: readyRow }}
+                            onPatch={onPatch}
+                            newRow={newRow}
+                            newRowId={newRowId}
+                        />
+                    </Box>
+                    <Text.MonoLabel>{East.str`EDITS · ${entries.length()}`}</Text.MonoLabel>
+                    {entries.map((_$, l) => <Text textStyle="caption" color="fg.muted">{l}</Text>)}
+                </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
 // ============================================================================
 // sheetBatches — one entry's groups, in the planner's order (#1187)
 // ============================================================================
