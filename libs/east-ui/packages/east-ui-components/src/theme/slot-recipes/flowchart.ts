@@ -532,6 +532,8 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             lineHeight: "1.4",
             whiteSpace: "nowrap",
             "& + &": { marginLeft: "4px" },
+            /* In the legend's row, centred in its mark's box: the push to the end of a card's line is the card's alone. */
+            "[data-legend-line] &": { marginLeft: "0" },
             /* The ↻ badge doubles as the folded self-loop's selection
              * surface — mirror the selected-node treatment. */
             "&[data-flowchart-inplace]": { cursor: "pointer" },

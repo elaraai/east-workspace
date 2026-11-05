@@ -1648,7 +1648,10 @@ export function FlowchartCanvasView({ canvas, model, details, orientation, revea
                                         <span>{words.m.legendLine({ line: "decision" })}</span>
                                     </Box>
                                     <Box css={styles.legendRow} data-legend-line="inPlace">
-                                        <Box as="span" css={styles.nodeBadge}><FontAwesomeIcon icon={faRotateRight} style={{ fontSize: "8px" }} /> n</Box>
+                                        {/* The ↻ badge in a mark's 28 × 16 box, as a read's mark is: its words start where every row's do. */}
+                                        <Box as="span" css={styles.legendMark}>
+                                            <Box as="span" css={styles.nodeBadge}><FontAwesomeIcon icon={faRotateRight} style={{ fontSize: "8px" }} /> n</Box>
+                                        </Box>
                                         <span>{words.m.legendLine({ line: "inPlace" })}</span>
                                     </Box>
                                     {legend.reads.map((row) => (
