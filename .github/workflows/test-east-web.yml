@@ -61,7 +61,7 @@ jobs:
 
       # The compliance suite's Fetch tests call httpbin on :8085
       - name: Start httpbin
-        run: docker compose -f docker/services/docker-compose.yml --profile services up -d --wait httpbin
+        run: docker/services/up.sh httpbin
 
       # The specs, then east-node-std's compliance suite, exported and run over
       # east-web-std in Node. Its Chromium leg comes with e3-web's browser pass.

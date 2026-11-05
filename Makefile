@@ -156,7 +156,7 @@ lint: check-deps
 
 ## Start test services (Postgres, MySQL, MongoDB, Redis, MinIO, FTP, SFTP, httpbin)
 services-up:
-	@docker compose -f docker/services/docker-compose.yml --profile services up -d --wait 2>&1 | tail -1
+	@docker/services/up.sh 2>&1 | tail -1
 
 ## Stop test services
 services-down:

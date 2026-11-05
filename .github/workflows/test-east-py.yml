@@ -389,7 +389,7 @@ jobs:
         run: make build
 
       - name: Start test services
-        run: docker compose -f docker/services/docker-compose.yml --profile services up -d --wait
+        run: docker/services/up.sh
 
       # Into EAST_NODE_IO_IR, which the root paths.mk sets for this make and the
       # compliance run's alike

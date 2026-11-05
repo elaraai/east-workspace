@@ -317,7 +317,7 @@ jobs:
       # Linux, where the runners have no Docker, as test-east-node.yml runs it.
       - name: Start httpbin (Linux, e3-web's browser specs)
         if: matrix.shard == 'packages' && runner.os == 'Linux'
-        run: docker compose -f docker/services/docker-compose.yml --profile services up -d --wait httpbin
+        run: docker/services/up.sh httpbin
 
       - name: Use Go (go-httpbin, e3-web's browser specs)
         if: matrix.shard == 'packages' && runner.os != 'Linux'

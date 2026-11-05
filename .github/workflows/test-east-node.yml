@@ -52,7 +52,7 @@ jobs:
         run: make lint
 
       - name: Start test services
-        run: docker compose -f docker/services/docker-compose.yml --profile services up -d --wait
+        run: docker/services/up.sh
 
       - name: Run tests
         working-directory: libs/east-node
