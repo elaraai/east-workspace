@@ -96,7 +96,8 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     const taken: readonly { readonly key: RosterPeriod; readonly label: string }[] = view.layout === "people" ? (args.narrow ? PEOPLE_NARROW_PERIODS : PEOPLE_PERIODS) : SHIFT_PERIODS;
     const offeredPeriods = shownViews(ROSTER_LAYOUT_PERIODS[view.layout], value.settings.viewPeriods);
     const periods = taken.filter(item => offeredPeriods.includes(item.key));
-    const picksPeriod = periods.length > 1;
+    // A phone's People shows its one period as it always has (P31); the author's list leaving one takes the switch away.
+    const picksPeriod = offeredPeriods.length > 1;
     const period = (key: RosterPeriod) => args.setPeriod(key, args.selectedWeek);
     const unit = view.period;
     const navigate = (step: number) => setView({ ...view, date: shiftCalendar(new Date(view.date), unit, step).getTime() });

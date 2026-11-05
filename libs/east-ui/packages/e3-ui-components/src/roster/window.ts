@@ -97,9 +97,10 @@ function rosterViewOf(stored: unknown): RosterView | undefined {
  *
  * @param value - The payload: the author's view, and the week's start
  * @param key - The Roster's storage key
+ * @param narrow - Whether main is narrower than a phone: People shows a week at a time there, whatever is kept or offered (P31), so every week can be reached
  * @returns The view, what moves it, the span in view, its first day and the view's day in its week
  */
-export function useRosterWindow(value: RosterValue, key: string): RosterWindow {
+export function useRosterWindow(value: RosterValue, key: string, narrow: boolean): RosterWindow {
     const { view: kept, setView: setKept } = usePageView<RosterView>(`${key}.view`, {
         layout: value.settings.layout.type, period: periodOf(value.settings.layout.type, value.settings.period.type, value.settings.viewPeriods),
         date: dayStart(value.settings.date.type === "some" ? value.settings.date.value : new Date()).getTime(),
@@ -107,8 +108,15 @@ export function useRosterWindow(value: RosterValue, key: string): RosterWindow {
     const views = value.settings.views;
     const layouts = useMemo(() => shownViews(LAYOUTS, views), [views]);
     const periods = value.settings.viewPeriods;
-    const view = useMemo(() => offered(normal(kept, periods), layouts, periods), [kept, layouts, periods]);
     const sunday = value.settings.weekStart.type === "sunday";
+    const view = useMemo(() => {
+        const shown = offered(normal(kept, periods), layouts, periods);
+        if (!narrow || shown.period !== "month") return shown;
+        // A kept month opens on its first week, and a step keeps the week from there on. With Month alone offered it stays
+        // what is kept, so the week is the date's, which each step moves.
+        const week = periodOf(shown.layout, "week", periods) === "week";
+        return { ...shown, period: "week" as const, date: week ? rosterSpan(shown.date, "month", sunday).start.getTime() : shown.date };
+    }, [kept, layouts, periods, narrow, sunday]);
     const span = useMemo(() => rosterSpan(view.date, view.period, sunday), [view.date, view.period, sunday]);
     const week = useMemo(() => weekStart(new Date(view.date), sunday), [view.date, sunday]);
     const day = Math.floor((dayStart(view.date).getTime() - week.getTime()) / DAY);

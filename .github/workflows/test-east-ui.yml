@@ -775,7 +775,8 @@ jobs:
     needs: [build, showcase]
     if: needs.showcase.outputs.responsive_count != '0'
     name: responsive (${{ matrix.shard }}/${{ needs.showcase.outputs.responsive_total }})
-    runs-on: ubuntu-latest
+    # Pinned: Playwright installs no browser on the Ubuntu 26.04 that ubuntu-latest is rolling on to.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:

@@ -85,6 +85,16 @@ test.describe("A component's views", () => {
         await expect(period.getByRole("radio")).toHaveText(["Week", "Month"]);
     });
 
+    test("Roster: a phone's People is a week at a time, even with Month alone offered: every week can be reached", async ({ page, isMobile }) => {
+        test.skip(!isMobile, "a phone's frame");
+        const entry = await open(page, "e3/roster/roster/rosterViews", isMobile);
+        await toggle(page, entry, "People");
+        await toggle(page, entry, "Month", 1);
+        const frame = entry.locator("[data-roster-frame]");
+        await expect(frame.getByText("Mar 2028")).toHaveCount(0);
+        await expect(frame.getByText("Tom Vale · 8 / 0 h")).toBeVisible();
+    });
+
     test("Calendar: the periods offered: one left takes the Period switch away and draws it", async ({ page, isMobile }) => {
         test.skip(isMobile, "a phone folds the switch into its View");
         const entry = await open(page, "e3/calendar/calendar/calendarViews", isMobile);

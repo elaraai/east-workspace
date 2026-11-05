@@ -24,7 +24,7 @@
  *
  * @packageDocumentation
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { StringType, equalFor, isVariant, none, some, variant } from "@elaraai/east";
 import { RosterComponent, RosterContextType } from "@elaraai/e3-ui/internal";
@@ -97,6 +97,8 @@ interface FrameProps {
     setDisplay: (next: { density: "compact" | "comfortable"; chipSkills: boolean; requirements: boolean }) => void;
     /** Why the week's window could not be written to the duties' source. */
     rangeError: string | undefined;
+    /** Told whether main is narrower than a phone: the window, which the frame's reads follow, holds People to a week there (P31). */
+    onNarrow: (narrow: boolean) => void;
     editing: RosterEditing | undefined;
 }
 
@@ -165,6 +167,8 @@ function RosterFrame(props: FrameProps) {
     const [error, setError] = useState<string>();
     const root = useRef<HTMLDivElement>(null), main = useRef<HTMLDivElement>(null);
     const narrow = useContainerBelow(main, NARROW_WIDTH);
+    const { onNarrow } = props;
+    useLayoutEffect(() => { onNarrow(narrow); }, [narrow, onNarrow]);
     const revealPane = (label: string) => root.current?.querySelector<HTMLButtonElement>(`button[aria-label="Expand ${label}"]`)?.click();
     // The week a selection was made in (#1406, P12, P24): a span that still holds it — Week opened from the month's
     // cell, column or Details — keeps the selection; another clears it, as another week does.
@@ -512,13 +516,14 @@ function RosterRoot({ value: source, storageKey }: EastChakraRosterProps) {
     const activitiesShown = useSourceShown(activities, rosterPart(source, "activities"));
     const patternsShown = useSourceShown(patterns, rosterPart(source, "patterns"));
     const shown = useMemo(() => ({ people: peopleShown, activities: activitiesShown, patterns: patternsShown }), [peopleShown, activitiesShown, patternsShown]);
-    const window = useRosterWindow(value, key);
+    const [narrow, setNarrow] = useState(false);
+    const window = useRosterWindow(value, key, narrow);
     // The duties' source of the slice holds the span's window — its weeks and the twelve hours either side their duties may start from
     // their shifts' — which the Roster's own navigation writes (D9), so the rail's count and a Save's notice read the window it reads.
     const span = spanWindow(window.span);
     const rangeError = useSourceWindow(source.slice.type === "some" ? source.slice.value : undefined, source.duty.kind.key, span.from, span.to,
         "The week could not be applied");
-    const frame = { source, value, storageKey: key, window, visibility, activities, patterns, shown, display, setDisplay, rangeError };
+    const frame = { source, value, storageKey: key, window, visibility, activities, patterns, shown, display, setDisplay, rangeError, onNarrow: setNarrow };
     return source.settings.readOnly ? <RosterFrame {...frame} editing={undefined} /> : <EditableRoster {...frame} />;
 }
 /** The e3 renderer owns the frame; callers author only the Roster tag and bound data. */
