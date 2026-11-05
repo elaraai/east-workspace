@@ -529,21 +529,31 @@ static TokenArr2 tokenize2(const char *text, size_t len)
                 t.column = sc;
                 ta2_push(&result, t);
             } else {
-                /* Collect number/datetime chars */
+                /* Collect number/datetime chars. A ':' is a datetime's alone:
+                 * the two of its time of day (HH:MM:SS) and the one of an
+                 * offset after it (+HH:MM). Any other ':' ends the token, as
+                 * the one after a Dict key does, so "{-5:1}" and
+                 * "{2024-01-01T00:00:00.000:1}" read back key and ':' apart,
+                 * as the TS reference reads them. */
                 size_t bcap = 64, blen = 0;
                 char *buf = malloc(bcap);
-                bool has_t = false;
+                bool has_t = false, has_offset = false;
+                int colons = 0;
                 while (pos < len) {
                     char cc = CUR2();
                     if (cc == ':') {
-                        if (has_t || memchr(buf, '-', blen)) {
+                        if (has_t && colons < (has_offset ? 3 : 2)) {
+                            colons++;
                             buf[blen++] = cc;
                             ADV2();
                         } else
                             break;
                     } else if (isdigit((unsigned char)cc) || cc == '+' || cc == '-' || cc == '.' ||
                                cc == 'T' || cc == 'Z' || cc == 'e' || cc == 'E') {
-                        if (cc == 'T') has_t = true;
+                        if (cc == 'T')
+                            has_t = true;
+                        else if (has_t && (cc == '+' || cc == '-'))
+                            has_offset = true;
                         buf[blen++] = cc;
                         ADV2();
                     } else
@@ -580,7 +590,7 @@ static TokenArr2 tokenize2(const char *text, size_t len)
                     t.text = buf;
                     t.text_len = blen;
                     ta2_push(&result, t);
-                } else if (has_t || (memchr(buf, ':', blen) && memchr(buf, '-', blen))) {
+                } else if (has_t) {
                     t.type = TOK_DATETIME_LIT;
                     t.text = buf;
                     t.text_len = blen;
@@ -1811,9 +1821,10 @@ static EastValue *parse_val_err(TokStream2 *ts, EastType *type, ParseContext *ct
                 ts2_adv(ts);
                 case_value = east_null();
             } else if (next->type == TOK_EOF_TOK || next->type == TOK_COMMA ||
-                       next->type == TOK_RPAREN || next->type == TOK_RBRACKET ||
-                       next->type == TOK_RBRACE) {
-                /* At a terminator — that's ok for optional null */
+                       next->type == TOK_COLON || next->type == TOK_RPAREN ||
+                       next->type == TOK_RBRACKET || next->type == TOK_RBRACE) {
+                /* At a terminator, the ':' after a Dict key among them -
+                 * that's ok for optional null */
                 case_value = east_null();
             } else {
                 /* Non-null data for a null case */

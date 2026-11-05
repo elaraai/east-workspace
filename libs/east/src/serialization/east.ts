@@ -699,13 +699,16 @@ const parseFloat: Parser<number> = (input: string, pos: number, _ctx?: EastParse
 
 /**
  * Checks if the given position is at a valid token terminator.
- * Valid terminators are: EOF, whitespace, comma, or closing brackets/parens/braces.
+ * Valid terminators are: EOF, whitespace, comma, the colon that ends a Dict
+ * key, or closing brackets/parens/braces. The printer writes a key just before
+ * its colon, so a key that ends in a word (`null`, `true`, a case with no
+ * payload such as `.none`) reads back as itself.
  */
 const isTokenTerminator = (input: string, pos: number): boolean => {
   if (pos >= input.length) return true; // EOF
   const ch = input[pos];
   return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' ||
-         ch === ',' || ch === ')' || ch === ']' || ch === '}';
+         ch === ',' || ch === ':' || ch === ')' || ch === ']' || ch === '}';
 };
 
 /**
