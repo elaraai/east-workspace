@@ -46,10 +46,11 @@ describe("Flowchart examples read e3", () => {
         assert.deepEqual(undeclared, []);
     });
 
-    hostTest("the depot binds its four records for editing; it reads its states and its transitions a page at a time, never whole, and its lanes, its decisions and its cards whole", () => {
+    hostTest("the depot binds its four records for editing; it reads its states and its transitions a page at a time, never whole, their details by the drawn rows' keys, and its lanes, its decisions and its cards whole", () => {
         const { paths, pages, records } = deriveManifest(ex.flowchartDepot.fn as never);
         assert.deepEqual(new Set(records), new Set([ex.depotStates, ex.depotTransitions, ex.depotLanes, ex.depotDecisions].map((record) => record.name)));
-        assert.deepEqual(new Set(pages.map(pathToString)), new Set([ex.depotStates, ex.depotTransitions, ex.stepCards, ex.moveCards, ex.laneCards].map(printed)));
+        assert.deepEqual(new Set(pages.map(pathToString)),
+            new Set([ex.depotStates, ex.depotTransitions, ex.stateEvidence, ex.moveEvidence, ex.stepCards, ex.moveCards, ex.laneCards].map(printed)));
         assert.deepEqual(new Set(paths.map(pathToString)),
             new Set([ex.depotLanes, ex.depotDecisions, ex.stepCards, ex.moveCards, ex.laneCards, ex.decisionOwners].map(printed)));
     });
