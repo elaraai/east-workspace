@@ -36,6 +36,7 @@ import * as ex from "./plan-events.examples.js";
 describeEast("Plan of event kinds — the examples (#1191)", (test) => {
     Assert.examples(test, {
         planEvents: ex.planEvents,
+        planWording: ex.planWording,
         planPrintWorks: ex.planPrintWorks,
         planEventLinks: ex.planEventLinks,
         planConflicts: ex.planConflicts,

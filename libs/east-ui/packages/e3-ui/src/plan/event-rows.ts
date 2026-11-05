@@ -642,12 +642,14 @@ function resourceBlocks(
  * @param $ - The blocks function's scope
  * @param events - The event kinds, by slot
  * @param lost - Each kind's unassigned events, in `events` order
+ * @param unassigned - What the app calls the row (#1516)
  * @returns The block
  */
 function unassignedBlock(
     $: Block,
     events: readonly (readonly [string, AnyEventKind])[],
     lost: readonly ExprType<typeof PlacedListType>[],
+    unassigned: string,
 ): ExprType<typeof PlanBlockType> {
     const rows = $.let([], PlanRowsCollectionType);
     events.forEach(([slot, kind], i) => {
@@ -661,7 +663,7 @@ function unassignedBlock(
             $2(rows.pushLast(planRow({
                 id,
                 parent: East.value(none, OptionType(PlanRowIdType)),
-                gutter: planGutter({ label: "Unassigned", sub: some(kind.name) }),
+                gutter: planGutter({ label: unassigned, sub: some(kind.name) }),
                 kind: rowKind,
             })));
         });
@@ -685,6 +687,7 @@ function unassignedBlock(
  * @param resources - The resource kinds, by slot, in order
  * @param events - The event kinds, by slot, in order
  * @param built - The event kinds as the payload holds them, in the same order
+ * @param unassigned - What the app calls an event kind's row of events on no resource (#1516)
  * @returns The seam
  * @internal
  */
@@ -692,6 +695,7 @@ export function createEventBlocks(
     resources: readonly (readonly [string, AnyResourceKind])[],
     events: readonly (readonly [string, AnyEventKind])[],
     built: ExprType<ArrayType<PlanEventKindType>>,
+    unassigned: string = "Unassigned",
 ): ExprType<PlanEventBlocksType> {
     // The keys of the rows that draw bars or chips (#1039): a shaded one draws booked-vs-free bars.
     const booked = bookedKeys(resources, events);
@@ -794,7 +798,7 @@ export function createEventBlocks(
                     $3(blocks.append(shade(resourceBlocks($3 as unknown as Block, slot, kind, drawn, placed.get(slot)!, events, hidden), shading, drawsBars)));
                 });
             }
-            $2(blocks.pushLast(unassignedBlock($2 as unknown as Block, events, lost)));
+            $2(blocks.pushLast(unassignedBlock($2 as unknown as Block, events, lost, unassigned)));
             $2.assign(result, some(blocks));
         });
         return result;

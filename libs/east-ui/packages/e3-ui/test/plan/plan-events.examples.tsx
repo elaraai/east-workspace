@@ -400,6 +400,63 @@ export const planEvents = example({
     inputs: [],
 });
 
+export const planWording = example({
+    keywords: ["Plan", "vocabulary", "Unassigned", "backlog", "tabs", "due", "state", "words", "#1516"],
+    description: "A print works' plan in its own words (#1516): `vocabulary` names the row of jobs on no press, the tabs, the waiting jobs' groups and a job's states, wherever the Plan draws them, each keeping the Plan's word where left out.",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const presses = $.let(Record.bind(planPrintPresses, []));
+            const jobs = $.let(Record.bind(planEventJobs));
+            const customers = $.let(Record.bind(planPrintCustomers, []));
+            const axis = $.let(Plan.axis({
+                window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
+                resolution: "day", now: new Date("2026-10-14T09:00:00Z"),
+            }));
+            return (
+                <Plan
+                    id="wording"
+                    vocabulary={{
+                        unassigned: "Unplaced", backlog: "Waiting", series: "Layers", groups: "Hall", rows: { one: "Press", other: "Presses" }, measures: "Figure",
+                        dueThisWeek: "This week's jobs", dueNextWeek: "Next week's jobs", later: "After that", noDate: "Undated",
+                        estimated: "pencilled", proposed: "suggested", confirmed: "locked", inProgress: "on press", actual: "run",
+                    }}
+                    axis={axis}
+                    resources={{
+                        presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: p => p.name }),
+                    }}
+                    events={{
+                        job: Schedule.events(jobs, {
+                            name: "Print job", icon: "file-lines",
+                            title: "title", start: "start", end: "end",
+                            resource: { field: "press", of: "presses" },
+                            state: "state",
+                            // A job with no start waits: placed, it runs as long as its sheets take at
+                            // 8,000 an hour.
+                            backlog: { duration: j => variant("hours", j.sheets.divide(8000.0)), due: j => j.due },
+                            fields: {
+                                customer: Schedule.field.text({ label: "Customer" }),
+                                stock: Schedule.field.select({ labels: { coated: "Coated", uncoated: "Uncoated", board: "Board" } }),
+                            },
+                        }),
+                    }}
+                    library={[
+                        Plan.library.backlog(),
+                        Plan.library.series(),
+                        // The customers, by district: a card dropped on a job sets its customer.
+                        Plan.library.tab(customers.read(), {
+                            name: "Customers", icon: "building",
+                            label: c => c.name, meta: c => some(c.trade), group: c => c.district,
+                            drop: c => Schedule.patch(PrintJob, { customer: c.name }),
+                        }),
+                    ]}
+                    inspector
+                />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
 // ============================================================================
 // planEventLinks — every way a link draws, and rows over a dataset
 // ============================================================================

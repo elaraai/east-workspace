@@ -24,9 +24,11 @@
  */
 
 import { createContext, createElement, useContext, useMemo, type ReactNode } from "react";
-import { editingMessages, type EditingMessages } from "@elaraai/east-ui-components";
+import type { ValueTypeOf } from "@elaraai/east";
+import type { PlanPayloadType } from "@elaraai/e3-ui/internal";
+import { editingMessages, getSomeorUndefined, type EditingMessages } from "@elaraai/east-ui-components";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
-import { eventsNotCounted, hiddenByText, joinedWords as joined, kindPlural as pluralName, type HiddenWords } from "../shared/schedule/words.js";
+import { eventsNotCounted, hiddenByText, joinedWords as joined, kindPlural as pluralName, lowerWord, type HiddenWords } from "../shared/schedule/words.js";
 import { timeMessages, type TimeMessages } from "../shared/time/scale.js";
 
 /** A lifecycle state as the words name it — `EventStateType`, with the
@@ -819,6 +821,81 @@ export const planMessages: PlanMessages = {
     announceResolution: ({ resolution }) => `Resolution: ${resolution}`,
 };
 
+/** The app's words for what the Plan draws of its own, as the payload carries them (#1516). */
+export type PlanVocabulary = ValueTypeOf<typeof PlanPayloadType>["vocabulary"];
+
+/**
+ * A table in the app's own words (#1516): each word the app gave over the table above it, wherever the table says it, and
+ * the rest as they stood, so a host's translation stands where the app gave none.
+ *
+ * @param parent - The table above
+ * @param v - The app's words
+ * @returns The table
+ */
+export function planMessagesIn(parent: PlanMessages, v: PlanVocabulary): PlanMessages {
+    const unassigned = getSomeorUndefined(v.unassigned);
+    const events = getSomeorUndefined(v.events);
+    const backlog = getSomeorUndefined(v.backlog);
+    const series = getSomeorUndefined(v.series);
+    const groups = getSomeorUndefined(v.groups);
+    const rows = getSomeorUndefined(v.rows);
+    const measures = getSomeorUndefined(v.measures);
+    const inText = backlog === undefined ? undefined : lowerWord(backlog);
+    const seriesText = series === undefined ? undefined : lowerWord(series);
+    const rowsText = rows === undefined ? undefined : lowerWord(rows.other);
+    const due: Readonly<Record<PlanDueWord, string | undefined>> = {
+        thisWeek: getSomeorUndefined(v.dueThisWeek), nextWeek: getSomeorUndefined(v.dueNextWeek), later: getSomeorUndefined(v.later), none: getSomeorUndefined(v.noDate),
+    };
+    const states: Readonly<Record<PlanStateWord, string | undefined>> = {
+        estimated: getSomeorUndefined(v.estimated), added: getSomeorUndefined(v.proposed), recommended: getSomeorUndefined(v.recommended),
+        removed: getSomeorUndefined(v.removal), confirmed: getSomeorUndefined(v.confirmed), "in-progress": getSomeorUndefined(v.inProgress),
+        actual: getSomeorUndefined(v.actual), rejected: getSomeorUndefined(v.rejected),
+    };
+    /** What a narrowed tab says lists, in the app's word, the table's own sentence around it. */
+    const narrowedName = (tab: PlanLibraryTabWord, name: string): { tab: PlanLibraryTabWord; name: string } =>
+        (tab === "backlog" && inText !== undefined ? { tab: "tab", name: `${inText} events` } : tab === "series" && seriesText !== undefined ? { tab: "tab", name: seriesText } : { tab, name });
+    return {
+        ...parent,
+        inspectorUnassigned: () => unassigned ?? parent.inspectorUnassigned(),
+        backlogLine: (p) => parent.backlogLine({ ...p, resource: p.resource ?? unassigned }),
+        libraryTab: ({ tab }) => ({ events, backlog, series })[tab] ?? parent.libraryTab({ tab }),
+        libraryEmpty: (p) => (p.tab === "backlog" && backlog !== undefined ? `${backlog} clear` : p.tab === "series" && seriesText !== undefined ? `No ${seriesText}` : parent.libraryEmpty(p)),
+        libraryNoun: (p) => (p.tab === "series" && seriesText !== undefined ? seriesText : parent.libraryNoun(p)),
+        libraryNarrowed: ({ tab, name }) => parent.libraryNarrowed(narrowedName(tab, name)),
+        libraryNarrowedHint: ({ tab, name }) => parent.libraryNarrowedHint(narrowedName(tab, name)),
+        inspectorUnscheduled: () => (inText === undefined ? parent.inspectorUnscheduled() : `Not scheduled — in the ${inText}`),
+        footerBacklog: (p) => (inText === undefined ? parent.footerBacklog(p) : `${p.count} in ${inText}`),
+        inspectorStat: (p) => (p.stat === "backlog" && inText !== undefined ? `In ${inText}` : parent.inspectorStat(p)),
+        dropUnschedule: (p) => (backlog === undefined ? parent.dropUnschedule(p) : `${p.what} → ${backlog}`),
+        dropNoBacklog: (p) => (inText === undefined ? parent.dropNoBacklog(p) : `${pluralName(p.kind)} have no ${inText}`),
+        dueGroup: ({ due: at }) => due[at] ?? parent.dueGroup({ due: at }),
+        state: ({ state }) => states[state] ?? parent.state({ state }),
+        tabGroups: () => groups?.other ?? parent.tabGroups(),
+        backToGroups: () => (groups === undefined ? parent.backToGroups() : `← ${groups.other}`),
+        moreGroups: (p) => (groups === undefined ? parent.moreGroups(p)
+            : `${p.count} more ${lowerWord(plural(p.n, groups.one, groups.other))}${p.members !== undefined ? ` · ${p.members}` : ""}`),
+        inspectorFact: ({ fact }) => (fact === "group" && groups !== undefined ? groups.one : parent.inspectorFact({ fact })),
+        hiddenRows: (p) => {
+            const noun = p.what === "group" ? groups : rows;
+            return noun === undefined ? parent.hiddenRows(p) : `${p.count} hidden ${lowerWord(plural(p.n, noun.one, noun.other))}`;
+        },
+        tabRows: () => rows?.other ?? parent.tabRows(),
+        allRows: () => (rowsText === undefined ? parent.allRows() : `← All ${rowsText}`),
+        backToAllRows: () => (rowsText === undefined ? parent.backToAllRows() : `← All ${rowsText}`),
+        noRows: () => (rowsText === undefined ? parent.noRows() : `No ${rowsText}`),
+        otherRows: () => (rowsText === undefined ? parent.otherRows() : `Other ${rowsText}`),
+        moreRows: (p) => (rows === undefined ? parent.moreRows(p) : `${p.count} more ${lowerWord(plural(p.n, rows.one, rows.other))}`),
+        groupMeta: (p) => (rows === undefined ? parent.groupMeta(p) : `${p.count} ${lowerWord(plural(p.n, rows.one, rows.other))}`),
+        inspectorRow: () => rows?.one ?? parent.inspectorRow(),
+        saveNoticeNoun: (p) => (p.kind === undefined && rows !== undefined ? lowerWord(plural(p.n, rows.one, rows.other)) : parent.saveNoticeNoun(p)),
+        eventsFailedNoun: (p) => (p.kinds.length === 0 && rowsText !== undefined ? rowsText : parent.eventsFailedNoun(p)),
+        announceAllRows: () => (rowsText === undefined ? parent.announceAllRows() : `Showing all ${rowsText}`),
+        tabMeasures: () => measures?.other ?? parent.tabMeasures(),
+        moreMeasures: (p) => (measures === undefined ? parent.moreMeasures(p) : `${p.count} more ${lowerWord(plural(p.n, measures.one, measures.other))}`),
+        inspectorSection: ({ section }) => (section === "measures" && measures !== undefined ? measures.other : parent.inspectorSection({ section })),
+    };
+}
+
 const PlanMessagesContext = createContext<PlanMessages>(planMessages);
 
 /**
@@ -829,6 +906,26 @@ const PlanMessagesContext = createContext<PlanMessages>(planMessages);
  */
 export function usePlanMessages(): PlanMessages {
     return useContext(PlanMessagesContext);
+}
+
+/** Props of {@link PlanVocabularyProvider}. */
+export interface PlanVocabularyProviderProps {
+    /** The app's words, the same object while they hold. */
+    vocabulary: PlanVocabulary;
+    /** The subtree they apply to. */
+    children?: ReactNode;
+}
+
+/**
+ * The app's own words for a Plan (#1516), over whatever table a host gives it.
+ *
+ * @param props - The words and the subtree
+ * @returns The provider
+ */
+export function PlanVocabularyProvider({ vocabulary, children }: PlanVocabularyProviderProps) {
+    const parent = usePlanMessages();
+    const value = useMemo(() => planMessagesIn(parent, vocabulary), [parent, vocabulary]);
+    return createElement(PlanMessagesContext.Provider, { value }, children);
 }
 
 /** Props of {@link PlanMessagesProvider}. */

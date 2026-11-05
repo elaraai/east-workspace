@@ -158,6 +158,7 @@ Task → What do you need?
     │   ├─ …on paged resources: read a cell at a time         → the kind's source lists index.series + index.summary beside its interval index
     │   ├─ A link between two runs, or two events             → Plan.link({ from: Plan.ref(…), fromRun, … }) / Plan.link({ from: Plan.eventRef(kind, key), … })
     │   ├─ Its library pane: templates, backlog, series, cards → library={[Plan.library.events(), Plan.library.backlog(), Plan.library.series(), Plan.library.tab(rows, {…})]}
+    │   ├─ The app's own words for what it draws              → vocabulary={{ unassigned, backlog, rows, dueThisWeek, confirmed, … }}
     │   ├─ Its inspector pane: what is selected               → inspector (+ an event kind's own: Schedule.events(record, { inspector }))
     │   ├─ Drags of templates, backlog cards and events       → built in with resources + events (+ library); canDrop={fn(Schedule.Types.Candidate) => Option<String>}
     │   ├─ The app's optimiser over the window and the backlog → optimise={Func.bind(e3.function)} from Plan.Types.OptimiseRequest({ job: Job }, { presses: Press }) to Plan.Types.OptimiseResult({ job: Job })

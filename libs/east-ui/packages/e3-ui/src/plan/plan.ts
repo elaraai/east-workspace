@@ -78,6 +78,8 @@ import {
     type EastType,
     type ExprType,
     type SubtypeExprOrValue,
+    type ValueTypeOf,
+    type option,
 } from "@elaraai/east";
 import { CanDropFnType, EastUI, RowSourceType, type UIElement } from "@elaraai/east-ui";
 import {
@@ -104,6 +106,7 @@ import { planSeriesKeys, type PlanSeriesInput } from "./series.js";
 import type { PlanNestedChecked, PlanRowsNestedOf } from "./nested.js";
 import { PlanEventBlocksType, PlanEventPagedType, createEventBlocks, createEventPaged, eventDrawsOf } from "./event-rows.js";
 import { PlanLibraryTabType, buildLibrary, type PlanLibraryTab } from "./library.js";
+import { VocabularyNounType, vocabularyNoun, vocabularyWord, type VocabularyNoun } from "../utils/vocabulary.js";
 
 export {
     PlanEventBlocksType, PlanEventDraftsType, PlanEventPagedType, PlanEventPlacedType, PlanEventReadsType, PlanEventShadeType, PlanEventShadingType,
@@ -170,6 +173,38 @@ export const PlanSettingsType = StructType({
 export type PlanSettingsType = typeof PlanSettingsType;
 
 /**
+ * The app's own words for what the Plan draws of its own (#1516): each one given, `none` where the Plan's message table
+ * keeps its word, so a host's translation (`PlanMessagesProvider`) stands where the app gave none.
+ *
+ * @property unassigned - An event kind's row of events on no resource (`Unassigned`)
+ * @property events - The library's templates tab (`Events`)
+ * @property backlog - The library's unscheduled events (`Backlog`)
+ * @property series - The library's tab of what can be hidden (`Series`)
+ * @property groups - A phone's groups (`Group`, `Groups`)
+ * @property rows - The rows (`Row`, `Rows`)
+ * @property measures - A phone's chart rows (`Measure`, `Measures`)
+ * @property dueThisWeek - A backlog group (`Due this week`)
+ * @property dueNextWeek - A backlog group (`Due next week`)
+ * @property later - A backlog group (`Later`)
+ * @property noDate - A backlog group (`No date`)
+ * @property estimated - A run's state (`estimated`)
+ * @property proposed - A run's state (`proposed`)
+ * @property recommended - A run's state (`recommended`)
+ * @property removal - A run's state (`proposed removal`)
+ * @property confirmed - A run's state (`confirmed`)
+ * @property inProgress - A run's state (`in progress`)
+ * @property actual - A run's state (`actual`)
+ * @property rejected - A run's state (`rejected`)
+ */
+export const PlanVocabularyType = StructType({
+    unassigned: OptionType(StringType), events: OptionType(StringType), backlog: OptionType(StringType), series: OptionType(StringType),
+    groups: OptionType(VocabularyNounType), rows: OptionType(VocabularyNounType), measures: OptionType(VocabularyNounType),
+    dueThisWeek: OptionType(StringType), dueNextWeek: OptionType(StringType), later: OptionType(StringType), noDate: OptionType(StringType),
+    estimated: OptionType(StringType), proposed: OptionType(StringType), recommended: OptionType(StringType), removal: OptionType(StringType),
+    confirmed: OptionType(StringType), inProgress: OptionType(StringType), actual: OptionType(StringType), rejected: OptionType(StringType),
+});
+
+/**
  * The `Plan` renderer's payload: the Plan's interface.
  *
  * @property plan - The canvas whole: its axis, its rows over `data` followed by `rows`, its links, editing session and the rest
@@ -183,6 +218,7 @@ export type PlanSettingsType = typeof PlanSettingsType;
  * @property settings - When the event kinds' drafts go, and the date brought into view first
  * @property library - The library pane's tabs, in the order `library` lists them; empty, no pane (#1195)
  * @property inspector - Whether the Plan has an inspector pane, showing what is selected (#1197)
+ * @property vocabulary - The app's words for what the Plan draws of its own (#1516)
  * @property narrowed - Each source of the slice's narrowed keys, paged through its own data, by the source's name
  *   (#1344): what the rows of a resource kind read whole, a templates list's cards and an author's tab read to show a
  *   source's rows; `rows` gives the canvas its rows, a paged resource kind's source its windows (`paged`), and an event
@@ -199,6 +235,7 @@ export const PlanPayloadType = StructType({
     settings: PlanSettingsType,
     library: ArrayType(PlanLibraryTabType),
     inspector: BooleanType,
+    vocabulary: PlanVocabularyType,
     narrowed: DictType(StringType, RowSourceType(ArrayType(StringType))),
 });
 
@@ -225,6 +262,44 @@ export const PlanComponent = EastUI.component("Plan", PlanPayloadType, { optiona
  * @typeParam K - The axis kind its instants ride
  */
 export type PlanRowsItem<K extends PlanAxisKindLiteral = never> = PlanRowsValue<K> | PlanOverRows<K>;
+
+/** The words of {@link PlanVocabularyType}, as a word. */
+type PlanVocabularyWord = Exclude<keyof typeof PlanVocabularyType.fields, "groups" | "rows" | "measures">;
+
+/** The app's words for what the Plan draws of its own: any left out keeps the Plan's word. */
+export type PlanVocabularyProp = { readonly [W in PlanVocabularyWord]?: string } & {
+    readonly groups?: VocabularyNoun; readonly rows?: VocabularyNoun; readonly measures?: VocabularyNoun;
+};
+
+/** Each word's default, as a refusal names it. */
+const PLAN_WORDS: Readonly<Record<PlanVocabularyWord, string>> = {
+    unassigned: "Unassigned", events: "Events", backlog: "Backlog", series: "Series",
+    dueThisWeek: "Due this week", dueNextWeek: "Due next week", later: "Later", noDate: "No date",
+    estimated: "estimated", proposed: "proposed", recommended: "recommended", removal: "proposed removal",
+    confirmed: "confirmed", inProgress: "in progress", actual: "actual", rejected: "rejected",
+};
+
+/**
+ * The Plan's words as the payload carries them.
+ *
+ * @param given - The prop
+ * @returns Each word given, and none for the rest
+ * @throws {Error} Naming an entry given empty
+ * @internal
+ */
+export function planVocabulary(given: PlanVocabularyProp | undefined): ValueTypeOf<typeof PlanVocabularyType> {
+    const noun = (name: "groups" | "rows" | "measures", one: string) => {
+        const word = given?.[name];
+        return word === undefined ? none : some(vocabularyNoun("Plan", name, word, one));
+    };
+    return {
+        ...Object.fromEntries((Object.keys(PLAN_WORDS) as PlanVocabularyWord[]).map((name) => {
+            const word = given?.[name];
+            return [name, word === undefined ? none : some(vocabularyWord("Plan", name, word, PLAN_WORDS[name]))];
+        })) as Record<PlanVocabularyWord, option<string>>,
+        groups: noun("groups", "Group"), rows: noun("rows", "Row"), measures: noun("measures", "Measure"),
+    };
+}
 
 /**
  * `<Plan>`'s props: the canvas's ({@link PlanConfig}), with `data` optional,
@@ -297,6 +372,13 @@ export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral, 
      * needs `events`.
      */
     inspector?: boolean;
+    /**
+     * The app's own words for what the Plan draws of its own (#1516), each keeping the Plan's where left out: `unassigned`,
+     * the tabs' `events`, `backlog`, `series`, `groups`, `rows` and `measures`, the backlog's groups (`dueThisWeek`,
+     * `dueNextWeek`, `later`, `noDate`) and a run's states (`estimated`, `proposed`, `recommended`, `removal`, `confirmed`,
+     * `inProgress`, `actual`, `rejected`).
+     */
+    vocabulary?: PlanVocabularyProp;
     /**
      * The drop veto, by what it vets — its arm from its East type:
      * `Fn(DragEvent) → Boolean` over a card or an element dragged onto
@@ -509,7 +591,8 @@ function checkedRowsRange(source: string, config: ExprType<RecordSliceConfigType
  * @internal
  */
 export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
-    const { resources, events, rows, applyMode, date, canDrop, optimise, library, inspector, slice, ...canvas } = props as PlanAnyProps;
+    const { resources, events, rows, applyMode, date, canDrop, optimise, library, inspector, vocabulary, slice, ...canvas } = props as PlanAnyProps;
+    const words = planVocabulary(vocabulary);
     // The narrowing's form #1344 retired, refused by name for an app that still passes it: the bare handle.
     if (slice instanceof Expr || (slice !== undefined && (typeof slice !== "object" || slice === null || !("slice" in slice)))) {
         throw new Error("Plan: `slice` takes { slice } — slice={{ slice: Slice.bindRecords(key, { rows, … }) }}: the bare handle is not taken");
@@ -663,7 +746,7 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         }
         const tabs = buildLibrary(library, { resources: resourceKinds, events: eventKinds, rows, picked, sources: sources.names });
         if (events === undefined) {
-            return East.value({ plan, resources: [], events: [], blocks: none, paged: none, canDrop: veto, optimise: optimiser, settings, library: tabs, inspector: false, narrowed } as never, PlanPayloadType);
+            return East.value({ plan, resources: [], events: [], blocks: none, paged: none, canDrop: veto, optimise: optimiser, settings, library: tabs, inspector: false, vocabulary: words, narrowed } as never, PlanPayloadType);
         }
         // A paged kind its source of the slice narrows pages the narrowing's rows themselves (#1344): its rows hold that
         // source alone, as the payload's block bound it.
@@ -681,13 +764,14 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
                     plan: root,
                     resources: resolved,
                     events: built,
-                    blocks: some(createEventBlocks(resourceKinds, eventKinds, built)),
+                    blocks: some(createEventBlocks(resourceKinds, eventKinds, built, vocabulary?.unassigned)),
                     paged: paged === undefined ? none : some(paged),
                     canDrop: canDropFn,
                     optimise: optimiseFn,
                     settings: chosen,
                     library: listed,
                     inspector: inspected,
+                    vocabulary: words,
                     narrowed: keys,
                 } as never, PlanPayloadType);
             },

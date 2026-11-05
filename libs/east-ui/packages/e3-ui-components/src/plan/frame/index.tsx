@@ -117,6 +117,7 @@ import { PlanFooter, type PlanSaveNotice } from "../shell/Footer.js";
 import type { PlanRootValue } from "../model.js";
 import { PlanOverlapsContext } from "../rows/element-overlap.js";
 import { usePlanWords, useResolvedPlanWords } from "../words.js";
+import { PlanVocabularyProvider } from "../messages.js";
 import { PlanKindsReader, type PlanBacklogEntry, type PlanKindsRead, type PlanOverlaps } from "./counts.js";
 import { NONE_HIDDEN, hiddenOf, hides, rowsHiddenOf } from "./hidden.js";
 import { NO_INSPECTED, PlanSelectionReader, usePlanInspector, usePlanInspectorSelection, type PlanInspectedEvent } from "./inspector.js";
@@ -150,6 +151,8 @@ const eventPagedEquivalent = equivalentFor(PlanEventPagedType);
 const eventKindsEquivalent = equivalentFor(PlanPayloadType.fields.events);
 /** The payload's equivalence: its data, and its functions by their IR and what they capture (#809). */
 const planPayloadEqual = equivalentFor(PlanPayloadType);
+/** Whether two sets of the app's words are one. */
+const vocabularyEqual = equalFor(PlanPayloadType.fields.vocabulary);
 
 /** No event kinds: a Plan of `data` and `rows` alone. */
 const NO_KINDS: PlanEventKinds = [];
@@ -584,6 +587,13 @@ export interface EastChakraPlanPayloadProps {
  * @returns The Plan, in its frame
  */
 export const EastChakraPlanPayload = memo(function EastChakraPlanPayload({ value, storageKey }: EastChakraPlanPayloadProps) {
+    // The app's words (#1516), over whatever table a host gives it: everything below reads them.
+    const vocabulary = useDataStable(value.vocabulary, vocabularyEqual);
+    return <PlanVocabularyProvider vocabulary={vocabulary}><PlanPayloadFrame value={value} storageKey={storageKey} /></PlanVocabularyProvider>;
+}, (prev, next) => planPayloadEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+
+/** The payload's frame, inside the app's words. */
+function PlanPayloadFrame({ value, storageKey }: EastChakraPlanPayloadProps) {
     const resourceKinds = value.resources.length;
     const events = useMemo(
         (): PlanEventRows | undefined => (value.blocks.type === "some"
@@ -607,6 +617,6 @@ export const EastChakraPlanPayload = memo(function EastChakraPlanPayload({ value
             )}
         </FollowSources>
     );
-}, (prev, next) => planPayloadEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+}
 
 implementUIComponent(PlanComponent, EastChakraPlanPayload);
