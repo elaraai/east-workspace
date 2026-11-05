@@ -231,7 +231,7 @@ describe("the rail's picks weigh a kind's details: each read the entries hold, i
             variant("figure", some(40)),
             // weigh: false — the row's own share.
             variant("figure", some(0.82)),
-            // Tags join, each once, in the entries' order: a Set's in its own.
+            // Tags join, each once: a Set's as a Set does, in its order; an Array's in the entries' order.
             variant("tags", ["At risk", "Fragile", "Hazmat"]),
             variant("tags", ["late", "rescan", "manual"]),
             // An Array of counts adds position by position, each at its bin's edge.
@@ -250,6 +250,20 @@ describe("the rail's picks weigh a kind's details: each read the entries hold, i
             // The entries hold no equipment: the row's own.
             variant("tags", ["Scanner", "X-ray"]),
         ]));
+    });
+
+    test("a Set's tags join as the Set does, in its order, whatever the entries' order — every key picked draws the row's own; an Array's join first seen first", () => {
+        const details = weighedDetails(true);
+        if (details.weighed.type !== "some") assert.fail("weighed");
+        const row: Row = { ...HOLD, flags: new Set(["At risk", "Hazmat"]), stamps: ["rescan", "late"] };
+        // In the entries' key order, Standard's Hazmat comes before Priority's At risk; the Set's own order is At risk, then Hazmat.
+        const drawn = details.weighed.value.fold(rowBytes(row), [
+            shareBytes({ ...STANDARD, flags: new Set(["Hazmat"]), stamps: ["rescan"] }),
+            shareBytes({ ...PRIORITY, flags: new Set(["At risk"]), stamps: ["late"] }),
+        ]);
+        const own = details.values(rowBytes(row));
+        assert.ok(detailRowEqual(drawn.slice(3, 5), [variant("tags", ["At risk", "Hazmat"]), variant("tags", ["rescan", "late"])]));
+        assert.ok(detailRowEqual(drawn.slice(3, 5), own.slice(3, 5)), "every key picked draws the row's own tags, in the same order");
     });
 
     test("one entry draws its own; an Option is none where every entry's is; counts of another number than the bins draw their total at NaN", () => {

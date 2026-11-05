@@ -421,7 +421,8 @@ export function flowchartList<R extends StructType, F extends FlowchartListField
  * @param options - Its label; each tag's look as a Tag takes it — `{ colorPalette, variant }`, first defined, first shown,
  *   a literal or an Array the app binds (`Flowchart.Types.TagColor`) — a tag with none neutral and subtle; whether the
  *   legend lists the defined tags, for tags on the canvas only; where it shows; and `weigh: false` to keep the row's own
- *   beside the rail's picks, whose entries' tags join otherwise (#1522)
+ *   beside the rail's picks, whose entries' tags join otherwise (#1522): a Set's as a Set does, in its order, an Array's
+ *   each once in the entries' key order
  * @returns The read, for `Flowchart.details`
  * @throws {Error} When a look's palette or variant is none of east-ui's, or `legend` is given beside `show: "inspector"` —
  *   "Only tags on the canvas go in the legend — show them on the canvas, or drop legend"
@@ -1053,14 +1054,15 @@ function weighed(resolved: ResolvedRead, held: EastType, rowType: StructType): W
             };
         }
         case "tags": {
-            const set = held.type === "Set";
+            if (held.type === "Set") {
+                // A Set's tags join as a Set does, in its order: every key picked draws the row's own, whatever the entries' order.
+                return (_$, entries) => variant("tags", entries.reduce((_$2, joined, entry) =>
+                    joined.union(at(entry as ExprType<StructType>) as ExprType<SetType<StringType>>), East.value(new Set<string>(), SetType(StringType))).toArray());
+            }
+            // An Array's each once, in the entries' key order.
             return ($, entries) => {
                 const join = $.const(joinOnce);
-                const lists = entries.map((_$2, entry) => {
-                    const tags = at(entry as ExprType<StructType>);
-                    return set ? (tags as ExprType<SetType<StringType>>).toArray() : tags;
-                });
-                return variant("tags", join(lists as never));
+                return variant("tags", join(entries.map((_$2, entry) => at(entry as ExprType<StructType>)) as never));
             };
         }
     }

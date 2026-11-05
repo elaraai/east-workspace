@@ -1488,7 +1488,7 @@ Refused as the Flowchart is built, each in its words: a `source` naming no sourc
 
 #### R45 — Added by kind
 
-With picks, a read whose field the entries also hold draws the picked keys' entries added up, in East (`fold`). A figure adds: an Option adds its values, and is `none` when every entry's is. A histogram adds bin by bin: an Array of counts place by place, a Dict of durations duration by duration. A list adds by name: a list of structs adds each struct's numbers by name, then draws with its `draw`, so its note is the added struct's. Tags join, each once, in the entries' key order. A read whose field the entries lack, or one given `weigh: false`, draws the row's own whatever the picks.
+With picks, a read whose field the entries also hold draws the picked keys' entries added up, in East (`fold`). A figure adds: an Option adds its values, and is `none` when every entry's is. A histogram adds bin by bin: an Array of counts place by place, a Dict of durations duration by duration. A list adds by name: a list of structs adds each struct's numbers by name, then draws with its `draw`, so its note is the added struct's. Tags join, each once: a Set's as a Set does, in its order, so every key picked draws the row's own; an Array's in the entries' key order. A read whose field the entries lack, or one given `weigh: false`, draws the row's own whatever the picks.
 
 A state holding none of the picks keeps its card (ruling 22): its weighed reads say *no data*, as a read of a row there is none of does (R33), and its other reads draw its row's own. Picks on the source's other fields narrow the details' rows, as every source narrows: a row they leave out reads as one there is none of (R33).
 
