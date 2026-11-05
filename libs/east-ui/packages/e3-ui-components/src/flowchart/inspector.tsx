@@ -12,7 +12,9 @@
  * Details shows what is selected: a row of the app's, under its head — its
  * kind's name and the name the Flowchart gives it everywhere (`State · SCN`,
  * `Transition · DSP → DLV`), and a Pending or New chip while its drafts hold
- * it otherwise than its record:
+ * it otherwise than its record. A state's and a transition's head is followed
+ * by the reads its kind's details show there, in their order and in full
+ * (`details-pane.tsx`, R35, R36) — then:
  *
  * - **a state**: its key, printed — a new state's the viewer's to change until
  *   Save, the transitions naming it following (R9) — its label and its lane,
@@ -84,6 +86,8 @@ import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { askHiding, hiddenLine, hiddenOf, type RowHidden, type RowHiding, type SourceHiding } from "../shared/schedule/hidden.js";
 import type { HiddenPicks } from "../shared/schedule/hidden-pick.js";
 import { draftedRow, rowCodec } from "../shared/schedule/records.js";
+import type { FlowchartDetailsModel } from "./details.js";
+import { FlowchartPaneReads } from "./details-pane.js";
 import { kindOf, type FlowchartEditing, type FlowchartFieldWrites } from "./editing.js";
 import {
     deleteDecision, deleteLane, deleteLink, deleteStates, duplicateState, editLink, moveStates, rekey, renameLane, renameState, setFields, setRow,
@@ -93,7 +97,7 @@ import type { FlowchartLastSaves } from "./footer.js";
 import type { FlowchartIssue } from "./issues.js";
 import type { FlowchartWords } from "./messages.js";
 import {
-    evidenceBadge, type FlowchartModel, type FlowchartRow, type FlowchartRows, type FlowchartTransitionRoles, type FlowchartValue, type LinkClass,
+    fmtVolume, type FlowchartModel, type FlowchartRow, type FlowchartRows, type FlowchartTransitionRoles, type FlowchartValue, type LinkClass,
 } from "./model.js";
 import type { FlowchartHeld, FlowchartSort } from "./read.js";
 import type { FlowchartSelection } from "./selection.js";
@@ -174,6 +178,8 @@ export interface FlowchartInspectorProps {
     readonly goToWaiting: (at: FlowchartSelection, hidden: readonly SourceHiding[] | undefined) => void;
     /** Each record's last save, and who made it. */
     readonly saves: FlowchartLastSaves;
+    /** The details: the reads a state's or a transition's Details shows after its head. */
+    readonly details: FlowchartDetailsModel;
     /** Where an own Details keeps its own state. */
     readonly storageKey: string;
     /** The Flowchart's words. */
@@ -468,18 +474,20 @@ function RowFields({ styles, roles, side, storageKey }: {
     );
 }
 
-/** A transition as a list shows it: its key, its ends, and under them its kind, its decision and its badge. */
+/** A transition as a list shows it: its key, its ends, its kind and its decision, and its volume. */
 interface LinkLine {
     readonly key: string;
     readonly from: string;
     readonly to: string;
     readonly meta: string;
+    readonly volume: string;
 }
 
 /**
- * Transitions as a list shows them, in key order: each its ends' keys, and
- * under them its kind — unresolved where an end is no state's — its decision
- * and its evidence's badge. What the narrowing draws as context is left out.
+ * Transitions as a list shows them, in key order (R37): each its ends' keys,
+ * its kind — unresolved where an end is no state's — and its decision, and its
+ * evidence's volume with its unit — *not measured* without one. What the
+ * narrowing draws as context is left out.
  *
  * @param props - The inspector's props: what the canvas draws
  * @param pick - Which of its transitions
@@ -496,12 +504,17 @@ function linkLines(props: FlowchartInspectorProps, pick: (roles: FlowchartTransi
             const kind: LinkClass = unresolved(from) || unresolved(to) ? "unresolved" : transition.roles.kind.type;
             const decision = getSomeorUndefined(transition.roles.decision);
             const trigger = decision === undefined ? undefined : model.triggers.get(decision);
+            const evidence = getSomeorUndefined(transition.roles.evidence);
+            const volume = evidence === undefined ? undefined : getSomeorUndefined(evidence.volume);
+            const unit = evidence === undefined ? undefined : getSomeorUndefined(evidence.unit);
             return {
                 key: transition.key, from, to,
                 meta: words.m.inspectorLinkKind({
                     kind,
                     decision: decision === undefined ? undefined : trigger === undefined || trigger.label.length === 0 ? decision : trigger.label,
-                    badge: evidenceBadge(getSomeorUndefined(transition.roles.evidence), words),
+                }),
+                volume: words.m.inspectorVolume({
+                    volume: volume === undefined ? undefined : unit === undefined ? fmtVolume(volume, words) : `${fmtVolume(volume, words)} ${unit}`,
                 }),
             };
         });
@@ -530,6 +543,7 @@ function Transitions({ styles, title, groups, reveal }: { styles: Styles; title:
                                 <chakra.button type="button" css={styles.link} data-inspector-link={line.key} onClick={() => reveal({ kind: "link", key: line.key })}>
                                     <Box as="span" css={styles.linkText}>{`${line.from} → ${line.to}`}</Box>
                                     <Box as="span" css={styles.linkMeta}>{line.meta}</Box>
+                                    <Box as="span" css={styles.linkVolume} data-inspector-link-volume="">{line.volume}</Box>
                                 </chakra.button>
                             </Box>
                         ))}
@@ -673,6 +687,7 @@ function StateView(props: RowViewProps) {
         <Box css={styles.root} data-flowchart-inspector="state">
             <Head styles={styles} words={words} what={m.inspectorWhat({ what: "row", kind: value.states.name, name: at })} name={label}
                 chips={side.state.chip === undefined ? [] : [side.state.chip]} />
+            <FlowchartPaneReads styles={styles} kind={props.details.states} at={at} words={words} />
             <Edits styles={styles} available={side.available} actions={actions}>
                 <RowFields styles={styles} side={side} storageKey={`${storageKey}.inspector.states`} roles={(
                     <Box data-inspector-form="roles">
@@ -761,6 +776,7 @@ function LinkView(props: RowViewProps) {
         <Box css={styles.root} data-flowchart-inspector="transition">
             <Head styles={styles} words={words} what={m.inspectorWhat({ what: "row", kind: name, name: endsOf(roles) })}
                 name={`${stateName(model, roles.from)} → ${stateName(model, roles.to)}`} chips={chips} />
+            <FlowchartPaneReads styles={styles} kind={props.details.transitions} at={at} words={words} />
             <Edits styles={styles} available={side.available} actions={actions}>
                 <RowFields styles={styles} side={side} storageKey={`${storageKey}.inspector.transitions`} roles={(
                     <Box data-inspector-form="roles">

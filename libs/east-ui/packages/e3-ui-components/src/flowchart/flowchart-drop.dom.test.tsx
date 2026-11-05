@@ -25,12 +25,13 @@
  * Where a point lands, what each card's drop plans and the edits it makes are
  * `drop.test.ts`'s; these tests are the page's side of it.
  *
- * jsdom lays nothing out: the canvas measures 0×0, so its lanes are 166px wide
- * from the left edge and its states sit where `layout.ts` puts them — the
- * parcels' flow, two states a lane, rows 96px apart from 56px down; the
- * canvas's drop cell is laid out at the client origin, so a pointer's client
- * point is the canvas's own. Each tab's Library alone is measured, as the e3
- * harness measures it, so its virtualizer lays out its cards.
+ * jsdom lays nothing out: the canvas measures 0×0 and draws the parcels' flow,
+ * two states a lane, the example's cards as tall as their details — so each
+ * point a drag rests on, and each place a test expects, is read from the
+ * drawing (`drawn.test-utils.ts`). The canvas's drop cell is laid out at the
+ * client origin, so a pointer's client point is the canvas's own. Each tab's
+ * Library alone is measured, as the e3 harness measures it, so its virtualizer
+ * lays out its cards.
  */
 
 import { afterEach, describe, expect, test } from "vitest";
@@ -45,8 +46,11 @@ import { announced, layOut, pointAt, stubScrollIntoView } from "@elaraai/east-ui
 import { Data, Flowchart, Record } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
 import { reloadPage } from "../e3-web-mount.test-utils.js";
+import type { E3Request } from "../e3-web.test-utils.js";
+import {
+    bandOf, between, cardBox, centreOf, drawnUnder, headOf, headerOf, laneOf, middleOf, node, rowOf, rowsOf, stateKeys, tail, topOf, under,
+} from "./drawn.test-utils.js";
 import { act, enabled, flowchartHarness, press, settle, type FlowchartTestProps } from "./flowchart.test-utils.js";
-import { LANE_MIN_W, LANE_TAIL_W, NODE_H, NODE_W } from "./layout.js";
 import { measureLibrary } from "./library-measure.test-utils.js";
 import { flowchartMessages } from "./messages.js";
 
@@ -230,30 +234,8 @@ const mountDepot = () => h.mountExample(ex.flowchartDepot, { drag: true, storage
 /** A depot of the test's own, under the page's drag layer. */
 const mountOwn = (depot: ($: BlockBuilder<UIComponentType>) => FlowchartTestProps) => h.mountFlowchart(depot, { drag: true, storageKey: "flowchart.drop" });
 
-// ── Where the canvas draws the parcels' flow ─────────────────────────────
-
-/** In intake, between ARV's middle and SCN's: ARV → SCN's line, l1, passes there too. */
-const BETWEEN = { x: 83, y: 124 };
-/** In intake, above ARV's middle: its start. */
-const INTAKE_TOP = { x: 83, y: 60 };
-/** The + LANE tail, past the five lanes: no lane. */
-const TAIL = { x: 5 * LANE_MIN_W + LANE_TAIL_W / 2, y: 200 };
-/** The hold lane, under its two states. */
-const HOLD_BODY = { x: 3 * LANE_MIN_W + LANE_MIN_W / 2, y: 300 };
-/** The sort lane's header. */
-const SORT_HEAD = { x: 2 * LANE_MIN_W + LANE_MIN_W / 2, y: 20 };
-/** The sort lane, under its header and its states. */
-const SORT_BODY = { x: 2 * LANE_MIN_W + LANE_MIN_W / 2, y: 300 };
-
 // ── Reading the flowchart ────────────────────────────────────────────────
 
-const stateKeys = (c: HTMLElement): (string | null)[] => [...c.querySelectorAll("[data-flowchart-node]")].map((el) => el.getAttribute("data-flowchart-node"));
-const node = (c: HTMLElement, key: string): HTMLElement => c.querySelector<HTMLElement>(`[data-flowchart-node="${key}"]`)!;
-/** A state's middle, where a pointer rests on it. */
-const centreOf = (c: HTMLElement, key: string) => ({ x: parseFloat(node(c, key).style.left) + NODE_W / 2, y: parseFloat(node(c, key).style.top) + NODE_H / 2 });
-/** Whether a state is drawn in another's lane, the next row down. */
-const drawnUnder = (c: HTMLElement, key: string, above: string): boolean =>
-    node(c, key).style.left === node(c, above).style.left && parseFloat(node(c, key).style.top) - parseFloat(node(c, above).style.top) === 96;
 /** A decision's diamond, where the canvas draws it: the middle of the transition it governs. */
 function diamondOf(c: HTMLElement, key: string): { x: number; y: number } {
     const transform = c.querySelector(`[data-flowchart-trigger="${key}"]`)!.getAttribute("transform")!;
@@ -273,6 +255,9 @@ const cell = (c: HTMLElement): HTMLElement => c.querySelector<HTMLElement>("[dat
 const pane = (c: HTMLElement): HTMLElement => c.querySelector<HTMLElement>("[data-frame-slot='start']")!;
 /** What the drag leaves marked on the canvas: a lane's wash, a landing line, a gap's line, a transition's wash, a target. */
 const MARKS = "[data-flowchart-droplane], [data-flowchart-landing], [data-flowchart-gap], [data-flowchart-dropwash], [data-drop-target]";
+/** The states' details read by key: a row's search, its page and the rows themselves. */
+const EVIDENCE = `records.${ex.stateEvidence.name}`;
+const evidenceRead = (request: E3Request): boolean => request.dataset === EVIDENCE && (request.kind === "rows" || request.kind === "find" || request.kind === "page");
 
 /** Opens a library tab, by its name. */
 async function openTab(c: HTMLElement, name: string): Promise<void> {
@@ -358,28 +343,32 @@ describe("a state's card dropped on a lane (R14)", () => {
         const { container } = await mountDepot();
         const deployed = { states: await h.read(ex.depotStates), stateCommits: await h.commits(ex.depotStates), transitionCommits: await h.commits(ex.depotTransitions) };
         await openTab(container, m.libraryTab({ tab: "states" }));
+        // In intake: between ARV and SCN, where ARV → SCN's line passes too; above ARV's middle; and past the lanes.
+        const [at, top, past] = [between(container, "ARV", "SCN"), topOf(container, "ARV"), tail(container)];
+        const [intake, arv, head, first] = [bandOf(container, "intake"), cardBox(container, "ARV"), headOf(container, "intake"), rowsOf(container)[0]!];
         pickUp(cardOf(container, "desk"));
         // Picked up, over nothing: the ghost alone.
         expect(caption()).toBeNull();
-        restOn(container, BETWEEN);
+        restOn(container, at);
         expect(caption()).toEqual({ text: "after ARV in Intake", refused: false });
         expect(cell(container).hasAttribute("data-drop-active")).toBe(true);
+        // The intake lane's band, washed.
         const wash = container.querySelector<HTMLElement>("[data-flowchart-droplane]")!;
-        expect([wash.getAttribute("data-flowchart-droplane"), wash.style.left, wash.style.top, wash.style.width]).toEqual(["intake", "0px", "0px", "166px"]);
+        expect([wash.getAttribute("data-flowchart-droplane"), wash.style.left, wash.style.top, wash.style.width]).toEqual(["intake", `${intake.x}px`, `${intake.y}px`, `${intake.w}px`]);
         // Between ARV and SCN, across the state's footprint, in the middle of the gap.
         const line = container.querySelector<HTMLElement>("[data-flowchart-landing]")!;
-        expect([line.getAttribute("data-flowchart-landing"), line.style.left, line.style.top, line.style.width, line.style.height]).toEqual(["1", "25px", "124px", "116px", ""]);
-        // Above ARV's middle: before it, the line under the lane's header.
-        restOn(container, INTAKE_TOP);
+        expect([line.getAttribute("data-flowchart-landing"), line.style.left, line.style.top, line.style.width, line.style.height]).toEqual(["1", `${arv.x}px`, `${at.y}px`, `${arv.w}px`, ""]);
+        // Above ARV's middle: before it, the line in the middle of the gap under the lane's header.
+        restOn(container, top);
         expect(caption()).toEqual({ text: "at the start of Intake", refused: false });
         const start = container.querySelector<HTMLElement>("[data-flowchart-landing]")!;
-        expect([start.getAttribute("data-flowchart-landing"), start.style.top]).toEqual(["0", "48px"]);
+        expect([start.getAttribute("data-flowchart-landing"), start.style.top]).toEqual(["0", `${(head.y + head.h + first.start) / 2}px`]);
         // The + LANE tail is no lane: refused, red.
-        restOn(container, TAIL);
+        restOn(container, past);
         expect(caption()).toEqual({ text: "Drop onto a lane", refused: true });
         expect(cell(container).hasAttribute("data-drop-invalid")).toBe(true);
-        restOn(container, BETWEEN);
-        await release(BETWEEN);
+        restOn(container, at);
+        await release(at);
         expect([drawnUnder(container, "state-11", "ARV"), drawnUnder(container, "SCN", "state-11")]).toEqual([true, true]);
         expect(node(container, "state-11").hasAttribute("data-selected")).toBe(true);
         expect(announced()).toBe("Exception desk was dropped on Intake, after ARV.");
@@ -402,27 +391,28 @@ describe("a state's card dropped on a lane (R14)", () => {
         const { container } = await mountDepot();
         const deployed = { states: await h.read(ex.depotStates), lanes: await h.read(ex.depotLanes) };
         await openTab(container, m.libraryTab({ tab: "states" }));
-        // Under hold's two states: after CLR, and then after the state the first drop added.
-        for (const _ of [1, 2]) await dropAt(container, cardOf(container, "desk"), HOLD_BODY);
+        // Under hold's two states: after CLR, and then, under it, after the state the first drop added.
+        for (const _ of [1, 2]) await dropAt(container, cardOf(container, "desk"), under(container, "hold"));
         expect([drawnUnder(container, "state-11", "CLR"), drawnUnder(container, "state-12", "state-11")]).toEqual([true, true]);
         // A lane's card at the tail: its line down the gap past the last lane.
         await openTab(container, m.libraryTab({ tab: "lanes" }));
+        const [past, dispatch] = [tail(container), bandOf(container, "dispatch")];
         pickUp(cardOf(container, "check"));
-        restOn(container, TAIL);
+        restOn(container, past);
         expect(caption()).toEqual({ text: "at the end of the lanes", refused: false });
         const gap = container.querySelector<HTMLElement>("[data-flowchart-gap]")!;
-        expect([gap.getAttribute("data-flowchart-gap"), gap.style.left, gap.style.top]).toEqual(["5", `${5 * LANE_MIN_W}px`, "0px"]);
-        await release(TAIL);
+        expect([gap.getAttribute("data-flowchart-gap"), gap.style.left, gap.style.top]).toEqual(["5", `${dispatch.x + dispatch.w}px`, "0px"]);
+        await release(past);
         expect(laneHeads(container)).toContain("QUALITY CHECK");
         expect(announced()).toBe("Quality check was dropped on the end of the lanes.");
         // The new lane holds no state: a state's card lands in its first row.
-        const NEW_LANE = { x: 5 * LANE_MIN_W + LANE_MIN_W / 2, y: 200 };
         await openTab(container, m.libraryTab({ tab: "states" }));
+        const quality = middleOf(bandOf(container, "lane-6"));
         pickUp(cardOf(container, "scan"));
-        restOn(container, NEW_LANE);
+        restOn(container, quality);
         expect(caption()).toEqual({ text: "in Quality check", refused: false });
-        await release(NEW_LANE);
-        expect([node(container, "state-13").style.left, node(container, "state-13").style.top]).toEqual([`${5 * LANE_MIN_W + (LANE_MIN_W - NODE_W) / 2}px`, "56px"]);
+        await release(quality);
+        expect([laneOf(container, "state-13"), rowOf(container, "state-13")]).toEqual(["lane-6", 0]);
         // Four drops, four transactions.
         const dropped = stateKeys(container);
         for (let i = 0; i < 4; i++) await press(UNDO);
@@ -441,12 +431,13 @@ describe("a state's card dropped on a lane (R14)", () => {
     test("a read-only flowchart refuses every drop — a state's card on a lane, a transition's on a transition — the ghost saying why, and dropping changes nothing; ⏎ on a card is refused, the footer saying why", async () => {
         const { container } = await mountOwn(readOnlyDepot);
         const shown = stateKeys(container);
+        const at = between(container, "ARV", "SCN");
         await openTab(container, m.libraryTab({ tab: "states" }));
         pickUp(cardOf(container, "desk"));
-        restOn(container, BETWEEN);
+        restOn(container, at);
         expect(caption()).toEqual({ text: "States are read only", refused: true });
         expect(container.querySelector(MARKS)).toBeNull();
-        await release(BETWEEN);
+        await release(at);
         expect(stateKeys(container)).toEqual(shown);
         expect(announced()).toBe("Exception desk was not dropped.");
         await enter(cardOf(container, "desk"));
@@ -454,10 +445,10 @@ describe("a state's card dropped on a lane (R14)", () => {
         // A transition's card on a transition: no wash, and the transition keeps its kind — planned, solid.
         await openTab(container, m.libraryTab({ tab: "transitions" }));
         pickUp(cardOf(container, "reroute"));
-        restOn(container, BETWEEN);
+        restOn(container, at);
         expect(caption()).toEqual({ text: "Transitions are read only", refused: true });
         expect(container.querySelector(MARKS)).toBeNull();
-        await release(BETWEEN);
+        await release(at);
         expect(announced()).toBe("Observed reroute was not dropped.");
         expect(lineOf(container, "l1").hasAttribute("stroke-dasharray")).toBe(false);
     });
@@ -485,8 +476,9 @@ describe("a card carried over the canvas", () => {
         act(() => { fireEvent.pointerEnter(container.querySelector("[data-flowchart-band='hold']")!); });
         expect([chutes(), ghost()]).toEqual(["1", null]);
         // The drag over: the lane under the pointer shows its ghost, and a state its dimming.
-        restOn(container, TAIL);
-        await release(TAIL);
+        const past = tail(container);
+        restOn(container, past);
+        await release(past);
         expect(ghost()).toBe("hold");
         act(() => { fireEvent.pointerEnter(node(container, "ARV")); });
         expect(chutes()).toBe("0.45");
@@ -509,12 +501,13 @@ describe("a transition's card dropped on a transition (R14)", () => {
         expect(caption()).toEqual({ text: "Drop onto a transition", refused: true });
         expect(container.querySelector("[data-flowchart-dropwash]")).toBeNull();
         // ARV → SCN's line passes between the two states.
-        restOn(container, BETWEEN);
+        const at = between(container, "ARV", "SCN");
+        restOn(container, at);
         expect(caption()).toEqual({ text: "onto ARV → SCN", refused: false });
         const wash = container.querySelector("[data-flowchart-dropwash]")!;
         expect([wash.getAttribute("data-flowchart-dropwash"), wash.getAttribute("d")])
             .toEqual(["l1", container.querySelector('[data-flowchart-link="l1"]')!.getAttribute("d")]);
-        await release(BETWEEN);
+        await release(at);
         expect(announced()).toBe("Observed reroute was dropped on ARV → SCN.");
         expect(container.querySelector("[data-flowchart-dropwash]")).toBeNull();
         // Observed now: its line dashed.
@@ -548,9 +541,10 @@ describe("an author's card lands where its drop's type says (R14)", () => {
         await release(diamond);
         expect(container.querySelector("[data-drop-target]")).toBeNull();
         // The slots: onto a state.
+        const [sortHead, sortBody] = [headerOf(container, "sort"), under(container, "sort")];
         await openTab(container, "Slots");
         pickUp(cardOf(container, "twelve"));
-        restOn(container, SORT_HEAD);
+        restOn(container, sortHead);
         expect(caption()).toEqual({ text: "Drop onto a state", refused: true });
         restOn(container, centreOf(container, "CH*"));
         expect(caption()).toEqual({ text: "onto CH*", refused: false });
@@ -559,13 +553,13 @@ describe("an author's card lands where its drop's type says (R14)", () => {
         // The name: onto the sort lane's header, the lane washed and no landing line.
         await openTab(container, "Names");
         pickUp(cardOf(container, "sortation"));
-        restOn(container, SORT_BODY);
+        restOn(container, sortBody);
         expect(caption()).toEqual({ text: "Drop onto a lane's header", refused: true });
-        restOn(container, SORT_HEAD);
+        restOn(container, sortHead);
         expect(caption()).toEqual({ text: "onto lane Sort", refused: false });
         expect([container.querySelector("[data-flowchart-droplane]")!.getAttribute("data-flowchart-droplane"), container.querySelector("[data-flowchart-landing]")])
             .toEqual(["sort", null]);
-        await release(SORT_HEAD);
+        await release(sortHead);
         expect(laneHeads(container).slice(0, 5)).toEqual(["INTAKE", "INDUCT", "SORTATION", "HOLD", "DISPATCH"]);
         // Three drops, three transactions.
         for (let i = 0; i < 3; i++) await press(UNDO);
@@ -639,9 +633,8 @@ describe("⏎ on a card drops it on the canvas's selection (R14)", () => {
         await click(container.querySelector("[data-flowchart-lane='hold']")!);
         await openTab(container, m.libraryTab({ tab: "states" }));
         await enter(cardOf(container, "desk"));
-        // The hold lane, the fourth, 166px wide from 498px: its third row, under HLD and CLR.
-        expect([node(container, "state-11").style.left, node(container, "state-11").style.top])
-            .toEqual([`${3 * LANE_MIN_W + (LANE_MIN_W - NODE_W) / 2}px`, `${56 + 2 * 96}px`]);
+        // The hold lane, the fourth: its third row, under HLD and CLR.
+        expect([laneOf(container, "state-11"), rowOf(container, "state-11"), drawnUnder(container, "state-11", "CLR")]).toEqual(["hold", 2, true]);
         expect(node(container, "state-11").hasAttribute("data-selected")).toBe(true);
     });
 
@@ -657,20 +650,28 @@ describe("⏎ on a card drops it on the canvas's selection (R14)", () => {
         expect([drawnUnder(container, "state-12", "ARV"), drawnUnder(container, "SCN", "state-12"), drawnUnder(container, "state-11", "SCN")]).toEqual([true, true, true]);
     });
 
-    test("⏎ scrolls the state it adds to the middle of the canvas's view; a state dropped where the pointer is leaves the view where it stands", async () => {
+    test("⏎ scrolls the state it adds to the middle of the canvas's view once its card's details land, at the height it then takes; a state dropped where the pointer is leaves the view where it stands", async () => {
         const { container } = await mountDepot();
         const scroll = container.querySelector<HTMLElement>("[data-flowchart-scroll]")!;
         /** A state's middle: where a view of jsdom's 0×0 scrolls to, to hold it in its middle. */
-        const middle = (key: string) => [parseFloat(node(container, key).style.left) + NODE_W / 2, parseFloat(node(container, key).style.top) + NODE_H / 2];
+        const middle = (key: string) => { const at = centreOf(container, key); return [at.x, at.y]; };
+        /** Whether a state's card draws a placeholder where its reads go, and whether it says no data. */
+        const reads = (key: string) => [node(container, key).querySelector("[data-place]") !== null, node(container, key).querySelector("[data-card-empty]") !== null];
         await openTab(container, m.libraryTab({ tab: "states" }));
-        await dropAt(container, cardOf(container, "desk"), HOLD_BODY);
+        await dropAt(container, cardOf(container, "desk"), under(container, "hold"));
         expect(node(container, "state-11").hasAttribute("data-selected")).toBe(true);
         expect([scroll.scrollLeft, scroll.scrollTop]).toEqual([0, 0]);
-        // ⏎, the new state selected: the next after it, in hold's next row, scrolled to.
+        // ⏎, its details' row held on its way: the new state selected, the next after it in hold's next row, its
+        // card a placeholder where its reads go — and the view waits for them.
+        const read = h.e3.hold(evidenceRead);
         await enter(cardOf(container, "desk"));
         expect(drawnUnder(container, "state-12", "state-11")).toBe(true);
         expect(node(container, "state-12").hasAttribute("data-selected")).toBe(true);
-        expect([scroll.scrollLeft, scroll.scrollTop]).toEqual(middle("state-12"));
+        expect([read.held > 0, reads("state-12"), scroll.scrollLeft, scroll.scrollTop]).toEqual([true, [true, false], 0, 0]);
+        // Its row landed — it has none, so no data — the card takes its height, and the view brings it to its middle.
+        read.release();
+        await settle();
+        expect([reads("state-12"), [scroll.scrollLeft, scroll.scrollTop]]).toEqual([[false, true], middle("state-12")]);
     });
 
     test("on a touch screen a tap on the selected card does what ⏎ does, and leaves it selected — a tap on another card only moves the selection; on a fine pointer a second click lets it go, and drops nothing", async () => {

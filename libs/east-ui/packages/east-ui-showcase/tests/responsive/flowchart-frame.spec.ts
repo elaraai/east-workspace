@@ -15,7 +15,8 @@
  * find state into its icon, then the history. One row at every width from
  * 1920px to 600px, nothing past its edge, a narrower row never folding less.
  * The canvas scrolls both ways inside main under the viewer's wheel, its lanes
- * filling main's whole height, the toolbar and the footer staying put; find
+ * filling main's whole height where its rows take less, the toolbar and the
+ * footer staying put; find
  * state's query, typed a key at a time, finds a state by its label, and a pick
  * selects it and scrolls it into the canvas's view. The layout is checked in
  * the light theme, as every layout check is; and on a touch screen 1920px wide
@@ -168,7 +169,11 @@ test.describe("The Flowchart's frame (#1245)", () => {
 
     test("the canvas scrolls both ways inside main, its lanes filling main's whole height; the toolbar and the footer stay put", async ({ page }) => {
         const root = await openDepot(page);
-        // At rest, the lanes run main's whole height.
+        // Given more height than its rows take, the lanes fill main's whole height: the depot's cards draw their
+        // details, and its rows stand taller than its own box, so the box is made 400px taller than its canvas.
+        const rows = await root.evaluate((el) => el.querySelector("[data-flowchart-canvas]")!.getBoundingClientRect().height);
+        await root.evaluate((el, h) => { (el as HTMLElement).style.height = `${h}px`; }, Math.ceil(rows) + 400);
+        await settled(page);
         await expect.poll(() => root.evaluate((el) => {
             const scroll = el.querySelector("[data-flowchart-scroll]")!;
             return Math.round(el.querySelector("[data-flowchart-canvas]")!.getBoundingClientRect().height) - scroll.clientHeight;

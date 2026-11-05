@@ -96,6 +96,11 @@ const keysOf = (request: E3Request): string[] =>
 
 const node = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data-flowchart-node="${key}"]`);
 const link = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data-flowchart-link="${key}"]`);
+/** What a state's card says it is, its details drawn under it: the key and the name its head writes; `null` for a state not drawn. */
+const cardHead = (c: HTMLElement, key: string): (string | null)[] | null => {
+    const card = node(c, key);
+    return card === null ? null : [card.querySelector("[data-card-key]")?.textContent ?? null, card.querySelector("[data-card-name]")?.textContent ?? null];
+};
 /** The states drawn, ghosts among them, in East's order of their keys. */
 const stateKeys = (c: HTMLElement): string[] =>
     [...c.querySelectorAll("[data-flowchart-node]")].map((el) => el.getAttribute("data-flowchart-node") ?? "").sort(compareString);
@@ -181,7 +186,7 @@ describe("hide and dim (#1502, R6, D7)", () => {
         // The states' choice cleared: RCV is read with the rest, and CLR → RCV drawn into it; DLV is still no state's.
         await narrow(DEPOT, "states", WHOLE);
         await waitFor(() => expect(link(c, "x1")).not.toBeNull());
-        expect(node(c, "RCV")!.textContent).toBe("RCVReceived");
+        expect(cardHead(c, "RCV")).toEqual(["RCV", "Received"]);
         expect(issueLines(c)).toEqual([DLV_ISSUE]);
     });
 
@@ -245,7 +250,7 @@ describe("drafts out of view, and Save (R11, R12)", () => {
         expect(inspectorPanel(c).querySelector("[data-inspector-no-issues]")).not.toBeNull();
         // The rail's choice cleared: CLR read back as e3 holds it, nothing waiting on it.
         await narrow(DEPOT, "states", WHOLE);
-        await waitFor(() => expect(node(c, "CLR")?.textContent).toBe("CLRCleared at the desk"));
+        await waitFor(() => expect(cardHead(c, "CLR")).toEqual(["CLR", "Cleared at the desk"]));
         expect(pending(c)).toBe(pendingOf(0));
     });
 

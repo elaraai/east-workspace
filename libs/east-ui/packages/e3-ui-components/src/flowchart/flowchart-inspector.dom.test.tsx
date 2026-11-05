@@ -30,6 +30,14 @@
  * - **Read only** — over records bound read only, or `readOnly`: every field
  *   printed, no gesture (R13); and **a kind's own Details** in its form's
  *   place, read only the form again.
+ * - **The reads** (#1510, R33, R35–R37) — after the head and before the form,
+ *   in the details' order and in full: the figures side by side in one stats
+ *   grid, every other read under its title with its total; every tag in its
+ *   look; the histogram on the app's axis, its caption where half and nine in
+ *   ten fall — or the bin under the pointer or focus, the bins one stop on the
+ *   keyboard; a list by value, each line's note, the first 8 then Show n more
+ *   and Show fewer; *no data* where there is no row; beside a kind's own
+ *   Details, and read only.
  *
  * jsdom lays nothing out: the canvas places its cards by its own layout, and
  * the panes keep the place they open in.
@@ -45,7 +53,7 @@ import {
 import { MutationResultType, ResponseType } from "@elaraai/e3-types";
 import { Button, RecordSliceStateType, Text, UIComponentType, type RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { StateRuntime, editingMessages, formatters, getSomeorUndefined } from "@elaraai/east-ui-components";
-import { Flowchart, Record } from "@elaraai/e3-ui/internal";
+import { Data, Flowchart, Record } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { reloadPage, slot } from "../e3-web-mount.test-utils.js";
@@ -312,7 +320,7 @@ describe("Details: a state (R16, R9)", () => {
         expect([box(c, "key").value, box(c, "label").value, box(c, "flow").value]).toEqual(["CH*", "Sort chutes (class)", "Parcels"]);
         expect(within(field(c, "slots")).getByRole("spinbutton").getAttribute("aria-valuenow")).toBe("14");
         expect(field(c, "lane").querySelector("[data-scope=select][data-part=trigger]")!.textContent).toContain("Sort");
-        // IND's transitions in their groups, each with its kind, its decision and its evidence.
+        // IND's transitions in their groups, each with its kind, its decision and its evidence's volume (R37).
         await click(node(c, "IND")!);
         expect(linksTitle(c)).toBe(m.inspectorSection({ section: "transitions", n: 4, count: "4", name: "Transition" }));
         expect(linkGroups(c)).toEqual([
@@ -321,10 +329,10 @@ describe("Details: a state (R16, R9)", () => {
             [m.inspectorSection({ section: "inPlace", n: 1, count: "1", name: "" }), "l3"],
         ]);
         expect(linkTexts(c)).toEqual([
-            `SCN → IND${m.inspectorLinkKind({ kind: "planned", decision: undefined, badge: "18,390 parcels · 409" })}`,
-            `IND → LBL${m.inspectorLinkKind({ kind: "observed", decision: undefined, badge: "980 parcels · 22" })}`,
-            `IND → CH*${m.inspectorLinkKind({ kind: "planned", decision: "route", badge: "17,350 parcels · 386" })}`,
-            `IND → IND${m.inspectorLinkKind({ kind: "observed", decision: undefined, badge: undefined })}`,
+            `SCN → IND${m.inspectorLinkKind({ kind: "planned", decision: undefined })}${m.inspectorVolume({ volume: "18,390 parcels" })}`,
+            `IND → LBL${m.inspectorLinkKind({ kind: "observed", decision: undefined })}${m.inspectorVolume({ volume: "980 parcels" })}`,
+            `IND → CH*${m.inspectorLinkKind({ kind: "planned", decision: "route" })}${m.inspectorVolume({ volume: "17,350 parcels" })}`,
+            `IND → IND${m.inspectorLinkKind({ kind: "observed", decision: undefined })}${m.inspectorVolume({ volume: undefined })}`,
         ]);
         // A transition listed selects it.
         await click(panel(c).querySelector("[data-inspector-link='l3']")!);
@@ -819,5 +827,177 @@ describe("a kind's own Details (R16)", () => {
         const c = await mountRecords(own(true), "SRD");
         await click(node(c, "SRD")!);
         expect([panel(c).querySelector("[data-inspector-fields='custom']"), editors(c, "fields")]).toEqual([null, ["slots:readonly", "flow:readonly"]]);
+    });
+});
+
+// ============================================================================
+// The reads (R33, R35–R37)
+// ============================================================================
+
+describe("Details: the reads (R33, R35–R37)", () => {
+    /** Details' parts, in the order they draw: the head, the reads, the forms — or a kind's own Details — then a state's transitions or a transition's evidence. */
+    const parts = (c: HTMLElement) => [...panel(c).querySelectorAll(
+        "[data-inspector-what], [data-inspector-reads], [data-inspector-fields], [data-inspector-links], [data-inspector-evidence]",
+    )].map((el) => (el.hasAttribute("data-inspector-what") ? "head"
+        : el.hasAttribute("data-inspector-reads") ? "reads"
+            : el.hasAttribute("data-inspector-fields") ? `fields:${el.getAttribute("data-inspector-fields") ?? ""}`
+                : el.hasAttribute("data-inspector-links") ? "transitions" : "evidence"));
+    /** The reads' box. */
+    const reads = (c: HTMLElement): HTMLElement | null => panel(c).querySelector<HTMLElement>("[data-inspector-reads]");
+    /** Waits until the row's reads have landed. */
+    const landed = (c: HTMLElement) => waitFor(() => expect(reads(c)?.getAttribute("data-reads")).toBe("landed"));
+    /** The stats grid's figures: each its value — or what it says in its place — its unit, and its label. */
+    const stats = (c: HTMLElement) => [...panel(c).querySelectorAll("[data-read-stats] [data-pane-read]")].map((el) => [
+        el.querySelector("[data-read-value]")?.textContent ?? el.querySelector("[data-read-empty]")?.textContent ?? null,
+        el.querySelector("[data-read-unit]")?.textContent ?? null,
+        el.querySelector("[data-read-label]")?.textContent ?? null,
+    ]);
+    /** Every other read, in order: its place in the details, its kind, its title and its total. */
+    const others = (c: HTMLElement) => [...panel(c).querySelectorAll("[data-inspector-reads] [data-pane-read]:not([data-read='figure'])")].map((el) => [
+        Number(el.getAttribute("data-pane-read")), el.getAttribute("data-read"),
+        el.querySelector("[data-read-label]")?.textContent ?? null, el.querySelector("[data-read-total]")?.textContent ?? null,
+    ]);
+    /** One read, by its place in the details. */
+    const read = (c: HTMLElement, index: number): HTMLElement => panel(c).querySelector<HTMLElement>(`[data-pane-read='${index}']`)!;
+    /** A tags read's tags: each its words and its look. */
+    const tagsOf = (el: HTMLElement) => [...el.querySelectorAll("[data-flowchart-tag]")].map((tag) => [tag.textContent, tag.getAttribute("data-look")]);
+    /** A list's lines: each its name, its note, its value and its share. */
+    const linesOf = (el: HTMLElement) => [...el.querySelectorAll("[data-list-row]")].map((row) => [
+        row.children[0]!.children[0]!.textContent, row.children[0]!.children[1]?.textContent ?? null, row.children[1]!.textContent, row.children[2]!.textContent,
+    ]);
+    /** The histogram's bins, a slot each. */
+    const bins = (c: HTMLElement) => [...panel(c).querySelectorAll<HTMLElement>("[data-pane-bars] [role='listitem']")];
+    /** The bins darkened: the one under the pointer or focus. */
+    const active = (c: HTMLElement) => bins(c).flatMap((bin, i) => (bin.hasAttribute("data-active") ? [i] : []));
+    /** What the histogram's caption says. */
+    const caption = (c: HTMLElement) => panel(c).querySelector("[data-pane-caption]")?.textContent ?? null;
+    /** Where half and nine in ten of the sort chutes' parcels fall. */
+    const CHUTES_MARKS = "Half within 1h · nine in ten within 4h";
+
+    test("a state's reads stand after its head, in the details' order and in full — its figures side by side in one stats grid, every other read under its title with its total — before its form and its transitions (R35, R36)", async () => {
+        const c = await open();
+        await click(node(c, "CH*")!);
+        await landed(c);
+        expect(parts(c)).toEqual(["head", "reads", "fields:row", "transitions"]);
+        // Still in state is the inspector's alone: beside Parcels in the grid, each its value and its unit — Still in
+        // state has none — over its label.
+        expect(stats(c)).toEqual([["18,290", "parcels", "Parcels"], ["140", null, "Still in state"]]);
+        expect(others(c)).toEqual([
+            [2, "tags", "Flags", "1"], [3, "tags", "Equipment", "2"], [4, "tags", "Shifts", "4"],
+            [5, "histogram", "Time in state", "18,290 parcels"], [6, "list", "Service", "18,290 parcels"], [7, "list", "Exceptions", "67 parcels"],
+        ]);
+        // Every tag, each in its definition's look.
+        expect([2, 3, 4].map((i) => tagsOf(read(c, i)))).toEqual([
+            [["At risk", "wash"]],
+            [["Conveyor", "wash"], ["Scanner", "wash"]],
+            [["Early", "wash"], ["Late", "wash"], ["Night", "recipe"], ["Weekend", "neutral"]],
+        ]);
+        // The histogram across the pane: a slot a bin on the app's axis, and where half and nine in ten of its parcels fall.
+        expect([bins(c).length, [...read(c, 5).querySelectorAll("[data-pane-axis] [data-tick]")].map((tick) => tick.textContent), caption(c)])
+            .toEqual([12, ["0", "1h", "12h", "2d", "1w+"], CHUTES_MARKS]);
+        // Each list by value, every line: its name, its value and its share.
+        expect([linesOf(read(c, 6)), linesOf(read(c, 7))]).toEqual([
+            [["Standard", null, "10,425", "57%"], ["Priority", null, "4,390", "24%"], ["Economy", null, "2,378", "13%"], ["International", null, "1,097", "6%"]],
+            [["Missort", null, "41", "61%"], ["Chute full", null, "26", "39%"]],
+        ]);
+    });
+
+    test("the histogram's bin under the pointer or focus darkens, its caption its span, its count and its share; the bins are one stop on the keyboard, the arrows, Home and End moving between them (R36, R41)", async () => {
+        const c = await open();
+        await click(node(c, "CH*")!);
+        await landed(c);
+        expect(bins(c).map((bin) => bin.tabIndex)).toEqual([0, ...Array<number>(11).fill(-1)]);
+        await act(async () => { fireEvent.pointerEnter(bins(c)[2]!); });
+        expect([active(c), caption(c)]).toEqual([[2], "30m – 1h · 6,218 parcels · 34%"]);
+        await act(async () => { fireEvent.pointerLeave(bins(c)[2]!); });
+        expect([active(c), caption(c)]).toEqual([[], CHUTES_MARKS]);
+        // Focused, the first bin is the one stop; each key moves the focus, and the stop with it.
+        await act(async () => { bins(c)[0]!.focus(); });
+        expect([active(c), caption(c)]).toEqual([[0], "0 – 15m · 1,463 parcels · 8%"]);
+        const step = async (key: string) => {
+            await act(async () => { fireEvent.keyDown(document.activeElement!, { key }); });
+            return [bins(c).indexOf(document.activeElement as HTMLElement), active(c), caption(c)];
+        };
+        expect(await step("ArrowRight")).toEqual([1, [1], "15m – 30m · 4,024 parcels · 22%"]);
+        expect(await step("End")).toEqual([11, [11], "1w or more · 0 parcels · 0%"]);
+        expect(await step("ArrowDown")).toEqual([11, [11], "1w or more · 0 parcels · 0%"]);
+        expect(await step("ArrowLeft")).toEqual([10, [10], "4d – 1w · 0 parcels · 0%"]);
+        expect(await step("Home")).toEqual([0, [0], "0 – 15m · 1,463 parcels · 8%"]);
+        expect(await step("ArrowUp")).toEqual([0, [0], "0 – 15m · 1,463 parcels · 8%"]);
+        expect(bins(c).map((bin) => bin.tabIndex)).toEqual([0, ...Array<number>(11).fill(-1)]);
+        // The focus gone, the caption says where half and nine in ten fall again.
+        await act(async () => { (document.activeElement as HTMLElement).blur(); });
+        expect([active(c), caption(c)]).toEqual([[], CHUTES_MARKS]);
+    });
+
+    test("a transition's reads stand before its evidence: each list by value, its note beside its name, the first 8 then Show n more — and Show fewer once open (R35, R36)", async () => {
+        const c = await open();
+        await click(link(c, "l1")!);
+        await landed(c);
+        expect(parts(c)).toEqual(["head", "reads", "fields:row", "evidence"]);
+        expect([stats(c), others(c)]).toEqual([[], [
+            [0, "list", "Region", "18,460 parcels"], [1, "list", "Service", "18,460 parcels"], [2, "list", "Origin", "18,460 parcels"],
+        ]]);
+        // Region: four lines, none more to show.
+        expect([linesOf(read(c, 0)), read(c, 0).querySelector("[data-pane-more]")]).toEqual([[
+            ["Metro", null, "8,491", "46%"], ["Regional", null, "6,092", "33%"], ["Remote", null, "2,769", "15%"], ["Overseas", null, "1,108", "6%"],
+        ], null]);
+        // Origin: eleven lines, each its note — the first 8, then Show 3 more.
+        const origins = read(c, 2);
+        const more = origins.querySelector<HTMLButtonElement>("[data-pane-more]")!;
+        expect([linesOf(origins).length, linesOf(origins)[0], more.textContent, more.getAttribute("aria-expanded")])
+            .toEqual([8, ["Air hub", "84 late", "5,350", "29%"], "Show 3 more", "false"]);
+        await click(more);
+        expect([linesOf(origins).length, linesOf(origins)[10], more.textContent, more.getAttribute("aria-expanded")])
+            .toEqual([11, ["Locker bank", "0 late", "265", "1%"], "Show fewer", "true"]);
+        await click(more);
+        expect([linesOf(origins).length, more.textContent, more.getAttribute("aria-expanded")]).toEqual([8, "Show 3 more", "false"]);
+    });
+
+    test("a state there is no row of says no data under Details, where its reads would go (R33)", async () => {
+        const c = await open();
+        await click(node(c, "DSP")!);
+        await waitFor(() => expect(reads(c)?.getAttribute("data-reads")).toBe("none"));
+        expect([parts(c), reads(c)!.textContent, reads(c)!.querySelector("[data-read-empty]")?.textContent])
+            .toEqual([["head", "reads", "fields:row", "transitions"], `${m.detailsTitle()}${m.detailsNoData()}`, m.detailsNoData()]);
+    });
+
+    /** The depot's records, the states' parcels and exceptions their details, read whole — with their own Details, or not — read only, or not. */
+    const detailed = (options: { readonly readOnly: boolean; readonly own: boolean }) => ($: BlockBuilder<UIComponentType>): FlowchartTestProps => {
+        const evidence = $.let(Data.bind(ex.stateEvidence));
+        const states = $.let(Record.bind(ex.depotStates));
+        const inspector = $.const(East.function([ex.DepotState, FunctionType([ex.DepotState], NullType)], UIComponentType, (_$2, s, _update) =>
+            Text.Root(East.str`${s.name}'s own Details`)));
+        return {
+            ...records({ readOnly: options.readOnly })($),
+            states: Flowchart.states(states, {
+                label: "name", lane: "phase", order: "seq", members: (s) => s.slots,
+                details: Flowchart.details(evidence, {
+                    details: [
+                        Flowchart.figure("parcels", { label: "Parcels", unit: "parcels" }),
+                        Flowchart.list("exceptions", { label: "Exceptions", unit: "parcels", show: "inspector" }),
+                    ],
+                }),
+                ...(options.own ? { inspector } : {}),
+            }),
+        };
+    };
+
+    test("beside a kind's own Details its reads stand after the head, then the roles' form and the own Details in its form's place, then its transitions; read only, the reads the same and every field printed (R35, R13)", async () => {
+        const c = await mountRecords(detailed({ readOnly: false, own: true }), "SRD");
+        await click(node(c, "CH*")!);
+        await landed(c);
+        expect(parts(c)).toEqual(["head", "reads", "fields:row", "fields:custom", "transitions"]);
+        expect([stats(c), others(c)]).toEqual([[["18,290", "parcels", "Parcels"]], [[1, "list", "Exceptions", "67 parcels"]]]);
+        expect(panel(c).querySelector("[data-inspector-fields='custom']")!.textContent).toBe("Sort chutes (class)'s own Details");
+        reloadPage();
+        const ro = await mountRecords(detailed({ readOnly: true, own: true }), "SRD");
+        await click(node(ro, "CH*")!);
+        await landed(ro);
+        expect(parts(ro)).toEqual(["head", "reads", "fields:row", "transitions"]);
+        expect([stats(ro), others(ro)]).toEqual([[["18,290", "parcels", "Parcels"]], [[1, "list", "Exceptions", "67 parcels"]]]);
+        const all = [...editors(ro, "roles"), ...editors(ro, "fields")];
+        expect(all.length > 0 && all.every((editor) => editor.endsWith(":readonly")), all.join(", ")).toBe(true);
+        expect(panel(ro).querySelector("[data-inspector-action], [data-field-set], [data-field-clear]")).toBeNull();
     });
 });

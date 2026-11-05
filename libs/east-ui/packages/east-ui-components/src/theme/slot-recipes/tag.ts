@@ -16,6 +16,13 @@
  * Default `variant="outline"` is the spec base chip; `brand` / `dashed`
  * variants follow the spec `.chip.brand` / `.chip.dashed`.
  *
+ * A tag given no `colorPalette` draws in the chip's own colours, whatever its
+ * variant. A tag given one is `colored` — its renderer passes the variant
+ * prop with the palette — and `solid`, `subtle` and `outline` draw in that
+ * palette: solid filled with it and its contrast text, subtle on its subtle
+ * fill with its text, outline on one 1px rule of it with its text. A colour, a
+ * fill or a rule the author sets still wins, as over any variant.
+ *
  * @packageDocumentation
  */
 
@@ -26,9 +33,9 @@ export const tagSlotRecipe = defineSlotRecipe({
     slots: ["root", "label", "closeTrigger", "startElement", "endElement"],
     base: {
         root: {
-            /* A tag's chrome is neutral; the brand is the default palette, and
-             * Chakra's variants ring and fill from it. A `colorPalette` prop
-             * still selects another. */
+            /* A tag's chrome is neutral: each variant names its colours, and
+             * only a `colored` tag draws in its palette (the compound variants
+             * below). */
             colorPalette: "gray",
             display: "inline-flex",
             alignItems: "center",
@@ -63,6 +70,9 @@ export const tagSlotRecipe = defineSlotRecipe({
                     background: "bg.surface",
                     borderColor: "border.strong",
                     color: "brand.fg",
+                    /* Chakra's outline rings the tag inside, in its palette, as
+                     * well: the 1px rule is its one edge. */
+                    shadow: "none",
                 },
             },
             brand: {
@@ -110,7 +120,31 @@ export const tagSlotRecipe = defineSlotRecipe({
             compact: { root: { fontSize: "10px", lineHeight: "1", paddingX: "10px", paddingY: "5px", borderRadius: "4px", gap: "5px" } },
             comfortable: { root: { fontSize: "12.5px", lineHeight: "1", paddingX: "15px", paddingY: "9.75px", borderRadius: "6px", gap: "7px" } },
         },
+        // A tag given a `colorPalette`: the compound variants draw it there.
+        colored: {
+            true: {},
+        },
     },
+    compoundVariants: [
+        {
+            variant: "solid",
+            colored: true,
+            css: {
+                root: { background: "colorPalette.solid", borderColor: "colorPalette.solid", color: "colorPalette.contrast" },
+                closeTrigger: { color: "colorPalette.contrast", _hover: { color: "colorPalette.contrast" } },
+            },
+        },
+        {
+            variant: "subtle",
+            colored: true,
+            css: { root: { background: "colorPalette.subtle", color: "colorPalette.fg" } },
+        },
+        {
+            variant: "outline",
+            colored: true,
+            css: { root: { borderColor: "colorPalette.border", color: "colorPalette.fg" } },
+        },
+    ],
     defaultVariants: {
         variant: "outline",
         size: "md",

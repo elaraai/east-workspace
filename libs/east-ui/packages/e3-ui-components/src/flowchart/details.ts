@@ -68,7 +68,7 @@ type HistogramValue = Extract<FlowchartDetailRowValue[number], { type: "histogra
 type ListValue = Extract<FlowchartDetailRowValue[number], { type: "list" }>["value"];
 
 /** A tags read's looks: each a tag's, first defined, first shown. */
-type TagColors = Extract<FlowchartReadValue, { type: "tags" }>["value"]["colors"];
+export type FlowchartTagColors = Extract<FlowchartReadValue, { type: "tags" }>["value"]["colors"];
 
 /** The kinds that carry details. */
 export type FlowchartDetailsSort = "states" | "transitions";
@@ -211,6 +211,22 @@ export const pagedDetailRows: FlowchartPagedRows = (paged, keys) => {
     for (const row of read.value) rows.set(row.key as string, row.row.type === "some" ? encode(row.row.value) : null);
     return some(rows);
 };
+
+/**
+ * A Retry of the details (R34): each kind's paged read asked again what failed
+ * of it, at once — not after the retry gap a read alone waits — as a Retry
+ * asks a source of the rail (`defaultPagedRuntime.askAgain`). A kind read
+ * whole is read again as the read's attempt moves.
+ *
+ * @param kinds - The kinds carrying details
+ */
+export function askDetailsAgain(kinds: FlowchartDetailsKinds): void {
+    for (const kind of [kinds.states, kinds.transitions]) {
+        const paged = kind === undefined ? undefined : getSomeorUndefined(kind.details.paged);
+        const source = paged === undefined ? undefined : pagedSourceOf(paged);
+        if (source !== undefined) defaultPagedRuntime.askAgain(source);
+    }
+}
 
 /** One kind's details as one read found them: each drawn key's row as bytes once landed, `undefined` while in flight; or why it failed. */
 interface KindRead {
@@ -739,8 +755,10 @@ const CARD_RULE = 1;
 const CARD_PAD = 12;
 /** Between two reads. */
 const READ_GAP = 12;
-/** What the reads draw across: the card inside its edges and its padding. */
-const CARD_INNER_W = DETAILS_CARD_W - 2 * CARD_EDGE - 2 * CARD_PAD;
+/** What the reads draw across: the card inside its edges and its padding — a card's bars and their axis span it. */
+export const DETAILS_INNER_W = DETAILS_CARD_W - 2 * CARD_EDGE - 2 * CARD_PAD;
+/** The card's head with its top edge and the rule under it: where an editor renaming the state sits. */
+export const DETAILS_HEAD_H = CARD_EDGE + CARD_HEAD + CARD_RULE;
 /** A figure's line — and *no data* in its place. */
 const FIGURE_H = 16;
 /** A line of tags — and *no data* or *none* in its place. */
@@ -841,8 +859,13 @@ const PLACEHOLDER: FlowchartCardDraws = { kind: "placeholder" };
 /** *No data*. */
 const NO_DATA: FlowchartCardDraws = { kind: "noData" };
 
-/** A list's lines on the canvas, as its read gives them: 1 to 3. */
-function topOf(read: Extract<FlowchartReadValue, { type: "list" }>["value"]): number {
+/**
+ * A list's lines on the canvas, as its read gives them (R29): 1 to 3.
+ *
+ * @param read - The list read
+ * @returns How many lines it draws on a card or a label
+ */
+export function listTopOf(read: Extract<FlowchartReadValue, { type: "list" }>["value"]): number {
     return Math.min(3, Math.max(1, Number(read.top)));
 }
 
@@ -862,8 +885,16 @@ export function listLines(items: ListValue, top: number): FlowchartListLine[] {
     }));
 }
 
-/** A row's tags in the order their looks are defined, then the rest in the row's order (R30): each once. */
-function orderedTags(colors: TagColors, tags: readonly string[]): string[] {
+/**
+ * A row's tags in the order their looks are defined, then the rest in the
+ * row's order (R30): each once — as a card, the inspector and the legend show
+ * them.
+ *
+ * @param colors - The read's looks
+ * @param tags - The row's tags
+ * @returns The tags, in that order
+ */
+export function orderedTags(colors: FlowchartTagColors, tags: readonly string[]): string[] {
     const held = new SortedSet<string>(tags, compareKey);
     const placed = new SortedSet<string>([], compareKey);
     const out: string[] = [];
@@ -928,9 +959,9 @@ function drawsOf(
             return bins === undefined || counts === undefined || !(counts.total > 0) ? NO_DATA : { kind: "bars", bars: barsOf(bins, counts.counts) };
         }
         case "list":
-            return at?.type !== "list" ? NO_DATA : { kind: "list", lines: listLines(at.value, topOf(read.value)) };
+            return at?.type !== "list" ? NO_DATA : { kind: "list", lines: listLines(at.value, listTopOf(read.value)) };
         case "tags":
-            return at?.type !== "tags" ? NO_DATA : { kind: "tags", ...tagLines(orderedTags(read.value.colors, at.value), CARD_INNER_W - column - TAG_LABEL_GAP, measure) };
+            return at?.type !== "tags" ? NO_DATA : { kind: "tags", ...tagLines(orderedTags(read.value.colors, at.value), DETAILS_INNER_W - column - TAG_LABEL_GAP, measure) };
     }
 }
 
@@ -946,7 +977,7 @@ function heightOf(read: FlowchartReadValue, draws: FlowchartCardDraws): number {
         case "histogram":
             return TITLE_H + BLOCK_GAP + (draws.kind === "noData" ? NO_DATA_H : BARS_H + BLOCK_GAP + AXIS_H);
         case "list": {
-            const lines = draws.kind === "list" ? draws.lines.length : draws.kind === "placeholder" ? topOf(read.value) : 0;
+            const lines = draws.kind === "list" ? draws.lines.length : draws.kind === "placeholder" ? listTopOf(read.value) : 0;
             return TITLE_H + BLOCK_GAP + (lines === 0 ? NO_DATA_H : lines * LIST_ROW_H + (lines - 1) * BLOCK_GAP);
         }
     }
@@ -1037,7 +1068,7 @@ export function detailsLabelOf(kind: FlowchartKindDetails, key: string): Flowcha
                 kind: "figure", label: read.value.label, value: at?.type === "figure" ? getSomeorUndefined(at.value) : undefined, unit: getSomeorUndefined(read.value.unit),
             });
         } else if (read.type === "list") {
-            const top = topOf(read.value);
+            const top = listTopOf(read.value);
             if (row === undefined) {
                 for (let i = 0; i < top; i++) lines.push(PLACEHOLDER_LINE);
                 return;

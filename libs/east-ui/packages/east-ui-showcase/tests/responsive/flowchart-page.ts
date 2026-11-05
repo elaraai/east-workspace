@@ -179,6 +179,40 @@ export async function boxOf(locator: Locator): Promise<Box> {
 }
 
 /**
+ * A box's middle.
+ *
+ * @param box - The box, in client px
+ * @returns Its middle, in client px
+ */
+export function middleOf(box: Box): { x: number; y: number } {
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+/**
+ * Scroll the canvas so a point of it stands in the middle of what main shows —
+ * across it, and down it as well where asked — as the viewer's scrollbars
+ * bring it there, the canvas stopping at its ends; and wait for the page to be
+ * at rest. The depot's cards draw their details, so its lanes and rows reach
+ * past main at every frame these specs size: what a card is carried to is brought
+ * into view first, clear of the 48px along main's edges where a card carried
+ * there scrolls the canvas.
+ *
+ * @param page - The page
+ * @param root - The flowchart's root
+ * @param at - The point, in client px, as the canvas is scrolled now
+ * @param down - Whether it is brought to main's middle down as well as across
+ */
+export async function centreInMain(page: Page, root: Locator, at: { x: number; y: number }, down = false): Promise<void> {
+    await root.evaluate((el, [p, d]) => {
+        const scroll = el.querySelector<HTMLElement>("[data-flowchart-scroll]")!;
+        const view = scroll.getBoundingClientRect();
+        scroll.scrollLeft += p.x - (view.left + scroll.clientLeft + scroll.clientWidth / 2);
+        if (d) scroll.scrollTop += p.y - (view.top + scroll.clientTop + scroll.clientHeight / 2);
+    }, [at, down] as const);
+    await settled(page);
+}
+
+/**
  * Press a card and carry it past the drag threshold — the drag is in flight.
  *
  * @param page - The page
@@ -201,17 +235,33 @@ export async function pickUp(page: Page, card: Locator): Promise<{ x: number; y:
 
 /**
  * Carry the picked-up card to a point of the canvas — once main holds it, no
- * pane and nothing of the page over it — and let it rest there.
+ * pane and nothing of the page over it — and let it rest there. A point given
+ * as its read is read again once the card rests, and the card carried on to
+ * where it stands then: a card carried in from a pinned pane crosses the 48px
+ * along main's start, where the canvas scrolls under it while it can, so what
+ * it is carried to moves on the way. Resting in main clear of its edges, the
+ * card scrolls the canvas no further: read again, the point holds still.
  *
  * @param page - The page
  * @param root - The flowchart's root
- * @param at - The point, in client px
+ * @param at - The point, in client px, or its read
  * @param steps - The moves the mouse makes on its way
  */
-export async function carryTo(page: Page, root: Locator, at: { x: number; y: number }, steps = 8): Promise<void> {
-    await expect.poll(() => root.evaluate((el, p) => el.querySelector("[data-frame-slot='main']")!.contains(document.elementFromPoint(p.x, p.y)), at),
-        `main holds (${Math.round(at.x)}, ${Math.round(at.y)})`).toBe(true);
-    await page.mouse.move(at.x, at.y, { steps });
+export async function carryTo(page: Page, root: Locator, at: { x: number; y: number } | (() => Promise<{ x: number; y: number }>), steps = 8): Promise<void> {
+    const carry = async (p: { x: number; y: number }): Promise<void> => {
+        await expect.poll(() => root.evaluate((el, q) => el.querySelector("[data-frame-slot='main']")!.contains(document.elementFromPoint(q.x, q.y)), p),
+            `main holds (${Math.round(p.x)}, ${Math.round(p.y)})`).toBe(true);
+        await page.mouse.move(p.x, p.y, { steps });
+    };
+    if (typeof at !== "function") return carry(at);
+    const first = await at();
+    await carry(first);
+    await settled(page);
+    const then = await at();
+    if (then.x === first.x && then.y === first.y) return;
+    await carry(then);
+    await settled(page);
+    expect(await at(), "what the card is carried to holds still once it rests").toEqual(then);
 }
 
 /**

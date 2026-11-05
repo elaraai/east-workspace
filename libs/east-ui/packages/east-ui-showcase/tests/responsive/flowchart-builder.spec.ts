@@ -17,7 +17,10 @@
  *   dropped on a lane, a transition's card on a transition and a state dragged
  *   across lanes, then Save — each record through its patch door, the drafts
  *   retiring as the records read them back, no banner — and the flowchart,
- *   mounted again over the records, draws what Save committed;
+ *   mounted again over the records, draws what Save committed; its cards draw
+ *   their details, so its lanes reach past main, and the canvas is scrolled to
+ *   bring each drop's target to main's middle first, as the viewer's scrollbar
+ *   brings it there, under a dragged state too;
  * - **the host's props** (`flowchartDepotTopDown`): the host hears a state, a
  *   transition and a decision selected and a path ⌥-clicked; the minimap is
  *   drawn over the canvas, inside main, framed as the recipe frames it, and
@@ -38,7 +41,7 @@ import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { frameAt } from "./builder-frame";
 import { settled } from "./settle";
-import { CARRY_WINDOW, boxOf, boxesOf, captionOf, cardOf, carryTo, midLine, openFlowchart, openTab, paneOpen, pickUp, remount, sizeTo } from "./flowchart-page";
+import { CARRY_WINDOW, boxOf, boxesOf, captionOf, cardOf, carryTo, centreInMain, middleOf, midLine, openFlowchart, openTab, paneOpen, pickUp, remount, sizeTo } from "./flowchart-page";
 
 /** The inspector's open width (`Flowchart Builder Spec.md` §8). */
 const INSPECTOR = 320;
@@ -151,17 +154,19 @@ function inkOf(page: Page, token: string): Promise<string> {
 /**
  * Drag a state's card by the mouse to a point of the canvas, past the move's threshold. The card is hovered first —
  * locator actionability brings it into the page's view and waits for a stable hit target, as `pickUp` does: a pane
- * collapsing, or an earlier drop, can leave it below the window, where raw coordinates press nothing — and the point is
- * read after, then carried to once main holds it (`carryTo`).
+ * collapsing, or an earlier drop, can leave it below the window, where raw coordinates press nothing — then pressed and
+ * carried past the threshold: the move is in flight, the card faded where it stands. The point is read after — what
+ * reads it may scroll the canvas under the carried card first — then carried to once main holds it (`carryTo`).
  */
 async function dragState(page: Page, root: Locator, key: string, to: () => Promise<{ x: number; y: number }>): Promise<void> {
     const card = root.locator(`[data-flowchart-node="${key}"]`);
     await card.hover();
-    const box = await boxOf(card);
-    const at = await to();
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    const from = middleOf(await boxOf(card));
+    await page.mouse.move(from.x, from.y);
     await page.mouse.down();
-    await carryTo(page, root, at, 10);
+    await page.mouse.move(from.x + 12, from.y + 12, { steps: 3 });
+    await expect(card).toHaveCSS("opacity", "0.3");
+    await carryTo(page, root, await to(), 10);
     await page.mouse.up();
     await settled(page);
 }
@@ -178,8 +183,10 @@ test.describe("The depot's records on the e3 the page runs (#1251, #1503, FB39)"
         const pending = root.locator("[data-flowchart-pending]");
         await expect(pending).toHaveText(" · 0 pending");
 
-        // A step: the exception desk, onto the Sort lane under the chutes — a new state, selected.
+        // A step: the exception desk, onto the Sort lane under the chutes — a new state, selected. The canvas is
+        // scrolled across till the lane stands in main's middle.
         await openTab(page, root, "Steps");
+        await centreInMain(page, root, middleOf(await boxOf(root.locator("[data-flowchart-band='sort']"))));
         await pickUp(page, cardOf(root, "desk"));
         const [chutes, sort] = await boxesOf(root, ["[data-flowchart-node='CH*']", "[data-flowchart-band='sort']"]);
         await carryTo(page, root, { x: sort!.x + sort!.width / 2, y: chutes!.y + chutes!.height + 20 });
@@ -190,11 +197,13 @@ test.describe("The depot's records on the e3 the page runs (#1251, #1503, FB39)"
         const desk = (await added.getAttribute("data-flowchart-node"))!;
         await expect(pending).toHaveText(" · 1 pending");
 
-        // A transition: the chutes' to Sorted, retyped observed.
+        // A transition: the chutes' to Sorted, retyped observed — its line, round the desk now standing between them,
+        // scrolled across and down to main's middle.
         await paneOpen(page, root, "overlay");
         await openTab(page, root, "Transitions");
+        await centreInMain(page, root, await midLine(root, "l5"), true);
         await pickUp(page, cardOf(root, "reroute"));
-        await carryTo(page, root, await midLine(root, "l5"));
+        await carryTo(page, root, () => midLine(root, "l5"));
         await expect.poll(() => captionOf(page)).toEqual({ text: "onto CH* → SRD", refused: false });
         await page.mouse.up();
         await expect(pending).toHaveText(" · 2 pending");
@@ -203,8 +212,10 @@ test.describe("The depot's records on the e3 the page runs (#1251, #1503, FB39)"
         await root.getByRole("button", { name: "Collapse Library" }).click();
         await settled(page);
         expect(await laneOf(root, "LDD")).toBe("dispatch");
-        // Into the Sort band, at the card's height, in the part of the band main shows — read once the card is in view.
+        // Into the Sort band, at the card's height, in the part of the band main shows — the band two lanes off: the
+        // canvas scrolled across under the carried card till it stands in main's middle, then read.
         await dragState(page, root, "LDD", async () => {
+            await centreInMain(page, root, middleOf(await boxOf(root.locator("[data-flowchart-band='sort']"))));
             const [loaded, sortBand, main] = await boxesOf(root, ["[data-flowchart-node='LDD']", "[data-flowchart-band='sort']", "[data-frame-slot='main']"]);
             const left = Math.max(sortBand!.x, main!.x), right = Math.min(sortBand!.x + sortBand!.width, main!.x + main!.width);
             return { x: (left + right) / 2, y: loaded!.y + loaded!.height / 2 };

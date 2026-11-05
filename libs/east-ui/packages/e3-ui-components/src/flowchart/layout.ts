@@ -68,7 +68,7 @@ const TD_LANE_GAP = 72;
 /** Where the details draw on the cards, the room beside the widest label between two cards (R24). */
 const LABEL_ROOM = 24;
 /** A label's line past its first (§4). */
-const LABEL_LINE_H = 13;
+export const LABEL_LINE_H = 13;
 /** A label's width a character, mono 10 (§4). */
 const LABEL_CHAR_W = 5.8;
 /** A label's padding across. */

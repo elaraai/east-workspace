@@ -23,8 +23,10 @@ import e3 from "@elaraai/e3";
 // - `flowchartDepot`, the depot in full: the states and the transitions read
 //   through their sources of the rail and edited through their patch doors, a
 //   preset narrowing both to one flow; the lanes and the decisions read
-//   whole; and the library's Steps, Transitions, Lanes and Owners tabs, each
-//   list of cards following its own source;
+//   whole; both kinds' details on the cards, the labels, the legend and the
+//   inspector, read by the drawn rows' keys; and the library's Steps,
+//   Transitions, Lanes and Owners tabs, each list of cards following its own
+//   source;
 // - `flowchartDepotEditing`, the four records bound editable and read whole,
 //   and the app's check on a drafted state;
 // - `flowchartDepotDimmed`, the rail's choices drawn as context: every row
@@ -38,7 +40,9 @@ import e3 from "@elaraai/e3";
 // - `flowchartFlagColors`, each state's flags as tags on its card and in the
 //   legend, their looks read from the app's own data;
 // - `flowchartTicketMinutes`, a support desk's minutes in state on each card,
-//   counted into the app's own uneven bins, the axis naming the edges it lists.
+//   counted into the app's own uneven bins, the axis naming the edges it lists;
+// - `flowchartTicketMinutesLinear`, the same bins drawn to scale: each bar as
+//   wide as its span and as tall as its count over it.
 //
 // Each binds its records from e3, so the showcase draws each on e3-web. A
 // flowchart fills its parent, as a ui task's page fills the window: each
@@ -174,12 +178,165 @@ export const MoveEvidence = StructType({
     service: DictType(StringType, IntegerType),
     origins: DictType(StringType, StructType({ parcels: IntegerType, late: IntegerType })),
 });
+// What the evidence task last wrote, made up: a row a state but Dispatched, whose card says no data.
 export const stateEvidence = e3.record("flowchart_depot_state_evidence", DictType(StringType, StateEvidence), {
-    initial: new Map(),
+    initial: new Map([
+        ["ARV", {
+            flags: new Set<string>(), equipment: new Set(["Conveyor"]), shifts: new Set(["Early", "Late", "Night"]),
+            parcels: 18460n, waiting: 60n,
+            hours: [5538n, 6277n, 3692n, 1846n, 738n, 369n, 0n, 0n, 0n, 0n, 0n, 0n],
+            service: new Map([["Standard", 10337n], ["Priority", 4615n], ["Economy", 2400n], ["International", 1108n]]),
+            exceptions: new Map([["Late arrival", 52n], ["Damaged packaging", 11n]]),
+        }],
+        ["SCN", {
+            flags: new Set(["Fragile"]), equipment: new Set(["Scanner", "Conveyor"]), shifts: new Set(["Early", "Late", "Night"]),
+            parcels: 18390n, waiting: 35n,
+            hours: [7723n, 5701n, 2759n, 1471n, 552n, 184n, 0n, 0n, 0n, 0n, 0n, 0n],
+            service: new Map([["Standard", 10298n], ["Priority", 4598n], ["Economy", 2391n], ["International", 1103n]]),
+            exceptions: new Map([["Unreadable label", 61n], ["Damaged packaging", 9n]]),
+        }],
+        ["IND", {
+            flags: new Set(["Oversize", "Fragile"]), equipment: new Set(["Conveyor", "Scanner"]), shifts: new Set(["Early", "Late"]),
+            parcels: 18390n, waiting: 120n,
+            hours: [2207n, 4781n, 5517n, 3310n, 1655n, 736n, 184n, 0n, 0n, 0n, 0n, 0n],
+            service: new Map([["Standard", 10482n], ["Priority", 4414n], ["Economy", 2391n], ["International", 1103n]]),
+            exceptions: new Map([["Missort", 22n]]),
+        }],
+        ["LBL", {
+            flags: new Set(["At risk"]), equipment: new Set(["Label printer", "Scanner"]), shifts: new Set(["Late"]),
+            parcels: 980n, waiting: 15n,
+            hours: [20n, 59n, 137n, 255n, 273n, 157n, 59n, 20n, 0n, 0n, 0n, 0n],
+            service: new Map([["Standard", 471n], ["Priority", 294n], ["Economy", 137n], ["International", 78n]]),
+            exceptions: new Map([["Unreadable label", 712n], ["Address check", 268n]]),
+        }],
+        ["CH*", {
+            flags: new Set(["At risk"]), equipment: new Set(["Conveyor", "Scanner"]), shifts: new Set(["Early", "Late", "Night", "Weekend"]),
+            parcels: 18290n, waiting: 140n,
+            hours: [1463n, 4024n, 6218n, 4024n, 1646n, 732n, 183n, 0n, 0n, 0n, 0n, 0n],
+            service: new Map([["Standard", 10425n], ["Priority", 4390n], ["Economy", 2378n], ["International", 1097n]]),
+            exceptions: new Map([["Missort", 41n], ["Chute full", 26n]]),
+        }],
+        ["SRD", {
+            flags: new Set(["Fragile"]), equipment: new Set(["Conveyor"]), shifts: new Set(["Early", "Late"]),
+            parcels: 17210n, waiting: 50n,
+            hours: [861n, 2065n, 4303n, 4818n, 3098n, 1377n, 516n, 172n, 0n, 0n, 0n, 0n],
+            service: new Map([["Standard", 9981n], ["Priority", 4303n], ["Economy", 2065n], ["International", 861n]]),
+            exceptions: new Map([["Missort", 14n], ["Damaged packaging", 6n]]),
+        }],
+        ["HLD", {
+            flags: new Set(["Customs", "Hazmat", "At risk", "Cold chain", "Oversize"]), equipment: new Set(["Forklift", "X-ray", "Scanner"]), shifts: new Set(["Early", "Late"]),
+            parcels: 1080n, waiting: 70n,
+            hours: [0n, 11n, 22n, 54n, 97n, 151n, 183n, 162n, 173n, 130n, 65n, 32n],
+            service: new Map([["Standard", 335n], ["Priority", 130n], ["Economy", 76n], ["International", 539n]]),
+            exceptions: new Map([["Missing documents", 412n], ["Duty unpaid", 236n], ["Address check", 98n], ["Damaged packaging", 44n]]),
+        }],
+        ["CLR", {
+            flags: new Set(["Customs"]), equipment: new Set(["Label printer", "Scanner", "X-ray"]), shifts: new Set(["Early", "Late"]),
+            parcels: 18170n, waiting: 18n,
+            hours: [1817n, 3634n, 4542n, 3634n, 2180n, 1454n, 727n, 182n, 0n, 0n, 0n, 0n],
+            service: new Map([["Standard", 10175n], ["Priority", 4361n], ["Economy", 2362n], ["International", 1272n]]),
+            exceptions: new Map([["Duty refund", 12n]]),
+        }],
+        ["LDD", {
+            flags: new Set(["Hazmat", "Oversize"]), equipment: new Set(["Forklift", "Scanner"]), shifts: new Set(["Early", "Late", "Night"]),
+            parcels: 17030n, waiting: 210n,
+            hours: [681n, 1362n, 2725n, 4088n, 3747n, 2384n, 1362n, 511n, 170n, 0n, 0n, 0n],
+            service: new Map([["Standard", 9707n], ["Priority", 4087n], ["Economy", 2214n], ["International", 1022n]]),
+            exceptions: new Map([["Vehicle late", 140n], ["Overweight", 31n]]),
+        }],
+        ["RCV", {
+            flags: new Set(["Fragile"]), equipment: new Set(["Scanner"]), shifts: new Set(["Weekend"]),
+            parcels: 640n, waiting: 25n,
+            hours: [64n, 115n, 154n, 141n, 90n, 51n, 19n, 6n, 0n, 0n, 0n, 0n],
+            service: new Map([["Standard", 397n], ["Priority", 128n], ["Economy", 77n], ["International", 38n]]),
+            exceptions: new Map([["Missing documents", 18n]]),
+        }],
+        ["INS", {
+            flags: new Set(["At risk", "Customs"]), equipment: new Set(["X-ray"]), shifts: new Set(["Early"]),
+            parcels: 640n, waiting: 30n,
+            hours: [0n, 13n, 38n, 77n, 128n, 154n, 115n, 64n, 38n, 13n, 0n, 0n],
+            service: new Map([["Standard", 397n], ["Priority", 128n], ["Economy", 77n], ["International", 38n]]),
+            exceptions: new Map([["Damaged packaging", 27n]]),
+        }],
+        ["RSD", {
+            flags: new Set<string>(), equipment: new Set(["Scanner"]), shifts: new Set(["Early"]),
+            parcels: 610n, waiting: 0n,
+            hours: [122n, 183n, 159n, 85n, 43n, 18n, 0n, 0n, 0n, 0n, 0n, 0n],
+            service: new Map([["Standard", 378n], ["Priority", 122n], ["Economy", 73n], ["International", 37n]]),
+            exceptions: new Map<string, bigint>(),
+        }],
+    ]),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
+// A row a transition with a volume: the in-place one and the one to Delivered have none, and their labels keep their evidence alone.
 export const moveEvidence = e3.record("flowchart_depot_move_evidence", DictType(StringType, MoveEvidence), {
-    initial: new Map(),
+    initial: new Map([
+        ["l1", {
+            region: new Map([["Metro", 8491n], ["Regional", 6092n], ["Remote", 2769n], ["Overseas", 1108n]]),
+            service: new Map([["Standard", 10337n], ["Priority", 4615n], ["Economy", 2400n], ["International", 1108n]]),
+            origins: new Map([["Air hub", { parcels: 5350n, late: 84n }], ["Harbour hub", { parcels: 4377n, late: 135n }], ["Rail yard", { parcels: 2233n, late: 27n }], ["Depot 02", { parcels: 1680n, late: 20n }], ["Depot 05", { parcels: 1349n, late: 9n }], ["Depot 07", { parcels: 995n, late: 13n }], ["Depot 11", { parcels: 730n, late: 4n }], ["City counter", { parcels: 619n, late: 7n }], ["Partner pickup", { parcels: 508n, late: 11n }], ["Returns desk", { parcels: 354n, late: 2n }], ["Locker bank", { parcels: 265n, late: 0n }]]),
+        }],
+        ["l2", {
+            region: new Map([["Metro", 8459n], ["Regional", 6069n], ["Remote", 2759n], ["Overseas", 1103n]]),
+            service: new Map([["Standard", 10298n], ["Priority", 4598n], ["Economy", 2391n], ["International", 1103n]]),
+            origins: new Map([["Air hub", { parcels: 5330n, late: 84n }], ["Harbour hub", { parcels: 4361n, late: 134n }], ["Rail yard", { parcels: 2224n, late: 26n }], ["Depot 02", { parcels: 1674n, late: 20n }], ["Depot 05", { parcels: 1343n, late: 9n }], ["Depot 07", { parcels: 991n, late: 13n }], ["Depot 11", { parcels: 727n, late: 4n }], ["City counter", { parcels: 617n, late: 7n }], ["Partner pickup", { parcels: 507n, late: 11n }], ["Returns desk", { parcels: 352n, late: 2n }], ["Locker bank", { parcels: 264n, late: 0n }]]),
+        }],
+        ["l4", {
+            region: new Map([["Metro", 8153n], ["Regional", 5726n], ["Remote", 2603n], ["Overseas", 868n]]),
+            service: new Map([["Standard", 9889n], ["Priority", 4164n], ["Economy", 2256n], ["International", 1041n]]),
+            origins: new Map([["Air hub", { parcels: 5029n, late: 79n }], ["Harbour hub", { parcels: 4114n, late: 127n }], ["Rail yard", { parcels: 2099n, late: 25n }], ["Depot 02", { parcels: 1579n, late: 19n }], ["Depot 05", { parcels: 1267n, late: 8n }], ["Depot 07", { parcels: 935n, late: 12n }], ["Depot 11", { parcels: 686n, late: 4n }], ["City counter", { parcels: 582n, late: 6n }], ["Partner pickup", { parcels: 478n, late: 10n }], ["Returns desk", { parcels: 332n, late: 2n }], ["Locker bank", { parcels: 249n, late: 0n }]]),
+        }],
+        ["l5", {
+            region: new Map([["Metro", 8376n], ["Regional", 6009n], ["Remote", 2732n], ["Overseas", 1093n]]),
+            service: new Map([["Standard", 10380n], ["Priority", 4370n], ["Economy", 2367n], ["International", 1093n]]),
+            origins: new Map([["Air hub", { parcels: 5277n, late: 83n }], ["Harbour hub", { parcels: 4318n, late: 133n }], ["Rail yard", { parcels: 2203n, late: 26n }], ["Depot 02", { parcels: 1657n, late: 20n }], ["Depot 05", { parcels: 1330n, late: 9n }], ["Depot 07", { parcels: 981n, late: 13n }], ["Depot 11", { parcels: 720n, late: 4n }], ["City counter", { parcels: 611n, late: 7n }], ["Partner pickup", { parcels: 502n, late: 11n }], ["Returns desk", { parcels: 349n, late: 2n }], ["Locker bank", { parcels: 262n, late: 0n }]]),
+        }],
+        ["l6", {
+            region: new Map([["Metro", 1179n], ["Regional", 758n], ["Remote", 421n], ["Overseas", 6062n]]),
+            service: new Map([["Standard", 2610n], ["Priority", 1010n], ["Economy", 589n], ["International", 4211n]]),
+            origins: new Map([["Air hub", { parcels: 2441n, late: 38n }], ["Harbour hub", { parcels: 1997n, late: 62n }], ["Rail yard", { parcels: 1018n, late: 12n }], ["Depot 02", { parcels: 766n, late: 9n }], ["Depot 05", { parcels: 615n, late: 4n }], ["Depot 07", { parcels: 454n, late: 6n }], ["Depot 11", { parcels: 333n, late: 2n }], ["City counter", { parcels: 282n, late: 3n }], ["Partner pickup", { parcels: 232n, late: 5n }], ["Returns desk", { parcels: 161n, late: 1n }], ["Locker bank", { parcels: 121n, late: 0n }]]),
+        }],
+        ["l7", {
+            region: new Map([["Metro", 1169n], ["Regional", 752n], ["Remote", 418n], ["Overseas", 6011n]]),
+            service: new Map([["Standard", 2589n], ["Priority", 1002n], ["Economy", 585n], ["International", 4174n]]),
+            origins: new Map([["Air hub", { parcels: 2420n, late: 38n }], ["Harbour hub", { parcels: 1980n, late: 61n }], ["Rail yard", { parcels: 1010n, late: 12n }], ["Depot 02", { parcels: 760n, late: 9n }], ["Depot 05", { parcels: 610n, late: 4n }], ["Depot 07", { parcels: 450n, late: 6n }], ["Depot 11", { parcels: 330n, late: 2n }], ["City counter", { parcels: 280n, late: 3n }], ["Partner pickup", { parcels: 230n, late: 5n }], ["Returns desk", { parcels: 160n, late: 1n }], ["Locker bank", { parcels: 120n, late: 0n }]]),
+        }],
+        ["l8", {
+            region: new Map([["Metro", 3296n], ["Regional", 2472n], ["Remote", 1154n], ["Overseas", 1318n]]),
+            service: new Map([["Standard", 4120n], ["Priority", 1813n], ["Economy", 989n], ["International", 1318n]]),
+            origins: new Map([["Air hub", { parcels: 2388n, late: 37n }], ["Harbour hub", { parcels: 1954n, late: 60n }], ["Rail yard", { parcels: 997n, late: 12n }], ["Depot 02", { parcels: 750n, late: 9n }], ["Depot 05", { parcels: 602n, late: 4n }], ["Depot 07", { parcels: 444n, late: 6n }], ["Depot 11", { parcels: 326n, late: 2n }], ["City counter", { parcels: 276n, late: 3n }], ["Partner pickup", { parcels: 227n, late: 5n }], ["Returns desk", { parcels: 158n, late: 1n }], ["Locker bank", { parcels: 118n, late: 0n }]]),
+        }],
+        ["l9", {
+            region: new Map([["Metro", 8003n], ["Regional", 5620n], ["Remote", 2555n], ["Overseas", 852n]]),
+            service: new Map([["Standard", 9876n], ["Priority", 4258n], ["Economy", 2044n], ["International", 852n]]),
+            origins: new Map([["Air hub", { parcels: 4936n, late: 78n }], ["Harbour hub", { parcels: 4038n, late: 124n }], ["Rail yard", { parcels: 2060n, late: 24n }], ["Depot 02", { parcels: 1550n, late: 18n }], ["Depot 05", { parcels: 1244n, late: 8n }], ["Depot 07", { parcels: 918n, late: 12n }], ["Depot 11", { parcels: 673n, late: 4n }], ["City counter", { parcels: 571n, late: 6n }], ["Partner pickup", { parcels: 469n, late: 10n }], ["Returns desk", { parcels: 326n, late: 2n }], ["Locker bank", { parcels: 245n, late: 0n }]]),
+        }],
+        ["l11", {
+            region: new Map([["Metro", 294n], ["Regional", 274n], ["Remote", 216n], ["Overseas", 196n]]),
+            service: new Map([["Standard", 471n], ["Priority", 294n], ["Economy", 137n], ["International", 78n]]),
+            origins: new Map([["Air hub", { parcels: 283n, late: 4n }], ["Harbour hub", { parcels: 232n, late: 7n }], ["Rail yard", { parcels: 119n, late: 1n }], ["Depot 02", { parcels: 89n, late: 1n }], ["Depot 05", { parcels: 72n, late: 0n }], ["Depot 07", { parcels: 53n, late: 1n }], ["Depot 11", { parcels: 39n, late: 0n }], ["City counter", { parcels: 33n, late: 0n }], ["Partner pickup", { parcels: 27n, late: 1n }], ["Returns desk", { parcels: 19n, late: 0n }], ["Locker bank", { parcels: 14n, late: 0n }]]),
+        }],
+        ["l12", {
+            region: new Map([["Metro", 292n], ["Regional", 273n], ["Remote", 215n], ["Overseas", 195n]]),
+            service: new Map([["Standard", 467n], ["Priority", 293n], ["Economy", 137n], ["International", 78n]]),
+            origins: new Map([["Air hub", { parcels: 281n, late: 4n }], ["Harbour hub", { parcels: 231n, late: 7n }], ["Rail yard", { parcels: 118n, late: 1n }], ["Depot 02", { parcels: 89n, late: 1n }], ["Depot 05", { parcels: 71n, late: 0n }], ["Depot 07", { parcels: 53n, late: 1n }], ["Depot 11", { parcels: 39n, late: 0n }], ["City counter", { parcels: 33n, late: 0n }], ["Partner pickup", { parcels: 27n, late: 1n }], ["Returns desk", { parcels: 19n, late: 0n }], ["Locker bank", { parcels: 14n, late: 0n }]]),
+        }],
+        ["l13", {
+            region: new Map([["Metro", 4570n], ["Regional", 2989n], ["Remote", 1055n], ["Overseas", 176n]]),
+            service: new Map([["Standard", 5450n], ["Priority", 2285n], ["Economy", 1055n]]),
+            origins: new Map([["Air hub", { parcels: 2549n, late: 40n }], ["Harbour hub", { parcels: 2084n, late: 64n }], ["Rail yard", { parcels: 1063n, late: 13n }], ["Depot 02", { parcels: 800n, late: 9n }], ["Depot 05", { parcels: 642n, late: 4n }], ["Depot 07", { parcels: 474n, late: 6n }], ["Depot 11", { parcels: 347n, late: 2n }], ["City counter", { parcels: 295n, late: 3n }], ["Partner pickup", { parcels: 242n, late: 5n }], ["Returns desk", { parcels: 168n, late: 1n }], ["Locker bank", { parcels: 126n, late: 0n }]]),
+        }],
+        ["r1", {
+            region: new Map([["Metro", 371n], ["Regional", 192n], ["Remote", 77n]]),
+            service: new Map([["Standard", 397n], ["Priority", 128n], ["Economy", 77n], ["International", 38n]]),
+            origins: new Map([["Air hub", { parcels: 187n, late: 3n }], ["Harbour hub", { parcels: 152n, late: 5n }], ["Rail yard", { parcels: 77n, late: 1n }], ["Depot 02", { parcels: 58n, late: 1n }], ["Depot 05", { parcels: 47n, late: 0n }], ["Depot 07", { parcels: 34n, late: 0n }], ["Depot 11", { parcels: 25n, late: 0n }], ["City counter", { parcels: 21n, late: 0n }], ["Partner pickup", { parcels: 18n, late: 0n }], ["Returns desk", { parcels: 12n, late: 0n }], ["Locker bank", { parcels: 9n, late: 0n }]]),
+        }],
+        ["r2", {
+            region: new Map([["Metro", 354n], ["Regional", 183n], ["Remote", 73n]]),
+            service: new Map([["Standard", 378n], ["Priority", 122n], ["Economy", 73n], ["International", 37n]]),
+            origins: new Map([["Air hub", { parcels: 175n, late: 3n }], ["Harbour hub", { parcels: 145n, late: 4n }], ["Rail yard", { parcels: 74n, late: 1n }], ["Depot 02", { parcels: 56n, late: 1n }], ["Depot 05", { parcels: 45n, late: 0n }], ["Depot 07", { parcels: 33n, late: 0n }], ["Depot 11", { parcels: 24n, late: 0n }], ["City counter", { parcels: 20n, late: 0n }], ["Partner pickup", { parcels: 17n, late: 0n }], ["Returns desk", { parcels: 12n, late: 0n }], ["Locker bank", { parcels: 9n, late: 0n }]]),
+        }],
+    ]),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
 
@@ -259,11 +416,12 @@ export const flowchartDwell = example({
 
 export const flowchartDepot = example({
     keywords: [
-        "Flowchart", "Flowchart.states", "Flowchart.transitions", "Flowchart.lanes", "Flowchart.decisions",
+        "Flowchart", "Flowchart.states", "Flowchart.transitions", "Flowchart.lanes", "Flowchart.decisions", "Flowchart.details",
         "Flowchart.templates", "Flowchart.library", "Flowchart.library.lanes", "Flowchart.library.tab", "Flowchart.patch", "Record.bind", "Data.bindPaged",
-        "Slice.bindRecords", "presets", "records", "entries", "inspector", "editing", "Save",
+        "Slice.bindRecords", "presets", "records", "entries", "details", "Flowchart.tags", "Flowchart.histogram", "Flowchart.list",
+        "Flowchart.figure", "show", "tag lists", "colorPalette", "legend", "bins", "ticks", "inspector", "editing", "Save",
     ],
-    description: "A parcel depot's flowchart over four records of the app's: its states and transitions read through their sources of the rail and edited through their patch doors, a preset narrowing both to one flow; its lanes and decisions, small records read whole; the Steps, Transitions and Lanes tabs listing each kind's cards, and an owners tab whose card dropped on a decision makes it the decision's owner",
+    description: "A parcel depot's flowchart over four records of the app's: its states and transitions read through their sources of the rail and edited through their patch doors, a preset narrowing both to one flow; its lanes and decisions, small records read whole; each state's details on its card in the app's order — its parcels, its flags, equipment and shifts as tag lists in the app's colours, two of them in the legend, its time in state over the app's bins and its top services — each transition's top region under its evidence, and every read in full in the inspector; the Steps, Transitions and Lanes tabs listing each kind's cards, and an owners tab whose card dropped on a decision makes it the decision's owner",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // The states and the transitions: editable through their patch doors, read through their sources of the rail.
@@ -274,6 +432,9 @@ export const flowchartDepot = example({
             // The lanes and the decisions: small records, read whole.
             const lanes = $.let(Record.bind(depotLanes));
             const decisions = $.let(Record.bind(depotDecisions));
+            // The details, read by the drawn rows' keys, as their kinds are read through their sources.
+            const stateRows = $.let(Data.bindPaged(stateEvidence));
+            const moveRows = $.let(Data.bindPaged(moveEvidence));
             const steps = $.let(Data.bind(stepCards));
             const moves = $.let(Data.bind(moveCards));
             const laneRows = $.let(Data.bind(laneCards));
@@ -284,6 +445,7 @@ export const flowchartDepot = example({
                 states: {
                     source: Data.bindPaged(depotStates, { indexes: ["flowchart_states_by_flow", "flowchart_states_by_lane"] }),
                     icon: { prefix: "fas", name: "circle-nodes" },
+                    // Each field the rail offers is one an index answers: the flow, and the lane after it.
                     fields: { flow: { label: "Flow", hints: ["Parcels", "Returns"] }, phase: { label: "Lane" } },
                     initial: { flow: ["Parcels"] },
                 },
@@ -308,6 +470,55 @@ export const flowchartDepot = example({
                             name: "State", icon: "circle-nodes", entries: stateEntries,
                             label: "name", lane: "phase", order: "seq",
                             members: (s) => s.slots,
+                            // Drawn in this order on each state's card and in the inspector, each where its show says — "all" unless given.
+                            details: Flowchart.details(stateRows, {
+                                details: [
+                                    Flowchart.figure("parcels", { label: "Parcels", unit: "parcels" }),
+                                    Flowchart.figure("waiting", { label: "Still in state", show: "inspector" }),
+                                    // each tag's look, as a Tag takes it — first defined, first shown
+                                    Flowchart.tags("flags", {
+                                        label: "Flags",
+                                        colors: {
+                                            "Hazmat": { colorPalette: "danger", variant: "solid" },
+                                            "At risk": { colorPalette: "warning", variant: "subtle" },
+                                            "Customs": { colorPalette: "brand", variant: "outline" },
+                                            "Oversize": { colorPalette: "orange", variant: "subtle" },
+                                            "Fragile": { colorPalette: "purple", variant: "subtle" },
+                                            "Cold chain": { colorPalette: "info", variant: "subtle" },
+                                        },
+                                        legend: true,                   // the legend lists them, under "Flags"
+                                    }),
+                                    Flowchart.tags("equipment", {
+                                        label: "Equipment",
+                                        colors: {
+                                            "Conveyor": { colorPalette: "teal" },          // subtle unless given
+                                            "Scanner": { colorPalette: "blue" },
+                                            "Forklift": { colorPalette: "gray", variant: "outline" },
+                                            "Label printer": { colorPalette: "purple", variant: "outline" },
+                                            "X-ray": { colorPalette: "info", variant: "outline" },
+                                        },
+                                        legend: true,
+                                    }),
+                                    Flowchart.tags("shifts", {
+                                        label: "Shifts",
+                                        colors: {
+                                            "Early": { colorPalette: "yellow" },
+                                            "Late": { colorPalette: "orange" },
+                                            "Night": { colorPalette: "purple", variant: "solid" },
+                                            "Weekend": { colorPalette: "gray" },
+                                        },
+                                    }),
+                                    // the app's bins, in hours — a quarter hour apiece at first, then hours, days and a
+                                    // week — a bar each whatever its span, on an axis naming 1h, 12h, 2d and 1w
+                                    Flowchart.histogram("hours", {
+                                        unit: "hours", label: "Time in state", counts: "parcels",
+                                        bins: [0, 0.25, 0.5, 1, 2, 4, 8, 12, 24, 48, 96, 168],
+                                        ticks: [1, 12, 48, 168],
+                                    }),
+                                    Flowchart.list("service", { label: "Service", top: 2, unit: "parcels" }),
+                                    Flowchart.list("exceptions", { label: "Exceptions", unit: "parcels", show: "inspector" }),
+                                ],
+                            }),
                             // the Steps tab's cards: a card dropped on a lane adds a state there, from its values
                             templates: Flowchart.templates(steps.read(), {
                                 name: (c) => c.name, group: (c) => some(c.group), values: (c) => c.values, source: "stepCards",
@@ -320,6 +531,16 @@ export const flowchartDepot = example({
                             evidence: (t) => some({ volume: t.volume, count: t.n, measuredAt: t.at, unit: some("parcels") }),
                             // Evidence shows them, so the form leaves them out.
                             fields: { volume: Fields.hidden(), n: Fields.hidden(), at: Fields.hidden() },
+                            // The label draws the region under its evidence; the inspector shows all three.
+                            details: Flowchart.details(moveRows, {
+                                details: [
+                                    Flowchart.list("region", { label: "Region", top: 1, unit: "parcels" }),
+                                    Flowchart.list("service", { label: "Service", unit: "parcels", show: "inspector" }),
+                                    // a Dict of structs: its draw says which number is the value, and a note
+                                    Flowchart.list("origins", { label: "Origin", unit: "parcels", show: "inspector" },
+                                        (o) => ({ value: o.parcels, note: some(East.str`${o.late} late`) })),
+                                ],
+                            }),
                             // the Transitions tab's cards: a card dropped on a transition gives it its values
                             templates: Flowchart.templates(moves.read(), {
                                 name: (c) => c.name, group: (c) => some(c.group), values: (c) => c.values, source: "moveCards",
@@ -678,6 +899,44 @@ export const flowchartTicketMinutes = example({
                         transitions={Flowchart.transitions(transitions, { from: "from", to: "to" })}
                         lanes={Flowchart.lanes(stages, { label: "label", order: "seq" })}
                         name="ticketMinutes"
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const flowchartTicketMinutesLinear = example({
+    keywords: ["Flowchart", "details", "Flowchart.histogram", "bins", "scale", "linear", "to scale", "ticks", "axis", "minutes", "time in state"],
+    description: "The support desk's minutes in state drawn to scale: the same uneven bins, each bar as wide as its span and as tall as its count over it — so its area is its count — the open last bin as wide as the one before it",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const states = $.let(Data.bind(deskStates));
+            const transitions = $.let(Data.bind(deskTransitions));
+            const stages = $.let(Data.bind(deskStages));
+            const minutes = $.let(Data.bind(ticketMinutes));
+            return (
+                <Box height="560px">
+                    <Flowchart
+                        states={Flowchart.states(states, {
+                            label: "name", lane: "stage",
+                            details: Flowchart.details(minutes, {
+                                details: [Flowchart.histogram("minutes", {
+                                    unit: "minutes",
+                                    label: "Time in state",
+                                    counts: "tickets",
+                                    bins: [0, 1, 2, 5, 10, 15, 30, 60, 120, 240, 480, 1440],
+                                    // Each bar as wide as its span: the first hour is a sliver, the shift and the day most of the axis.
+                                    scale: "linear",
+                                    // The same ticks: to scale, 5m and 1h crowd 0 at the start and are left out.
+                                    ticks: [5, 60, { at: 480, label: "a shift" }, { at: 1440, label: "a day" }],
+                                })],
+                            }),
+                        })}
+                        transitions={Flowchart.transitions(transitions, { from: "from", to: "to" })}
+                        lanes={Flowchart.lanes(stages, { label: "label", order: "seq" })}
+                        name="ticketMinutesLinear"
                     />
                 </Box>
             );

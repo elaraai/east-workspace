@@ -77,7 +77,7 @@ import { sourcePart, type KeyVisibilityWords } from "../shared/schedule/visibili
 import { NARROW_WIDTH } from "../shared/schedule/window.js";
 import { kindPlural } from "../shared/schedule/words.js";
 import { FlowchartCanvasView, type FlowchartCanvasEdit, type FlowchartCanvasFailure, type FlowchartCanvasHandle, type FlowchartReveal } from "./canvas.js";
-import { FlowchartDetailsReader, NO_DETAILS, detailsKindsOf, flowchartDetailsModel, useDrawnKeys, type FlowchartDetailsData } from "./details.js";
+import { FlowchartDetailsReader, NO_DETAILS, askDetailsAgain, detailsKindsOf, flowchartDetailsModel, useDrawnKeys, type FlowchartDetailsData } from "./details.js";
 import { draftedRows, type FlowchartDimmed } from "./drafted.js";
 import type { FlowchartDropContext } from "./drop.js";
 import { kindOf, useFlowchartEditing, type FlowchartKeyCheckWords } from "./editing.js";
@@ -149,14 +149,16 @@ function flowchartNouns(value: FlowchartValue): FlowchartNouns {
 export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, storageKey }: EastChakraFlowchartProps) {
     const [data, setData] = useState<FlowchartData>(INITIAL_FLOWCHART_DATA);
     // A Retry reads every kind again: each source of the rail a kind is read through asked anew — its pages, a failed
-    // one among them, which it holds until then — as the Schematic's Retry asks its kind's, and the read's attempt moves.
+    // one among them, which it holds until then — as the Schematic's Retry asks its kind's, the details' paged reads
+    // asked again at once (R34), and the read's attempt moves.
     const [attempt, setAttempt] = useState(0);
     const slice = value.slice;
     const readAgain = useCallback(() => {
         const chrome = getSomeorUndefined(slice);
         for (const sort of SOURCE_SORTS) sourcePart(chrome, sort)?.retry();
+        askDetailsAgain(detailsKindsOf(value));
         setAttempt((n) => n + 1);
-    }, [slice]);
+    }, [slice, value]);
     return (
         <>
             <FlowchartDataReader value={value} attempt={attempt} onData={setData} />
@@ -497,7 +499,7 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
     const start = useFlowchartLibrary({ value, keys, words, enter: drop.enter, followed, narrow });
     const end = flowchartInspectorPane({
         value, model, rows: drafted.rows, held: data.held, selection, editing, act, refuse: setNotice, reveal: revealSelection,
-        issues, picks, goToWaiting, saves, storageKey: keys.frame, words,
+        issues, picks, goToWaiting, saves, details: detailsModel, storageKey: keys.frame, words,
     });
 
     // ── The banners: each session's, and each source the rail could not read ──
@@ -529,16 +531,25 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
         const one = kind.name.toLocaleLowerCase(locale);
         return [{ sort, slice: part, singular: one, plural: kindPlural(one) }];
     }), [value, chrome, locale]);
-    // What the line says: a failed read first, with Retry, then the read in flight — a kind's first, or its new narrowing's.
+    // What the line says: a failed read first, with Retry — the rows', then the details' — then the read in flight — a
+    // kind's first, or its new narrowing's, then the details' (R34).
     const line = useMemo((): LoadingLineValue | undefined => {
         const noun = (sort: FlowchartSort) => m.kindNoun({ sort, n: 2 });
+        const detailsOf = [["states", detailsModel.states], ["transitions", detailsModel.transitions]] as const;
         if (data.error !== undefined) return pagedLoadingLine({ kind: "failed", from: undefined, to: undefined, reason: data.error }, noun("states"), m, number, readAgain);
         for (const [sort, reason] of data.failures) return pagedLoadingLine({ kind: "failed", from: undefined, to: undefined, reason }, noun(sort), m, number, readAgain);
+        for (const [sort, kind] of detailsOf) {
+            if (kind?.error !== undefined) return pagedLoadingLine({ kind: "failed", from: undefined, to: undefined, reason: kind.error }, m.detailsNoun({ sort }), m, number, readAgain);
+        }
         if (data.reading !== undefined) {
             return pagedLoadingLine(data.reading.filtering ? { kind: "filtering" } : { kind: "loading", from: undefined, to: undefined }, noun(data.reading.sort), m, number, readAgain);
         }
-        return narrowingBusy ? pagedLoadingLine({ kind: "filtering" }, noun("states"), m, number, readAgain) : undefined;
-    }, [data.error, data.failures, data.reading, narrowingBusy, m, number, readAgain]);
+        if (narrowingBusy) return pagedLoadingLine({ kind: "filtering" }, noun("states"), m, number, readAgain);
+        for (const [sort, kind] of detailsOf) {
+            if (kind?.reading === true) return pagedLoadingLine({ kind: "loading", from: undefined, to: undefined }, m.detailsNoun({ sort }), m, number, readAgain);
+        }
+        return undefined;
+    }, [data.error, data.failures, data.reading, narrowingBusy, detailsModel.states, detailsModel.transitions, m, number, readAgain]);
     // A failed read, said once on the canvas at its top-left as the line says it, with the line's Retry (R5).
     const failure = useMemo((): FlowchartCanvasFailure | undefined =>
         (line?.kind === "failed" ? { message: loadingLineText(line.text), retry: line.onRetry } : undefined), [line]);

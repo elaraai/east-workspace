@@ -37,11 +37,12 @@ describe("a Flowchart's words", () => {
         const m = flowchartMessagesOf({ state: "Stop", transition: "Hop", lane: "Stage", decision: "Choice", planned: "Designed", observed: "Seen" });
         expect([m.kindNoun({ sort: "lanes", n: 2 }), m.kindNoun({ sort: "states", n: 1 }), m.footerLinks({ n: 3 })]).toEqual(["stages", "stop", "hops"]);
         expect(m.dropRefused({ why: "onto", lands: "transition" })).toBe("Drop onto a hop");
-        expect(m.kindLabel({ kind: "observed" })).toBe("Seen");
+        expect([m.legendLine({ line: "planned" }), m.legendLine({ line: "observed" }), m.legendLine({ line: "decision" })]).toEqual(["Designed", "Seen", "Choice trigger"]);
         expect(m.inspectorSplit({ planned: "1", observed: "2", unresolved: "3" })).toBe("1 designed · 2 seen · 3 unresolved");
+        expect(m.inspectorLinkKind({ kind: "observed", decision: "route" })).toBe("seen · route");
         expect(m.editLabel({ gesture: "moveStates" })).toBe("Move stops");
         expect(m.keyHeld({ sort: "states", key: "A" })).toBe("A stop is keyed \"A\" already");
-        expect(m.legendInPlace()).toBe("In-place hop");
+        expect(m.legendLine({ line: "inPlace" })).toBe("In-place hop");
         expect(m.inspectorChip({ state: "noRow" })).toBe("No stop row");
         expect([m.findLabel(), m.addLane(), m.noLaneBand(), m.libraryTab({ tab: "transitions" }), m.libraryTab({ tab: "states" })])
             .toEqual(["Find stop", "Add stage", "No stage", "Hops", "Steps"]);
@@ -51,7 +52,7 @@ describe("a Flowchart's words", () => {
             .toEqual(["lanes", "state", "transitions"]);
         expect(flowchartMessages.keyHeld({ sort: "states", key: "A" })).toBe("A state is keyed \"A\" already");
         expect(flowchartMessages.inspectorChip({ state: "noRow" })).toBe("No state row");
-        expect([flowchartMessages.findLabel(), flowchartMessages.libraryTab({ tab: "transitions" }), flowchartMessages.legendInPlace()])
+        expect([flowchartMessages.findLabel(), flowchartMessages.libraryTab({ tab: "transitions" }), flowchartMessages.legendLine({ line: "inPlace" })])
             .toEqual(["Find state", "Transitions", "In-place transition"]);
     });
 });

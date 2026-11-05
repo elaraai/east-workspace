@@ -32,9 +32,28 @@
  * caption, and the not-allowed cursor. A library tab over a source of the
  * rail (#1346) is the shared schedule pane's body (`pane`), busy and taking
  * no gesture while its source resolves.
+ *
+ * Where the details draw on the cards (#1510, `Flowchart Records Spec.md`
+ * R22–R34, R39), a card is 272 wide and as tall as its reads, in the visual
+ * spec's looks: its head 54 inside its edge — the label, its ×n and ↻ n, over
+ * the key — a rule, then each read 12 apart inside 12 of padding: a figure's
+ * line; a tag list beside its label, each tag 15 high in its look; a title
+ * over bars 28 high on a rule and their axis; a title over a list's rows, each
+ * its name, a 56 track filled to its share, and the share; *no data* and
+ * *none* in italics. Hovered, the card is `--paper-2`; selected, `--paper-3`
+ * in a 1px `--ink` edge, its chips and neutral tags on `--paper`. A
+ * transition's label draws its lines under its evidence, `--brand-dd` while
+ * it is selected; a line not landed is a placeholder bar. The legend's rows
+ * gain a row for each read the cards and labels draw, its mark beside its
+ * words, and beside the rows a group for each tag list it lists. A tag's look
+ * is its definition's (`tagLooks`): subtle in a palette, a 6% wash of it on a
+ * 1px rule of it in its text step; gray, neutral or undefined, the Tag's own
+ * neutral look; any other variant, the Tag recipe's in its palette, at the card's size. A
+ * hidden probe measures a label and a tag as the card draws them, so a card
+ * is measured before the layout places it.
  */
 
-import { defineSlotRecipe } from "@chakra-ui/react";
+import { defineSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { conflictRing } from "../conflict-ring.js";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { FOOTER_FIT } from "./builder-footer.js";
@@ -43,16 +62,83 @@ import { schedulePaneBase } from "./schedule-pane.js";
 /** Where a drop is taken, and not refused (#1249): the stage the canvas's marks show on. */
 const TAKEN = "[data-drop-active]:not([data-drop-invalid])";
 
+/** A selected card with details: what draws on `--paper` there (R39). */
+const SELECTED_CARD = "[data-details][data-selected]";
+
+/**
+ * A tag's looks (#1510, R30), by its `data-look`, shared by the card, the
+ * legend and the inspector, each at its own size: `wash`, the default subtle
+ * in a palette — a 6% wash of the palette's solid on a 1px rule of it, its
+ * text the palette's text step; `neutral`, gray, neutral or no definition —
+ * `--paper-3` on a 1px `--rule` in `--ink-3`, `--paper` on a selected card;
+ * `recipe`, any other variant — the Tag recipe's look in the palette, drawn
+ * by the Tag itself as `colored`, these slots giving it its size alone.
+ */
+export const tagLooks = {
+    "&[data-look=wash]": {
+        background: "color-mix(in oklch, {colors.colorPalette.solid} 6%, transparent)",
+        borderColor: "colorPalette.solid",
+        color: "colorPalette.fg",
+    },
+    "&[data-look=neutral]": {
+        background: "bg.subtle",
+        borderColor: "border.subtle",
+        color: "fg.muted",
+    },
+    [`${SELECTED_CARD} &`]: { "&[data-look=neutral]": { background: "bg.surface" } },
+} as const satisfies SystemStyleObject;
+
+/** A read's label, as a card draws it: mono 9.5/600, 0.14em apart, in capitals, `--ink-4` (the visual spec's). */
+const READ_LABEL = {
+    fontFamily: "mono",
+    fontSize: "9.5px",
+    fontWeight: "600",
+    letterSpacing: "0.14em",
+    textTransform: "uppercase",
+    lineHeight: "14px",
+    color: "fg.subtle",
+    whiteSpace: "nowrap",
+} as const satisfies SystemStyleObject;
+
+/** A tag at the card's size, as the card and the legend draw it: 15 high, mono 9.5/500, 4 in, r4, a 1px rule (R30). */
+const CARD_TAG = {
+    display: "inline-flex",
+    alignItems: "center",
+    flexShrink: 0,
+    boxSizing: "border-box",
+    height: "15px",
+    /* The Tag's own least height never grows it: Chakra's, 20 at its size md. */
+    minHeight: "15px",
+    paddingX: "4px",
+    paddingY: "0",
+    gap: "0",
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderRadius: "4px",
+    fontFamily: "mono",
+    fontSize: "9.5px",
+    fontWeight: "500",
+    lineHeight: "9.5px",
+    whiteSpace: "nowrap",
+    ...tagLooks,
+} as const satisfies SystemStyleObject;
+
 export const flowchartSlotRecipe = defineSlotRecipe({
     className: "elara-flowchart",
     slots: [
         "root", "freshnessDot", "toolbarControls",
         "body", "scroll", "canvasWrap",
         "node", "ghostNode", "nodeCode", "nodeLabel", "nodeBadge",
+        "cardHead", "cardTitle", "cardName", "cardChip", "cardKey", "cardBody",
+        "readLabel", "figure", "figureValue", "figureNumber", "figureUnit", "noData",
+        "tags", "tagLines", "tagLine", "tag",
+        "histogram", "bars", "bar", "axis", "tick",
+        "list", "listRow", "listName", "listTrack", "listFill", "listShare",
+        "placeholder", "measure",
         "laneDelete", "addLane", "laneSelected",
         "stateGhost", "stateEditor", "moveClone",
         "dropLane", "dropSeam",
-        "legend", "legendTitle", "legendRow",
+        "legend", "legendRows", "legendTitle", "legendRow", "legendMark", "legendFigure", "legendTags", "legendTagList",
         "minimap",
         "footer", "footerStrong", "footerMessage", "footerSplit",
         "empty",
@@ -138,6 +224,16 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             "& [data-flowchart-trigger][data-selected] > rect": { fill: "brandTint", strokeWidth: "2.4px" },
             /* A transition, or its diamond, the narrowing leaves out (#1502, R6): drawn as context, selected by no path. */
             "& g[data-context]": { pointerEvents: "none" },
+            /* A label's details lines under its evidence (#1510, R32): mono 10 in `--ink-3`, `--brand-dd` while its
+             * transition is selected (R39); a line not landed, a placeholder bar the loading recipe's fill (R34). */
+            "& [data-flowchart-label] [data-line=detail]": {
+                fontFamily: "mono",
+                fontSize: "10px",
+                fontWeight: "400",
+                fill: "fg.muted",
+            },
+            "& [data-flowchart-label][data-selected] [data-line=detail]": { fill: "brandPressed" },
+            "& [data-flowchart-label] [data-line=placeholder]": { fill: "bg.subtle" },
         },
 
         /* ── node cards — 116×40, r6, mono code + muted label ─────────── */
@@ -166,6 +262,230 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             },
             /* A state the narrowing leaves out (#1502, R6): drawn as context, faded by the canvas, selected by no path. */
             "&[data-context]": { pointerEvents: "none", cursor: "default" },
+            /* A card with details (#1510, R22, R39): its head over its reads, edge to edge; hovered `--paper-2`;
+             * selected `--paper-3` in a 1px `--ink` edge. */
+            "&[data-details]": {
+                display: "flex",
+                flexDirection: "column",
+                padding: "0",
+                overflow: "hidden",
+            },
+            "&[data-details]:not([data-selected]):hover": { background: "bg.canvas" },
+            [`&${SELECTED_CARD}`]: { background: "bg.subtle", borderWidth: "1px", borderColor: "fg" },
+        },
+        /* ── a card with details (#1510, R22–R34): the visual spec's ─────── */
+        /* The head, 54 inside the card's edge: its label line over its key, 4 apart, 12 in, centred down. */
+        cardHead: {
+            flexShrink: 0,
+            boxSizing: "border-box",
+            height: "54px",
+            paddingX: "12px",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            gap: "4px",
+            minWidth: 0,
+        },
+        cardTitle: {
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            height: "16px",
+            minWidth: 0,
+        },
+        cardName: {
+            flex: "1 1 auto",
+            minWidth: 0,
+            fontFamily: "body",
+            fontSize: "13px",
+            fontWeight: "500",
+            lineHeight: "16px",
+            color: "fg",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+        },
+        /* ×n: the class's count, mono 10/600 `--ink-2` on `--paper-3`, `--paper` on a selected card. */
+        cardChip: {
+            flexShrink: 0,
+            display: "inline-flex",
+            alignItems: "center",
+            boxSizing: "border-box",
+            height: "16px",
+            paddingX: "4px",
+            borderRadius: "4px",
+            background: "bg.subtle",
+            fontFamily: "mono",
+            fontSize: "10px",
+            fontWeight: "600",
+            lineHeight: "10px",
+            color: "fg.strong",
+            whiteSpace: "nowrap",
+            [`${SELECTED_CARD} &`]: { background: "bg.surface" },
+        },
+        cardKey: {
+            fontFamily: "mono",
+            fontSize: "10px",
+            fontWeight: "400",
+            lineHeight: "14px",
+            color: "fg.subtle",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+        },
+        /* Its reads, under a rule: 12 apart inside 12 of padding, each its block. */
+        cardBody: {
+            flex: "1 1 auto",
+            minHeight: 0,
+            borderTopWidth: "1px",
+            borderTopStyle: "solid",
+            borderTopColor: "border.subtle",
+            padding: "12px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "12px",
+            /* Each read keeps the block the canvas gives it. */
+            "& > *": { flexShrink: 0 },
+        },
+        /* A read's label — a figure's, a tag list's beside its tags (15 high there, its column's width the canvas's),
+         * a title over bars or a list. */
+        readLabel: {
+            ...READ_LABEL,
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            "[data-read=tags] > &": { flexShrink: 0, lineHeight: "15px", overflow: "visible" },
+        },
+        /* A figure's line, 16: its label, and its value with its unit at the end. */
+        figure: {
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "8px",
+            height: "16px",
+            minWidth: 0,
+        },
+        figureValue: {
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "baseline",
+            gap: "4px",
+            fontFamily: "mono",
+            whiteSpace: "nowrap",
+        },
+        figureNumber: { fontFamily: "mono", fontSize: "11px", fontWeight: "500", color: "fg", fontVariantNumeric: "tabular-nums" },
+        figureUnit: { fontFamily: "mono", fontSize: "10px", fontWeight: "400", color: "fg.subtle" },
+        /* *No data* and *none* (R33, R41): mono 10 italic `--ink-4` — 16 under a title, 15 in a tag list's place. */
+        noData: {
+            flexShrink: 0,
+            fontFamily: "mono",
+            fontSize: "10px",
+            fontWeight: "400",
+            fontStyle: "italic",
+            lineHeight: "16px",
+            color: "fg.subtle",
+            whiteSpace: "nowrap",
+            "[data-tag-lines] > &": { lineHeight: "15px" },
+        },
+        /* A tag list beside its label, its lines 4 apart, its tags 4 apart on a line (R30). */
+        tags: {
+            display: "flex",
+            alignItems: "flex-start",
+            gap: "8px",
+            minWidth: 0,
+        },
+        tagLines: {
+            flex: "1 1 auto",
+            minWidth: 0,
+            display: "flex",
+            flexDirection: "column",
+            gap: "4px",
+        },
+        tagLine: {
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            height: "15px",
+            whiteSpace: "nowrap",
+        },
+        tag: CARD_TAG,
+        /* A histogram: its title over its bars and their axis, each 4 apart (R26, R28). */
+        histogram: { display: "flex", flexDirection: "column", gap: "4px", minWidth: 0 },
+        /* The bars' box: 28 high on its 1px `--rule`, each bar 2 short of the next, its place and height the canvas's. */
+        bars: {
+            position: "relative",
+            boxSizing: "border-box",
+            height: "28px",
+            borderBottomWidth: "1px",
+            borderBottomStyle: "solid",
+            borderBottomColor: "border.subtle",
+        },
+        bar: { position: "absolute", bottom: 0, background: "brand.solid" },
+        axis: { position: "relative", height: "12px" },
+        tick: {
+            position: "absolute",
+            top: 0,
+            fontFamily: "mono",
+            fontSize: "9.5px",
+            fontWeight: "400",
+            lineHeight: "12px",
+            color: "fg.subtle",
+            whiteSpace: "nowrap",
+        },
+        /* A list: its title over its rows, 4 apart, each 16 — its name, a 56 track filled to its share, the share (R29). */
+        list: { display: "flex", flexDirection: "column", gap: "4px", minWidth: 0 },
+        listRow: {
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1fr) 56px 32px",
+            columnGap: "8px",
+            alignItems: "center",
+            height: "16px",
+        },
+        listName: {
+            minWidth: 0,
+            fontFamily: "body",
+            fontSize: "12.5px",
+            fontWeight: "400",
+            lineHeight: "16px",
+            color: "fg.strong",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+        },
+        listTrack: { position: "relative", height: "4px", background: "border.subtle", overflow: "hidden" },
+        listFill: { position: "absolute", top: 0, bottom: 0, left: 0, background: "brand.solid" },
+        listShare: {
+            fontFamily: "mono",
+            fontSize: "10.5px",
+            fontWeight: "500",
+            color: "fg",
+            textAlign: "right",
+            whiteSpace: "nowrap",
+            fontVariantNumeric: "tabular-nums",
+        },
+        /* A read not landed (R34): the shared placeholder shapes in its place — a bar in a figure's or a list row's
+         * place, a chip in a tag list's, its host's box under a title. */
+        placeholder: {
+            display: "flex",
+            alignItems: "center",
+            minWidth: 0,
+            "&[data-place=figure]": { justifyContent: "flex-end", width: "48px", height: "16px" },
+            "&[data-place=tags]": { height: "15px" },
+            "&[data-place=bars]": { height: "44px", borderRadius: "2px" },
+            "&[data-place=row]": { height: "16px" },
+        },
+        /* What measures a label and a tag as the card draws them (#1510): out of sight and out of the way, each
+         * child its own width. */
+        measure: {
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: 0,
+            height: 0,
+            overflow: "hidden",
+            visibility: "hidden",
+            pointerEvents: "none",
+            "& > *": { width: "max-content" },
         },
         ghostNode: {
             position: "absolute",
@@ -395,7 +715,8 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             padding: "4px 10px",
         },
 
-        /* ── legend ───────────────────────────────────────────────────── */
+        /* ── legend — its rows, and beside them a group for each tag list it
+         *    lists (#1510, R31), 24 apart ─────────────────────────────────── */
         legend: {
             position: "absolute",
             left: "16px",
@@ -406,25 +727,50 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             borderRadius: "6px",
             padding: "10px 14px",
             display: "flex",
-            flexDirection: "column",
-            gap: "6px",
+            alignItems: "flex-start",
+            gap: "24px",
         },
+        legendRows: { display: "flex", flexDirection: "column", gap: "6px" },
         legendTitle: {
             fontFamily: "mono",
             fontSize: "9px",
             fontWeight: "600",
             letterSpacing: "2px",
             textTransform: "uppercase",
+            lineHeight: "11.25px",
             color: "fg.subtle",
-            marginBottom: "2px",
+            whiteSpace: "nowrap",
         },
+        /* A row, 16: its mark in a 28 × 16 box, then its words. */
         legendRow: {
             display: "flex",
             alignItems: "center",
             gap: "8px",
+            height: "16px",
             fontSize: "10.5px",
             color: "fg.muted",
+            whiteSpace: "nowrap",
         },
+        /* A read's mark (R31): bars on a `--rule-strong` base, a list's lines and shares, a label's badge and its two lines. */
+        legendMark: {
+            flexShrink: 0,
+            width: "28px",
+            height: "16px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            "& [data-mark=bar]": { fill: "brand.solid" },
+            "& [data-mark=base]": { stroke: "border.strong", strokeWidth: "1px" },
+            "& [data-mark=share]": { fill: "fg" },
+            "& [data-mark=badge]": { fill: "bg.surface", stroke: "border.strong", strokeWidth: "1px" },
+            "& [data-mark=line]": { stroke: "fg.strong", strokeWidth: "1.6px" },
+            "& [data-mark=detail]": { stroke: "fg.muted", strokeWidth: "1.2px" },
+        },
+        /* A figure's mark: "123", mono 9.5/600 `--ink`. */
+        legendFigure: { fontFamily: "mono", fontSize: "9.5px", fontWeight: "600", color: "fg" },
+        legendTags: { display: "flex", flexDirection: "column", gap: "4px", minWidth: 0 },
+        /* A group's tags, at the card's size, wrapping 4 apart across at most 236. */
+        legendTagList: { display: "flex", flexWrap: "wrap", gap: "4px", maxWidth: "236px" },
 
         /* ── minimap ──────────────────────────────────────────────────── */
         minimap: {

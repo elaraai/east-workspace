@@ -24,7 +24,8 @@ export type TagValue = ValueTypeOf<typeof Tag.Types.Tag>;
  * @remarks
  * Per the main/style type-shape convention, the main struct carries `label`
  * + state (`closable`) + behaviour (`onClose`). Every visual field lives in
- * `value.style`.
+ * `value.style`. A tag given a `colorPalette` is the tag recipe's `colored`,
+ * so its variant draws in that palette.
  */
 export function toChakraTag(value: TagValue): TagRootProps {
     const style = getSomeorUndefined(value.style);
@@ -32,10 +33,12 @@ export function toChakraTag(value: TagValue): TagRootProps {
 
     const padding = getSomeorUndefined(style.padding);
     const margin = getSomeorUndefined(style.margin);
+    const colorPalette = getSomeorUndefined(style.colorPalette)?.type;
 
     return {
         variant: getSomeorUndefined(style.variant)?.type as TagRootProps["variant"] | undefined,
-        colorPalette: getSomeorUndefined(style.colorPalette)?.type,
+        colorPalette,
+        ...(colorPalette !== undefined ? ({ colored: true } as TagRootProps) : {}),
         size: getSomeorUndefined(style.size)?.type,
         opacity: getSomeorUndefined(style.opacity),
         color: getSomeorUndefined(style.color),

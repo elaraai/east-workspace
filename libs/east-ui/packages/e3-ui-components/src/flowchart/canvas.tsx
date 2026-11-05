@@ -62,6 +62,14 @@
  *   brand. The marks show only while the drag rests over the canvas and the
  *   drop lands (the recipe's); a drag over the canvas raises no dimming and no
  *   "+ STATE" ghost.
+ * - **The details** (#1510, R22–R34, R39): where the app puts a state's reads
+ *   on the canvas, its card is 272 wide — its head, a rule, then the reads in
+ *   their order (`details-card.tsx`), its tag lists' words measured out of
+ *   sight as a card draws them, before the layout places it; a transition's
+ *   label draws its lines under its evidence, a placeholder bar each while its
+ *   row lands; and the legend adds a row for each figure, histogram and list
+ *   the cards and labels draw, and beside them a group for each tag list it
+ *   lists (`details-draw.ts`), the layout keeping its height under the drawing.
  *
  * A read that failed is said once on the canvas (R5): the shared failure box
  * (`LoadingFailedBox`) at its box's top-left, in view however the drawing
@@ -92,11 +100,16 @@ import { LoadingFailedBox } from "@elaraai/east-ui-components/internal";
 import { keyFromPage, keyInFrame } from "../shared/frame-keys.js";
 import type { FlowchartWords } from "./messages.js";
 import type { FlowchartCanvasValue, FlowchartModel, ModelBand, ModelLink, ModelNode } from "./model.js";
-import { DETAILS_CARD_W, detailsCardOf, detailsLabelOf, type FlowchartDetailsModel, type FlowchartLabelLine } from "./details.js";
+import {
+    DETAILS_CARD_W, DETAILS_HEAD_H, detailsCardOf, detailsLabelOf, type FlowchartCard, type FlowchartDetailsModel, type FlowchartLabelLine,
+} from "./details.js";
+import { FlowchartCardContent, FlowchartLegendMarkView, FlowchartTag, useFlowchartTextMeasure } from "./details-card.js";
+import { legendHeight, legendOf, probeTextsOf } from "./details-draw.js";
+import { shareText } from "./details-words.js";
 import {
     computeLayout, labelBox, landingSeam, previewCursorPath, previewLinkPath,
     type FlowchartLayout, type LabelBox, type LinkRoute, type Pt,
-    BADGE_H, LANE_HEADER_H, NODE_W, RING_R,
+    BADGE_H, LABEL_LINE_H, LANE_HEADER_H, NODE_W, RING_R,
 } from "./layout.js";
 import { FlowchartLanePager } from "./lane-pager.js";
 import { dropTargetAt, existingLink, laneAt } from "./connect.js";
@@ -320,10 +333,17 @@ function labelLineText(line: FlowchartLabelLine, words: FlowchartWords): string 
     switch (line.kind) {
         case "placeholder": return "";
         case "figure": return line.value === undefined ? `${line.label} ${words.m.detailsNoData()}` : `${line.label} ${words.number(line.value)}${line.unit === undefined ? "" : ` ${line.unit}`}`;
-        case "item": return `${line.name} ${words.percent(line.share)}`;
+        case "item": return `${line.name} ${shareText(line.share, words)}`;
         case "none": return words.m.detailsNone();
     }
 }
+
+/** What a placeholder line counts as across a label's box, while its row lands (R34): ten characters. */
+const PLACEHOLDER_LINE = "0".repeat(10);
+/** A placeholder line's bar on a label: 6 high, centred on its line, as wide as its ten characters. */
+const PLACEHOLDER_BAR = { w: 58, h: 6, above: 6.5 } as const;
+/** A label's first line's baseline under its box's top: the evidence's (BADGE_H / 2 + 3.5, mono 10). */
+const LABEL_BASELINE = BADGE_H / 2 + 3.5;
 
 /** A lane's ×: its box's side, centred on its glyph. */
 const CLOSE_BOX = 14;
@@ -397,6 +417,23 @@ function revealPoint(layout: FlowchartLayout, model: FlowchartModel, selection: 
             return { x: head.x, y: head.y };
         }
     }
+}
+
+/**
+ * Whether the card a selection is brought to still waits on its details: a
+ * state's card — the first of several — drawn with reads whose row no read
+ * has brought yet, and no read failed. Until its row lands the card draws a
+ * placeholder, and it takes its own height as it lands (R22, R34); a failed
+ * read leaves the placeholder standing.
+ *
+ * @param selection - What is selected
+ * @param cards - Each state's card, where the details draw on the cards
+ * @param states - The states' details
+ * @returns Whether its card is still to land
+ */
+function awaitsRow(selection: FlowchartSelection, cards: ReadonlyMap<string, FlowchartCard> | undefined, states: FlowchartDetailsModel["states"]): boolean {
+    const key = selection.kind === "state" ? selection.key : selection.kind === "states" ? selection.keys[0] : undefined;
+    return key !== undefined && states !== undefined && states.error === undefined && cards?.has(key) === true && !states.rows.has(key);
 }
 
 /** Badge chrome inherits the link class (spec markup: observed = dashed
@@ -525,29 +562,46 @@ export function FlowchartCanvasView({ canvas, model, details, orientation, revea
         return () => ro.disconnect();
     }, []);
 
-    // ── sizes: each card's where the details draw on the cards, and each label's (R22, R32) ──
-    const cards = useMemo(() => {
+    // ── sizes: each card's where the details draw on the cards, measured as it draws, and each label's (R22, R32) ──
+    // The tag lists' words, measured out of sight in the slots a card draws them with, before the layout places it.
+    const probeTexts = useMemo(() => probeTextsOf(details.states, words), [details.states, words]);
+    const { measure, probe } = useFlowchartTextMeasure(styles, probeTexts);
+    const cardsByKey = useMemo(() => {
         const kind = details.states;
         if (kind === undefined || !kind.onCanvas) return undefined;
         // A ghost stands for no row, so it has no reads: the card's width and 40.
-        const heights = new Map<string, number>();
+        const out = new Map<string, FlowchartCard>();
         for (const node of model.nodes) {
-            const card = node.ghost ? undefined : detailsCardOf(kind, node.key);
-            if (card !== undefined) heights.set(node.key, card.height);
+            const card = node.ghost ? undefined : detailsCardOf(kind, node.key, measure);
+            if (card !== undefined) out.set(node.key, card);
         }
-        return { width: DETAILS_CARD_W, heights };
-    }, [model, details.states]);
+        return out;
+    }, [model, details.states, measure]);
+    const cards = useMemo(() => (cardsByKey === undefined ? undefined : {
+        width: DETAILS_CARD_W,
+        heights: new Map([...cardsByKey].map(([key, card]) => [key, card.height] as const)),
+    }), [cardsByKey]);
     const labels = useMemo(() => {
         const kind = details.transitions;
         if (kind === undefined || !kind.onCanvas) return undefined;
         // Its evidence line, then its details' lines: a label with neither draws none.
         const sizes = new Map<string, LabelBox>();
+        const lines = new Map<string, readonly FlowchartLabelLine[]>();
         for (const link of model.links) {
-            const lines = [...(link.badgeText === undefined ? [] : [link.badgeText]), ...detailsLabelOf(kind, link.key).map((line) => labelLineText(line, words))];
-            if (lines.length > 0) sizes.set(link.key, labelBox(lines));
+            const detail = detailsLabelOf(kind, link.key);
+            const texts = [
+                ...(link.badgeText === undefined ? [] : [link.badgeText]),
+                ...detail.map((line) => (line.kind === "placeholder" ? PLACEHOLDER_LINE : labelLineText(line, words))),
+            ];
+            if (texts.length === 0) continue;
+            sizes.set(link.key, labelBox(texts));
+            lines.set(link.key, detail);
         }
-        return sizes;
+        return { sizes, lines };
     }, [model, details.transitions, words]);
+    // What the legend adds of the details: its rows and its groups of tags, and the room the layout keeps for it (§4).
+    const legend = useMemo(() => legendOf(details, words), [details, words]);
+    const legendPad = legendOn ? legendHeight(legend, measure) : 0;
 
     // A phone's window of lanes, left to right: as many across main's width as the canvas's `narrow.lanes` says, which
     // its pager steps through — as many whole lanes as main holds, each counted at its card's width and 16, so none is
@@ -567,15 +621,15 @@ export function FlowchartCanvasView({ canvas, model, details, orientation, revea
         () => (size === null ? null : computeLayout(model, {
             width: size.w,
             orientation,
-            legendPad: legendOn ? 122 : 0,
+            legendPad,
             // The lanes run the whole of main's height.
             minHeight: size.h > 0 ? size.h : undefined,
             laneWidth,
             laneWindow,
             cards,
-            labels,
+            labels: labels?.sizes,
         })),
-        [model, size, orientation, legendOn, laneWidth, laneWindow, cards, labels],
+        [model, size, orientation, legendPad, laneWidth, laneWindow, cards, labels],
     );
     // The window's lane: where the details draw on the cards, wider than the window, which rests with its card in the middle.
     const laneSlot = layout?.lanes[0]?.w ?? 0;
@@ -639,7 +693,9 @@ export function FlowchartCanvasView({ canvas, model, details, orientation, revea
     // What the frame asks for — a state Find picked, a drop added, what a
     // click in the inspector names: selected, as a click selects it, and —
     // but for a state dropped where the pointer is, or a key edited where it
-    // stands — scrolled to the middle of the canvas's box: once per ask.
+    // stands — scrolled to the middle of the canvas's box: once per ask. A
+    // state whose card still waits on its details — one ⏎ just added, say —
+    // is scrolled to once they land, at the height its card then takes.
     const scrollRef = useRef<HTMLDivElement | null>(null);
     // The element itself, for the lane pager, which hears it scroll.
     const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
@@ -647,11 +703,17 @@ export function FlowchartCanvasView({ canvas, model, details, orientation, revea
         scrollRef.current = el;
         setScrollEl(el);
     }, []);
+    // The ask last selected, and the last one done: scrolled to, or with nothing to scroll.
+    const asked = useRef(0);
     const revealed = useRef(0);
     useEffect(() => {
         if (reveal === null || reveal.seq === revealed.current) return;
+        if (reveal.seq !== asked.current) {
+            asked.current = reveal.seq;
+            select(reveal.selection);
+        }
+        if (reveal.scroll !== false && awaitsRow(reveal.selection, cardsByKey, details.states)) return;
         revealed.current = reveal.seq;
-        select(reveal.selection);
         if (reveal.scroll === false || layout === null) return;
         const at = revealPoint(layout, model, reveal.selection);
         const box = scrollRef.current;
@@ -661,7 +723,7 @@ export function FlowchartCanvasView({ canvas, model, details, orientation, revea
         // state in the last lane, centred, would stop at the canvas's end, with the lane before it cut (hand test row 14).
         box.scrollLeft = laneWidth === undefined ? left : Math.min(Math.round(left / laneWidth), Math.max(0, layout.lanes.length - lanesInView)) * laneWidth;
         box.scrollTop = Math.max(0, at.y - box.clientHeight / 2);
-    }, [reveal, layout, model, select, laneWidth, lanesInView]);
+    }, [reveal, layout, model, select, cardsByKey, details.states, laneWidth, lanesInView]);
 
     // Esc restores everything at once (the spec): nothing selected, nothing dimmed, no transition being drawn — and says
     // whether it had any of them to put back: an Esc with nothing to put back does nothing, and goes on as it came.
@@ -874,6 +936,7 @@ export function FlowchartCanvasView({ canvas, model, details, orientation, revea
     const body = (
         <Box ref={onBody} css={styles.body} data-flowchart-body=""
             onPointerEnter={() => { hoveredRef.current = true; }} onPointerLeave={() => { hoveredRef.current = false; }}>
+            {probe}
             {layout !== null && !empty && (
                 // Focusable, so a press inside it — a state, a transition — lands its keys here: Del's.
                 <Box ref={setScroll} css={styles.scroll} data-flowchart-scroll="" tabIndex={-1} onKeyDown={onCanvasKey}>
@@ -1043,21 +1106,33 @@ export function FlowchartCanvasView({ canvas, model, details, orientation, revea
                                 const l = linksByKey.get(r.key)!;
                                 const box = r.label;
                                 if (box === undefined) return null;
-                                const bs = badgeStyle(l.cls, isSelectedLink(r.key));
+                                const selectedHere = isSelectedLink(r.key);
+                                const bs = badgeStyle(l.cls, selectedHere);
+                                // Its details' lines under its evidence, 13 apart — the first line's place where it has none (R32).
+                                const detail = labels?.lines.get(r.key) ?? [];
+                                const first = -box.h / 2 + LABEL_BASELINE + (l.badgeText === undefined ? 0 : LABEL_LINE_H);
                                 return (
                                     // Ornament, not a control — pointer-transparent so the
                                     // link's hit path beneath stays hoverable.
-                                    <g key={`bdg-${r.key}`} data-flowchart-label={r.key}
+                                    <g key={`bdg-${r.key}`} data-flowchart-label={r.key} data-selected={selectedHere || undefined}
                                         style={{ opacity: linkOpacity(l), transition: fade(dim.active), pointerEvents: "none" }}
                                         transform={`translate(${box.x + box.w / 2},${box.y + box.h / 2})`}>
                                         <rect x={-box.w / 2} y={-box.h / 2} width={box.w} height={box.h} rx={4}
                                             fill={PAPER} stroke={bs.stroke} strokeWidth={1} strokeDasharray={bs.dash} />
                                         {l.badgeText !== undefined && (
-                                            <text y={-box.h / 2 + BADGE_H / 2 + 3.5} textAnchor="middle"
+                                            <text y={-box.h / 2 + LABEL_BASELINE} textAnchor="middle"
                                                 style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, fill: bs.text, fontVariantNumeric: "tabular-nums" }}>
                                                 {l.badgeText}
                                             </text>
                                         )}
+                                        {detail.map((line, i) => {
+                                            const y = first + i * LABEL_LINE_H;
+                                            if (line.kind === "placeholder") {
+                                                const w = Math.min(PLACEHOLDER_BAR.w, box.w - 14);
+                                                return <rect key={i} data-line="placeholder" x={-w / 2} y={y - PLACEHOLDER_BAR.above} width={w} height={PLACEHOLDER_BAR.h} rx={2} />;
+                                            }
+                                            return <text key={i} data-line="detail" y={y} textAnchor="middle">{labelLineText(line, words)}</text>;
+                                        })}
                                     </g>
                                 );
                             })}
@@ -1091,11 +1166,39 @@ export function FlowchartCanvasView({ canvas, model, details, orientation, revea
                             const live = !nm.dimmed;
                             // A ghost is an end no state is keyed by: selected, never moved or renamed.
                             const movable = live && !nm.ghost && moveEdit !== undefined;
+                            // Where the details draw on the cards: its head over its reads (R22).
+                            const card = cardsByKey?.get(rect.key);
+                            const members = nm.members === undefined ? null : (
+                                <Box as="span" css={card === undefined ? styles.nodeBadge : styles.cardChip} data-flowchart-members="">×{words.number(nm.members)}</Box>
+                            );
+                            const inPlace = live && nm.inPlaceKeys.length > 0 ? (() => {
+                                // Folded self-loops have no route to click — the ↻
+                                // badge is their selection surface. Click selects
+                                // (cycling when several fold here) so Del deletes
+                                // it as it deletes any transition, and the
+                                // inspector shows its Details.
+                                const selIdx = selection?.kind === "link" ? nm.inPlaceKeys.findIndex((k) => keyEqual(k, selection.key)) : -1;
+                                return (
+                                    <Box as="span" css={styles.nodeBadge}
+                                        data-flowchart-inplace={rect.key}
+                                        data-selected={selIdx >= 0 || undefined}
+                                        onPointerDown={e => e.stopPropagation()}
+                                        onDoubleClick={e => e.stopPropagation()}
+                                        onClick={e => {
+                                            e.stopPropagation();
+                                            select({ kind: "link", key: nm.inPlaceKeys[(selIdx + 1) % nm.inPlaceKeys.length]! });
+                                        }}
+                                    >
+                                        <FontAwesomeIcon icon={faRotateRight} style={{ fontSize: "8px" }} /> {nm.inPlaceKeys.length}
+                                    </Box>
+                                );
+                            })() : null;
                             return (
                                 <Box
                                     key={rect.key}
                                     data-flowchart-node={rect.key}
                                     css={nm.ghost ? styles.ghostNode : styles.node}
+                                    data-details={card === undefined ? undefined : ""}
                                     data-selected={isSel || undefined}
                                     data-context={live ? undefined : ""}
                                     data-conflict={conflicted?.has(rect.key) === true ? "" : undefined}
@@ -1118,33 +1221,20 @@ export function FlowchartCanvasView({ canvas, model, details, orientation, revea
                                         setStateEditor({ mode: "edit", key: rect.key, label: nm.label ?? "", was: nm.label ?? "" });
                                     } : undefined}
                                 >
-                                    <Box css={styles.nodeCode}>
-                                        {rect.key}
-                                        {nm.members !== undefined && <Box as="span" css={styles.nodeBadge}>×{words.number(nm.members)}</Box>}
-                                        {live && nm.inPlaceKeys.length > 0 && (() => {
-                                            // Folded self-loops have no route to click — the ↻
-                                            // badge is their selection surface. Click selects
-                                            // (cycling when several fold here) so Del deletes
-                                            // it as it deletes any transition, and the
-                                            // inspector shows its Details.
-                                            const selIdx = selection?.kind === "link" ? nm.inPlaceKeys.findIndex((k) => keyEqual(k, selection.key)) : -1;
-                                            return (
-                                                <Box as="span" css={styles.nodeBadge}
-                                                    data-flowchart-inplace={rect.key}
-                                                    data-selected={selIdx >= 0 || undefined}
-                                                    onPointerDown={e => e.stopPropagation()}
-                                                    onDoubleClick={e => e.stopPropagation()}
-                                                    onClick={e => {
-                                                        e.stopPropagation();
-                                                        select({ kind: "link", key: nm.inPlaceKeys[(selIdx + 1) % nm.inPlaceKeys.length]! });
-                                                    }}
-                                                >
-                                                    <FontAwesomeIcon icon={faRotateRight} style={{ fontSize: "8px" }} /> {nm.inPlaceKeys.length}
-                                                </Box>
-                                            );
-                                        })()}
-                                    </Box>
-                                    {nm.label !== undefined && <Box css={styles.nodeLabel}>{nm.label}</Box>}
+                                    {card !== undefined && details.states !== undefined ? (
+                                        <FlowchartCardContent styles={styles} kind={details.states} card={card} words={words}
+                                            name={nm.label ?? rect.key} code={nm.label === undefined ? undefined : rect.key}
+                                            badges={<>{members}{inPlace}</>} />
+                                    ) : (
+                                        <>
+                                            <Box css={styles.nodeCode}>
+                                                {rect.key}
+                                                {members}
+                                                {inPlace}
+                                            </Box>
+                                            {nm.label !== undefined && <Box css={styles.nodeLabel}>{nm.label}</Box>}
+                                        </>
+                                    )}
                                 </Box>
                             );
                         })}
@@ -1413,7 +1503,8 @@ export function FlowchartCanvasView({ canvas, model, details, orientation, revea
                                 <Box
                                     data-flowchart-stateeditor
                                     css={styles.stateEditor}
-                                    style={{ left: cell.x, top: cell.y, width: cell.w, minHeight: cell.h }}
+                                    // Over a card with details, over its head alone: its reads stay in view.
+                                    style={{ left: cell.x, top: cell.y, width: cell.w, minHeight: stateEditor.mode === "edit" && cardsByKey?.has(stateEditor.key) === true ? Math.min(cell.h, DETAILS_HEAD_H) : cell.h }}
                                     onBlur={e => {
                                         // blur-empty dismisses; blur with content commits
                                         if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
@@ -1535,28 +1626,47 @@ export function FlowchartCanvasView({ canvas, model, details, orientation, revea
                             );
                         })()}
 
-                        {/* legend — planned / observed / trigger / in-place */}
+                        {/* legend — planned / observed / trigger / in-place, then a row for each read the cards and
+                            labels draw, and beside them a group for each tag list it lists (R31) */}
                         {legendOn && (
                             <Box css={styles.legend} data-flowchart-legend>
-                                <Box css={styles.legendTitle}>Legend</Box>
-                                <Box css={styles.legendRow}>
-                                    <svg width={28} height={8}><line x1={1} y1={4} x2={27} y2={4} stroke={INK} strokeWidth={2} /></svg>
-                                    <span>{words.m.kindLabel({ kind: "planned" })}</span>
+                                <Box css={styles.legendRows} data-legend-rows="">
+                                    <Box css={styles.legendTitle}>{words.m.legendTitle()}</Box>
+                                    <Box css={styles.legendRow} data-legend-line="planned">
+                                        <svg width={28} height={8}><line x1={1} y1={4} x2={27} y2={4} stroke={INK} strokeWidth={2} /></svg>
+                                        <span>{words.m.legendLine({ line: "planned" })}</span>
+                                    </Box>
+                                    <Box css={styles.legendRow} data-legend-line="observed">
+                                        <svg width={28} height={8}><line x1={1} y1={4} x2={27} y2={4} stroke={INFO} strokeWidth={1.6} strokeDasharray="5 4" /></svg>
+                                        <span>{words.m.legendLine({ line: "observed" })}</span>
+                                    </Box>
+                                    <Box css={styles.legendRow} data-legend-line="decision">
+                                        <svg width={28} height={16}>
+                                            <rect x={9} y={3} width={10} height={10} rx={2} transform="rotate(45 14 8)" fill={PAPER} stroke={BRAND_D} strokeWidth={1.2} />
+                                        </svg>
+                                        <span>{words.m.legendLine({ line: "decision" })}</span>
+                                    </Box>
+                                    <Box css={styles.legendRow} data-legend-line="inPlace">
+                                        <Box as="span" css={styles.nodeBadge}><FontAwesomeIcon icon={faRotateRight} style={{ fontSize: "8px" }} /> n</Box>
+                                        <span>{words.m.legendLine({ line: "inPlace" })}</span>
+                                    </Box>
+                                    {legend.reads.map((row) => (
+                                        <Box key={row.key} css={styles.legendRow} data-legend-read={row.key}>
+                                            <FlowchartLegendMarkView styles={styles} mark={row.mark} />
+                                            <span>{row.text}</span>
+                                        </Box>
+                                    ))}
                                 </Box>
-                                <Box css={styles.legendRow}>
-                                    <svg width={28} height={8}><line x1={1} y1={4} x2={27} y2={4} stroke={INFO} strokeWidth={1.6} strokeDasharray="5 4" /></svg>
-                                    <span>{words.m.kindLabel({ kind: "observed" })}</span>
-                                </Box>
-                                <Box css={styles.legendRow}>
-                                    <svg width={28} height={16}>
-                                        <rect x={9} y={3} width={10} height={10} rx={2} transform="rotate(45 14 8)" fill={PAPER} stroke={BRAND_D} strokeWidth={1.2} />
-                                    </svg>
-                                    <span>{words.m.legendDecision()}</span>
-                                </Box>
-                                <Box css={styles.legendRow}>
-                                    <Box as="span" css={styles.nodeBadge}><FontAwesomeIcon icon={faRotateRight} style={{ fontSize: "8px" }} /> n</Box>
-                                    <span>{words.m.legendInPlace()}</span>
-                                </Box>
+                                {legend.groups.map((group) => (
+                                    <Box key={group.key} css={styles.legendTags} data-legend-group={group.key}>
+                                        <Box css={styles.legendTitle}>{group.label}</Box>
+                                        {group.tags.length > 0 && (
+                                            <Box css={styles.legendTagList}>
+                                                {group.tags.map((tag) => <FlowchartTag key={tag.tag} css={styles.tag} text={tag.tag} look={tag.look} />)}
+                                            </Box>
+                                        )}
+                                    </Box>
+                                ))}
                             </Box>
                         )}
                     </Box>

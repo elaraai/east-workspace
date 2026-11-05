@@ -56,6 +56,7 @@ describeEast("Flowchart", (test) => {
         flowchartWording: ex.flowchartWording,
         flowchartFlagColors: ex.flowchartFlagColors,
         flowchartTicketMinutes: ex.flowchartTicketMinutes,
+        flowchartTicketMinutesLinear: ex.flowchartTicketMinutesLinear,
     });
 }, { platformFns: TestImpl });
 
@@ -1171,6 +1172,16 @@ describe("the details: named, typed reads over the app's rows, read only and rea
         const counts = [140n, 96n, 120n, 64n, 30n, 22n, 9n, 4n, 2n, 1n, 0n, 0n];
         assert.ok(detailRowEqual(details.values(minutesBytes({ minutes: counts })),
             [variant("histogram", counts.map((count, i) => ({ from: bins[i]!, count: Number(count) })))]));
+        // The same bins drawn to scale, as the to-scale example draws them: the scale crosses as the app gives it.
+        const toScale = kindOf(Flowchart.Types.Details, ($) => Flowchart.details($.let(minutesData()), {
+            details: [Flowchart.histogram("minutes", { unit: "minutes", label: "Time in state", counts: "tickets", bins, scale: "linear" })],
+        }).build("states", "Flowchart.states", false));
+        assert.ok(readsEqual(toScale.reads, [{
+            show: variant("all", null),
+            read: variant("histogram", {
+                label: "Time in state", unit: variant("minutes", null), counts: some("tickets"), bins: some(bins), scale: variant("linear", null), ticks: none,
+            }),
+        }]));
         // Another number of counts than bins: each at NaN, which no bin holds — the renderer lists the row in Issues and draws its bars absent.
         assert.ok(detailRowEqual(details.values(minutesBytes({ minutes: [3n, 4n] })),
             [variant("histogram", [{ from: NaN, count: 3 }, { from: NaN, count: 4 }])]));

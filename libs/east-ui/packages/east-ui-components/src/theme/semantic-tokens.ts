@@ -297,8 +297,10 @@ export const semanticTokens = defineSemanticTokens({
 
         /* Chakra's own hues — the stock palettes `ColorScheme` names. The
          * design system specifies only the brand's solid hover; a solid part
-         * in one of these hovers as Chakra's theme hovers it. */
-        gray:   { solidHover: stockSolidHover("gray") },
+         * in one of these hovers as Chakra's theme hovers it. Gray's edge is
+         * the design system's rule: Chakra's, its scale's 800 in dark, is
+         * `--paper-2`, and drew no edge on the paper. */
+        gray:   { solidHover: stockSolidHover("gray"), border: alias("{colors.border.subtle}") },
         red:    { solidHover: stockSolidHover("red") },
         orange: { solidHover: stockSolidHover("orange") },
         yellow: { solidHover: stockSolidHover("yellow") },

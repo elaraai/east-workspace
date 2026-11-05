@@ -7,7 +7,10 @@
  * The Flowchart's words (#1501–#1505, `Flowchart Records Spec.md`) — its
  * canvas's gestures: "+ LANE", a lane's ×, the "+ STATE" ghost and each
  * gesture's name in the history; its footer's counts, the changes waiting on
- * Save and its last save; its loading line, in a kind's noun; its library
+ * Save and its last save; its loading line, in a kind's noun; the details'
+ * (#1510, R41) — durations from the unit, a bin's edges, a histogram's caption,
+ * a count with what it counts, a share under one percent, a tag list's +n, a
+ * list's Show n more, and the legend's rows; its library
  * pane's — the pane, the Steps, Transitions and Lanes tabs, each tab's empty
  * state and what the rail leaves it; its drops': where a card lands, what it
  * sets its fields on, why it is refused, and a drop's name in the history; its
@@ -128,6 +131,34 @@ export const DEFAULT_FLOWCHART_NOUNS: FlowchartNouns = {
     state: "State", transition: "Transition", lane: "Lane", decision: "Decision", planned: "Planned", observed: "Observed",
 };
 
+/** A duration's step, as the details print it (R41): `0` alone, then minutes, hours, days and whole weeks. */
+export type FlowchartDurationStep = "zero" | "minutes" | "hours" | "days" | "weeks";
+
+/**
+ * Where half, or nine in ten, of a histogram's counts fall (R41): within the
+ * end of the bin they reach, or — reaching the open last bin — over its edge.
+ */
+export interface FlowchartMarkWord {
+    /** Within a bin's end, or over the last edge. */
+    readonly where: "within" | "over";
+    /** The edge, as a duration prints it. */
+    readonly at: string;
+}
+
+/** One of the legend's rows for the lines: planned, observed, a decision's diamond, an in-place transition's badge. */
+export type FlowchartLegendLineWord = "planned" | "observed" | "decision" | "inPlace";
+
+/**
+ * One of the legend's rows for a read the cards or the labels draw (§4): its
+ * label, and what it shows — a figure on each card or under the evidence; a
+ * histogram's range, first edge to last, and its scale; a list's top, by share
+ * on a card or under the evidence.
+ */
+export type FlowchartLegendReadWord =
+    | { readonly read: "figure"; readonly label: string; readonly on: "card" | "label" }
+    | { readonly read: "histogram"; readonly label: string; readonly first: string | undefined; readonly last: string | undefined; readonly scale: "band" | "linear" }
+    | { readonly read: "list"; readonly label: string; readonly top: string; readonly on: "card" | "label" };
+
 /** The Flowchart's message table: its own words, the rail's, the loading line's, and the editing session's. */
 export interface FlowchartMessages extends EditingMessages, HiddenWords, PagedLoadingMessages {
     /** A new lane's label, by its number — `Lane 3`. */
@@ -144,6 +175,36 @@ export interface FlowchartMessages extends EditingMessages, HiddenWords, PagedLo
     detailsNoData: () => string;
     /** What a list or a tag list with no items says — `none` (R41). */
     detailsNone: () => string;
+    /** A duration, by its step, its number in the app's locale (R41) — `15m`, `4h`, `2d`, `1w`; `0` alone. */
+    detailsDuration: (p: { step: FlowchartDurationStep; n: string }) => string;
+    /** The last edge, as an axis names it, its bin open — `1w+`. */
+    detailsOpen: (p: { at: string }) => string;
+    /** A bin, by its edges — `4h – 8h`; the last, open — `1w or more`. */
+    detailsBin: (p: { from: string; to: string | undefined }) => string;
+    /** A histogram's caption: where half and nine in ten of its counts fall — `Half within 4h · nine in ten within 2d`. */
+    detailsMarks: (p: { half: FlowchartMarkWord; nine: FlowchartMarkWord }) => string;
+    /** The bin under the pointer or the focus, as the caption says it — `4h – 8h · 236 parcels · 22%`. */
+    detailsBinCaption: (p: { bin: string; count: string; share: string }) => string;
+    /** A number with what it counts, the read's own word — `236 parcels`; the number alone where the read names none. */
+    detailsCount: (p: { count: string; noun: string | undefined }) => string;
+    /** A share above nothing but under the least the locale prints — `<1%`, by its 1%. */
+    detailsShareUnder: (p: { least: string }) => string;
+    /** The +n that ends a tag list cut short. */
+    detailsMore: (p: { count: string }) => string;
+    /** Its title: the tags it stands for — `Fragile and Cold chain`. */
+    detailsRest: (p: { tags: readonly string[] }) => string;
+    /** A list's control past its first 8 items — `Show 3 more`; open, `Show fewer`. */
+    detailsShowMore: (p: { n: number; count: string; open: boolean }) => string;
+    /** The inspector's read for a row the details hold no row of, saying *no data* (R33) — `Details`. */
+    detailsTitle: () => string;
+    /** What a kind's details are, as the loading line names them — `state details`. */
+    detailsNoun: (p: { sort: "states" | "transitions" }) => string;
+    /** The legend's title. */
+    legendTitle: () => string;
+    /** One of the legend's rows for the lines — `Planned`, `Observed`, `Decision trigger`, `In-place transition`. */
+    legendLine: (p: { line: FlowchartLegendLineWord }) => string;
+    /** One of its rows for a read (§4) — `Parcels · a figure on each card`, `Time in state · 0 to 1w+, a bar a bin`. */
+    legendRead: (p: FlowchartLegendReadWord) => string;
     /** The "+ STATE" ghost: the word beside its plus. */
     stateWord: () => string;
     /** A lane's ×: its accessible name, and its tooltip while it can delete — `Delete lane Sort`. */
@@ -228,8 +289,10 @@ export interface FlowchartMessages extends EditingMessages, HiddenWords, PagedLo
     inspectorChoice: (p: { key: string; label: string }) => string;
     /** A part's head in Details — `Transitions · 3`, `In · 2`, `Evidence`; `name` is the transitions kind's. */
     inspectorSection: (p: { section: FlowchartPartWord; n: number; count: string; name: string }) => string;
-    /** A transition's line under its ends in a list — `observed · route · 1.2k/day`, `unresolved`. */
-    inspectorLinkKind: (p: { kind: "planned" | "observed" | "unresolved"; decision: string | undefined; badge: string | undefined }) => string;
+    /** A transition's line under its ends in a list — `observed · route`, `unresolved`. */
+    inspectorLinkKind: (p: { kind: "planned" | "observed" | "unresolved"; decision: string | undefined }) => string;
+    /** A transition's volume beside its ends in a list (R37) — `18,460 parcels`; none measured, `not measured`. */
+    inspectorVolume: (p: { volume: string | undefined }) => string;
     /** A row's chip in its head — `Pending`, `New`, `No state row`, `Unresolved`. */
     inspectorChip: (p: { state: FlowchartChipWord }) => string;
     /** A gesture's button in Details — `Duplicate`, `Delete`. */
@@ -258,12 +321,6 @@ export interface FlowchartMessages extends EditingMessages, HiddenWords, PagedLo
     issueWhere: (p: { kind: string | undefined; name: string }) => string;
     /** An issue — `SCN → GONE names GONE, and e3 holds no state of that key`. */
     issueText: (p: FlowchartIssueWord) => string;
-    /** A transition's kind, as the legend says it — `Planned`, `Observed`. */
-    kindLabel: (p: { kind: "planned" | "observed" }) => string;
-    /** The legend's decision — `Decision trigger`. */
-    legendDecision: () => string;
-    /** The legend's in-place transition — `In-place transition`. */
-    legendInPlace: () => string;
     /** What the rail counts a kind's rows in, and its banner names it by where its source has no label of its own — `states`. */
     kindNoun: (p: { sort: FlowchartSort; n: number }) => string;
     /** What the rail counts a kind's list of cards in — `state cards`. */
@@ -307,6 +364,24 @@ const FIELDS: { readonly [F in Exclude<FlowchartFieldWord, "moveTo">]: string } 
 
 /** A state's transitions' groups. */
 const GROUPS = { in: "In", out: "Out", inPlace: "In place" } as const;
+
+/** Each duration step's letter, after its number. */
+const DURATION_STEPS: { readonly [S in Exclude<FlowchartDurationStep, "zero">]: string } = { minutes: "m", hours: "h", days: "d", weeks: "w" };
+
+/** Where half or nine in ten of the counts fall — `within 4h`, `over 1w`. */
+const markText = (mark: FlowchartMarkWord): string => `${mark.where} ${mark.at}`;
+
+/** A legend row's words for a read (§4): its label, and what it shows. */
+function legendReadText(p: FlowchartLegendReadWord): string {
+    switch (p.read) {
+        case "figure": return `${p.label} · ${p.on === "card" ? "a figure on each card" : "a figure under the evidence"}`;
+        case "histogram": {
+            const range = p.first === undefined ? "" : p.last === undefined ? `${p.first}+, ` : `${p.first} to ${p.last}+, `;
+            return `${p.label} · ${range}${p.scale === "linear" ? "to scale" : "a bar a bin"}`;
+        }
+        case "list": return `${p.label} · top ${p.top}, ${p.on === "card" ? "by share" : "under the evidence"}`;
+    }
+}
 
 /** Why a histogram's bins, as the app binds them, are refused — `The bins of Time in state do not ascend: 5, then 5`. */
 function binsRefused(read: string, refusal: FlowchartBinsRefusalWord): string {
@@ -389,6 +464,10 @@ export function flowchartMessagesOf(nouns: FlowchartNouns): FlowchartMessages {
 
     /** Each chip's words. */
     const CHIPS: { readonly [C in FlowchartChipWord]: string } = { pending: "Pending", new: "New", noRow: `No ${state} row`, unresolved: "Unresolved" };
+    /** The legend's rows for the lines. */
+    const LEGEND_LINES: { readonly [L in FlowchartLegendLineWord]: string } = {
+        planned: nouns.planned, observed: nouns.observed, decision: `${nouns.decision} trigger`, inPlace: `In-place ${transition}`,
+    };
 
     return {
         ...editingMessages,
@@ -403,6 +482,21 @@ export function flowchartMessagesOf(nouns: FlowchartNouns): FlowchartMessages {
         laneStep: ({ more }) => (more ? `Next ${lane}` : `Previous ${lane}`),
         detailsNoData: () => "no data",
         detailsNone: () => "none",
+        detailsDuration: ({ step, n }) => (step === "zero" ? "0" : `${n}${DURATION_STEPS[step]}`),
+        detailsOpen: ({ at }) => `${at}+`,
+        detailsBin: ({ from, to }) => (to === undefined ? `${from} or more` : `${from} – ${to}`),
+        detailsMarks: ({ half, nine }) => `Half ${markText(half)} · nine in ten ${markText(nine)}`,
+        detailsBinCaption: ({ bin, count, share }) => `${bin} · ${count} · ${share}`,
+        detailsCount: ({ count, noun }) => (noun === undefined ? count : `${count} ${noun}`),
+        detailsShareUnder: ({ least }) => `<${least}`,
+        detailsMore: ({ count }) => `+${count}`,
+        detailsRest: ({ tags }) => joinedWords(tags, "and"),
+        detailsShowMore: ({ count, open }) => (open ? "Show fewer" : `Show ${count} more`),
+        detailsTitle: () => "Details",
+        detailsNoun: ({ sort }) => `${ONE[sort]} details`,
+        legendTitle: () => "Legend",
+        legendLine: ({ line }) => LEGEND_LINES[line],
+        legendRead: (p) => legendReadText(p),
         stateWord: () => state,
         deleteLane: ({ label }) => `Delete ${lane} ${label}`,
         laneHoldsStates: ({ n, count, name }) => `Move its ${count} ${counted(n, name ?? state)} first`,
@@ -483,7 +577,8 @@ export function flowchartMessagesOf(nouns: FlowchartNouns): FlowchartMessages {
                 default: return `${GROUPS[section]} · ${count}`;
             }
         },
-        inspectorLinkKind: ({ kind, decision: named, badge }) => [kindWord(kind), named, badge].filter((part) => part !== undefined).join(" · "),
+        inspectorLinkKind: ({ kind, decision: named }) => (named === undefined ? kindWord(kind) : `${kindWord(kind)} · ${named}`),
+        inspectorVolume: ({ volume }) => volume ?? "not measured",
         inspectorChip: ({ state: chip }) => CHIPS[chip],
         inspectorAction: ({ action }) => (action === "duplicate" ? "Duplicate" : "Delete"),
         inspectorKeyRefused: ({ name, key, why }) => (why === "empty" ? `Every ${name} needs a key` : `${capital(aNoun(name))} is keyed ${quoted(key)} already`),
@@ -511,9 +606,6 @@ export function flowchartMessagesOf(nouns: FlowchartNouns): FlowchartMessages {
                 case "save": return p.message;
             }
         },
-        kindLabel: ({ kind }) => (kind === "planned" ? nouns.planned : nouns.observed),
-        legendDecision: () => `${nouns.decision} trigger`,
-        legendInPlace: () => `In-place ${transition}`,
         kindNoun: ({ sort, n }) => (n === 1 ? ONE[sort] : kindPlural(ONE[sort])),
         cardsNoun: ({ tab }) => `${ONE[tab]} cards`,
         hiddenByFilters: () => "hidden by the rail",

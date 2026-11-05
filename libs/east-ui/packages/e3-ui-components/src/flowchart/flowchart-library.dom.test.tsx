@@ -25,7 +25,8 @@
  *
  * jsdom lays nothing out. Each tab's Library alone is measured, as the e3
  * harness measures it, so its virtualizer lays out its cards; the canvas
- * measures 0×0, its lanes 166px wide from the left edge.
+ * measures 0×0, and each point a card is dropped at is read from where it
+ * draws the depot (`drawn.test-utils.ts`).
  */
 
 import { describe, expect, test } from "vitest";
@@ -40,8 +41,8 @@ import { announced, layOut, pointAt } from "@elaraai/east-ui-components/testing"
 import { Data, Flowchart, Record } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
 import { reloadPage } from "../e3-web-mount.test-utils.js";
+import { between, gapBefore } from "./drawn.test-utils.js";
 import { act, enabled, flowchartHarness, press, settle, type FlowchartTestProps } from "./flowchart.test-utils.js";
-import { LANE_MIN_W } from "./layout.js";
 import { measureLibrary } from "./library-measure.test-utils.js";
 import { flowchartMessages } from "./messages.js";
 
@@ -336,11 +337,6 @@ function diamondOf(container: HTMLElement, key: string): { x: number; y: number 
     return { x: parseFloat(x!), y: parseFloat(y!) };
 }
 
-/** In intake, between ARV's middle and SCN's, in jsdom's 0×0 canvas: ARV → SCN's line, l1, passes there too. */
-const BETWEEN = { x: 83, y: 124 };
-/** Between the induct lane's middle and the sort lane's: the gap before Sort. */
-const BEFORE_SORT = { x: 2 * LANE_MIN_W - 20, y: 300 };
-
 // ============================================================================
 // The tabs (R14)
 // ============================================================================
@@ -576,9 +572,9 @@ describe("each tab's card dropped on the canvas and saved on e3 (R14)", () => {
             lanes: await h.read(ex.depotLanes), decisions: await h.read(ex.depotDecisions),
             commits: await Promise.all(records.map((record) => h.commits(record))),
         };
-        // A transition's card on ARV → SCN: its values given, its ends kept.
+        // A transition's card on ARV → SCN, between the two: its values given, its ends kept.
         await openTab(container, m.libraryTab({ tab: "transitions" }));
-        await dropAt(container, card(container, "reroute"), BETWEEN);
+        await dropAt(container, card(container, "reroute"), between(container, "ARV", "SCN"));
         expect(announced()).toBe("Observed reroute was dropped on ARV → SCN.");
         // An owner's card on the route decision's diamond.
         await openTab(container, "Owners");
@@ -586,11 +582,11 @@ describe("each tab's card dropped on the canvas and saved on e3 (R14)", () => {
         expect(announced()).toBe("night-supervisor was dropped on decision route.");
         // A state's card between ARV and SCN.
         await openTab(container, m.libraryTab({ tab: "states" }));
-        await dropAt(container, card(container, "desk"), BETWEEN);
+        await dropAt(container, card(container, "desk"), between(container, "ARV", "SCN"));
         expect(announced()).toBe("Exception desk was dropped on Intake, after ARV.");
         // A lane's card in the gap before Sort.
         await openTab(container, m.libraryTab({ tab: "lanes" }));
-        await dropAt(container, card(container, "check"), BEFORE_SORT);
+        await dropAt(container, card(container, "check"), gapBefore(container, "sort"));
         expect(announced()).toBe("Quality check was dropped on the gap before Sort.");
         expect(laneKeys(container)).toEqual(["intake", "induct", "lane-6", "sort", "hold", "dispatch"]);
         expect(container.querySelector("[data-flowchart-pending]")?.textContent).toBe(` · ${m.footerPending({ n: 4, count: "4" })}`);
