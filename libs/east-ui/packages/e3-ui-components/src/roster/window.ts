@@ -30,6 +30,8 @@ export interface RosterWindow {
     view: RosterView; setView: (next: RosterView) => void;
     /** The layouts this Roster offers, in the switch's order: the `views` prop's. */
     layouts: readonly RosterLayout[];
+    /** Whether the layout in view offers Day, and Week (`viewPeriods`): what a heading opening one of them is a control only for. */
+    opensDay: boolean; opensWeek: boolean;
     /** The span in view: its weeks, and the window its reads cover. */
     span: RosterSpan;
     /** The span's first week's first day. */
@@ -156,7 +158,8 @@ export function useRosterWindow(value: RosterValue, key: string, narrow: boolean
         const held = layout === view.layout ? view.held : { ...view.held, [view.layout]: view.period };
         setView({ ...view, layout, period: "week", date: at.getTime(), held });
     }, [view, layouts, periods, setView]);
-    return { view, setView, layouts, span, start: span.start, day, setLayout, setPeriod, step, openWeek };
+    const opensDay = periodOf(view.layout, "day", periods) === "day", opensWeek = periodOf(view.layout, "week", periods) === "week";
+    return { view, setView, layouts, opensDay, opensWeek, span, start: span.start, day, setLayout, setPeriod, step, openWeek };
 }
 
 /** The first day of a date's month. */

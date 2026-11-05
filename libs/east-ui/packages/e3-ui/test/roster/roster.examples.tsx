@@ -652,7 +652,7 @@ export const rosterViews = example({
                 items={[Select.Item("shifts", "Shifts"), Select.Item("people", "People")]} /></HStack>
             <HStack gap="2" align="center"><Text>Periods</Text><Select value="" placeholder="Every period" multiple={true} onChangeMultiple={onPeriods}
                 items={[Select.Item("day", "Day"), Select.Item("week", "Week"), Select.Item("month", "Month")]} /></HStack>
-            <Box width="100%" height="700px"><Roster id="rosterViews" views={views} viewPeriods={viewPeriods} view={{ date: new Date("2028-03-06T00:00:00Z") }}
+            <Box width="100%" height="700px"><Roster id="rosterViews" inspector views={views} viewPeriods={viewPeriods} view={{ date: new Date("2028-03-06T00:00:00Z") }}
                 events={{ duty: Schedule.events(rota, {
                     name: "Duty", icon: "user-clock",
                     start: "start", end: "end", resource: { field: "person", of: "people" },

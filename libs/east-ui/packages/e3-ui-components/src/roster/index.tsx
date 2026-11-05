@@ -323,7 +323,7 @@ function RosterFrame(props: FrameProps) {
     const conflicted = useCallback((id: string) => schedule?.conflicted(dutyKind, id) === true,
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version says they moved
         [schedule, scheduleVersion, dutyKind]);
-    const viewProps = { value, week, held, start, day: window.day, view: window.view, setView: window.setView, span, weeks: weekStates, openWeek: window.openWeek,
+    const viewProps = { value, week, held, start, day: window.day, view: window.view, setView: window.setView, span, weeks: weekStates, openWeek: window.openWeek, opensDay: window.opensDay, opensWeek: window.opensWeek,
         styles, format, narrow, coverage, hours, pay: weekPay.pay, domain, issues, proposals, selection, select, commands, drag, onError: setError, read, optimised, lit: landing.lit,
         conflicted };
     // Search Records (#1398): a person found by their key is selected — in the People layout their row brought into view

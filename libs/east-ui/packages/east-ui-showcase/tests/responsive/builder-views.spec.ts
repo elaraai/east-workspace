@@ -95,6 +95,47 @@ test.describe("A component's views", () => {
         await expect(frame.getByText("Tom Vale · 8 / 0 h")).toBeVisible();
     });
 
+    test("Roster: a heading that can open no period is a heading: no button, no tab stop, no pointer, and pressing what stands under it leaves the month", async ({ page, isMobile }) => {
+        test.skip(isMobile, "a phone draws no such heading");
+        const entry = await open(page, "e3/roster/roster/rosterViews", isMobile);
+        const frame = entry.locator("[data-roster-frame]");
+        await toggle(page, entry, "People");
+        await toggle(page, entry, "Month", 1);
+        const column = frame.locator("[data-roster-week-column]").first();
+        await expect(column).toBeVisible();
+        expect(await column.evaluate(el => [el.tagName, getComputedStyle(el).cursor, el.tabIndex])).toEqual(["DIV", "auto", -1]);
+        await expect(frame.getByRole("button", { name: /^Open W/u })).toHaveCount(0);
+        // The heading keeps its fit and its place.
+        await expect(column.locator("[data-roster-week-number]")).toHaveText("W9");
+        // A day of a week that starts in the month before selects, and stays on the month.
+        await frame.locator("[data-roster-person-week]").first().click();
+        await settled(page);
+        await frame.locator("[data-roster-inspector='details']").getByRole("button", { name: /^Mon · /u }).click();
+        await settled(page);
+        await expect(frame.locator("[data-roster-grid='people-month']")).toBeVisible();
+        await expect(frame.getByText("March 2028", { exact: false }).first()).toBeVisible();
+        // Week offered again, the view kept comes back, and from Month the heading is a button that opens a week.
+        await toggle(page, entry, "Week", 1);
+        await expect(frame.locator("[data-roster-grid='people']")).toBeVisible();
+        await frame.locator("[data-roster-seg='period']").getByRole("radio", { name: "Month" }).click();
+        await settled(page);
+        await frame.getByRole("button", { name: /^Open W10/u }).click();
+        await expect(frame.locator("[data-roster-grid='people']")).toBeVisible();
+    });
+
+    test("Roster: with Day not offered, Shifts' Week heads are headings, and its cells still select", async ({ page, isMobile }) => {
+        test.skip(isMobile, "a phone draws no such heading");
+        const entry = await open(page, "e3/roster/roster/rosterViews", isMobile);
+        const frame = entry.locator("[data-roster-frame]");
+        await toggle(page, entry, "Week", 1);
+        const head = frame.locator("[data-roster-grid='shifts'] [data-roster-column-header][data-week]").first();
+        await expect(head).toBeVisible();
+        expect(await head.evaluate(el => el.tagName)).toBe("DIV");
+        await frame.locator("[data-roster-grid='shifts'] [data-roster-slot] button").first().click();
+        await settled(page);
+        await expect(frame.locator("[data-roster-grid='shifts'] [data-roster-column-header][data-week]").first()).toBeVisible();
+    });
+
     test("Calendar: the periods offered: one left takes the Period switch away and draws it", async ({ page, isMobile }) => {
         test.skip(isMobile, "a phone folds the switch into its View");
         const entry = await open(page, "e3/calendar/calendar/calendarViews", isMobile);
