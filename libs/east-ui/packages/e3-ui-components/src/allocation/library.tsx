@@ -40,7 +40,7 @@ import {
     allocationWords, compareDate, compareFloat, compareString, partsOf, type AllocationStyles, type AllocationValue, type Bin, type Context, type Day, type FitResult,
     type Load, type ResourceLine, type Selection, type TimeStep,
 } from "./model.js";
-import { a, one, other, type Nouns } from "./nouns.js";
+import { a, counted, lower, one, other, type Nouns } from "./nouns.js";
 
 /** A day, in milliseconds. */
 const DAY_MS = 86_400_000;
@@ -48,10 +48,8 @@ const DAY_MS = 86_400_000;
 /** What the viewer picked in the Library (A9, A10): a card to book or reserve, or an arrival whose bins it highlights. */
 export type Pick = LibraryGrip | { kind: "bins"; arrival: string };
 
-/** The Arrivals groups, in order (A51). */
-export const ARRIVAL_GROUPS = ["Overdue", "Ready around now", "Removed from plan", "Allocated"] as const;
-/** The Resources groups: the day's states, in order (A52). */
-export const RESOURCE_GROUPS = { free: "Free today", loading: "Loading today", busy: "Busy today" } as const;
+/** The Arrivals groups' kinds (A51): what a card's look and the overdue mark go by, whatever the app calls them. */
+type ArrivalKind = "overdue" | "ready" | "removed" | "allocated";
 
 /** A duration's unit as a card writes it: `8 d`. */
 const UNIT = { minutes: "min", hours: "h", days: "d", weeks: "wk", months: "mo" } as const;
@@ -70,7 +68,10 @@ export function holdText(step: TimeStep): string {
 export interface ArrivalCard {
     /** Its key in the Arrivals list: `arrival:LD-2231`, or `removed:3113`. */
     key: string;
-    group: (typeof ARRIVAL_GROUPS)[number];
+    /** Its group's words, the board's. */
+    group: string;
+    /** Its group's kind. */
+    kind: ArrivalKind;
     /** The arrival's key. */
     arrival: string;
     /** A card that drags: an arrival to book, or a removed bin to book again. */
@@ -141,7 +142,7 @@ export function arrivalCards(args: { context: Context; day: Date; plan: Day; hel
     const readyOf = (key: string): ArrivalCard["ready"] => {
         const arrival = context.arrivals.get(key)!;
         const due = arrival.due.type === "some" ? arrival.due.value : undefined;
-        if (due !== undefined && compareDate(due, day) < 0) return { text: `was due ${formatDatePattern("ddd D", due)} · overdue`, tone: "warning" };
+        if (due !== undefined && compareDate(due, day) < 0) return { text: `was due ${formatDatePattern("ddd D", due)} · ${lower(words.nouns.groups.overdue)}`, tone: "warning" };
         const window = arrival.window.type === "some" ? arrival.window.value : undefined;
         const parts = [due === undefined ? "" : `due ${formatDatePattern("ddd D", due)}`,
             window === undefined ? "" : `window ${formatDatePattern("ddd", window.from)}–${formatDatePattern("ddd", new Date(window.to.getTime() - 1))}`].filter(p => p !== "");
@@ -152,7 +153,7 @@ export function arrivalCards(args: { context: Context; day: Date; plan: Day; hel
     for (const late of [true, false]) {
         for (const key of toBook.filter(k => overdue(k) === late)) {
             const arrival = context.arrivals.get(key)!;
-            cards.push({ key: arrivalCardKey({ kind: "arrival", arrival: key }), group: late ? "Overdue" : "Ready around now", arrival: key, grip: { kind: "arrival", arrival: key },
+            cards.push({ key: arrivalCardKey({ kind: "arrival", arrival: key }), group: late ? words.nouns.groups.overdue : words.nouns.groups.ready, kind: late ? "overdue" : "ready", arrival: key, grip: { kind: "arrival", arrival: key },
                 bins: [], draft: false, label: arrival.label, figure: words.quantity(arrival.quantity), sub: subOf(arrival.meta, arrival.hold), ready: readyOf(key),
                 tip: `Click to see where ${arrival.label} fits · drag it onto ${onto}`, search: `${arrival.label} ${arrival.meta.type === "some" ? arrival.meta.value : ""}` });
         }
@@ -161,7 +162,7 @@ export function arrivalCards(args: { context: Context; day: Date; plan: Day; hel
         const key = bin.arrival.type === "some" ? bin.arrival.value : "";
         const arrival = context.arrivals.get(key);
         const label = arrival?.label ?? key;
-        cards.push({ key: arrivalCardKey({ kind: "removed", bin: id }), group: "Removed from plan", arrival: key, grip: { kind: "removed", bin: id }, bins: [id], draft: false,
+        cards.push({ key: arrivalCardKey({ kind: "removed", bin: id }), group: words.nouns.groups.removed, kind: "removed", arrival: key, grip: { kind: "removed", bin: id }, bins: [id], draft: false,
             label, figure: words.quantity(bin.quantity), sub: subOf(arrival?.meta, bin.hold), ready: { text: `was ${whereOf(context, words, bin)}` },
             tip: `Click to see where it fits · drag ${label} back onto ${a(lane)} hour or ${a(resource)}`, search: `${label} ${arrival?.meta.type === "some" ? arrival.meta.value : ""}` });
     }
@@ -174,10 +175,10 @@ export function arrivalCards(args: { context: Context; day: Date; plan: Day; hel
         const label = arrival?.label ?? key;
         const where = bins.map(b => whereOf(context, words, b.bin));
         const unlinked = bins.some(b => b.bin.parts.size === 0);
-        cards.push({ key: arrivalCardKey({ kind: "arrival", arrival: key }), group: "Allocated", arrival: key, grip: undefined, bins: bins.map(b => b.id), draft,
+        cards.push({ key: arrivalCardKey({ kind: "arrival", arrival: key }), group: words.nouns.groups.allocated, kind: "allocated", arrival: key, grip: undefined, bins: bins.map(b => b.id), draft,
             label, figure: words.quantity(bins.reduce((n, b) => n + b.bin.quantity, 0)), sub: subOf(arrival?.meta, bins[0]!.bin.hold),
-            ready: { text: bins.length > 1 ? `${bins.length} bins · ${where.join(" · ")}` : `in ${where[0]}`, ...(unlinked ? { tone: "warning" as const } : {}) },
-            tip: draft ? "Allocated · click to show its bin" : `In the plan · click to highlight ${bins.length > 1 ? `its ${bins.length} bins` : "its bin"}`,
+            ready: { text: bins.length > 1 ? `${counted(bins.length, words.nouns.bin)} · ${where.join(" · ")}` : `in ${where[0]}`, ...(unlinked ? { tone: "warning" as const } : {}) },
+            tip: draft ? `${words.nouns.groups.allocated} · click to show its ${one(words.nouns.bin)}` : `In the plan · click to highlight its ${bins.length > 1 ? counted(bins.length, words.nouns.bin) : one(words.nouns.bin)}`,
             search: `${label} ${arrival?.meta.type === "some" ? arrival.meta.value : ""}` });
     }
     return cards;
@@ -186,7 +187,7 @@ export function arrivalCards(args: { context: Context; day: Date; plan: Day; hel
 /** One Resources card (A52). */
 export interface ResourceCard {
     key: string;
-    group: (typeof RESOURCE_GROUPS)[keyof typeof RESOURCE_GROUPS];
+    group: string;
     label: string;
     /** What it takes: `20–40 m³`. */
     figure: string;
@@ -211,8 +212,8 @@ export function resourceCards(args: {
     resources: AllocationValue["resources"]; plan: Day; loads: SortedMap<string, Load>; lines: ReadonlyMap<string, ResourceLine>; words: LibraryWords;
 }): ResourceCard[] {
     const { resources, plan, loads, lines, words } = args;
-    const { lane, resource: noun } = words.nouns;
-    const onto = words.layout === "table" ? `a row’s ${one(noun)} cell` : `a bin or an empty ${one(lane)} hour`;
+    const { lane, resource: noun, bin: binNoun, groups } = words.nouns;
+    const onto = words.layout === "table" ? `a row’s ${one(noun)} cell` : `${a(binNoun)} or an empty ${one(lane)} hour`;
     // Each resource's first bin today: the loading ones' order.
     const first = new Map<string, Date>();
     for (const [, bin] of plan.bins) {
@@ -231,8 +232,8 @@ export function resourceCards(args: {
         } else if (load.state.type === "busy") text = line.text;
         else text = line.next.type === "some" ? `free · next job ${formatDatePattern("ddd D", line.next.value.start)}` : "free · no next job";
         const meta = resource.meta.type === "some" ? resource.meta.value : resource.group.type === "some" ? resource.group.value : "";
-        return { key: resource.key, group: RESOURCE_GROUPS[load.state.type], label: resource.label, figure: `${words.number(resource.min)}–${words.quantity(resource.max)}`,
-            sub: meta, line: { text, ...(tone === undefined ? {} : { tone }) }, tip: `Click to highlight its bins · drag ${resource.label} onto ${onto}`,
+        return { key: resource.key, group: groups[load.state.type], label: resource.label, figure: `${words.number(resource.min)}–${words.quantity(resource.max)}`,
+            sub: meta, line: { text, ...(tone === undefined ? {} : { tone }) }, tip: `Click to highlight its ${other(binNoun)} · drag ${resource.label} onto ${onto}`,
             search: `${resource.label} ${meta} ${resource.group.type === "some" ? resource.group.value : ""}` };
     };
     const state = (r: AllocationValue["resources"][number]) => loads.get(r.key)!.state.type;
@@ -364,7 +365,7 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
     const arrivalExtras = useMemo(() => {
         const byKey = new Map(arrivals.map((card): [string, LibraryCardExtras] => [card.key, {
             title: card.tip, figure: card.figure, ...(card.ready === undefined ? {} : { note: card.ready }),
-            ...(card.group === "Removed from plan" ? { look: "dashed" as const } : card.group === "Allocated" ? { look: "sunken" as const } : {}),
+            ...(card.kind === "removed" ? { look: "dashed" as const } : card.kind === "allocated" ? { look: "sunken" as const } : {}),
             ...(card.draft && editable ? { remove: { label: `Return ${card.label} to the list`, onRemove: () => unbook(card.arrival) } } : {}),
         }]));
         return (item: LibraryItemValue) => byKey.get(item.key);
@@ -375,7 +376,7 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
             (answer === undefined ? undefined : reasonOf(answer, card)) ?? { title: card.tip, figure: card.figure, note: card.line }]));
         return (item: LibraryItemValue) => byKey.get(item.key);
     }, [resources, answer]);
-    const overdueMark = useCallback((label: string): LibraryGroupMark | undefined => label === "Overdue" ? { icon: "triangle-exclamation", label: "Overdue", tone: "warning" } : undefined, []);
+    const overdueMark = useCallback((label: string): LibraryGroupMark | undefined => label === nouns.groups.overdue ? { icon: "triangle-exclamation", label, tone: "warning" } : undefined, [nouns.groups.overdue]);
 
     // A card's click (A9, A10).
     const { onArrival, onResource, onAllocated } = args;
@@ -416,7 +417,7 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
                 const button = { label: `Book into ${slot(reservation.lane, reservation.at)}`, grip: pick, target };
                 if (verdict.pending) return { note: "checking fits…", button: { ...button, disabled: true } };
                 if (!verdict.allowed) return { note: `Doesn’t fit ${name}: ${verdict.reason ?? verdict.caption}`, tone: "warning", button: { ...button, disabled: true } };
-                return { note: resource === undefined ? `${card.label} · ${card.figure}` : `Reserved on ${name}${verdict.reason === undefined ? "" : ` · ${verdict.reason}`}`, button: { ...button, disabled: false } };
+                return { note: resource === undefined ? `${card.label} · ${card.figure}` : `${nouns.reserved} on ${name}${verdict.reason === undefined ? "" : ` · ${verdict.reason}`}`, button: { ...button, disabled: false } };
             }
             return { note: layout === "table" ? `Click a highlighted ${one(nouns.arrival)} cell to book ${card.label} there, or select a free slot first.`
                 : `Click a free ${one(nouns.lane)} hour or a ranked ${one(nouns.resource)} to book ${card.label} there, or select a free slot first.` };
@@ -448,7 +449,7 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
     // The foot's hint, the tab's and the layout's (A53).
     const hint = (tab: "arrivals" | "resources") => narrow ? `Select ${a(nouns.arrival)}, then Book`
         : tab === "arrivals" ? (layout === "table" ? `Drag onto a row’s ${one(nouns.arrival)} cell` : `Drag onto ${a(nouns.lane)} hour or ${a(nouns.resource)}`)
-            : (layout === "table" ? `Drag onto a row’s ${one(nouns.resource)} cell` : `Drag onto a bin or an empty ${one(nouns.lane)} hour`);
+            : (layout === "table" ? `Drag onto a row’s ${one(nouns.resource)} cell` : `Drag onto ${a(nouns.bin)} or an empty ${one(nouns.lane)} hour`);
     // A tab its source reads again holds its cards retained (#1398, CL8): its action waits until it lands.
     const feet = (tab: "arrivals" | "resources") => <>
         <Box css={[styles.paneFoot, styles.paneHint]} data-allocation-library-hint="">{hint(tab)}</Box>
@@ -496,10 +497,10 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
         </Box> };
     });
     const open = args.tab === "resources" && tabs.some(t => t.key === "resources") ? "resources" : tabs[0]!.key;
-    const late = shownArrivals.some(card => card.group === "Overdue");
+    const late = shownArrivals.some(card => card.kind === "overdue");
     return {
         label: "Library", icon: "layer-group", size: "264px", tabs, tab: open, onTabChange: args.onTab, persist: "local",
         badge: open === "resources" ? listedResources.length : shownArrivals.length,
-        ...(open === "arrivals" && late ? { mark: { icon: "triangle-exclamation", label: `Overdue ${one(nouns.arrival)}`, tone: "warning" as const } } : {}),
+        ...(open === "arrivals" && late ? { mark: { icon: "triangle-exclamation", label: `${nouns.groups.overdue} ${one(nouns.arrival)}`, tone: "warning" as const } } : {}),
     };
 }

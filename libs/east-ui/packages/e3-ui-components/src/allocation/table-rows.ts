@@ -16,6 +16,7 @@
 
 import { none, type option } from "@elaraai/east";
 import { dayKey, parseDay, type Day, type Slot } from "./model.js";
+import { DEFAULT_NOUNS, counted, lower, type Nouns } from "./nouns.js";
 
 /** What a row holds: nothing, a bin with an arrival, or a reservation. */
 export type TableRowKind = "free" | "bin" | "reserved";
@@ -220,9 +221,10 @@ export function rowStatus(kind: TableRowKind, linked: boolean, check: boolean, d
  * @param band - The band
  * @param quantity - Its quantity, as the board writes it (`208 m³`)
  * @param collapsed - Whether it is folded
+ * @param nouns - The board's words
  * @returns Its line
  */
-export function bandLine(band: TableBand, quantity: string, collapsed: boolean): string {
-    const parts = [`${band.bins} bin${band.bins === 1 ? "" : "s"}`, band.reserved > 0 ? `${band.reserved} reserved` : "", `${band.free} free`, quantity];
+export function bandLine(band: TableBand, quantity: string, collapsed: boolean, nouns: Nouns = DEFAULT_NOUNS): string {
+    const parts = [counted(band.bins, nouns.bin), band.reserved > 0 ? `${band.reserved} ${lower(nouns.reserved)}` : "", `${band.free} free`, quantity];
     return parts.filter(p => p !== "").join(" · ") + (collapsed ? " · collapsed" : "");
 }

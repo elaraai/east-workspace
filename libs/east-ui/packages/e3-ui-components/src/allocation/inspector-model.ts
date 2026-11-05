@@ -19,7 +19,7 @@ import { formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { rankOf, type Grip, type LibraryGrip } from "./drag.js";
 import { compareDate, compareFloat, compareString, partsOf, type Bin, type Context, type Day, type Fit, type FitResult, type Issue, type Load,
     type ResourceLine, type ResourceRow, type Slot, type TimeStep } from "./model.js";
-import { a, one, other, type Noun, type Nouns } from "./nouns.js";
+import { DEFAULT_NOUNS, a, counted, lower, one, other, type Noun, type Nouns } from "./nouns.js";
 import { countedIssues, issueParts } from "./toolbar.js";
 
 /** A day, in milliseconds. */
@@ -51,10 +51,6 @@ const dayText = (at: Date) => formatDatePattern("ddd D", at);
 const timeText = (at: Date) => formatDatePattern("HH:mm", at);
 /** The last day a span holds, the day before its end: a job ending at Sat 8's start was released Fri 7. */
 const lastDay = (to: Date) => dayText(new Date(to.getTime() - 1));
-/** `1 bin`, `3 bins`. */
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-/** A count in the board's noun: `1 lane`, `33 resources`. */
-const counted = (n: number, noun: Noun) => `${n} ${n === 1 ? one(noun) : other(noun)}`;
 /** A duration's unit, as a hold's length says it (`8-day hold`) and as a step says it (`± 1 h`). */
 const HOLD_UNIT = { minutes: "minute", hours: "hour", days: "day", weeks: "week", months: "month" } as const;
 const STEP_UNIT = { minutes: "min", hours: "h", days: "d", weeks: "wk", months: "mo" } as const;
@@ -64,9 +60,9 @@ export function codeOf(context: Context, arrival: string): string {
     return context.arrivals.get(arrival)?.label ?? arrival;
 }
 
-/** A bin's code: its arrival's, or `Reserved` for a reservation (A16). */
-export function binCode(context: Context, bin: Bin): string {
-    return bin.arrival.type === "some" ? codeOf(context, bin.arrival.value) : "Reserved";
+/** A bin's code: its arrival's, or the board's `Reserved` for a reservation (A16). */
+export function binCode(context: Context, bin: Bin, nouns: Nouns): string {
+    return bin.arrival.type === "some" ? codeOf(context, bin.arrival.value) : nouns.reserved;
 }
 
 /** A resource's name. */
@@ -89,14 +85,15 @@ function sameResources(a: Bin["parts"], b: Bin["parts"]): boolean {
  * @param committed - The bin as the day holds it; `undefined` for a new one
  * @param sameBin - Whether two bins are the same
  * @param lines - The lines of the resources it is on
+ * @param nouns - The board's words
  * @returns Its status
  */
-export function binStatus(bin: Bin, committed: Bin | undefined, sameBin: (a: Bin, b: Bin) => boolean, lines: readonly ResourceLine[]): InspectorStatus {
+export function binStatus(bin: Bin, committed: Bin | undefined, sameBin: (a: Bin, b: Bin) => boolean, lines: readonly ResourceLine[], nouns: Nouns = DEFAULT_NOUNS): InspectorStatus {
     const linked = bin.parts.size > 0;
     if (committed === undefined || !sameBin(committed, bin)) {
         const word = !linked ? "Not linked · unsaved" : committed === undefined ? "Added · unsaved"
             : committed.lane !== bin.lane || compareDate(committed.at, bin.at) !== 0 ? "Moved · unsaved"
-                : !sameResources(committed.parts, bin.parts) ? "Allocated · unsaved" : "Edited · unsaved";
+                : !sameResources(committed.parts, bin.parts) ? `${nouns.groups.allocated} · unsaved` : "Edited · unsaved";
         return { word, tone: "neutral", ring: true, pending: committed === undefined ? "new" : "pending" };
     }
     if (!linked) return { word: "Not linked", tone: "warning", ring: false, pending: undefined };
@@ -105,10 +102,10 @@ export function binStatus(bin: Bin, committed: Bin | undefined, sameBin: (a: Bin
 }
 
 /** A reservation's status (A61): `Reserved`, or what its draft did, `Added · unsaved`, `Moved · unsaved`. */
-export function reservationStatus(bin: Bin, committed: Bin | undefined, sameBin: (a: Bin, b: Bin) => boolean): InspectorStatus {
+export function reservationStatus(bin: Bin, committed: Bin | undefined, sameBin: (a: Bin, b: Bin) => boolean, nouns: Nouns = DEFAULT_NOUNS): InspectorStatus {
     if (committed === undefined) return { word: "Added · unsaved", tone: "neutral", ring: true, pending: "new" };
     if (!sameBin(committed, bin)) return { word: "Moved · unsaved", tone: "neutral", ring: true, pending: "pending" };
-    return { word: "Reserved", tone: "info", ring: false, pending: undefined };
+    return { word: nouns.reserved, tone: "info", ring: false, pending: undefined };
 }
 
 /** A resource's status (A62): `Check` over max or held into its next job, else `Loading`, `Busy` or `Free`, as its load is. */
@@ -169,7 +166,7 @@ export function bannersOf(args: { issues: readonly Issue[]; bin?: { id: string; 
                     const next = line.next.value;
                     const days = (hold.to.getTime() - day.getTime()) / DAY_MS, into = (hold.to.getTime() - next.start.getTime()) / DAY_MS;
                     out.push({ status: status(issue), title: "Overlaps the next job",
-                        text: `The ${words.number(days)}-day hold on ${row.label} runs to ${lastDay(hold.to)}, ${words.number(into)} d into the job planned ${dayText(next.start)}.` });
+                        text: `The ${words.number(days)}-day ${lower(nouns.hold)} on ${row.label} runs to ${lastDay(hold.to)}, ${words.number(into)} d into the job planned ${dayText(next.start)}.` });
                 } else out.push({ status: status(issue), title: "Overlaps the next job", text: issue.detail });
                 taken.add(issue);
             }
@@ -215,7 +212,7 @@ export function factsOf({ row, load, line }: ResourceAt, day: Date, horizonEnd: 
     if (line.next.type === "some") {
         const job = line.next.value;
         const after = span === undefined ? ""
-            : line.overlap ? ` · hold overlaps it by ${words.number((span.to.getTime() - job.start.getTime()) / DAY_MS)} d`
+            : line.overlap ? ` · ${lower(words.nouns.hold)} overlaps it by ${words.number((span.to.getTime() - job.start.getTime()) / DAY_MS)} d`
                 : ` · ${words.number((job.start.getTime() - span.to.getTime()) / DAY_MS)} d spare`;
         next = { text: `${dayText(job.start)}${after}${row.note.type === "some" ? ` · ${row.note.value}` : ""}`, warn: line.overlap };
     } else next = { text: `none planned to ${lastDay(horizonEnd)}`, warn: false };
@@ -230,7 +227,7 @@ export function groupLine(row: ResourceRow, words: InspectorWords): string {
 /** A resource's batch line (A58): `Batched · 3 bins · 31 m³`, or `One bin fills it.` */
 export function batchLine(load: Load, words: InspectorWords): string {
     const bins = Number(load.bins);
-    return bins > 1 ? `Batched · ${plural(bins, "bin")} · ${words.quantity(Math.round(load.fill))}` : "One bin fills it.";
+    return bins > 1 ? `Batched · ${counted(bins, words.nouns.bin)} · ${words.quantity(Math.round(load.fill))}` : `One ${one(words.nouns.bin)} fills it.`;
 }
 
 /** A bin on a resource today (A58, A62): its time, lane, code and what it puts there, and its tooltip. */
@@ -253,9 +250,9 @@ export function matesOf(plan: Day, held: Day | undefined, resource: string, cont
         .map(([id, bin]) => {
             const meta = bin.arrival.type === "some" ? context.arrivals.get(bin.arrival.value)?.meta : undefined;
             return {
-                id, time: timeText(bin.at), lane: words.lane(bin.lane), code: binCode(context, bin),
-                quantity: bin.arrival.type === "none" ? "reserved" : words.quantity(bin.parts.get(resource)!),
-                tip: `Bin ${held?.bins.has(id) === true ? id : "new"}${meta?.type === "some" ? ` · ${meta.value}` : ""}`,
+                id, time: timeText(bin.at), lane: words.lane(bin.lane), code: binCode(context, bin, words.nouns),
+                quantity: bin.arrival.type === "none" ? lower(words.nouns.reserved) : words.quantity(bin.parts.get(resource)!),
+                tip: `${words.nouns.bin.one} ${held?.bins.has(id) === true ? id : "new"}${meta?.type === "some" ? ` · ${meta.value}` : ""}`,
             };
         });
 }
@@ -290,7 +287,7 @@ export function wasLine(committed: Bin | undefined, context: Context, words: Ins
 export function stepHelp(slots: readonly Slot[], lane: string, every: TimeStep, day: Date, words: InspectorWords): string {
     const first = slots[0]?.at, last = slots[slots.length - 1]?.at;
     if (first === undefined || last === undefined) return "";
-    return `${words.lane(lane)} bins at :${formatDatePattern("mm", first)} · ± ${words.number(every.value)} ${STEP_UNIT[every.type]}, `
+    return `${words.lane(lane)} ${other(words.nouns.bin)} at :${formatDatePattern("mm", first)} · ± ${words.number(every.value)} ${STEP_UNIT[every.type]}, `
         + `${formatDatePattern("HH", first)}–${formatDatePattern("HH", last)} on ${dayText(day)}`;
 }
 
@@ -327,7 +324,7 @@ export function bookOptions(args: { plan: Day; held: Day | undefined; context: C
         for (const key of toBook.filter(k => overdue(k) === late)) {
             const arrival = context.arrivals.get(key)!;
             out.push({ key: `arrival:${key}`, grip: { kind: "arrival", arrival: key }, code: arrival.label, quantity: words.quantity(arrival.quantity),
-                line: [arrival.meta.type === "some" ? arrival.meta.value : "", late ? "overdue" : ""].filter(p => p !== "").join(" · "), warn: late });
+                line: [arrival.meta.type === "some" ? arrival.meta.value : "", late ? lower(words.nouns.groups.overdue) : ""].filter(p => p !== "").join(" · "), warn: late });
         }
     }
     for (const [id, bin] of removed) {
@@ -335,7 +332,7 @@ export function bookOptions(args: { plan: Day; held: Day | undefined; context: C
         if (!shows(key)) continue;
         const meta = context.arrivals.get(key)?.meta;
         out.push({ key: `removed:${id}`, grip: { kind: "removed", bin: id }, code: codeOf(context, key), quantity: words.quantity(bin.quantity),
-            line: [meta?.type === "some" ? meta.value : "", "removed from plan"].filter(p => p !== "").join(" · "), warn: false });
+            line: [meta?.type === "some" ? meta.value : "", lower(words.nouns.groups.removed)].filter(p => p !== "").join(" · "), warn: false });
     }
     return out;
 }
@@ -397,7 +394,7 @@ export function reserveOptions(answer: FitResult | undefined, loads: SortedMap<s
 }
 
 /** One of the summary's counts (A63): its label, its value, its line, and the value's tone. */
-export interface SummaryStat { label: string; value: string; sub: string; tone: "warning" | "brand" | undefined }
+export interface SummaryStat { key: string; label: string; value: string; sub: string; tone: "warning" | "brand" | undefined }
 
 /**
  * The summary's four counts (A63): Bins (`26`, `556 m³ · 0 reserved`), Loading
@@ -419,10 +416,10 @@ export function summaryStats(args: { plan: Day; held: Day | undefined; sameBin: 
     for (const [id, bin] of plan.bins) { const was = held?.bins.get(id); if (was === undefined || !sameBin(was, bin)) drafts++; }
     for (const [id] of held?.bins ?? []) if (!plan.bins.has(id)) drafts++;
     return [
-        { label: "Bins", value: `${booked.length}`, sub: `${words.quantity(Math.round(booked.reduce((n, bin) => n + bin.quantity, 0)))} · ${bins.length - booked.length} reserved`, tone: undefined },
-        { label: "Loading", value: `${count("loading")} of ${states.length}`, sub: `${count("free")} free · ${count("busy")} busy`, tone: undefined },
-        { label: "Issues", value: `${issueCount}`, sub: issueCount > 0 ? issueParts(issues).join(" · ") : "none", tone: issueCount > 0 ? "warning" : undefined },
-        { label: "Changes", value: `${drafts}`, sub: drafts > 0 ? "unsaved · Save is in the toolbar" : "all saved", tone: drafts > 0 ? "brand" : undefined },
+        { key: "bins", label: words.nouns.bin.other, value: `${booked.length}`, sub: `${words.quantity(Math.round(booked.reduce((n, bin) => n + bin.quantity, 0)))} · ${bins.length - booked.length} ${lower(words.nouns.reserved)}`, tone: undefined },
+        { key: "loading", label: "Loading", value: `${count("loading")} of ${states.length}`, sub: `${count("free")} free · ${count("busy")} busy`, tone: undefined },
+        { key: "issues", label: "Issues", value: `${issueCount}`, sub: issueCount > 0 ? issueParts(issues).join(" · ") : "none", tone: issueCount > 0 ? "warning" : undefined },
+        { key: "changes", label: "Changes", value: `${drafts}`, sub: drafts > 0 ? "unsaved · Save is in the toolbar" : "all saved", tone: drafts > 0 ? "brand" : undefined },
     ];
 }
 
@@ -448,7 +445,7 @@ export function narrowingNote(sources: readonly { shown: number; total: number; 
 /** The summary's three hints (A89). */
 export function summaryHints(nouns: Nouns): string[] {
     return [
-        `Select a bin or ${a(nouns.resource)} to inspect it.`,
+        `Select ${a(nouns.bin)} or ${a(nouns.resource)} to inspect it.`,
         `Use the Library to book ${other(nouns.arrival)} and reserve ${other(nouns.resource)}.`,
         "Changes wait for Save. Undo and Redo are in the toolbar.",
     ];
@@ -530,7 +527,7 @@ export function dropHeadOf(args: {
     firstFree: { lane: string; at: Date } | undefined; words: InspectorWords;
 }): DropHead {
     const { subject, dragging, layout, day, plan, held, context, words } = args;
-    const { lane, arrival, resource } = words.nouns;
+    const { lane, arrival, resource, bin: binNoun } = words.nouns;
     const table = layout === "table";
     if (subject.kind === "resource") {
         const row = context.resources.get(subject.resource);
@@ -540,16 +537,16 @@ export function dropHeadOf(args: {
         const where = row === undefined ? "" : row.group.type === "some" ? row.group.value : row.meta.type === "some" ? row.meta.value : "";
         return {
             eyebrow: resource.one, title: nameOf(context, subject.resource), meta: [where, today].filter(p => p !== "").join(" · "), fits: false,
-            hint: table ? `Drop on a row’s ${one(resource)} cell. A bin is linked to it; an empty slot is reserved on it.`
-                : `Drop on a bin to link it, or on an empty ${one(lane)} hour to reserve that slot.`,
+            hint: table ? `Drop on a row’s ${one(resource)} cell. ${a(binNoun).charAt(0).toUpperCase()}${a(binNoun).slice(1)} is linked to it; an empty slot is ${lower(words.nouns.reserved)} on it.`
+                : `Drop on ${a(binNoun)} to link it, or on an empty ${one(lane)} hour to reserve that slot.`,
         };
     }
     if (subject.kind === "body") {
         const bin = plan.bins.get(subject.bin);
-        const code = bin === undefined ? subject.bin : binCode(context, bin);
+        const code = bin === undefined ? subject.bin : binCode(context, bin, words.nouns);
         const current = bin === undefined ? undefined : partsOf(bin)[0]?.key;
         return {
-            eyebrow: "Move bin", title: bin === undefined || bin.arrival.type === "none" ? code : `${code} · ${words.quantity(bin.quantity)}`, fits: false,
+            eyebrow: `Move ${one(binNoun)}`, title: bin === undefined || bin.arrival.type === "none" ? code : `${code} · ${words.quantity(bin.quantity)}`, fits: false,
             meta: `${table ? "To a free row" : `Between ${other(lane)} and hours`} · its ${one(resource)} stays ${current === undefined ? "none" : nameOf(context, current)}`,
             hint: table ? `Drop on a free row’s ${one(arrival)} cell. To change its ${one(resource)}, use the chevron on its row.`
                 : `Drop on ${a(lane)} hour. To change its ${one(resource)}, drag its connector instead.`,
@@ -557,16 +554,16 @@ export function dropHeadOf(args: {
     }
     // An arrival, a removed bin, a connector or a link: its fits.
     const bin = subject.kind === "arrival" ? undefined : subject.kind === "removed" ? held?.bins.get(subject.bin) : plan.bins.get(subject.bin);
-    const code = subject.kind === "arrival" ? codeOf(context, subject.arrival) : bin === undefined ? subject.bin : binCode(context, bin);
+    const code = subject.kind === "arrival" ? codeOf(context, subject.arrival) : bin === undefined ? subject.bin : binCode(context, bin, words.nouns);
     const reserved = bin !== undefined && bin.arrival.type === "none";
     const hold: TimeStep | undefined = subject.kind === "arrival" ? context.arrivals.get(subject.arrival)?.hold : reserved ? undefined : bin?.hold;
-    const from = hold === undefined ? "" : `${words.number(hold.value)}-${HOLD_UNIT[hold.type]} hold from ${dayText(day)}`;
+    const from = hold === undefined ? "" : `${words.number(hold.value)}-${HOLD_UNIT[hold.type]} ${lower(words.nouns.hold)} from ${dayText(day)}`;
     const landing = args.firstFree === undefined ? "no free slot" : `${words.lane(args.firstFree.lane)} ${timeText(args.firstFree.at)}`;
     const linking = subject.kind === "port" || subject.kind === "link";
     const hint = !dragging
         ? `Book puts it in the day’s first free ${one(lane)} slot (${landing}). ${table ? `Or click a highlighted ${one(arrival)} cell, or drag it onto a free row.`
             : `Or click a free ${one(lane)} hour or a ranked ${one(resource)}, or drag it there.`} Esc clears.`
-        : table ? `Drop on a free row’s ${one(arrival)} cell, or on ${a(resource)} here to book its next free bin.`
+        : table ? `Drop on a free row’s ${one(arrival)} cell, or on ${a(resource)} here to book its next free ${one(binNoun)}.`
             : linking ? `Drop on ${a(resource)} row, or on ${a(resource)} here.` : `Drop on ${a(resource)} row or ${a(lane)} hour, or on ${a(resource)} here.`;
     return {
         eyebrow: "Gaps that fit", title: reserved || args.quantity === undefined ? code : `${code} · ${words.quantity(args.quantity)}`, fits: true, hint,

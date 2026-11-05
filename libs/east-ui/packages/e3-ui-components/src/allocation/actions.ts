@@ -25,6 +25,7 @@ import type { Origin } from "@elaraai/east-ui-components";
 import type { ScheduleChange } from "../shared/schedule/editing.js";
 import { fieldChange, mintKey, periodPublishChange } from "../shared/schedule/records.js";
 import { PERIODS, type AllocationEditing } from "./editing.js";
+import { one } from "./nouns.js";
 import {
     compareFloat, compareString, dayKey, editableStatus, partsOf, rolesOf, sameRowBytes, type AllocationDomain, type AllocationValue, type Bin, type Day,
     type PlacedPeriod, type Roles, type Selection, type StoredBin,
@@ -284,7 +285,7 @@ export function allocationCommands(state: AllocationState, select: (next: Select
             const bin = plan.bins.get(id), into = plan.bins.get(reservation);
             if (bin === undefined || into === undefined || into.arrival.type !== "none") return false;
             const resource = [...into.parts.keys()][0];
-            const done = write("Fill the reservation", "drop", next => {
+            const done = write(`Fill the ${one(value.labels.reservation)}`, "drop", next => {
                 const moved = next.bins.get(id)!;
                 moved.lane = into.lane; moved.at = into.at;
                 moved.parts.clear();
@@ -315,7 +316,7 @@ export function allocationCommands(state: AllocationState, select: (next: Select
             if (into === undefined || into.arrival.type !== "none") return false;
             const made = booking(arrival, into.lane, into.at, [...into.parts.keys()][0]);
             if (made === undefined) return false;
-            const done = write("Book into the reservation", "drop", next => { next.bins.delete(reservation); next.bins.set(made.id, made.bin); });
+            const done = write(`Book into the ${one(value.labels.reservation)}`, "drop", next => { next.bins.delete(reservation); next.bins.set(made.id, made.bin); });
             if (done) select({ type: "bin", id: made.id }, true);
             return done;
         },
@@ -342,7 +343,7 @@ export function allocationCommands(state: AllocationState, select: (next: Select
             const parts = partsOf(bin);
             const whole = parts.length === 1 && compareFloat(parts[0]!.quantity, bin.quantity) === 0;
             if (!whole && compareFloat(quantity, parts.reduce((n, p) => n + p.quantity, 0)) < 0) return false;
-            return write("Edit bin", "typed", next => {
+            return write(`Edit ${one(value.labels.bin)}`, "typed", next => {
                 const into = next.bins.get(id)!;
                 into.quantity = quantity;
                 if (whole) into.parts.set(parts[0]!.key, quantity);
@@ -351,12 +352,12 @@ export function allocationCommands(state: AllocationState, select: (next: Select
         row(id, bytes) {
             const was = plan.bins.get(id);
             if (!takes || was === undefined || sameRowBytes(bytes, domain.encodeRow(was.row))) return false;
-            return record([{ kind: bins, id, row: bytes }], "typed", "Edit bin");
+            return record([{ kind: bins, id, row: bytes }], "typed", `Edit ${one(value.labels.bin)}`);
         },
         field(id, path, next) {
             if (!takes || !plan.bins.has(id)) return false;
             const change = fieldChange(value.bin.kind, id, path, next);
-            return change !== undefined && record([change], "typed", "Edit bin");
+            return change !== undefined && record([change], "typed", `Edit ${one(value.labels.bin)}`);
         },
         split(id, resource, quantity, from) {
             const bin = plan.bins.get(id);
@@ -378,7 +379,7 @@ export function allocationCommands(state: AllocationState, select: (next: Select
                 || compareFloat(quantity, part) === 0 || compareFloat(quantity, part + remainderOf(bin)) > 0) return false;
             // Nothing on it unlinks it (A71): what it held is unallocated again.
             if (compareFloat(quantity, 0) === 0) return write("Unlink", "remove", next => { next.bins.get(id)!.parts.delete(resource); });
-            return write("Edit bin", "typed", next => { next.bins.get(id)!.parts.set(resource, quantity); });
+            return write(`Edit ${one(value.labels.bin)}`, "typed", next => { next.bins.get(id)!.parts.set(resource, quantity); });
         },
         restore(id, lane, at, resource) {
             if (!held.bins.has(id) || plan.bins.has(id)) return false;
@@ -396,7 +397,7 @@ export function allocationCommands(state: AllocationState, select: (next: Select
             const into = plan.bins.get(reservation);
             if (!held.bins.has(id) || plan.bins.has(id) || into === undefined || into.arrival.type !== "none") return false;
             const resource = [...into.parts.keys()][0];
-            const done = write("Book into the reservation", "drop", next => {
+            const done = write(`Book into the ${one(value.labels.reservation)}`, "drop", next => {
                 const bin = domain.copyDay(held).bins.get(id)!;
                 bin.lane = into.lane; bin.at = into.at;
                 bin.parts.clear();

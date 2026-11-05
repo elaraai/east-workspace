@@ -155,7 +155,7 @@ test("§0 worked facts — the day's loads: 26 bins, 556 m³; 21 kilns loading, 
 test("A19 — every resource row's line at open, word for word as the mock draws them, and its tone", () => {
     const line = East.compile(allocationResourceLine, []);
     const all = loads(yardDay, fresh(), context);
-    const lines = [...context.resources.values()].map(r => { const l = line(yardDay, r, all.get(r.key)!, "m³"); return [r.label, l.text, l.tone.type]; });
+    const lines = [...context.resources.values()].map(r => { const l = line(yardDay, r, all.get(r.key)!, "m³", "reserved"); return [r.label, l.text, l.tone.type]; });
     assert.deepEqual(lines, [
         ["K-101", "31 m³ · takes 16–32", "neutral"], ["K-102", "27 m³ · takes 16–32", "neutral"],
         ["K-103", "Hall A · 32 m³ · takes 16–32 m³", "neutral"], ["K-104", "Hall A · 32 m³ · takes 16–32 m³", "neutral"],
@@ -172,18 +172,20 @@ test("A19 — every resource row's line at open, word for word as the mock draws
         ["K-503", "busy until Fri 14", "neutral"], ["K-504", "busy until Sat 15", "neutral"],
         ["K-601", "Bulk · 60 m³ · takes 40–60 m³", "neutral"], ["K-602", "Bulk · 60 m³ · takes 40–60 m³", "neutral"],
     ]);
-    const k207 = line(yardDay, context.resources.get("K-207")!, all.get("K-207")!, "m³");
+    const k207 = line(yardDay, context.resources.get("K-207")!, all.get("K-207")!, "m³", "reserved");
     assert.deepEqual([k207.over, k207.under, k207.overlap], [true, false, false]);
-    const k105 = line(yardDay, context.resources.get("K-105")!, all.get("K-105")!, "m³");
+    const k105 = line(yardDay, context.resources.get("K-105")!, all.get("K-105")!, "m³", "reserved");
     assert.deepEqual([k105.over, k105.under, k105.overlap], [false, false, true]);
     // Under its minimum it warns; with only a reservation (on a kiln with an open gap) it reads `reserved`.
     const plan = fresh();
     plan.bins.get("3113")!.quantity = 10;
     plan.bins.get("3113")!.parts.set("K-108", 10);
-    const under = line(yardDay, context.resources.get("K-108")!, loads(yardDay, plan, context).get("K-108")!, "m³");
+    const under = line(yardDay, context.resources.get("K-108")!, loads(yardDay, plan, context).get("K-108")!, "m³", "reserved");
     assert.deepEqual([under.text, under.tone.type, under.under], ["10 m³ · min 16 · 6 short", "warning", true]);
     plan.bins.set("R1", reservation("B-1", new Date(Date.UTC(2027, 4, 11, 0, 15)), new SortedMap([["K-601", 0]], byString)));
-    assert.equal(line(yardDay, context.resources.get("K-601")!, loads(yardDay, plan, context).get("K-601")!, "m³").text, "reserved · takes 40–60");
+    assert.equal(line(yardDay, context.resources.get("K-601")!, loads(yardDay, plan, context).get("K-601")!, "m³", "reserved").text, "reserved · takes 40–60");
+    // In the board's own word for it, where it has one (#1516).
+    assert.equal(line(yardDay, context.resources.get("K-601")!, loads(yardDay, plan, context).get("K-601")!, "m³", "held").text, "held · takes 40–60");
 });
 
 test("§0 worked facts — the checks: K-207 over max, K-105 and K-301 overlap their next jobs, nothing unlinked", () => {

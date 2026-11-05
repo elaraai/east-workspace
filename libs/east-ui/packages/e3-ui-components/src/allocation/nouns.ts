@@ -36,10 +36,16 @@ export const other = (noun: Noun): string => lower(noun.other);
 /** The singular after its article: `a kiln`, `an arrival`. */
 export const a = (noun: Noun): string => `${noun.article} ${lower(noun.one)}`;
 
+/** A count in a noun: `1 bin`, `3 bins`. */
+export const counted = (n: number, noun: Noun): string => `${n} ${n === 1 ? one(noun) : other(noun)}`;
+
 /** The nouns with no labels given, as the tag resolves them. */
 export const DEFAULT_NOUNS: Nouns = {
     lane: { one: "Lane", other: "Lanes", article: "a" }, arrival: { one: "Arrival", other: "Arrivals", article: "an" },
     resource: { one: "Resource", other: "Resources", article: "a" }, quantity: "QTY",
+    bin: { one: "Bin", other: "Bins", article: "a" }, reservation: { one: "Reservation", other: "Reservations", article: "a" }, reserved: "Reserved",
+    priorJob: "Prior job", nextJob: "Next job", hold: "Hold",
+    groups: { overdue: "Overdue", ready: "Ready around now", removed: "Removed from plan", allocated: "Allocated", free: "Free today", loading: "Loading today", busy: "Busy today" },
 };
 
 /** The board's nouns, for its parts. */

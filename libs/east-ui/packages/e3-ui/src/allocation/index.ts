@@ -99,8 +99,19 @@ export type AllocationNounType = typeof AllocationNounType;
  * @property arrival - What the board books from (`Arrival`)
  * @property resource - A resource (`Resource`)
  * @property quantity - The quantity's heading word (`QTY`)
+ * @property bin - What the board books (`Bin`) (#1516)
+ * @property reservation - A slot held with nothing booked in it (`Reservation`)
+ * @property reserved - What a slot held with nothing booked in it is (`Reserved`)
+ * @property priorJob - The Timeline's legend's job before the day (`Prior job`)
+ * @property nextJob - Its job after the day (`Next job`)
+ * @property hold - How long a resource holds what it is given (`Hold`)
+ * @property groups - The Library's groups: its arrivals by where they stand, its resources by their day
  */
-export const AllocationLabelsType = StructType({ lane: AllocationNounType, arrival: AllocationNounType, resource: AllocationNounType, quantity: StringType });
+export const AllocationLabelsType = StructType({
+    lane: AllocationNounType, arrival: AllocationNounType, resource: AllocationNounType, quantity: StringType,
+    bin: AllocationNounType, reservation: AllocationNounType, reserved: StringType, priorJob: StringType, nextJob: StringType, hold: StringType,
+    groups: StructType({ overdue: StringType, ready: StringType, removed: StringType, allocated: StringType, free: StringType, loading: StringType, busy: StringType }),
+});
 
 /** Type representing {@link AllocationLabelsType}. */
 export type AllocationLabelsType = typeof AllocationLabelsType;
@@ -303,7 +314,21 @@ export interface AllocationProps<R extends EastType = EastType> {
      * Resource by default; `quantity` is the quantity's heading word, `QTY` by default. Running text writes a noun in lower
      * case unless it is written in capitals.
      */
-    labels?: { lane?: AllocationNoun; arrival?: AllocationNoun; resource?: AllocationNoun; quantity?: string };
+    labels?: {
+        lane?: AllocationNoun; arrival?: AllocationNoun; resource?: AllocationNoun; quantity?: string;
+        /** What the board books, `Bin` by default (#1516). */
+        bin?: AllocationNoun;
+        /** A slot held with nothing booked in it, `Reservation` by default. */
+        reservation?: AllocationNoun;
+        /** What such a slot is, `Reserved` by default. */
+        reserved?: string;
+        /** The Timeline's legend's job before the day and after it: `Prior job`, `Next job` by default. */
+        priorJob?: string; nextJob?: string;
+        /** How long a resource holds what it is given, `Hold` by default. */
+        hold?: string;
+        /** The Library's groups; each keeps its place and its look whatever it is called. */
+        groups?: { overdue?: string; ready?: string; removed?: string; allocated?: string; free?: string; loading?: string; busy?: string };
+    };
     /**
      * The Table's time bands: each runs from its hour to the next band's, the last to midnight — `[{ from: 0, label: "Night" },
      * { from: 6, label: "Day" }, { from: 18 }]`. The first is from 0; each later than the one before; a band's heading is its
@@ -355,6 +380,12 @@ export function allocationLabels(labels: AllocationProps["labels"]): ValueTypeOf
     return {
         lane: nounOf(labels?.lane, "Lane", "lane"), arrival: nounOf(labels?.arrival, "Arrival", "arrival"),
         resource: nounOf(labels?.resource, "Resource", "resource"), quantity: labels?.quantity ?? "QTY",
+        bin: nounOf(labels?.bin, "Bin", "bin"), reservation: nounOf(labels?.reservation, "Reservation", "reservation"), reserved: labels?.reserved ?? "Reserved",
+        priorJob: labels?.priorJob ?? "Prior job", nextJob: labels?.nextJob ?? "Next job", hold: labels?.hold ?? "Hold",
+        groups: {
+            overdue: labels?.groups?.overdue ?? "Overdue", ready: labels?.groups?.ready ?? "Ready around now", removed: labels?.groups?.removed ?? "Removed from plan",
+            allocated: labels?.groups?.allocated ?? "Allocated", free: labels?.groups?.free ?? "Free today", loading: labels?.groups?.loading ?? "Loading today", busy: labels?.groups?.busy ?? "Busy today",
+        },
     };
 }
 

@@ -17,12 +17,15 @@ import type { ChooserOption, ChooserSection } from "@elaraai/east-ui-components/
 import { formatDatePattern } from "@elaraai/east-ui-components/internal";
 import type { option } from "@elaraai/east";
 import { compareDate, compareFloat, compareString, partsOf, type Context, type Day, type Fit, type FitResult } from "./model.js";
+import { DEFAULT_NOUNS, lower, type Nouns } from "./nouns.js";
 
 /** The words a Chooser's lines are written with: a quantity with its unit and without, and a lane's name. */
 export interface ChoiceWords {
     quantity: (value: number) => string;
     number: (value: number) => string;
     lane: (key: string) => string;
+    /** The board's words for what it holds; the defaults' with none given. */
+    nouns?: Nouns | undefined;
 }
 
 /** A pending answer's line: the fit has not said yet (F2). */
@@ -73,7 +76,7 @@ export function arrivalChoices(args: {
     const options = free.map((key): ChooserOption => {
         const arrival = context.arrivals.get(key)!;
         const base = { key, label: arrival.label, range: words.quantity(arrival.quantity), warn: overdue(key) };
-        const meta = [arrival.meta.type === "some" ? arrival.meta.value : "", overdue(key) ? "overdue" : ""].filter(p => p !== "").join(" · ") || undefined;
+        const meta = [arrival.meta.type === "some" ? arrival.meta.value : "", overdue(key) ? lower((words.nouns ?? DEFAULT_NOUNS).groups.overdue) : ""].filter(p => p !== "").join(" · ") || undefined;
         if (resource === undefined) return { ...base, line: meta, state: "enabled" };
         const verdict = answer?.arrivals.get(key);
         return verdict === undefined ? { ...base, line: CHECKING, state: "disabled" } : judged(base, verdict);
@@ -97,7 +100,7 @@ export function arrivalChoices(args: {
         key: `allocated:${key}`, label: context.arrivals.get(key)?.label ?? key, range: words.quantity(w.quantity), state: "disabled",
         line: `in ${words.lane(w.lane)} ${formatDatePattern("HH:mm", w.at)}${w.resource === undefined ? " · not linked" : ` on ${context.resources.get(w.resource)?.label ?? w.resource}`}${w.more > 0 ? ` · +${w.more} more` : ""}`,
     }));
-    if (allocated.length > 0) sections.push({ label: "Allocated", options: allocated });
+    if (allocated.length > 0) sections.push({ label: (words.nouns ?? DEFAULT_NOUNS).groups.allocated, options: allocated });
     return sections;
 }
 
@@ -131,7 +134,7 @@ export function resourceChoices(args: {
         sections.push({ label: "Current", options: [{ key: current, label: context.resources.get(current)!.label, line: "current", range: range(current), state: "current" }] });
     }
     const others = [...context.resources.keys()].filter(key => key !== current && except?.has(key) !== true && (shown.type === "none" || shown.value.has(key)));
-    const heading = binRow ? "Gaps that fit" : "Can be reserved";
+    const heading = binRow ? "Gaps that fit" : `Can be ${lower((words.nouns ?? DEFAULT_NOUNS).reserved)}`;
     if (answer === undefined) {
         sections.push({ label: heading, options: others.map(key => ({ key, label: context.resources.get(key)!.label, line: CHECKING, range: range(key), state: "disabled" })) });
         return sections;

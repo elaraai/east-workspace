@@ -403,6 +403,70 @@ export const allocationLabels = example({
     }}</Reactive>),
 });
 
+export const allocationWording = example({
+    description: "The kiln yard in all its own words (#1516): beside the nouns, `labels` takes what the board books (`bin`), a slot held with nothing booked in it (`reservation`, `reserved`), the legend's jobs, the hold and the Library's groups, each kept in its place and its look whatever it is called.",
+    keywords: ["Allocation", "labels", "vocabulary", "bin", "reservation", "reserved", "hold", "groups", "Library", "Schedule.events", "Allocation.arrivals"], inputs: [],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const bins = $.let(Record.bind(kilnBins));
+        const entries = $.let(Data.bindPaged(kilnBins));
+        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: ["kiln_bins_by_time"] }));
+        const days = $.let(Record.bind(yardDays));
+        // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
+        const yard = $.let(Data.bind(kilns));
+        const loads = $.let(Data.bind(arrivals));
+        const bays = $.let(Data.bind(yardBays));
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: ["yard_bays_by_area"] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: ["kilns_by_group"] }));
+        const slice = $.let(Slice.bindRecords("ex.allocationWording", {
+            bin: { source: byTime, range: "at" },
+            bays: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
+            kilns: { source: kilnIndex, fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } } },
+        }, {
+            presets: [
+                { id: "halls", name: "Halls", where: { kilns: { group: ["Hall A", "Hall B"] } } },
+                { id: "small", name: "Compact and standard", where: { kilns: { group: ["Compact", "Standard"] } } },
+                { id: "large", name: "Large and bulk", where: { kilns: { group: ["Large", "Bulk"] } } },
+                { id: "north", name: "North bays, halls", where: { bays: { area: ["North"] }, kilns: { group: ["Hall A", "Hall B"] } } },
+            ],
+        }));
+        const fit = $.let(Func.bind(yardFit));
+        return <Box width="100%" height="900px"><Allocation id="allocationWording" title="Kiln loading" fit={fit} slice={{ slice }} inspector
+            library={[Allocation.library.arrivals(), Allocation.library.resources()]} view={{ layout: "timeline", date: yardDay }}
+            labels={{
+                lane: "Bay", arrival: { one: "Delivery", other: "Deliveries" }, resource: "Kiln", quantity: "Vol",
+                bin: { one: "Charge", other: "Charges" }, reservation: "Booking", reserved: "Booked", priorJob: "Last firing", nextJob: "Next firing", hold: "Dwell",
+                groups: { overdue: "Late", ready: "Due soon", removed: "Taken off", allocated: "Charged", free: "Idle", loading: "Filling", busy: "Firing" },
+            }}
+            table={{ bands: [{ from: 0, label: "Night" }, { from: 6, label: "Day shift" }, { from: 18, label: "Evening" }] }}
+            events={{ bin: Schedule.events(bins, {
+                name: "Charge", icon: "box", entries,
+                at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
+                quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec",
+                fields: { specMeasured: Schedule.field.text({ label: "Spec measured" }), instruction: Schedule.field.text({ label: "Loading instruction" }) },
+            }) }}
+            resources={{
+                bays: Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),
+                kilns: Schedule.resources(yard.read(), { name: "Kilns", icon: "fire", label: k => k.name, group: k => k.group,
+                    meta: k => some(East.str`${k.group} · ${East.Float.roundHalf(k.max)} m³`), note: k => k.note,
+                    min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges }),
+            }}
+            arrivals={Allocation.arrivals(loads.read(), {
+                label: l => l.code, meta: l => some(East.str`${l.mill} · ${l.grade} · spec ${l.spec}`),
+                quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
+                due: l => some(l.due), window: l => some({ from: l.from, to: l.to }),
+                details: l => [{ label: "Settings", value: l.schedule }],
+                values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }),
+            })}
+            periods={Schedule.periods(days, { every: "day", status: { field: "state", draft: "draft", published: "issued" } })}
+            columns={[
+                { key: "spec", label: "Spec", text: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => b.specMeasured, () => East.str`booked ${b.specBooked} · measured ${b.specMeasured}`),
+                    tone: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => none, () => some(variant("warning", null))) },
+                { key: "grade", label: "Grade", text: b => b.gradeMeasured.startsWith(b.gradeBooked).ifElse(() => b.gradeMeasured, () => East.str`booked ${b.gradeBooked} · measured ${b.gradeMeasured}`), table: false },
+            ]} />
+        </Box>;
+    }}</Reactive>),
+});
+
 export const allocationPublished = example({
     description: "A published day, Tue 4 May, its status the yard's own day issued: read-only under its banner; navigation, the narrowing, the focus, links and the inspector still work.",
     keywords: ["Allocation", "Schedule.periods", "Publish", "published", "readOnly", "Record.bind"], inputs: [],

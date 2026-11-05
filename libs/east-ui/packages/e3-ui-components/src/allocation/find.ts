@@ -35,6 +35,7 @@ import { hiddenLine } from "../shared/schedule/hidden.js";
 import type { HiddenBins } from "./hidden.js";
 import type { AllocationWords } from "./messages.js";
 import { partsOf, type AllocationDomain, type AllocationValue } from "./model.js";
+import { one } from "./nouns.js";
 
 /** A bin's key is a String: the search's text parses against that. */
 const KEY_TYPE: EastTypeValue = toEastTypeValue(StringType);
@@ -159,7 +160,7 @@ export function useAllocationFind({ value, domain, part, words, hidden, onPick }
     }, [revision]);
     const any = part !== undefined;
     // What it searches, where nothing matches: bins' keys, which a bin's Details show where the board has them.
-    const noMatches = words.m.keySearchNoMatches({ inspector: value.inspector });
+    const noMatches = words.m.keySearchNoMatches({ inspector: value.inspector, bin: one(value.labels.bin) });
     // The lines are listed again as e3 says what hides a bin, and as what the narrowing shows moves.
     const relist = hidden.relist;
     return useMemo(() => (any ? { resetKey: "allocation", requery, relist, keyType: KEY_TYPE, find, listRange, jump, clear, browseQuery: BROWSE_QUERY,

@@ -236,6 +236,7 @@ Task → What do you need?
     │   ├─ The app's optimiser over the day                           → optimise={Func.bind(e3.function)} from Allocation.Types.OptimiseRequest(R) to Allocation.Types.OptimiseResult(R)
     │   ├─ Narrow its bins, lanes, resources and arrivals — one rail  → slice={{ slice: Slice.bindRecords(key, { bin: { source, range: "at" }, <lanes>?, <resources>?, arrivals? }) }}
     │   ├─ Its panes                                                  → library={[Allocation.library.arrivals(), Allocation.library.resources()]} · inspector
+    │   ├─ The app's own words for what it holds                      → labels={{ lane, arrival, resource, quantity, bin, reservation, reserved, priorJob, nextJob, hold, groups: { overdue, ready, removed, allocated, free, loading, busy } }}
     │   ├─ The app's bin fields on the board, and its own issues      → columns={[{ key, label, text }]} · check={fn(CheckContext(R)) → Array<Issue>}
     │   └─ The board's figures in a task                              → Allocation.loads / candidates / check / slots (R)
     │

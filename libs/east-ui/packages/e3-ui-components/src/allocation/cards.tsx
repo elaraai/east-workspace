@@ -38,7 +38,7 @@ import { binCode, matesOf, type InspectorWords, type Mate } from "./inspector-mo
 import { NarrowedEmpty } from "./narrowed.js";
 import type { AllocationOptimised } from "./optimise.js";
 import { SplitPopover } from "./split.js";
-import { a, one, useNouns } from "./nouns.js";
+import { a, one, other, useNouns } from "./nouns.js";
 import { ChoiceCell, ChooserPopover, openKey, type ChoiceScene, type Open } from "./table.js";
 import { bandLine, narrowBands, rowStatus, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
 import type { TimelineFollow } from "./timeline.js";
@@ -132,7 +132,7 @@ export function AllocationCards(props: CardsProps) {
         const board = allocationWords();
         const lane = (key: string) => value.lanes.find(l => l.key === key)?.label ?? key;
         return {
-            choice: { quantity: v => board.quantity(v, unit), number: v => board.quantity(v, ""), lane },
+            choice: { quantity: v => board.quantity(v, unit), number: v => board.quantity(v, ""), lane, nouns },
             inspector: { nouns, quantity: v => board.quantity(v, unit), number: v => board.quantity(v, ""), lane, load: (fill, row) => board.load(fill, row, unit) },
         };
     }, [value.lanes, unit, nouns]);
@@ -187,7 +187,7 @@ function ResourceCard({ props, words, resource, rows, open, setOpen, index, coun
         {/* A day not read yet: a placeholder where its bins go, unseen until the frame's reveal says so; failed, its place kept, blank. */}
         {read.state !== "held" ? failing && read.state === "failed" ? <ReadFailure read={read} />
             : <Box css={styles.agendaLine} data-blank={read.state === "failed" ? "" : undefined}><PlaceholderShape kind="text" index={index} /></Box>
-            : mates.length === 0 ? <Box css={styles.agendaLine}>no bins today</Box>
+            : mates.length === 0 ? <Box css={styles.agendaLine}>no {other(props.value.labels.bin)} today</Box>
                 : mates.map(mate => <ResourceBin key={mate.id} props={props} words={words} resource={resource} mate={mate} row={rows.get(`bin:${mate.id}`)} open={open} setOpen={setOpen} />)}
         {props.editable && <Box css={styles.agendaActions}><BookOnto props={props} words={words} resource={resource} open={open} setOpen={setOpen} /></Box>}
     </Box>;
@@ -215,7 +215,7 @@ function ResourceBin({ props, words, resource, mate, row, open, setOpen }: {
     const given = useBinFocusTarget<HTMLButtonElement>(mate.id);
     const move = row === undefined ? null : <ChoiceCell props={props} row={row} side="resource" part={resource} words={words.choice}
         open={open?.row === row.key && openKey(open.side, open.part) === openKey("resource", resource)} setOpen={setOpen}
-        trigger={() => <Button size="xs" variant="outline" title={reserved ? `Move the reservation to another ${one(nouns.resource)}` : `Move the ${mate.quantity} on ${name} to another ${one(nouns.resource)}`}>Move</Button>} />;
+        trigger={() => <Button size="xs" variant="outline" title={reserved ? `Move the ${one(nouns.reservation)} to another ${one(nouns.resource)}` : `Move the ${mate.quantity} on ${name} to another ${one(nouns.resource)}`}>Move</Button>} />;
     const split = reserved || splitOf(bin, resource) === undefined ? null : <SplitPopover id={mate.id} bin={bin} from={resource} context={context} plan={plan} commands={commands}
         fit={props.fit} words={words.inspector} shown={props.visibleResources} trigger={label => <Button size="xs" variant="outline" title={label} data-allocation-split-open="">Split…</Button>} />;
     // What a run of the optimiser did to the bin (#1409, R7, R17), while it is still the run's draft: its mark, and its provenance on hover.
@@ -228,7 +228,7 @@ function ResourceBin({ props, words, resource, mate, row, open, setOpen }: {
         {props.editable && <Box css={styles.agendaActions}>
             {reserved ? <>
                 {move}
-                <Button size="xs" variant="outline" title="Remove the reservation · the slot becomes free" onClick={() => commands.remove(mate.id)}>Remove</Button>
+                <Button size="xs" variant="outline" title={`Remove the ${one(nouns.reservation)} · the slot becomes free`} onClick={() => commands.remove(mate.id)}>Remove</Button>
             </> : <>
                 <Button size="xs" variant="outline" title={`Unlink ${mate.code} from ${name}`} onClick={() => commands.unlink(mate.id, resource)}>Unlink</Button>
                 {move}
@@ -306,7 +306,7 @@ function RowCards({ props, words }: { props: CardsProps; words: CardWords }) {
                         {unread ? read.state === "pending" && <PlaceholderShape kind="count" index={index} /> : <>
                             <Box as="span" css={styles.bandCount} data-allocation-band-count=""
                                 data-opn={props.lit === true && line.band.rows.some(r => r.bin !== undefined && props.optimised?.ops.has(r.bin) === true) ? "" : undefined}>{line.band.rows.length}</Box>
-                            <Box as="span" css={styles.groupMeta}>{bandLine(line.band, board.quantity(Math.round(line.band.quantity), context.unit), folded)}</Box>
+                            <Box as="span" css={styles.groupMeta}>{bandLine(line.band, board.quantity(Math.round(line.band.quantity), context.unit), folded, value.labels)}</Box>
                         </>}
                     </GroupHeading></Box>;
                 }
@@ -365,10 +365,10 @@ function RowCard({ props, words, row, open, setOpen }: { props: CardsProps; word
     const given = useBinFocusTarget<HTMLButtonElement>(row.bin);
     const lane = words.choice.lane(row.lane), time = formatDatePattern("HH:mm", row.at);
     const nameOf = (key: string) => context.resources.get(key)?.label ?? key;
-    const code = bin === undefined ? undefined : binCode(context, bin);
+    const code = bin === undefined ? undefined : binCode(context, bin, nouns);
     // What it holds: a bin's arrival and quantity, and where its parts are and what they leave (A70); a reservation's resource; nothing.
     const holds = bin === undefined ? `no ${one(nouns.arrival)} · no ${one(nouns.resource)}`
-        : bin.arrival.type === "none" ? `Reserved on ${parts[0] === undefined ? "nothing" : nameOf(parts[0].key)} · no ${one(nouns.arrival)} yet`
+        : bin.arrival.type === "none" ? `${nouns.reserved} on ${parts[0] === undefined ? "nothing" : nameOf(parts[0].key)} · no ${one(nouns.arrival)} yet`
             : `${code} · ${board.quantity(bin.quantity, unit)}`;
     const where = bin === undefined || bin.arrival.type === "none" ? undefined
         : parts.length === 0 ? "not linked" : parts.map(part => `${nameOf(part.key)} ${board.quantity(part.quantity, unit)}`).join(" · ");
@@ -386,13 +386,13 @@ function RowCard({ props, words, row, open, setOpen }: { props: CardsProps; word
             <Box css={styles.agendaLine}>{holds}</Box>
             {where !== undefined && <Box css={styles.agendaLine} data-tone={parts.length === 0 ? "warning" : undefined}>{where}</Box>}
             {unallocated && <Box css={styles.agendaLine} data-tone="warning">{board.quantity(remainder, unit)} unallocated</Box>}
-            <Box as="span" css={styles.agendaStatus} data-status={status}><Box as="span" css={styles.tableStatusDot} />{status}</Box>
+            <Box as="span" css={styles.agendaStatus} data-status={status}><Box as="span" css={styles.tableStatusDot} />{status === "Reserved" ? nouns.reserved : status}</Box>
         </chakra.button>
         {props.editable && <Box css={styles.agendaActions}>
-            {row.kind !== "bin" && chooser("arrival", "Book…", undefined, row.kind === "reserved" ? `Book ${a(nouns.arrival)} into the reservation` : `Book ${a(nouns.arrival)} into ${lane} ${time}`)}
-            {row.kind !== "bin" && chooser("resource", "Reserve…", undefined, row.kind === "reserved" ? `Move the reservation to another ${one(nouns.resource)}` : `Reserve ${a(nouns.resource)}`)}
+            {row.kind !== "bin" && chooser("arrival", "Book…", undefined, row.kind === "reserved" ? `Book ${a(nouns.arrival)} into the ${one(nouns.reservation)}` : `Book ${a(nouns.arrival)} into ${lane} ${time}`)}
+            {row.kind !== "bin" && chooser("resource", "Reserve…", undefined, row.kind === "reserved" ? `Move the ${one(nouns.reservation)} to another ${one(nouns.resource)}` : `Reserve ${a(nouns.resource)}`)}
             {row.kind === "reserved" && row.bin !== undefined
-                && <Button size="xs" variant="outline" title="Remove the reservation · the slot becomes free" onClick={() => commands.remove(row.bin!)}>Remove</Button>}
+                && <Button size="xs" variant="outline" title={`Remove the ${one(nouns.reservation)} · the slot becomes free`} onClick={() => commands.remove(row.bin!)}>Remove</Button>}
             {row.kind === "bin" && row.bin !== undefined && <>
                 {/* What it links: the remainder of a split or partly allocated bin (A71), else its one part, as its row's chevron does. */}
                 {chooser("resource", "Allocate…", unallocated ? null : undefined,
