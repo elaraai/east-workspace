@@ -182,7 +182,7 @@ import { SchematicIndexArea, type IndexAreaKind } from "./index-area.js";
 import { KindRows } from "./kind-rows.js";
 import { layersInForce, useSchematicLayerView } from "./layers-view.js";
 import { SchematicBacklogCountReader, schematicLibraryId, useSchematicLibrary, type SchematicBacklogNarrowing } from "./library.js";
-import { coordinate, schematicMessages, type SchematicWords } from "./messages.js";
+import { coordinate, schematicMessagesOf, type SchematicWords } from "./messages.js";
 import { NO_SELECTED_ROWS, SchematicSelectedReader, type SchematicSelectedRows } from "./selected-rows.js";
 import { looksAtMatches, narrowedDrawing, narrowedLook, schematicNarrowing, type SchematicNarrowedLook } from "./narrowing.js";
 import { useSchematicToolbarItems, type SchematicLinkChoice } from "./toolbar.js";
@@ -198,6 +198,7 @@ type Styles = Record<string, SystemStyleObject>;
 const schematicEqual = equivalentFor(Schematic.Types.Payload);
 const layersEqual = equalFor(ArrayType(Schematic.Types.Layer));
 const narrowedEqual = equalFor(Schematic.Types.Narrowed);
+const vocabularyEqual = equalFor(Schematic.Types.Payload.fields.vocabulary);
 const stringEqual = equalFor(StringType);
 const compareString = compareFor(StringType);
 const printWhere = printFor(RecordSliceWhereType);
@@ -314,7 +315,8 @@ function followedSources(value: SchematicValue, words: SchematicWords, chrome: S
 function SchematicFollows(props: SchematicFrameProps) {
     const { value } = props;
     const formatters = useFormatters();
-    const words = useMemo((): SchematicWords => ({ ...formatters, m: schematicMessages }), [formatters]);
+    const vocabulary = useDataStable(value.vocabulary, vocabularyEqual);
+    const words = useMemo((): SchematicWords => ({ ...formatters, m: schematicMessagesOf(vocabulary) }), [formatters, vocabulary]);
     const chrome = useMemo(() => getSomeorUndefined(value.slice), [value.slice]);
     const narrowed = useDataStable(value.narrowed, narrowedEqual);
     const look = useMemo(() => narrowedLook(narrowed), [narrowed]);
@@ -366,7 +368,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const styles = useMemo(() => recipe() as Styles, [recipe]);
     // The counts and the dates, in the app's locale (#850), and the Schematic's words.
     const formatters = useFormatters();
-    const words = useMemo((): SchematicWords => ({ ...formatters, m: schematicMessages }), [formatters]);
+    const vocabulary = useDataStable(value.vocabulary, vocabularyEqual);
+    const words = useMemo((): SchematicWords => ({ ...formatters, m: schematicMessagesOf(vocabulary) }), [formatters, vocabulary]);
     // Keyed on the id's text: each payload decodes its Option afresh, and the keys must hold while the id does.
     const id = getSomeorUndefined(value.id);
     const keys = useMemo(() => schematicKeys(id), [id]);
