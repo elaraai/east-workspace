@@ -939,6 +939,8 @@ const HELD: EvidenceRow = {
     hours: [12n, 30n, 64n, 120n, 180n, 210n, 160n, 120n, 90n, 50n, 30n, 14n],
     service: new Map([["International", 539n], ["Standard", 335n], ["Priority", 130n], ["Economy", 76n]]),
     exceptions: new Map([["Missing documents", 412n], ["Duty unpaid", 236n]]),
+    // No service's own figures: these details are read unweighed.
+    byService: new Map(),
 };
 /** What it measured on the move out of Hold: keyed as the transitions are. */
 const CLEARED: MoveEvidenceRow = {
@@ -1073,7 +1075,7 @@ describe("the details: named, typed reads over the app's rows, read only and rea
     hostTest("past a cast, a read naming a field the row lacks, or one of another type, names the fields that fit (R20)", () => {
         const read = (make: () => unknown) => whole(($) => Flowchart.details($.let(evidenceData()), { details: [make()] } as never));
         refused(read(() => Flowchart.figure("dwell" as never)),
-            "Flowchart.figure: \"dwell\" is no field of the details' row (flags, equipment, shifts, parcels, waiting, hours, service, exceptions)");
+            "Flowchart.figure: \"dwell\" is no field of the details' row (flags, equipment, shifts, parcels, waiting, hours, service, exceptions, byService)");
         refused(read(() => Flowchart.histogram("service" as never, { unit: "hours" } as never)),
             `Flowchart.histogram: "service" holds ${printType(DictType(StringType, IntegerType))} — a histogram reads a Dict from a duration to its count, both numbers, ` +
             "or an Array of counts beside its bins: \"hours\"");

@@ -316,11 +316,11 @@ describe("a new narrowing, and the library's sources (R5, R14)", () => {
         expect(slot(c, "start").querySelector("[data-dock-badge]")!.getAttribute("title")).toBe("1");
     });
 
-    test("the depot example, mounted as it is: its rail's sources on the toolbar — the states', the transitions' and each list of cards' — its tabs counted, and its states and transitions read through their sources, never whole", async () => {
+    test("the depot example, mounted as it is: its rail's sources on the toolbar — the states', the transitions', the evidence whose services weigh the details, and each list of cards' — its tabs counted, and its states and transitions read through their sources, never whole", async () => {
         const c = await open(ex.flowchartDepot, "ARV");
         await waitFor(() => expect(libraryTabs(c)).toEqual(["Steps 3", "Transitions 3", "Lanes 2", "Owners 3"]));
         const sources = new Set([...slot(c, "toolbar").querySelectorAll("[data-record-slice-source]")].map((el) => el.getAttribute("data-record-slice-source") ?? ""));
-        expect([...sources].sort(compareString)).toEqual(["laneCards", "moveCards", "states", "stepCards", "transitions"]);
+        expect([...sources].sort(compareString)).toEqual(["evidence", "laneCards", "moveCards", "states", "stepCards", "transitions"]);
         // The parcels' flow, as the rail opens: its states, and DLV, no state's.
         expect(stateKeys(c)).toEqual([...PARCELS, "DLV"].sort(compareString));
         expect([h.requests("read", STATES), h.requests("read", TRANSITIONS)]).toEqual([[], []]);

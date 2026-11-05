@@ -25,14 +25,17 @@ import e3 from "@elaraai/e3";
 //   through their sources of the rail and edited through their patch doors, a
 //   preset narrowing both to one flow; the lanes and the decisions read
 //   whole; both kinds' details on the cards, the labels, the legend and the
-//   inspector, read by the drawn rows' keys; and the library's Steps,
-//   Transitions, Lanes and Owners tabs, each list of cards following its own
-//   source;
+//   inspector, read by the drawn rows' keys; the services the rail picks
+//   weighing the states' details, each read their own figures hold added up
+//   by kind; and the library's Steps, Transitions, Lanes and Owners tabs, each
+//   list of cards following its own source;
 // - `flowchartDepotEditing`, the four records bound editable and read whole,
 //   and the app's check on a drafted state;
 // - `flowchartDepotDimmed`, the rail's choices drawn as context: every row
 //   read through its source, those the narrowing leaves out faded, and the
-//   states' details read by key;
+//   states' details read by key, opening weighed by one service: Held's time
+//   in state its international parcels' own, and the returns' states, which
+//   hold none, saying no data;
 // - `flowchartDepotPhone`, the depot at a phone's width: its cards keep their
 //   bars and lines, and the canvas pans a lane at a time;
 // - `flowchartDepotTopDown`, the depot read only and top down, its minimap
@@ -164,6 +167,14 @@ export const depotQueuedDecisions = e3.record("flowchart_depot_queued_decisions"
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
 
+// What one service's parcels did in a state: the same figures as the state's own, for that service alone.
+export const ServiceEvidence = StructType({
+    flags: SetType(StringType),                       // what the app's task flags this service's parcels with
+    parcels: IntegerType,                             // its parcels through the state
+    waiting: IntegerType,                             // still in it when measured
+    hours: ArrayType(IntegerType),                    // its parcels by time in state: a count a bin, in the bins' order
+    exceptions: DictType(StringType, IntegerType),    // its parcels by what went wrong
+});
 // What the depot measured in each state and on each transition: the app's own rows, keyed as the states and
 // the transitions are, written by its evidence task through each record's door.
 export const StateEvidence = StructType({
@@ -175,13 +186,18 @@ export const StateEvidence = StructType({
     hours: ArrayType(IntegerType),                    // parcels by time in state: a count a bin, in the bins' order
     service: DictType(StringType, IntegerType),       // parcels by service
     exceptions: DictType(StringType, IntegerType),    // parcels by what went wrong
+    byService: DictType(StringType, ServiceEvidence), // each service's own: Standard, Priority, Economy, International
 });
 export const MoveEvidence = StructType({
     region: DictType(StringType, IntegerType),
     service: DictType(StringType, IntegerType),
     origins: DictType(StringType, StructType({ parcels: IntegerType, late: IntegerType })),
 });
-// What the evidence task last wrote, made up: a row a state but Dispatched, whose card says no data.
+// What the evidence task last wrote, made up: a row a state but Dispatched, whose card says no data. Each row
+// files each service's own figures apart, which add up to its own: their parcels are its Service list's counts,
+// their waiting adds to its waiting, their hours bin by bin to its hours, their exceptions by name to its
+// exceptions, and their flags join to its flags. The returns take no international parcels: their states hold no
+// International entry.
 export const stateEvidence = e3.record("flowchart_depot_state_evidence", DictType(StringType, StateEvidence), {
     initial: new Map([
         ["ARV", {
@@ -190,6 +206,12 @@ export const stateEvidence = e3.record("flowchart_depot_state_evidence", DictTyp
             hours: [5538n, 6277n, 3692n, 1846n, 738n, 369n, 0n, 0n, 0n, 0n, 0n, 0n],
             service: new Map([["Standard", 10337n], ["Priority", 4615n], ["Economy", 2400n], ["International", 1108n]]),
             exceptions: new Map([["Late arrival", 52n], ["Damaged packaging", 11n]]),
+            byService: new Map([
+                ["Standard", { flags: new Set<string>(), parcels: 10337n, waiting: 33n, hours: [3005n, 3534n, 2118n, 1062n, 417n, 201n, 0n, 0n, 0n, 0n, 0n, 0n], exceptions: new Map([["Late arrival", 26n], ["Damaged packaging", 6n]]) }],
+                ["Priority", { flags: new Set<string>(), parcels: 4615n, waiting: 15n, hours: [1735n, 1637n, 788n, 316n, 100n, 39n, 0n, 0n, 0n, 0n, 0n, 0n], exceptions: new Map([["Late arrival", 11n], ["Damaged packaging", 3n]]) }],
+                ["Economy", { flags: new Set<string>(), parcels: 2400n, waiting: 8n, hours: [589n, 781n, 528n, 298n, 132n, 72n, 0n, 0n, 0n, 0n, 0n, 0n], exceptions: new Map([["Late arrival", 12n], ["Damaged packaging", 1n]]) }],
+                ["International", { flags: new Set<string>(), parcels: 1108n, waiting: 4n, hours: [209n, 325n, 258n, 170n, 89n, 57n, 0n, 0n, 0n, 0n, 0n, 0n], exceptions: new Map([["Late arrival", 3n], ["Damaged packaging", 1n]]) }],
+            ]),
         }],
         ["SCN", {
             flags: new Set(["Fragile"]), equipment: new Set(["Scanner", "Conveyor"]), shifts: new Set(["Early", "Late", "Night"]),
@@ -197,6 +219,12 @@ export const stateEvidence = e3.record("flowchart_depot_state_evidence", DictTyp
             hours: [7723n, 5701n, 2759n, 1471n, 552n, 184n, 0n, 0n, 0n, 0n, 0n, 0n],
             service: new Map([["Standard", 10298n], ["Priority", 4598n], ["Economy", 2391n], ["International", 1103n]]),
             exceptions: new Map([["Unreadable label", 61n], ["Damaged packaging", 9n]]),
+            byService: new Map([
+                ["Standard", { flags: new Set(["Fragile"]), parcels: 10298n, waiting: 20n, hours: [4236n, 3228n, 1584n, 842n, 309n, 99n, 0n, 0n, 0n, 0n, 0n, 0n], exceptions: new Map([["Unreadable label", 34n], ["Damaged packaging", 5n]]) }],
+                ["Priority", { flags: new Set<string>(), parcels: 4598n, waiting: 9n, hours: [2307n, 1411n, 555n, 237n, 70n, 18n, 0n, 0n, 0n, 0n, 0n, 0n], exceptions: new Map([["Unreadable label", 15n], ["Damaged packaging", 2n]]) }],
+                ["Economy", { flags: new Set<string>(), parcels: 2391n, waiting: 4n, hours: [860n, 739n, 409n, 245n, 101n, 37n, 0n, 0n, 0n, 0n, 0n, 0n], exceptions: new Map([["Unreadable label", 8n], ["Damaged packaging", 1n]]) }],
+                ["International", { flags: new Set<string>(), parcels: 1103n, waiting: 2n, hours: [320n, 323n, 211n, 147n, 72n, 30n, 0n, 0n, 0n, 0n, 0n, 0n], exceptions: new Map([["Unreadable label", 4n], ["Damaged packaging", 1n]]) }],
+            ]),
         }],
         ["IND", {
             flags: new Set(["Oversize", "Fragile"]), equipment: new Set(["Conveyor", "Scanner"]), shifts: new Set(["Early", "Late"]),
@@ -204,6 +232,12 @@ export const stateEvidence = e3.record("flowchart_depot_state_evidence", DictTyp
             hours: [2207n, 4781n, 5517n, 3310n, 1655n, 736n, 184n, 0n, 0n, 0n, 0n, 0n],
             service: new Map([["Standard", 10482n], ["Priority", 4414n], ["Economy", 2391n], ["International", 1103n]]),
             exceptions: new Map([["Missort", 22n]]),
+            byService: new Map([
+                ["Standard", { flags: new Set(["Oversize", "Fragile"]), parcels: 10482n, waiting: 68n, hours: [1183n, 2685n, 3191n, 1939n, 964n, 419n, 101n, 0n, 0n, 0n, 0n, 0n], exceptions: new Map([["Missort", 13n]]) }],
+                ["Priority", { flags: new Set<string>(), parcels: 4414n, waiting: 29n, hours: [750n, 1367n, 1303n, 635n, 254n, 88n, 17n, 0n, 0n, 0n, 0n, 0n], exceptions: new Map([["Missort", 5n]]) }],
+                ["Economy", { flags: new Set(["Oversize"]), parcels: 2391n, waiting: 16n, hours: [209n, 533n, 715n, 489n, 274n, 135n, 36n, 0n, 0n, 0n, 0n, 0n], exceptions: new Map([["Missort", 3n]]) }],
+                ["International", { flags: new Set<string>(), parcels: 1103n, waiting: 7n, hours: [65n, 196n, 308n, 247n, 163n, 94n, 30n, 0n, 0n, 0n, 0n, 0n], exceptions: new Map([["Missort", 1n]]) }],
+            ]),
         }],
         ["LBL", {
             flags: new Set(["At risk"]), equipment: new Set(["Label printer", "Scanner"]), shifts: new Set(["Late"]),
@@ -211,6 +245,12 @@ export const stateEvidence = e3.record("flowchart_depot_state_evidence", DictTyp
             hours: [20n, 59n, 137n, 255n, 273n, 157n, 59n, 20n, 0n, 0n, 0n, 0n],
             service: new Map([["Standard", 471n], ["Priority", 294n], ["Economy", 137n], ["International", 78n]]),
             exceptions: new Map([["Unreadable label", 712n], ["Address check", 268n]]),
+            byService: new Map([
+                ["Standard", { flags: new Set<string>(), parcels: 471n, waiting: 7n, hours: [9n, 25n, 63n, 123n, 135n, 78n, 29n, 9n, 0n, 0n, 0n, 0n], exceptions: new Map([["Unreadable label", 342n], ["Address check", 129n]]) }],
+                ["Priority", { flags: new Set(["At risk"]), parcels: 294n, waiting: 5n, hours: [10n, 27n, 53n, 83n, 74n, 34n, 10n, 3n, 0n, 0n, 0n, 0n], exceptions: new Map([["Unreadable label", 214n], ["Address check", 80n]]) }],
+                ["Economy", { flags: new Set<string>(), parcels: 137n, waiting: 2n, hours: [1n, 5n, 15n, 33n, 41n, 27n, 11n, 4n, 0n, 0n, 0n, 0n], exceptions: new Map([["Unreadable label", 99n], ["Address check", 38n]]) }],
+                ["International", { flags: new Set<string>(), parcels: 78n, waiting: 1n, hours: [0n, 2n, 6n, 16n, 23n, 18n, 9n, 4n, 0n, 0n, 0n, 0n], exceptions: new Map([["Unreadable label", 57n], ["Address check", 21n]]) }],
+            ]),
         }],
         ["CH*", {
             flags: new Set(["At risk"]), equipment: new Set(["Conveyor", "Scanner"]), shifts: new Set(["Early", "Late", "Night", "Weekend"]),
@@ -218,6 +258,12 @@ export const stateEvidence = e3.record("flowchart_depot_state_evidence", DictTyp
             hours: [1463n, 4024n, 6218n, 4024n, 1646n, 732n, 183n, 0n, 0n, 0n, 0n, 0n],
             service: new Map([["Standard", 10425n], ["Priority", 4390n], ["Economy", 2378n], ["International", 1097n]]),
             exceptions: new Map([["Missort", 41n], ["Chute full", 26n]]),
+            byService: new Map([
+                ["Standard", { flags: new Set<string>(), parcels: 10425n, waiting: 80n, hours: [776n, 2242n, 3579n, 2350n, 960n, 418n, 100n, 0n, 0n, 0n, 0n, 0n], exceptions: new Map([["Missort", 23n], ["Chute full", 15n]]) }],
+                ["Priority", { flags: new Set(["At risk"]), parcels: 4390n, waiting: 34n, hours: [512n, 1186n, 1519n, 801n, 262n, 92n, 18n, 0n, 0n, 0n, 0n, 0n], exceptions: new Map([["Missort", 10n], ["Chute full", 6n]]) }],
+                ["Economy", { flags: new Set<string>(), parcels: 2378n, waiting: 18n, hours: [134n, 438n, 787n, 583n, 268n, 132n, 36n, 0n, 0n, 0n, 0n, 0n], exceptions: new Map([["Missort", 5n], ["Chute full", 3n]]) }],
+                ["International", { flags: new Set<string>(), parcels: 1097n, waiting: 8n, hours: [41n, 158n, 333n, 290n, 156n, 90n, 29n, 0n, 0n, 0n, 0n, 0n], exceptions: new Map([["Missort", 3n], ["Chute full", 2n]]) }],
+            ]),
         }],
         ["SRD", {
             flags: new Set(["Fragile"]), equipment: new Set(["Conveyor"]), shifts: new Set(["Early", "Late"]),
@@ -225,6 +271,12 @@ export const stateEvidence = e3.record("flowchart_depot_state_evidence", DictTyp
             hours: [861n, 2065n, 4303n, 4818n, 3098n, 1377n, 516n, 172n, 0n, 0n, 0n, 0n],
             service: new Map([["Standard", 9981n], ["Priority", 4303n], ["Economy", 2065n], ["International", 861n]]),
             exceptions: new Map([["Missort", 14n], ["Damaged packaging", 6n]]),
+            byService: new Map([
+                ["Standard", { flags: new Set(["Fragile"]), parcels: 9981n, waiting: 29n, hours: [441n, 1128n, 2467n, 2852n, 1863n, 827n, 305n, 98n, 0n, 0n, 0n, 0n], exceptions: new Map([["Missort", 8n], ["Damaged packaging", 3n]]) }],
+                ["Priority", { flags: new Set<string>(), parcels: 4303n, waiting: 12n, hours: [341n, 701n, 1230n, 1141n, 598n, 213n, 63n, 16n, 0n, 0n, 0n, 0n], exceptions: new Map([["Missort", 3n], ["Damaged packaging", 2n]]) }],
+                ["Economy", { flags: new Set<string>(), parcels: 2065n, waiting: 6n, hours: [63n, 183n, 453n, 591n, 434n, 218n, 90n, 33n, 0n, 0n, 0n, 0n], exceptions: new Map([["Missort", 2n], ["Damaged packaging", 1n]]) }],
+                ["International", { flags: new Set<string>(), parcels: 861n, waiting: 3n, hours: [16n, 53n, 153n, 234n, 203n, 119n, 58n, 25n, 0n, 0n, 0n, 0n], exceptions: new Map([["Missort", 1n]]) }],
+            ]),
         }],
         ["HLD", {
             flags: new Set(["Customs", "Hazmat", "At risk", "Cold chain", "Oversize"]), equipment: new Set(["Forklift", "X-ray", "Scanner"]), shifts: new Set(["Early", "Late"]),
@@ -232,6 +284,12 @@ export const stateEvidence = e3.record("flowchart_depot_state_evidence", DictTyp
             hours: [0n, 11n, 22n, 54n, 97n, 151n, 183n, 162n, 173n, 130n, 65n, 32n],
             service: new Map([["Standard", 335n], ["Priority", 130n], ["Economy", 76n], ["International", 539n]]),
             exceptions: new Map([["Missing documents", 412n], ["Duty unpaid", 236n], ["Address check", 98n], ["Damaged packaging", 44n]]),
+            byService: new Map([
+                ["Standard", { flags: new Set(["Oversize"]), parcels: 335n, waiting: 22n, hours: [0n, 4n, 9n, 22n, 39n, 57n, 63n, 50n, 45n, 29n, 12n, 5n], exceptions: new Map([["Missing documents", 28n], ["Duty unpaid", 11n], ["Address check", 30n], ["Damaged packaging", 14n]]) }],
+                ["Priority", { flags: new Set(["At risk", "Cold chain"]), parcels: 130n, waiting: 8n, hours: [0n, 5n, 8n, 15n, 22n, 26n, 23n, 14n, 10n, 5n, 2n, 0n], exceptions: new Map([["Missing documents", 11n], ["Duty unpaid", 4n], ["Address check", 12n], ["Damaged packaging", 5n]]) }],
+                ["Economy", { flags: new Set(["Hazmat", "Oversize"]), parcels: 76n, waiting: 5n, hours: [0n, 1n, 1n, 3n, 7n, 11n, 14n, 12n, 12n, 9n, 4n, 2n], exceptions: new Map([["Missing documents", 7n], ["Duty unpaid", 3n], ["Address check", 7n], ["Damaged packaging", 3n]]) }],
+                ["International", { flags: new Set(["Customs"]), parcels: 539n, waiting: 35n, hours: [0n, 1n, 4n, 14n, 29n, 57n, 83n, 86n, 106n, 87n, 47n, 25n], exceptions: new Map([["Missing documents", 366n], ["Duty unpaid", 218n], ["Address check", 49n], ["Damaged packaging", 22n]]) }],
+            ]),
         }],
         ["CLR", {
             flags: new Set(["Customs"]), equipment: new Set(["Label printer", "Scanner", "X-ray"]), shifts: new Set(["Early", "Late"]),
@@ -239,6 +297,12 @@ export const stateEvidence = e3.record("flowchart_depot_state_evidence", DictTyp
             hours: [1817n, 3634n, 4542n, 3634n, 2180n, 1454n, 727n, 182n, 0n, 0n, 0n, 0n],
             service: new Map([["Standard", 10175n], ["Priority", 4361n], ["Economy", 2362n], ["International", 1272n]]),
             exceptions: new Map([["Duty refund", 12n]]),
+            byService: new Map([
+                ["Standard", { flags: new Set<string>(), parcels: 10175n, waiting: 10n, hours: [943n, 1989n, 2575n, 2097n, 1257n, 823n, 397n, 94n, 0n, 0n, 0n, 0n], exceptions: new Map([["Duty refund", 4n]]) }],
+                ["Priority", { flags: new Set<string>(), parcels: 4361n, waiting: 4n, hours: [663n, 1122n, 1166n, 762n, 367n, 193n, 74n, 14n, 0n, 0n, 0n, 0n], exceptions: new Map([["Duty refund", 2n]]) }],
+                ["Economy", { flags: new Set<string>(), parcels: 2362n, waiting: 3n, hours: [159n, 377n, 551n, 506n, 342n, 253n, 137n, 37n, 0n, 0n, 0n, 0n], exceptions: new Map([["Duty refund", 1n]]) }],
+                ["International", { flags: new Set(["Customs"]), parcels: 1272n, waiting: 1n, hours: [52n, 146n, 250n, 269n, 214n, 185n, 119n, 37n, 0n, 0n, 0n, 0n], exceptions: new Map([["Duty refund", 5n]]) }],
+            ]),
         }],
         ["LDD", {
             flags: new Set(["Hazmat", "Oversize"]), equipment: new Set(["Forklift", "Scanner"]), shifts: new Set(["Early", "Late", "Night"]),
@@ -246,30 +310,53 @@ export const stateEvidence = e3.record("flowchart_depot_state_evidence", DictTyp
             hours: [681n, 1362n, 2725n, 4088n, 3747n, 2384n, 1362n, 511n, 170n, 0n, 0n, 0n],
             service: new Map([["Standard", 9707n], ["Priority", 4087n], ["Economy", 2214n], ["International", 1022n]]),
             exceptions: new Map([["Vehicle late", 140n], ["Overweight", 31n]]),
+            byService: new Map([
+                ["Standard", { flags: new Set(["Oversize"]), parcels: 9707n, waiting: 120n, hours: [334n, 717n, 1515n, 2358n, 2205n, 1407n, 792n, 288n, 91n, 0n, 0n, 0n], exceptions: new Map([["Vehicle late", 75n], ["Overweight", 18n]]) }],
+                ["Priority", { flags: new Set<string>(), parcels: 4087n, waiting: 50n, hours: [286n, 493n, 835n, 1043n, 782n, 401n, 181n, 53n, 13n, 0n, 0n, 0n], exceptions: new Map([["Vehicle late", 31n], ["Overweight", 7n]]) }],
+                ["Economy", { flags: new Set(["Hazmat", "Oversize"]), parcels: 2214n, waiting: 27n, hours: [49n, 119n, 282n, 495n, 522n, 375n, 239n, 98n, 35n, 0n, 0n, 0n], exceptions: new Map([["Vehicle late", 26n], ["Overweight", 4n]]) }],
+                ["International", { flags: new Set<string>(), parcels: 1022n, waiting: 13n, hours: [12n, 33n, 93n, 192n, 238n, 201n, 150n, 72n, 31n, 0n, 0n, 0n], exceptions: new Map([["Vehicle late", 8n], ["Overweight", 2n]]) }],
+            ]),
         }],
         ["RCV", {
             flags: new Set(["Fragile"]), equipment: new Set(["Scanner"]), shifts: new Set(["Weekend"]),
             parcels: 640n, waiting: 25n,
             hours: [64n, 115n, 154n, 141n, 90n, 51n, 19n, 6n, 0n, 0n, 0n, 0n],
-            service: new Map([["Standard", 397n], ["Priority", 128n], ["Economy", 77n], ["International", 38n]]),
+            service: new Map([["Standard", 435n], ["Priority", 128n], ["Economy", 77n]]),
             exceptions: new Map([["Missing documents", 18n]]),
+            byService: new Map([
+                ["Standard", { flags: new Set(["Fragile"]), parcels: 435n, waiting: 17n, hours: [39n, 75n, 104n, 98n, 64n, 37n, 14n, 4n, 0n, 0n, 0n, 0n], exceptions: new Map([["Missing documents", 12n]]) }],
+                ["Priority", { flags: new Set<string>(), parcels: 128n, waiting: 5n, hours: [19n, 29n, 33n, 25n, 13n, 6n, 2n, 1n, 0n, 0n, 0n, 0n], exceptions: new Map([["Missing documents", 4n]]) }],
+                ["Economy", { flags: new Set<string>(), parcels: 77n, waiting: 3n, hours: [6n, 11n, 17n, 18n, 13n, 8n, 3n, 1n, 0n, 0n, 0n, 0n], exceptions: new Map([["Missing documents", 2n]]) }],
+            ]),
         }],
         ["INS", {
             flags: new Set(["At risk", "Customs"]), equipment: new Set(["X-ray"]), shifts: new Set(["Early"]),
             parcels: 640n, waiting: 30n,
             hours: [0n, 13n, 38n, 77n, 128n, 154n, 115n, 64n, 38n, 13n, 0n, 0n],
-            service: new Map([["Standard", 397n], ["Priority", 128n], ["Economy", 77n], ["International", 38n]]),
+            service: new Map([["Standard", 435n], ["Priority", 128n], ["Economy", 77n]]),
             exceptions: new Map([["Damaged packaging", 27n]]),
+            byService: new Map([
+                ["Standard", { flags: new Set(["Customs"]), parcels: 435n, waiting: 20n, hours: [0n, 7n, 23n, 49n, 86n, 106n, 81n, 46n, 27n, 10n, 0n, 0n], exceptions: new Map([["Damaged packaging", 18n]]) }],
+                ["Priority", { flags: new Set(["At risk"]), parcels: 128n, waiting: 6n, hours: [0n, 5n, 12n, 21n, 29n, 30n, 18n, 8n, 4n, 1n, 0n, 0n], exceptions: new Map([["Damaged packaging", 6n]]) }],
+                ["Economy", { flags: new Set<string>(), parcels: 77n, waiting: 4n, hours: [0n, 1n, 3n, 7n, 13n, 18n, 16n, 10n, 7n, 2n, 0n, 0n], exceptions: new Map([["Damaged packaging", 3n]]) }],
+            ]),
         }],
         ["RSD", {
             flags: new Set<string>(), equipment: new Set(["Scanner"]), shifts: new Set(["Early"]),
             parcels: 610n, waiting: 0n,
             hours: [122n, 183n, 159n, 85n, 43n, 18n, 0n, 0n, 0n, 0n, 0n, 0n],
-            service: new Map([["Standard", 378n], ["Priority", 122n], ["Economy", 73n], ["International", 37n]]),
+            service: new Map([["Standard", 415n], ["Priority", 122n], ["Economy", 73n]]),
             exceptions: new Map<string, bigint>(),
+            byService: new Map([
+                ["Standard", { flags: new Set<string>(), parcels: 415n, waiting: 0n, hours: [78n, 123n, 110n, 60n, 31n, 13n, 0n, 0n, 0n, 0n, 0n, 0n], exceptions: new Map<string, bigint>() }],
+                ["Priority", { flags: new Set<string>(), parcels: 122n, waiting: 0n, hours: [32n, 41n, 29n, 13n, 5n, 2n, 0n, 0n, 0n, 0n, 0n, 0n], exceptions: new Map<string, bigint>() }],
+                ["Economy", { flags: new Set<string>(), parcels: 73n, waiting: 0n, hours: [12n, 19n, 20n, 12n, 7n, 3n, 0n, 0n, 0n, 0n, 0n, 0n], exceptions: new Map<string, bigint>() }],
+            ]),
         }],
     ]),
     mutations: (mutation) => ({ patch: mutation.patch() }),
+    // Each service's own figures, a range of the index by the service's name: what the rail's picks read.
+    indexes: (index) => ({ flowchart_evidence_by_service: index.entries("byService") }),
 });
 // A row a transition with a volume: the in-place one and the one to Delivered have none, and their labels keep their evidence alone.
 export const moveEvidence = e3.record("flowchart_depot_move_evidence", DictType(StringType, MoveEvidence), {
@@ -451,8 +538,9 @@ export const flowchartDepot = example({
         "Flowchart.templates", "Flowchart.library", "Flowchart.library.lanes", "Flowchart.library.tab", "Flowchart.patch", "Record.bind", "Data.bindPaged",
         "Slice.bindRecords", "presets", "records", "entries", "details", "Flowchart.tags", "Flowchart.histogram", "Flowchart.list",
         "Flowchart.figure", "show", "tag lists", "colorPalette", "legend", "bins", "ticks", "inspector", "editing", "Save",
+        "source", "weigh", "weighed", "index.entries", "picks", "byService",
     ],
-    description: "A parcel depot's flowchart over four records of the app's: its states and transitions read through their sources of the rail and edited through their patch doors, a preset narrowing both to one flow; its lanes and decisions, small records read whole; each state's details on its card in the app's order — its parcels, its flags, equipment and shifts as tag lists in the app's colours, two of them in the legend, its time in state over the app's bins and its top services — each transition's top region under its evidence, and every read in full in the inspector; the Steps, Transitions and Lanes tabs listing each kind's cards, and an owners tab whose card dropped on a decision makes it the decision's owner",
+    description: "A parcel depot's flowchart over four records of the app's: its states and transitions read through their sources of the rail and edited through their patch doors, a preset narrowing both to one flow; its lanes and decisions, small records read whole; each state's details on its card in the app's order — its parcels, its flags, equipment and shifts as tag lists in the app's colours, two of them in the legend, its time in state over the app's bins and its top services — each transition's top region under its evidence, and every read in full in the inspector; the Steps, Transitions and Lanes tabs listing each kind's cards, and an owners tab whose card dropped on a decision makes it the decision's owner; and the services the rail picks weighing the states' details, their own figures added up by kind — the parcels, still in state, flags, time in state and exceptions — while the equipment, the shifts and the Service list draw the state's own",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // The states and the transitions: editable through their patch doors, read through their sources of the rail.
@@ -463,8 +551,9 @@ export const flowchartDepot = example({
             // The lanes and the decisions: small records, read whole.
             const lanes = $.let(Record.bind(depotLanes));
             const decisions = $.let(Record.bind(depotDecisions));
-            // The details, read by the drawn rows' keys, as their kinds are read through their sources.
-            const stateRows = $.let(Data.bindPaged(stateEvidence));
+            // The details, read by the drawn rows' keys, as their kinds are read through their sources. The states'
+            // evidence is bound once, its entries index listed: the rail's evidence source, and the details its picks weigh.
+            const evidence = $.let(Data.bindPaged(stateEvidence, { indexes: ["flowchart_evidence_by_service"] }));
             const moveRows = $.let(Data.bindPaged(moveEvidence));
             const steps = $.let(Data.bind(stepCards));
             const moves = $.let(Data.bind(moveCards));
@@ -486,6 +575,12 @@ export const flowchartDepot = example({
                     fields: { flow: { label: "Flow", hints: ["Parcels", "Returns"] } },
                     initial: { flow: ["Parcels"] },
                 },
+                // Each service's own figures: the services picked weigh the states' details, and narrow no row.
+                evidence: {
+                    source: evidence,
+                    icon: { prefix: "fas", name: "boxes-stacked" },
+                    fields: { byService: { label: "Service", hints: ["Standard", "Priority", "Economy", "International"] } },
+                },
                 stepCards: { source: Data.bindPaged(stepCards, { indexes: ["flowchart_step_cards_by_group"] }), fields: { group: { label: "Group" } } },
                 moveCards: { source: Data.bindPaged(moveCards, { indexes: ["flowchart_move_cards_by_group"] }), fields: { group: { label: "Group" } } },
                 laneCards: { source: Data.bindPaged(laneCards, { indexes: ["flowchart_lane_cards_by_group"] }), fields: { group: { label: "Group" } } },
@@ -502,7 +597,10 @@ export const flowchartDepot = example({
                             label: "name", lane: "phase", order: "seq",
                             members: (s) => s.slots,
                             // Drawn in this order on each state's card and in the inspector, each where its show says — "all" unless given.
-                            details: Flowchart.details(stateRows, {
+                            // The services the rail picks weigh each read their figures hold, added up by kind; the equipment, the
+                            // shifts and the Service list, which they lack, draw the state's own.
+                            details: Flowchart.details(evidence, {
+                                source: "evidence",
                                 details: [
                                     Flowchart.figure("parcels", { label: "Parcels", unit: "parcels" }),
                                     Flowchart.figure("waiting", { label: "Still in state", show: "inspector" }),
@@ -639,16 +737,19 @@ export const flowchartDepotEditing = example({
 });
 
 export const flowchartDepotDimmed = example({
-    keywords: ["Flowchart", "Slice.bindRecords", "narrowed", "dim", "Data.bindPaged", "read only", "records", "context"],
-    description: "The depot's states and transitions read only through their sources of the rail, the narrowing drawn as context: every row read, the states and transitions it leaves out faded and selected by no path, their details read by key",
+    keywords: ["Flowchart", "Slice.bindRecords", "narrowed", "dim", "Data.bindPaged", "read only", "records", "context",
+        "source", "weigh", "weighed", "index.entries", "initial", "no data"],
+    description: "The depot's states and transitions read only through their sources of the rail, the narrowing drawn as context: every row read, the states and transitions it leaves out faded and selected by no path, their details read by key and weighed by the one service the rail opens on — Held's time in state its international parcels' own, and the returns' states, which hold none, saying no data",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // Read only, through their sources: bound with Data.bindPaged alone.
             const states = $.let(Data.bindPaged(depotStates));
             const transitions = $.let(Data.bindPaged(depotTransitions));
             const lanes = $.let(Data.bind(depotLanes));
-            const stateRows = $.let(Data.bindPaged(stateEvidence));
-            // The parcels' Hold lane in focus: an index on the flow and the lane answers the two together.
+            // The states' evidence, its entries index listed: the rail's evidence source, and the details its picks weigh.
+            const evidence = $.let(Data.bindPaged(stateEvidence, { indexes: ["flowchart_evidence_by_service"] }));
+            // The parcels' Hold lane in focus: an index on the flow and the lane answers the two together. The international
+            // parcels' own figures weigh the details: the one service picked.
             const slice = $.let(Slice.bindRecords("flowchart.depotDimmed", {
                 states: {
                     source: Data.bindPaged(depotStates, { indexes: ["flowchart_states_by_flow", "flowchart_states_by_lane"] }),
@@ -659,6 +760,11 @@ export const flowchartDepotDimmed = example({
                     source: Data.bindPaged(depotTransitions, { indexes: ["flowchart_transitions_by_flow"] }),
                     fields: { flow: { label: "Flow", hints: ["Parcels", "Returns"] } },
                 },
+                evidence: {
+                    source: evidence,
+                    fields: { byService: { label: "Service", hints: ["Standard", "Priority", "Economy", "International"] } },
+                    initial: { byService: ["International"] },
+                },
             }));
             return (
                 <Box height="640px">
@@ -667,7 +773,9 @@ export const flowchartDepotDimmed = example({
                         narrowed="dim"
                         states={Flowchart.states(states, {
                             label: "name", lane: "phase", order: "seq", members: (s) => s.slots,
-                            details: Flowchart.details(stateRows, {
+                            // Time in state weighed by the service picked; the Service list, which the entries lack, the state's own mix.
+                            details: Flowchart.details(evidence, {
+                                source: "evidence",
                                 details: [
                                     Flowchart.histogram("hours", { unit: "hours", label: "Time in state", counts: "parcels",
                                         bins: [0, 0.25, 0.5, 1, 2, 4, 8, 12, 24, 48, 96, 168], ticks: [1, 12, 48, 168] }),

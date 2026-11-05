@@ -1118,7 +1118,10 @@ function wireOf(spec: ReadSpec, top: 1 | 2): unknown {
  * emptied, and each read whose field the entries hold drawing the picked keys'
  * entries added up by kind — a figure adds, a histogram adds bin by bin, a
  * list adds by name, tags join. A read given `weigh: false`, or one whose field
- * the entries lack, draws the row's own; with no pick, every read does.
+ * the entries lack, draws the row's own; with no pick, every read does. A share
+ * or an average is given `weigh: false`, since adding two would make it wrong:
+ * `Flowchart.figure("onTime", { label: "On time", weigh: false })` draws each
+ * state's own share of its parcels through on time, whatever the picks.
  *
  * @typeParam R - The details' row type, inferred from the binding
  * @typeParam S - The reads, as given

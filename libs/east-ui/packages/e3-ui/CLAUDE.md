@@ -354,6 +354,19 @@ every read (`flowchartDepot`), the tags' looks from the app's data
 (`flowchartFlagColors`), and the desk's own bins, a bar a bin and to scale
 (`flowchartTicketMinutes`, `flowchartTicketMinutesLinear`).
 
+Details that name a source of the slice, `source`, are weighed by its picks
+(#1522, R43–R46): bound through their record's entries index,
+`Data.bindPaged(record, { indexes: [it] })`, the same binding the rail's
+source takes, whose Dict field the rail lists by its `hints`. A pick narrows
+no row: each read whose field the entries hold draws the picked keys' entries
+added up in East, by kind — a figure adds, a histogram adds bin by bin, a list
+adds by name and tags join — while one given `weigh: false`, or whose field the
+entries lack, draws the row's own. A state holding none of the picks keeps its
+card, its weighed reads saying *no data*. The renderer reads the drawn rows by
+key through the index's lean rows and the picked keys' ranges page by page,
+never the record's own rows. The depot shows it (`flowchartDepot`, and
+`flowchartDepotDimmed` opening on International).
+
 Drafts are kept by each row's original key in its kind's session, whatever
 the narrowing or a remount (#1503): one history over a session a record, each
 gesture writing only its roles' fields, Del's reach the states and the

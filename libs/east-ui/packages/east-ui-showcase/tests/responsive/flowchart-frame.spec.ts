@@ -14,7 +14,9 @@
  * one trigger, the rail's summary, the freshness chip, LR · TD into its chip,
  * find state into its icon, then into its View, which takes LR · TD and the
  * zoom's strip (R42), then the history. One row at every width from
- * 1920px to 600px, nothing past its edge, a narrower row never folding less.
+ * 2160px to 600px, nothing past its edge, a narrower row never folding less:
+ * at 2160px every item whole, and from 1920px the rail's chips folding, the
+ * services' chip among them.
  * The canvas scrolls both ways inside main under the viewer's wheel, its lanes
  * filling main's whole height where its rows take less, the toolbar and the
  * footer staying put; find
@@ -39,11 +41,11 @@ import { LAYOUT_THEMES } from "./themes";
 const HASH = "e3/flowchart/flowchart/flowchartDepot";
 
 /**
- * The fold ladder: the rail's chips one at a time, its summary, the freshness chip, LR · TD, find state, find state's
- * View taking LR · TD and the zoom's strip, then the history.
+ * The fold ladder: the rail's ten chips one at a time — the services' among them — its summary, the freshness chip,
+ * LR · TD, find state, find state's View taking LR · TD and the zoom's strip, then the history.
  */
 const LADDER = [
-    ...Array.from({ length: 9 }, (_, i) => `record-slices>${i + 1}`), "record-summary>1",
+    ...Array.from({ length: 10 }, (_, i) => `record-slices>${i + 1}`), "record-summary>1",
     "freshness>1", "orientation>1", "seek>1", "seek>2", "orientation>2", "zoom>1", "history>1",
 ].join(" ");
 
@@ -178,12 +180,13 @@ test.describe("The Flowchart's frame (#1245)", () => {
             expect(read.body).toEqual(read.main);
         });
 
-        test(`the toolbar folds by one ladder — the rail's chips and its summary, the freshness chip, LR · TD into its chip, find state into its icon, then its View taking LR · TD and the zoom's strip, the history — one row at every width from 1920px to 600px, nothing past its edge (${theme})`, async ({ page }) => {
-            // The page wide enough to hold the widest frame.
-            await page.setViewportSize({ width: 2160, height: 1080 });
+        test(`the toolbar folds by one ladder — the rail's chips and its summary, the freshness chip, LR · TD into its chip, find state into its icon, then its View taking LR · TD and the zoom's strip, the history — one row at every width from 2160px to 600px, nothing past its edge (${theme})`, async ({ page }) => {
+            // The page wide enough to hold the widest frame: one whose row holds every item whole, the rail's ten chips
+            // among them.
+            await page.setViewportSize({ width: 2400, height: 1080 });
             const root = await openDepot(page, theme);
             const seen: { row: number; folds: number }[] = [];
-            for (const width of [1920, 1440, 1200, 1000, 800, 640, 600]) {
+            for (const width of [2160, 1920, 1440, 1200, 1000, 800, 640, 600]) {
                 await sizeTo(page, root, width);
                 const bar = await toolbarOf(root);
                 expect(bar.ladder).toBe(LADDER);
