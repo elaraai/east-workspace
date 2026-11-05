@@ -15,7 +15,7 @@ import { CoverageView, ProposalCard, assignmentName, costed, dismissible, money,
 import type { RolesChange } from "./actions.js";
 import type { RosterFind } from "./fit.js";
 import {
-    DAY, costsOf, dayOfSlot, dayStart, groupSkills, requirementOf, sameSlot, viewTotals, weekNumber, type Assignment, type Issue, type Person, type PlacedDuties,
+    DAY, costsOf, dayOfSlot, dayStart, groupSkills, issueGoesTo, requirementOf, sameSlot, viewTotals, weekNumber, type Assignment, type Issue, type Person, type PlacedDuties,
     type PlacedTargets, type RosterStyles, type Slot,
 } from "./model.js";
 
@@ -46,17 +46,17 @@ function fixLabel(issue: Issue, props: Args) {
     }
 }
 export function RosterIssues({ props, issues }: { props: Args; issues: readonly Issue[] }) {
-    return <>{issues.map((issue, index) => <Box key={index} css={props.styles.issue} data-tone={issue.tone.type} data-roster-issue={issue.kind.type}>
-        <chakra.button type="button" css={props.styles.issueTitle} onClick={() => {
-            if (issue.slot.type === "some") props.setView({ ...props.view, date: props.start.getTime() + Number(issue.slot.value.day) * DAY });
-            if (issue.assignment.type === "some") props.select({ type: "assignment", key: issue.assignment.value });
-            else if (issue.fix.type === "some" && issue.fix.value.type === "accept") props.select({ type: "proposal", key: issue.fix.value.value });
-            else if (issue.slot.type === "some") props.select({ type: "slot", slot: issue.slot.value });
-        }}>{issue.title}</chakra.button><Box css={props.styles.issueDetail}>{issue.detail}</Box>
+    return <>{issues.map((issue, index) => { const goes = issueGoesTo(issue, props.view, props.start, props.week, props.opensWeek); return <Box key={index} css={props.styles.issue} data-tone={issue.tone.type} data-roster-issue={issue.kind.type}>
+        {/* A Month with no Week, and nothing of the issue's to select: its title alone, nothing to press. */}
+        {props.view.period === "month" && !props.opensWeek && goes.select === undefined ? <Box css={props.styles.issueTitle}>{issue.title}</Box>
+            : <chakra.button type="button" css={props.styles.issueTitle} onClick={() => {
+                if (goes.view !== undefined) props.setView(goes.view);
+                if (goes.select !== undefined) props.select(goes.select);
+            }}>{issue.title}</chakra.button>}<Box css={props.styles.issueDetail}>{issue.detail}</Box>
         {/* A find edits nothing, so it is offered on a week that can't be edited — but only with the app's fit, which decides who fits. */}
         {issue.fix.type === "some" && (issue.fix.value.type === "find" ? props.find.offered : props.commands.available || props.commands.locked !== undefined) && <Box css={props.styles.issueActions}>
             <Button size="xs" variant="outline" disabled={props.commands.locked !== undefined} title={props.commands.locked} onClick={() => props.onError(props.commands.fix(issue))}>{fixLabel(issue, props)}</Button></Box>}
-    </Box>)}</>;
+    </Box>; })}</>;
 }
 function PersonFacts({ props, person, slot }: { props: Args; person: Person; slot?: Slot }) {
     const group = props.value.groups.find(g => g.key === (slot?.group ?? person.group));

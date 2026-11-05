@@ -99,6 +99,29 @@ export function periodOf(layout: RosterLayout, period: RosterPeriod | undefined,
 }
 
 /**
+ * Where pressing an issue goes, as its title's click takes it. In Week and Day, its day, with what it names selected. In
+ * Month, which draws no one duty, its week in Week (P24) — or, with Week not offered, the month stays and the person-week
+ * of the duty's person is selected: moving the date to a day of a week that starts in the month before would move the month.
+ *
+ * @param issue - The issue
+ * @param view - The view
+ * @param start - The first day of the issue's week
+ * @param week - The issue's week as drafted
+ * @param opensWeek - Whether the layout in view offers Week
+ * @returns The view to show and what to select; each `undefined` where it stays as it is
+ */
+export function issueGoesTo(issue: Issue, view: RosterView, start: Date, week: Week, opensWeek: boolean): { view: RosterView | undefined; select: Selection | undefined } {
+    const dated = issue.slot.type === "some" ? start.getTime() + Number(issue.slot.value.day) * DAY : undefined;
+    const named: Selection | undefined = issue.assignment.type === "some" ? { type: "assignment", key: issue.assignment.value }
+        : issue.fix.type === "some" && issue.fix.value.type === "accept" ? { type: "proposal", key: issue.fix.value.value }
+            : issue.slot.type === "some" ? { type: "slot", slot: issue.slot.value } : undefined;
+    if (view.period !== "month") return { view: dated === undefined ? undefined : { ...view, date: dated }, select: named };
+    if (opensWeek) return { view: { ...view, period: "week", date: dated ?? start.getTime() }, select: named };
+    const who = issue.assignment.type === "some" ? week.assignments.get(issue.assignment.value)?.who : undefined;
+    return { view: undefined, select: who?.type === "person" ? { type: "personWeek", key: who.value, start: start.getTime() } : undefined };
+}
+
+/**
  * The weeks in view, and the window the Roster reads them over (#1406, D2): one week — the Shifts layout's day is a
  * day of it — or a month's, the four to six weeks that touch the month from the configured week start.
  */
