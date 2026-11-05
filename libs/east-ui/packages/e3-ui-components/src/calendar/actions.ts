@@ -8,6 +8,7 @@ import { DateTimeType, compareFor, encodeBeast2For, fromEastTypeValue, none, som
 import type { Origin } from "@elaraai/east-ui-components";
 import type { ScheduleChange, ScheduleEditing } from "../shared/schedule/editing.js";
 import { durationMinutes } from "../shared/schedule/due.js";
+import { lowerWord } from "../shared/schedule/words.js";
 import {
     QUARTER, sameResource, type CalendarItem, type CalendarKind, type CalendarRef, type CalendarResource, type CalendarRow, type CalendarTemplate, type CalendarValue,
 } from "./model.js";
@@ -128,12 +129,12 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
         unschedule(items, checkOnly = false) {
             for (const item of items) {
                 const kind = kindOf(item);
-                if (kind === undefined || !kind.backlog) return "This event kind has no backlog";
+                if (kind === undefined || !kind.backlog) return `This event kind has no ${lowerWord(value.vocabulary.backlog)}`;
                 if (!editing.available(item.kind)) return `${kind.name} is not ready to edit`;
                 const refused = checkedWrite(kind, item.key, variant("unplace", null));
                 if (refused !== undefined) return refused;
             }
-            if (!checkOnly) editing.record(items.map(item => ({ kind: item.kind, id: item.key, gesture: variant("unplace", null) })), "move", `Return ${items.length} events to backlog`);
+            if (!checkOnly) editing.record(items.map(item => ({ kind: item.kind, id: item.key, gesture: variant("unplace", null) })), "move", `Return ${items.length} events to ${lowerWord(value.vocabulary.backlog)}`);
             return undefined;
         },
         duplicate(items) {

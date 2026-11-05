@@ -12,6 +12,7 @@
  */
 
 import { createContext, useContext } from "react";
+import { lowerWord } from "../shared/schedule/words.js";
 import type { AllocationValue } from "./model.js";
 
 /** The board's nouns, as the payload carries them. */
@@ -26,7 +27,7 @@ export type Noun = Nouns["lane"];
  * @returns The word as a sentence writes it
  */
 export function lower(word: string): string {
-    return word.length > 1 && word === word.toLocaleUpperCase() && word !== word.toLocaleLowerCase() ? word : word.toLocaleLowerCase();
+    return lowerWord(word);
 }
 
 /** The singular in running text: `kiln`. */

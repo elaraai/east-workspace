@@ -16,6 +16,16 @@
  */
 
 /**
+ * A word in running text: lower case, unless it is written in capitals (`QA` stays `QA`).
+ *
+ * @param word - The word as a heading writes it
+ * @returns The word as a sentence writes it
+ */
+export function lowerWord(word: string): string {
+    return word.length > 1 && word === word.toLocaleUpperCase() && word !== word.toLocaleLowerCase() ? word : word.toLocaleLowerCase();
+}
+
+/**
  * A kind's name in the plural, as English makes one — `Stop` → `Stops`,
  * `Delivery` → `Deliveries`; a name that ends in `s` stays.
  *

@@ -45,6 +45,45 @@ export const CalendarSettingsType = StructType({
     now: OptionType(DateTimeType), readOnly: BooleanType,
 });
 /**
+ * The app's own words for what the Calendar draws of its own (#1516), every one resolved.
+ *
+ * @property backlog - The tab of events waiting for a time, and what running text calls it (`Backlog`)
+ * @property templates - The tab of templates (`Templates`)
+ * @property template - One of them (`Template`)
+ * @property dueThisWeek - The Backlog's group due this week (`Due this week`)
+ * @property dueNextWeek - Its group due next week (`Due next week`)
+ * @property later - Its group due after that (`Later`)
+ * @property noDate - Its group with no due date (`No date`)
+ * @property unscheduled - An event with no time, as the inspector says it (`Unscheduled`)
+ * @property unassigned - The row and the choice of no resource (`Unassigned`)
+ * @property resources - The layout of resources, and what the timeline heads its names with (`Resources`)
+ */
+export const CalendarVocabularyType = StructType({
+    backlog: StringType, templates: StringType, template: StringType, dueThisWeek: StringType, dueNextWeek: StringType, later: StringType, noDate: StringType,
+    unscheduled: StringType, unassigned: StringType, resources: StringType,
+});
+/** The words the Calendar draws with none given. */
+const CALENDAR_WORDS = {
+    backlog: "Backlog", templates: "Templates", template: "Template", dueThisWeek: "Due this week", dueNextWeek: "Due next week", later: "Later", noDate: "No date",
+    unscheduled: "Unscheduled", unassigned: "Unassigned", resources: "Resources",
+};
+/** The app's words for what the Calendar draws: any left out keeps its default. */
+export type CalendarVocabulary = Partial<typeof CALENDAR_WORDS>;
+
+/**
+ * The Calendar's words, resolved.
+ *
+ * @param given - The prop
+ * @returns Every word
+ * @throws {Error} Naming an entry given empty
+ * @internal
+ */
+export function calendarVocabulary(given: CalendarVocabulary | undefined): typeof CALENDAR_WORDS {
+    for (const [name, word] of Object.entries(given ?? {})) if (word.trim() === "") throw new Error(`Calendar: \`vocabulary.${name}\` must not be empty — leave it out to keep "${CALENDAR_WORDS[name as keyof typeof CALENDAR_WORDS]}"`);
+    return { ...CALENDAR_WORDS, ...given };
+}
+
+/**
  * Calendar's closed interface to its React renderer. The frame is a renderer detail.
  * @property resources - The resource kinds, their rows resolved — none for a kind paged a window at a time, whose resources come through `paged`
  * @property paged - A paged resource kind's resources a window at a time (#1424) — of the narrowing's, when its source of the slice narrows it; `none` while no resource kind is paged
@@ -52,12 +91,13 @@ export const CalendarSettingsType = StructType({
  * @property narrowed - Each source's narrowed keys, paged through its own data, by the source's name — a resource
  *   kind's read whole narrow its columns, rows and Choosers, a templates list's and a tab's their cards; an event kind
  *   reads its own narrowing through its part, and a paged resource kind its windows
+ * @property vocabulary - The app's words for what the Calendar draws of its own (#1516)
  * @property optimise - The app's optimiser, by its `e3.function`'s name (#1409): what the Elara eye calls over the window in
  *   view, its result one edit of the session; `none`, no eye
  */
 export const CalendarPayloadType = StructType({
     events: ArrayType(ScheduleKindType), resources: ArrayType(ScheduleResourcesType), paged: OptionType(CalendarPagedType), settings: CalendarSettingsType,
-    library: ArrayType(CalendarLibraryTabType), inspector: BooleanType, slice: OptionType(RecordSlicesChromeType),
+    library: ArrayType(CalendarLibraryTabType), inspector: BooleanType, vocabulary: CalendarVocabularyType, slice: OptionType(RecordSlicesChromeType),
     narrowed: DictType(StringType, RowSourceType(ArrayType(StringType))),
     canDrop: OptionType(FunctionType([ScheduleCandidateType], OptionType(StringType))),
     optimise: OptionType(FuncBindingType),
@@ -111,6 +151,12 @@ export interface CalendarProps {
     library?: readonly CalendarLibraryTab[];
     /** Shows the inspector pane. */
     inspector?: boolean;
+    /**
+     * The app's own words for what the Calendar draws of its own, each keeping its default where left out: the `backlog`, `templates`
+     * and `template`, the Backlog's groups (`dueThisWeek`, `dueNextWeek`, `later`, `noDate`), `unscheduled`, `unassigned` and
+     * `resources`. A renamed group keeps its order and its look.
+     */
+    vocabulary?: CalendarVocabulary;
     /** Disables every edit, write and drag while retaining navigation and selection. */
     readOnly?: SubtypeExprOrValue<BooleanType>;
     /** Initial layout, period and date. Viewer changes persist under id. */
@@ -238,7 +284,7 @@ export function createCalendarPayload(props: CalendarProps): ExprType<typeof Cal
                 density: variant(props.density ?? "comfortable", null), now: props.now === undefined ? none : some(props.now),
                 readOnly: props.readOnly ?? false,
             },
-            library, inspector: props.inspector ?? false,
+            library, inspector: props.inspector ?? false, vocabulary: calendarVocabulary(props.vocabulary),
             slice: narrowing.chrome,
             narrowed: new Map(narrowing.names.map(source => [source, bound.keys[source] as never])),
             canDrop: props.canDrop === undefined ? none : some(props.canDrop),

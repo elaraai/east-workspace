@@ -50,6 +50,8 @@ const keyEqual = equalFor(StringType);
 export interface CalendarChooser {
     /** The paged kind, as the payload carries it: its own key search and windows. */
     readonly paged: CalendarPagedValue;
+    /** What the Calendar calls no resource (#1516). */
+    readonly unassigned: string;
     /** Its name, as running text writes it: `presses`. */
     readonly noun: string;
     /** A resource's name by its key: its row's label once a window the frame holds has it; `undefined` while none does. */
@@ -111,7 +113,7 @@ export function PagedChooser({ chooser, chosen, onPick, readOnly = false }: {
         return row.type === "some" && row.value.type === "some" ? row.value.value.label : undefined;
     }, [paged, chosen, held]);
     const { result: read } = useTrackedEvaluation(readName);
-    const name = chosen === undefined ? "Unassigned" : held ?? (read.ok ? read.value : undefined) ?? chosen;
+    const name = chosen === undefined ? chooser.unassigned : held ?? (read.ok ? read.value : undefined) ?? chosen;
     if (readOnly) return <Box data-calendar-chooser="" data-readonly="">{name}</Box>;
     return <Box data-calendar-chooser="">
         <DatasetKeySearch keyType={KEY_TYPE} label={name} onFind={find} onListRange={listRange} onJump={jump} browseQuery={BROWSE} relist={moved}

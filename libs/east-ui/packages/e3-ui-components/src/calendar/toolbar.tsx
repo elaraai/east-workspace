@@ -34,7 +34,7 @@ import {
     dayStart, inWindow, navigate, type CalendarItem, type CalendarRange, type CalendarRef, type CalendarStyles, type CalendarUncounted, type CalendarView,
 } from "./model.js";
 
-const LAYOUTS = [{ key: "calendar", label: "Calendar" }, { key: "resources", label: "Resources" }, { key: "timeline", label: "Timeline" }] as const;
+const LAYOUTS: readonly { readonly key: CalendarView["layout"]; readonly label: string }[] = [{ key: "calendar", label: "Calendar" }, { key: "resources", label: "Resources" }, { key: "timeline", label: "Timeline" }];
 const PERIODS = [{ key: "day", label: "Day" }, { key: "week", label: "Week" }, { key: "month", label: "Month" }] as const;
 /** The kind of an issue's event: the kind whose session the history holds the issue in. */
 function kindOfIssue(commands: CalendarCommands, issue: EditIssue): string | undefined {
@@ -53,6 +53,8 @@ function startOfIssue(commands: CalendarCommands, kind: string, entry: string): 
 
 interface ToolbarArgs {
     view: CalendarView; setView: (view: CalendarView) => void; range: CalendarRange; now: Date;
+    /** What this Calendar calls its Resources layout (#1516). */
+    resourcesWord: string;
     /** The layouts this Calendar offers, in the switch's order: the `views` prop's. */
     layouts: readonly CalendarView["layout"][];
     /** The periods this Calendar offers, in the switch's order: the `viewPeriods` prop's. */
@@ -165,7 +167,7 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
     const seek = useKeySearchToolbarItem(args.search, { side: "end", rank: SEARCH_BOX_RANK, label: words.m.keySearch() });
     const period = view.layout === "resources" ? "day" : view.period;
     // The layouts this Calendar offers: its switch, in every form, only where there is a choice to make.
-    const layouts = LAYOUTS.filter(layout => args.layouts.includes(layout.key));
+    const layouts = LAYOUTS.filter(layout => args.layouts.includes(layout.key)).map(layout => layout.key === "resources" ? { ...layout, label: args.resourcesWord } : layout);
     const switches = layouts.length > 1;
     // And the periods it offers, Resources being always a day.
     const periods = PERIODS.filter(item => args.periods.includes(item.key));

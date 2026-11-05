@@ -10,6 +10,7 @@ import { DateTimeType, OptionType, StringType, StructType, none, some, type Valu
 import { Fields, type FieldSpecValue } from "@elaraai/east-ui";
 import { FieldForm, SliceEditPopover } from "@elaraai/east-ui-components";
 import { initialPlacement, type CalendarCommands, type CalendarPlacement, type CalendarSource } from "./actions.js";
+import { lowerWord } from "../shared/schedule/words.js";
 import { pagedControl, useCalendarChooser } from "./chooser.js";
 import { parseResourceKey, resourceChoices, resourceKey, type CalendarItem, type CalendarStyles, type CalendarValue } from "./model.js";
 
@@ -94,7 +95,7 @@ export function EventActions({ item, value, shown, commands, day, styles }: {
             {item.start.type === "some" && <PlacementAction label="Resize" source={{ kind, item }} value={value} shown={shown} day={day} commands={commands} styles={styles} />}
             <Button size="xs" variant="outline" data-calendar-action="duplicate" disabled={!commands.editing.available(kind.key)} onClick={() => setError(commands.duplicate([item]))}>Duplicate</Button>
             <Button size="xs" variant="outline" data-calendar-action="delete" disabled={!commands.editing.available(kind.key)} onClick={() => commands.remove([item])}>Delete</Button>
-            {kind.backlog && item.start.type === "some" && <Button size="xs" variant="outline" data-calendar-action="unschedule" disabled={!commands.editing.available(kind.key)} onClick={() => setError(commands.unschedule([item]))}>Return to backlog</Button>}
+            {kind.backlog && item.start.type === "some" && <Button size="xs" variant="outline" data-calendar-action="unschedule" disabled={!commands.editing.available(kind.key)} onClick={() => setError(commands.unschedule([item]))}>Return to {lowerWord(value.vocabulary.backlog)}</Button>}
         </Box>
         {error !== undefined && <Box role="alert" css={styles.error}>{error}</Box>}
     </>;

@@ -105,7 +105,7 @@ export interface FoundEvent {
  */
 export function foundEventLine(found: FoundEvent, words: CalendarWords): string {
     const { item } = found;
-    const when = item.start.type === "some" ? `${words.weekdayDate(item.start.value)} ${words.time(item.start.value)}` : "backlog";
+    const when = item.start.type === "some" ? `${words.weekdayDate(item.start.value)} ${words.time(item.start.value)}` : words.backlog ?? "backlog";
     const hidden = found.hidden === undefined ? [] : [hiddenLine(found.hidden, words, words.m)];
     return [item.key, ...(keyEqual(item.title, item.key) ? [] : [item.title]), found.kind, when, ...hidden].join(" · ");
 }

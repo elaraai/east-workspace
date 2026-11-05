@@ -226,6 +226,67 @@ export const calendarOperations = example({
         </Box>;
     }}</Reactive>),
 });
+export const calendarWording = example({
+    inputs: [],
+    description: "The operations calendar in its own words (#1516): `vocabulary` names the backlog, the templates, the backlog's groups, an event with no time, no resource and the resources, each kept in its place and its look whatever it is called.",
+    keywords: ["Calendar", "vocabulary", "backlog", "templates", "unassigned", "unscheduled", "resources", "Record.bind", "Slice.bindRecords"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        // What the Calendar reads whole binds with Data.bind, which keeps it loaded beside its pages; the event records
+        // it writes bind with Record.bind, and it reads their events through their pages alone.
+        const machines = $.let(Data.bind(calendarMachines));
+        const people = $.let(Data.bind(calendarPeople));
+        const jobs = $.let(Record.bind(calendarJobs));
+        const services = $.let(Record.bind(calendarServices));
+        const shifts = $.let(Record.bind(calendarShifts));
+        const jobTemplates = $.let(Data.bind(calendarJobTemplates));
+        const serviceTemplates = $.let(Data.bind(calendarServiceTemplates));
+        const shiftTemplates = $.let(Data.bind(calendarShiftTemplates));
+        const machineIndex = $.let(Data.bindPaged(calendarMachines, { indexes: ["calendar_machines_by_area"] }));
+        const peopleIndex = $.let(Data.bindPaged(calendarPeople, { indexes: ["calendar_people_by_team"] }));
+        const jobTemplateIndex = $.let(Data.bindPaged(calendarJobTemplates, { indexes: ["calendar_job_templates_by_group"] }));
+        const serviceTemplateIndex = $.let(Data.bindPaged(calendarServiceTemplates, { indexes: ["calendar_service_templates_by_group"] }));
+        const shiftTemplateIndex = $.let(Data.bindPaged(calendarShiftTemplates, { indexes: ["calendar_shift_templates_by_group"] }));
+        const slice = $.let(Slice.bindRecords("ex.calendarWording", {
+            machines: { source: machineIndex, icon: { prefix: "fas", name: "gears" },
+                fields: { area: { label: "Area", hints: ["Press shop", "Machine shop"] } } },
+            people: { source: peopleIndex, icon: { prefix: "fas", name: "users" },
+                fields: { team: { label: "Team", hints: ["Maintenance", "Production"] } } },
+            jobTemplates: { source: jobTemplateIndex, icon: { prefix: "fas", name: "layer-group" },
+                fields: { group: { label: "Job recipe", hints: ["Fabrication", "Machining"] } } },
+            serviceTemplates: { source: serviceTemplateIndex, icon: { prefix: "fas", name: "layer-group" },
+                fields: { group: { label: "Service recipe", hints: ["Preventive", "Calibration"] } } },
+            shiftTemplates: { source: shiftTemplateIndex, icon: { prefix: "fas", name: "layer-group" },
+                fields: { group: { label: "Shift recipe", hints: ["Day", "Late"] } } },
+        }));
+        return <Box height="760px"><Calendar id="wording" inspector vocabulary={{ backlog: "Unplanned", templates: "Recipes", template: "Recipe", dueThisWeek: "This week", dueNextWeek: "Next week",
+            later: "Afterwards", noDate: "Undated", unscheduled: "Not planned", unassigned: "Nobody", resources: "Stations" }} view={{ date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}
+            slice={{ slice }}
+            resources={{
+                machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name, meta: row => some(row.area) }),
+                people: Calendar.resources(people.read(), { name: "People", icon: "users", label: row => row.name, meta: row => some(row.team) }),
+            }}
+            events={{
+                job: Calendar.events(jobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" },
+                    status: { field: "status", cases: { planned: { label: "Planned", tone: variant("neutral", null), ring: true }, active: { label: "Active", tone: variant("info", null), ring: false }, done: { label: "Done", tone: variant("success", null), ring: false } } },
+                    backlog: { duration: row => variant("hours", row.hours), due: row => row.due },
+                    ready: row => row.hours.lessEqual(0).ifElse(() => variant("incomplete", [{ field: "hours", message: "Duration must be positive" }]), () => variant("ready", null)),
+                    templates: Calendar.templates(jobTemplates.read(), { name: row => row.name, group: row => some(row.group), duration: row => variant("hours", row.hours), values: row => row.values, source: "jobTemplates" }),
+                }),
+                service: Calendar.events(services, { name: "Maintenance", icon: "screwdriver-wrench", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" },
+                    fields: { technician: Calendar.field.reference({ of: "people" }) },
+                    templates: Calendar.templates(serviceTemplates.read(), { name: row => row.name, group: row => some(row.group), duration: row => variant("hours", row.hours), values: row => row.values, source: "serviceTemplates" }),
+                }),
+                shift: Calendar.events(shifts, { name: "Shift", icon: "user-clock", title: "title", start: "start", end: "end", resource: { field: "person", of: "people" }, overlaps: "allow",
+                    templates: Calendar.templates(shiftTemplates.read(), { name: row => row.name, group: row => some(row.group), at: row => some({ hour: row.hour, minute: 0n }), duration: () => variant("hours", 8.0), values: row => row.values, source: "shiftTemplates" }),
+                }),
+            }}
+            library={[Calendar.library.templates(), Calendar.library.backlog(), Calendar.library.tab(people.read(), {
+                name: "Technicians", icon: "user-gear", label: row => row.name, meta: row => some(row.team), group: row => row.team,
+                drop: (_row, key) => Calendar.patch(CalendarService, { technician: key }), source: "people",
+            })]} />
+        </Box>;
+    }}</Reactive>),
+});
 export const calendarMobile = example({
     inputs: [],
     description: "The same bound calendar in a phone-width container: chronological agenda cards with explicit Move, Resize, Duplicate, Delete and Return to backlog actions, Create and Schedule in the library, shared forms and Save history. Resizing preserves the view, selection and drafts; no dragging on the agenda.",
