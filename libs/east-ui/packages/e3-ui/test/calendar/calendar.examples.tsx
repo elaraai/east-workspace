@@ -398,8 +398,8 @@ export const calendarMinimal = example({
 
 export const calendarViews = example({
     inputs: [],
-    description: "Which layouts an instance offers, chosen as the page runs: a multi-select wired into `views`, an expression of an array of Calendar.Types.Layout. A layout left out loses its button and is never drawn; with one left no switch shows, and with none chosen, all three. `views={[\"calendar\", \"timeline\"]}` writes the same choice in the code.",
-    keywords: ["Calendar", "views", "Calendar.Types.Layout", "layout", "hide a view", "Resources", "Timeline", "Select", "multiple", "onChangeMultiple", "State", "Reactive"],
+    description: "Which layouts an instance offers, chosen as the page runs: a multi-select wired into `views`, an expression of an array of Calendar.Types.Layout. A layout left out loses its button and is never drawn; with one left no switch shows, and with none chosen, all three. `views={[\"calendar\", \"timeline\"]}` writes the same choice in the code. A second multi-select does the same for the periods through `viewPeriods`.",
+    keywords: ["Calendar", "views", "viewPeriods", "Calendar.Types.Period", "Day", "Week", "Month", "Calendar.Types.Layout", "layout", "hide a view", "Resources", "Timeline", "Select", "multiple", "onChangeMultiple", "State", "Reactive"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const machines = $.let(Record.bind(calendarMachines, []));
         const jobs = $.let(Record.bind(calendarJobs));
@@ -409,10 +409,18 @@ export const calendarViews = example({
         const onViews = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => { $(chosen.write(next)); }));
         const every = $.const([variant("calendar", null), variant("resources", null), variant("timeline", null)], ArrayType(Calendar.Types.Layout));
         const views = $.let(every.filter(($, view) => tags.toSet().has(view.getTag())));
+        // And the periods.
+        const chosenPeriods = $.let(State.bind([ArrayType(StringType)], "ex.calendarViews.periods", []));
+        const periodTags = $.let(chosenPeriods.read());
+        const onPeriods = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => { $(chosenPeriods.write(next)); }));
+        const everyPeriod = $.const([variant("day", null), variant("week", null), variant("month", null)], ArrayType(Calendar.Types.Period));
+        const viewPeriods = $.let(everyPeriod.filter(($, period) => periodTags.toSet().has(period.getTag())));
         return <VStack gap="3" align="stretch" width="100%">
             <HStack gap="2" align="center"><Text>Views</Text><Select value="" placeholder="Every view" multiple={true} onChangeMultiple={onViews}
                 items={[Select.Item("calendar", "Calendar"), Select.Item("resources", "Resources"), Select.Item("timeline", "Timeline")]} /></HStack>
-            <Box height="620px"><Calendar id="calendarViews" views={views} view={{ period: "day", date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}
+            <HStack gap="2" align="center"><Text>Periods</Text><Select value="" placeholder="Every period" multiple={true} onChangeMultiple={onPeriods}
+                items={[Select.Item("day", "Day"), Select.Item("week", "Week"), Select.Item("month", "Month")]} /></HStack>
+            <Box height="620px"><Calendar id="calendarViews" views={views} viewPeriods={viewPeriods} view={{ period: "day", date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}
                 resources={{ machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) }}
                 events={{ job: Calendar.events(jobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" }, backlog: { duration: row => variant("hours", row.hours), due: row => row.due } }) }} />
             </Box>

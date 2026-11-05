@@ -53,16 +53,19 @@ export interface RosterWindow {
 /** The layouts, in the switch's order. */
 const LAYOUTS = Object.keys(RosterLayoutType.cases) as readonly RosterLayout[];
 
-/** A view as it is kept: its period one its layout takes, whatever an older view held. */
-function normal(view: RosterView): RosterView {
-    const period = periodOf(view.layout, view.period);
+/** A list offering every period. */
+const EVERY_PERIOD: readonly { readonly type: string }[] = [];
+
+/** A view as it is kept: its period one its layout takes, and this Roster offers, whatever an older view held. */
+function normal(view: RosterView, offered: readonly { readonly type: string }[] = EVERY_PERIOD): RosterView {
+    const period = periodOf(view.layout, view.period, offered);
     return period === view.period ? view : { ...view, period };
 }
 
 /** A view as it is drawn: a layout this Roster offers, with the period that layout last had (P1). What is kept stands, so the layout comes back should the Roster offer it again. */
-function offered(view: RosterView, layouts: readonly RosterLayout[]): RosterView {
+function offered(view: RosterView, layouts: readonly RosterLayout[], periods: readonly { readonly type: string }[]): RosterView {
     const layout = shownView(view.layout, layouts);
-    return layout === view.layout ? view : normal({ ...view, layout, period: periodOf(layout, view.held?.[layout]) });
+    return layout === view.layout ? view : normal({ ...view, layout, period: periodOf(layout, view.held?.[layout], periods) }, periods);
 }
 
 /**
@@ -98,27 +101,28 @@ function rosterViewOf(stored: unknown): RosterView | undefined {
  */
 export function useRosterWindow(value: RosterValue, key: string): RosterWindow {
     const { view: kept, setView: setKept } = usePageView<RosterView>(`${key}.view`, {
-        layout: value.settings.layout.type, period: periodOf(value.settings.layout.type, value.settings.period.type),
+        layout: value.settings.layout.type, period: periodOf(value.settings.layout.type, value.settings.period.type, value.settings.viewPeriods),
         date: dayStart(value.settings.date.type === "some" ? value.settings.date.value : new Date()).getTime(),
     }, rosterViewOf);
     const views = value.settings.views;
     const layouts = useMemo(() => shownViews(LAYOUTS, views), [views]);
-    const view = useMemo(() => offered(normal(kept), layouts), [kept, layouts]);
+    const periods = value.settings.viewPeriods;
+    const view = useMemo(() => offered(normal(kept, periods), layouts, periods), [kept, layouts, periods]);
     const sunday = value.settings.weekStart.type === "sunday";
     const span = useMemo(() => rosterSpan(view.date, view.period, sunday), [view.date, view.period, sunday]);
     const week = useMemo(() => weekStart(new Date(view.date), sunday), [view.date, sunday]);
     const day = Math.floor((dayStart(view.date).getTime() - week.getTime()) / DAY);
-    const setView = useCallback((next: RosterView) => setKept(normal(next)), [setKept]);
+    const setView = useCallback((next: RosterView) => setKept(normal(next, periods)), [setKept, periods]);
     const setLayout = useCallback((layout: RosterLayout) => {
         if (layout === view.layout || !layouts.includes(layout)) return;
         // The layout's own period, as it last had it; the period in view kept for the layout left.
-        setView({ ...view, layout, period: periodOf(layout, view.held?.[layout]), held: { ...view.held, [view.layout]: view.period } });
-    }, [view, layouts, setView]);
+        setView({ ...view, layout, period: periodOf(layout, view.held?.[layout], periods), held: { ...view.held, [view.layout]: view.period } });
+    }, [view, layouts, periods, setView]);
     // The week Month was opened from (P3, ruled 26 Oct 2026): what Month → Week returns to while the month in view still
     // holds it — a viewer toggling the two keeps their place; a month stepped to opens on its own first week.
     const left = useRef<Date | undefined>(undefined);
     const setPeriod = useCallback((period: RosterPeriod, at?: Date) => {
-        const next = periodOf(view.layout, period);
+        const next = periodOf(view.layout, period, periods);
         if (next === view.period) return;
         let date = view.date;
         // Week → Month: the month holding the week's fourth day. Month → Week: the week given, else the week left while
@@ -132,16 +136,18 @@ export function useRosterWindow(value: RosterValue, key: string): RosterWindow {
             date = first.getTime();
         }
         setView({ ...view, period: next, date });
-    }, [view, week, span, setView]);
+    }, [view, week, span, periods, setView]);
     const step = useCallback((by: number) => {
         const date = view.period === "month" ? shiftCalendar(new Date(view.date), "month", by).getTime() : view.date + by * 7 * DAY;
         setView({ ...view, date });
     }, [view, setView]);
     const openWeek = useCallback((at: Date, asked: RosterLayout = view.layout) => {
         const layout = shownView(asked, layouts);
+        // No Week offered: a month's column stays the month's, which a date of another month's would move.
+        if (periodOf(layout, "week", periods) !== "week") return;
         const held = layout === view.layout ? view.held : { ...view.held, [view.layout]: view.period };
-        setView({ ...view, layout, period: periodOf(layout, "week"), date: at.getTime(), held });
-    }, [view, layouts, setView]);
+        setView({ ...view, layout, period: "week", date: at.getTime(), held });
+    }, [view, layouts, periods, setView]);
     return { view, setView, layouts, span, start: span.start, day, setLayout, setPeriod, step, openWeek };
 }
 

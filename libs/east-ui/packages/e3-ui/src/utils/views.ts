@@ -57,22 +57,23 @@ export function firstView<L extends string>(order: readonly L[], given: unknown)
  * @param type - The component's view variant
  * @param given - The prop
  * @param opening - The view the author opens the component on, when the code names one
+ * @param prop - The prop's name, for what a refusal says
  * @returns The array of the variant
  * @throws {Error} Naming the change to make: an empty list written in the code, a literal tag that is no view of the
  *   component, or an `opening` view the code's list leaves out
  */
-export function viewsProp<V extends VariantType, L extends string>(builder: string, type: V, given: ViewsProp<V, L> | undefined, opening?: L): SubtypeExprOrValue<ArrayType<V>> {
+export function viewsProp<V extends VariantType, L extends string>(builder: string, type: V, given: ViewsProp<V, L> | undefined, opening?: L, prop: string = "views"): SubtypeExprOrValue<ArrayType<V>> {
     const arrayType = ArrayType(type as EastType);
     if (given === undefined) return East.value([], arrayType) as unknown as SubtypeExprOrValue<ArrayType<V>>;
     if (!Array.isArray(given)) return East.value(given as never, arrayType) as unknown as SubtypeExprOrValue<ArrayType<V>>;
     const cases = Object.keys(type.cases).map(tag => `"${tag}"`).join(", ");
-    if (given.length === 0) throw new Error(`${builder}: \`views\` lists at least one of ${cases} — leave it out to offer every view`);
+    if (given.length === 0) throw new Error(`${builder}: \`${prop}\` lists at least one of ${cases} — leave it out to offer every view`);
     for (const entry of given as readonly unknown[]) {
-        if (typeof entry === "string" && !Object.hasOwn(type.cases, entry)) throw new Error(`${builder}: \`views\` holds "${entry}", which is none of ${cases}`);
+        if (typeof entry === "string" && !Object.hasOwn(type.cases, entry)) throw new Error(`${builder}: \`${prop}\` holds "${entry}", which is none of ${cases}`);
     }
     const listed = literalViews(given);
     if (opening !== undefined && listed !== undefined && !listed.includes(opening)) {
-        throw new Error(`${builder}: it opens on "${opening}", and \`views\` leaves it out — list it, or open on one of ${listed.map(tag => `"${tag}"`).join(", ")}`);
+        throw new Error(`${builder}: it opens on "${opening}", and \`${prop}\` leaves it out — list it, or open on one of ${listed.map(tag => `"${tag}"`).join(", ")}`);
     }
     const entries = (given as readonly unknown[]).map(entry => typeof entry === "string" ? variant(entry, null) : entry);
     return East.value(entries as never, arrayType) as unknown as SubtypeExprOrValue<ArrayType<V>>;

@@ -370,6 +370,9 @@ and `<Schematic>` share one contract:
   left, no switch shows in any form of the toolbar; the component's own order
   stands. `e3-ui:roster.examples.tsx:rosterViews` wires a multi-select into it.
   `<DecisionQueue>`'s `facets` is the same.
+- **Which periods an instance offers**: `viewPeriods` on `<Roster>` and
+  `<Calendar>` does the same for Day · Week · Month. (A Plan's are its axis's
+  `resolutions`.)
 - **Misuse is refused at build**, naming the change — forms from earlier
   releases included — so read the error rather than guessing.
 

@@ -12,7 +12,9 @@ import {
     ChipMenu, OPTIMISE_RANK, historyToolbarItem, useKeySearchToolbarItem, type EditIssue, type EditingWords, type HistoryAction, type KeySearchSource, type ToolbarItem,
 } from "@elaraai/east-ui-components";
 import { HOST_RANK, PlaceholderShape, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
+import { ROSTER_LAYOUT_PERIODS } from "@elaraai/e3-ui/internal";
 import { SEARCH_BOX_RANK } from "../shared/schedule/search-rank.js";
+import { shownViews } from "../shared/views.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { shiftCalendar } from "../shared/time/scale.js";
 import { TimeNavigator } from "../shared/time/navigation.js";
@@ -90,7 +92,11 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     const count = issues.filter(issue => issue.kind.type === "breach" || issue.kind.type === "gap").length;
     // The layout's own periods (P1), each layout keeping its own as the window does; Month → Week opens the selected
     // person-week's week (P3).
-    const periods = view.layout === "people" ? (args.narrow ? PEOPLE_NARROW_PERIODS : PEOPLE_PERIODS) : SHIFT_PERIODS;
+    // Those this Roster offers: its switch, in every form, only where there is a choice to make.
+    const taken: readonly { readonly key: RosterPeriod; readonly label: string }[] = view.layout === "people" ? (args.narrow ? PEOPLE_NARROW_PERIODS : PEOPLE_PERIODS) : SHIFT_PERIODS;
+    const offeredPeriods = shownViews(ROSTER_LAYOUT_PERIODS[view.layout], value.settings.viewPeriods);
+    const periods = taken.filter(item => offeredPeriods.includes(item.key));
+    const picksPeriod = periods.length > 1;
     const period = (key: RosterPeriod) => args.setPeriod(key, args.selectedWeek);
     const unit = view.period;
     const navigate = (step: number) => setView({ ...view, date: shiftCalendar(new Date(view.date), unit, step).getTime() });
@@ -121,8 +127,8 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         else if (key === "issues") args.onIssues(); else displayChoice(key);
     }}>
         {switches && <>{layouts.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}<ChakraMenu.Separator /></>}
-        {periods.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}
-        <ChakraMenu.Separator /><ChakraMenu.Item value="previous">Previous {unit}</ChakraMenu.Item><ChakraMenu.Item value="next">Next {unit}</ChakraMenu.Item>{value.inspector && <ChakraMenu.Item value="issues">{count} issues</ChakraMenu.Item>}<ChakraMenu.Separator />{displayItems}
+        {picksPeriod && <>{periods.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}<ChakraMenu.Separator /></>}
+        <ChakraMenu.Item value="previous">Previous {unit}</ChakraMenu.Item><ChakraMenu.Item value="next">Next {unit}</ChakraMenu.Item>{value.inspector && <ChakraMenu.Item value="issues">{count} issues</ChakraMenu.Item>}<ChakraMenu.Separator />{displayItems}
         {heldPublish && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish" disabled={!publishable}>Publish week</ChakraMenu.Item></>}
     </ChipMenu>;
     // The Elara eye (#1409) and its entry: at the row's floor the eye goes into the View, which lists it in its place
@@ -134,7 +140,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     const controls = (withEye: boolean) => <Box css={styles.agendaGroup}>
         {search?.forms[0]}
         {switches && <Seg label="Layout" scope="roster" name="compact-layout" items={layouts} active={view.layout} onPick={args.setLayout} />}
-        <Seg label="Period" scope="roster" name="compact-period" items={periods} active={view.period} onPick={period} />
+        {picksPeriod && <Seg label="Period" scope="roster" name="compact-period" items={periods} active={view.period} onPick={period} />}
         <ChipMenu label="Display" icon={faSliders} onSelect={displayChoice}>{displayItems}</ChipMenu>
         {value.inspector && <Button size="xs" variant="ghost" onClick={args.onIssues}>{count} issues</Button>}
         {withEye && eye?.entry}
@@ -155,7 +161,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         ...rail,
         switches && { key: "roster.layout", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<Seg label="Layout" scope="roster" name="layout" items={layouts} active={view.layout} onPick={args.setLayout} />, null] },
         // The layout's own periods, in every form of the row (#1406, P1).
-        { key: "roster.period", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<Seg label="Period" scope="roster" name="period" items={periods} active={view.period} onPick={period} />, null] },
+        picksPeriod && { key: "roster.period", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<Seg label="Period" scope="roster" name="period" items={periods} active={view.period} onPick={period} />, null] },
         { key: "roster.display", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<ChipMenu label="Display" icon={faSliders} onSelect={displayChoice}>{displayItems}</ChipMenu>, null] },
         { key: "roster.view", side: "start", rank: [HOST_RANK + 1, HOST_RANK + 6], bundle: ["roster.view", "roster.controls"], forms: [null, menu, null] },
         // The week's navigation: compact, then the View holding the week and view controls; and, with an eye, at the

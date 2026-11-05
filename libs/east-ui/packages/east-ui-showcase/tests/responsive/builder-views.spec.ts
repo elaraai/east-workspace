@@ -72,6 +72,31 @@ test.describe("A component's views", () => {
         await expect(undo).toBeEnabled();
     });
 
+    test("Roster: the periods offered: one left takes the Period switch away, a second brings it back", async ({ page, isMobile }) => {
+        test.skip(isMobile, "a phone's People offers Week alone");
+        const entry = await open(page, "e3/roster/roster/rosterViews", isMobile);
+        await toggle(page, entry, "People");
+        const period = entry.locator("[data-roster-seg='period']");
+        await expect(period.getByRole("radio")).toHaveText(["Week", "Month"]);
+        await toggle(page, entry, "Month", 1);
+        await expect(period).toHaveCount(0);
+        await expect(entry.locator("[data-roster-week-column]").first()).toBeVisible();
+        await toggle(page, entry, "Week", 1);
+        await expect(period.getByRole("radio")).toHaveText(["Week", "Month"]);
+    });
+
+    test("Calendar: the periods offered: one left takes the Period switch away and draws it", async ({ page, isMobile }) => {
+        test.skip(isMobile, "a phone folds the switch into its View");
+        const entry = await open(page, "e3/calendar/calendar/calendarViews", isMobile);
+        await toggle(page, entry, "Timeline");
+        const period = entry.locator("[data-calendar-seg='period']");
+        await expect(period.getByRole("radio")).toHaveText(["Day", "Week", "Month"]);
+        await toggle(page, entry, "Month", 1);
+        await expect(period).toHaveCount(0);
+        await toggle(page, entry, "Week", 1);
+        await expect(period.getByRole("radio")).toHaveText(["Week", "Month"]);
+    });
+
     test("Calendar: two left keep the switch, in its own order; one left takes it away and draws that layout", async ({ page, isMobile }) => {
         const entry = await open(page, "e3/calendar/calendar/calendarViews", isMobile);
         const layout = entry.locator("[data-calendar-seg='layout'], [data-calendar-seg='compact-layout']");

@@ -26,7 +26,7 @@ import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType, RecordSlicesChromeType } from "@elaraai/east-ui/internal";
 import { useSlicesReactivity } from "@elaraai/east-ui-components";
 import { recordSliceSeeded, recordSliceWindow, setRecordSliceWindow } from "@elaraai/east-ui-components/internal";
-import { CalendarLayoutType } from "@elaraai/e3-ui/internal";
+import { CalendarLayoutType, CalendarPeriodType } from "@elaraai/e3-ui/internal";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { shownView, shownViews } from "../shared/views.js";
 import { calendarRange, DAY, dayStart, type CalendarKind, type CalendarRange, type CalendarValue, type CalendarView } from "./model.js";
@@ -35,6 +35,8 @@ import { useCalendarView } from "./view.js";
 
 /** The layouts, in the switch's order. */
 const LAYOUTS = Object.keys(CalendarLayoutType.cases) as readonly CalendarView["layout"][];
+/** The periods, in the switch's order. */
+const PERIODS = ["day", "week", "month"] as const satisfies readonly (keyof typeof CalendarPeriodType.cases)[];
 
 /** One record Slice's controls. */
 type Bind = ValueTypeOf<RecordSliceBindType>;
@@ -52,6 +54,8 @@ export interface CalendarWindow {
     view: CalendarView; setView: (next: CalendarView) => void; range: CalendarRange;
     /** The layouts this Calendar offers, in the switch's order: the `views` prop's. */
     layouts: readonly CalendarView["layout"][];
+    /** The periods this Calendar offers, in the switch's order: the `viewPeriods` prop's. */
+    periods: readonly CalendarView["period"][];
     /** The rail; `undefined` with no slice. */
     chrome: ValueTypeOf<RecordSlicesChromeType> | undefined;
     /** Each event kind narrowed through its source, in the kinds' order. */
@@ -102,14 +106,17 @@ export function useCalendarWindow(value: CalendarValue, key: string, now: Date):
     // its window is the author's start, and the view — restored by a reload — writes its own over it.
     const views = value.settings.views;
     const layouts = useMemo(() => shownViews(LAYOUTS, views), [views]);
+    const viewPeriods = value.settings.viewPeriods;
+    const periods = useMemo(() => shownViews(PERIODS, viewPeriods), [viewPeriods]);
     const lead = windowParts.filter(({ part }) => !recordSliceSeeded(part)).map(({ part }) => recordSliceWindow(part)).find(window => window?.kind === "datetime");
     const from = lead?.min;
     const to = lead?.max;
-    // A layout this Calendar offers: what is kept stands, so the layout comes back should the Calendar offer it again.
+    // A layout and a period this Calendar offers: what is kept stands, so each comes back should the Calendar offer it again.
     const view = useMemo(() => {
-        const layout = shownView(state.layout, layouts);
-        return from === undefined || (state.date >= from && state.date < (to ?? from)) ? (layout === state.layout ? state : { ...state, layout }) : { ...state, layout, date: from };
-    }, [state, layouts, from, to]);
+        const layout = shownView(state.layout, layouts), period = shownView(state.period, periods);
+        const offered = layout === state.layout && period === state.period ? state : { ...state, layout, period };
+        return from === undefined || (state.date >= from && state.date < (to ?? from)) ? offered : { ...offered, date: from };
+    }, [state, layouts, periods, from, to]);
     const range = useMemo((): CalendarRange => {
         if (from === undefined || to === undefined || to <= from) return view.layout === "timeline" ? timelineRange(view) : calendarRange(view, value.settings);
         const days: Date[] = [];
@@ -140,5 +147,5 @@ export function useCalendarWindow(value: CalendarValue, key: string, now: Date):
         const window = next.layout === "timeline" ? timelineRange(next) : calendarRange(next, value.settings);
         write(window.from.getTime(), window.to.getTime(), () => true);
     };
-    return { view, setView, layouts, range, chrome, eventParts, windowParts, affordances, error };
+    return { view, setView, layouts, periods, range, chrome, eventParts, windowParts, affordances, error };
 }

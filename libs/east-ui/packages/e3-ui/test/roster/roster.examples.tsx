@@ -628,8 +628,8 @@ export const rosterMinimal = example({
 });
 
 export const rosterViews = example({
-    inputs: [], description: "Which layouts an instance offers, chosen as the page runs: a multi-select wired into `views`, an expression of an array of Roster.Types.Layout. Choose People alone and Shifts is gone, its button and all; with one layout left no switch shows, and with none chosen, both. `views={[\"people\"]}` writes the same choice in the code.",
-    keywords: ["Roster", "views", "Roster.Types.Layout", "layout", "hide a view", "Shifts", "People", "Select", "multiple", "onChangeMultiple", "State", "Reactive"],
+    inputs: [], description: "Which layouts an instance offers, chosen as the page runs: a multi-select wired into `views`, an expression of an array of Roster.Types.Layout. Choose People alone and Shifts is gone, its button and all; with one layout left no switch shows, and with none chosen, both. `views={[\"people\"]}` writes the same choice in the code. A second multi-select does the same for the periods through `viewPeriods`, each layout keeping its own where the list leaves it none.",
+    keywords: ["Roster", "views", "viewPeriods", "Roster.Types.Period", "Day", "Week", "Month", "Roster.Types.Layout", "layout", "hide a view", "Shifts", "People", "Select", "multiple", "onChangeMultiple", "State", "Reactive"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const rota = $.let(Record.bind(minimalDuties));
         const staff = $.let(Data.bind(minimalWorkers));
@@ -641,10 +641,18 @@ export const rosterViews = example({
         const onViews = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => { $(chosen.write(next)); }));
         const every = $.const([variant("shifts", null), variant("people", null)], ArrayType(Roster.Types.Layout));
         const views = $.let(every.filter(($, view) => tags.toSet().has(view.getTag())));
+        // And the periods.
+        const chosenPeriods = $.let(State.bind([ArrayType(StringType)], "ex.rosterViews.periods", []));
+        const periodTags = $.let(chosenPeriods.read());
+        const onPeriods = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => { $(chosenPeriods.write(next)); }));
+        const everyPeriod = $.const([variant("day", null), variant("week", null), variant("month", null)], ArrayType(Roster.Types.Period));
+        const viewPeriods = $.let(everyPeriod.filter(($, period) => periodTags.toSet().has(period.getTag())));
         return <VStack gap="3" align="stretch" width="100%">
             <HStack gap="2" align="center"><Text>Views</Text><Select value="" placeholder="Every view" multiple={true} onChangeMultiple={onViews}
                 items={[Select.Item("shifts", "Shifts"), Select.Item("people", "People")]} /></HStack>
-            <Box width="100%" height="700px"><Roster id="rosterViews" views={views} view={{ date: new Date("2028-03-06T00:00:00Z") }}
+            <HStack gap="2" align="center"><Text>Periods</Text><Select value="" placeholder="Every period" multiple={true} onChangeMultiple={onPeriods}
+                items={[Select.Item("day", "Day"), Select.Item("week", "Week"), Select.Item("month", "Month")]} /></HStack>
+            <Box width="100%" height="700px"><Roster id="rosterViews" views={views} viewPeriods={viewPeriods} view={{ date: new Date("2028-03-06T00:00:00Z") }}
                 events={{ duty: Schedule.events(rota, {
                     name: "Duty", icon: "user-clock",
                     start: "start", end: "end", resource: { field: "person", of: "people" },

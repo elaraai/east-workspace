@@ -29,6 +29,7 @@ import {
 import type { Formatters } from "@elaraai/east-ui-components";
 import { DAY, weekStart } from "../shared/schedule/window.js";
 import { isoWeekUTC, shiftCalendar } from "../shared/time/scale.js";
+import { shownViews } from "../shared/views.js";
 export { DAY, NARROW_WIDTH, dayStart, weekStart } from "../shared/schedule/window.js";
 
 /** The decoded payload. */
@@ -89,10 +90,11 @@ export type Selection = { type: "assignment" | "proposal" | "person"; key: strin
  *
  * @param layout - The layout
  * @param period - The period asked for
+ * @param offered - The periods this Roster offers (`viewPeriods`): a layout taking none of them keeps its own
  * @returns The period the layout shows
  */
-export function periodOf(layout: RosterLayout, period: RosterPeriod | undefined): RosterPeriod {
-    const takes = ROSTER_LAYOUT_PERIODS[layout];
+export function periodOf(layout: RosterLayout, period: RosterPeriod | undefined, offered: readonly { readonly type: string }[] = []): RosterPeriod {
+    const takes = shownViews(ROSTER_LAYOUT_PERIODS[layout], offered);
     return period !== undefined && takes.includes(period) ? period : takes[0]!;
 }
 
