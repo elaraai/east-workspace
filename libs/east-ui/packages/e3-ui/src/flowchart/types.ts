@@ -386,6 +386,32 @@ export const FlowchartDetailRowType = ArrayType(VariantType({
 export type FlowchartDetailRowType = typeof FlowchartDetailRowType;
 
 /**
+ * How the rail's picks weigh a kind's details (#1522, R43–R46): the source
+ * whose picks of a Dict field weigh them, and the entries index the field is
+ * filed through. A drawn row's picked entries — the picked keys' ranges of the
+ * index, by the row's key — are what each read the picks weigh draws, added up
+ * by kind; with no pick, every read draws the row's own (`values`).
+ *
+ * @property source - The rail's source whose picks weigh them: a source of the Flowchart's slice over the details' record
+ * @property field - Its Dict field, the one the entries index files entry by entry
+ * @property index - The entries index: its lean rows, under `<index>_rows`, are what the drawn rows are read by key through
+ * @property reads - Whether the picks weigh each read, in the reads' order: one the entries hold, unless it says
+ *   `weigh: false`. A row holding none of the picks says *no data* in these, and draws the row's own in the others
+ * @property fold - A row's values, from its bytes and its picked entries' bytes, each an entry's value, in the entries'
+ *   key order: one a read, in the reads' order
+ */
+export const FlowchartWeighedType = StructType({
+    source: StringType,
+    field: StringType,
+    index: StringType,
+    reads: ArrayType(BooleanType),
+    fold: FunctionType([BlobType, ArrayType(BlobType)], FlowchartDetailRowType),
+});
+
+/** Type representing how the rail's picks weigh a kind's details. */
+export type FlowchartWeighedType = typeof FlowchartWeighedType;
+
+/**
  * A kind's details, closed (R18, R19): each read described once, and the
  * rows' values, read as the kind is — whole, or by the drawn rows' keys
  * through the paged read named. The details' row type never reaches the
@@ -397,12 +423,15 @@ export type FlowchartDetailRowType = typeof FlowchartDetailRowType;
  * @property paged - The paged read the details are read by key through, beside a kind read through its source: the drawn
  *   rows' keys, every key in one request; `none` beside a kind read whole
  * @property values - A row's values, from its bytes: one a read, in the reads' order
+ * @property weighed - How the rail's picks weigh them (#1522, R43–R46), for details that name a source; `none` for any
+ *   other. They are read by key whatever their kind's read, `paged` naming the binding.
  */
 export const FlowchartDetailsType = StructType({
     reads: ArrayType(StructType({ show: FlowchartShowType, read: FlowchartReadType })),
     rows: OptionType(FunctionType([], OptionType(DictType(StringType, BlobType)))),
     paged: OptionType(StringType),
     values: FunctionType([BlobType], FlowchartDetailRowType),
+    weighed: OptionType(FlowchartWeighedType),
 });
 
 /** Type representing a kind's details, closed. */

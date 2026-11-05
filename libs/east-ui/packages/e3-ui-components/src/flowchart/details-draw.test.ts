@@ -61,7 +61,7 @@ interface KindGiven {
 
 /** The details model over each kind given, read by key as the depot's are, every read settled. */
 function modelOver(states: KindGiven | undefined, transitions?: KindGiven): FlowchartDetailsModel {
-    const details = (given: KindGiven): FlowchartDetailsValue => ({ reads: [...given.reads], rows: none, paged: some("depot-details"), values: (bytes) => decodeRow(bytes) });
+    const details = (given: KindGiven): FlowchartDetailsValue => ({ reads: [...given.reads], rows: none, paged: some("depot-details"), values: (bytes) => decodeRow(bytes), weighed: none });
     const kinds: FlowchartDetailsKinds = {
         states: states === undefined ? undefined : { name: "Step", details: details(states) },
         transitions: transitions === undefined ? undefined : { name: "Move", details: details(transitions) },

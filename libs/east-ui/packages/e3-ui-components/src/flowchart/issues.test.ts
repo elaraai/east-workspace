@@ -13,7 +13,8 @@
  * D3, D12), pure, over rows as the read holds them: its own warnings in their
  * order — a state standing in No lane, a transition's end no state is keyed by
  * (once for one in place), a decision the Flowchart has none of, the details'
- * refused bins and counts no bin holds (R38), a draft the rail hides with the
+ * refused bins and counts no bin holds (R38), details whose rail's source
+ * reads another record (#1522), a draft the rail hides with the
  * rows hiding it — and none for what the narrowing draws as context; each
  * record's session's — the app's check, a Save's conflict or
  * refusal — blocking, naming the row or else the record; each issue's words;
@@ -140,6 +141,13 @@ describe("the Flowchart's own issues", () => {
             [{ kind: "state", key: "NEW" }, false, { sort: "states", name: "NEW" }, [{ sort: "states", key: "NEW" }], { issue: "waiting", name: "NEW" }],
         ]);
     });
+
+    test("details whose rail's source reads another record than they do: listed once, a warning selecting the Flowchart, naming the kind and the source (#1522)", () => {
+        const details: FlowchartDetailsFinding[] = [{ finding: "weighed", sort: "states", kind: "Step", source: "evidence" }];
+        expect(flowchartIssues(argsOf(CLEAN, { details })).map(read)).toEqual([
+            [null, false, { sort: undefined, name: "Step" }, [], { issue: "weighed", kind: "Step", source: "evidence" }],
+        ]);
+    });
 });
 
 describe("each record's session's issues", () => {
@@ -187,6 +195,8 @@ describe("each issue in the Flowchart's words", () => {
         expect(m.issueText({ issue: "bins", read: "Time in state", refusal: { why: "empty" } })).toBe("The bins of Time in state hold no edge");
         expect(m.issueText({ issue: "bins", read: "Time in state", refusal: { why: "number", edge: "NaN" } })).toBe("The bins of Time in state hold NaN, which no bin starts at");
         expect(m.issueText({ issue: "bins", read: "Time in state", refusal: { why: "order", before: "10", after: "5" } })).toBe("The bins of Time in state do not ascend: 10, then 5");
+        expect(m.issueText({ issue: "weighed", kind: "Step", source: "evidence" }))
+            .toBe("Step details read another record than the rail's evidence, so its picks don't add them up: each draws its row's own");
         expect(m.issueWhere({ kind: "Transition", name: "CH* → SRD" })).toBe("Transition · CH* → SRD");
         expect(m.issueWhere({ kind: undefined, name: "Transition" })).toBe("Transition");
     });

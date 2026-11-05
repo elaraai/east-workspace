@@ -1,10 +1,10 @@
 # Flowchart Records Spec
 
-*e3-ui · Flowchart · design.* The visual spec is `Flowchart Records Spec.html`, beside this file: it decides how the details look — the state card, the transition label, the legend and the inspector. This file decides the rest: the authoring examples and the API (§2), the types, refusals and payload (§3), and every behaviour, those the visual spec does not draw among them. Where the two differ on a look, the visual spec wins; on anything else, this file does. Every behaviour is a numbered rule, R1–R42 (§5); the user's rulings and the design's decisions D1–D24 are §8; the tasks, §9.
+*e3-ui · Flowchart · design.* The visual spec is `Flowchart Records Spec.html`, beside this file: it decides how the details look — the state card, the transition label, the legend and the inspector. This file decides the rest: the authoring examples and the API (§2), the types, refusals and payload (§3), and every behaviour, those the visual spec does not draw among them. Where the two differ on a look, the visual spec wins; on anything else, this file does. Every behaviour is a numbered rule, R1–R46 (§5); the user's rulings and the design's decisions D1–D24 are §8; the tasks, §9.
 
 Today the Flowchart draws one flow of a dictionary of flows, each flow kept whole in one record entry or handed over as data. This proposal draws one flowchart over the app's own records, as the Schematic does: a record of states and a record of transitions, each row the app's own type with its fields mapped to the Flowchart's roles, each read through its source of the rail so the indexes narrow both; and beside them two small records, the lanes and the decisions. On top of that, the app can put structured details on each state and transition — figures, tag lists in its own colours, time-in-state histograms over its own bins and axis, and short lists — in one ordered array, drawn on the cards and labels and shown in full in the inspector.
 
-**Spec** for the epic · Four kinds: **states, transitions, lanes, decisions** · The Flow types and the Flows tab: **removed** · **19** rulings · **24** design decisions
+**Spec** for the epic · Four kinds: **states, transitions, lanes, decisions** · The Flow types and the Flows tab: **removed** · **22** rulings · **24** design decisions
 
 - **Records.** States and transitions are each a keyed record of the app's. `Flowchart.states` and `Flowchart.transitions` map their fields to the Flowchart's roles — a state's label, lane and place; a transition's ends and decision — and every other field is the app's, edited in the inspector's form.
 - **The rail.** Each is read through its source of the one `Slice.bindRecords`, named `states` and `transitions`, so each index's choices narrow it — hidden, or dimmed as context — and a preset narrows both at once: one record holding many flows shows one.
@@ -1214,7 +1214,7 @@ FlowchartDetailRowType = ArrayType(VariantType({
 
 ## 5. Rules
 
-Each rule names where it lives and what tests it. R1 to R17 are the records; R18 to R41 the details and the drawing; R42 the zoom.
+Each rule names where it lives and what tests it. R1 to R17 are the records; R18 to R41 the details and the drawing; R42 the zoom; R43 to R46 the rail's picks weighing the details.
 
 #### R1 — One flowchart over the app's records
 
@@ -1236,7 +1236,7 @@ A state or a transition binds `Record.bind(record)`, editable and read whole —
 
 #### R4 — The rail
 
-The slice is one `Slice.bindRecords`, read only through `recordSources(…).bind($)`. Its sources named `states` and `transitions` are each `Data.bindPaged(record, { indexes })` over that kind's own record, and each index's choices narrow that kind; a kind read through its source needs one. A source named `lanes` or `decisions` is refused: they are read whole. Every other source is named by a list of cards or a tab that follows it. A preset may narrow both kinds at once: a record holding many flows shows one through a preset over the field both share.
+The slice is one `Slice.bindRecords`, read only through `recordSources(…).bind($)`. Its sources named `states` and `transitions` are each `Data.bindPaged(record, { indexes })` over that kind's own record, and each index's choices narrow that kind; a kind read through its source needs one. A source named `lanes` or `decisions` is refused: they are read whole. Every other source is named by a list of cards or a tab that follows it, or by details its picks weigh (R44). A preset may narrow both kinds at once: a record holding many flows shows one through a preset over the field both share.
 
 *Where:* e3-ui `index.ts`; the renderer's `sources.ts`. *Tested by:* `flowchart.spec.ts`; `record-sources-captures.spec.ts`: no function captures the whole slice.
 
@@ -1471,6 +1471,34 @@ Everything the canvas draws scales — cards, transitions and their labels, deci
 The strip folds last, into Find's View, with LR · TD where a rail folds it there; a flowchart with nothing to find keeps its strip. On a phone the View is a button beside Search Records, holding the strip — and LR · TD where a rail folds it there — which leave the row, as the Schematic's tools and zoom do. Zoomed out, a phone's lane window holds as many whole lanes as fit: each lane keeps its width at the cards' size, the pager steps its zoomed width and counts the whole lanes in view, and a lane is centred only while it is wider than the window.
 
 *Where:* `shared/schedule/zoom.tsx`; the renderer's `canvas.tsx`, `layout.ts` (`layoutExtent`), `lane-pager.tsx`, `toolbar.tsx` and `index.tsx`; the `flowchart` recipe. *Tested by:* DOM tests — the strip's words, its bounds and its clicks, its fold, and on a phone the View holding it; the canvas opening at the cards' own size, a step each way, Fit, and a flowchart that fits standing at Fit; a layout test of the layout's own size; responsive — the whole flowchart inside main at Fit, the cards at the zoom's scale, the view's middle held across a zoom and a selected state brought to it, a drop, a move and a new transition landing where the pointer is zoomed out, the ladder with the strip, and on a phone the View holding the strip and the pager stepping a zoomed lane.
+
+#### R43 — The rail's Dict field
+
+A source's field may be a Dict field that its binding's entries index files (`index.entries`). The rail lists the Dict's keys as the field's values, from its `hints`, which it needs, each counted by the rows holding it, from the key's range of the index alone; several are picked at once, and the field is never searched. A pick narrows no row: it weighs the details that name the source (R44, R45), beside whatever else is chosen, and the source's count stays its record's.
+
+*Where:* e3-ui `bind/data-indexed.ts`, describing the entries index through east-ui's `IndexedSource`; east-ui `platform/slice/record.ts`, `record-plan.ts` and `runtime/record-slice.ts`. *Tested by:* `data-indexed-entries.spec.ts`; `record-needs.spec.ts` and `record-slice-controller.spec.ts`; `flowchart-weighed.dom.test.tsx`: the keys listed with their counts, read from the index alone.
+
+#### R44 — Weighed details
+
+A kind's details may name a source of the Flowchart's slice with `source`. They are then bound `Data.bindPaged(record, { indexes })` with the record's entries index — the source's own binding, given to both — and read by the drawn rows' keys whatever their kind's read: each drawn key's row through the index's lean rows, its Dict field emptied, and the picked keys' ranges of the index through the binding (`datasetGetRuns`), a request a page until done, read again as the picks change. The rows by key are kept, and the record's own rows are never read. While the ranges of picks that moved are in flight, the reads they weigh draw their placeholder (R34), the rest as they were. Such a source is named, as R4 asks of every source. With no pick on the entries' field, every read draws the row's own.
+
+Refused as the Flowchart is built, each in its words: a `source` naming no source of the slice, or the states' or the transitions' own; details naming a source but bound without an entries index, or bound with one but naming none; a source whose rows are of another type than the details'; `weigh` beside details that name no source; a read of the entries' own field, which the rows are read without; a read whose field the entries hold in a type it doesn't take; and a list of structs one of whose fields neither adds nor joins, unless it says `weigh: false`. Two bindings of different records of one type are listed in Issues, their details drawing the row's own.
+
+*Where:* e3-ui `flowchart/details.ts`, `types.ts` (`weighed`) and `payload.ts`; the renderer's `flowchart/details.ts`, `issues.ts` and `platform/indexed-paged.ts`. *Tested by:* `flowchart-weighed.spec.ts`: each refusal's words, and the payload built; `details.test.ts`: read by key with no pick, placeholders while moved picks are read, a source over another record; `issues.test.ts`; `flowchart-weighed.dom.test.tsx`: what a pick asks of e3 — its key's range alone, the rows by key kept — the placeholder in flight, and the binding paging neither the index nor its lean rows.
+
+#### R45 — Added by kind
+
+With picks, a read whose field the entries also hold draws the picked keys' entries added up, in East (`fold`). A figure adds: an Option adds its values, and is `none` when every entry's is. A histogram adds bin by bin: an Array of counts place by place, a Dict of durations duration by duration. A list adds by name: a list of structs adds each struct's numbers by name, then draws with its `draw`, so its note is the added struct's. Tags join, each once, in the entries' key order. A read whose field the entries lack, or one given `weigh: false`, draws the row's own whatever the picks.
+
+A state holding none of the picks keeps its card (ruling 22): its weighed reads say *no data*, as a read of a row there is none of does (R33), and its other reads draw its row's own. Picks on the source's other fields narrow the details' rows, as every source narrows: a row they leave out reads as one there is none of (R33).
+
+*Where:* e3-ui `flowchart/details.ts` (the fold); the renderer's `flowchart/details.ts`, `details-draw.ts` and `canvas.tsx`. *Tested by:* `flowchart-weighed.spec.ts`: each kind added over the depot's types, `weigh: false` and a field the entries lack drawing the row's own; `details.test.ts`: *no data*, and the bins a row saying it adds no edge to; `flowchart-weighed.dom.test.tsx`: a pick drawn, every key picked drawing as none, *no data*, and a site picked.
+
+#### R46 — The inspector's line
+
+Over a weighed details' reads, one line names the picks in the rail's words: *Service · Standard, Priority*. With no pick it says nothing.
+
+*Where:* the renderer's `details-pane.tsx` and `messages.ts`; the `flowchartInspector` recipe's `readsWeighed`. *Tested by:* `flowchart-weighed.dom.test.tsx`.
 
 ## 6. The reference mock against the Flowchart
 

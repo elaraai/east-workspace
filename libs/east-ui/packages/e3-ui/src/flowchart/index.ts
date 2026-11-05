@@ -45,7 +45,7 @@ import {
     FlowchartFreshnessType, FlowchartLaneEntryType, FlowchartLaneKindType, FlowchartLaneRolesType, FlowchartLaneWriteType, FlowchartLinkKindType,
     FlowchartNarrowedType, FlowchartOrientationType, FlowchartReadType, FlowchartShowType, FlowchartStateEntryType, FlowchartStateKindType,
     FlowchartStateRolesType, FlowchartStateWriteType, FlowchartTagColorType, FlowchartTemplateType, FlowchartTransitionEntryType,
-    FlowchartTransitionKindType, FlowchartTransitionRolesType, FlowchartTransitionWriteType,
+    FlowchartTransitionKindType, FlowchartTransitionRolesType, FlowchartTransitionWriteType, FlowchartWeighedType,
 } from "./types.js";
 
 export { FlowchartTag, type FlowchartTagType } from "./flowchart.js";
@@ -481,6 +481,8 @@ export interface FlowchartInternalNamespace extends FlowchartNamespace {
         Show: typeof FlowchartShowType;
         /** What a details row holds: one value a read ({@link FlowchartDetailRowType}). */
         DetailRow: typeof FlowchartDetailRowType;
+        /** How the rail's picks weigh a kind's details ({@link FlowchartWeighedType}). */
+        Weighed: typeof FlowchartWeighedType;
     };
 }
 
@@ -526,5 +528,6 @@ export const FlowchartInternal: FlowchartInternalNamespace = Object.assign(Flowc
         Read: FlowchartReadType,
         Show: FlowchartShowType,
         DetailRow: FlowchartDetailRowType,
+        Weighed: FlowchartWeighedType,
     },
 });

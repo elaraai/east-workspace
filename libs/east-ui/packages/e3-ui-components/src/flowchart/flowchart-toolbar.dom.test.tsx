@@ -108,7 +108,7 @@ function statesPart(): Bind {
     initializeStore(new UIStore());
     const fields = [field("name", "Name", []), field("flow", "Flow", ["Parcels", "Returns"])];
     const config = decodeBeast2For(RecordSliceConfigType)(encodeBeast2For(RecordSliceConfigType)({
-        fields, indexes: fields.map((f) => ({ name: f.fieldId, fields: [f.fieldId], sets: new Set<string>(), structured: false, interval: none, area: none, series: none, summary: none })),
+        fields, indexes: fields.map((f) => ({ name: f.fieldId, fields: [f.fieldId], sets: new Set<string>(), structured: false, interval: none, area: none, series: none, summary: none, entries: false })),
         range: none, search: ["name"], presets: [],
     }));
     getStore().write(STATES_KEY, encodeState({ where: new Map(), preset: none, resolution: none }));

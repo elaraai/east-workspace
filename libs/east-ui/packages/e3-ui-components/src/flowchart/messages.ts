@@ -197,6 +197,8 @@ export interface FlowchartMessages extends EditingMessages, HiddenWords, PagedLo
     detailsShowMore: (p: { n: number; count: string; open: boolean }) => string;
     /** The inspector's read for a row the details hold no row of, saying *no data* (R33) — `Details`. */
     detailsTitle: () => string;
+    /** The line over reads the rail's picks weigh, naming them (#1522, R46): the field as the rail labels it, then the picks — `Service · Standard, Priority`. */
+    detailsWeighed: (p: { label: string; picks: string }) => string;
     /** What a kind's details are, as the loading line names them — `state details`. */
     detailsNoun: (p: { sort: "states" | "transitions" }) => string;
     /** The legend's title. */
@@ -501,6 +503,7 @@ export function flowchartMessagesOf(nouns: FlowchartNouns): FlowchartMessages {
         detailsRest: ({ tags }) => joinedWords(tags, "and"),
         detailsShowMore: ({ count, open }) => (open ? "Show fewer" : `Show ${count} more`),
         detailsTitle: () => "Details",
+        detailsWeighed: ({ label, picks }) => `${label} · ${picks}`,
         detailsNoun: ({ sort }) => `${ONE[sort]} details`,
         legendTitle: () => "Legend",
         legendLine: ({ line }) => LEGEND_LINES[line],
@@ -613,6 +616,7 @@ export function flowchartMessagesOf(nouns: FlowchartNouns): FlowchartMessages {
                 case "decision": return `${p.link} names the ${decision} ${p.decision}, which the flowchart has none of`;
                 case "counts": return `${p.read} of ${p.name} has counts no bin holds`;
                 case "bins": return binsRefused(p.read, p.refusal);
+                case "weighed": return `${p.kind} details read another record than the rail's ${p.source}, so its picks don't add them up: each draws its row's own`;
                 case "waiting": return `${p.name} has an unsaved change the rail hides: Save writes it with the rest`;
                 case "ready": return p.message;
                 case "save": return p.message;

@@ -29,7 +29,7 @@
  */
 
 import { SortedSet, StringType, compareFor, equalFor } from "@elaraai/east";
-import { listTopOf, type FlowchartDetailsModel, type FlowchartKindDetails, type FlowchartTagColors, type FlowchartTextMeasure } from "./details.js";
+import { listTopOf, valueAt, type FlowchartDetailsModel, type FlowchartKindDetails, type FlowchartTagColors, type FlowchartTextMeasure } from "./details.js";
 import { durationText } from "./details-words.js";
 import type { FlowchartWords } from "./messages.js";
 
@@ -160,7 +160,7 @@ export function legendOf(details: FlowchartDetailsModel, words: FlowchartWords):
             // The tags the cards show: every landed row's.
             const shown = new SortedSet<string>([], compareKey);
             for (const row of states.rows.values()) {
-                const at = row?.values[index];
+                const at = row === null ? undefined : valueAt(row, index);
                 if (at?.type === "tags") for (const tag of at.value) shown.add(tag);
             }
             const listed = new SortedSet<string>([], compareKey);
@@ -256,7 +256,7 @@ export function probeTextsOf(kind: FlowchartKindDetails | undefined, words: Flow
         if (entry.read.type !== "tags" || entry.show.type === "inspector") return;
         labels.add(entry.read.value.label);
         for (const row of kind.rows.values()) {
-            const at = row?.values[index];
+            const at = row === null ? undefined : valueAt(row, index);
             if (at?.type !== "tags") continue;
             for (const tag of at.value) tags.add(tag);
             most = Math.max(most, at.value.length);

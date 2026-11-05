@@ -20,8 +20,9 @@
  * Its narrowing is one `Slice.bindRecords` (R4): a source named `states` or
  * `transitions` narrows that kind, read complete through it — or, under
  * `narrowed="dim"`, every row read through it and what the narrowing leaves
- * out drawn as context — and each other source the cards list or the
- * author's tab that names it. A source named `lanes` or `decisions` is
+ * out drawn as context — and each other source the cards list, the author's
+ * tab or the details whose picks it weighs name (#1522). A source named
+ * `lanes` or `decisions` is
  * refused: they are read whole. The payload's block binds each source once
  * (`recordSources(…).bind($)`), and each kind reads its own source inside its
  * functions; none reads a source's state, so a choice builds the Flowchart no
@@ -35,14 +36,16 @@
  */
 
 import {
-    ArrayType, BooleanType, DictType, East, Expr, OptionType, StringType, StructType, none, some, variant,
-    type ExprType, type SubtypeExprOrValue, type ValueTypeOf,
+    ArrayType, BooleanType, DictType, East, Expr, OptionType, StringType, StructType, isTypeEqual, none, some, variant,
+    type EastType, type ExprType, type SubtypeExprOrValue, type ValueTypeOf,
 } from "@elaraai/east";
 import { EastUI, RowSourceType } from "@elaraai/east-ui";
 import { RecordSlicesChromeType, isRecordSlices, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
+import { typeText } from "../schedule/window.js";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
 import { vocabularyWord } from "../utils/vocabulary.js";
 import { FlowchartCanvasType, buildCanvas, type FlowchartCanvasOptions } from "./canvas.js";
+import { flowchartIndexedRows } from "./details.js";
 import {
     isFlowchartKind, type FlowchartDecisions, type FlowchartKindSort, type FlowchartLanes, type FlowchartStates, type FlowchartTransitions,
 } from "./kinds.js";
@@ -354,6 +357,22 @@ export function flowchartVocabulary(given: unknown): ValueTypeOf<typeof Flowchar
 }
 
 /**
+ * The rows a source of the slice narrows (#1522): its binding's joined row,
+ * from the type of the binding its part holds.
+ *
+ * @param narrowing - The Flowchart's `slice`, a `Slice.bindRecords`
+ * @param source - The source
+ * @returns The row's struct; `undefined` where the part's binding pages no such rows
+ */
+function sliceSourceRows(narrowing: RecordSlicesChromeOptions, source: string): StructType | undefined {
+    const handle = East.value(narrowing.slice) as unknown as Expr;
+    const sources = (Expr.type(handle) as StructType).fields["sources"] as EastType | undefined;
+    const part = sources?.type === "Struct" ? (sources.fields as Record<string, EastType>)[source] : undefined;
+    const binding = part?.type === "Struct" ? (part.fields as Record<string, EastType>)["source"] : undefined;
+    return binding === undefined ? undefined : flowchartIndexedRows(binding)?.row;
+}
+
+/**
  * Creates the Flowchart's payload alone — what `<Flowchart>` returns through
  * the `Flowchart` carrier — for the tests and the renderer's fixtures, which
  * read it whole.
@@ -366,7 +385,8 @@ export function flowchartVocabulary(given: unknown): ValueTypeOf<typeof Flowchar
  *   holding no kind of its sort; a state's lane with no lanes, and lanes beside states that name none; a transition's
  *   decision with no decisions; a `slice` that is not `{ slice }`, or not `Slice.bindRecords`, or holding a source
  *   nothing names, a `lanes` or `decisions` source, or the brush; a cards list naming no source of the slice, or its
- *   kind's own; a `narrowed` of another form; an `inspector` that is no Boolean, and `inspector={false}` beside a
+ *   kind's own; details naming no source of the slice, a kind's own, or one over rows of another type than theirs
+ *   (#1522); a `narrowed` of another form; an `inspector` that is no Boolean, and `inspector={false}` beside a
  *   details' read shown in the inspector alone; each of `vocabulary`'s refusals ({@link flowchartVocabulary}); a
  *   `name` that is no string; each of the library's refusals (`library.ts`); and each kind's refusals of its binding
  *   and its details (`kinds.ts`, `details.ts`)
@@ -434,10 +454,34 @@ export function createFlowchartPayload(props: object): ExprType<FlowchartPayload
             cardSources.push(source);
         }
     }
+    // The details the rail's picks weigh (#1522, R44): each names a source of the slice over the details' own record.
+    const weighing: string[] = [];
+    if (narrowing === undefined || isRecordSlices(narrowing.slice)) {
+        for (const { sort, kind } of kinds) {
+            const by = sort === "states" || sort === "transitions" ? (kind as FlowchartStates | FlowchartTransitions).weighedBy : undefined;
+            if (by === undefined) continue;
+            if (by.source === "states" || by.source === "transitions") {
+                throw new Error(`Flowchart: the ${sort}' details name the source '${by.source}', which narrows the ${by.source} — the picks that ` +
+                    "weigh details are a source of the slice over the details' own record");
+            }
+            if (narrowing === undefined || !sliceNames.includes(by.source)) {
+                throw new Error(`Flowchart: the ${sort}' details name the source '${by.source}', ` +
+                    `${narrowing === undefined ? "and the Flowchart has no slice" : `which is none of the slice's sources (${sliceNames.join(", ")})`} — ` +
+                    `slice={{ slice: Slice.bindRecords(key, { …, ${by.source}: { source: Data.bindPaged(record, { indexes }), fields } }) }}`);
+            }
+            const rows = sliceSourceRows(narrowing, by.source);
+            if (rows !== undefined && !isTypeEqual(rows, by.rowType)) {
+                throw new Error(`Flowchart: the ${sort}' details name the source '${by.source}', whose rows are ${typeText(rows)} — and the details' ` +
+                    `are ${typeText(by.rowType)}: name the source over the details' record`);
+            }
+            weighing.push(by.source);
+        }
+    }
     const tabSources = flowchartTabSources(given.library);
-    const names = [...new Set(["states", ...(transitions === undefined ? [] : ["transitions"]), ...cardSources, ...tabSources])];
+    const names = [...new Set(["states", ...(transitions === undefined ? [] : ["transitions"]), ...cardSources, ...tabSources, ...weighing])];
     const sources = recordSources(narrowing, {
-        builder: "Flowchart", names, what: "its states and its transitions, each by the source named after it, and the cards lists and tabs that name a source",
+        builder: "Flowchart", names,
+        what: "its states and its transitions, each by the source named after it, and the cards lists, tabs and details that name a source",
     });
     const library = buildFlowchartLibrary(given.library, {
         kinds: kinds.map(({ sort, kind }): FlowchartLibraryKind => ({ sort, rowType: kind.rowType, templates: kind.hasTemplates })),

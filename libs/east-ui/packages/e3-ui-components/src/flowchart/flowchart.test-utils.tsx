@@ -6,7 +6,8 @@
 /**
  * The Flowchart's DOM tests' shared harness (#1502–#1505), on e3 itself: the
  * Flowchart's example module deployed to e3-web — the depot's four records,
- * its states, transitions, lanes and decisions, and the library's cards — each
+ * its states, transitions, lanes and decisions, and the library's cards — and
+ * any fixture module a file reads beside it (#1522), each
  * test a workspace of its own, every read a real one and every Save a real
  * commit. A test commits a record's rows as another session would (`h.patch`)
  * and reads what e3 holds (`h.read`, {@link FlowchartHarness.commits}); it
@@ -128,13 +129,15 @@ function PayloadFlowchart({ payload, storageKey }: { payload: PayloadFunction; s
 
 /**
  * Installs the harness around each test of the file: e3 with the Flowchart's
- * examples deployed, started once; and a workspace of its own and a fresh
- * store for each test.
+ * examples deployed, and the fixture modules given beside them, started once;
+ * and a workspace of its own and a fresh store for each test.
  *
+ * @param fixtures - Each e3-ui fixture module the file reads beside the examples, by its key under e3-ui's `test/`
+ *   (`flowchart/flowchart-weighed.fixtures`), as the file imports it; none unless given
  * @returns The harness
  */
-export function flowchartHarness(): FlowchartHarness {
-    const h = e3Harness({ "flowchart/flowchart": ex }, { measure: false });
+export function flowchartHarness(fixtures: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {}): FlowchartHarness {
+    const h = e3Harness({ "flowchart/flowchart": ex, ...fixtures }, { measure: false });
     const mountOver = h.mount;
     return Object.assign(h, {
         commits: async (record: { readonly name: string }) => (await h.history(record)).commits.map((commit) => commit.mutation),

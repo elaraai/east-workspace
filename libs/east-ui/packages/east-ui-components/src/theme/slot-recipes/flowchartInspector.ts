@@ -73,7 +73,7 @@ export const flowchartInspectorSlotRecipe = defineSlotRecipe({
         ...inspectorSlots,
         "edits", "rowForms", "custom", "section", "fact", "why",
         "links", "linkGroup", "link", "linkText", "linkMeta", "linkVolume",
-        "reads", "readStats", "readStat", "readStatLine", "readStatValue", "readStatUnit", "readStatLabel",
+        "reads", "readsWeighed", "readStats", "readStat", "readStatLine", "readStatValue", "readStatUnit", "readStatLabel",
         "read", "readHead", "readTitle", "readTotal", "readTags", "tag",
         "histogram", "bars", "binSlot", "bin", "axis", "tick", "caption",
         "listRows", "listRow", "listNameLine", "listName", "listNote", "listValue", "listShare", "listTrack", "listFill",
@@ -176,6 +176,8 @@ export const flowchartInspectorSlotRecipe = defineSlotRecipe({
         },
         /* ── the reads (#1510, R35, R36): after the head, 20 apart ─────── */
         reads: { ...INSPECTOR_SECTION, gap: "20px" },
+        /* Over reads the rail's picks weigh, the line naming them (#1522, R46): `Service · Standard, Priority`. */
+        readsWeighed: { textStyle: "body.sm", color: "fg.muted", overflowWrap: "anywhere", textWrap: "pretty", minWidth: 0 },
         /* Figures side by side, two to a line, sharing the stats grid: each its value and its unit over its label. */
         readStats: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "12px", minWidth: 0 },
         readStat: { display: "flex", flexDirection: "column", gap: "4px", minWidth: 0 },

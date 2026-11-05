@@ -101,7 +101,7 @@ function racksPart(): Bind {
     const fields = [field("name", "Rack", []), field("hall", "Hall", ["Cage A", "Cage B"])];
     const config = decodeBeast2For(RecordSliceConfigType)(encodeBeast2For(RecordSliceConfigType)({
         fields, indexes: fields.map((f) => ({
-            name: f.fieldId, fields: [f.fieldId], sets: new Set<string>(), structured: false, interval: none, area: none, series: none, summary: none,
+            name: f.fieldId, fields: [f.fieldId], sets: new Set<string>(), structured: false, interval: none, area: none, series: none, summary: none, entries: false,
         })),
         range: none, search: ["name"], presets: [],
     }));

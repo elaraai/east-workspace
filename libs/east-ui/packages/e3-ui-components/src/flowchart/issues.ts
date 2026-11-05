@@ -71,6 +71,11 @@ export type FlowchartIssueWord =
     | { readonly issue: "counts"; readonly name: string; readonly read: string }
     /** A histogram's bins, as the app binds them, refused, by the read's label: why, its numbers in the app's locale. */
     | { readonly issue: "bins"; readonly read: string; readonly refusal: FlowchartBinsRefusalWord }
+    /**
+     * The rail's source whose picks would weigh a kind's details narrowing another record than they read (#1522), by
+     * the kind's name and the source's: the details draw each row's own.
+     */
+    | { readonly issue: "weighed"; readonly kind: string; readonly source: string }
     /** A change waiting on Save that the narrowing hides, by the row's name. */
     | { readonly issue: "waiting"; readonly name: string }
     /** The app's check — or the key check — refusing a drafted row, which holds Save off, in its own words. */
@@ -237,6 +242,10 @@ export function flowchartIssues(args: FlowchartIssueArgs): FlowchartIssue[] {
     for (const found of details) {
         if (found.finding === "bins") {
             out.push({ at: null, blocking: false, where: { sort: undefined, name: found.kind }, hiding: [], word: { issue: "bins", read: found.read, refusal: found.refusal } });
+            continue;
+        }
+        if (found.finding === "weighed") {
+            out.push({ at: null, blocking: false, where: { sort: undefined, name: found.kind }, hiding: [], word: { issue: "weighed", kind: found.kind, source: found.source } });
             continue;
         }
         if (dimmed(found.sort, found.key)) continue;

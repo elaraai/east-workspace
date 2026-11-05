@@ -362,6 +362,8 @@ export interface FlowchartStates extends FlowchartKindDeclaration<"states", type
     readonly lane: boolean;
     /** Whether a read of its details shows in the inspector alone: refused beside `inspector={false}` (#1507). */
     readonly inspectorReads: boolean;
+    /** Its details' row type and the rail's source whose picks weigh them (#1522); `undefined` for details none weighs, or none. */
+    readonly weighedBy: { readonly source: string; readonly rowType: StructType } | undefined;
 }
 
 /** The transitions, declared. */
@@ -370,6 +372,8 @@ export interface FlowchartTransitions extends FlowchartKindDeclaration<"transiti
     readonly decision: boolean;
     /** Whether a read of its details shows in the inspector alone: refused beside `inspector={false}` (#1507). */
     readonly inspectorReads: boolean;
+    /** Its details' row type and the rail's source whose picks weigh them (#1522); `undefined` for details none weighs, or none. */
+    readonly weighedBy: { readonly source: string; readonly rowType: StructType } | undefined;
 }
 
 /** The lanes, declared. */
@@ -644,6 +648,7 @@ export function flowchartStates<R extends StructType, L extends FlowchartKeyFiel
         form: bound.form,
         lane: laneField !== undefined,
         inspectorReads: details?.inspectorReads ?? false,
+        weighedBy: details?.source === undefined ? undefined : { source: details.source, rowType: details.rowType },
         hasTemplates: templates !== undefined,
         templatesSource: templates?.source,
         build(part, every) {
@@ -809,6 +814,7 @@ export function flowchartTransitions<R extends StructType, F extends FlowchartKe
         form: bound.form,
         decision: decision !== undefined,
         inspectorReads: details?.inspectorReads ?? false,
+        weighedBy: details?.source === undefined ? undefined : { source: details.source, rowType: details.rowType },
         hasTemplates: templates !== undefined,
         templatesSource: templates?.source,
         build(part, every) {

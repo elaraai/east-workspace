@@ -29,6 +29,13 @@
  *   request. They are read only (R18): `Record.bind` is refused.
  * - **The row type never reaches the payload**: `values` turns a row's bytes
  *   into one value a read, one type whatever the row holds.
+ * - **The rail's picks weigh them** (#1522, R43–R46): details that name a
+ *   source of the slice, `source`, are bound through their record's entries
+ *   index, and a pick of its Dict field's keys weighs each read the entries
+ *   hold, added up by kind in East — a figure adds, a histogram adds bin by
+ *   bin, a list adds by name and tags join — while `weigh: false` keeps a
+ *   read's own. `fold` turns a row's bytes and its picked entries' into one
+ *   value a read.
  *
  * What only the built value shows is refused as the Flowchart is built, in
  * the tag's words (§3, "What the editor and the tag say").
@@ -37,10 +44,12 @@
  */
 
 import {
-    ArrayType, BlobType, DictType, East, Expr, FloatType, IntegerType, OptionType, StringType, StructType, isTypeEqual, none, some, variant,
-    type EastType, type ExprType, type SetType, type SubtypeExprOrValue,
+    ArrayType, BlobType, DictType, East, Expr, FloatType, IntegerType, OptionType, SetType, StringType, StructType, isTypeEqual, none,
+    some, variant, type BlockBuilder, type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
-import { ColorSchemeType, StyleVariantType, resolveRowSource, resolveTag, type ColorSchemeLiteral, type StyleVariantLiteral } from "@elaraai/east-ui/internal";
+import {
+    ColorSchemeType, StyleVariantType, resolveRowSource, resolveTag, type ColorSchemeLiteral, type IndexedSource, type StyleVariantLiteral,
+} from "@elaraai/east-ui/internal";
 import { fieldOf } from "../schedule/fields.js";
 import { checkEntries, optionOf, typeText } from "../schedule/window.js";
 import type { FlowchartBinding } from "./kinds.js";
@@ -95,6 +104,8 @@ export type FlowchartTick = number | { at: number; label: string };
 export interface FlowchartHistogramOptions {
     /** The unit its durations are in. */
     unit: FlowchartDurationUnit;
+    /** False keeps the row's own beside the rail's picks, which add the entries' bin by bin otherwise (#1522): beside details that name a source. */
+    weigh?: boolean;
     /** Its title; the field's name unless given. */
     label?: string;
     /** What is counted: `"parcels"`. */
@@ -151,8 +162,12 @@ export type FlowchartRead<R extends StructType, K extends FlowchartReadKind, W e
 /** A list's draw, its types erased. */
 type AnyDraw = (item: ExprType<EastType>, name: ExprType<StringType>, row: ExprType<EastType>) => unknown;
 
-/** A read as `Flowchart.details` builds from it: its kind, its field, where it shows, and its options, checked. */
-type ReadSpec =
+/**
+ * A read as `Flowchart.details` builds from it: its kind, its field, where it
+ * shows, whether the rail's picks weigh it — `undefined` unless given — and its
+ * options, checked.
+ */
+type ReadSpec = { readonly weigh: boolean | undefined } & (
     | { readonly kind: "figure"; readonly field: string; readonly show: FlowchartShow; readonly label: string | undefined; readonly unit: string | undefined }
     | {
         readonly kind: "histogram"; readonly field: string; readonly show: FlowchartShow; readonly label: string | undefined;
@@ -166,7 +181,7 @@ type ReadSpec =
     | {
         readonly kind: "tags"; readonly field: string; readonly show: FlowchartShow; readonly label: string | undefined;
         readonly colors: ExprType<ArrayType<typeof FlowchartTagColorType>>; readonly legend: boolean;
-    };
+    });
 
 const READS = new WeakMap<object, ReadSpec>();
 
@@ -197,6 +212,12 @@ function wordOf(where: string, prop: string, given: unknown): string | undefined
     if (given === undefined) return undefined;
     if (typeof given !== "string") throw new Error(`${where}: \`${prop}\` is a string`);
     return given;
+}
+
+/** Whether the rail's picks weigh a read (#1522): `undefined` unless given. */
+function weighOf(where: string, weigh: unknown): boolean | undefined {
+    if (weigh === undefined || typeof weigh === "boolean") return weigh;
+    throw new Error(`${where}: \`weigh\` is false to keep the row's own beside the rail's picks — a share or an average, which adding would make wrong`);
 }
 
 /** Where a read shows: "all" unless given. */
@@ -298,19 +319,20 @@ function colorsOf(where: string, colors: unknown): ExprType<ArrayType<typeof Flo
  * @typeParam F - The field
  * @typeParam W - Where it shows: `"all"` unless given
  * @param field - The field it reads
- * @param options - Its label — the field's name unless given — its unit, and where it shows
+ * @param options - Its label — the field's name unless given — its unit, where it shows, and `weigh: false` to keep the
+ *   row's own beside the rail's picks — a share or an average — which add the entries' otherwise (#1522)
  * @returns The read, for `Flowchart.details`
  * @throws {Error} When the field is named by no string, or an option is of another kind
  */
 export function flowchartFigure<R extends StructType, F extends FlowchartFigureField<R>, const W extends FlowchartShow = "all">(
     field: F,
-    options?: { label?: string; unit?: string; show?: W },
+    options?: { label?: string; unit?: string; show?: W; weigh?: boolean },
 ): FlowchartRead<R, "figure", NoInfer<W>> {
     const where = "Flowchart.figure";
     const given = optionsOf(where, options);
     return described({
         kind: "figure", field: fieldName(where, field), show: showOf(where, given["show"]),
-        label: wordOf(where, "label", given["label"]), unit: wordOf(where, "unit", given["unit"]),
+        label: wordOf(where, "label", given["label"]), unit: wordOf(where, "unit", given["unit"]), weigh: weighOf(where, given["weigh"]),
     });
 }
 
@@ -324,7 +346,7 @@ export function flowchartFigure<R extends StructType, F extends FlowchartFigureF
  * @typeParam W - Where it shows: `"all"` unless given
  * @param field - The field it reads
  * @param options - Its unit, its label, what it counts, the app's bins — required beside an Array of counts — how the bars
- *   space them, the edges the axis names, and where it shows
+ *   space them, the edges the axis names, where it shows, and `weigh: false` to keep the row's own beside the rail's picks
  * @returns The read, for `Flowchart.details`
  * @throws {Error} When the unit, the scale or a tick is none of its words, and when the bins' edges do not ascend —
  *   "The bins' edges ascend — 12, then 4"
@@ -346,6 +368,7 @@ export function flowchartHistogram<R extends StructType, F extends FlowchartHist
     return described({
         kind: "histogram", field: name, show: showOf(where, given["show"]), label: wordOf(where, "label", given["label"]),
         unit, counts: wordOf(where, "counts", given["counts"]), bins: binsOf(where, given["bins"]), scale, ticks: ticksOf(where, given["ticks"]),
+        weigh: weighOf(where, given["weigh"]),
     });
 }
 
@@ -359,14 +382,16 @@ export function flowchartHistogram<R extends StructType, F extends FlowchartHist
  * @typeParam W - Where it shows: `"all"` unless given
  * @param field - The field it reads
  * @param options - Its label, its unit, the lines it draws on the canvas — 2 on a card and 1 on a label unless given, at
- *   most 3: the inspector lists every item — and where it shows
- * @param draw - An item's value and its note, from the item, its name and the row: required for a Dict of structs
+ *   most 3: the inspector lists every item — where it shows, and `weigh: false` to keep the row's own beside the rail's
+ *   picks, which add the entries' by name otherwise (#1522)
+ * @param draw - An item's value and its note, from the item, its name and the row: required for a Dict of structs.
+ *   Weighed, it draws the picked entries' items added up, each struct's numbers added and its lists joined
  * @returns The read, for `Flowchart.details`
  * @throws {Error} When `top` is not 1, 2 or 3, or `draw` is no function
  */
 export function flowchartList<R extends StructType, F extends FlowchartListField<R>, const W extends FlowchartShow = "all">(
     field: F,
-    options?: { label?: string; unit?: string; top?: 1 | 2 | 3; show?: W },   // top: the card's or label's lines
+    options?: { label?: string; unit?: string; top?: 1 | 2 | 3; show?: W; weigh?: boolean },   // top: the card's or label's lines
     draw?: (item: ExprType<FlowchartListItem<R, F>>, name: ExprType<StringType>, row: ExprType<R>) => {
         value: SubtypeExprOrValue<IntegerType | FloatType>;
         note?: SubtypeExprOrValue<OptionType<StringType>>;
@@ -379,7 +404,7 @@ export function flowchartList<R extends StructType, F extends FlowchartListField
     if (draw !== undefined && typeof draw !== "function") throw new Error(`${where}: \`draw\` gives an item's value and note — (item, name, row) => ({ value, note })`);
     return described({
         kind: "list", field: fieldName(where, field), show: showOf(where, given["show"]), label: wordOf(where, "label", given["label"]),
-        unit: wordOf(where, "unit", given["unit"]), top, draw: draw as unknown as AnyDraw | undefined,
+        unit: wordOf(where, "unit", given["unit"]), top, draw: draw as unknown as AnyDraw | undefined, weigh: weighOf(where, given["weigh"]),
     });
 }
 
@@ -395,7 +420,8 @@ export function flowchartList<R extends StructType, F extends FlowchartListField
  * @param field - The field it reads
  * @param options - Its label; each tag's look as a Tag takes it — `{ colorPalette, variant }`, first defined, first shown,
  *   a literal or an Array the app binds (`Flowchart.Types.TagColor`) — a tag with none neutral and subtle; whether the
- *   legend lists the defined tags, for tags on the canvas only; and where it shows
+ *   legend lists the defined tags, for tags on the canvas only; where it shows; and `weigh: false` to keep the row's own
+ *   beside the rail's picks, whose entries' tags join otherwise (#1522)
  * @returns The read, for `Flowchart.details`
  * @throws {Error} When a look's palette or variant is none of east-ui's, or `legend` is given beside `show: "inspector"` —
  *   "Only tags on the canvas go in the legend — show them on the canvas, or drop legend"
@@ -408,6 +434,7 @@ export function flowchartTags<R extends StructType, F extends FlowchartTagsField
         colors?: Record<string, FlowchartTagColor> | SubtypeExprOrValue<ArrayType<typeof FlowchartTagColorType>>;
         legend?: L;                                   // list the defined tags in the canvas's legend — tags on the canvas only
         show?: W;
+        weigh?: boolean;                              // false: the row's own beside the rail's picks
     },
 ): FlowchartRead<R, "tags", NoInfer<W>, NoInfer<L>> {
     const where = "Flowchart.tags";
@@ -418,7 +445,7 @@ export function flowchartTags<R extends StructType, F extends FlowchartTagsField
     if (legend && show === "inspector") throw new Error(`${where}: only tags on the canvas go in the legend — show them on the canvas, or drop legend`);
     return described({
         kind: "tags", field: fieldName(where, field), show, label: wordOf(where, "label", given["label"]),
-        colors: colorsOf(where, given["colors"]), legend,
+        colors: colorsOf(where, given["colors"]), legend, weigh: weighOf(where, given["weigh"]),
     });
 }
 
@@ -447,8 +474,15 @@ export type FlowchartLabelDraws<S> = S extends { details: ReadonlyArray<infer D>
         : { "A transition's label draws lines: a figure or a list — give the histogram show: \"inspector\"": never }
     : true;
 
-/** What a kind's details take: every read, in the order drawn. */
+/** What a kind's details take: every read, in the order drawn, and the source whose picks weigh them. */
 export interface FlowchartDetailsSpec<R extends StructType> {
+    /**
+     * The rail's source whose picks weigh them (#1522): a source of the
+     * Flowchart's slice over the details' record, its Dict field offered
+     * through the entries index the details are bound with. Its picked keys'
+     * entries are what each read the entries hold draws, added up by kind.
+     */
+    source?: string;
     /**
      * Every read, any mix of the four, in the order drawn — on a state's card
      * or a transition's label, and in the inspector — each where its show says.
@@ -463,12 +497,29 @@ export interface FlowchartDetailsSpec<R extends StructType> {
  * histogram show: "inspector"".
  */
 export interface FlowchartTransitionDetailsSpec {
+    /** The rail's source whose picks weigh them (#1522). */
+    source?: string;
     /** Its reads: figures and lists anywhere, tags and histograms in the inspector alone. */
     details: ReadonlyArray<FlowchartRead<StructType, "figure" | "list"> | FlowchartRead<StructType, "tags" | "histogram", "inspector">>;
 }
 
-/** The binding a kind's details take (R19): `Data.bind(record)`'s handle, read whole, or `Data.bindPaged(record)`'s, read by key. */
-export type FlowchartDetailsBinding<R extends StructType> = FlowchartBinding<R>;
+/**
+ * The binding a kind's details take (R19): `Data.bind(record)`'s handle, read
+ * whole, or `Data.bindPaged(record)`'s, read by key — or, weighed by the
+ * rail's picks (#1522), `Data.bindPaged(record, { indexes: [its entries index] })`'s,
+ * its rows read by key through the index's lean rows.
+ *
+ * @typeParam R - The details' row type
+ * @typeParam P - Through an entries index, an index entry's value: the row, its Dict field emptied
+ * @typeParam M - Through an entries index, the binding's indexes, each its fields and its kind
+ * @typeParam IK - Through an entries index, the binding's index keys
+ * @typeParam N - Through an entries index, the binding's nested part
+ * @typeParam X - Through an entries index, the binding's maintenance part
+ */
+export type FlowchartDetailsBinding<R extends StructType, P extends EastType = EastType, M extends EastType = EastType, IK extends EastType = EastType,
+    N extends EastType = EastType, X extends EastType = EastType> =
+    | FlowchartBinding<R>
+    | IndexedSource<StringType, R, P, M, IK, N, X>;
 
 /** The key a kind's details carry their mark under. */
 export const FLOWCHART_DETAILS: unique symbol = Symbol("Flowchart.details");
@@ -491,6 +542,8 @@ export interface FlowchartDetails<R extends StructType, S, L = FlowchartLabelDra
     readonly [FLOWCHART_DETAILS]: "details";
     /** The details' row type. */
     readonly rowType: StructType;
+    /** The rail's source whose picks weigh them (#1522); `undefined` for details none weighs. */
+    readonly source: string | undefined;
     /** Whether a read shows in the inspector alone: refused beside `inspector={false}`. */
     readonly inspectorReads: boolean;
     /**
@@ -507,7 +560,8 @@ export interface FlowchartDetails<R extends StructType, S, L = FlowchartLabelDra
      *
      * @param noun - The kind's rows, `states` or `transitions`: a list's lines, 2 on a card and 1 on a label unless given
      * @param where - The kind, as a refusal names it
-     * @param throughSource - Whether the kind is read through its source of the slice
+     * @param throughSource - Whether the kind is read through its source of the slice: details a source weighs are read
+     *   by key whatever their kind's read (#1522)
      * @returns The details, closed
      * @throws {Error} When they are bound in a form their kind's read does not take (R19), naming the one to use
      */
@@ -527,11 +581,77 @@ export function isFlowchartDetails(value: unknown): value is FlowchartDetails<St
         && (value as { [FLOWCHART_DETAILS]: unknown })[FLOWCHART_DETAILS] === "details";
 }
 
-/** The details' record, bound: read whole, or by key; its handle and its row type. */
+/** The entries index details a source weighs are bound with (#1522): its name, the Dict field it files, and that Dict's value type. */
+interface DetailsEntries {
+    readonly index: string;
+    readonly field: string;
+    readonly valueType: EastType;
+}
+
+/** The details' record, bound: read whole, or by key; its handle, its row type, and the entries index it is bound with, if any. */
 interface DetailsBinding {
     readonly form: "data" | "paged";
     readonly handle: ExprType<EastType>;
     readonly rowType: StructType;
+    readonly entries: DetailsEntries | undefined;
+}
+
+/**
+ * The rows an index-selected binding's type pages through (#1522): each
+ * entry's joined row and its key, as `Data.bindPaged(record, { indexes })`'s
+ * `page` serves them.
+ *
+ * @param type - The binding's type
+ * @returns The row's struct and the key's type; `undefined` for a binding that pages no such entries
+ * @internal
+ */
+export function flowchartIndexedRows(type: EastType): { readonly row: StructType; readonly key: EastType } | undefined {
+    const fields = type.type === "Struct" ? type.fields as Record<string, EastType> : {};
+    const page = fields["page"];
+    const output = page?.type === "Function" ? page.output as EastType : undefined;
+    const entry = output?.type === "Variant" ? (output.cases as Record<string, EastType>)["some"] : undefined;
+    const held = entry?.type === "Array" ? entry.value as EastType : undefined;
+    const joined = held?.type === "Struct" ? (held.fields as Record<string, EastType>)["row"] : undefined;
+    const row = joined === undefined ? undefined : optionOf(joined);
+    const key = held?.type === "Struct" ? (held.fields as Record<string, EastType>)["key"] : undefined;
+    return row?.type !== "Struct" || key === undefined ? undefined : { row, key };
+}
+
+/**
+ * The details' record bound through its entries index (#1522):
+ * `Data.bindPaged(record, { indexes: [its entries index] })`, the rows read by
+ * key through its lean rows. Its row type from its entries' joined row, its
+ * entries index from the binding's metadata.
+ *
+ * @throws {Error} When the binding lists no entries index, or several, or holds its rows by another key than a String
+ */
+function indexedOf(record: Expr, type: StructType, where: string): DetailsBinding {
+    const fields = type.fields as Record<string, EastType>;
+    const paged = flowchartIndexedRows(type);
+    if (paged === undefined) throw new Error(`${where}: Data.bindPaged(record, { indexes }) reads no rows of structs`);
+    const { row, key } = paged;
+    if (!isTypeEqual(key, StringType)) {
+        throw new Error(`${where}: the details' record holds its rows by String key, keyed as the kind's are — and this one by ${typeText(key)}`);
+    }
+    const indexes = fields["indexes"];
+    const listed = indexes?.type === "Struct" ? Object.entries(indexes.fields as Record<string, EastType>) : [];
+    const entries = listed.flatMap(([index, meta]) => {
+        const parts = meta.type === "Struct" ? meta.fields as Record<string, EastType> : {};
+        const kind = parts["kind"];
+        const led = parts["fields"];
+        if (kind?.type !== "Variant" || !Object.hasOwn(kind.cases, "entries") || led?.type !== "Struct") return [];
+        const field = Object.keys(led.fields)[0];
+        const dict = field === undefined ? undefined : (row.fields as Record<string, EastType>)[field];
+        return field === undefined || dict?.type !== "Dict" ? [] : [{ index, field, valueType: dict.value as EastType }];
+    });
+    if (entries.length === 0) {
+        throw new Error(`${where}: the details are read by key through the record's own entries, Data.bindPaged(record) — or, weighed by the rail's ` +
+            "picks, through the record's entries index — and this one reads it through other indexes");
+    }
+    if (entries.length > 1) {
+        throw new Error(`${where}: the details are weighed by one entries index, and this binding lists ${entries.map((e) => `'${e.index}'`).join(", ")} — list one`);
+    }
+    return { form: "paged", handle: record as ExprType<EastType>, rowType: row, entries: entries[0] };
 }
 
 /**
@@ -550,9 +670,8 @@ function bindingOf(record: unknown, where: string): DetailsBinding {
     let recordType: EastType;
     if (fields["page"] !== undefined) {
         form = "paged";
-        if (fields["indexes"] !== undefined) {
-            throw new Error(`${where}: the details are read by key through the record's own entries, Data.bindPaged(record) — and this one reads it through its indexes`);
-        }
+        // Through its entries index, the rail's picks weigh them (#1522).
+        if (fields["indexes"] !== undefined) return indexedOf(record, type as StructType, where);
         const resolved = resolveRowSource(record, where);
         if (resolved.kind !== "paged") {
             throw new Error(`${where}: the details are read by key through the record's own entries, Data.bindPaged(record) — and this one pages an index's window`);
@@ -572,7 +691,7 @@ function bindingOf(record: unknown, where: string): DetailsBinding {
     }
     const rowType = recordType.value as StructType;
     if (form === "paged") checkEntries(record, StringType, rowType, `${where}: Data.bindPaged(record)`);
-    return { form, handle: record as ExprType<EastType>, rowType };
+    return { form, handle: record as ExprType<EastType>, rowType, entries: undefined };
 }
 
 /** Whether a type is a number: an Integer or a Float. */
@@ -608,10 +727,11 @@ const DrawnType = StructType({ value: FloatType, note: OptionType(StringType) })
 /** The value a details row holds for one read, built in the `values` function's block. */
 type ReadValue = ($: { const: (value: unknown) => unknown }, row: ExprType<StructType>) => unknown;
 
-/** A read, resolved against the details' row: its spec, and its value. */
+/** A read, resolved against the details' row: its spec, its value, and a list's draw, reified once. */
 interface ResolvedRead {
     readonly spec: ReadSpec;
     readonly value: ReadValue;
+    readonly drawn?: ExprType<EastType>;
 }
 
 /** One bin of a histogram's value. */
@@ -717,6 +837,7 @@ function resolve(spec: ReadSpec, rowType: StructType): ResolvedRead {
                 const draw = drawOf(where, spec.field, itemType, rowType, spec.draw);
                 return {
                     spec,
+                    drawn: draw as unknown as ExprType<EastType>,
                     value: ($, row) => {
                         const drawn = $.const(draw) as (item: unknown, name: unknown, row: unknown) => ExprType<typeof DrawnType>;
                         return variant("list", (fieldOf(row, spec.field) as ExprType<DictType<StringType, EastType>>).toArray(($2, item, name) => {
@@ -740,6 +861,208 @@ function resolve(spec: ReadSpec, rowType: StructType): ResolvedRead {
                     return variant("tags", type.type === "Set" ? (held as ExprType<SetType<StringType>>).toArray() : held);
                 },
             };
+    }
+}
+
+// ============================================================================
+// Weighed by the rail's picks (#1522, R45)
+// ============================================================================
+
+/** What a weighed read draws from a row's picked entries, built in the fold's block: the read's value, its entries added up by kind. */
+type WeighValue = ($: BlockBuilder<EastType>, entries: ExprType<ArrayType<StructType>>, row: ExprType<StructType>) => unknown;
+
+/** Arrays of strings joined, each once, in their order: what tags join by, and a struct's lists. */
+const joinOnce = East.function([ArrayType(ArrayType(StringType))], ArrayType(StringType), ($, lists) => {
+    const joined = $.let([], ArrayType(StringType));
+    const seen = $.let(new Set<string>(), SetType(StringType));
+    $.for(lists, ($2, list) => {
+        $2.for(list, ($3, item) => {
+            $3.if(seen.tryInsert(item), ($4) => { $4(joined.pushLast(item)); });
+        });
+    });
+    return joined;
+});
+
+/** How one field of a list's struct adds across entries: numbers and Options of them add, Sets and Arrays of Strings join; undefined for any other. */
+function addOf(type: EastType): ExprType<EastType> | undefined {
+    if (type.type === "Integer") {
+        return East.function([IntegerType, IntegerType], IntegerType, (_$, a, b) => a.add(b)) as unknown as ExprType<EastType>;
+    }
+    if (type.type === "Float") return East.function([FloatType, FloatType], FloatType, (_$, a, b) => a.add(b)) as unknown as ExprType<EastType>;
+    const inner = optionOf(type);
+    if (inner !== undefined && isNumber(inner)) {
+        // An Option adds its values: none where both are none.
+        const add = addOf(inner)!;
+        return East.function([type, type], type, ($, a, b) => {
+            const plus = $.const(add) as unknown as (x: unknown, y: unknown) => ExprType<EastType>;
+            return (a as unknown as ExprType<OptionType<EastType>>).match({
+                none: (_$2) => b,
+                some: (_$2, x) => (b as unknown as ExprType<OptionType<EastType>>).match({
+                    none: (_$3) => a,
+                    some: (_$3, y) => East.value(some(plus(x, y)) as never, type),
+                }),
+            });
+        }) as unknown as ExprType<EastType>;
+    }
+    if (type.type === "Set" && isTypeEqual(type.key as EastType, StringType)) {
+        return East.function([SetType(StringType), SetType(StringType)], SetType(StringType), (_$, a, b) => a.union(b)) as unknown as ExprType<EastType>;
+    }
+    if (type.type === "Array" && isTypeEqual(type.value as EastType, StringType)) {
+        return East.function([ArrayType(StringType), ArrayType(StringType)], ArrayType(StringType), ($, a, b) => {
+            const join = $.const(joinOnce);
+            return join(East.value([a, b], ArrayType(ArrayType(StringType))));
+        }) as unknown as ExprType<EastType>;
+    }
+    return undefined;
+}
+
+/**
+ * Two of a list's structs added, field by field, by name: numbers and Options
+ * of them added, Sets and Arrays of Strings joined.
+ *
+ * @throws {Error} Naming the field that neither adds nor joins, and `weigh: false`
+ */
+function addedStructOf(where: string, field: string, itemType: StructType): ExprType<EastType> {
+    const fields = Object.entries(itemType.fields as Record<string, EastType>).map(([name, type]) => {
+        const add = addOf(type);
+        if (add === undefined) {
+            throw new Error(`${where}: "${field}"'s items hold "${name}", ${typeText(type)}, which neither adds nor joins — numbers and Options of them ` +
+                "add, Sets and Arrays of Strings join: give the list weigh: false");
+        }
+        return { name, add };
+    });
+    return East.function([itemType, itemType], itemType, ($, a, b) => {
+        const added = fields.map(({ name, add }) => {
+            const plus = $.const(add) as unknown as (x: unknown, y: unknown) => ExprType<EastType>;
+            return [name, plus(fieldOf(a as ExprType<StructType>, name), fieldOf(b as ExprType<StructType>, name))] as const;
+        });
+        return East.value(Object.fromEntries(added) as never, itemType);
+    }) as unknown as ExprType<EastType>;
+}
+
+/**
+ * A read weighed (R45): what it draws from a row's picked entries, the
+ * entries' own field added up by kind — a figure adds, an Option adding its
+ * values and `none` where every entry's is; a histogram adds bin by bin, an
+ * Array of counts position by position and a Dict of durations duration by
+ * duration; a list adds by name, a list of structs each struct's numbers by
+ * name before its draw; tags join, each once, in the entries' order.
+ *
+ * @param resolved - The read, resolved against the row
+ * @param held - The entries' field's type
+ * @param rowType - The details' row type
+ * @returns Its weighed value
+ * @throws {Error} When the entries hold the field in a type the read does not take, an Array of counts without bins,
+ *   a list of structs in another type than the row's, or one of whose fields neither adds nor joins
+ */
+function weighed(resolved: ResolvedRead, held: EastType, rowType: StructType): WeighValue {
+    const spec = resolved.spec;
+    const where = `Flowchart.${spec.kind}`;
+    const { fits, what } = FITS[spec.kind];
+    if (!fits(held)) throw new Error(`${where}: the entries hold "${spec.field}" as ${typeText(held)} — ${what}: give it weigh: false to draw the row's own`);
+    const at = (entry: ExprType<StructType>) => fieldOf(entry, spec.field);
+    switch (spec.kind) {
+        case "figure": {
+            const inner = optionOf(held);
+            if (inner === undefined) {
+                return (_$, entries) => variant("figure", some(entries.reduce((_$2, total, entry) =>
+                    total.add(asFloat(at(entry as ExprType<StructType>), held)), East.value(0, FloatType))));
+            }
+            return ($, entries) => {
+                const values = $.const(entries.filterMap((_$2, entry) => (at(entry as ExprType<StructType>) as unknown as ExprType<OptionType<EastType>>).match({
+                    none: (_$3) => East.value(none, OptionType(FloatType)),
+                    some: (_$3, n) => East.value(some(asFloat(n as ExprType<EastType>, inner)), OptionType(FloatType)),
+                })));
+                return variant("figure", values.size().equal(0n).ifElse(
+                    (_$2) => East.value(none, OptionType(FloatType)),
+                    (_$2) => East.value(some(values.reduce((_$3, total, n) => total.add(n), East.value(0, FloatType))), OptionType(FloatType)),
+                ));
+            };
+        }
+        case "histogram": {
+            if (held.type === "Array") {
+                const bins = spec.bins;
+                if (bins === undefined) throw new Error(`${where}: the entries hold "${spec.field}" as an Array of counts — give the bins it counts in, bins: [0, …]`);
+                const countType = held.value as EastType;
+                // Position by position, each at its bin's edge — or, where an entry holds another number of counts, the total at
+                // NaN, which no bin holds, so the row is listed in Issues as the row's own would be (R27).
+                return ($, entries) => {
+                    const edges = $.const(bins) as ExprType<ArrayType<FloatType>>;
+                    const counts = $.const(entries.map((_$2, entry) => at(entry as ExprType<StructType>))) as unknown as ExprType<ArrayType<ArrayType<FloatType>>>;
+                    const fitting = $.const(counts.every((_$2, held_) => held_.size().equal(edges.size())));
+                    return variant("histogram", fitting.ifElse(
+                        (_$2) => edges.map((_$3, edge, i) => East.value({
+                            from: edge,
+                            count: counts.reduce((_$4, total, held_) => total.add(asFloat(held_.get(i) as ExprType<EastType>, countType)), East.value(0, FloatType)),
+                        }, BinType)),
+                        (_$2) => East.value([East.value({
+                            from: NaN,
+                            count: counts.reduce((_$3, total, held_) => total.add(held_.reduce((_$4, sum, n) =>
+                                sum.add(asFloat(n as ExprType<EastType>, countType)), East.value(0, FloatType))), East.value(0, FloatType)),
+                        }, BinType)] as never, ArrayType(BinType)),
+                    ));
+                };
+            }
+            const durations = held as DictType<EastType, EastType>;
+            const keyType = durations.key as EastType;
+            const countType = durations.value as EastType;
+            return ($, entries) => {
+                const added = $.let(new Map(), DictType(keyType, FloatType));
+                $.for(entries, ($2, entry) => {
+                    const counts = (at(entry as ExprType<StructType>) as ExprType<DictType<EastType, EastType>>)
+                        .map((_$3, count) => asFloat(count as ExprType<EastType>, countType));
+                    $2(added.unionInPlace(counts as never, (_$3, a, b) => (a as ExprType<FloatType>).add(b as ExprType<FloatType>)));
+                });
+                return variant("histogram", added.toArray((_$2, count, from) =>
+                    East.value({ from: asFloat(from as ExprType<EastType>, keyType), count }, BinType)));
+            };
+        }
+        case "list": {
+            const itemType = (held as DictType).value as EastType;
+            if (itemType.type === "Struct") {
+                const rowItem = resolved.drawn;
+                if (rowItem === undefined) throw new Error(`${where}: the entries hold "${spec.field}" as structs — give the list a draw`);
+                // Its draw reads the row's items: the entries' are added up, then drawn by it.
+                const own = ((rowType.fields as Record<string, EastType>)[spec.field] as DictType).value as EastType;
+                if (!isTypeEqual(own, itemType)) {
+                    throw new Error(`${where}: the entries hold "${spec.field}"'s items as ${typeText(itemType)}, and the row as ${typeText(own)} — ` +
+                        "its draw reads the row's: give the entries the row's items, or the list weigh: false");
+                }
+                const add = addedStructOf(where, spec.field, itemType);
+                return ($, entries, row) => {
+                    const plus = $.const(add) as unknown as (a: unknown, b: unknown) => ExprType<EastType>;
+                    const drawn = $.const(rowItem) as unknown as (item: unknown, name: unknown, row: unknown) => ExprType<typeof DrawnType>;
+                    const added = $.let(new Map(), DictType(StringType, itemType));
+                    $.for(entries, ($2, entry) => {
+                        $2(added.unionInPlace(at(entry as ExprType<StructType>) as never, (_$3, a, b) => plus(a, b) as never));
+                    });
+                    return variant("list", added.toArray(($2, item, name) => {
+                        const given = $2.const(drawn(item, name, row));
+                        return East.value({ name, value: given.value, note: given.note }, ItemType);
+                    }));
+                };
+            }
+            return ($, entries) => {
+                const added = $.let(new Map(), DictType(StringType, FloatType));
+                $.for(entries, ($2, entry) => {
+                    const values = (at(entry as ExprType<StructType>) as ExprType<DictType<StringType, EastType>>)
+                        .map((_$3, value) => asFloat(value as ExprType<EastType>, itemType));
+                    $2(added.unionInPlace(values as never, (_$3, a, b) => (a as ExprType<FloatType>).add(b as ExprType<FloatType>)));
+                });
+                return variant("list", added.toArray((_$2, value, name) => East.value({ name, value, note: none }, ItemType)));
+            };
+        }
+        case "tags": {
+            const set = held.type === "Set";
+            return ($, entries) => {
+                const join = $.const(joinOnce);
+                const lists = entries.map((_$2, entry) => {
+                    const tags = at(entry as ExprType<StructType>);
+                    return set ? (tags as ExprType<SetType<StringType>>).toArray() : tags;
+                });
+                return variant("tags", join(lists as never));
+            };
+        }
     }
 }
 
@@ -786,15 +1109,34 @@ function wireOf(spec: ReadSpec, top: 1 | 2): unknown {
  * or `Data.bindPaged(record)`, read by the drawn rows' keys beside one read
  * through its source.
  *
+ * Bound through an entries index — `Data.bindPaged(record, { indexes: [it] })`
+ * — and naming the rail's source over that binding with `source`, the details
+ * are weighed by the source's picks of the Dict field the index files (#1522,
+ * R44, R45): read by key whatever the kind's read, each row with that field
+ * emptied, and each read whose field the entries hold drawing the picked keys'
+ * entries added up by kind — a figure adds, a histogram adds bin by bin, a
+ * list adds by name, tags join. A read given `weigh: false`, or one whose field
+ * the entries lack, draws the row's own; with no pick, every read does.
+ *
  * @typeParam R - The details' row type, inferred from the binding
  * @typeParam S - The reads, as given
- * @param binding - The details' record: `Data.bind(record)`, or `Data.bindPaged(record)`
- * @param spec - `{ details: [ … ] }`: every read, in the order drawn
+ * @typeParam P - Through an entries index, an index entry's value, inferred from the binding
+ * @typeParam M - Through an entries index, the binding's indexes, inferred from it
+ * @typeParam IK - Through an entries index, the binding's index keys, inferred from it
+ * @typeParam N - Through an entries index, the binding's nested part, inferred from it
+ * @typeParam X - Through an entries index, the binding's maintenance part, inferred from it
+ * @param binding - The details' record: `Data.bind(record)`, `Data.bindPaged(record)`, or `Data.bindPaged(record, { indexes: [its entries index] })`
+ * @param spec - `{ source?, details: [ … ] }`: the rail's source whose picks weigh them, and every read, in the order drawn
  * @returns The details, for a state's or a transition's `details`
  * @throws {Error} Naming the binding or the read (R18–R20): `Record.bind` — "Details are read only: bind them with
  *   Data.bind(record), or Data.bindPaged(record) beside a kind read through its source" — or anything but a binding of
  *   a record of structs keyed by String; an element that is no read; a read's field the row lacks, or one of another
- *   type; an Array of counts without bins; a Dict of structs without a draw
+ *   type; an Array of counts without bins; a Dict of structs without a draw. Weighed (#1522): `source` naming the
+ *   states' or the transitions' own; a source named while bound without an entries index, or an entries index bound
+ *   with no source named; `weigh` beside details that name no source; a read of the entries' own field; a read whose
+ *   field the entries hold in a type it doesn't take; a list of structs one of whose fields neither adds nor joins,
+ *   unless it says `weigh: false`. The Flowchart refuses a source its slice lacks, and one over rows of another type
+ *   (`Flowchart.payload`)
  *
  * @example
  * ```tsx
@@ -867,8 +1209,9 @@ function wireOf(spec: ReadSpec, top: 1 | 2): unknown {
  * ));
  * ```
  */
-export function flowchartDetails<R extends StructType, const S extends FlowchartDetailsSpec<R>>(
-    binding: FlowchartDetailsBinding<R>,
+export function flowchartDetails<R extends StructType, const S extends FlowchartDetailsSpec<R>, P extends EastType = EastType, M extends EastType = EastType,
+    IK extends EastType = EastType, N extends EastType = EastType, X extends EastType = EastType>(
+    binding: FlowchartDetailsBinding<R, P, M, IK, N, X>,
     spec: S & FlowchartLegendOnCanvas<S>,
 ): FlowchartDetails<NoInfer<R>, NoInfer<S>> {
     const where = "Flowchart.details";
@@ -876,18 +1219,67 @@ export function flowchartDetails<R extends StructType, const S extends Flowchart
     const rowType = bound.rowType;
     const given = typeof spec === "object" && spec !== null ? (spec as { details?: unknown }).details : undefined;
     if (!Array.isArray(given)) throw new Error(`${where}: give the reads as { details: [ … ] } — Flowchart.figure, .histogram, .list or .tags, in the order drawn`);
+    // The source whose picks weigh them (#1522, R44): named beside an entries index, and only there.
+    const named = (spec as { source?: unknown }).source;
+    if (named !== undefined && (typeof named !== "string" || named.length === 0)) {
+        throw new Error(`${where}: \`source\` names the rail's source whose picks weigh the details — a source of the Flowchart's slice`);
+    }
+    const source = named as string | undefined;
+    const entries = bound.entries;
+    if (source !== undefined && entries === undefined) {
+        throw new Error(`${where}: the details name the source "${source}", whose picks weigh them through their record's entries index — bind them ` +
+            "with Data.bindPaged(record, { indexes: [its entries index] })");
+    }
+    if (source === undefined && entries !== undefined) {
+        throw new Error(`${where}: the details are bound through the entries index '${entries.index}', whose picks weigh them — name the rail's ` +
+            `source that offers '${entries.field}', source: "…"`);
+    }
+    if (entries !== undefined && entries.valueType.type !== "Struct") {
+        throw new Error(`${where}: the entries index '${entries.index}' files "${entries.field}", whose entries are ${typeText(entries.valueType)} — ` +
+            "the picks weigh the fields of an entry's struct, each named as the row's is");
+    }
+    const held = entries === undefined ? {} : (entries.valueType as StructType).fields as Record<string, EastType>;
     const reads = given.map((read: unknown, i) => {
         const found = typeof read === "object" && read !== null ? READS.get(read) : undefined;
         if (found === undefined) {
             throw new Error(`${where}: \`details\` holds reads — Flowchart.figure, .histogram, .list or .tags — and the ${ordinal(i)} is none`);
         }
+        const at = `Flowchart.${found.kind}`;
+        if (entries === undefined && found.weigh !== undefined) {
+            throw new Error(`${at}: "${found.field}" says weigh, and the details name no source whose picks weigh them — give the details ` +
+                "source: \"…\", or leave weigh out");
+        }
+        if (entries !== undefined && found.field === entries.field) {
+            throw new Error(`${at}: "${found.field}" is what the entries index '${entries.index}' files, entry by entry, and each row is read with it ` +
+                "emptied — read the fields its entries hold");
+        }
+        if (found.weigh === true && held[found.field] === undefined) {
+            throw new Error(`${at}: "${found.field}" says weigh: true, and the entries of "${entries!.field}" hold no "${found.field}" ` +
+                `(${Object.keys(held).join(", ")}) — leave weigh out to draw the row's own`);
+        }
         return resolve(found, rowType);
+    });
+    // Each read the picks weigh (R45): one the entries hold, unless it says weigh: false. Any other draws the row's own.
+    const weighers = reads.map((read) => {
+        const type = held[read.spec.field];
+        return type === undefined || read.spec.weigh === false ? undefined : weighed(read, type, rowType);
     });
 
     // A row's values, from its bytes: one a read, in the reads' order.
     const values = East.function([BlobType], FlowchartDetailRowType, ($, bytes) => {
         const row = $.const(bytes.decodeBeast(rowType, "v2")) as ExprType<StructType>;
         return East.value(reads.map((read) => read.value($ as unknown as { const: (value: unknown) => unknown }, row)) as never, FlowchartDetailRowType);
+    });
+    // A row's values weighed by the picks (R45), from its bytes and its picked entries' — each an entry's value, in the
+    // entries' key order: a read the picks weigh adds its entries up by kind, any other draws the row's own.
+    const entryType = entries?.valueType;
+    const fold = entryType === undefined ? undefined : East.function([BlobType, ArrayType(BlobType)], FlowchartDetailRowType, ($, bytes, picked) => {
+        const row = $.const(bytes.decodeBeast(rowType, "v2")) as ExprType<StructType>;
+        const taken = $.const(picked.map((_$2, entry) => entry.decodeBeast(entryType, "v2"))) as unknown as ExprType<ArrayType<StructType>>;
+        return East.value(reads.map((read, i) => {
+            const weigh = weighers[i];
+            return weigh === undefined ? read.value($ as unknown as { const: (value: unknown) => unknown }, row) : weigh($ as BlockBuilder<EastType>, taken, row);
+        }) as never, FlowchartDetailRowType);
     });
     // The details read whole, beside a kind read whole: each row's bytes, by key — built only then, since a paged
     // read has no whole to read.
@@ -901,6 +1293,7 @@ export function flowchartDetails<R extends StructType, const S extends Flowchart
     return {
         [FLOWCHART_DETAILS]: "details",
         rowType,
+        source,
         inspectorReads: reads.some((r) => r.spec.show === "inspector"),
         check(noun, at) {
             if (noun !== "transitions") return;
@@ -919,19 +1312,34 @@ export function flowchartDetails<R extends StructType, const S extends Flowchart
             }
         },
         build(noun, at, throughSource) {
+            const top = noun === "states" ? 2 : 1;
+            const wire = reads.map((r) => ({ show: variant(r.spec.show, null), read: wireOf(r.spec, top) }));
+            if (entries !== undefined && fold !== undefined && source !== undefined) {
+                // Weighed by the picks, the details are read by key whatever their kind's read (R44): the drawn rows' keys
+                // through the entries index's lean rows, and the picked keys' ranges through the index.
+                return East.value({
+                    reads: wire,
+                    rows: none,
+                    paged: some(fieldOf(bound.handle, "id")),
+                    values,
+                    weighed: some({
+                        source, field: entries.field, index: entries.index, reads: weighers.map((w) => w !== undefined), fold,
+                    }),
+                } as never, FlowchartDetailsType) as ExprType<typeof FlowchartDetailsType>;
+            }
             if (throughSource && bound.form === "data") {
                 throw new Error(`${at}: the ${noun} are read through their source, so their details are read by key: bind them with Data.bindPaged(record)`);
             }
             if (!throughSource && bound.form === "paged") {
                 throw new Error(`${at}: the ${noun} are read whole, so their details are read whole: bind them with Data.bind(record)`);
             }
-            const top = noun === "states" ? 2 : 1;
             return East.value({
-                reads: reads.map((r) => ({ show: variant(r.spec.show, null), read: wireOf(r.spec, top) })),
+                reads: wire,
                 rows: throughSource ? none : some(whole()),
                 // The paged read the details are read by key through: a reader asks the drawn rows' keys of it, in one request.
                 paged: throughSource ? some(fieldOf(bound.handle, "id")) : none,
                 values,
+                weighed: none,
             } as never, FlowchartDetailsType) as ExprType<typeof FlowchartDetailsType>;
         },
     } as FlowchartDetails<NoInfer<R>, NoInfer<S>>;

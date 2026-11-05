@@ -33,6 +33,11 @@
  * items *none*; until the row lands, the shared placeholder shapes stand where
  * its values go, its labels drawn.
  *
+ * Over reads the rail's picks weigh (#1522, R46), one line names the picks in
+ * the rail's words — *Service · Standard, Priority* — and a row holding none
+ * of them says *no data* in those reads alone; while picks that moved are
+ * read, those reads draw their placeholder (R44).
+ *
  * @packageDocumentation
  */
 
@@ -42,7 +47,7 @@ import { FloatType, lessFor } from "@elaraai/east";
 import { getSomeorUndefined, useContainerWidth } from "@elaraai/east-ui-components";
 import { PlaceholderShape } from "@elaraai/east-ui-components/internal";
 import {
-    barsOf, listLines, orderedTags,
+    barsOf, listLines, orderedTags, valueAt, waitsAt,
     type FlowchartBinCounts, type FlowchartBins, type FlowchartDetailRowValue, type FlowchartKindDetails, type FlowchartReadValue, type FlowchartRowDetails,
 } from "./details.js";
 import { FlowchartTag, barAcross, ticksOf } from "./details-card.js";
@@ -133,7 +138,13 @@ export function FlowchartPaneReads({ styles, kind, at, words }: FlowchartPaneRea
         parts.push(<PaneRead key={index} styles={styles} kind={kind} row={row} index={index} words={words} />);
     }
     flush();
-    return <Box css={styles.reads} data-inspector-reads="" data-reads={row === undefined ? "landing" : "landed"}>{parts}</Box>;
+    const weighed = kind.weighedBy;
+    return (
+        <Box css={styles.reads} data-inspector-reads="" data-reads={row === undefined ? "landing" : "landed"}>
+            {weighed !== undefined && <Box css={styles.readsWeighed} data-read-weighed="">{m.detailsWeighed(weighed)}</Box>}
+            {parts}
+        </Box>
+    );
 }
 
 /** Figures next to one another in the details, side by side in the stats grid: each its value and its unit over its label. */
@@ -145,11 +156,11 @@ function Stats({ styles, kind, row, reads, words }: {
             {reads.map((index) => {
                 const read = kind.reads[index]!.read;
                 const unit = read.type === "figure" ? getSomeorUndefined(read.value.unit) : undefined;
-                const at = row?.values[index];
+                const at = row === undefined ? undefined : valueAt(row, index);
                 const value = at?.type === "figure" ? getSomeorUndefined(at.value) : undefined;
                 return (
                     <Box key={index} css={styles.readStat} data-pane-read={index} data-read="figure">
-                        {row === undefined ? (
+                        {waitsAt(row, index) ? (
                             <Box css={styles.placeholder} data-place="stat"><PlaceholderShape kind="number" index={index} /></Box>
                         ) : value === undefined ? (
                             <Box as="span" css={styles.noData} data-read-empty="">{words.m.detailsNoData()}</Box>
@@ -183,7 +194,8 @@ function PaneRead({ styles, kind, row, index, words }: {
 }) {
     const m = words.m;
     const read = kind.reads[index]!.read;
-    const at = row?.values[index];
+    const at = row === undefined ? undefined : valueAt(row, index);
+    const waits = waitsAt(row, index);
     const empty = (text: string) => <Box as="span" css={styles.noData} data-read-empty="">{text}</Box>;
     switch (read.type) {
         case "figure":
@@ -193,7 +205,7 @@ function PaneRead({ styles, kind, row, index, words }: {
             return (
                 <Box css={styles.read} data-pane-read={index} data-read="tags">
                     <ReadHead styles={styles} title={read.value.label} total={tags === undefined ? undefined : words.number(tags.length)} />
-                    {row === undefined ? (
+                    {waits ? (
                         <Box css={styles.placeholder} data-place="tags"><PlaceholderShape kind="chip" index={index} /></Box>
                     ) : tags === undefined ? empty(m.detailsNoData())
                         : tags.length === 0 ? empty(m.detailsNone()) : (
@@ -213,7 +225,7 @@ function PaneRead({ styles, kind, row, index, words }: {
                 <Box css={styles.read} data-pane-read={index} data-read="histogram">
                     <ReadHead styles={styles} title={read.value.label}
                         total={counts === undefined ? undefined : m.detailsCount({ count: words.number(counts.total), noun })} />
-                    {row === undefined ? (
+                    {waits ? (
                         <Box css={styles.placeholder} data-place="bars"><PlaceholderShape kind="fill" index={index} /></Box>
                     ) : !counted ? empty(m.detailsNoData()) : (
                         <PaneHistogram styles={styles} read={read.value} bins={bins} counts={counts} words={words} />
@@ -226,7 +238,7 @@ function PaneRead({ styles, kind, row, index, words }: {
             return (
                 <Box css={styles.read} data-pane-read={index} data-read="list">
                     <ReadHead styles={styles} title={read.value.label} total={items === undefined ? undefined : listTotal(read.value, items, words)} />
-                    {row === undefined ? (
+                    {waits ? (
                         <Box css={styles.placeholder} data-place="row"><PlaceholderShape kind="text" index={index} /></Box>
                     ) : items === undefined ? empty(m.detailsNoData())
                         : items.length === 0 ? empty(m.detailsNone()) : <PaneList styles={styles} items={items} words={words} />}

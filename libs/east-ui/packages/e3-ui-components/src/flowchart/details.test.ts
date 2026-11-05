@@ -16,19 +16,24 @@
  * read standing; the app's bins over a Dict's durations and an Array's counts,
  * refused as they land, and every drawn row's edges merged; bars and the axis
  * on both scales; a list's top lines; each card's size, as the visual spec
- * measures it; and a transition label's lines.
+ * measures it; a transition label's lines; and details the rail's picks weigh
+ * (#1522, R44–R46) — read by key whatever the kind's read, *no data* for a row
+ * holding none of the picks, placeholders while moved picks are read, and
+ * Issues' word for a source over another record.
  *
  * @packageDocumentation
  */
 
 import { describe, expect, test } from "vitest";
 import { renderHook } from "@testing-library/react";
-import { SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, some, variant, type option } from "@elaraai/east";
+import { SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, printFor, some, variant, type option } from "@elaraai/east";
 import { Flowchart } from "@elaraai/e3-ui/internal";
 import {
     axisAt, barsOf, binsRefusal, countIntoBins, detailsCardOf, detailsLabelOf, drawnKeysOf, flowchartDetailsModel, listLines, useFlowchartDetails,
-    type FlowchartDetailBytes, type FlowchartDetailRowValue, type FlowchartDetailsData, type FlowchartDetailsKinds, type FlowchartDetailsValue,
-    type FlowchartDrawnKeys, type FlowchartPagedRows, type FlowchartReadValue,
+    valueAt, waitsAt,
+    type FlowchartDetailBytes, type FlowchartDetailRowValue, type FlowchartDetailsData, type FlowchartDetailsKinds, type FlowchartDetailsRead,
+    type FlowchartDetailsValue, type FlowchartDrawnKeys, type FlowchartPagedRows, type FlowchartReadValue, type FlowchartWeighedRead,
+    type FlowchartWeighedRows,
 } from "./details.js";
 import { modelOf, rowsOf, stateRow, transitionRow, words } from "./rows.test-utils.js";
 
@@ -100,12 +105,12 @@ const DEPOT_READS: readonly Shown[] = [all(PARCELS), all(FLAGS), all(timeInState
 
 /** Details read whole, through `rows`. */
 function wholeDetails(reads: readonly Shown[], rows: () => option<Map<string, Uint8Array>>): FlowchartDetailsValue {
-    return { reads: [...reads], rows: some(rows), paged: none, values: (bytes) => decodeRow(bytes) };
+    return { reads: [...reads], rows: some(rows), paged: none, values: (bytes) => decodeRow(bytes), weighed: none };
 }
 
 /** Details read by key, through the paged read named. */
 function pagedDetails(reads: readonly Shown[]): FlowchartDetailsValue {
-    return { reads: [...reads], rows: none, paged: some("depot-details"), values: (bytes) => decodeRow(bytes) };
+    return { reads: [...reads], rows: none, paged: some("depot-details"), values: (bytes) => decodeRow(bytes), weighed: none };
 }
 
 /** A record's rows, by key. */
@@ -421,5 +426,141 @@ describe("a transition label's lines (R32, R33, R34)", () => {
         expect(detailsLabelOf(landing, "t1")).toEqual([{ kind: "placeholder" }, { kind: "placeholder" }, { kind: "placeholder" }]);
         const hidden = moves(movesOnly(wholeDetails([inspectorOnly(MOVED)], () => some(MOVES))));
         expect(detailsLabelOf(hidden, "t1")).toEqual([]);
+    });
+});
+
+describe("details the rail's picks weigh (#1522, R44, R45, R46)", () => {
+    /** The services' share still in state: a figure, weighed. */
+    const WAITING: FlowchartReadValue = variant("figure", { label: "Still in state", unit: none });
+    /** The reads: parcels, flags and time in state — every row's edges merged — weighed; the services the row's own. */
+    const READS: readonly Shown[] = [all(PARCELS), all(FLAGS), all(timeInState(undefined)), all(SERVICE)];
+    /** Which reads the picks weigh, in the reads' order. */
+    const WEIGHS = [true, true, true, false];
+    /** A pick, as the rail holds it: the service's name as an `.east` literal of the Dict's key. */
+    const PRIORITY = printFor(StringType)("Priority");
+
+    /** Sorted's own row: its parcels, its flags, its hours and its services. */
+    const SORTED = bytesOf(variant("figure", some(465)), variant("tags", ["At risk", "Fragile"]), histogram([0, 300], [1, 165]), list(["Standard", 335], ["Priority", 130]));
+    /** Sorted's row weighed by Priority, as the fold adds it up: Priority's parcels, flags and hours; the services the row's own. */
+    const SORTED_PRIORITY = bytesOf(variant("figure", some(130)), variant("tags", ["At risk"]), histogram([0, 100], [4, 30]), list(["Standard", 335], ["Priority", 130]));
+    /** Held's own row: no Priority among its services. */
+    const HELD_OWN = bytesOf(variant("figure", some(1080)), variant("tags", ["Customs"]), histogram([0, 20], [48, 1060]), list(["International", 680], ["Standard", 400]));
+
+    /** Details the rail's `evidence` source weighs, through its entries index, read by key through the paged read named. */
+    function weighedDetails(reads: readonly Shown[], weighs: readonly boolean[], fold: (bytes: Uint8Array, entries: Uint8Array[]) => FlowchartDetailRowValue): FlowchartDetailsValue {
+        return {
+            reads: [...reads], rows: none, paged: some("depot-evidence"), values: (bytes) => decodeRow(bytes),
+            weighed: some({ source: "evidence", field: "byService", index: "evidence_by_service", reads: [...weighs], fold }),
+        };
+    }
+    /** A fold the model never calls: what it works out is a settled read's. */
+    const NO_FOLD = (): FlowchartDetailRowValue => { throw new Error("the model folds nothing: the read it is given is folded"); };
+
+    /** A settled read: the rows, by key, as the reader worked them out, and how the picks weighed them. */
+    function settled(rows: readonly (readonly [key: string, bytes: Uint8Array | null])[], weighed: FlowchartWeighedRead): FlowchartDetailsRead {
+        return { rows: new Map(rows.map(([key, bytes]) => [key, bytes === null ? null : decodeRow(bytes)])), reading: false, error: undefined, weighed };
+    }
+
+    /** The states' model over a settled read. */
+    function statesOver(details: FlowchartDetailsValue, read: FlowchartDetailsRead, ...keys: string[]) {
+        return modelOver(statesOnly(details), { states: read, transitions: undefined }, drawnStates(...keys));
+    }
+
+    test("with no pick, every read draws the row's own, read by key through the weighed read whatever the kind's read: every drawn key asked, the fold never called", () => {
+        const asked: (readonly [paged: string, index: string, picks: readonly string[], keys: readonly string[]])[] = [];
+        const weighedRows: FlowchartWeighedRows = (paged, weighed, picks, keys) => {
+            asked.push([paged, weighed.index, [...picks], [...keys]]);
+            return some({ rows: new Map([["HLD", HELD_OWN], ["SRD", SORTED], ["DSP", null]]), lean: new Map(), entries: new Map([["SRD", [SORTED_PRIORITY]]]) });
+        };
+        const kinds = statesOnly(weighedDetails(READS, WEIGHS, NO_FOLD));
+        const drawn = drawnStates("DSP", "HLD", "SRD");
+        const unpaged: FlowchartPagedRows = () => { throw new Error("weighed details are read through their binding, never the paged read alone"); };
+        const { result } = renderHook(() => useFlowchartDetails(kinds, drawn, 0, unpaged, weighedRows));
+        expect(asked.length).toBeGreaterThan(0);
+        for (const call of asked) expect(call).toEqual(["depot-evidence", "evidence_by_service", [], ["DSP", "HLD", "SRD"]]);
+        expect(result.current.states).toEqual({
+            rows: new Map([["DSP", null], ["HLD", decodeRow(HELD_OWN)], ["SRD", decodeRow(SORTED)]]), reading: false, error: undefined,
+            weighed: { picks: [], holding: new Set<string>(), apart: false, pending: false },
+        });
+        // No pick: no line, and nothing says no data but the row there is none of.
+        const model = modelOver(kinds, result.current, drawn).states!;
+        expect([model.weighedBy, model.rows.get("HLD")!.noData, model.rows.get("DSP")]).toEqual([undefined, [false, false, false, false], null]);
+    });
+
+    test("in flight, nothing landed: each read a placeholder; failing, why — the picks weighing nothing until a read lands", () => {
+        let now: "waits" | "fails" = "waits";
+        const weighedRows: FlowchartWeighedRows = () => {
+            if (now === "fails") throw new Error("Data.bindPaged: the read failed");
+            return none;
+        };
+        const kinds = statesOnly(weighedDetails(READS, WEIGHS, NO_FOLD));
+        const drawn = drawnStates("SRD");
+        const { result, rerender } = renderHook(({ attempt }) => useFlowchartDetails(kinds, drawn, attempt, undefined, weighedRows), { initialProps: { attempt: 0 } });
+        expect(result.current.states).toEqual({ rows: new Map(), reading: true, error: undefined });
+        expect(detailsCardOf(modelOver(kinds, result.current, drawn).states!, "SRD")!.reads.map((read) => read.draws.kind))
+            .toEqual(["placeholder", "placeholder", "placeholder", "placeholder"]);
+        now = "fails";
+        rerender({ attempt: 1 });
+        expect(result.current.states).toEqual({ rows: new Map(), reading: false, error: "Data.bindPaged: the read failed" });
+    });
+
+    test("picked: a row holding a pick draws its folded values; one holding none says no data in each weighed read and draws its own in the rest, its weighed bars adding no edge; the line names the picks", () => {
+        const details = weighedDetails(READS, WEIGHS, NO_FOLD);
+        const read = settled([["DSP", null], ["HLD", HELD_OWN], ["SRD", SORTED_PRIORITY]], { picks: [PRIORITY], holding: new Set(["SRD"]), apart: false, pending: false });
+        const model = statesOver(details, read, "DSP", "HLD", "SRD");
+        const states = model.states!;
+        expect(states.rows.get("SRD")).toEqual({
+            values: decodeRow(SORTED_PRIORITY), counts: [undefined, undefined, { counts: [100, 30], total: 130, unheld: false }, undefined],
+            noData: [false, false, false, false], pending: [false, false, false, false],
+        });
+        const held = states.rows.get("HLD")!;
+        expect([held.noData, held.pending, held.counts]).toEqual([WEIGHS, [false, false, false, false], [undefined, undefined, undefined, undefined]]);
+        // Held's hours say no data, so its edges are none of the bins': Sorted's alone.
+        expect(states.bins).toEqual([undefined, undefined, { edges: [0, 4], scale: "band" }, undefined]);
+        // What each read draws of Held: no data where weighed, its own services beside them.
+        expect([valueAt(held, 0), valueAt(held, 3), waitsAt(held, 0), waitsAt(undefined, 0)]).toEqual([undefined, decodeRow(HELD_OWN)[3], false, true]);
+        expect(detailsCardOf(states, "HLD")!.reads.map((block) => block.draws.kind)).toEqual(["noData", "noData", "noData", "list"]);
+        expect(detailsCardOf(states, "SRD")!.reads.map((block) => block.draws.kind)).toEqual(["figure", "tags", "bars", "list"]);
+        expect(detailsCardOf(states, "DSP")!.reads.map((block) => block.draws.kind)).toEqual(["noData", "noData", "noData", "noData"]);
+        // The line names the field and the picks — here the field's own name, the model given no part of the rail.
+        expect([states.weighedBy, model.findings]).toEqual([{ label: "byService", picks: PRIORITY }, []]);
+    });
+
+    test("picks moved, their ranges in flight: each weighed read of every row a placeholder, the rest drawn, and no row's weighed bars adding an edge; the line names the picks asked", () => {
+        const details = weighedDetails(READS, WEIGHS, NO_FOLD);
+        const read = { ...settled([["HLD", HELD_OWN], ["SRD", SORTED_PRIORITY]], { picks: [PRIORITY], holding: new Set(["SRD"]), apart: false, pending: true }), reading: true };
+        const states = statesOver(details, read, "HLD", "SRD").states!;
+        for (const key of ["HLD", "SRD"]) {
+            const row = states.rows.get(key)!;
+            expect([row.noData, row.pending], key).toEqual([[false, false, false, false], WEIGHS]);
+            expect([waitsAt(row, 0), waitsAt(row, 3), valueAt(row, 0)], key).toEqual([true, false, undefined]);
+            expect(detailsCardOf(states, key)!.reads.map((block) => block.draws.kind), key).toEqual(["placeholder", "placeholder", "placeholder", "list"]);
+        }
+        expect([states.bins[2], states.weighedBy]).toEqual([{ edges: [], scale: "band" }, { label: "byService", picks: PRIORITY }]);
+    });
+
+    test("a transition label weighed: a row holding none of the picks, its figure no data and its list no data; in flight, each weighed read's lines placeholders", () => {
+        const MOVED: FlowchartReadValue = variant("figure", { label: "Moved", unit: some("parcels") });
+        const details = weighedDetails([all(MOVED), all(SERVICE), inspectorOnly(WAITING)], [true, true, true], NO_FOLD);
+        const movesOnly: FlowchartDetailsKinds = { states: undefined, transitions: { name: "Move", details } };
+        const drawn: FlowchartDrawnKeys = { states: [], transitions: ["t1", "t2"] };
+        const rows = new Map([
+            ["t1", decodeRow(bytesOf(variant("figure", some(130)), list(["Priority", 130]), variant("figure", some(20))))],
+            ["t2", decodeRow(bytesOf(variant("figure", some(1080)), list(["International", 680], ["Standard", 400]), variant("figure", some(70))))],
+        ]);
+        const weighed = (pending: boolean): FlowchartWeighedRead => ({ picks: [PRIORITY], holding: new Set(["t1"]), apart: false, pending });
+        const moves = (pending: boolean) => modelOver(movesOnly, { states: undefined, transitions: { rows, reading: pending, error: undefined, weighed: weighed(pending) } }, drawn).transitions!;
+        expect(detailsLabelOf(moves(false), "t1")).toEqual([{ kind: "figure", label: "Moved", value: 130, unit: "parcels" }, { kind: "item", name: "Priority", share: 1 }]);
+        expect(detailsLabelOf(moves(false), "t2")).toEqual([{ kind: "figure", label: "Moved", value: undefined, unit: "parcels" }, { kind: "noData", label: "Service" }]);
+        expect(detailsLabelOf(moves(true), "t2")).toEqual([{ kind: "placeholder" }, { kind: "placeholder" }, { kind: "placeholder" }]);
+    });
+
+    test("a source over another record than the details read: listed in Issues by the kind and the source, no line, and every read the row's own", () => {
+        const details = weighedDetails(READS, WEIGHS, NO_FOLD);
+        const read = settled([["HLD", HELD_OWN], ["SRD", SORTED]], { picks: [PRIORITY], holding: new Set<string>(), apart: true, pending: false });
+        const model = statesOver(details, read, "HLD", "SRD");
+        expect(model.findings).toEqual([{ finding: "weighed", sort: "states", kind: "Step", source: "evidence" }]);
+        expect([model.states!.weighedBy, model.states!.rows.get("HLD")!.noData]).toEqual([undefined, [false, false, false, false]]);
+        expect(detailsCardOf(model.states!, "HLD")!.reads.map((block) => block.draws.kind)).toEqual(["figure", "tags", "bars", "list"]);
     });
 });

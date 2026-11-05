@@ -27,20 +27,25 @@ type ComputedMarker<T extends EastType> = ArrayType<T> | SetType<T>;
 type ComputedFields<D> = D extends { name: infer Name extends string; keyType: infer K extends EastType }
     ? K extends StructType<infer F> ? { [N in keyof F]: ComputedMarker<F[N]> }
         : { [N in Name]: ComputedMarker<K> } : Record<never, never>;
-/** The row fields an index is led by (#1432): a plain index's fields, a generated index's `on`, each Null; or a computed key's markers. */
-type DeclaredFields<D> = D extends { on: readonly (infer F extends string)[] }
-    ? { [N in F]: NullType } : ComputedFields<D>;
+/** The row fields an index is led by (#1432): a plain index's fields, a generated index's `on`, each Null; or a computed key's markers.
+ *  An entries index's (#1522) is the Dict field it files, a Set marker of the Dict's key type: the rail picks its keys as a Set's elements. */
+type DeclaredFields<D> = D extends { entries: { field: infer F extends string }; keyType: infer K extends EastType }
+    ? { [N in F]: SetType<K> }
+    : D extends { on: readonly (infer F extends string)[] }
+        ? { [N in F]: NullType } : ComputedFields<D>;
 /** What else an index is, its one case (#1432): `plain`, or a generated
  *  index's kind, a struct naming the kind's own parts by role — an interval's
  *  start and end (`from=…`, `to=…`, east-ui's `intervalMarkerFields`), whose
  *  names the rail reads its start from; an area index's box and its cell
  *  (`areaMarkerFields`); a series or a summary index's key, times and tile
- *  (`tileMarkerFields`, #1039). Never a row field among the index's. */
+ *  (`tileMarkerFields`, #1039); an entries index's, `entries`, its field its
+ *  one row field (#1522). Never a row field among the index's. */
 type IndexKind<D> = D extends { interval: { from: infer From extends string; to: infer To extends string } }
     ? VariantType<{ interval: StructType<{ [N in `from=${From}` | `to=${To}`]: NullType }> }>
     : D extends { area: object } ? VariantType<{ area: StructType<Record<string, NullType>> }>
     : D extends { series: object } ? VariantType<{ series: StructType<Record<string, NullType>> }>
     : D extends { summary: object } ? VariantType<{ summary: StructType<Record<string, NullType>> }>
+    : D extends { entries: object } ? VariantType<{ entries: NullType }>
     : VariantType<{ plain: NullType }>;
 /** The projection a binding's entries carry (D29): the one every index carries,
  *  or Null where each carries the whole row, as an area or a series index does,
@@ -162,7 +167,11 @@ type MaintenanceOf<K extends EastType, R extends EastType, I extends FieldIndexe
  * #1039) carry their rows, and are read without a join, beside indexes that
  * carry nothing, read with one. A summary index (`index.summary`) carries its
  * totals, whatever the others carry, and is never joined: its entries name no
- * row.
+ * row. An entries index (`index.entries`, #1522) offers the Dict field it
+ * files to the rail, its keys picked as a Set's elements are, and carries each
+ * entry's own value; beside it the record's other indexes carry each row with
+ * that field emptied, read without a join, and one with a value of its own is
+ * bound apart.
  * @property join - Include record rows (default true). False requires a covering
  * index without Set fields so the unfiltered view still has one entry per row.
  * An index that carries the whole row is read without a join either way.
@@ -196,12 +205,14 @@ export interface IndexedBinding<T extends EastType, I extends FieldIndexes<T>> {
  *   each the whole row or nothing (D29), beside any summary index's totals.
  *   Beside a nested series index (#1435), the projection is the record's row,
  *   each collection it declares empty, and its declaration is carried in the
- *   binding's nested part, never among the rail's indexes.
+ *   binding's nested part, never among the rail's indexes. Beside an entries
+ *   index (#1522), it is the record's row, each Dict field the record files
+ *   entry by entry empty, and the entries index carries its own entries.
  */
 export type IndexedPagedValue<T extends EastType, I extends FieldIndexes<T>> =
     T extends DictType<infer K extends EastType, infer R extends EastType>
         ? IndexedSource<K, R,
-            [Extract<I[number], { nested: object }>] extends [never] ? BindingProjection<ProjectedIndexes<I>["valueType"], R> : R,
+            [Extract<I[number], { nested: object } | { entries: object }>] extends [never] ? BindingProjection<ProjectedIndexes<I>["valueType"], R> : R,
             IndexFields<RailIndexes<I>>, IndexKeys<K, I>, NestedPart<NestedMarkerOf<I>, NestedNameOf<I>, NestedTileOf<I>, NestedSummaryOf<I>>,
             MaintenanceOf<K, R, I>>
         : never;
@@ -306,17 +317,20 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
             throw new Error(`Data.bindPaged: index '${index.name}' belongs to a different record`);
         }
     }
-    // Beside a record's nested series index, its other indexes carry each row without its collections (#1434, #1435).
+    // Beside a record's nested series index, its other indexes carry each row without its collections (#1434, #1435);
+    // beside its entries indexes, with the Dict fields they file emptied (#1521, #1522).
     const nested = listedNested(record, options);
+    const entries = listedEntries(record, options);
     const rail = options.indexes.filter((index) => index.nested === undefined);
     const names = new Set<string>();
     const fields: Record<string, StructType<{ fields: StructType<Record<string, EastType>>; kind: VariantType<Record<string, EastType>> }>> = {};
     const metadata: Record<string, { fields: Record<string, unknown>; kind: variant<string, unknown> }> = {};
     const keyTypes: Record<string, EastType> = { primary: type.key };
-    const projection = nested === undefined ? bindingProjection(options.indexes) : type.value;
+    const projection = nested === undefined && entries.length === 0 ? bindingProjection(options.indexes) : type.value;
     let singleEntryIndex = false;
     for (const index of rail) {
-        const computed = index.on === undefined;
+        // An entries index is led by the Dict field it files, whatever its key's type (#1522).
+        const computed = index.on === undefined && index.entries === undefined;
         if (computed && index.keyType.type === "Struct" && Object.keys(index.keyType.fields).length === 0) {
             throw new Error(`Data.bindPaged: computed index '${index.name}' needs at least one key field for Slice`);
         }
@@ -325,17 +339,18 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
         }
         // A generated index may be led by no field: its key's `on` is then empty (#1432).
         const generated = index.interval !== undefined || index.area !== undefined || index.series !== undefined || index.summary !== undefined;
-        if (!generated && index.on?.length === 0) throw new Error(`Data.bindPaged: index '${index.name}' needs at least one field`);
+        if (!generated && index.entries === undefined && index.on?.length === 0) throw new Error(`Data.bindPaged: index '${index.name}' needs at least one field`);
         if (names.has(index.name)) throw new Error(`Data.bindPaged: repeated index '${index.name}'`);
         names.add(index.name);
         // An index's metadata (#1432): the row fields it is led by, and its
         // kind's one case — `plain`, or a generated index's, a struct naming
         // the kind's own parts by role: an interval's start and end, an area
         // index's box and its cell, a series or a summary index's key, times
-        // and tile (#1039). Slice.bindRecord reads them back; e3's parts are
+        // and tile (#1039); an entries index's `entries`, its field its Dict
+        // field (#1522). Slice.bindRecord reads them back; e3's parts are
         // never a field's name.
         const tiling = index.series ?? index.summary;
-        const [kind, parts]: [string, readonly string[] | undefined] = index.interval !== undefined
+        const [kind, parts]: [string, readonly string[] | undefined] = index.entries !== undefined ? ["entries", undefined] : index.interval !== undefined
             ? ["interval", intervalMarkerFields({ from: index.interval.from, to: index.interval.to })]
             : index.area !== undefined
                 ? ["area", areaMarkerFields({ x: index.area.x, y: index.area.y,
@@ -347,7 +362,12 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
                     : ["plain", undefined];
         const kindType = VariantType({ [kind]: parts === undefined ? NullType : StructType(Object.fromEntries(parts.map(name => [name, NullType]))) });
         const kindValue = variant(kind, parts === undefined ? null : Object.fromEntries(parts.map(name => [name, null])));
-        if (computed) {
+        if (index.entries !== undefined) {
+            // The Dict field it files, a Set marker of the Dict's key type: its keys are the rail's values, picked as a Set's elements are.
+            const field = index.entries.field;
+            fields[index.name] = StructType({ fields: StructType({ [field]: SetType(index.keyType) }), kind: kindType });
+            metadata[index.name] = { fields: { [field]: new Set() }, kind: kindValue };
+        } else if (computed) {
             const entries = index.keyType.type === "Struct"
                 ? Object.entries(index.keyType.fields as Record<string, EastType>) : [[index.name, index.keyType] as const];
             fields[index.name] = StructType({ fields: StructType(Object.fromEntries(entries.map(([field, type]) =>
@@ -407,6 +427,11 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
                         East.value(none, OptionType(rowPatchType))) as unknown as ExprType<DictType<StructType<{ ik: EastType; k: EastType }>, EastType>>);
                     return ops.keys().toArray((_$3, entry) => East.print(entry.ik));
                 }
+                if (index.entries !== undefined) {
+                    // An entries index files a row under each key of its Dict field (#1522): its key function is the row's entries.
+                    const fn = $2.const(index.keyFn as ExprType<FunctionType<[typeof type.key, typeof type.value], DictType<EastType, EastType>>>);
+                    return fn(key, row).keys().toArray((_$3, ik) => East.print(ik));
+                }
                 if (index.multi) {
                     const fn = $2.const(index.keyFn as ExprType<FunctionType<[typeof type.key, typeof type.value], SetType<EastType>>>);
                     return fn(key, row).toArray((_$3, ik) => East.print(ik));
@@ -463,6 +488,41 @@ function listedNested(record: RecordDef<EastType>, options: { readonly indexes: 
     if (valued !== undefined) {
         throw new Error(`Data.bindPaged: '${valued.name}' carries a value of its own beside '${listed.name}', whose record's other indexes carry each ` +
             "row without its collections — leave its value out, or bind it apart");
+    }
+    return listed;
+}
+
+/**
+ * The entries indexes a binding lists (#1522), where its record files any of
+ * its Dict fields entry by entry (#1521). Beside them, each of the record's
+ * other indexes that carries nothing or the row carries the lean row instead,
+ * every field the record files so emptied (e3's `builtIndex`), and is read
+ * without a join; each entries index carries its own entries. Refused, in its
+ * words: an index carrying the lean row listed without an entries index of
+ * the record, and beside one an index carrying a value of its own.
+ *
+ * @param record - The record bound
+ * @param options - The binding's indexes
+ * @returns The entries indexes listed; none where the record files no Dict field so, or the binding lists none of its indexes that carry the lean row
+ * @throws {Error} Naming the index, the record and what to write
+ */
+function listedEntries(record: RecordDef<EastType>, options: { readonly indexes: FieldIndexes<EastType> }): readonly RecordIndexDef[] {
+    const declared = Object.values(record.indexes).filter((index) => index.entries !== undefined);
+    if (declared.length === 0) return [];
+    // e3 builds an index as declared where it carries its own — a value of its own, a summary's totals, its entries — and
+    // otherwise to carry the lean row.
+    const lean = (index: RecordIndexDef) => builtIndex(record, index) !== index;
+    const listed = options.indexes.filter((index) => index.entries !== undefined);
+    if (listed.length === 0) {
+        const carrying = options.indexes.find(lean);
+        if (carrying === undefined) return [];
+        throw new Error(`Data.bindPaged: record '${record.name}' files ${declared.map((index) => `'${index.entries!.field}'`).join(", ")} entry by entry, ` +
+            `and '${carrying.name}' carries each row with ${declared.length === 1 ? "that field" : "those fields"} emptied — list '${declared[0]!.name}' beside it`);
+    }
+    const valued = options.indexes.find((index) => index.entries === undefined && index.summary === undefined && !lean(index));
+    if (valued !== undefined) {
+        throw new Error(`Data.bindPaged: '${valued.name}' carries a value of its own beside '${listed[0]!.name}', whose record's other indexes carry ` +
+            "each row with its entries emptied — leave its value out, or bind it apart");
     }
     return listed;
 }

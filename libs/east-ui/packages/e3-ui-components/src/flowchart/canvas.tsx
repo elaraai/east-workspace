@@ -349,7 +349,8 @@ const PHONE_LANE_ROOM = 16;
 /**
  * A label line's words (R32): a figure's label, its value in the app's locale
  * and its unit — *no data* where the row lacks it (R25); an item's name and
- * its share (R29); *none*; a placeholder's, none.
+ * its share (R29); *none*; a list the rail's picks weigh, of a row holding
+ * none of them, its label and *no data* (#1522); a placeholder's, none.
  *
  * @param line - The line
  * @param words - The flowchart's words
@@ -361,6 +362,7 @@ function labelLineText(line: FlowchartLabelLine, words: FlowchartWords): string 
         case "figure": return line.value === undefined ? `${line.label} ${words.m.detailsNoData()}` : `${line.label} ${words.number(line.value)}${line.unit === undefined ? "" : ` ${line.unit}`}`;
         case "item": return `${line.name} ${shareText(line.share, words)}`;
         case "none": return words.m.detailsNone();
+        case "noData": return `${line.label} ${words.m.detailsNoData()}`;
     }
 }
 

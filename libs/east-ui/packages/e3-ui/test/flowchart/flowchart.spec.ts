@@ -481,11 +481,11 @@ describe("the rail is one Slice.bindRecords, its states and transitions sources 
         }), "Flowchart: the decisions are read whole: drop the decisions source");
     });
 
-    hostTest("every other source is named by a list of cards or a tab: a source nothing names is refused", () => {
+    hostTest("every other source is named by a list of cards, a tab or details: a source nothing names is refused", () => {
         refused(() => built(($) => {
             const slice = $.let(Slice.bindRecords("flowchart.spec.stray", { states: statesSource(), extra: statesSource() }));
             return PublicFlowchart({ slice: { slice }, states: Flowchart.states($.let(Data.bindPaged(ex.depotStates)), { label: "name" }) });
-        }), "Flowchart: `slice` narrows its states and its transitions, each by the source named after it, and the cards lists and tabs that name a source — " +
+        }), "Flowchart: `slice` narrows its states and its transitions, each by the source named after it, and the cards lists, tabs and details that name a source — " +
             "its source 'extra' is none of them; name the sources `states`");
     });
 });

@@ -38,18 +38,32 @@
  *   in the details' order, 12 apart inside 12 of padding. A tag list wraps by
  *   its tags' widths — measured where the card draws, estimated elsewhere —
  *   three lines at most, then +n.
+ * - **Weighed by the rail's picks** (#1522, R43–R46). Details that name a
+ *   source of the rail are read by key whatever their kind's read: the drawn
+ *   rows through their entries index's lean rows, and the picked keys' ranges
+ *   of the index, re-read as the picks change — never the record's own rows.
+ *   A row's picked entries are what each read the picks weigh draws, added up
+ *   by kind in East (`fold`); a row holding none of them says *no data* in
+ *   those reads and draws its own in the others; with no pick, every read
+ *   draws the row's own. The source's other fields narrow the rows: a row they
+ *   leave out reads as a row there is none of (R33). A source over another
+ *   record than the details' is listed in Issues, and its picks weigh nothing.
  *
  * @packageDocumentation
  */
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
-    BlobType, FloatType, SortedSet, StringType, compareFor, encodeBeast2For, equalFor, fromEastTypeValue, lessFor, none, some,
-    type ValueTypeOf, type option,
+    BlobType, FloatType, IntegerType, SortedMap, SortedSet, StringType, compareFor, encodeBeast2For, equalFor, fromEastTypeValue, lessFor, none,
+    printFor, some, variant, type EastType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import type { Flowchart } from "@elaraai/e3-ui/internal";
+import type { RecordSliceBindType, RecordSliceChoiceType, RecordSliceEntry, RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined, useTrackedEvaluation, type Formatters } from "@elaraai/east-ui-components";
+import { recordChoiceSummary, recordSliceWithin } from "@elaraai/east-ui-components/internal";
+import { indexedBindingOf, type IndexedBindingRead } from "../platform/indexed-paged.js";
 import { defaultPagedRuntime, pagedSourceOf, type PagedSource } from "../platform/paged-runtime.js";
+import { sourcePart } from "../shared/schedule/visibility.js";
 import type { FlowchartModel, FlowchartValue } from "./model.js";
 
 /** A kind's details, decoded: each read described, and its rows' values. */
@@ -70,6 +84,12 @@ type ListValue = Extract<FlowchartDetailRowValue[number], { type: "list" }>["val
 /** A tags read's looks: each a tag's, first defined, first shown. */
 export type FlowchartTagColors = Extract<FlowchartReadValue, { type: "tags" }>["value"]["colors"];
 
+/** How the rail's picks weigh a kind's details, as the payload gives it (#1522). */
+export type FlowchartWeighedValue = ValueTypeOf<typeof Flowchart.Types.Weighed>;
+
+/** A source's part of the rail: its record Slice's controls, as the payload's chrome carries them. */
+export type FlowchartSlicePart = ValueTypeOf<RecordSliceBindType>;
+
 /** The kinds that carry details. */
 export type FlowchartDetailsSort = "states" | "transitions";
 
@@ -79,6 +99,8 @@ export interface FlowchartDetailsKind {
     readonly name: string;
     /** Its details. */
     readonly details: FlowchartDetailsValue;
+    /** The rail's part whose picks weigh them (#1522); `undefined` for details none weighs. */
+    readonly weighing?: FlowchartSlicePart | undefined;
 }
 
 /** The kinds carrying details: `undefined` for a kind with none. */
@@ -96,8 +118,13 @@ export interface FlowchartDetailsKinds {
  * @returns Each kind's name and details, where it has some
  */
 export function detailsKindsOf(value: FlowchartValue): FlowchartDetailsKinds {
-    const kind = (name: string, details: FlowchartDetailsValue | undefined): FlowchartDetailsKind | undefined =>
-        (details === undefined ? undefined : { name, details });
+    const chrome = getSomeorUndefined(value.slice);
+    const kind = (name: string, details: FlowchartDetailsValue | undefined): FlowchartDetailsKind | undefined => {
+        if (details === undefined) return undefined;
+        // Weighed, the rail's part of the source whose picks weigh them (#1522): the payload refuses a source the slice lacks.
+        const weighed = getSomeorUndefined(details.weighed);
+        return { name, details, weighing: weighed === undefined ? undefined : sourcePart(chrome, weighed.source) };
+    };
     const transitions = getSomeorUndefined(value.transitions);
     return {
         states: kind(value.states.name, getSomeorUndefined(value.states.details)),
@@ -110,6 +137,7 @@ const sameString = equalFor(StringType);
 const compareFloat = compareFor(FloatType);
 const lessFloat = lessFor(FloatType);
 const sameBytes = equalFor(BlobType);
+const compareRow = compareFor(IntegerType);
 
 /** Why a read failed, as the box says it. */
 function messageOf(error: unknown): string {
@@ -213,25 +241,155 @@ export const pagedDetailRows: FlowchartPagedRows = (paged, keys) => {
 };
 
 /**
+ * A weighed kind's rows, as one read found them (#1522): each drawn key's row
+ * as bytes — `null` for a key the details hold no row of — the rows
+ * themselves, which the source's other fields are asked of, and each row's
+ * picked entries as bytes, each an entry's value, in the entries' key order.
+ */
+export interface FlowchartWeighedBytes {
+    /** Each drawn key's lean row's bytes: the row with the Dict field the entries index files emptied. */
+    readonly rows: FlowchartDetailBytes;
+    /** Each drawn key's lean row, by key: what a membership read asks of the source's other fields. */
+    readonly lean: ReadonlyMap<string, unknown>;
+    /** Each drawn row's picked entries' bytes, by key — a row holding none of the picks absent. */
+    readonly entries: ReadonlyMap<string, readonly Uint8Array[]>;
+}
+
+/**
+ * How weighed details are read by key (#1522, R44): the drawn rows through
+ * their entries index's lean rows, and the picked keys' ranges of the index,
+ * each kept to the rows drawn — `none` while in flight. Throws the read's
+ * failure.
+ */
+export type FlowchartWeighedRows = (paged: string, weighed: FlowchartWeighedValue, picks: readonly string[], keys: readonly string[]) => option<FlowchartWeighedBytes>;
+
+/** A binding's encoders, made once: a key's `.east` literal, a row's bytes, and an entry's, by its index. */
+interface WeighedCodecs {
+    readonly key: (key: unknown) => string;
+    readonly row: (row: unknown) => Uint8Array;
+    readonly entries: Map<string, (value: unknown) => Uint8Array>;
+}
+
+/** Each binding's encoders. */
+const WEIGHED_CODECS = new WeakMap<IndexedBindingRead, WeighedCodecs>();
+
+/** A binding's encoders, made the first time it is read. */
+function codecsOf(binding: IndexedBindingRead): WeighedCodecs {
+    let codecs = WEIGHED_CODECS.get(binding);
+    if (codecs === undefined) {
+        codecs = {
+            key: printFor(binding.key as EastType) as (key: unknown) => string,
+            row: encodeBeast2For(binding.row as EastType) as (row: unknown) => Uint8Array,
+            entries: new Map(),
+        };
+        WEIGHED_CODECS.set(binding, codecs);
+    }
+    return codecs;
+}
+
+/** A run of a source's entries, as a search found it. */
+type Run = { readonly found: boolean; readonly row: bigint; readonly count: bigint };
+
+/**
+ * The weighed details read through the binding they name (#1522, R44): the
+ * drawn keys searched in the entries index's lean rows and the picked keys in
+ * the index, in one request each, then the rows found and the picked keys'
+ * ranges read, in one request each — so a pick reads its ranges, and the rows
+ * by key, and never the record's own rows. Each entry is kept to the rows
+ * drawn, a row's in the entries' key order.
+ *
+ * @param paged - The binding's id
+ * @param weighed - How the picks weigh the details
+ * @param picks - The picked keys, as `.east` literals of the Dict's keys
+ * @param keys - The keys of the rows drawn, in key order
+ * @returns The rows, and their picked entries, once every one is known; `none` while in flight
+ * @throws {Error} Naming the read, where `Data.bindPaged` has bound no binding of its id, or one listing no such entries
+ *   index; the read's failure, until a read after the retry gap asks again
+ */
+export const weighedDetailRows: FlowchartWeighedRows = (paged, weighed, picks, keys) => {
+    const binding = indexedBindingOf(paged);
+    if (binding === undefined) throw new Error(`The details' paged read '${paged}' names no binding Data.bindPaged has bound over a record's indexes`);
+    const index = binding.entries.get(weighed.index);
+    if (index === undefined) throw new Error(`The details' binding '${paged}' lists no entries index '${weighed.index}'`);
+    const codecs = codecsOf(binding);
+    let entry = codecs.entries.get(weighed.index);
+    if (entry === undefined) {
+        entry = encodeBeast2For(index.value) as (value: unknown) => Uint8Array;
+        codecs.entries.set(weighed.index, entry);
+    }
+    const { seekAll, runsAll } = binding.batches;
+    // The drawn rows, each a run of one of the lean rows; the picked keys, each its range of the index — asked together.
+    const found = seekAll(index.rows, keys.map((key) => variant("key", codecs.key(key))));
+    const ranges = picks.length === 0 ? some([] as Run[]) : seekAll(weighed.index, picks.map((pick) => variant("key", pick)));
+    if (found.type === "none" || ranges.type === "none") return none;
+    const rowRuns = found.value.filter((run) => run.found);
+    // The ranges in the index's order — the picked keys' — so a row's entries come in their keys' order.
+    const pickRuns = ranges.value.filter((run) => run.found && compareRow(run.count, 0n) > 0).sort((a, b) => compareRow(a.row, b.row));
+    const lean = rowRuns.length === 0 ? some([] as RecordSliceEntry[]) : runsAll(index.rows, rowRuns) as option<RecordSliceEntry[]>;
+    const held = pickRuns.length === 0 ? some([] as RecordSliceEntry[]) : runsAll(weighed.index, pickRuns) as option<RecordSliceEntry[]>;
+    if (lean.type === "none" || held.type === "none") return none;
+    const rows = new Map<string, Uint8Array | null>(keys.map((key) => [key, null] as const));
+    const leanRows = new Map<string, unknown>();
+    for (const read of lean.value) {
+        const row = read.row === undefined ? undefined : getSomeorUndefined(read.row);
+        if (row === undefined) continue;
+        rows.set(read.key as string, codecs.row(row));
+        leanRows.set(read.key as string, row);
+    }
+    const entries = new Map<string, Uint8Array[]>();
+    for (const read of held.value) {
+        const key = read.key as string;
+        const value = read.value === undefined ? undefined : getSomeorUndefined(read.value);
+        // Kept to the rows drawn: a range holds every row's entry of its key.
+        if (value === undefined || !leanRows.has(key)) continue;
+        const list = entries.get(key);
+        if (list === undefined) entries.set(key, [entry(value)]);
+        else list.push(entry(value));
+    }
+    return some({ rows, lean: leanRows, entries });
+};
+
+/**
  * A Retry of the details (R34): each kind's paged read asked again what failed
  * of it, at once — not after the retry gap a read alone waits — as a Retry
  * asks a source of the rail (`defaultPagedRuntime.askAgain`). A kind read
- * whole is read again as the read's attempt moves.
+ * whole is read again as the read's attempt moves; one weighed by the rail's
+ * picks asks its binding's record again (#1522).
  *
  * @param kinds - The kinds carrying details
  */
 export function askDetailsAgain(kinds: FlowchartDetailsKinds): void {
     for (const kind of [kinds.states, kinds.transitions]) {
         const paged = kind === undefined ? undefined : getSomeorUndefined(kind.details.paged);
-        const source = paged === undefined ? undefined : pagedSourceOf(paged);
+        if (paged === undefined) continue;
+        if (kind!.details.weighed.type === "some") {
+            indexedBindingOf(paged)?.askAgain();
+            continue;
+        }
+        const source = pagedSourceOf(paged);
         if (source !== undefined) defaultPagedRuntime.askAgain(source);
     }
+}
+
+/**
+ * How the rail's picks weigh one kind's details, as one read found them
+ * (#1522): the picks, and each drawn row's picked entries.
+ */
+interface WeighedRead {
+    /** The picks, as `.east` literals of the Dict's keys: none, and every read draws the row's own. */
+    readonly picks: readonly string[];
+    /** Each drawn row's picked entries' bytes, by key: a row holding none of the picks absent. */
+    readonly entries: ReadonlyMap<string, readonly Uint8Array[]>;
+    /** Whether the rail's source narrows another record than the details read: its picks then weigh nothing. */
+    readonly apart: boolean;
 }
 
 /** One kind's details as one read found them: each drawn key's row as bytes once landed, `undefined` while in flight; or why it failed. */
 interface KindRead {
     readonly rows: FlowchartDetailBytes | undefined;
     readonly error: string | undefined;
+    /** Weighed by the rail's picks (#1522); `undefined` for details none weighs. */
+    readonly weighed?: WeighedRead | undefined;
 }
 
 /** A read in flight. */
@@ -240,17 +398,77 @@ const IN_FLIGHT: KindRead = { rows: undefined, error: undefined };
 /** No row asked of: a kind with nothing drawn. */
 const NO_BYTES: FlowchartDetailBytes = new Map<string, Uint8Array | null>();
 
+/** No picked entries. */
+const NO_ENTRIES: ReadonlyMap<string, readonly Uint8Array[]> = new Map<string, readonly Uint8Array[]>();
+
+/** A narrowing without one field's choice: the source's other fields', which narrow the details' rows (#1522). */
+function withoutField(where: ValueTypeOf<RecordSliceWhereType>, field: string): ValueTypeOf<RecordSliceWhereType> {
+    return new SortedMap<string, ValueTypeOf<RecordSliceChoiceType>>([...where].filter(([at]) => !sameString(at, field)), compareKey);
+}
+
+/**
+ * One kind's details weighed by the rail's picks (#1522, R44, R45): the picks
+ * read from the source's part as they stand, so a pick reads again; the rows
+ * and their picked entries read by key; and a row the source's other fields
+ * leave out read as a row there is none of (R33). A source over another
+ * record than the details' weighs nothing.
+ *
+ * @param kind - The kind
+ * @param weighed - How the picks weigh its details
+ * @param keys - The keys of its rows drawn
+ * @param weighedRows - How weighed details are read by key
+ * @returns The rows' bytes and their picked entries, in flight, or why the read failed
+ */
+function readWeighed(kind: FlowchartDetailsKind, weighed: FlowchartWeighedValue, keys: readonly string[], weighedRows: FlowchartWeighedRows): KindRead {
+    const paged = getSomeorUndefined(kind.details.paged);
+    if (paged === undefined) throw new Error("The details the rail's picks weigh name no paged read");
+    const part = kind.weighing;
+    const where = part?.read().where;
+    // Two bindings of different records of one type: the source's picks are of another record's rows.
+    const recordId = indexedBindingOf(paged)?.recordId;
+    const apart = part !== undefined && recordId !== undefined && !sameString(part.sourceId, recordId);
+    const choice = apart ? undefined : where?.get(weighed.field);
+    const picks = choice?.type === "values" ? choice.value : [];
+    if (keys.length === 0) return { rows: NO_BYTES, error: undefined, weighed: { picks, entries: NO_ENTRIES, apart } };
+    // In flight, the picks asked: picks that moved draw the reads they weigh as placeholders until their ranges land (R44).
+    const flight: KindRead = { rows: undefined, error: undefined, weighed: { picks, entries: NO_ENTRIES, apart } };
+    const got = weighedRows(paged, weighed, picks, keys);
+    if (got.type === "none") return flight;
+    let rows = got.value.rows;
+    const others = apart || where === undefined || part === undefined ? undefined : withoutField(where, weighed.field);
+    if (others !== undefined && others.size > 0) {
+        // The source's other fields narrow the details' rows: each drawn row asked of them, in one read.
+        const asked = keys.flatMap((key) => {
+            const row = got.value.lean.get(key);
+            return row === undefined ? [] : [{ key, row }];
+        });
+        const within = asked.length === 0 ? some([] as boolean[]) : recordSliceWithin(part!, others, asked);
+        if (within.type === "none") return flight;
+        const kept = new Map(rows);
+        asked.forEach(({ key }, i) => {
+            if (within.value[i] !== true) kept.set(key, null);
+        });
+        rows = kept;
+    }
+    return { rows, error: undefined, weighed: { picks, entries: got.value.entries, apart } };
+}
+
 /**
  * One kind's details, read as the kind is (R19): whole — every drawn key
- * matched to the record's rows — or by the drawn keys, in one request.
+ * matched to the record's rows — or by the drawn keys, in one request; or,
+ * weighed by the rail's picks, by key whatever the kind's read (#1522).
  *
- * @param details - The kind's details
+ * @param kind - The kind
  * @param keys - The keys of its rows drawn
  * @param paged - How a paged read answers keys
+ * @param weighedRows - How weighed details are read by key
  * @returns The rows' bytes, in flight, or why the read failed
  */
-function readKind(details: FlowchartDetailsValue, keys: readonly string[], paged: FlowchartPagedRows): KindRead {
+function readKind(kind: FlowchartDetailsKind, keys: readonly string[], paged: FlowchartPagedRows, weighedRows: FlowchartWeighedRows): KindRead {
+    const details = kind.details;
     try {
+        const weighed = getSomeorUndefined(details.weighed);
+        if (weighed !== undefined) return readWeighed(kind, weighed, keys, weighedRows);
         const whole = getSomeorUndefined(details.rows);
         if (whole !== undefined) {
             const got = whole();
@@ -269,6 +487,21 @@ function readKind(details: FlowchartDetailsValue, keys: readonly string[], paged
     }
 }
 
+/**
+ * How the rail's picks weigh one kind's details (#1522): the picks as they
+ * stand, and the rows holding them as the last settled read found them.
+ */
+export interface FlowchartWeighedRead {
+    /** The picks, as `.east` literals of the Dict's keys: none, and every read draws the row's own. */
+    readonly picks: readonly string[];
+    /** The drawn rows holding a pick, as the last settled read found them: a row holding none says *no data* in the reads the picks weigh. */
+    readonly holding: ReadonlySet<string>;
+    /** Whether the rail's source narrows another record than the details read: Issues lists it, and every read draws the row's own. */
+    readonly apart: boolean;
+    /** Whether the picks moved since the last settled read and their ranges are in flight: the reads they weigh draw their placeholder (R44). */
+    readonly pending: boolean;
+}
+
 /** What the details read holds of one kind. */
 export interface FlowchartDetailsRead {
     /**
@@ -280,6 +513,8 @@ export interface FlowchartDetailsRead {
     readonly reading: boolean;
     /** Why the latest read failed, said once in the canvas's box (R34); what the last settled read held stands. */
     readonly error: string | undefined;
+    /** How the rail's picks weigh them, as the last settled read found it (#1522); `undefined` for details none weighs. */
+    readonly weighed?: FlowchartWeighedRead | undefined;
 }
 
 /** What the details read holds, by kind: `undefined` for a kind with no details. */
@@ -313,20 +548,53 @@ function steadyRows(
     return was;
 }
 
+/** Two lists of entries' bytes the same, entry by entry. */
+function sameEntries(a: readonly Uint8Array[], b: readonly Uint8Array[]): boolean {
+    return a.length === b.length && a.every((bytes, i) => sameBytes(bytes, b[i]!));
+}
+
+/** Two lists of picks the same, pick by pick. */
+function samePicks(a: readonly string[], b: readonly string[]): boolean {
+    return a.length === b.length && a.every((pick, i) => sameString(pick, b[i]!));
+}
+
+/** The same weighing as before, where nothing in it moved. */
+function steadyWeighed(was: FlowchartWeighedRead | undefined, now: FlowchartWeighedRead): FlowchartWeighedRead {
+    if (was === undefined || was.apart !== now.apart || was.pending !== now.pending || !samePicks(was.picks, now.picks) || was.holding.size !== now.holding.size) return now;
+    for (const key of now.holding) if (!was.holding.has(key)) return now;
+    return was;
+}
+
+/** Whether a read in flight asks other picks than the last settled read weighed by — or picks of a record it now reads apart from. */
+function picksMoved(asked: WeighedRead | undefined, settled: FlowchartWeighedRead | undefined): boolean {
+    return asked !== undefined && settled !== undefined && (asked.apart !== settled.apart || !samePicks(asked.picks, settled.picks));
+}
+
+/** No entries a row holds: its row's own values. */
+const OWN: readonly Uint8Array[] = [];
+
 /**
  * One kind's details across reads: each row's values worked out once for its
- * bytes, the last settled rows standing while a newer read is in flight or
- * fails, and the same objects while nothing moves.
+ * bytes — and, weighed, its picked entries' — the last settled rows standing
+ * while a newer read is in flight or fails, and the same objects while nothing
+ * moves.
  */
 class KindDetails {
     /** The `values` the rows were worked out by: another payload's works them out afresh. */
     private by: FlowchartDetailsValue["values"] | undefined;
-    /** Each row's values, by key, beside the bytes they came from. */
-    private worked = new Map<string, { readonly bytes: Uint8Array; readonly row: FlowchartDetailRowValue }>();
+    /** Each row's values, by key, beside the bytes and the picked entries they came from. */
+    private worked = new Map<string, { readonly bytes: Uint8Array; readonly entries: readonly Uint8Array[]; readonly row: FlowchartDetailRowValue }>();
     /** The read last taken, and what came of it: the same read taken again moves nothing. */
-    private taken: { readonly read: KindRead; readonly rows: ReadonlyMap<string, FlowchartDetailRowValue | null>; readonly error: string | undefined } | undefined;
+    private taken: {
+        readonly read: KindRead; readonly rows: ReadonlyMap<string, FlowchartDetailRowValue | null>; readonly error: string | undefined;
+        readonly weighed: FlowchartWeighedRead | undefined;
+    } | undefined;
     /** The rows the last settled read held. */
     private settled: ReadonlyMap<string, FlowchartDetailRowValue | null> = NO_ROWS;
+    /** How the picks weighed them, as the last settled read found it. */
+    private settledWeighed: FlowchartWeighedRead | undefined;
+    /** The picks in flight, as last handed out: the same picks in flight hand out the same object. */
+    private pendingWeighed: FlowchartWeighedRead | undefined;
     /** What was handed out last. */
     private last: FlowchartDetailsRead | undefined;
 
@@ -343,36 +611,53 @@ class KindDetails {
             this.worked = new Map();
             this.taken = undefined;
         }
+        const fold = getSomeorUndefined(details.weighed)?.fold;
         let rows = this.settled;
+        let weighed = this.settledWeighed;
         let error = read.error;
         if (this.taken !== undefined && Object.is(this.taken.read, read)) {
             rows = this.taken.rows;
             error = this.taken.error;
+            weighed = this.taken.weighed;
         } else if (read.rows !== undefined) {
             try {
                 const next = new Map<string, FlowchartDetailRowValue | null>();
-                const worked = new Map<string, { readonly bytes: Uint8Array; readonly row: FlowchartDetailRowValue }>();
+                const worked = new Map<string, { readonly bytes: Uint8Array; readonly entries: readonly Uint8Array[]; readonly row: FlowchartDetailRowValue }>();
+                const holding = new Set<string>();
+                const picked = read.weighed !== undefined && read.weighed.picks.length > 0 && !read.weighed.apart;
                 for (const [key, bytes] of read.rows) {
                     if (bytes === null) {
                         next.set(key, null);
                         continue;
                     }
+                    // Weighed by the picks, a row holding some draws them added up; one holding none, its own (R45).
+                    const entries = picked ? read.weighed!.entries.get(key) ?? OWN : OWN;
+                    if (entries.length > 0) holding.add(key);
                     const held = this.worked.get(key);
-                    const row = held !== undefined && sameBytes(held.bytes, bytes) ? held.row : details.values(bytes);
-                    worked.set(key, { bytes, row });
+                    const row = held !== undefined && sameBytes(held.bytes, bytes) && sameEntries(held.entries, entries) ? held.row
+                        : entries.length > 0 && fold !== undefined ? fold(bytes, [...entries]) : details.values(bytes);
+                    worked.set(key, { bytes, entries, row });
                     next.set(key, row);
                 }
                 this.worked = worked;
                 rows = this.settled = steadyRows(this.settled, next);
+                weighed = this.settledWeighed = read.weighed === undefined ? undefined
+                    : steadyWeighed(this.settledWeighed, { picks: read.weighed.picks, holding, apart: read.weighed.apart, pending: false });
             } catch (failure) {
                 error = messageOf(failure);
             }
-            this.taken = { read, rows, error };
+            this.taken = { read, rows, error, weighed };
         }
         const reading = read.rows === undefined && read.error === undefined;
+        // Picks that moved, in flight: the reads they weigh wait for their ranges, the rows they hold as last settled.
+        if (reading && picksMoved(read.weighed, weighed)) {
+            weighed = this.pendingWeighed = steadyWeighed(this.pendingWeighed, { picks: read.weighed!.picks, holding: weighed!.holding, apart: read.weighed!.apart, pending: true });
+        }
         const last = this.last;
-        if (last !== undefined && Object.is(last.rows, rows) && last.reading === reading && sameError(last.error, error)) return last;
-        this.last = { rows, reading, error };
+        if (last !== undefined && Object.is(last.rows, rows) && last.reading === reading && sameError(last.error, error) && Object.is(last.weighed, weighed)) {
+            return last;
+        }
+        this.last = weighed === undefined ? { rows, reading, error } : { rows, reading, error, weighed };
         return this.last;
     }
 }
@@ -385,27 +670,32 @@ class KindDetails {
  * @param drawn - The keys of the rows drawn
  * @param attempt - Moves to read every kind afresh: a Retry
  * @param paged - How a paged read answers keys: `pagedDetailRows`, unless a test gives its own
+ * @param weighedRows - How weighed details are read by key: `weighedDetailRows`, unless a test gives its own
  * @returns What the details read holds
  */
-export function useFlowchartDetails(kinds: FlowchartDetailsKinds, drawn: FlowchartDrawnKeys, attempt = 0, paged: FlowchartPagedRows = pagedDetailRows): FlowchartDetailsData {
-    const states = kinds.states?.details;
-    const transitions = kinds.transitions?.details;
+export function useFlowchartDetails(
+    kinds: FlowchartDetailsKinds, drawn: FlowchartDrawnKeys, attempt = 0, paged: FlowchartPagedRows = pagedDetailRows,
+    weighedRows: FlowchartWeighedRows = weighedDetailRows,
+): FlowchartDetailsData {
+    const states = kinds.states;
+    const transitions = kinds.transitions;
     const read = useCallback(() => {
         // A Retry reads every kind again.
         void attempt;
         return {
-            states: states === undefined ? undefined : readKind(states, drawn.states, paged),
-            transitions: transitions === undefined ? undefined : readKind(transitions, drawn.transitions, paged),
+            states: states === undefined ? undefined : readKind(states, drawn.states, paged, weighedRows),
+            transitions: transitions === undefined ? undefined : readKind(transitions, drawn.transitions, paged, weighedRows),
         };
-    }, [states, transitions, drawn, paged, attempt]);
+    }, [states, transitions, drawn, paged, weighedRows, attempt]);
     const { result } = useTrackedEvaluation(read);
     const holders = useRef<{ readonly states: KindDetails; readonly transitions: KindDetails } | undefined>(undefined);
     holders.current ??= { states: new KindDetails(), transitions: new KindDetails() };
     const held = holders.current;
     const failed: KindRead | undefined = result.ok ? undefined : { rows: undefined, error: messageOf(result.error) };
-    const statesRead = states === undefined ? undefined : held.states.take(states, failed ?? (result.ok ? result.value.states : undefined) ?? IN_FLIGHT);
+    const statesRead = states === undefined ? undefined
+        : held.states.take(states.details, failed ?? (result.ok ? result.value.states : undefined) ?? IN_FLIGHT);
     const transitionsRead = transitions === undefined ? undefined
-        : held.transitions.take(transitions, failed ?? (result.ok ? result.value.transitions : undefined) ?? IN_FLIGHT);
+        : held.transitions.take(transitions.details, failed ?? (result.ok ? result.value.transitions : undefined) ?? IN_FLIGHT);
     return useMemo((): FlowchartDetailsData => ({ states: statesRead, transitions: transitionsRead }), [statesRead, transitionsRead]);
 }
 
@@ -535,11 +825,16 @@ export function countIntoBins(value: HistogramValue, edges: readonly number[]): 
  * @param keys - The rows drawn
  * @param rows - Their values
  * @param index - The read's place
+ * @param skipOf - Which of a row's reads count nothing: those saying *no data*, where the rail's picks weigh a row holding none of them,
+ *   and those waiting on picks that moved (#1522)
  * @returns The finite edges, ascending, each once
  */
-function mergedEdges(keys: readonly string[], rows: ReadonlyMap<string, FlowchartDetailRowValue | null>, index: number): number[] {
+function mergedEdges(
+    keys: readonly string[], rows: ReadonlyMap<string, FlowchartDetailRowValue | null>, index: number, skipOf: (key: string) => readonly boolean[],
+): number[] {
     const edges = new SortedSet<number>([], compareFloat);
     for (const key of keys) {
+        if (skipOf(key)[index] === true) continue;
         const value = rows.get(key)?.[index];
         if (value?.type !== "histogram") continue;
         for (const bin of value.value) if (Number.isFinite(bin.from)) edges.add(bin.from);
@@ -632,6 +927,45 @@ export interface FlowchartRowDetails {
     readonly values: FlowchartDetailRowValue;
     /** Each read's counts, by its place: a histogram's in its bins; `undefined` where its bins are refused, and for every other read. */
     readonly counts: readonly (FlowchartBinCounts | undefined)[];
+    /** Whether each read says *no data*, by its place: one the rail's picks weigh, of a row holding none of them (#1522, R45). */
+    readonly noData: readonly boolean[];
+    /** Whether each read draws its placeholder, by its place: one the rail's picks weigh, while the ranges of picks that moved are in flight (#1522, R44). */
+    readonly pending: readonly boolean[];
+}
+
+/**
+ * A row's value at a read, as the canvas, a label and the inspector draw it:
+ * `undefined` where it says *no data* — a read the rail's picks weigh, of a
+ * row holding none of them (#1522, R45) — and where it waits on picks that
+ * moved (R44).
+ *
+ * @param row - The row's details
+ * @param index - The read's place
+ * @returns Its value; `undefined` for *no data*, and while it waits
+ */
+export function valueAt(row: FlowchartRowDetails | undefined, index: number): FlowchartDetailRowValue[number] | undefined {
+    return row === undefined || row.noData[index] === true || row.pending[index] === true ? undefined : row.values[index];
+}
+
+/**
+ * Whether a row's read draws its placeholder: its row not landed (R34), or a
+ * read the rail's picks weigh while the ranges of picks that moved are in
+ * flight (#1522, R44).
+ *
+ * @param row - The row's details; `undefined` while it lands
+ * @param index - The read's place
+ * @returns Whether it waits
+ */
+export function waitsAt(row: FlowchartRowDetails | undefined, index: number): boolean {
+    return row === undefined || row.pending[index] === true;
+}
+
+/** The line the inspector names the rail's picks in (#1522, R46): the field, as the rail names it, and the picks. */
+export interface FlowchartWeighedLine {
+    /** The field, as the rail labels it — `Service`. */
+    readonly label: string;
+    /** The picks, as the rail names them — `Standard, Priority`. */
+    readonly picks: string;
 }
 
 /** One kind's details, as the canvas, the inspector and Issues draw them. */
@@ -648,6 +982,8 @@ export interface FlowchartKindDetails {
     readonly reading: boolean;
     /** Why the latest read failed. */
     readonly error: string | undefined;
+    /** The rail's picks that weigh them, as the inspector names them (#1522, R46); `undefined` with no pick, and for details none weighs. */
+    readonly weighedBy: FlowchartWeighedLine | undefined;
 }
 
 /** What Issues lists of the details (R38). */
@@ -655,7 +991,9 @@ export type FlowchartDetailsFinding =
     /** A row's histogram holding counts no bin holds, by the row's kind and key and the read's label. */
     | { readonly finding: "counts"; readonly sort: FlowchartDetailsSort; readonly key: string; readonly read: string }
     /** A histogram's bins, as the app binds them, refused: by the kind's name and the read's label, and why. */
-    | { readonly finding: "bins"; readonly sort: FlowchartDetailsSort; readonly kind: string; readonly read: string; readonly refusal: FlowchartBinsRefusalWord };
+    | { readonly finding: "bins"; readonly sort: FlowchartDetailsSort; readonly kind: string; readonly read: string; readonly refusal: FlowchartBinsRefusalWord }
+    /** The rail's source whose picks weigh a kind's details narrowing another record than they read (#1522): by the kind's name and the source. */
+    | { readonly finding: "weighed"; readonly sort: FlowchartDetailsSort; readonly kind: string; readonly source: string };
 
 /** The details model: each kind's, and what Issues lists. */
 export interface FlowchartDetailsModel {
@@ -670,6 +1008,23 @@ export interface FlowchartDetailsModel {
 /** A read's label. */
 function labelOf(read: FlowchartReadValue): string {
     return read.value.label;
+}
+
+/**
+ * The line naming the rail's picks (#1522, R46): the field as the rail labels
+ * it, and the picks as the rail names them — the field's own name where the
+ * source offers no such field.
+ *
+ * @param part - The source's part of the rail
+ * @param field - The Dict field the entries index files
+ * @param picks - The picks, as `.east` literals of its keys
+ * @param words - The app's formatters
+ * @returns The line
+ */
+function weighedLineOf(part: FlowchartSlicePart | undefined, field: string, picks: readonly string[], words: Formatters): FlowchartWeighedLine {
+    const offered = part?.config.fields.find((candidate) => sameString(candidate.fieldId, field));
+    if (offered === undefined) return { label: field, picks: picks.join(", ") };
+    return { label: offered.label, picks: recordChoiceSummary(offered, variant("values", [...picks]), words) };
 }
 
 /** Why the bins are refused, its numbers in the app's locale. */
@@ -700,11 +1055,21 @@ export function flowchartDetailsModel(kinds: FlowchartDetailsKinds, data: Flowch
         const keys = sort === "states" ? drawn.states : drawn.transitions;
         const held = read?.rows ?? NO_ROWS;
         const reads = details.reads;
+        // Weighed by the rail's picks (#1522): a row holding none says no data in the reads the picks weigh.
+        const weighed = getSomeorUndefined(details.weighed);
+        const picked = read?.weighed;
+        if (weighed !== undefined && picked?.apart === true) findings.push({ finding: "weighed", sort, kind: name, source: weighed.source });
+        const weighing = weighed !== undefined && picked !== undefined && picked.picks.length > 0 && !picked.apart;
+        const pending = weighed !== undefined && picked?.pending === true ? weighed.reads : undefined;
+        const own = reads.map(() => false);
+        // Picks in flight: the reads they weigh wait, whatever the rows held of the picks before.
+        const noDataOf = (key: string): readonly boolean[] => (weighing && pending === undefined && !picked!.holding.has(key) ? weighed!.reads : own);
+        const skipOf = (key: string): readonly boolean[] => pending ?? noDataOf(key);
         const bins = reads.map((entry, i): FlowchartBins | undefined => {
             if (entry.read.type !== "histogram") return undefined;
             const histogram = entry.read.value;
             const given = getSomeorUndefined(histogram.bins);
-            if (given === undefined) return { edges: mergedEdges(keys, held, i), scale: histogram.scale.type };
+            if (given === undefined) return { edges: mergedEdges(keys, held, i, skipOf), scale: histogram.scale.type };
             const refusal = binsRefusal(given);
             if (refusal === undefined) return { edges: given, scale: histogram.scale.type };
             findings.push({ finding: "bins", sort, kind: name, read: histogram.label, refusal: refusalWord(refusal, words) });
@@ -718,19 +1083,22 @@ export function flowchartDetailsModel(kinds: FlowchartDetailsKinds, data: Flowch
                 rows.set(key, null);
                 continue;
             }
+            const noData = noDataOf(key);
+            const skip = skipOf(key);
             const counts = reads.map((_entry, i) => {
                 const edges = bins[i]?.edges;
-                const at = row[i];
+                const at = skip[i] === true ? undefined : row[i];
                 return edges === undefined || at?.type !== "histogram" ? undefined : countIntoBins(at.value, edges);
             });
             reads.forEach((entry, i) => {
                 if (counts[i]?.unheld === true) findings.push({ finding: "counts", sort, key, read: labelOf(entry.read) });
             });
-            rows.set(key, { values: row, counts });
+            rows.set(key, { values: row, counts, noData, pending: pending ?? own });
         }
         return {
             reads, onCanvas: reads.some((entry) => entry.show.type !== "inspector"), bins, rows,
             reading: read === undefined || read.reading, error: read?.error,
+            weighedBy: weighing ? weighedLineOf(given.weighing, weighed!.field, picked!.picks, words) : undefined,
         };
     };
     const states = kind("states", kinds.states, data.states);
@@ -947,7 +1315,8 @@ function drawsOf(
 ): FlowchartCardDraws {
     if (row === undefined) return PLACEHOLDER;
     if (row === null) return NO_DATA;
-    const at = row.values[index];
+    if (waitsAt(row, index)) return PLACEHOLDER;
+    const at = valueAt(row, index);
     switch (read.type) {
         case "figure": {
             const figure = at?.type === "figure" ? getSomeorUndefined(at.value) : undefined;
@@ -1035,7 +1404,9 @@ export type FlowchartLabelLine =
     /** One of a list's top items: its name, and its share of the list's total (R29). */
     | { readonly kind: "item"; readonly name: string; readonly share: number }
     /** A list with no items: *none*. */
-    | { readonly kind: "none" };
+    | { readonly kind: "none" }
+    /** A list the rail's picks weigh, of a row holding none of them: its label, and *no data* (#1522, R45). */
+    | { readonly kind: "noData"; readonly label: string };
 
 /** A placeholder line, while the row lands. */
 const PLACEHOLDER_LINE: FlowchartLabelLine = { kind: "placeholder" };
@@ -1062,15 +1433,20 @@ export function detailsLabelOf(kind: FlowchartKindDetails, key: string): Flowcha
     kind.reads.forEach((entry, index) => {
         if (entry.show.type === "inspector") return;
         const read = entry.read;
-        const at = row?.values[index];
+        const at = row === undefined ? undefined : valueAt(row, index);
+        const waits = waitsAt(row, index);
         if (read.type === "figure") {
-            lines.push(row === undefined ? PLACEHOLDER_LINE : {
+            lines.push(waits ? PLACEHOLDER_LINE : {
                 kind: "figure", label: read.value.label, value: at?.type === "figure" ? getSomeorUndefined(at.value) : undefined, unit: getSomeorUndefined(read.value.unit),
             });
         } else if (read.type === "list") {
             const top = listTopOf(read.value);
-            if (row === undefined) {
+            if (row === undefined || waits) {
                 for (let i = 0; i < top; i++) lines.push(PLACEHOLDER_LINE);
+                return;
+            }
+            if (row.noData[index] === true) {
+                lines.push({ kind: "noData", label: read.value.label });
                 return;
             }
             const items = at?.type === "list" ? listLines(at.value, top) : [];
