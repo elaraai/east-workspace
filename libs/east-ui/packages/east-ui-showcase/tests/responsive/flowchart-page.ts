@@ -8,10 +8,11 @@
  * that carry its library's cards onto its canvas and save to the e3 the page
  * runs: opening an example at rest, sizing its box, opening its library and
  * a tab of it, picking a card up and carrying it, what the drag's ghost says,
- * where a transition's line runs, and leaving the page for another e3 page
- * and coming back, its e3 kept in memory, so the flowchart mounts afresh over
- * what its record holds; and what is wrong with a phone's window of lanes.
- * Every box is the page's own, in client px.
+ * dragging a state's card and the lane a card stands in, where a transition's
+ * line lies, and leaving the page for another e3 page and coming back, its e3
+ * kept in memory, so the flowchart mounts afresh over what its record holds;
+ * and what is wrong with a phone's window of lanes. Every box is the page's
+ * own, in client px, at whatever zoom the canvas is drawn at (#1519).
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
@@ -265,6 +266,54 @@ export async function carryTo(page: Page, root: Locator, at: { x: number; y: num
 }
 
 /**
+ * Drag a state's card by the mouse to a point of the canvas, past the move's
+ * threshold. The card is hovered first — locator actionability brings it into
+ * the page's view and waits for a stable hit target, as `pickUp` does: a pane
+ * collapsing, or an earlier drop, can leave it below the window, where raw
+ * coordinates reach nothing — then held down and carried past the threshold: the
+ * move is in flight, the card faded where it stands. The point is read after
+ * — what reads it may scroll the canvas under the carried card first — then
+ * carried to once main holds it (`carryTo`).
+ *
+ * @param page - The page
+ * @param root - The flowchart's root
+ * @param key - The state's key
+ * @param to - Reads the point it is carried to, in client px
+ */
+export async function dragState(page: Page, root: Locator, key: string, to: () => Promise<{ x: number; y: number }>): Promise<void> {
+    const card = root.locator(`[data-flowchart-node="${key}"]`);
+    await card.hover();
+    const from = middleOf(await boxOf(card));
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x + 12, from.y + 12, { steps: 3 });
+    await expect(card).toHaveCSS("opacity", "0.3");
+    await carryTo(page, root, await to(), 10);
+    await page.mouse.up();
+    await settled(page);
+}
+
+/**
+ * Which lane's band a state's card stands in, by its middle.
+ *
+ * @param root - The flowchart's root
+ * @param key - The state's key
+ * @returns The band's key, or `null`
+ */
+export function laneOf(root: Locator, key: string): Promise<string | null> {
+    return root.evaluate((el, k) => {
+        const card = el.querySelector(`[data-flowchart-node="${k}"]`)!.getBoundingClientRect();
+        const x = card.left + card.width / 2;
+        const y = card.top + card.height / 2;
+        const band = [...el.querySelectorAll("[data-flowchart-band]")].find((b) => {
+            const r = b.getBoundingClientRect();
+            return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+        });
+        return band?.getAttribute("data-flowchart-band") ?? null;
+    }, key);
+}
+
+/**
  * What the drag's ghost says, and whether it says why not.
  *
  * @param page - The page
@@ -278,7 +327,8 @@ export async function captionOf(page: Page): Promise<{ text: string; refused: bo
 }
 
 /**
- * A point halfway along a transition's line, in client px.
+ * A point halfway along a transition's line, in client px: the line's own
+ * point, in the drawing's px, scaled as the zoom draws the drawing (R42).
  *
  * @param root - The flowchart's root
  * @param key - The transition's key in its record (`l9`)
@@ -287,9 +337,11 @@ export async function captionOf(page: Page): Promise<{ text: string; refused: bo
 export function midLine(root: Locator, key: string): Promise<{ x: number; y: number }> {
     return root.evaluate((el, k) => {
         const path = el.querySelector<SVGPathElement>(`[data-flowchart-link="${k}"]`)!;
-        const svg = path.ownerSVGElement!.getBoundingClientRect();
+        const owner = path.ownerSVGElement!;
+        const svg = owner.getBoundingClientRect();
+        const scale = svg.width / owner.width.baseVal.value;
         const at = path.getPointAtLength(path.getTotalLength() / 2);
-        return { x: svg.left + at.x, y: svg.top + at.y };
+        return { x: svg.left + at.x * scale, y: svg.top + at.y * scale };
     }, key);
 }
 

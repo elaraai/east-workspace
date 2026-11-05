@@ -4,7 +4,7 @@
  */
 
 /**
- * The Flowchart in its frame, measured in a real browser (#1245, #1506,
+ * The Flowchart in its frame, measured in a real browser (#1245, #1506, #1519,
  * `Flowchart Records Spec.md`), on the parcel depot's flowchart over the app's
  * records: a borderless `BuilderFrame` filling the box its example gives it —
  * one 44px toolbar row, the canvas filling main, the library's 44px rail at
@@ -12,12 +12,14 @@
  * pin either beside it, the footer's counts along the foot — and no eyebrow of
  * the canvas's own. The toolbar folds by one ladder: the rail's chips into its
  * one trigger, the rail's summary, the freshness chip, LR · TD into its chip,
- * find state into its icon, then the history. One row at every width from
+ * find state into its icon, then into its View, which takes LR · TD and the
+ * zoom's strip (R42), then the history. One row at every width from
  * 1920px to 600px, nothing past its edge, a narrower row never folding less.
  * The canvas scrolls both ways inside main under the viewer's wheel, its lanes
  * filling main's whole height where its rows take less, the toolbar and the
  * footer staying put; find
- * state's query, typed a key at a time, finds a state by its label, and a pick
+ * state's query, typed a key at a time where its box stands in the row, finds a
+ * state by its label, and a pick
  * selects it and scrolls it into the canvas's view. The layout is checked in
  * the light theme, as every layout check is; and on a touch screen 1920px wide
  * only the rail folds — its chips, then its summary — every other item whole.
@@ -34,10 +36,13 @@ import { LAYOUT_THEMES } from "./themes";
 
 const HASH = "e3/flowchart/flowchart/flowchartDepot";
 
-/** The fold ladder: the rail's chips one at a time, its summary, the freshness chip, LR · TD, find state, then the history. */
+/**
+ * The fold ladder: the rail's chips one at a time, its summary, the freshness chip, LR · TD, find state, find state's
+ * View taking LR · TD and the zoom's strip, then the history.
+ */
 const LADDER = [
     ...Array.from({ length: 9 }, (_, i) => `record-slices>${i + 1}`), "record-summary>1",
-    "freshness>1", "orientation>1", "seek>1", "seek>2", "orientation>2", "history>1",
+    "freshness>1", "orientation>1", "seek>1", "seek>2", "orientation>2", "zoom>1", "history>1",
 ].join(" ");
 
 /** Open the depot's flowchart, at rest, and return its root: the box its frame fills. */
@@ -143,7 +148,7 @@ test.describe("The Flowchart's frame (#1245)", () => {
             expect(read.body).toEqual(read.main);
         });
 
-        test(`the toolbar folds by one ladder — the rail's chips and its summary, the freshness chip, LR · TD into its chip, find state into its icon, the history — one row at every width from 1920px to 600px, nothing past its edge (${theme})`, async ({ page }) => {
+        test(`the toolbar folds by one ladder — the rail's chips and its summary, the freshness chip, LR · TD into its chip, find state into its icon, then its View taking LR · TD and the zoom's strip, the history — one row at every width from 1920px to 600px, nothing past its edge (${theme})`, async ({ page }) => {
             // The page wide enough to hold the widest frame.
             await page.setViewportSize({ width: 2160, height: 1080 });
             const root = await openDepot(page, theme);
@@ -211,7 +216,8 @@ test.describe("The Flowchart's frame (#1245)", () => {
 
     test("find state: a query typed a key at a time finds a state by its label, and a pick selects it and scrolls it into the canvas's view", async ({ page }) => {
         const root = await openDepot(page);
-        await sizeTo(page, root, 640, 400);
+        // A frame whose row holds find state's box, its canvas wider and taller than main.
+        await sizeTo(page, root, 800, 400);
         const box = root.locator("[data-toolbar-item='seek'] input");
         await box.pressSequentially("dispatch");
         await expect(box).toHaveValue("dispatch");

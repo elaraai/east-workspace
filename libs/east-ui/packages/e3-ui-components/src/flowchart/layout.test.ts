@@ -10,8 +10,9 @@
 
 /**
  * The Flowchart's layout (#1509, `Flowchart Records Spec.md` R22–R24, R32,
- * R40, §4), pure, over rows as the read holds them: a phone's window of
- * lanes; cards as big as their reads — rows as tall as their tallest card,
+ * R40, R42, §4), pure, over rows as the read holds them: a phone's window of
+ * lanes; its own size, which a zoom's Fit scales into main (#1519); cards as
+ * big as their reads — rows as tall as their tallest card,
  * its cards centred in it, top down lanes as tall as the tallest card, a
  * ghost the card's width and 40; each link's sides as today's, its route
  * meeting its cards' own sides and crossing no card; room for labels between
@@ -23,7 +24,9 @@
 
 import { describe, expect, test } from "vitest";
 import { StringType, equalFor } from "@elaraai/east";
-import { NODE_H, NODE_W, computeLayout, labelBox, placeLabel, type FlowchartLayout, type LabelBox, type LayoutOptions, type Rect, type RouteSeg } from "./layout.js";
+import {
+    NODE_H, NODE_W, computeLayout, labelBox, layoutExtent, placeLabel, type FlowchartLayout, type LabelBox, type LayoutOptions, type Rect, type RouteSeg,
+} from "./layout.js";
 import type { FlowchartModel, FlowchartRows } from "./model.js";
 import { decisionRow, laneRow, modelOf, rowsOf, stateRow, transitionRow } from "./rows.test-utils.js";
 
@@ -217,6 +220,50 @@ describe("computeLayout's laneWidth (a phone's window of lanes)", () => {
         expect(lanesAt(new Map([["t1", labelBox(["18,460 parcels · 412"])]]))).toEqual([426, 426, 426]);
         // Top down, the lanes stack: the window sets none of them.
         expect(computeLayout(mixed, { width: 390, orientation: "TD", cards: MIXED_CARDS, laneWindow: 390 }).lanes[0]!.h).toBe(272);
+    });
+});
+
+// ============================================================================
+// The layout's own size (R42)
+// ============================================================================
+
+describe("the layout's own size (R42)", () => {
+    test("what it draws at with no room to fill: left to right, its lanes at their least and + LANE, its rows and the room under them; top down, its rows at their least gap and its lanes stacked", () => {
+        // Today's sizes: three lanes of 166 and + LANE's 78; two rows 96 apart, the row past the last and 48 under it.
+        expect(layoutExtent(mixed, { orientation: "LR" })).toEqual({ width: 3 * 166 + 78, height: 248 + 48 });
+        // Top down: rows the card's width, 52 apart, and 48 past the last; three lanes of 40 and 72 and + LANE's 78.
+        expect(layoutExtent(mixed, { orientation: "TD" })).toEqual({ width: 392 + 48, height: 3 * 112 + 78 });
+        // The cards' own sizes: lanes of 272 and the least room, 50; rows as tall as their tallest cards; the legend's room under them.
+        expect(layoutExtent(mixed, { orientation: "LR", cards: MIXED_CARDS, legendPad: 122 })).toEqual({ width: 3 * 322 + 78, height: 528 + 48 + 122 });
+        // A phone's lane width, given, is every lane's.
+        expect(layoutExtent(mixed, { orientation: "LR", laneWidth: 168 }).width).toBe(3 * 168 + 78);
+    });
+
+    test("it is the layout's size at no width and no height, in both orientations at today's sizes and the details', so the two never drift", () => {
+        for (const orientation of ["LR", "TD"] as const) {
+            for (const { name, sized } of SIZES) {
+                const drawing = computeLayout(depot, { width: 0, orientation, legendPad: 122, ...sized });
+                expect({ orientation, name, own: layoutExtent(depot, { orientation, legendPad: 122, ...sized }) })
+                    .toEqual({ orientation, name, own: { width: drawing.width, height: drawing.height } });
+            }
+        }
+    });
+
+    test("laid out for its own size, the layout draws at it; for more room it fills it — left to right its lanes across and down, top down its rows across — and never draws smaller", () => {
+        const sized = { cards: DEPOT_CARDS, labels: DEPOT_LABELS, legendPad: 122 } as const;
+        const lr = layoutExtent(depot, { orientation: "LR", ...sized });
+        const at = computeLayout(depot, { width: lr.width, minHeight: lr.height, orientation: "LR", ...sized });
+        expect([at.width, at.height]).toEqual([lr.width, lr.height]);
+        const twice = computeLayout(depot, { width: lr.width * 2, minHeight: lr.height * 2, orientation: "LR", ...sized });
+        // Five lanes, each rounded down to a whole px: within 5 of the width given.
+        expect([twice.width <= lr.width * 2, twice.width > lr.width * 2 - 5, twice.height]).toEqual([true, true, lr.height * 2]);
+        const td = layoutExtent(depot, { orientation: "TD", ...sized });
+        const wide = computeLayout(depot, { width: td.width * 2, orientation: "TD", ...sized });
+        expect([wide.width, wide.height]).toEqual([td.width * 2, td.height]);
+        for (const [width, minHeight] of [[0, 0], [800, 600], [4000, 3000]] as const) {
+            const drawing = computeLayout(depot, { width, minHeight, orientation: "LR", ...sized });
+            expect([drawing.width >= lr.width, drawing.height >= lr.height]).toEqual([true, true]);
+        }
     });
 });
 

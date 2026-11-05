@@ -39,8 +39,10 @@
  *   (`takeKey`) — and each session's banners sit under it;
  * - **the toolbar** (`toolbar.tsx`): Find — ⌘F or Ctrl+F from anywhere in the
  *   frame — which finds a state the rail hides too, and picks it by clearing
- *   just the choices hiding it (the shared hidden pick, `HideSources`), LR · TD
- *   and the freshness chip, and at the row's end the rail;
+ *   just the choices hiding it (the shared hidden pick, `HideSources`), LR · TD,
+ *   the zoom — Zoom out, Zoom in and Fit, through the canvas's handle, the
+ *   canvas telling it where the zoom stands (R42) — and the freshness chip, and
+ *   at the row's end the rail;
  * - **the library** (`library.tsx`), the start pane: the Steps, Transitions
  *   and Lanes tabs and the author's own, their cards dropped onto the canvas
  *   (`use-drop.ts`);
@@ -76,6 +78,7 @@ import { rowCodec } from "../shared/schedule/records.js";
 import { sourcePart, type KeyVisibilityWords } from "../shared/schedule/visibility.js";
 import { NARROW_WIDTH } from "../shared/schedule/window.js";
 import { kindPlural } from "../shared/schedule/words.js";
+import type { ZoomRange } from "../shared/schedule/zoom.js";
 import { FlowchartCanvasView, type FlowchartCanvasEdit, type FlowchartCanvasFailure, type FlowchartCanvasHandle, type FlowchartReveal } from "./canvas.js";
 import { FlowchartDetailsReader, NO_DETAILS, askDetailsAgain, detailsKindsOf, flowchartDetailsModel, useDrawnKeys, type FlowchartDetailsData } from "./details.js";
 import { draftedRows, type FlowchartDimmed } from "./drafted.js";
@@ -106,6 +109,9 @@ type Styles = Record<string, SystemStyleObject>;
 const payloadEqual = equivalentFor(Flowchart.Types.Payload);
 const stringEqual = equalFor(StringType);
 const readinessesEqual = equalFor(ArrayType(EditingBatchReadinessType));
+
+/** Where the zoom stands until the canvas is measured (R42): at the cards' own size, which is Fit — both ends. */
+const OPENS_ZOOMED: ZoomRange = { atFit: true, atLimit: true };
 
 /** Props of {@link EastChakraFlowchart}. */
 export interface EastChakraFlowchartProps {
@@ -456,10 +462,18 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
         () => (freshnessValue === undefined ? undefined : { label: freshnessValue.label, date: getSomeorUndefined(freshnessValue.date) }),
         [freshnessValue]);
     const railNouns = useMemo(() => Object.fromEntries(nouns), [nouns]);
-    const items = useFlowchartToolbarItems({ styles, find, orientation, onOrientation: setOrientation, freshness, words, history: historyItem, chrome, nouns: railNouns });
+    // The zoom (R42): the toolbar's strip zooms the canvas through its handle, and the canvas tells it where the zoom
+    // stands — until it is measured, at the cards' own size and at Fit, both off.
+    const canvasRef = useRef<FlowchartCanvasHandle>(null);
+    const [zoomRange, setZoomRange] = useState<ZoomRange>(OPENS_ZOOMED);
+    const zoomBy = useCallback((factor: number) => canvasRef.current?.zoomBy(factor), []);
+    const fit = useCallback(() => canvasRef.current?.fit(), []);
+    const items = useFlowchartToolbarItems({
+        styles, find, orientation, onOrientation: setOrientation, freshness, words, history: historyItem, chrome, nouns: railNouns,
+        zoom: zoomRange, onZoom: zoomBy, onFit: fit,
+    });
     // ⌘F, or Ctrl+F, anywhere in the frame: Find; ⌘Z, ⇧⌘Z and ⌘Y the history's, but in a field typed into, whose own
     // they are; and the canvas's keys. Each key acted on goes no further than the Flowchart.
-    const canvasRef = useRef<FlowchartCanvasHandle>(null);
     const onKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
         if (event.defaultPrevented) return;
         if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "f") {
@@ -574,7 +588,7 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
                 >
                     <FlowchartCanvasView ref={canvasRef} canvas={value.canvas} model={model} details={detailsModel} orientation={orientation} reveal={reveal} conflicted={conflicted}
                         edit={canvasEdits} drop={drop.canvas} selection={selection} onSelect={setSelected} words={words} storageKey={storageKey}
-                        onElement={onCanvasElement} failure={failure} />
+                        onElement={onCanvasElement} failure={failure} onZoomRange={setZoomRange} />
                 </BuilderFrame>
             </LoadingReveal>
         </Box>

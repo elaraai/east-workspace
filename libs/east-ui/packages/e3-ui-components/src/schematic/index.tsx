@@ -153,12 +153,12 @@ import { rowCodec } from "../shared/schedule/records.js";
 import { sourcePart, type KeyVisibilityWords, type SourcesChrome } from "../shared/schedule/visibility.js";
 import { kindPlural } from "../shared/schedule/words.js";
 import { NARROW_WIDTH } from "../shared/schedule/window.js";
+import type { ZoomRange } from "../shared/schedule/zoom.js";
 import { createViewportStore, type SchematicViewportStore } from "./area.js";
 import { backlogEntries } from "./backlog.js";
 import { SchematicBacklogPages, type BacklogAreaKind, type BacklogPageCount } from "./backlog-pages.js";
 import {
     SchematicCanvas, type SchematicCanvasEditing, type SchematicCanvasFailure, type SchematicCanvasFit, type SchematicCanvasHandle, type SchematicCanvasNarrowing,
-    type SchematicZoomRange,
 } from "./canvas/view.js";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type ItemRoles, type SchematicRef } from "./canvas/drawn.js";
 import { layerState } from "./canvas/layers.js";
@@ -346,7 +346,7 @@ const NOTHING_SELECTED: ReadonlySet<string> = new Set();
 const NO_PICKS: ReadonlyMap<string, string> = new Map();
 
 /** The zoom as the canvas opens: at Fit. */
-const AT_FIT: SchematicZoomRange = { atFit: true, atLimit: false };
+const AT_FIT: ZoomRange = { atFit: true, atLimit: false };
 
 /** What the tools offer below 480px of main (#1394, D15): no Move and no Connect, the inspector's actions there. */
 const VIEW_ONLY: SchematicToolsOffered = { links: [], movable: false };
@@ -535,7 +535,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     }, []);
     const selected = selection.size > 0;
     // Where the zoom stands, as the canvas tells it: the toolbar's Zoom out and Zoom in take no press past either end (#1393).
-    const [zoomRange, setZoomRange] = useState<SchematicZoomRange>(AT_FIT);
+    const [zoomRange, setZoomRange] = useState<ZoomRange>(AT_FIT);
     const zoomBy = useCallback((factor: number) => canvasRef.current?.zoomBy(factor), []);
     const fit = useCallback(() => canvasRef.current?.fit(), []);
     const step = useCallback((delta: 1 | -1) => canvasRef.current?.step(delta), []);

@@ -39,7 +39,8 @@ import {
 import type { DrawnItem, DrawnZone } from "./drawn";
 import { cardContentWidth, type LodTier, type WorldBox } from "./model";
 import type { Paint } from "./use-paint";
-import type { SchematicCanvasFit, SchematicZoomRange } from "./view";
+import type { SchematicCanvasFit } from "./view";
+import type { ZoomRange } from "../../shared/schedule/zoom.js";
 
 const stringEqual = equalFor(StringType);
 
@@ -171,7 +172,7 @@ export interface CameraMovesProps {
     /** Where the canvas writes its viewport as its camera comes to rest (#1393); `undefined`, it writes nowhere. */
     readonly viewport: SchematicViewportStore | undefined;
     /** Told whether the zoom stands at Fit and at its limit, as either changes (#1393). */
-    readonly onZoomRange: ((range: SchematicZoomRange) => void) | undefined;
+    readonly onZoomRange: ((range: ZoomRange) => void) | undefined;
     /**
      * Told as the viewer acts on the camera — a press, the wheel, a pinch, a zoom, Fit, the minimap, a fly — each its
      * transition into a mode; never a resize, which moves the camera by none.
@@ -283,7 +284,7 @@ export function useCameraMoves({
     }, [fit, home, requestRender, cameraRef]);
 
     // The toolbar hears where the zoom stands (#1393): at Fit its Zoom out takes no press, at the limit its Zoom in.
-    const zoomRangeRef = useRef<SchematicZoomRange | undefined>(undefined);
+    const zoomRangeRef = useRef<ZoomRange | undefined>(undefined);
     useEffect(() => {
         if (onZoomRange === undefined || fit === 0) return;
         const range = { atFit: cameraSnapshot.zoom <= 1 + 1e-9, atLimit: cameraSnapshot.zoom >= maxZoom - 1e-9 };

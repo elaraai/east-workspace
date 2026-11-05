@@ -237,6 +237,14 @@ export interface FlowchartMessages extends EditingMessages, HiddenWords, PagedLo
     orientationLabel: () => string;
     /** The toolbar's view menu. */
     viewLabel: () => string;
+    /** The zoom's strip's accessible name (R42). */
+    zoomLabel: () => string;
+    /** Zoom out. */
+    zoomOut: () => string;
+    /** Zoom in. */
+    zoomIn: () => string;
+    /** Fit: the whole flowchart in view. */
+    fit: () => string;
     /** The footer's transitions, after their count — `transitions`. */
     footerLinks: (p: { n: number }) => string;
     /** Their split — `8 planned · 2 observed · 1 unresolved`, the unresolved only when some are. */
@@ -513,6 +521,10 @@ export function flowchartMessagesOf(nouns: FlowchartNouns): FlowchartMessages {
         findNoMatches: () => "No matches",
         orientationLabel: () => "Orientation",
         viewLabel: () => "View",
+        zoomLabel: () => "Zoom",
+        zoomOut: () => "Zoom out",
+        zoomIn: () => "Zoom in",
+        fit: () => "Fit",
         footerLinks: ({ n }) => plural(n, transition, transitions),
         footerSplit: ({ planned: p, observed: o, unresolved }) =>
             `${p} ${planned} · ${o} ${observed}${unresolved === undefined ? "" : ` · ${unresolved} unresolved`}`,

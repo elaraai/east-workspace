@@ -1,10 +1,10 @@
 # Flowchart Records Spec
 
-*e3-ui · Flowchart · design.* The visual spec is `Flowchart Records Spec.html`, beside this file: it decides how the details look — the state card, the transition label, the legend and the inspector. This file decides the rest: the authoring examples and the API (§2), the types, refusals and payload (§3), and every behaviour, those the visual spec does not draw among them. Where the two differ on a look, the visual spec wins; on anything else, this file does. Every behaviour is a numbered rule, R1–R41 (§5); the user's rulings and the design's decisions D1–D24 are §8; the tasks, §9.
+*e3-ui · Flowchart · design.* The visual spec is `Flowchart Records Spec.html`, beside this file: it decides how the details look — the state card, the transition label, the legend and the inspector. This file decides the rest: the authoring examples and the API (§2), the types, refusals and payload (§3), and every behaviour, those the visual spec does not draw among them. Where the two differ on a look, the visual spec wins; on anything else, this file does. Every behaviour is a numbered rule, R1–R42 (§5); the user's rulings and the design's decisions D1–D24 are §8; the tasks, §9.
 
 Today the Flowchart draws one flow of a dictionary of flows, each flow kept whole in one record entry or handed over as data. This proposal draws one flowchart over the app's own records, as the Schematic does: a record of states and a record of transitions, each row the app's own type with its fields mapped to the Flowchart's roles, each read through its source of the rail so the indexes narrow both; and beside them two small records, the lanes and the decisions. On top of that, the app can put structured details on each state and transition — figures, tag lists in its own colours, time-in-state histograms over its own bins and axis, and short lists — in one ordered array, drawn on the cards and labels and shown in full in the inspector.
 
-**Spec** for the epic · Four kinds: **states, transitions, lanes, decisions** · The Flow types and the Flows tab: **removed** · **16** rulings · **24** design decisions
+**Spec** for the epic · Four kinds: **states, transitions, lanes, decisions** · The Flow types and the Flows tab: **removed** · **19** rulings · **24** design decisions
 
 - **Records.** States and transitions are each a keyed record of the app's. `Flowchart.states` and `Flowchart.transitions` map their fields to the Flowchart's roles — a state's label, lane and place; a transition's ends and decision — and every other field is the app's, edited in the inspector's form.
 - **The rail.** Each is read through its source of the one `Slice.bindRecords`, named `states` and `transitions`, so each index's choices narrow it — hidden, or dimmed as context — and a preset narrows both at once: one record holding many flows shows one.
@@ -1214,7 +1214,7 @@ FlowchartDetailRowType = ArrayType(VariantType({
 
 ## 5. Rules
 
-Each rule names where it lives and what tests it. R1 to R17 are the records; R18 to R41 the details and the drawing.
+Each rule names where it lives and what tests it. R1 to R17 are the records; R18 to R41 the details and the drawing; R42 the zoom.
 
 #### R1 — One flowchart over the app's records
 
@@ -1452,7 +1452,7 @@ A card with details, hovered, is `--paper-2`; selected, `--paper-3` in a 1px `--
 
 #### R40 — Narrow widths
 
-Cards keep their size and the canvas pans; the inspector's histogram spans the pane; nothing joins the toolbar. On a phone, where the details draw on the cards, the lane pager shows one lane at a time: its window holds only the lanes whose cards fit whole, counted at the card's width and 16 — 288 — so a phone's 390 holds one, whatever `narrow.lanes` asks, and the readout says *Lanes 1 of 3*. A lane keeps its width, the card's and the room R24 keeps for labels, so each step brings its card to the window's middle, and the labels between two lanes are a swipe away, never on a card.
+Cards keep their size and the canvas pans; the inspector's histogram spans the pane; nothing joins the toolbar. On a phone, where the details draw on the cards, the lane pager shows one lane at a time: its window holds only the lanes whose cards fit whole, counted at the card's width and 16 — 288 — so a phone's 390 holds one, whatever `narrow.lanes` asks, and the readout says *Lanes 1 of 3*. A lane keeps its width, the card's and the room R24 keeps for labels, so each step brings its card to the window's middle, and the labels between two lanes are a swipe away, never on a card. Zoomed out (R42), the window holds as many whole lanes as fit, and each step moves a lane's zoomed width.
 
 *Where:* recipes; the renderer's `canvas.tsx`, `lane-pager.tsx`. *Tested by:* responsive at 390, 360 and 294px: one lane in the window, its card whole and centred after each step, and no label on a card.
 
@@ -1461,6 +1461,16 @@ Cards keep their size and the canvas pans; the inspector's histogram spans the p
 Numbers in the app's locale; durations from the unit — 15m, 4h, 2d, 1w — and the last bin open-ended, 1w+; the app's own words where its ticks give them. A read with nothing to show says *no data*, and a tag list or a list with no items *none*. A histogram's caption says *Half within 4h · nine in ten within 2d* — *over 1w* where its counts reach the open bin — or, for the bin under the pointer, *4h – 8h · 236 parcels · 22%*, the last bin *1w or more*.
 
 *Where:* `messages.ts`. *Tested by:* unit test.
+
+#### R42 — Zoom
+
+Zoom out, Zoom in and Fit stand after LR · TD: the Schematic's strip, one part both draw, each button titled with its name and drawn with Font Awesome's minus, plus and expand. The Flowchart opens at the cards' own size, as it always has, and a big flowchart scrolls; the zoom is the viewer's while the flowchart is open, never remembered, as the scroll is not. Fit puts the whole flowchart in view — its lanes, + LANE and the legend — never past the cards' own size, so a flowchart that fits already stands at Fit. Each click zooms ×1.5 and brings what is selected to the view's middle, where Find and Go to bring it; with nothing selected, it zooms about the view's middle (ruling 20). Zoom out goes down to Fit, Zoom in up to the cards' own size, each off at its end — both, on a flowchart that fits — and Fit can be clicked at any zoom.
+
+Everything the canvas draws scales — cards, transitions and their labels, decisions, lanes and their headers, + STATE, + LANE and the legend — while the minimap, the lane pager and a failed read's box keep their size. At any zoom the lanes fill main as they do at the cards' size: the layout is computed for main's size over the zoom. Fit is taken from the layout's own size, the size it draws at with no room to fill. A zoom stays as rows land, lanes come and go and main resizes; a zoom Fit or Zoom out put at Fit keeps the whole flowchart in view as it changes, and a zoom below a new Fit comes up to it. A drop, a move, a new transition and + STATE land where the pointer is; Find, a drop and Go to scroll their state to the view's middle at the zoom it stands at, and leave the zoom as it is; the wheel scrolls.
+
+The strip folds last, into Find's View, with LR · TD where a rail folds it there; a flowchart with nothing to find keeps its strip. On a phone the View is a button beside Search Records, holding the strip — and LR · TD where a rail folds it there — which leave the row, as the Schematic's tools and zoom do. Zoomed out, a phone's lane window holds as many whole lanes as fit: each lane keeps its width at the cards' size, the pager steps its zoomed width and counts the whole lanes in view, and a lane is centred only while it is wider than the window.
+
+*Where:* `shared/schedule/zoom.tsx`; the renderer's `canvas.tsx`, `layout.ts` (`layoutExtent`), `lane-pager.tsx`, `toolbar.tsx` and `index.tsx`; the `flowchart` recipe. *Tested by:* DOM tests — the strip's words, its bounds and its clicks, its fold, and on a phone the View holding it; the canvas opening at the cards' own size, a step each way, Fit, and a flowchart that fits standing at Fit; a layout test of the layout's own size; responsive — the whole flowchart inside main at Fit, the cards at the zoom's scale, the view's middle held across a zoom and a selected state brought to it, a drop, a move and a new transition landing where the pointer is zoomed out, the ladder with the strip, and on a phone the View holding the strip and the pager stepping a zoomed lane.
 
 ## 6. The reference mock against the Flowchart
 
@@ -1520,7 +1530,8 @@ The reference mock is evidence for what to show, not for how the Flowchart behav
 - **The rail's plumbing** — `recordSources(…).bind($)`, each source bound once; `FollowSources`; `PagedScan` for a complete read, four pages in flight at most; the narrowing's shown keys; and the shared hidden pick, for Find state and Go to issue.
 - **Sessions per record** — `shared/schedule/editing.ts`' one history over a session a record, `shared/schedule/records.ts`' rows kept at their revision, Save through each record's patch door, the Save notice, and the drafts a narrowing hides waiting in their sessions (the Schematic's `drafted.ts`).
 - **The Schematic's inspector** — nothing selected: the counts, and each record's last save and who made it (`authorOf`); Issues over every unsaved change, drawn or waiting.
-- **BuilderFrame**, the toolbar items and the Dock pane — unchanged; nothing joins the toolbar.
+- **BuilderFrame**, the toolbar items and the Dock pane — unchanged; the details add nothing to the toolbar, and the zoom (R42) its strip.
+- **The Schematic's zoom** — its strip of Zoom out, Zoom in and Fit, lifted into `shared/schedule/zoom.tsx`, which both draw; and its View, Find's popover holding it, a button of its own beside Search Records on a phone (R42).
 - **The Flowchart's model, layout, router and label placer** — assembled from the kinds' rows instead of a flow; the card's and each label's size become inputs.
 - **FieldForm and the shared field renderers** — each kind's form over the fields no role writes, and the fields printed read only.
 - **The `flowchartInspector` recipe** — its head, stats grid, fact, link and issue parts; new slots beside them for the tags, the histogram and the list. The card's reads are new slots of the `flowchart` recipe.
@@ -1555,6 +1566,8 @@ The reference mock is evidence for what to show, not for how the Flowchart behav
 16. **The legend's tag groups.** A group for each tag list given `legend`, its label drawn even before any of its tags show. — *Ruled 4 Nov 2026*
 17. **The legend's tag groups stack.** Beside the rows, the groups stand one over another, where each had stood beside the last with empty room under it. — *Ruled 5 Nov 2026*
 18. **Kinds name themselves.** A kind's `name` — `Flowchart.states(record, { …, name: "Stop" })` — is the app's word for it, which the Flowchart says wherever it speaks of one: its tabs, canvas, legend, inspector, footer, find box and refusals. `vocabulary` keeps only the words no kind names, a transition's two kinds: `vocabulary={{ planned?, observed? }}`. One way to name each thing, as the Schematic's kinds are named. — *Ruled 5 Nov 2026*
+19. **Zoom.** Zoom out, Zoom in and Fit, the Schematic's strip as it is: Fit puts the whole flowchart in view, Zoom out stops at Fit and Zoom in at the cards' own size, each click ×1.5 about the view's middle. The Flowchart opens at the cards' own size, as today, and the zoom is not remembered, as the scroll is not. As on the Schematic, the strip folds with LR · TD into the popover of a phone's row, and zoomed out more lanes fit in view, the lane pager stepping by the zoomed lane's width. In this pull request. — *Ruled 5 Nov 2026*
+20. **Zoom towards the selection.** With a state selected, each click of Zoom in or Zoom out zooms, then brings it to the view's middle, as finding a state does; a selected link, lane or several states the same way. With nothing selected, the view's middle stays put. The Flowchart only, for now: the Schematic's zoom stays about the view's middle. — *Ruled 5 Nov 2026*
 
 ### The design's decisions
 
@@ -1587,7 +1600,7 @@ The design takes D1 to D24, each naming what it leaves; the user's rulings above
 
 ## 9. Tasks
 
-The work lands in one pull request (ruling 10): the records cutover first — tasks 1 to 6 — since removing the Flow types takes the renderer and the examples with it, then the details — tasks 7 to 10 — each part closed by task 11. The details look as the visual spec draws them (ruling 11).
+The work lands in one pull request (ruling 10): the records cutover first — tasks 1 to 6 — since removing the Flow types takes the renderer and the examples with it, then the details — tasks 7 to 10 — each part closed by task 11. The details look as the visual spec draws them (ruling 11). The zoom, task 12, follows (rulings 19 and 20).
 
 1. **The kinds** (e3-ui) — `Flowchart.states`, `transitions`, `lanes` and `decisions` over the app's records: their roles typed over the row, the binding forms and every refusal's words; each kind closed behind East functions over its rows' bytes — rows with their roles, `write`, `create`, `set`, a read by key, its form, its `ready` and its own Details; the slice's `states` and `transitions` sources through `recordSources`, and `narrowed`; the payload. `record`, `data`, `flow`, `onApply`, `Flowchart.over`, `values`, `value` and the Flow types removed.
 
@@ -1632,5 +1645,9 @@ The work lands in one pull request (ruling 10): the records cutover first — ta
 11. **Docs and the showcase** — the e3-ui skill and its CLAUDE.md, the renderer's CLAUDE.md, the API docs, the showcase's Flowchart page on e3, and the plugin index regenerated.
 
    **Done when:** the skill shows the minimal and depot examples, the index finds them, and the showcase's page draws each example on e3.
+
+12. **Zoom** (the renderer) — the Schematic's zoom strip shared, and the Schematic drawing it; the Flowchart's strip, its words, its fold into Find's View and the phone's View; the canvas at a zoom — laid out for main's size over it, Fit from the layout's own size, and the pointer, Find's scroll, the drops and the lane pager through it; Zoom out and Zoom in towards what is selected (R42).
+
+   **Done when:** DOM tests cover the strip's words and bounds — both off on a flowchart that fits — its steps and Fit, and on a phone the View holding it; the responsive suite measures the whole flowchart inside main at Fit, the cards at the zoom's scale, the view's middle held across a zoom and a selected state brought to it, a drop, a move and a new transition landing where the pointer is zoomed out, the ladder with the strip, and on a phone the View holding the strip and the pager stepping a zoomed lane.
 
 Every figure on this page is made up: the depot's in the visual spec, and the examples'.

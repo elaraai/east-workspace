@@ -33,6 +33,12 @@
  * rail (#1346) is the shared schedule pane's body (`pane`), busy and taking
  * no gesture while its source resolves.
  *
+ * Zoomed (`Flowchart Records Spec.md` R42), the canvas is drawn scaled from
+ * its top-left corner (`canvasWrap`) inside a box of the size it is drawn at
+ * (`canvasZoom`), which is what main scrolls; the View's controls — the zoom's
+ * strip, with LR · TD where a rail folds it there — stand one over another
+ * over Find's box (`toolbarControls`).
+ *
  * Where the details draw on the cards (#1510, `Flowchart Records Spec.md`
  * R22–R34, R39), a card is 272 wide and as tall as its reads, in the visual
  * spec's looks: its head 54 inside its edge — the label, its ×n and ↻ n, over
@@ -128,7 +134,7 @@ export const flowchartSlotRecipe = defineSlotRecipe({
     className: "elara-flowchart",
     slots: [
         "root", "freshnessDot", "toolbarControls",
-        "body", "scroll", "canvasWrap",
+        "body", "scroll", "canvasZoom", "canvasWrap",
         "node", "ghostNode", "nodeCode", "nodeLabel", "nodeBadge",
         "cardHead", "cardTitle", "cardName", "cardChip", "cardKey", "cardBody",
         "readLabel", "figure", "figureValue", "figureNumber", "figureUnit", "noData",
@@ -175,7 +181,14 @@ export const flowchartSlotRecipe = defineSlotRecipe({
 
         /* ── the freshness chip's dot — the chip itself is the shared
          *    `chip` recipe's, a toolbar item (#1245) ───────────────────── */
-        toolbarControls: { marginBottom: "3" },
+        /* The View popover's controls (R42): the zoom's strip, with LR · TD where a rail folds it there, over Find's box. */
+        toolbarControls: {
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "stretch",
+            gap: "{spacing.2}",
+            marginBottom: "{spacing.3}",
+        },
         freshnessDot: {
             width: "6px",
             height: "6px",
@@ -199,12 +212,23 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             overflow: "auto",
             _focus: { outline: "none" },
         },
+        /* What main scrolls (R42): a box of the size the canvas is drawn at,
+         * the zoom's — the drawing's own box scaled inside it reaches its
+         * edge, and the scroll no further. */
+        canvasZoom: {
+            position: "relative",
+            overflow: "clip",
+        },
         /* The canvas, and its one drop cell (#1249): its own marks stand in for
          * the shared stage's frame and wash over the whole canvas — most of
          * which refuses a transition's card — so the stage keeps only its
-         * not-allowed cursor; the ghost's red caption says why. */
+         * not-allowed cursor; the ghost's red caption says why. Zoomed (R42),
+         * it is scaled from its top-left corner. */
         canvasWrap: {
-            position: "relative",
+            position: "absolute",
+            top: 0,
+            left: 0,
+            transformOrigin: "0 0",
             "&[data-drag-cell][data-drop-valid]::before, &[data-drag-cell][data-drop-active]::before, &[data-drag-cell][data-drop-invalid]::before": { content: "none" },
             "&[data-drag-cell][data-drop-active], &[data-drag-cell][data-drop-invalid]": { background: "transparent" },
             "&[data-drag-cell][data-drop-invalid]::after": { content: "none" },

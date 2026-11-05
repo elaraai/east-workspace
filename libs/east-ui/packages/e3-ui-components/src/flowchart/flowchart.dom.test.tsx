@@ -88,8 +88,8 @@ describe("EastChakraFlowchart over the app's records", () => {
         await drawn(container);
         const frame = container.querySelector("[data-flowchart-root] > [data-builder-frame]");
         expect(frame).not.toBeNull();
-        // One toolbar, the frame's: find state, LR · TD, the freshness chip — no eyebrow of the canvas's own.
-        expect(toolbarItems(container)).toEqual(["seek", "orientation", "freshness"]);
+        // One toolbar, the frame's: find state, LR · TD, the zoom's strip (R42), the freshness chip — no eyebrow of the canvas's own.
+        expect(toolbarItems(container)).toEqual(["seek", "orientation", "zoom", "freshness"]);
         expect(container.querySelectorAll("[data-toolbar]")).toHaveLength(1);
         expect(frame!.querySelector("[data-frame-slot='toolbar'] [data-toolbar-item='seek'] input")).not.toBeNull();
         const segments = [...container.querySelectorAll("[data-flowchart-seg='orientation'] [role='radio']")];
@@ -158,7 +158,8 @@ describe("EastChakraFlowchart over the app's records", () => {
         const { container } = await h.mountFlowchart(readWhole());
         await waitFor(() => expect(container.querySelectorAll("[data-flowchart-lane]")).toHaveLength(5));
         await settle();
-        expect(toolbarItems(container)).toEqual(["orientation"]);
+        // LR · TD and the zoom's strip, which with nothing to find stays in the row.
+        expect(toolbarItems(container)).toEqual(["orientation", "zoom"]);
         expect(stateKeys(container)).toEqual([]);
         // The canvas's box stays in main, measured, for the states that come.
         expect(container.querySelector("[data-frame-slot='main'] > [data-flowchart-body]")).not.toBeNull();

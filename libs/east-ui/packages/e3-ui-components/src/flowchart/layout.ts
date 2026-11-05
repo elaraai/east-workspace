@@ -544,14 +544,52 @@ interface Routed {
 }
 
 /**
- * Computes the full layout. The algorithm runs in LOGICAL space (lanes
- * along X, stacking along Y); for TD the finished geometry transposes
- * (the spec: "TD orientation swaps the axes") — logical right/bottom
- * out-handles become real bottom/right, cards stay upright.
+ * The layout's sizes, worked out before anything is placed: what
+ * {@link computeLayout} draws at, and what {@link layoutExtent} says of it —
+ * from one place, so the two never drift.
  */
-export function computeLayout(model: FlowchartModel, opts: LayoutOptions): FlowchartLayout {
+interface Sizing {
+    /** The card's width. */
+    readonly cardW: number;
+    /** A card's height, by its state's key. */
+    readonly cardH: (key: string) => number;
+    /** A card's logical extent along the lane axis, from its height. */
+    readonly mainOf: (h: number) => number;
+    /** A card's logical extent along the stacking axis, from its height. */
+    readonly crossOf: (h: number) => number;
+    /** Each label's size, by its transition's key: a transition left out draws none. */
+    readonly labelSizes: ReadonlyMap<string, LabelBox>;
+    /** The tallest card's height. */
+    readonly tallestCard: number;
+    readonly laneCount: number;
+    readonly rowCount: number;
+    /** The gap between two rows. */
+    readonly rowGap: number;
+    /** The rows, then the row past the last. */
+    readonly rows: readonly LayoutRow[];
+    /** A lane's width along the lane axis. */
+    readonly laneW: number;
+    /** The logical cross extent: LR's canvas height, TD's canvas width. */
+    readonly crossExtent: number;
+    /** The logical main extent: the lanes and the band row's tail. */
+    readonly mainExtent: number;
+    /** How far the bands reach along the stacking axis: left to right, under the legend too. */
+    readonly bandExtent: number;
+    /** The canvas's width. */
+    readonly width: number;
+    /** The canvas's height, the legend's room in it. */
+    readonly height: number;
+}
+
+/**
+ * The layout's sizes (see {@link Sizing}).
+ *
+ * @param model - The view model
+ * @param opts - What the layout is computed for
+ * @returns Its sizes
+ */
+function sizingOf(model: FlowchartModel, opts: LayoutOptions): Sizing {
     const td = opts.orientation === "TD";
-    const tp = (p: Pt): Pt => (td ? { x: p.y, y: p.x } : p);
 
     // ── Sizes: the cards' (R22) and the labels' (R32) ─────────────────────
     const cardW = opts.cards?.width ?? NODE_W;
@@ -588,8 +626,6 @@ export function computeLayout(model: FlowchartModel, opts: LayoutOptions): Flowc
         rows.push({ start, size: rowSizes[i]! });
         start += rowSizes[i]! + rowGap;
     }
-    /** The middle of the gutter after a row: where a route passes between rows. */
-    const gutterAfter = (row: number): number => rows[row]!.start + rows[row]!.size + rowGap / 2;
 
     // ── Lanes: left to right the card's width and the room beside it, at
     // least today's 166, filling the width; top down the tallest card and 72,
@@ -606,6 +642,42 @@ export function computeLayout(model: FlowchartModel, opts: LayoutOptions): Flowc
     // Bands span the FULL component (in LR that includes the legend strip —
     // the legend floats over them, exactly as the spec sheet draws it).
     const bandExtent = crossExtent + (td ? 0 : (opts.legendPad ?? 0));
+    return {
+        cardW, cardH, mainOf, crossOf, labelSizes, tallestCard, laneCount, rowCount, rowGap, rows, laneW, crossExtent, mainExtent, bandExtent,
+        width: td ? crossExtent : mainExtent,
+        height: (td ? mainExtent : crossExtent) + (opts.legendPad ?? 0),
+    };
+}
+
+/**
+ * The layout's own size (R42): what {@link computeLayout} draws at with no
+ * room to fill — no width for its lanes to stretch across or its rows to
+ * widen into, and no height for its lanes to fill. A zoom's Fit scales it
+ * into main.
+ *
+ * @param model - The view model
+ * @param opts - What the layout is computed for, but the room it fills
+ * @returns Its width and its height
+ */
+export function layoutExtent(model: FlowchartModel, opts: Omit<LayoutOptions, "width" | "minHeight">): { readonly width: number; readonly height: number } {
+    const { width, height } = sizingOf(model, { ...opts, width: 0, minHeight: undefined });
+    return { width, height };
+}
+
+/**
+ * Computes the full layout. The algorithm works in LOGICAL space (lanes
+ * along X, stacking along Y); for TD the finished geometry transposes
+ * (the spec: "TD orientation swaps the axes") — logical right/bottom
+ * out-handles become real bottom/right, cards stay upright.
+ */
+export function computeLayout(model: FlowchartModel, opts: LayoutOptions): FlowchartLayout {
+    const td = opts.orientation === "TD";
+    const tp = (p: Pt): Pt => (td ? { x: p.y, y: p.x } : p);
+    const {
+        cardW, cardH, mainOf, crossOf, labelSizes, tallestCard, laneCount, rowCount, rowGap, rows, laneW, crossExtent, mainExtent, bandExtent, width, height,
+    } = sizingOf(model, opts);
+    /** The middle of the gutter after a row: where a route passes between rows. */
+    const gutterAfter = (row: number): number => rows[row]!.start + rows[row]!.size + rowGap / 2;
 
     const lanes: LaneBand[] = model.lanes.map((l, i) => {
         const a = tp({ x: i * laneW, y: 0 });
@@ -809,12 +881,9 @@ export function computeLayout(model: FlowchartModel, opts: LayoutOptions): Flowc
     const tailA = tp({ x: laneCount * laneW + 8, y: 14 });
     const tailB = tp({ x: laneCount * laneW + LANE_TAIL_W - 8, y: bandExtent - 14 });
 
-    const realW = (td ? crossExtent : mainExtent);
-    const realH = (td ? mainExtent : crossExtent) + (opts.legendPad ?? 0);
-
     return {
-        width: realW,
-        height: realH,
+        width,
+        height,
         orientation: opts.orientation,
         lanes,
         nodes,

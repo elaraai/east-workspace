@@ -15,8 +15,10 @@
  * details draw on the cards a lane keeps its width, wider than the window, and
  * each step brings its card to the window's middle — the middle of what the
  * window shows, its scrollbar left out — as the window opens, as it resizes and
- * as a swipe settles too (R40, D24). Its looks are the Sheet's pager's, in the
- * `sheet` recipe.
+ * as a swipe settles too (R40, D24). Zoomed (R42), a lane is as wide as the
+ * zoom draws it: the window holds as many whole lanes as fit, each step moves
+ * a lane's zoomed width, and a lane is centred only while it is wider than the
+ * window. Its looks are the Sheet's pager's, in the `sheet` recipe.
  *
  * @packageDocumentation
  */
@@ -34,11 +36,11 @@ export interface FlowchartLanePagerProps {
     frame: HTMLElement | null;
     /** How many lanes the flow has. */
     total: number;
-    /** How many the window shows at once. */
+    /** How many whole lanes the window shows at once. */
     inView: number;
-    /** A lane's width, px. */
+    /** A lane's width as drawn, at the zoom, px. */
     slotPx: number;
-    /** Whether each step brings its lane's card to the window's middle — where the details draw on the cards, a lane wider than the window; otherwise the lanes fill the window, each step bringing a lane to its start. */
+    /** Whether each step brings its lane's card to the window's middle while the lane is wider than the window — where the details draw on the cards; otherwise, and once the lane is no wider, each step brings a lane to the window's start. */
     centred: boolean;
     /** The flowchart's words. */
     words: FlowchartWords;
@@ -63,8 +65,9 @@ export const FlowchartLanePager = memo(function FlowchartLanePager({ frame, tota
         observer.observe(frame);
         return () => observer.disconnect();
     }, [frame, centred]);
-    // Where the window rests on a lane: past its start by half what the lane is wider than what the window shows, so its card stands in the middle.
-    const offset = centred && shows > 0 ? Math.round((slotPx - shows) / 2) : 0;
+    // Where the window rests on a lane: past its start by half what the lane is wider than what the window shows, so its card
+    // stands in the middle — at its start where the lane is no wider, zoomed out.
+    const offset = centred && shows > 0 ? Math.max(0, Math.round((slotPx - shows) / 2)) : 0;
     // The first lane in view, and whether the view is at the canvas's end: where the window rests, read off the canvas as it scrolls.
     const [first, setFirst] = useState(0);
     const [atEnd, setAtEnd] = useState(false);

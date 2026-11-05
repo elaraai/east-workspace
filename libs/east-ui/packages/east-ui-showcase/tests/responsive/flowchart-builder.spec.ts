@@ -41,7 +41,7 @@ import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { frameAt } from "./builder-frame";
 import { settled } from "./settle";
-import { CARRY_WINDOW, boxOf, boxesOf, captionOf, cardOf, carryTo, centreInMain, middleOf, midLine, openFlowchart, openTab, paneOpen, pickUp, remount, sizeTo } from "./flowchart-page";
+import { CARRY_WINDOW, boxOf, boxesOf, captionOf, cardOf, carryTo, centreInMain, dragState, laneOf, middleOf, midLine, openFlowchart, openTab, paneOpen, pickUp, remount, sizeTo } from "./flowchart-page";
 
 /** The inspector's open width (`Flowchart Builder Spec.md` §8). */
 const INSPECTOR = 320;
@@ -117,20 +117,6 @@ test.describe("Every pane combination on a phone (#1251, FB40)", () => {
     }
 });
 
-/** Which lane's band a state's card stands in, by its middle: the band's key, or `null`. */
-function laneOf(root: Locator, key: string): Promise<string | null> {
-    return root.evaluate((el, k) => {
-        const card = el.querySelector(`[data-flowchart-node="${k}"]`)!.getBoundingClientRect();
-        const x = card.left + card.width / 2;
-        const y = card.top + card.height / 2;
-        const band = [...el.querySelectorAll("[data-flowchart-band]")].find((b) => {
-            const r = b.getBoundingClientRect();
-            return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-        });
-        return band?.getAttribute("data-flowchart-band") ?? null;
-    }, key);
-}
-
 /** A transition's own line, as it is drawn: its dashes and its stroke. */
 function lineOf(root: Locator, key: string): Promise<[string | null, string]> {
     return root.evaluate((el, k) => {
@@ -149,26 +135,6 @@ function inkOf(page: Page, token: string): Promise<string> {
         probe.remove();
         return color;
     }, token);
-}
-
-/**
- * Drag a state's card by the mouse to a point of the canvas, past the move's threshold. The card is hovered first —
- * locator actionability brings it into the page's view and waits for a stable hit target, as `pickUp` does: a pane
- * collapsing, or an earlier drop, can leave it below the window, where raw coordinates press nothing — then pressed and
- * carried past the threshold: the move is in flight, the card faded where it stands. The point is read after — what
- * reads it may scroll the canvas under the carried card first — then carried to once main holds it (`carryTo`).
- */
-async function dragState(page: Page, root: Locator, key: string, to: () => Promise<{ x: number; y: number }>): Promise<void> {
-    const card = root.locator(`[data-flowchart-node="${key}"]`);
-    await card.hover();
-    const from = middleOf(await boxOf(card));
-    await page.mouse.move(from.x, from.y);
-    await page.mouse.down();
-    await page.mouse.move(from.x + 12, from.y + 12, { steps: 3 });
-    await expect(card).toHaveCSS("opacity", "0.3");
-    await carryTo(page, root, await to(), 10);
-    await page.mouse.up();
-    await settled(page);
 }
 
 test.describe("The depot's records on the e3 the page runs (#1251, #1503, FB39)", () => {

@@ -828,9 +828,9 @@ test.describe("Visual invariants — the Table, on touch", () => {
  * builder fold their zoom into the View chip as their widths hide, and Studio
  * its Save as template, Preview and Publish into the ⋯ chip, each one move
  * (#1229). The Flowchart's frame (#1245) lets its freshness chip go, LR · TD
- * fold into its chip and find state into its icon — over its records bound
- * editable as well, which no rail narrows (#1346, #1503), with nothing before
- * them. A builder over one
+ * fold into its chip and find state into its icon, then into its View with
+ * the zoom's strip (#1519) — over its records bound editable as well, which no
+ * rail narrows (#1346, #1503), with nothing before them. A builder over one
  * `Slice.bindRecords` rail — the Calendar's (#1343), the Sheet's (#1345), the
  * Flowchart's over its records (#1346, #1502), the Schematic's (#1387) — folds
  * every step of the rail first, then the rail's summary, then its own steps
@@ -848,8 +848,8 @@ const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readon
     { name: "Deck", route: "collections/deck/deckSlice", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
     { name: "Library", route: "collections/library/libraryLarge", widths: [1600, 1200, 900, 700, 600], nudge: [900], rail: ["rail"], ladder: () => LIBRARY_LADDER },
     { name: "Library (gallery)", route: "collections/library/libraryGalleryReports", widths: [1600, 1200, 900, 700, 600], nudge: [900], ladder: () => LIBRARY_LADDER },
-    { name: "Flowchart", route: "e3/flowchart/flowchart/flowchartDepot", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], rail: ["record-slices"], ladder: () => FLOWCHART_LADDER },
-    { name: "Flowchart (editing)", route: "e3/flowchart/flowchart/flowchartDepotEditing", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], ladder: () => FLOWCHART_LADDER },
+    { name: "Flowchart", route: "e3/flowchart/flowchart/flowchartDepot", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], rail: ["record-slices"], ladder: flowchartLadder },
+    { name: "Flowchart (editing)", route: "e3/flowchart/flowchart/flowchartDepotEditing", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], ladder: flowchartLadder },
     { name: "Schematic", route: "e3/schematic/schematic/schematicDataCentre", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], rail: ["record-slices"], ladder: () => SCHEMATIC_LADDER },
     { name: "SnapGrid editor", route: "layout/snap-grid/snapGridEditor", widths: [1600, 1200, 1000, 900, 800, 700, 600], nudge: [1000, 800], ladder: () => SNAP_GRID_LADDER },
     { name: "Studio builder", route: "e3/studio/studio/studioBuilder", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], ladder: () => STUDIO_LADDER },
@@ -905,9 +905,18 @@ const STUDIO_LADDER: ReadonlyArray<readonly [string, number]> = [
  *  sources narrow (#1346, #1502), the rail's summary first, after every step
  *  of the rail and before the Flowchart's own (ruled 18 Oct, #1340); then the
  *  freshness chip goes, LR · TD folds into its chip, find state into its
- *  icon, and the history item folds last, to its buttons, where the flowchart
- *  edits through its session (#1503). */
-const FLOWCHART_LADDER: ReadonlyArray<readonly [string, number]> = [["record-summary", 1], ["freshness", 1], ["orientation", 1], ["seek", 1], ["history", 1]];
+ *  icon; then find state's View takes the zoom's strip (#1519, R42) — and LR ·
+ *  TD, where a rail folds it there — one move; and the history item folds
+ *  last, to its buttons, where the flowchart edits through its session
+ *  (#1503). */
+function flowchartLadder(state: ToolbarState): ReadonlyArray<readonly [string, number]> {
+    const rail = state.has("record-slices");
+    return [
+        ["record-summary", 1], ["freshness", 1], ["orientation", 1], ["seek", 1],
+        ["seek", 2], ...(rail ? [["orientation", 2] as const] : []), ["zoom", 1],
+        ["history", 1],
+    ];
+}
 
 /** The Schematic's own order (#1387, §6.1, SC24), after its rail: the rail's
  *  summary first, after every step of the rail (ruled 18 Oct, #1340); then the
