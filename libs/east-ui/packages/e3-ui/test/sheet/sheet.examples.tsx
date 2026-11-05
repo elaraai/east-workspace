@@ -1229,7 +1229,7 @@ export const sheetWording = example({
                         items={weeks.map((_$, w) => SegmentGroup.Item(w, <Text>{w}</Text>))} />
                     <Box height="480px">
                         <Sheet
-                            vocabulary={{ members: "machine", unassigned: "anyone free", source: "start bay", destination: "end bay", wanted: "promised", actual: "as promised" }}
+                            vocabulary={{ members: "machine", unassigned: "anyone free", source: "start bay", destination: "end bay", wanted: "promised", actual: "met" }}
                             record={plans}
                             entry={{ key: week.read(), rows: "rows", id: "id" }}
                             name="weeks"
