@@ -236,7 +236,7 @@ describe("the legend (R31, §4)", () => {
         expect(legendOf(modelOver(undefined), words)).toBe(NO_LEGEND);
     });
 
-    test("its height: its rows' column — its title, then 22 a row, today's four and one a read — or its tallest group — its title, then its tags across 236, 15 a line and 4 between — whichever is taller, in its padding and its rule, rounded up", () => {
+    test("its height: its rows' column — its title, then 22 a row, today's four and one a read — or its groups' column — each its title, then its tags across 236, 15 a line and 4 between, one over another 12 apart — whichever is taller, in its padding and its rule, rounded up", () => {
         /** Every tag as wide as given. */
         const wide = (px: number): FlowchartTextMeasure => ({ label: () => 0, tag: () => px });
         /** A group of `n` tags. */
@@ -248,10 +248,11 @@ describe("the legend (R31, §4)", () => {
         // Two tags 116 wide fit 236 with the 4 between them, two 117 wide don't: eight tags take four lines, or eight.
         expect(legendHeight({ reads: [], groups: [group(8)] }, wide(116))).toBe(Math.ceil(11.25 + 4 * 22 + 22));
         expect(legendHeight({ reads: [], groups: [group(8)] }, wide(117))).toBe(Math.ceil(11.25 + 4 + 8 * 15 + 7 * 4 + 22));
-        // The tallest group decides, against the rows' column: ten tags in five lines over today's rows, under a column of seven.
-        expect(legendHeight({ reads: [], groups: [group(2), group(10)] }, wide(116))).toBe(Math.ceil(11.25 + 4 + 5 * 15 + 4 * 4 + 22));
+        // The groups stand one over another, 12 apart: two tags on a line over ten in five lines, past today's rows, though
+        // neither alone is; ten in five lines alone, under a column of seven.
+        expect(legendHeight({ reads: [], groups: [group(2), group(10)] }, wide(116))).toBe(Math.ceil((11.25 + 4 + 15) + 12 + (11.25 + 4 + 5 * 15 + 4 * 4) + 22));
         expect(legendHeight({ reads: [read, read, read], groups: [group(10)] }, wide(116))).toBe(Math.ceil(11.25 + 7 * 22 + 22));
-        // The depot's own: five rows beside a group of three tags on a line and one with none yet, its title alone.
+        // The depot's own: five rows beside a group of three tags on a line over one with none yet, its title alone.
         expect(legendHeight(legendOf(modelOver(DEPOT_STATES, DEPOT_MOVES), words), ESTIMATED_TEXT)).toBe(Math.ceil(11.25 + 9 * 22 + 22));
     });
 });

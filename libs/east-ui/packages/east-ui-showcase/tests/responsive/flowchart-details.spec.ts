@@ -515,9 +515,9 @@ test.describe("The details as the visual spec measures them (R22–R39, §4)", (
                 detail: { font: f.mono, size: "10px", weight: "400", fill: c["fg-muted"], text: "Metro 46%" },
             });
 
-            // The legend: 10 and 14 of padding in a 1px --rule-strong edge, r6, on --paper; its rows' column, then each group
-            // 24 beside it; its title mono 9/600, 2 apart, in capitals, --ink-4; every row 16 high, 6 under the last, each
-            // read's mark 28 × 16, its words 10.5 in --ink-3.
+            // The legend: 10 and 14 of padding in a 1px --rule-strong edge, r6, on --paper; its rows' column, then its groups
+            // 24 beside it, one over another 12 apart, the first level with the rows (ruling 17); its title mono 9/600, 2 apart,
+            // in capitals, --ink-4; every row 16 high, 6 under the last, each read's mark 28 × 16, its words 10.5 in --ink-3.
             const legend = root.locator("[data-flowchart-legend]");
             const chrome = await legend.evaluate((el) => {
                 const q = (n: number) => Math.round(n * 100) / 100;
@@ -527,7 +527,8 @@ test.describe("The details as the visual spec measures them (R22–R39, §4)", (
                 const parts = [...el.querySelector("[data-legend-rows]")!.children].map((row) => row.getBoundingClientRect());
                 return {
                     padding: s.padding, edge: [s.borderTopWidth, s.borderTopStyle, s.borderTopColor], radius: s.borderTopLeftRadius, background: s.backgroundColor,
-                    beside: groups.map((g, i) => q(g.left - (i === 0 ? rows.right : groups[i - 1]!.right))),
+                    // Each group: how far past the rows' column it starts, and how far under the group before it — the first, under the rows' top.
+                    groups: groups.map((g, i) => [q(g.left - rows.right), q(g.top - (i === 0 ? rows.top : groups[i - 1]!.bottom))]),
                     rows: parts.slice(1).map((r) => q(r.height)), apart: parts.slice(1).map((r, i) => q(r.top - parts[i]!.bottom)),
                     marks: [...el.querySelectorAll("[data-legend-mark]")].map((m) => [q(m.getBoundingClientRect().width), q(m.getBoundingClientRect().height)]),
                     words: [...new Set([...el.querySelectorAll("[data-legend-read] > span:last-child")].map((w) => `${getComputedStyle(w).fontSize} ${getComputedStyle(w).color}`))],
@@ -535,7 +536,7 @@ test.describe("The details as the visual spec measures them (R22–R39, §4)", (
             });
             expect(chrome).toEqual({
                 padding: "10px 14px", edge: ["1px", "solid", c["border-strong"]], radius: "6px", background: c["bg-surface"],
-                beside: [24, 24], rows: Array<number>(8).fill(16), apart: Array<number>(8).fill(6), marks: Array.from({ length: 4 }, () => [28, 16]),
+                groups: [[24, 0], [24, 12]], rows: Array<number>(8).fill(16), apart: Array<number>(8).fill(6), marks: Array.from({ length: 4 }, () => [28, 16]),
                 words: [`10.5px ${c["fg-muted"]}`],
             });
             const title = { font: f.mono, size: "9px", weight: "600", case: "uppercase", spacing: "2px", color: c["fg-subtle"] };

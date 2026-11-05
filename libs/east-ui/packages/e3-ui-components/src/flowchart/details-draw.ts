@@ -16,14 +16,14 @@
  * - **The legend** (R31, §4): under today's four rows, a row for each
  *   figure, histogram and list the cards and labels draw, in the details'
  *   order — the states', then the transitions' — each its mark and its words;
- *   and beside them a group for each tag list on the cards it lists, its
- *   label, then the defined tags the cards show, in the order defined. A tag
- *   no definition names is left out; a group whose tags no card shows yet —
- *   before a row lands, say — is its label alone.
+ *   and beside them, one over another, a group for each tag list on the cards
+ *   it lists, its label, then the defined tags the cards show, in the order
+ *   defined. A tag no definition names is left out; a group whose tags no card
+ *   shows yet — before a row lands, say — is its label alone.
  * - **Its height** (§4): its rows' column — its title, then 22 a row — or its
- *   tallest group — its title, then its tags wrapped across 236, 15 a line and
- *   4 between — whichever is taller, in its padding and its rule: what the
- *   layout keeps under the drawing for it.
+ *   groups' column — each its title, then its tags wrapped across 236, 15 a
+ *   line and 4 between, one over another 12 apart — whichever is taller, in
+ *   its padding and its rule: what the layout keeps under the drawing for it.
  *
  * @packageDocumentation
  */
@@ -188,6 +188,8 @@ const GROUP_GAP = 4;
 const GROUP_TAG_H = 15;
 /** Between two lines of a group's tags, and between two tags. */
 const GROUP_TAG_GAP = 4;
+/** Between two groups, one over another. */
+const GROUPS_GAP = 12;
 /** What a group's tags wrap across: the visual spec's. */
 export const LEGEND_GROUP_W = 236;
 /** The legend's padding, 10 above and below, and its 1px rule. */
@@ -217,12 +219,14 @@ function groupLines(tags: readonly FlowchartLegendTag[], measure: FlowchartTextM
  */
 export function legendHeight(legend: FlowchartLegend, measure: FlowchartTextMeasure): number {
     const rows = LEGEND_TITLE + (TODAY_ROWS + legend.reads.length) * LEGEND_ROW;
-    const groups = legend.groups.map((group) => {
+    // The groups one over another, 12 apart.
+    const groups = legend.groups.reduce((column, group, i) => {
         const lines = groupLines(group.tags, measure);
         // A group no card shows a tag of yet is its title alone.
-        return lines === 0 ? LEGEND_TITLE : LEGEND_TITLE + GROUP_GAP + lines * GROUP_TAG_H + (lines - 1) * GROUP_TAG_GAP;
-    });
-    return Math.ceil(Math.max(rows, ...groups) + LEGEND_CHROME);
+        const height = lines === 0 ? LEGEND_TITLE : LEGEND_TITLE + GROUP_GAP + lines * GROUP_TAG_H + (lines - 1) * GROUP_TAG_GAP;
+        return column + (i === 0 ? 0 : GROUPS_GAP) + height;
+    }, 0);
+    return Math.ceil(Math.max(rows, groups) + LEGEND_CHROME);
 }
 
 /** The words a card draws that the canvas measures: its tag lists' labels, and their tags with every +n they may end in. */

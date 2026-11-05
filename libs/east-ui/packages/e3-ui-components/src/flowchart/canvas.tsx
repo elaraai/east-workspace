@@ -68,8 +68,9 @@
  *   sight as a card draws them, before the layout places it; a transition's
  *   label draws its lines under its evidence, a placeholder bar each while its
  *   row lands; and the legend adds a row for each figure, histogram and list
- *   the cards and labels draw, and beside them a group for each tag list it
- *   lists (`details-draw.ts`), the layout keeping its height under the drawing.
+ *   the cards and labels draw, and beside them, one over another, a group for
+ *   each tag list it lists (`details-draw.ts`), the layout keeping its height
+ *   under the drawing.
  *
  * A read that failed is said once on the canvas (R5): the shared failure box
  * (`LoadingFailedBox`) at its box's top-left, in view however the drawing
@@ -1627,7 +1628,7 @@ export function FlowchartCanvasView({ canvas, model, details, orientation, revea
                         })()}
 
                         {/* legend — planned / observed / trigger / in-place, then a row for each read the cards and
-                            labels draw, and beside them a group for each tag list it lists (R31) */}
+                            labels draw, and beside them, one over another, a group for each tag list it lists (R31) */}
                         {legendOn && (
                             <Box css={styles.legend} data-flowchart-legend>
                                 <Box css={styles.legendRows} data-legend-rows="">
@@ -1657,16 +1658,20 @@ export function FlowchartCanvasView({ canvas, model, details, orientation, revea
                                         </Box>
                                     ))}
                                 </Box>
-                                {legend.groups.map((group) => (
-                                    <Box key={group.key} css={styles.legendTags} data-legend-group={group.key}>
-                                        <Box css={styles.legendTitle}>{group.label}</Box>
-                                        {group.tags.length > 0 && (
-                                            <Box css={styles.legendTagList}>
-                                                {group.tags.map((tag) => <FlowchartTag key={tag.tag} css={styles.tag} text={tag.tag} look={tag.look} />)}
+                                {legend.groups.length > 0 && (
+                                    <Box css={styles.legendGroups} data-legend-groups="">
+                                        {legend.groups.map((group) => (
+                                            <Box key={group.key} css={styles.legendTags} data-legend-group={group.key}>
+                                                <Box css={styles.legendTitle}>{group.label}</Box>
+                                                {group.tags.length > 0 && (
+                                                    <Box css={styles.legendTagList}>
+                                                        {group.tags.map((tag) => <FlowchartTag key={tag.tag} css={styles.tag} text={tag.tag} look={tag.look} />)}
+                                                    </Box>
+                                                )}
                                             </Box>
-                                        )}
+                                        ))}
                                     </Box>
-                                ))}
+                                )}
                             </Box>
                         )}
                     </Box>

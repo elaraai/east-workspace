@@ -45,7 +45,8 @@
  * transition's label draws its lines under its evidence, `--brand-dd` while
  * it is selected; a line not landed is a placeholder bar. The legend's rows
  * gain a row for each read the cards and labels draw, its mark beside its
- * words, and beside the rows a group for each tag list it lists. A tag's look
+ * words, and beside the rows, one over another, a group for each tag list it
+ * lists. A tag's look
  * is its definition's (`tagLooks`): subtle in a palette, a 6% wash of it on a
  * 1px rule of it in its text step; gray, neutral or undefined, the Tag's own
  * neutral look; any other variant, the Tag recipe's in its palette, at the card's size. A
@@ -138,7 +139,7 @@ export const flowchartSlotRecipe = defineSlotRecipe({
         "laneDelete", "addLane", "laneSelected",
         "stateGhost", "stateEditor", "moveClone",
         "dropLane", "dropSeam",
-        "legend", "legendRows", "legendTitle", "legendRow", "legendMark", "legendFigure", "legendTags", "legendTagList",
+        "legend", "legendRows", "legendTitle", "legendRow", "legendMark", "legendFigure", "legendGroups", "legendTags", "legendTagList",
         "minimap",
         "footer", "footerStrong", "footerMessage", "footerSplit",
         "empty",
@@ -715,8 +716,8 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             padding: "4px 10px",
         },
 
-        /* ── legend — its rows, and beside them a group for each tag list it
-         *    lists (#1510, R31), 24 apart ─────────────────────────────────── */
+        /* ── legend — its rows, and 24 beside them its groups of tags, a group
+         *    for each tag list it lists, one over another (#1510, R31) ──────── */
         legend: {
             position: "absolute",
             left: "16px",
@@ -768,6 +769,8 @@ export const flowchartSlotRecipe = defineSlotRecipe({
         },
         /* A figure's mark: "123", mono 9.5/600 `--ink`. */
         legendFigure: { fontFamily: "mono", fontSize: "9.5px", fontWeight: "600", color: "fg" },
+        /* Its groups of tags, one column: each under the last, 12 apart, the first level with the rows. */
+        legendGroups: { display: "flex", flexDirection: "column", gap: "12px", minWidth: 0 },
         legendTags: { display: "flex", flexDirection: "column", gap: "4px", minWidth: 0 },
         /* A group's tags, at the card's size, wrapping 4 apart across at most 236. */
         legendTagList: { display: "flex", flexWrap: "wrap", gap: "4px", maxWidth: "236px" },
