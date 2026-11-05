@@ -65,7 +65,7 @@ function PersonFacts({ props, person, slot }: { props: Args; person: Person; slo
     const theirs = [...props.week.assignments].filter(([, a]) => a.who.type === "person" && a.who.value === person.key);
     const cost = costed(props.value) ? costsOf(props.pay, theirs.map(([id]) => id)).total : undefined;
     return <><Box css={props.styles.section}><Box css={props.styles.sectionHead}>Skills · {group?.label}</Box><Box css={props.styles.detail}>{skills?.filter(skill => person.skills.has(skill.key)).length} / {skills?.length} held</Box>
-        {person.agency && person.skills.size === 0 && <Box css={props.styles.detail}>No skills recorded for agency staff.</Box>}
+        {person.agency && person.skills.size === 0 && <Box css={props.styles.detail}>No skills recorded for {props.value.vocabulary.agency.toLocaleLowerCase(props.format.locale)}.</Box>}
         {skills?.map(skill => <Box key={skill.key} css={props.styles.skillLine}><Box as="span" css={props.styles.flag} aria-label={person.skills.has(skill.key) ? "Skill held" : "Skill not held"}><FontAwesomeIcon icon={person.skills.has(skill.key) ? faCheck : faMinus} /></Box><span>{skill.label}</span><span /><span>{props.format.number(coverage?.lines.find(line => line.skill === skill.key)?.needed ?? 0)} h needed</span></Box>)}
     </Box><Box css={props.styles.section}><Box css={props.styles.sectionHead}>Week</Box><Box css={props.styles.detail}>{props.format.number(props.hours.get(person.key) ?? 0)} h / {props.format.number(person.contract)} h{cost !== undefined && ` · ${money(props.format, props.value, cost, false)}`}</Box>
         {/* A day pressed opens that week — in Week, from Month (#1406, P24) — with the duty selected, or the person where the day is off.
@@ -160,7 +160,7 @@ function OneSlot({ props, slot }: { props: Args; slot: Slot }) {
         when={`${c.filled} / ${c.positions} positions · ${props.format.number(c.hours.rostered)} of ${props.format.number(c.hours.needed)} h`} status={{ label: c.hours.rostered < c.hours.needed ? `${props.format.number(c.hours.needed - c.hours.rostered)} h short` : "Covered", tone: { type: c.hours.rostered < c.hours.needed ? "warning" : "success" }, ring: false }} home />
         <RosterIssues props={props} issues={props.issues.filter(i => i.slot.type === "some" && sameSlot(i.slot.value, slot))} />
         <Box css={props.styles.section}><Box css={props.styles.sectionHead}>Coverage</Box><CoverageView coverage={c} value={props.value} styles={props.styles} format={props.format} />
-            <Box css={props.styles.detail}>Permanent · Agency staff · Requested · Open · Needed</Box></Box>
+            <Box css={props.styles.detail}>{props.value.vocabulary.permanent} · {props.value.vocabulary.agency} · Requested · Open · Needed</Box></Box>
         <Box css={props.styles.fields}><Box css={props.styles.sectionHead}>Targets</Box><Targets props={props} slot={slot} /></Box>
         <Box css={props.styles.section}><Box css={props.styles.sectionHead}>Roster</Box><Box css={props.styles.detail}>{String(c.filled)} filled · {String(c.open)} open · {c.lead ? "Lead assigned" : "No lead"} · {c.trainer ? "Trainer assigned" : "No trainer"}</Box>
             {costed(props.value) && <Box css={props.styles.detail}>{money(props.format, props.value, c.cost, false)}</Box>}<PlaceAction label="Assign person" slot={slot} value={props.value} start={props.start} commands={props.commands} styles={props.styles} /></Box>

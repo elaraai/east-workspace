@@ -76,6 +76,23 @@ export const RosterLibraryTabType = VariantType({
 });
 
 /**
+ * The Roster's own words for who is on it, each the app's where it gives one (#1516).
+ *
+ * @property permanent - People and hours that are not agency: the legend, the inspector, the coverage bar
+ * @property permanentShort - Its short form in the coverage detail
+ * @property agency - A person whose `agency` accessor is true, and their hours
+ * @property agencyShort - Its short form in the coverage detail
+ * @property leads - The group of people in a lead position that day: the People tab, and a Find's needs
+ * @property others - The group of the others rostered that day
+ * @property trainers - A Find's needs' group of trainers
+ * @property available - The group of people not rostered that day, from the weekday's short name
+ */
+export const RosterVocabularyType = StructType({
+    permanent: StringType, permanentShort: StringType, agency: StringType, agencyShort: StringType, leads: StringType, others: StringType, trainers: StringType,
+    available: FunctionType([StringType], StringType),
+});
+
+/**
  * The closed renderer payload. BuilderFrame is internal to the renderer.
  * @property duty - The duty kind: the app's duties read and written through their roles, over bytes at the row type
  * @property people - Every person, from the `people` resource kind's accessors: the calculation scope, whatever the slice shows
@@ -99,6 +116,7 @@ export const RosterLibraryTabType = VariantType({
  * @property narrowed - Each narrowed source's keys, paged through its part of `slice`: the people, the activities and the patterns that show (#1342)
  * @property slice - The narrowing's chrome: a Slice over the duties', the targets', the staff's and the activities' records, one rail
  * @property settings - The first view and the view settings: the layout, the layouts the instance offers (empty, every one), its period, the periods it offers (empty, every one its layout takes), the date, the week's start, the density, the chip skills, the requirement rows, read-only, and the People layout's `tileTimes` and `letters` (#1406)
+ * @property vocabulary - The Roster's own words for who is on it (#1516), today's where the app gives none
  * @property id - The viewer's identity
  */
 export const RosterPayloadType = StructType({
@@ -132,6 +150,7 @@ export const RosterPayloadType = StructType({
         density: VariantType({ compact: NullType, comfortable: NullType }), chipSkills: BooleanType, requirements: BooleanType, readOnly: BooleanType,
         tileTimes: RosterTileTimesType, letters: BooleanType,
     }),
+    vocabulary: RosterVocabularyType,
     id: OptionType(StringType),
 });
 /** Carrier registered by e3-ui-components. */
@@ -140,6 +159,29 @@ export const RosterComponent = EastUI.component("Roster", RosterPayloadType, { o
 // ============================================================================
 // The props
 // ============================================================================
+
+/**
+ * The Roster's own words for who is on it (#1516): every one optional, an omitted one today's. A fit's reason is the fit's
+ * own, which runs on e3: `Roster.fit(R, { notALead })`.
+ */
+export interface RosterVocabulary {
+    /** People and hours that are not agency: "Permanent" (legend, inspector, coverage bar). */
+    permanent?: SubtypeExprOrValue<StringType>;
+    /** Its short form in the coverage detail: "perm". */
+    permanentShort?: SubtypeExprOrValue<StringType>;
+    /** A person whose `agency` accessor is true, and their hours: "Agency staff". */
+    agency?: SubtypeExprOrValue<StringType>;
+    /** Its short form in the coverage detail: "agency". */
+    agencyShort?: SubtypeExprOrValue<StringType>;
+    /** The group of people in a lead position that day (People tab, needs): "Leads". */
+    leads?: SubtypeExprOrValue<StringType>;
+    /** The group of the others rostered that day: "Associates". */
+    others?: SubtypeExprOrValue<StringType>;
+    /** The needs group of trainers: "Trainers". */
+    trainers?: SubtypeExprOrValue<StringType>;
+    /** The group of people not rostered that day, from the weekday's short name ("Mon"): `Off ${weekday} · available`. */
+    available?: SubtypeExprOrValue<FunctionType<[StringType], StringType>>;
+}
 
 /**
  * The Roster's props (§5.1).
@@ -244,9 +286,14 @@ export interface RosterProps<R extends EastType = EastType> {
     tileTimes?: "always" | "different";
     /** Whether a month's marks carry the shift's letter (#1406); `true` by default. */
     letters?: boolean;
+    /** The Roster's own words for who is on it, each optional: `{ permanent: "Employees", agency: "Contractors", others: "Colleagues" }` (#1516). */
+    vocabulary?: RosterVocabulary;
     /** Stable viewer identity when multiple Rosters share a surface. */
     id?: string;
 }
+
+/** Today's words for the group of people not rostered that day. */
+const ROSTER_AVAILABLE = East.function([StringType], StringType, (_$, weekday) => East.str`Off ${weekday} · available`);
 
 /** The props §2 removed, each refused by name with the form that replaces it. */
 const REMOVED: readonly (readonly [string, string])[] = [
@@ -594,6 +641,12 @@ export function createRosterPayload<R extends EastType>(props: RosterProps<R>): 
                 density: variant(props.density ?? "comfortable", null), chipSkills: props.chipSkills ?? true,
                 requirements: props.requirements ?? true, readOnly: props.readOnly ?? false,
                 tileTimes: variant(props.tileTimes ?? "always", null), letters: props.letters ?? true,
+            },
+            vocabulary: {
+                permanent: props.vocabulary?.permanent ?? "Permanent", permanentShort: props.vocabulary?.permanentShort ?? "perm",
+                agency: props.vocabulary?.agency ?? "Agency staff", agencyShort: props.vocabulary?.agencyShort ?? "agency",
+                leads: props.vocabulary?.leads ?? "Leads", others: props.vocabulary?.others ?? "Associates", trainers: props.vocabulary?.trainers ?? "Trainers",
+                available: props.vocabulary?.available ?? ROSTER_AVAILABLE,
             },
             id: props.id === undefined ? none : some(props.id),
         } as never, RosterPayloadType);

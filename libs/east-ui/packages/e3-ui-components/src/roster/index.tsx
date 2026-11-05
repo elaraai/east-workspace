@@ -487,7 +487,7 @@ function RosterFrame(props: FrameProps) {
             {props.rangeError !== undefined && <BannerView status="error" title="Week unavailable" description={props.rangeError} />}
             {/* A gesture's error; a read's is said once, in the grid and on the footer's line (#1398, CL11). */}
             {error !== undefined && <Box css={styles.error} role="alert">{error}</Box>}
-        </>} footer={<RosterFooter styles={styles} duties={dutyPart} noun={{ singular: `${dutyName} event`, plural: `${dutyName} events` }} line={line}
+        </>} footer={<RosterFooter styles={styles} vocabulary={value.vocabulary} duties={dutyPart} noun={{ singular: `${dutyName} event`, plural: `${dutyName} events` }} line={line}
             optimise={{ line: optimiseParts.line, legend: optimiseParts.legend }} />}>
             {/* A failed week's main is not retained: its Retry is in it. The board is the keyboard's surface and its anchor,
                 never a tab stop, as the Calendar's is: a click on a part of it that holds nothing focusable puts the keyboard

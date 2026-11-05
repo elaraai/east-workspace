@@ -8,11 +8,11 @@ import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { OptimiseLegendItem } from "@elaraai/east-ui-components";
 import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useRevealed, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
-import type { RosterStyles } from "./model.js";
+import type { RosterStyles, RosterValue } from "./model.js";
 
 /** The coverage marks the legend explains: who fills a slot's hours, and what it needs. Overtime is the app's pay's to say (§5.6). */
-const LEGEND = [
-    { key: "permanent", label: "Permanent" }, { key: "agency", label: "Agency staff" },
+const legendOf = (words: RosterValue["vocabulary"]) => [
+    { key: "permanent", label: words.permanent }, { key: "agency", label: words.agency },
     { key: "requested", label: "Requested" }, { key: "open", label: "Open" }, { key: "needed", label: "Hours needed" },
 ] as const;
 /**
@@ -27,8 +27,10 @@ const LEGEND = [
  * (#1409), at once. During a run's highlight the legend ends with `Elara
  * change`.
  */
-export function RosterFooter({ styles, duties, noun, line, optimise }: {
+export function RosterFooter({ styles, vocabulary, duties, noun, line, optimise }: {
     styles: RosterStyles;
+    /** The app's words for who is on the Roster: the legend's. */
+    vocabulary: RosterValue["vocabulary"];
     /** The slice's part over the duties, whose Save notice counts what leaves the week's window. */
     duties: ValueTypeOf<RecordSliceBindType> | undefined;
     /** What a duty is called, singular and plural. */
@@ -43,13 +45,14 @@ export function RosterFooter({ styles, duties, noun, line, optimise }: {
     const shown = useRevealed() === true;
     const elara = optimise?.legend === true;
     const runLine = optimise?.line;
-    const units = LEGEND.length + (elara ? 1 : 0);
+    const legend = legendOf(vocabulary);
+    const units = legend.length + (elara ? 1 : 0);
     return <Box ref={ref} css={styles.footer} data-roster-footer="">
-        {LEGEND.map((item, i) => <Box as="span" key={item.key} css={[styles.footerItem, styles.legendItem]} data-roster-legend={item.key}
+        {legend.map((item, i) => <Box as="span" key={item.key} css={[styles.footerItem, styles.legendItem]} data-roster-legend={item.key}
             data-footer-unit="" data-footer-cut={footerCut(i, fit)}>
             <Box as="span" aria-hidden="true" css={[item.key === "needed" ? styles.coverageTick : styles.coverageSegment, styles.legendSwatch]} data-kind={item.key} />{item.label}
         </Box>)}
-        {elara && <OptimiseLegendItem css={[styles.footerItem ?? {}, styles.legendItem ?? {}]} cut={footerCut(LEGEND.length, fit)} />}
+        {elara && <OptimiseLegendItem css={[styles.footerItem ?? {}, styles.legendItem ?? {}]} cut={footerCut(legend.length, fit)} />}
         <FooterMore shown={fit.kept < units} />
         {duties !== undefined && <RecordSliceSaveNotice slice={duties} singular={noun.singular} plural={noun.plural} />}
         {/* A run's line shows at once, whatever the reveal says: a run is not a read (#1409). */}

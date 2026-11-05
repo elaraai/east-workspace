@@ -90,6 +90,15 @@ const refusal = (group: string, reason: string): Fit => variant("refused", { gro
 const LEAD = () => findOf("No lead on Dispatch · Early", 4n);
 const TRAINER_THU = () => findOf("B. Swale · trainee without trainer", 4n);
 
+test("Roster.fit's `notALead`: the app's word in a refusal's reason and its group (#1516)", () => {
+    const worded = East.compile(East.function([FitRequest], Roster.Types.FitResult, ($, req) => {
+        const answer = $.const(Roster.answer(WarehouseDuty));
+        const rule = $.const(Roster.fit(WarehouseDuty, { notALead: "not a supervisor" }));
+        return answer(req, rule);
+    }), []);
+    assert.deepEqual(worded(ask(LEAD())).people.get("wcopse"), refusal("not a supervisor", "Associate · not a supervisor"));
+});
+
 test("R1 — Roster.fit: the need held, not rostered that day, rest kept — each refusal its group and reason, J. Quartz the one lead free for Dispatch's early shift on Thursday", () => {
     assert.deepEqual(LEAD(), { need: variant("leads", null), slot: { day: 4n, group: "dispatch", shift: "early" } });
     const result = builtIn(ask(LEAD()));
