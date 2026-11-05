@@ -109,7 +109,7 @@ describe("arrivalCards (A51)", () => {
 describe("resourceCards (A52)", () => {
     const domain = allocationDomain(toEastTypeValue(NullType));
     const loads = domain.loads(DAY, PLAN, CONTEXT);
-    const lines = new Map(RESOURCES.map(r => [r.key, allocationWords().line(DAY, r, loads.get(r.key)!, "m³")] as const));
+    const lines = new Map(RESOURCES.map(r => [r.key, allocationWords().line(DAY, r, loads.get(r.key)!, "m³", "reserved")] as const));
     const cards = resourceCards({ resources: RESOURCES, plan: PLAN, loads, lines, words: WORDS });
 
     test("free first, in key order, then loading by their first bin's time, then busy, each its line: over max in danger, into its next job in warn", () => {
