@@ -1569,6 +1569,7 @@ The reference mock is evidence for what to show, not for how the Flowchart behav
 19. **Zoom.** Zoom out, Zoom in and Fit, the Schematic's strip as it is: Fit puts the whole flowchart in view, Zoom out stops at Fit and Zoom in at the cards' own size, each click ×1.5 about the view's middle. The Flowchart opens at the cards' own size, as today, and the zoom is not remembered, as the scroll is not. As on the Schematic, the strip folds with LR · TD into the popover of a phone's row, and zoomed out more lanes fit in view, the lane pager stepping by the zoomed lane's width. In this pull request. — *Ruled 5 Nov 2026*
 20. **Zoom towards the selection.** With a state selected, each click of Zoom in or Zoom out zooms, then brings it to the view's middle, as finding a state does; a selected link, lane or several states the same way. With nothing selected, the view's middle stays put. The Flowchart only, for now: the Schematic's zoom stays about the view's middle. — *Ruled 5 Nov 2026*
 21. **Lane names a little bigger.** A lane's name draws at 12px, the size of a card's state code, where it drew at 10px, the spacing between its letters scaled to match; its × stays just past the name's end. — *Ruled 5 Nov 2026*
+22. **The rail's picks weigh the details, by kind.** A Dict field of a source's rows — each state's services, in the depot's evidence — sits on the rail, and keys picked there weigh the details of every kind that names the source. Each card still draws one row a state, its counts its picked entries' own, added up by kind with no code from the app: a figure adds, a histogram adds bin by bin, a list adds by name and tags join; a read given `weigh: false` — a share, an average — keeps the row's own. A state holding none of the picks keeps its card, its weighed reads saying *no data*. e3 files the field entry by entry (`index.entries`), so the Flowchart reads only the picked keys' entries, and never a row a category. The depot's own examples show it, in this pull request. — *Ruled 5 Nov 2026*
 
 ### The design's decisions
 
@@ -1601,7 +1602,7 @@ The design takes D1 to D24, each naming what it leaves; the user's rulings above
 
 ## 9. Tasks
 
-The work lands in one pull request (ruling 10): the records cutover first — tasks 1 to 6 — since removing the Flow types takes the renderer and the examples with it, then the details — tasks 7 to 10 — each part closed by task 11. The details look as the visual spec draws them (ruling 11). The zoom, task 12, follows (rulings 19 and 20), then the lane names, task 13 (ruling 21).
+The work lands in one pull request (ruling 10): the records cutover first — tasks 1 to 6 — since removing the Flow types takes the renderer and the examples with it, then the details — tasks 7 to 10 — each part closed by task 11. The details look as the visual spec draws them (ruling 11). The zoom, task 12, follows (rulings 19 and 20), then the lane names, task 13 (ruling 21). The rail's picks weigh the details last (ruling 22): e3's entries index, task 14, then the Flowchart's weighing, task 15, then the depot's examples, task 16.
 
 1. **The kinds** (e3-ui) — `Flowchart.states`, `transitions`, `lanes` and `decisions` over the app's records: their roles typed over the row, the binding forms and every refusal's words; each kind closed behind East functions over its rows' bytes — rows with their roles, `write`, `create`, `set`, a read by key, its form, its `ready` and its own Details; the slice's `states` and `transitions` sources through `recordSources`, and `narrowed`; the payload. `record`, `data`, `flow`, `onApply`, `Flowchart.over`, `values`, `value` and the Flow types removed.
 
@@ -1654,5 +1655,17 @@ The work lands in one pull request (ruling 10): the records cutover first — ta
 13. **Lane names** (the renderer) — a lane's name at 12px, its look in the `flowchart` recipe and its place alone the renderer's, and its × placed past the longer name, level with it (ruling 21).
 
    **Done when:** a responsive check finds each lane's name at 12px, its × just past the name's end, clear of it and level with it, across the top in LR and down the side in TD.
+
+14. **An entries index** (e3) — `index.entries(field)`: a row's Dict field filed entry by entry, `{ ik: the entry's key, k: the row's key } → its value`, a key's entries across the record one range; the lean rows kept beside it, `<index>_rows`, and the record's other indexes that carry nothing or the row carrying it with the field emptied; its build and its maintenance, the in-page one a binding previews a Save with too; its refusals in words; the definition's field and key type, for a binding and the rail (ruling 22).
+
+   **Done when:** spec tests refuse each refusal in words, TypeScript refusing a field that is not a Dict where it is written; the e3-api-tests suite passes on every backend — the index built; maintained after a patch, an edit and a reduce, each time its rebuild's byte for byte; one key's range, read alone, holding every row's entry for it in key order; the lean rows and a page through another index holding the field empty — and no stored form changes.
+
+15. **The rail's picks weigh the details** (e3-ui and the renderer) — a source's Dict field on the rail through its entries index, its keys listed, counted and picked; `Flowchart.details`' `source` and each read's `weigh`; the fold, built in East, adding a state's picked entries up by kind; the payload's `weighed`; the picked keys' ranges read page by page, *no data* for a state holding none of the picks, and the inspector's line naming the picks (R43–R46, ruling 22).
+
+   **Done when:** e3-ui specs add each kind over the depot's types, keep the row's own under `weigh: false` and for a field the entries lack, and refuse each refusal in words; DOM tests on e3-web pick on the rail and measure the cards — every key picked drawing as no pick does, *no data*, a pick on the source's other field, the inspector's line — and the request log holds the picked keys' ranges and the rows by key, and no read of the record's own rows.
+
+16. **The depot weighed by service** (the examples and docs) — the depot's evidence holding each service's own figures, made up to add up to the state's own, and its entries index; `flowchartDepot`'s rail offering the services, and `flowchartDepotDimmed` opening on International; the e3-ui skill, the API docs, the showcase and the plugin index (ruling 22).
+
+   **Done when:** both examples build and decode on e3-web; the browser checks pick on the rail and measure in both themes — Sorted's parcels and bars with Standard and Priority picked, every service picked drawing as none, a returns state's weighed reads saying *no data* with International picked, the dimmed example opening on International, the inspector's line — and the index finds the weighing by its words.
 
 Every figure on this page is made up: the depot's in the visual spec, and the examples'.

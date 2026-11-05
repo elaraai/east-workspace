@@ -141,6 +141,7 @@ export {
   NestedEntryKeyType,
   NestedSpanKeyType,
   nestedSpanName,
+  entriesRowsName,
   RecordNestedTotalsType,
   type RecordNestedTotals,
   NestedEntryType,

@@ -393,11 +393,25 @@ export interface RecordIndexDef<
     /** Its span (#1438): each collection's tiles across the record's rows, an index of the record's beside it ({@link span}). */
     readonly span: RecordIndexDef;
   } | undefined;
+  /** What an entries index files (#1521): the Dict field of the record's rows
+   *  it files entry by entry, each under its own key and carrying its own
+   *  value, as written, which a binding reads; the row with that field emptied,
+   *  `(K, V) -> V`, which the record's other indexes carry in place of none or
+   *  the row (`builtIndex`); and its lean rows, the record's rows by key with
+   *  the field emptied — an index of the record's beside it, built with it and
+   *  never declared, named by e3-types' `entriesRowsName`. Its {@link keyFn} is
+   *  a row's entries, `(K, V) -> Dict<IK, P>`, the field as the row holds it;
+   *  its key type the field's key and its value type the field's value. */
+  readonly entries?: {
+    readonly field: string;
+    readonly lean: { toIR(): unknown };
+    readonly rows: RecordIndexDef;
+  } | undefined;
   /** `(K, V) -> IK`, or `(K, V) -> Set<IK>` when {@link multi} — or, for a
-   *  summary, `(K, V) -> Dict<IK, Totals>`, and for a nested series index a
-   *  row's entries, `(K, V) -> Dict<IK, P>`. Kept as the expression so export
-   *  can compose it into the generated programs, which reach it through its IR
-   *  alone — so no call signature is claimed here. */
+   *  summary, `(K, V) -> Dict<IK, Totals>`, and for a nested series index or an
+   *  entries index a row's entries, `(K, V) -> Dict<IK, P>`. Kept as the
+   *  expression so export can compose it into the generated programs, which
+   *  reach it through its IR alone — so no call signature is claimed here. */
   readonly keyFn: { toIR(): unknown };
   /** `(K, V) -> P`, the covering projection; absent when the index carries no
    *  value. */

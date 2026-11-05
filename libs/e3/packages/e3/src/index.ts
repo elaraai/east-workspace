@@ -159,11 +159,12 @@ export { indexBuildProgram, buildMutationProgram, migrationProgram, summaryMerge
 export type { IndexMaintenance } from './record-programs.js';
 export type {
   IntervalIndexSpec, AreaIndexSpec, AreaIndexOf, SeriesIndexSpec, SummaryIndexSpec, NestedSeriesIndexSpec, TimeTileOf,
-  IndexFunction, IndexKeyOf, SummaryKeyOf, NestedKeyOf, NestedValueOf, IndexOn, ProjectionOf,
+  IndexFunction, IndexKeyOf, SummaryKeyOf, NestedKeyOf, NestedValueOf, IndexOn, ProjectionOf, EntriesOf,
 } from './record-index.js';
 export type {
   SeriesItems, SeriesValues, SeriesRows, SeriesRecursive, SeriesItemsOptions, SeriesValuesOptions, SeriesFoldLiteral, SeriesAggregateLiteral,
-  SeriesRollupInput, SeriesCollections, SeriesCollectionFor, SeriesTimes, ItemTimeField, DictField, ChildOf, PlacesOf, NestedOf, Misfit,
+  SeriesRollupInput, SeriesCollections, SeriesCollectionFor, SeriesTimes, ItemTimeField, DictField, ChildOf, DictKeyOf, DictValueOf, PlacesOf, NestedOf,
+  Misfit,
 } from './record-nested.js';
 export {
   RECORD_TILES, MAX_EVENT_TILES, SHORTEST_MS, TileShareType, TileFilingType, type RecordTile,

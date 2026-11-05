@@ -17,16 +17,16 @@
 import type { CallableFunctionExpr, DictType, EastType, FunctionExpr, NullType, PatchTypeOf, StructType } from '@elaraai/east';
 import type { RecordSummaryTotalsType } from '@elaraai/e3-types';
 import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef } from './types.js';
-import { plainDefinition } from './record-index.js';
+import { entriesDefinition, plainDefinition } from './record-index.js';
 import type {
-  AreaIndexOf, AreaIndexSpec, IndexKeyOf, IndexOn, IntervalIndexSpec, NestedKeyOf, NestedSeriesIndexSpec, NestedValueOf,
+  AreaIndexOf, AreaIndexSpec, EntriesOf, IndexKeyOf, IndexOn, IntervalIndexSpec, NestedKeyOf, NestedSeriesIndexSpec, NestedValueOf,
   ProjectionOf, SeriesIndexSpec, SummaryIndexSpec, SummaryKeyOf, TimeTileOf,
 } from './record-index.js';
 import { intervalDefinition } from './record-interval.js';
 import { areaDefinition } from './record-area.js';
 import { seriesDefinition, summaryDefinition } from './record-series.js';
 import { nestedDefinition } from './record-nested-programs.js';
-import { items, recursive, rows, values, type NestedOf } from './record-nested.js';
+import { items, recursive, rows, values, type DictField, type DictKeyOf, type DictValueOf, type NestedOf } from './record-nested.js';
 import { editDefinition, patchDefinition, reduceDefinition } from './mutation.js';
 import { stepDefinition } from './migration.js';
 import type { IndexFunction } from './record-guards.js';
@@ -166,7 +166,8 @@ export interface NestedBuilder<T extends EastType> {
  * The indexes that answer more than an order — `interval`, `area`, `series`,
  * `summary` and `nested` — have keys the SDK generates: the row's leading
  * fields under `on` (#1432), e3's own parts beside them, so no row field's
- * name is reserved.
+ * name is reserved. An `entries` index files a row's Dict field entry by
+ * entry, each under its own key (#1521).
  *
  * @typeParam T - The record's state type, a Dict of Struct rows
  *
@@ -310,6 +311,45 @@ export interface IndexBuilder<T extends EastType> {
    */
   summary<const S extends SummaryIndexSpec<T>>(spec: S, options?: PartRunner):
     IndexDraft<SummaryKeyOf<S, T>, typeof RecordSummaryTotalsType, IndexOn<S>, { readonly summary: TimeTileOf<S> }>;
+  /**
+   * An entries index (#1521): a row's Dict field filed entry by entry — for
+   * each key the field holds, one entry under that key and then the row's,
+   * carrying the key's value. A key's entries across the record are one
+   * contiguous range, in the rows' key order, so a reader asks for the keys it
+   * wants, a range each, in one request, and reads no other key's entries and
+   * no segment of the record's own. A row whose field is empty files nothing,
+   * and a write changes the entries whose key or value it changed.
+   *
+   * Beside it, e3 keeps the record's rows by key with the field emptied, its
+   * lean rows: an index of the record's named `<index>_rows` (e3-types'
+   * `entriesRowsName`), built with it and never declared. The record's other
+   * indexes that carry nothing or the row carry the row with every field its
+   * entries indexes file emptied, so a page through them reads no entry; the
+   * record's own rows stay whole. A record may file each of its Dict fields so,
+   * one entries index a field, and none beside a nested series index. It takes
+   * no `value`: each entry carries its own.
+   *
+   * @param field - The Dict field of the rows it files: keyed by any type a Dict is keyed by, holding any value
+   * @param options - Its runner
+   * @returns The index, its key the field's key and its value the field's value
+   * @throws {Error} When the field is not one of the rows' Dict fields, naming those that are, or for a `value`;
+   *   and, as the record is built, for a second entries index over the field, or one beside a nested series index
+   *
+   * @example
+   * ```ts
+   * const ServiceEvidence = StructType({ parcels: IntegerType, waiting: IntegerType });
+   * const StateEvidence = StructType({ parcels: IntegerType, byService: DictType(StringType, ServiceEvidence) });
+   * const evidence = e3.record('state_evidence', DictType(StringType, StateEvidence), {
+   *   initial: new Map(),
+   *   indexes: (index) => ({
+   *     // Each state's services filed apart, an entry a service: a service's entries are one range.
+   *     evidence_by_service: index.entries('byService'),
+   *   }),
+   * });
+   * ```
+   */
+  entries<const F extends DictField<RowOf<T>>>(field: F, options?: PartRunner):
+    IndexDraft<DictKeyOf<RowOf<T>, F>, DictValueOf<RowOf<T>, F>, undefined, { readonly entries: EntriesOf<F> }>;
 }
 
 /**
@@ -543,6 +583,13 @@ export const INDEX_BUILDER = {
   ),
   summary: (spec: unknown, options?: unknown) => indexDraft('index.summary', options, (where, record, name) =>
     summaryDefinition(where, name, record, spec as Parameters<typeof summaryDefinition>[3], runnerOf(options))),
+  entries: (field: unknown, options?: unknown) => indexDraft('index.entries', options, (where, record, name) =>
+    entriesDefinition(where, name, record, field, runnerOf(options))),
+};
+
+/** Why a builder refuses an option, where it says more than that the builder does not take it. */
+const REFUSED_OPTIONS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  'index.entries': { value: 'each entry carries its own value, the one its field holds under the entry\'s key' },
 };
 
 /** The `mutation` builder: each method a draft `e3.record` builds under its key. */
@@ -567,14 +614,16 @@ function wordsOf(record: RecordDef, builder: string): string {
   return `e3.record '${record.name}': ${builder}`;
 }
 
-/** Refuses options a builder does not take, naming those it does. */
-function checkOptions(where: string, name: string, options: unknown, allowed: readonly string[]): void {
+/** Refuses options a builder does not take, naming those it does, and why where `why` says. */
+function checkOptions(where: string, name: string, options: unknown, allowed: readonly string[], why: Readonly<Record<string, string>> = {}): void {
   if (options === undefined) return;
   if (typeof options !== 'object' || options === null || Array.isArray(options)) {
     throw new Error(`${where} '${name}' takes its options as an object, { ${allowed.join(', ')} }`);
   }
   const extra = Object.keys(options).filter((option) => !allowed.includes(option));
-  if (extra.length > 0) throw new Error(`${where} '${name}' takes ${allowed.join(' and ')}, not ${extra.join(', ')}`);
+  if (extra.length === 0) return;
+  const reasons = extra.flatMap((option) => (Object.hasOwn(why, option) ? [why[option]] : []));
+  throw new Error(`${where} '${name}' takes ${allowed.join(' and ')}, not ${extra.join(', ')}${reasons.length === 0 ? '' : ` — ${reasons.join('; ')}`}`);
 }
 
 /** A part's runner selection, from the options its builder was given. */
@@ -592,7 +641,8 @@ function indexDraft(
       part: 'index',
       build: (record, name) => {
         const where = wordsOf(record, builder);
-        checkOptions(where, name, options, builder === 'index.on' || builder === 'index.key' || builder === 'index.keys' ? ['value', 'runner'] : ['runner']);
+        checkOptions(where, name, options, builder === 'index.on' || builder === 'index.key' || builder === 'index.keys' ? ['value', 'runner'] : ['runner'],
+          REFUSED_OPTIONS[builder]);
         return build(where, record, name);
       },
     },
