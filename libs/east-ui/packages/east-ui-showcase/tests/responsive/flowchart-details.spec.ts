@@ -4,29 +4,32 @@
  */
 
 /**
- * The Flowchart's details in a real browser (#1510, `Flowchart Records
+ * The Flowchart's details in a real browser (#1510, #1511, `Flowchart Records
  * Spec.md` R22–R41 and §4, its visual spec `Flowchart Records Spec.html`), on
- * the parcel depot's flowchart and the support desk's minutes in state — a bar
- * a bin, and drawn to scale — in both themes — the details hold colours of
- * their own — with no screenshot:
+ * every example of the showcase's page whose cards draw details — the parcel
+ * depot's flowchart in full, its time in state on its own, narrowed, on a
+ * phone, and its flags in the app's own looks, and the support desk's minutes
+ * in state, a bar a bin and drawn to scale — in both themes — the details hold
+ * colours of their own — with no screenshot:
  *
- * - **Drawn whole**, at the desktop's width and a phone's: every read inside
- *   its card and every part of it inside the read; no tag cut — past its list,
- *   or its words past its box; three lines a tag list at most; every bar inside
- *   its band, drawing some width, and clear of the next — one too thin for the
- *   room between them, on a linear axis, flush with it; every tick clear of the next and inside its
- *   axis — on the app's bins and ticks, and its own words for them, on both
- *   scales; and no transition's label on a card, nor a line of it past its
- *   box.
- * - **The visual spec's measures**, at the desktop's width: a card's head, its
- *   rule, its padding and its reads 12 apart; a figure's line; a tag's height,
- *   spacing, wrapping and look; the bars' height and spacing, and their axis; a
- *   list row's name, track and share; *no data* and *none*; a label's lines;
- *   the legend's rows and its groups of tags; the inspector's figures, tags,
- *   histogram, list rows, Show n more and Show fewer; and a card hovered and
- *   selected, and a selected transition's label — each size and gap in px,
- *   each type its font, size, weight, case and spacing, each colour the
- *   theme's token as the page resolves it.
+ * - **Drawn whole**, at the desktop's width and a phone's, on each of them,
+ *   once e3 has drawn its cards and every drawn row's details have landed:
+ *   every read inside its card and every part of it inside the read; no tag
+ *   cut — past its list, or its words past its box; three lines a tag list at
+ *   most; every bar inside its band, drawing some width, and clear of the
+ *   next — one too thin for the room between them, on a linear axis, flush
+ *   with it; every tick clear of the next and inside its axis — on the app's
+ *   bins and ticks, and its own words for them, on both scales; and no
+ *   transition's label on a card, nor a line of it past its box.
+ * - **The visual spec's measures**, at the desktop's width, on the depot's
+ *   flowchart: a card's head, its rule, its padding and its reads 12 apart; a
+ *   figure's line; a tag's height, spacing, wrapping and look; the bars'
+ *   height and spacing, and their axis; a list row's name, track and share;
+ *   *no data* and *none*; a label's lines; the legend's rows and its groups of
+ *   tags; the inspector's figures, tags, histogram, list rows, Show n more and
+ *   Show fewer; and a card hovered and selected, and a selected transition's
+ *   label — each size and gap in px, each type its font, size, weight, case
+ *   and spacing, each colour the theme's token as the page resolves it.
  *
  * Locally: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test flowchart-details`.
@@ -48,6 +51,16 @@ const DEPOT = { name: "flowchartDepot", landed: "[data-flowchart-node='CH*'] [da
 const MINUTES = { name: "flowchartTicketMinutes", landed: "[data-card-bars]" } as const;
 /** The same bins drawn to scale: each bar as wide as its span. */
 const MINUTES_LINEAR = { name: "flowchartTicketMinutesLinear", landed: "[data-card-bars]" } as const;
+/** The depot's time in state on its own, read whole, and what draws once it lands: a card's bars. */
+const DWELL = { name: "flowchartDwell", landed: "[data-card-bars]" } as const;
+/** The depot narrowed, what it leaves out faded, its states' details read by key, and what draws once they land: a card's bars. */
+const DIMMED = { name: "flowchartDepotDimmed", landed: "[data-card-bars]" } as const;
+/** The depot in a phone's frame, a lane in its window, and what draws once its states' details land: a card's bars. */
+const PHONE = { name: "flowchartDepotPhone", landed: "[data-card-bars]" } as const;
+/** Each state's flags in the app's own looks, and what draws once they land: a card's tags. */
+const FLAG_COLORS = { name: "flowchartFlagColors", landed: "[data-flowchart-node] [data-flowchart-tag]" } as const;
+/** Every example of the showcase's page whose cards draw details, in its order: the page's other two, the depot's editing and top down, draw none. */
+const DRAWN = [DWELL, DEPOT, DIMMED, PHONE, FLAG_COLORS, MINUTES, MINUTES_LINEAR] as const;
 
 /** A frame wide enough to pin the inspector, 320 wide, beside main. */
 const WIDE = 1200;
@@ -287,7 +300,7 @@ async function clickLine(page: Page, root: Locator, key: string): Promise<void> 
 
 test.describe("The details drawn whole (R25–R32, R40)", () => {
     for (const theme of THEMES) {
-        for (const example of [DEPOT, MINUTES, MINUTES_LINEAR]) {
+        for (const example of DRAWN) {
             test(`${example.name}: every read inside its card and its parts inside it, no tag cut, three lines a tag list at most, every bar inside its band and clear of the next, every tick clear of the next and inside its axis, and no label on a card (${theme})`, async ({ page }) => {
                 const root = await openLanded(page, example, theme);
                 expect(await detailsFaults(root)).toEqual([]);

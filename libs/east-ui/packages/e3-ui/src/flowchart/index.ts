@@ -371,15 +371,42 @@ const MEMBERS = {
  *     mutations: (mutation) => ({ patch: mutation.patch() }),
  * });
  *
+ * // The time each parcel spent in each state, keyed as the states are: its parcels counted into bins by how
+ * // long they stayed, each key a bin's lower edge, in hours.
+ * export const StateDwell = StructType({ hours: DictType(FloatType, IntegerType) });
+ * export const stateDwell = e3.input("flowchart_depot_dwell", DictType(StringType, StateDwell), variant("value", new Map([
+ *     ["ARV", { hours: new Map([[0, 7752n], [0.25, 6092n], [0.5, 2769n], [1, 1108n], [2, 554n], [4, 185n]]) }],
+ *     ["SCN", { hours: new Map([[0, 9195n], [0.25, 5517n], [0.5, 2391n], [1, 920n], [2, 367n]]) }],
+ *     ["IND", { hours: new Map([[0, 2207n], [0.25, 4781n], [0.5, 5517n], [1, 3310n], [2, 1655n], [4, 736n], [8, 184n]]) }],
+ *     ["LBL", { hours: new Map([[0.25, 59n], [0.5, 137n], [1, 255n], [2, 273n], [4, 157n], [8, 79n], [12, 20n]]) }],
+ *     ["CH*", { hours: new Map([[0, 1457n], [0.25, 4007n], [0.5, 6192n], [1, 4007n], [2, 1639n], [4, 728n], [8, 180n]]) }],
+ *     ["SRD", { hours: new Map([[0, 861n], [0.25, 2065n], [0.5, 4303n], [1, 4818n], [2, 3098n], [4, 1377n], [8, 516n], [12, 172n]]) }],
+ *     ["HLD", { hours: new Map([[0.25, 84n], [0.5, 167n], [1, 418n], [2, 752n], [4, 1169n], [8, 1417n],
+ *         [12, 1253n], [24, 1336n], [48, 1002n], [96, 501n], [168, 251n]]) }],
+ *     ["CLR", { hours: new Map([[0, 824n], [0.25, 1648n], [0.5, 2060n], [1, 1648n], [2, 989n], [4, 659n], [8, 330n], [12, 82n]]) }],
+ *     ["LDD", { hours: new Map([[0, 681n], [0.25, 1362n], [0.5, 2725n], [1, 4088n], [2, 3747n], [4, 2384n], [8, 1362n], [12, 511n], [24, 170n]]) }],
+ *     // Dispatched has no row: the app counts no time in it once a parcel has left, and its card says no data.
+ *     ["RCV", { hours: new Map([[0, 64n], [0.25, 115n], [0.5, 154n], [1, 141n], [2, 90n], [4, 51n], [8, 19n], [12, 6n]]) }],
+ *     ["INS", { hours: new Map([[0.25, 12n], [0.5, 37n], [1, 73n], [2, 122n], [4, 146n], [8, 110n], [12, 61n], [24, 37n], [48, 12n]]) }],
+ *     ["RSD", { hours: new Map([[0, 122n], [0.25, 183n], [0.5, 159n], [1, 85n], [2, 43n], [4, 18n]]) }],
+ * ])));
+ *
  * const flowchartDwell = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
  *         const states = $.let(Data.bind(depotStates));
  *         const transitions = $.let(Data.bind(depotTransitions));
  *         const lanes = $.let(Data.bind(depotLanes));
+ *         const dwell = $.let(Data.bind(stateDwell));
  *         return (
  *             <Box height="600px">
  *                 <Flowchart
- *                     states={Flowchart.states(states, { label: "name", lane: "phase", order: "seq" })}
+ *                     states={Flowchart.states(states, {
+ *                         label: "name", lane: "phase", order: "seq",
+ *                         // Keyed as the states are, and read as they are: whole.
+ *                         details: Flowchart.details(dwell, {
+ *                             details: [Flowchart.histogram("hours", { unit: "hours", label: "Time in state" })],
+ *                         }),
+ *                     })}
  *                     transitions={Flowchart.transitions(transitions, { from: "src", to: "dst" })}
  *                     lanes={Flowchart.lanes(lanes, { label: "label", order: "seq" })}
  *                     name="dwell"

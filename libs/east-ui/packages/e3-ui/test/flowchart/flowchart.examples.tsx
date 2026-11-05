@@ -19,7 +19,8 @@ import e3 from "@elaraai/e3";
 // Flowchart's roles. No record here holds a type of the Flowchart's.
 //
 // - `flowchartDwell`, the front door: the states, the transitions and the
-//   lanes, three records read whole, read only;
+//   lanes, three records read whole, read only, and each state's time in
+//   state on its card — one histogram, read from the app's own rows;
 // - `flowchartDepot`, the depot in full: the states and the transitions read
 //   through their sources of the rail and edited through their patch doors, a
 //   preset narrowing both to one flow; the lanes and the decisions read
@@ -30,8 +31,10 @@ import e3 from "@elaraai/e3";
 // - `flowchartDepotEditing`, the four records bound editable and read whole,
 //   and the app's check on a drafted state;
 // - `flowchartDepotDimmed`, the rail's choices drawn as context: every row
-//   read through its source, those the narrowing leaves out faded;
-// - `flowchartDepotPhone`, the depot at a phone's width;
+//   read through its source, those the narrowing leaves out faded, and the
+//   states' details read by key;
+// - `flowchartDepotPhone`, the depot at a phone's width: its cards keep their
+//   bars and lines, and the canvas pans a lane at a time;
 // - `flowchartDepotTopDown`, the depot read only and top down, its minimap
 //   drawn, no pane, and each selection and traced path heard by the host;
 // - `flowchartWording`, the depot in its own words (#1516): each kind named by
@@ -391,18 +394,46 @@ export const decisionOwners = e3.input("flowchart_decision_owners", DictType(Str
     ["ns", { name: "night-supervisor", desk: "Night shift" }],
 ])));
 
+// The time each parcel spent in each state, keyed as the states are: its parcels counted into bins by how
+// long they stayed, each key a bin's lower edge, in hours.
+export const StateDwell = StructType({ hours: DictType(FloatType, IntegerType) });
+export const stateDwell = e3.input("flowchart_depot_dwell", DictType(StringType, StateDwell), variant("value", new Map([
+    ["ARV", { hours: new Map([[0, 7752n], [0.25, 6092n], [0.5, 2769n], [1, 1108n], [2, 554n], [4, 185n]]) }],
+    ["SCN", { hours: new Map([[0, 9195n], [0.25, 5517n], [0.5, 2391n], [1, 920n], [2, 367n]]) }],
+    ["IND", { hours: new Map([[0, 2207n], [0.25, 4781n], [0.5, 5517n], [1, 3310n], [2, 1655n], [4, 736n], [8, 184n]]) }],
+    ["LBL", { hours: new Map([[0.25, 59n], [0.5, 137n], [1, 255n], [2, 273n], [4, 157n], [8, 79n], [12, 20n]]) }],
+    ["CH*", { hours: new Map([[0, 1457n], [0.25, 4007n], [0.5, 6192n], [1, 4007n], [2, 1639n], [4, 728n], [8, 180n]]) }],
+    ["SRD", { hours: new Map([[0, 861n], [0.25, 2065n], [0.5, 4303n], [1, 4818n], [2, 3098n], [4, 1377n], [8, 516n], [12, 172n]]) }],
+    ["HLD", { hours: new Map([[0.25, 84n], [0.5, 167n], [1, 418n], [2, 752n], [4, 1169n], [8, 1417n],
+        [12, 1253n], [24, 1336n], [48, 1002n], [96, 501n], [168, 251n]]) }],
+    ["CLR", { hours: new Map([[0, 824n], [0.25, 1648n], [0.5, 2060n], [1, 1648n], [2, 989n], [4, 659n], [8, 330n], [12, 82n]]) }],
+    ["LDD", { hours: new Map([[0, 681n], [0.25, 1362n], [0.5, 2725n], [1, 4088n], [2, 3747n], [4, 2384n], [8, 1362n], [12, 511n], [24, 170n]]) }],
+    // Dispatched has no row: the app counts no time in it once a parcel has left, and its card says no data.
+    ["RCV", { hours: new Map([[0, 64n], [0.25, 115n], [0.5, 154n], [1, 141n], [2, 90n], [4, 51n], [8, 19n], [12, 6n]]) }],
+    ["INS", { hours: new Map([[0.25, 12n], [0.5, 37n], [1, 73n], [2, 122n], [4, 146n], [8, 110n], [12, 61n], [24, 37n], [48, 12n]]) }],
+    ["RSD", { hours: new Map([[0, 122n], [0.25, 183n], [0.5, 159n], [1, 85n], [2, 43n], [4, 18n]]) }],
+])));
+
 export const flowchartDwell = example({
-    keywords: ["Flowchart", "Flowchart.states", "Flowchart.transitions", "Flowchart.lanes", "records", "Data.bind", "read only", "minimal"],
-    description: "The depot's states, transitions and lanes, three records of the app's read whole, read only: each state in its lane, in the order its seq gives, and the transitions routed between them",
+    keywords: ["Flowchart", "Flowchart.states", "Flowchart.transitions", "Flowchart.lanes", "records", "Data.bind", "read only",
+        "details", "Flowchart.details", "Flowchart.histogram", "time in state", "histogram", "card", "minimal"],
+    description: "The depot's states, transitions and lanes, three records of the app's read whole, read only, each state's time in state drawn on its card — one histogram, read from the app's own rows",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const states = $.let(Data.bind(depotStates));
             const transitions = $.let(Data.bind(depotTransitions));
             const lanes = $.let(Data.bind(depotLanes));
+            const dwell = $.let(Data.bind(stateDwell));
             return (
                 <Box height="600px">
                     <Flowchart
-                        states={Flowchart.states(states, { label: "name", lane: "phase", order: "seq" })}
+                        states={Flowchart.states(states, {
+                            label: "name", lane: "phase", order: "seq",
+                            // Keyed as the states are, and read as they are: whole.
+                            details: Flowchart.details(dwell, {
+                                details: [Flowchart.histogram("hours", { unit: "hours", label: "Time in state" })],
+                            }),
+                        })}
                         transitions={Flowchart.transitions(transitions, { from: "src", to: "dst" })}
                         lanes={Flowchart.lanes(lanes, { label: "label", order: "seq" })}
                         name="dwell"
@@ -609,13 +640,14 @@ export const flowchartDepotEditing = example({
 
 export const flowchartDepotDimmed = example({
     keywords: ["Flowchart", "Slice.bindRecords", "narrowed", "dim", "Data.bindPaged", "read only", "records", "context"],
-    description: "The depot's states and transitions read only through their sources of the rail, the narrowing drawn as context: every row read, the states and transitions it leaves out faded and selected by no path",
+    description: "The depot's states and transitions read only through their sources of the rail, the narrowing drawn as context: every row read, the states and transitions it leaves out faded and selected by no path, their details read by key",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // Read only, through their sources: bound with Data.bindPaged alone.
             const states = $.let(Data.bindPaged(depotStates));
             const transitions = $.let(Data.bindPaged(depotTransitions));
             const lanes = $.let(Data.bind(depotLanes));
+            const stateRows = $.let(Data.bindPaged(stateEvidence));
             // The parcels' Hold lane in focus: an index on the flow and the lane answers the two together.
             const slice = $.let(Slice.bindRecords("flowchart.depotDimmed", {
                 states: {
@@ -633,7 +665,16 @@ export const flowchartDepotDimmed = example({
                     <Flowchart
                         slice={{ slice }}
                         narrowed="dim"
-                        states={Flowchart.states(states, { label: "name", lane: "phase", order: "seq", members: (s) => s.slots })}
+                        states={Flowchart.states(states, {
+                            label: "name", lane: "phase", order: "seq", members: (s) => s.slots,
+                            details: Flowchart.details(stateRows, {
+                                details: [
+                                    Flowchart.histogram("hours", { unit: "hours", label: "Time in state", counts: "parcels",
+                                        bins: [0, 0.25, 0.5, 1, 2, 4, 8, 12, 24, 48, 96, 168], ticks: [1, 12, 48, 168] }),
+                                    Flowchart.list("service", { label: "Service", top: 2 }),
+                                ],
+                            }),
+                        })}
                         transitions={Flowchart.transitions(transitions, { from: "src", to: "dst", kind: (t) => t.kind })}
                         lanes={Flowchart.lanes(lanes, { label: "label", order: "seq" })}
                         name="depotDimmed"
@@ -646,36 +687,29 @@ export const flowchartDepotDimmed = example({
 });
 
 export const flowchartDepotPhone = example({
-    keywords: ["Flowchart", "records", "mobile", "phone", "390px", "pane strip", "second row", "history", "narrow", "lanes", "lane pager",
-        "Flowchart.library.states", "Slice.bindRecords", "Find state", "inspector"],
-    description: "The depot's flowchart in a phone's 390-wide frame, its states, transitions and lanes bound editable: the toolbar over its second row — the history at 44px — and the canvas the frame's whole width with two lanes in view (narrow), ‹ › stepping through them; the rail narrowing the Steps tab's cards by their group, and the library and the inspector a strip of views along the bottom edge; Find state selects a state, the inspector shows its form, and its lane is chosen there",
+    keywords: ["Flowchart", "records", "details", "mobile", "phone", "narrow", "390px", "Find state", "inspector"],
+    description: "The depot's flowchart at a phone's width: cards keep their bars and lines and the canvas pans; Find state selects a state, the inspector shows its reads and its form, and its lane is chosen there",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const states = $.let(Record.bind(depotStates));
             const transitions = $.let(Record.bind(depotTransitions));
-            const lanes = $.let(Record.bind(depotLanes));
-            const steps = $.let(Data.bind(stepCards));
-            // One rail: the Steps tab's cards by their group, through the source the tab names.
-            const slice = $.let(Slice.bindRecords("flowchart.depotPhone", {
-                stepCards: {
-                    source: Data.bindPaged(stepCards, { indexes: ["flowchart_step_cards_by_group"] }), label: "Steps", icon: { prefix: "fas", name: "box" },
-                    fields: { group: { label: "Group" } },
-                },
-            }));
+            const lanes = $.let(Data.bind(depotLanes));
+            const stateRows = $.let(Data.bind(stateEvidence));
             return (
                 <Box width="390px" maxWidth="100%" height="720px">
                     <Flowchart
-                        slice={{ slice }}
                         states={Flowchart.states(states, {
                             label: "name", lane: "phase", order: "seq", members: (s) => s.slots,
-                            templates: Flowchart.templates(steps.read(), {
-                                name: (c) => c.name, group: (c) => some(c.group), values: (c) => c.values, source: "stepCards",
+                            details: Flowchart.details(stateRows, {
+                                details: [
+                                    Flowchart.histogram("hours", { unit: "hours", label: "Time in state", counts: "parcels",
+                                        bins: [0, 0.25, 0.5, 1, 2, 4, 8, 12, 24, 48, 96, 168], ticks: [1, 12, 48, 168] }),
+                                    Flowchart.list("service", { label: "Service", top: 2 }),
+                                ],
                             }),
                         })}
                         transitions={Flowchart.transitions(transitions, { from: "src", to: "dst", kind: (t) => t.kind })}
                         lanes={Flowchart.lanes(lanes, { label: "label", order: "seq" })}
-                        library={[Flowchart.library.states()]}
-                        narrow={{ lanes: 2 }}
                         name="depotPhone"
                     />
                 </Box>

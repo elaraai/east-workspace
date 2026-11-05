@@ -5,7 +5,8 @@
 
 /**
  * The Flowchart's narrow layout over the records (#1505, `Flowchart Records
- * Spec.md` R17), on the depot's states, transitions and lanes bound editable
+ * Spec.md` R17), on the depot's states and transitions bound editable, its
+ * lanes read whole and its states' details on their cards
  * (`flowchartDepotPhone`), held by the e3 inside the page. Below 480px of main
  * nothing drags — the canvas takes no drop — and the inspector carries the
  * gestures: Find state selects a state, the inspector shows its form, a lane
@@ -28,7 +29,7 @@ import { FLOWCHARTS, openFlowchart } from "./flowchart-page";
 import { settled } from "./settle";
 import { LAYOUT_THEMES } from "./themes";
 
-/** The depot's flowchart in a phone's frame, its states, transitions and lanes bound editable. */
+/** The depot's flowchart in a phone's frame, its states and transitions bound editable and its details on the cards. */
 const ROUTE = `${FLOWCHARTS}/flowchartDepotPhone`;
 
 /** The builder's frame, in its example's entry. */

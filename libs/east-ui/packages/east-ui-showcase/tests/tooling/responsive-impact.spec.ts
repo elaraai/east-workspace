@@ -68,7 +68,7 @@ test("component renderer changes retain shared and new checks and union explicit
     const selected = selectTests(tests, impact);
     assert.ok(selected.length > 0 && selected.length < tests.length);
     assert.ok(selected.includes(future));
-    for (const spec of ["flowchart-records", "flowchart-builder", "builder-panes", "catalog", "fa-icons", "inspector-form", "record-hosts", "plan-delete"]) {
+    for (const spec of ["flowchart-records", "flowchart-builder", "flowchart-details", "flowchart-lane-window", "builder-panes", "catalog", "fa-icons", "inspector-form", "record-hosts", "plan-delete"]) {
         const original = suite().filter(t => t.includes(` › ${spec}.spec.ts:`));
         assert.ok(original.length > 0, spec);
         assert.ok(original.every(t => selected.includes(t)), spec);
@@ -87,7 +87,7 @@ test("the Schematic's renderer narrows to its own suites and the shared checks, 
         const original = suite().filter(t => t.includes(` › ${spec}.spec.ts:`));
         assert.ok(original.length > 0 && original.every(t => selected.includes(t)), spec);
     }
-    assert.ok(!selected.some(t => t.includes(" › roster.spec.ts:") || t.includes(" › flowchart-records.spec.ts:")));
+    assert.ok(!selected.some(t => /› (?:roster|flowchart-(?:records|details|lane-window))\.spec\.ts:/.test(t)));
     // Another component's change runs none of the Schematic's own suites.
     const flowchart = selectTests(suite(), classifyChanges(["libs/east-ui/packages/e3-ui-components/src/flowchart/index.tsx"]));
     assert.ok(!flowchart.some(t => /› schematic-(?:drop|editing|frame|library|narrowing|perf|phone|records|window)\.spec\.ts:/.test(t)));

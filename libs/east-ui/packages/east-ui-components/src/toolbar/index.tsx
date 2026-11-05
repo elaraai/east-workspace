@@ -136,7 +136,9 @@ export interface ToolbarItem {
     /** In a phone's frame (560 px or narrower, `BuilderFrame`) the item's one form, in place of its ladder: the Filters
      *  button the rail is there, the Search Records button the key search is (`Mobile Builder Frame Spec.md` FR2). Its
      *  `order` places it in the row — items with none keep theirs, before those with one — and `grow` gives it the row's
-     *  slack (the view tabs, which scroll inside it). A toolbar outside a frame never draws it. */
+     *  slack (the view tabs, which scroll inside it). Where none grows and no item of the row's own ends it, the first
+     *  placed by its `order` that does not `shrink` leads the row's end cluster, the slack before it: the rail's button
+     *  and Search Records stand at the row's end. A toolbar outside a frame never draws it. */
     phone?: { readonly form: ReactNode; readonly order?: number | undefined; readonly grow?: boolean | undefined; readonly shrink?: boolean | undefined } | undefined;
     /** Takes the row's slack, and may shrink to nothing: set by the frame for a phone form that `grow`s. */
     grow?: boolean | undefined;

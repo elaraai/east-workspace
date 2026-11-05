@@ -104,7 +104,8 @@ states, transitions, … }) }}`. Its `states` and `transitions` sources — each
 `Data.bindPaged(record, { indexes })` over that kind's own record — narrow
 those two kinds, each read complete through its source; a preset may narrow
 both at once, over a field both records share. Its lanes and decisions are
-small records, read whole, which no source narrows. Each cards list is
+small records, read whole, which no source narrows, and a kind's details are
+read by the keys of its rows drawn, through no source of their own. Each cards list is
 `Flowchart.templates(cards.read(), { name, group?, values, source })` on its
 kind — the states', the transitions' or the lanes' — over a keyed record bound
 with `Data.bind`, each card keyed by the record's key, so a list takes no
@@ -305,7 +306,7 @@ the notice when the query changes. A feedback retry never resubmits a mutation.
 The indexed binding's `recordId`, unlike its query/source ID, is independent of
 which index declarations a view lists and is the shared editing identity.
 
-### Flowchart records, sources and the narrow layout
+### Flowchart records, sources, details and the narrow layout
 
 Each kind is one of the app's records, keyed by String, its fields mapped to
 the Flowchart's roles (#1500) — `Flowchart.states`, `transitions`, `lanes` and
@@ -328,6 +329,31 @@ card). Under `narrowed="dim"` every row is read through the source and what
 the narrowing leaves out is drawn as context, from the source's shown keys,
 selected by no path.
 
+A state or a transition takes `details` (#1507): `Flowchart.details(binding,
+{ details: [ … ] })` over the app's rows keyed as the kind's are, read only and
+bound as the kind is read — `Data.bind(record)` beside a kind read whole,
+`Data.bindPaged(record)` beside one read through its source, its rows read by
+the drawn rows' keys — and the tag refuses the other, naming it. Its one array
+holds the four reads, `Flowchart.figure`, `histogram`, `list` and `tags`, each
+naming a field of the details' row whose type a mapped type checks; they draw
+in its order on the card — a transition's figures and lists alone, as lines
+under its label's evidence, three at most — and in full in the inspector, each
+where its `show` says: `"all"`, `"canvas"` or `"inspector"`, a variant on the
+wire. `Flowchart.details` turns the reads into one function from the row to a
+fixed type, so the row's type never reaches the payload. A histogram's `bins`
+are the app's edges, ascending — a literal, or an Array the app binds; left
+out, every row's edges merged — its `scale` `"band"` or `"linear"`, and its
+`ticks` numbers or `{ at, label }`. A tag list's `colors` give each tag its
+look as a Tag takes it — `{ colorPalette, variant }`, east-ui's
+`ColorSchemeType` and `StyleVariantType`, a literal or an
+`Array<Flowchart.Types.TagColor>` the app binds, first defined first shown —
+and `legend` lists the defined tags in the canvas's legend, which only a tag
+list shown on the canvas may. The examples are the design's (`Flowchart Records
+Spec.md` §2): the front door's one histogram (`flowchartDwell`), the depot's
+every read (`flowchartDepot`), the tags' looks from the app's data
+(`flowchartFlagColors`), and the desk's own bins, a bar a bin and to scale
+(`flowchartTicketMinutes`, `flowchartTicketMinutesLinear`).
+
 Drafts are kept by each row's original key in its kind's session, whatever
 the narrowing or a remount (#1503): one history over a session a record, each
 gesture writing only its roles' fields, Del's reach the states and the
@@ -341,8 +367,11 @@ Below 480px of main nothing drags (#1505): no draggable card and no drop
 cell. The inspector carries the gestures — a state's lane, a transition's ends
 — through the same edits as the canvas's. On a phone, orientation and Find
 state bundle into the shared search popover's final View form before history
-folds; the rail's chip and Save stay inside the toolbar and clickable. Include
-the phone-width frame (`flowchartDepotPhone`) and a read-only frame with no
+folds; the rail's chip and Save stay inside the toolbar and clickable. The
+canvas pans a window of lanes, two by default (`narrow.lanes`), one where the
+details draw on the cards, each step bringing its card to the window's middle
+(R40). Include the phone-width frame (`flowchartDepotPhone`, its cards' details
+drawn) and a read-only frame with no
 pane (`flowchartDepotTopDown`), and test on e3 — on a phone and in a 294px
 parent — Find state, a state's form, its lane chosen, Save reached with the
 state selected and a remount reading it back (the showcase's

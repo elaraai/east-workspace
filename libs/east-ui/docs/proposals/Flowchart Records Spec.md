@@ -4,7 +4,7 @@
 
 Today the Flowchart draws one flow of a dictionary of flows, each flow kept whole in one record entry or handed over as data. This proposal draws one flowchart over the app's own records, as the Schematic does: a record of states and a record of transitions, each row the app's own type with its fields mapped to the Flowchart's roles, each read through its source of the rail so the indexes narrow both; and beside them two small records, the lanes and the decisions. On top of that, the app can put structured details on each state and transition — figures, tag lists in its own colours, time-in-state histograms over its own bins and axis, and short lists — in one ordered array, drawn on the cards and labels and shown in full in the inspector.
 
-**Spec** for the epic · Four kinds: **states, transitions, lanes, decisions** · The Flow types and the Flows tab: **removed** · **11** rulings · **24** design decisions
+**Spec** for the epic · Four kinds: **states, transitions, lanes, decisions** · The Flow types and the Flows tab: **removed** · **16** rulings · **24** design decisions
 
 - **Records.** States and transitions are each a keyed record of the app's. `Flowchart.states` and `Flowchart.transitions` map their fields to the Flowchart's roles — a state's label, lane and place; a transition's ends and decision — and every other field is the app's, edited in the inspector's form.
 - **The rail.** Each is read through its source of the one `Slice.bindRecords`, named `states` and `transitions`, so each index's choices narrow it — hidden, or dimmed as context — and a preset narrows both at once: one record holding many flows shows one.
@@ -575,6 +575,50 @@ export const flowchartTicketMinutes = example({
 });
 ```
 
+#### Example — The same bins to scale (details · histogram · linear)
+
+The desk's minutes in state over the same bins and ticks, drawn to scale (ruling 12): each bar as wide as its span and as tall as its count over it, so the first half hour, which holds most of the tickets, is a spike at the axis's start (R26).
+
+```tsx
+export const flowchartTicketMinutesLinear = example({
+    keywords: ["Flowchart", "details", "Flowchart.histogram", "bins", "scale", "linear", "to scale", "ticks", "axis", "minutes", "time in state"],
+    description: "The support desk's minutes in state drawn to scale: the same uneven bins, each bar as wide as its span and as tall as its count over it — so its area is its count — the open last bin as wide as the one before it",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const states = $.let(Data.bind(deskStates));
+            const transitions = $.let(Data.bind(deskTransitions));
+            const stages = $.let(Data.bind(deskStages));
+            const minutes = $.let(Data.bind(ticketMinutes));
+            return (
+                <Box height="560px">
+                    <Flowchart
+                        states={Flowchart.states(states, {
+                            label: "name", lane: "stage",
+                            details: Flowchart.details(minutes, {
+                                details: [Flowchart.histogram("minutes", {
+                                    unit: "minutes",
+                                    label: "Time in state",
+                                    counts: "tickets",
+                                    bins: [0, 1, 2, 5, 10, 15, 30, 60, 120, 240, 480, 1440],
+                                    // Each bar as wide as its span: the first hour is a sliver, the shift and the day most of the axis.
+                                    scale: "linear",
+                                    // The same ticks: to scale, 5m and 1h crowd 0 at the start and are left out.
+                                    ticks: [5, 60, { at: 480, label: "a shift" }, { at: 1440, label: "a day" }],
+                                })],
+                            }),
+                        })}
+                        transitions={Flowchart.transitions(transitions, { from: "from", to: "to" })}
+                        lanes={Flowchart.lanes(stages, { label: "label", order: "seq" })}
+                        name="ticketMinutesLinear"
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+```
+
 #### Example — Narrowed and dimmed (Slice · dim · read only)
 
 The rail's choices drawn as context: every row read through its source, those the narrowing leaves out faded and selected by no path.
@@ -646,7 +690,7 @@ export const flowchartDepotPhone = example({
             const lanes = $.let(Data.bind(depotLanes));
             const stateRows = $.let(Data.bind(stateEvidence));
             return (
-                <Box width="390px" height="720px">
+                <Box width="390px" maxWidth="100%" height="720px">
                     <Flowchart
                         states={Flowchart.states(states, {
                             label: "name", lane: "phase", order: "seq", members: (s) => s.slots,
@@ -1321,7 +1365,7 @@ A figure is a line where the details put it: its label, and its value in the app
 
 #### R26 — Bars
 
-The flowchart's bins — the app's `bins`, else every row's edges merged — so a bar is the same span on every card. `scale` `"band"`, the default: a bar a bin, equal widths, whatever its span; `"linear"`: each bar as wide as its span and as tall as its count over that span, so its area is its count, the open last bin as wide as the one before it. Each card scaled to its own tallest bar, the axis under it.
+The flowchart's bins — the app's `bins`, else every row's edges merged — so a bar is the same span on every card. `scale` `"band"`, the default: a bar a bin, equal widths, whatever its span; `"linear"`: each bar as wide as its span and as tall as its count over that span, so its area is its count, the open last bin as wide as the one before it. Bars stand 2 apart; on a linear axis a bar too thin for that draws flush with its neighbours, a pixel wide at least, and every wider bar keeps its 2 (ruling 13). Each card scaled to its own tallest bar, the axis under it.
 
 *Where:* the renderer's `details.ts`, `canvas.tsx`. *Tested by:* the details model's unit tests over both scales; DOM test.
 
@@ -1345,13 +1389,13 @@ On a card, each list under its title; on a label, its lines under the evidence. 
 
 #### R30 — Tags
 
-Each tags read on the card is a list beside its label, in the details' order, tag lists one after another sharing a label column: the row's tags in the order their looks are defined, then the rest in the row's order, wrapping — three lines at most, then +n, its title naming the rest; a list with none says *none*. Each tag 15 high, in its definition's `colorPalette` and `variant`. Subtle, the default, is a 6% wash of its palette on a 1px rule of it, its text in the palette's text step — and, in gray or neutral or for a tag with no definition, the Tag's own look, its fill `--paper` on a selected card; any other variant is the Tag recipe's look for it. A transition's label draws none.
+Each tags read on the card is a list beside its label, in the details' order, tag lists one after another sharing a label column: the row's tags in the order their looks are defined, then the rest in the row's order, wrapping — three lines at most, then +n, its title naming the rest; a list with none says *none*. Each tag 15 high, in its definition's `colorPalette` and `variant`. Subtle, the default, is a 6% wash of its palette on a 1px rule of it, its text in the palette's text step — and, in gray or neutral or for a tag with no definition, the Tag's own look, its fill `--paper` on a selected card; any other variant is the Tag recipe's look for it, in its definition's palette — solid filled with it, outline on one 1px rule of it — as every Tag given a palette draws (ruling 14). A transition's label draws none.
 
 *Where:* `canvas.tsx`; the `flowchart` recipe's tag-list slots over the tag recipe. *Tested by:* DOM test; responsive invariant: no tag cut, three lines a list at most.
 
 #### R31 — The legend's tags
 
-Each of the card's tags reads with `legend` is a group beside the legend's rows: its label, then the defined tags the cards show, in the order defined, each at the card's size and in its look; a tag no definition names is left out. A tags read with `show: "inspector"` takes no `legend`: a type error.
+Each of the card's tags reads with `legend` is a group beside the legend's rows: its label, drawn from the start, before any of its tags show (ruling 16), then the defined tags the cards show, in the order defined, each at the card's size and in its look; a tag no definition names is left out. A tags read with `show: "inspector"` takes no `legend`: a type error.
 
 *Where:* `canvas.tsx`. *Tested by:* DOM test.
 
@@ -1381,7 +1425,7 @@ The head; the reads it shows — `show` `"all"` or `"inspector"` — in the deta
 
 #### R36 — The inspector's reads
 
-Figures in the stats grid; tags, every one, 20 high, wrapping; a histogram on the app's axis, 64 high, with a caption saying where half and nine in ten of its counts fall, or the bin under the pointer or focus, which darkens; a list's first 8 items, then Show n more, and Show fewer once open. Each read but the figures stands under its title, its total beside it.
+Figures in the stats grid, each its value and its unit, small and muted as on a card, under it where the column has no room (ruling 15); tags, every one, 20 high, wrapping; a histogram on the app's axis, 64 high, with a caption saying where half and nine in ten of its counts fall, or the bin under the pointer or focus, which darkens; a list's first 8 items, then Show n more, and Show fewer once open. Each read but the figures stands under its title, its total beside it.
 
 *Where:* `inspector.tsx`. *Tested by:* DOM test.
 
@@ -1501,6 +1545,11 @@ The reference mock is evidence for what to show, not for how the Flowchart behav
 9. **The app's bar scales, and bigger cards.** The app's bins and axis, and cards sized to what they show. — *Asked for*
 10. **One pull request.** The records and the details land together, in one pull request. — *Ruled 4 Nov 2026*
 11. **The visual spec decides the look; the code design stays.** `Flowchart Records Spec.html` replaces the hi-fi mock as the visual spec, and decides how the details look. The authoring examples, the API, the types, refusals and payload stay as they are, and a tag's colours stay the app's to define, through its `colorPalette` and `variant`. — *Ruled 4 Nov 2026*
+12. **A to-scale example.** `flowchartTicketMinutesLinear` draws the support desk's bins to scale beside the band example, so the browser check measures bars on both scales. — *Ruled 4 Nov 2026*
+13. **Thin bars drawn to scale.** On a linear axis, a bar too thin for the 2 between bars draws flush with its neighbours, a pixel wide at least; every wider bar keeps its 2. — *Ruled 4 Nov 2026*
+14. **Tag colours.** Every Tag given a palette draws in it, solid and outline included: the design system's Tag is fixed, where it drew every solid tag in the brand and every outline in the chip's grey. A Tag given none keeps its look. — *Ruled 4 Nov 2026*
+15. **Units in the inspector.** A figure in the inspector shows its unit after its value, small and muted as on a card. — *Ruled 4 Nov 2026*
+16. **The legend's tag groups.** A group for each tag list given `legend`, its label drawn even before any of its tags show. — *Ruled 4 Nov 2026*
 
 ### The design's decisions
 

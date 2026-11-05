@@ -20,7 +20,7 @@ import { docExamples } from "../docs.js";
 
 test("every Flowchart @example is the verbatim fn of a tested example, imported from the public packages", () => {
     const { carries, failures } = docExamples("flowchart");
-    assert.ok(carries("index.ts", "flowchartDwell"), "<Flowchart> carries an @example: the depot's states, transitions and lanes, three records read whole");
+    assert.ok(carries("index.ts", "flowchartDwell"), "<Flowchart> carries an @example: the depot's states, transitions and lanes, three records read whole, and each state's time in state on its card");
     assert.ok(carries("kinds.ts", "flowchartDepotEditing"), "Flowchart.states carries an @example: the depot's four records bound editable, each saved through its own patch door");
     assert.ok(carries("templates.ts", "flowchartDepot"), "Flowchart.templates carries an @example: the depot, each kind's cards a record following its own source of the rail, and the library's tabs");
     assert.ok(carries("details.ts", "flowchartTicketMinutes"), "Flowchart.details carries an @example: a support desk's minutes in state over the app's own bins, its axis naming the edges it lists");

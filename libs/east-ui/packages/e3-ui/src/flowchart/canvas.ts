@@ -40,7 +40,8 @@ import { FlowchartOrientationType, FlowchartFreshnessType } from "./types.js";
 /**
  * The flowchart on a phone: a frame 560 px wide or narrower shows a window of
  * its lanes across its width, which its pager steps through. Above 560 px it
- * does nothing.
+ * does nothing. Where the details draw on the cards the window shows one lane,
+ * at least its own width, each step bringing the lane's card to its middle.
  *
  * @property lanes - How many lanes the window shows at once, 1 to 3; `none` shows 2
  */
@@ -146,7 +147,7 @@ export interface FlowchartCanvasOptions {
     /** Optional connection validator — `(from, to)` BEFORE the draft snaps; false forbids the pair. A throwing validator logs and ALLOWS (fail-open). */
     canConnect?: SubtypeExprOrValue<FunctionType<[StringType, StringType], BooleanType>>;
 
-    /** On a phone: how many lanes the window shows at once, 1 to 3 (default 2), its pager stepping through them. */
+    /** On a phone: how many lanes the window shows at once, 1 to 3 (default 2), its pager stepping through them — one where the details draw on the cards, each step bringing its card to the window's middle. */
     narrow?: { lanes?: 1 | 2 | 3 };
 }
 

@@ -29,12 +29,14 @@
  * the first row's controls reach its end; and the Plan's now line runs behind
  * the ruler's labels.
  *
- * And the Flowchart's lane pager (`narrow.lanes`, ruled 3 Nov 2026): its window
- * shows the lanes the example asks, each half of main's width, and ‹ › step it
- * a lane, the readout following. Where the details draw on the cards (R40,
- * D24), at 390, 360 and in a 294px parent, the window holds one lane: after
- * each step, and as the window resizes, its card stands whole in the window's
- * middle, and no label stands on a card.
+ * And the Flowchart's lane pager (`narrow.lanes`, ruled 3 Nov 2026): over the
+ * depot's editing example, whose cards draw no details, its window shows two
+ * lanes, the default, each half of main's width, and ‹ › step it a lane, the
+ * readout following. Where the details draw on the cards (R40, D24) — the
+ * depot's in full — at 390, 360 and in a 294px parent, the window holds one
+ * lane: after each step, and as the window resizes, its card stands whole in
+ * the window's middle, as it does at 390 after a Find's pick, and no label
+ * stands on a card.
  *
  * Run: `pnpm exec playwright test builder-frame-phone`.
  */
@@ -285,9 +287,13 @@ test("Sheet: narrowed, its Filters set, its tabs and its count stay whole beside
     }
 });
 
+/** The depot's four records bound editable, its cards drawing no details: a phone's window shows two lanes. */
+const EDITING = `${FLOWCHARTS}/flowchartDepotEditing`;
+
 test("Flowchart: a phone shows two lanes across main, and the pager's steps move the window a lane, 44px each, off at each end", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    const entry = await visitBuilder(page, "e3/flowchart/flowchart/flowchartDepotPhone", ROOT, "light");
+    const entry = await visitBuilder(page, EDITING, ROOT, "light");
+    await sizeBuilder(page, entry, ROOT, 390);
     const frame = entry.locator(ROOT).first();
     const pager = frame.locator("[data-flowchart-lane-pager]");
     const readout = pager.locator("[data-slot='pagerReadout']");
@@ -330,7 +336,7 @@ test("Flowchart: a phone shows two lanes across main, and the pager's steps move
 
 test("Flowchart: a frame too narrow for the lanes it is told to show shows as many whole lanes as it holds, the readout saying so", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    const entry = await visitBuilder(page, "e3/flowchart/flowchart/flowchartDepotPhone", ROOT, "light");
+    const entry = await visitBuilder(page, EDITING, ROOT, "light");
     await sizeBuilder(page, entry, ROOT, 220);
     const frame = entry.locator(ROOT).first();
     await expect(frame.locator("[data-flowchart-lane-pager] [data-slot='pagerReadout']")).toHaveText("Lanes 1 of 5");
@@ -339,8 +345,8 @@ test("Flowchart: a frame too narrow for the lanes it is told to show shows as ma
     expect(node!.x + node!.width).toBeLessThanOrEqual(box!.x + box!.width);
 });
 
-/** The depot, its flags on its cards: the details draw on them, 272 wide. */
-const DETAILED = `${FLOWCHARTS}/flowchartFlagColors`;
+/** The depot in full: every read the cards show drawn on them, 272 wide, and lines under its labels. */
+const DETAILED = `${FLOWCHARTS}/flowchartDepot`;
 
 /** What is wrong with the Flowchart's window, resting on a lane. */
 const windowFaults = (entry: Locator, lane: number): Promise<string[]> => laneWindowFaults(entry.locator(ROOT).first(), lane);
@@ -367,6 +373,23 @@ for (const width of [390, 360, 294]) {
         await expect(pager.locator("[data-slot='pagerPrevious']")).toHaveAttribute("aria-disabled", "true");
     });
 }
+
+test("Flowchart: where the details draw on the cards, a state Find picks opens the window on its lane, its card whole in the middle", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const entry = await visitBuilder(page, DETAILED, ROOT, "light");
+    await sizeBuilder(page, entry, ROOT, 390);
+    const frame = entry.locator(ROOT).first();
+    const readout = frame.locator("[data-flowchart-lane-pager] [data-slot='pagerReadout']");
+    await expect(readout).toHaveText("Lanes 1 of 5");
+    await frame.locator("[data-toolbar-item='seek'] [data-key-search='icon']").click();
+    const search = page.locator("[data-key-search-phone]");
+    await search.getByRole("textbox").fill("LDD");
+    await search.locator("[data-key-search-row]").filter({ hasText: "LDD" }).click();
+    await settled(page);
+    // Loaded stands in Dispatch, the last of the depot's five lanes: the window opens on it, its card in the middle.
+    await expect(readout).toHaveText("Lanes 5 of 5");
+    await expect.poll(() => windowFaults(entry, 4)).toEqual([]);
+});
 
 test("Flowchart: where the details draw on the cards, a window resized keeps the lane it rests on, its card in the middle", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });

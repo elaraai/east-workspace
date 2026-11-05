@@ -29,9 +29,13 @@ where it lands, pure; `use-drop.ts` is the drop target, each drop and each
 card's ⏎ one step of the history), its inspector (`inspector.tsx`, the end
 pane on by default — Details through `FieldForm` by its kind's form over the
 fields no role writes, or a kind's own, and Issues; what is selected,
-`selection.ts`; the issues, `issues.ts`, pure), a phone's lane pager
-(`lane-pager.tsx`) and its words (`messages.ts`) — builds on the same
-parts, and
+`selection.ts`; the issues, `issues.ts`, pure), its details (#1507–#1510:
+the model, read as its kind is and counted into the flowchart's bins, each
+card's size, `details.ts`; a card's reads, a tag and the probe that measures
+them, `details-card.tsx`; a tag's look and the legend, `details-draw.ts`; the
+inspector's reads, `details-pane.tsx`; their words and axes,
+`details-words.ts`), a phone's lane pager (`lane-pager.tsx`) and its words
+(`messages.ts`) — builds on the same parts, and
 keeps its slot recipes there too, the canvas's and the inspector's. Its
 canvas hears its Esc from inside its frame as the key leaves the frame (the
 canvas's handle) and from the page itself, nothing focused, only while the
@@ -678,7 +682,7 @@ preparation sends no mutation and preserves drafts; a failed feedback read offer
 a read retry, never another Save. An indexed source's `recordId` names the primary
 record across all index lists and must back the shared editing identity.
 
-### Flowchart records, sources and the narrow layout
+### Flowchart records, sources, details and the narrow layout
 
 Each kind is one of the app's records (#1500) — the states', the transitions',
 the lanes' and the decisions' — read in a component of its own (`read.ts`),
@@ -709,10 +713,50 @@ with the rest, each record's changes through its patch door as a request of its
 own; a refusal keeps that record's drafts and leaves the others' commits
 standing.
 
+A kind's details (#1507–#1510) are read as the kind is (`details.ts`): whole
+beside a kind read whole, or by the drawn rows' keys, every key in one
+request, beside one read through its source. A row is matched to the kind's by
+its key — a key with no row draws *no data*, a row keyed as no row drawn
+draws nothing — and the last settled read stands while a newer one is in
+flight. A histogram's bins are shared by every card that draws it — the
+app's, checked as they land, or every drawn row's edges merged — and a count
+no bin holds lists its row in Issues. Each card is measured before the layout
+places it, its tags' widths by the probe after each render and once the fonts
+land (`details-card.tsx`): 272 wide where a read draws on the canvas, as tall
+as its reads. The layout (`layout.ts`, #1509) takes each card's height and
+each label's size — a row as tall as its tallest card; cards side by side
+keeping the widest label's width and 24 between them; each link's sides
+chosen over a box of the card's width and today's 40, so no link's sides
+change — and places each label off the cards, a decision's diamond keeping
+the middle. A transition's figures and lists draw as lines under its label's
+evidence. The legend adds a row for each figure, histogram and list the cards
+and labels draw, and a group for each tag list given `legend`, its label from
+the start and its defined tags as the cards show them (`details-draw.ts`,
+ruled 4 Nov 2026). A tag draws in its definition's palette and variant through
+the design system's Tag, which draws in the palette it is given, solid and
+outline included (ruled 4 Nov 2026); subtle in a palette is the recipe's
+wash. On a linear axis a bar too thin for the 2px between bars draws flush
+with its neighbours, a pixel at least (ruled 4 Nov 2026). The inspector's reads
+(`details-pane.tsx`) follow its head in the details' order and in full:
+figures in the stats grid, each with its unit (ruled 4 Nov 2026); every tag;
+the histogram on the app's axis, its caption or the bin under the pointer or
+focus; and a list's first 8, then Show n more. Every look is the visual
+spec's, in the `flowchart` and `flowchartInspector` recipes, the renderer
+setting data attributes and geometry alone; the showcase's
+`flowchart-details.spec.ts` measures every read inside its card, no tag cut,
+the bars in their band, the ticks and the labels clear, in both themes at
+desktop and phone widths.
+
 Below 480px of main nothing drags (#1505): no draggable card and no drop
 cell. Details carries the gestures — a state's lane, a transition's ends —
 through the same edits, and a phone's lane pager (`lane-pager.tsx`) steps the
-canvas's sideways scroll a lane at a time. On a phone, orientation and Find
+canvas's sideways scroll a lane at a time: two lanes in view by default
+(`narrow.lanes`), each a whole lane, a Find's pick opening on whole lanes; and
+where the details draw on the cards one lane, at least the window wide, its
+card brought to the middle of what the window shows, its scrollbar left out —
+as the window opens and resizes, at each step, as a swipe settles and at a
+Find's pick (R40, D24; `builder-frame-phone.spec.ts`, and
+`flowchart-lane-window.spec.ts` with the scrollbar taking width). On a phone, orientation and Find
 state bundle into the shared search popover's final View form before history
 folds; the rail's chip and Save stay inside the toolbar and clickable. Test the
 narrow flow in a real browser at 390 and 360px and in a 294px parent — Find

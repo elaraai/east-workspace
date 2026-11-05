@@ -138,7 +138,8 @@ test.describe("A phone's hand test", () => {
     });
 
     test("a state Find picks in a phone's last lane opens on whole lanes, the lane before it uncut", async ({ page }) => {
-        const frame = await open(page, "e3/flowchart/flowchart/flowchartDepotPhone");
+        // The depot's editing example, whose cards draw no details: a phone's window shows two lanes.
+        const frame = await open(page, "e3/flowchart/flowchart/flowchartDepotEditing");
         await frame.locator("[data-toolbar-item='seek'] [data-key-search='icon']").first().tap();
         const view = page.locator("[data-key-search-phone]");
         await view.getByRole("textbox").fill("LDD");
