@@ -51,6 +51,7 @@ import { EastUI, type UIComponentType } from '@elaraai/east-ui';
 
 import { DiffBindingType, type BoundValue } from '../bind/data.js';
 import { FuncBindingType, type BoundFunc } from '../bind/func.js';
+import { viewsProp, type ViewsProp } from '../utils/views.js';
 import {
     ExperimentConfigType,
     ExperimentResultType,
@@ -154,6 +155,7 @@ export type ExperimentSubjectType = typeof ExperimentSubjectType;
  * @property subject - Optional domain noun for a row ({@link ExperimentSubjectType}).
  * @property readonly - Render without the Apply / Commit / edit affordances.
  * @property defaultTab - Initial result tab ({@link ExperimentTabType}).
+ * @property views - The result tabs the instance offers; empty, every one its data gives.
  */
 export const ExperimentPayloadType = StructType({
     data: DiffBindingType,
@@ -165,6 +167,7 @@ export const ExperimentPayloadType = StructType({
     subject: OptionType(ExperimentSubjectType),
     readonly: OptionType(BooleanType),
     defaultTab: OptionType(ExperimentTabType),
+    views: ArrayType(ExperimentTabType),
 });
 /** Type alias for {@link ExperimentPayloadType}. */
 export type ExperimentPayloadType = typeof ExperimentPayloadType;
@@ -224,6 +227,7 @@ export type ExperimentColumns<Row extends StructType> = {
  * @property subject - Optional domain noun for a row (`'batch'`, or `{ one, many }`).
  * @property readonly - Render without mutation affordances.
  * @property defaultTab - Initial result tab.
+ * @property views - The result tabs this instance offers.
  */
 export interface ExperimentOptions<Row extends StructType> {
     data: BoundValue<ArrayType<Row>>;
@@ -243,6 +247,13 @@ export interface ExperimentOptions<Row extends StructType> {
     subject?: string | { one: string; many: string };
     readonly?: SubtypeExprOrValue<BooleanType>;
     defaultTab?: ExperimentTabLiteral;
+    /** The result tabs this instance offers: literal tags (`['answer', 'trust']`), `Experiment.Types.Tab`
+     *  values, or an expression of an array of them, which a page's state can choose as it runs. Omitted, or
+     *  empty as the page runs, every tab. A tab still shows only where its data gives it — `dose` with a dose
+     *  feature, `validate` with a design. One left, no tabs show, and a tab left out is never drawn; with
+     *  `trust` left out, the answer's stress tests stay on it and link nowhere. A list in the code that leaves
+     *  out `defaultTab` is refused. */
+    views?: ViewsProp<ExperimentTabType, ExperimentTabLiteral>;
 }
 
 /** Naive English plural for a {@link ExperimentOptions.subject} noun given as a
@@ -298,6 +309,7 @@ function createExperiment<Row extends StructType>(options: ExperimentOptions<Row
         subject,
         readonly: options.readonly === undefined ? none : some(options.readonly),
         defaultTab,
+        views: viewsProp('Experiment', ExperimentTabType, options.views, options.defaultTab) as never,
     });
 }
 

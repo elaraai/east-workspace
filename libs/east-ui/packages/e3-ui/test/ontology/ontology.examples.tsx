@@ -25,8 +25,8 @@
  *      to surface the pending node/link patch.
  */
 
-import { East, none, some, variant, example } from '@elaraai/east';
-import { Card, Reactive, Text, UIComponentType, VStack } from '@elaraai/east-ui';
+import { ArrayType, East, NullType, StringType, none, some, variant, example } from '@elaraai/east';
+import { Card, HStack, Reactive, Select, State, Text, UIComponentType, VStack } from '@elaraai/east-ui';
 import { Data, Diff, Ontology, OntologyType } from '@elaraai/e3-ui';
 import * as e3 from '@elaraai/e3';
 
@@ -185,6 +185,30 @@ export const ontologyTableCycleView = example({
         <Reactive>{$ => {
             const view = $.let(Data.bind(tradingCycleOntologyInput));
             return <Ontology value={view} defaultView="table" />;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const ontologyViews = example({
+    keywords: ['Ontology', 'views', 'Ontology.Types.View', 'graph', 'table', 'hide a view', 'Select', 'multiple', 'onChangeMultiple', 'State', 'Reactive'],
+    description: "Which display modes an instance offers, chosen as the page runs: a multi-select wired into `views`, an expression of an array of Ontology.Types.View. With one mode left no switch shows, and with none chosen, both. `views={['table']}` writes the same choice in the code.",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const view = $.let(Data.bind(tradingCycleOntologyInput));
+            // The tags the multi-select holds, and the modes they name.
+            const chosen = $.let(State.bind([ArrayType(StringType)], 'ex.ontologyViews.views', []));
+            const tags = $.let(chosen.read());
+            const onViews = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => { $(chosen.write(next)); }));
+            const every = $.const([variant('graph', null), variant('table', null)], ArrayType(Ontology.Types.View));
+            const views = $.let(every.filter(($, mode) => tags.toSet().has(mode.getTag())));
+            return (
+                <VStack gap="3" align="stretch" width="100%">
+                    <HStack gap="2" align="center"><Text>Views</Text><Select value="" placeholder="Every view" multiple={true} onChangeMultiple={onViews}
+                        items={[Select.Item('graph', 'Graph'), Select.Item('table', 'Table')]} /></HStack>
+                    <Ontology value={view} views={views} />
+                </VStack>
+            );
         }}</Reactive>
     )),
     inputs: [],

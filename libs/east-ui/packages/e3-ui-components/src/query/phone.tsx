@@ -36,6 +36,8 @@ export interface PhoneToolbarOptions {
     /** The count of the result kept under a run that gave none (5e). */
     readonly keptCount: string | undefined;
     readonly onView: (view: ResultView) => void;
+    /** The result's views this builder offers, in the switch's order: Table · Tree shows only where there are two. */
+    readonly views: readonly ResultView[];
     readonly onDownload: (format: DownloadFormat) => void;
     readonly onRun: () => void;
     /** The query's name. */
@@ -49,7 +51,7 @@ export interface PhoneToolbarOptions {
 const output = (state: RunState) => (state.status === "done" ? state.output : undefined);
 
 /** The first row, one item (QP1). */
-const QueryPhoneBar = memo(function QueryPhoneBar({ state, view, keptCount, onView, onDownload, onRun, name, width, words }: Omit<PhoneToolbarOptions, "history">) {
+const QueryPhoneBar = memo(function QueryPhoneBar({ state, view, keptCount, onView, views, onDownload, onRun, name, width, words }: Omit<PhoneToolbarOptions, "history">) {
     const styles = useSlotStyles("queryPhone");
     const m = words.messages;
     const [open, setOpen] = useState(false);
@@ -84,15 +86,15 @@ const QueryPhoneBar = memo(function QueryPhoneBar({ state, view, keptCount, onVi
     );
     return (
         <Box css={styles.bar} data-query-phone-bar="">
-            <Box css={styles.seg} role="group" aria-label={m.resultViewLabel()} data-query-result-view={view}>
-                {(["table", "tree"] as const).map((v) => (
+            {views.length > 1 && <Box css={styles.seg} role="group" aria-label={m.resultViewLabel()} data-query-result-view={view}>
+                {views.map((v) => (
                     <chakra.button key={v} type="button" css={styles.segItem} data-state={v === view ? "on" : "off"} data-icons={icons ? "" : undefined} aria-pressed={v === view} disabled={off}
                         {...(icons ? { "aria-label": m.resultView({ view: v }) } : {})} onClick={() => onView(v)}>
                         <Box as="span" css={styles.segIcon} aria-hidden><FontAwesomeIcon icon={v === "table" ? faTableList : faSitemap} /></Box>
                         {!icons && <span>{m.resultView({ view: v })}</span>}
                     </chakra.button>
                 ))}
-            </Box>
+            </Box>}
             <SliceEditPopover open={open} onOpenChange={setOpen} trigger={trigger}
                 label={<>{m.thisResult()} {footer.run !== "" && <Box as="span" css={styles.viewContext}>{footer.run.split(" · ").slice(0, 2).join(" · ")}</Box>}</>}>
                 <Box css={styles.result} data-query-this-result="">

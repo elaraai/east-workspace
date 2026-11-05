@@ -23,6 +23,7 @@ describeEast("Query examples (#940)", (test) => {
     Assert.examples(test, {
         queryBuilder: ex.queryBuilder,
         queryBuilderMobile: ex.queryBuilderMobile,
+        queryBuilderViews: ex.queryBuilderViews,
         queryBuilderBom: ex.queryBuilderBom,
         queryBuilderModel: ex.queryBuilderModel,
         queryBuilderEmpty: ex.queryBuilderEmpty,

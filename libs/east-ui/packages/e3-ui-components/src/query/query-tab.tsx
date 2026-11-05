@@ -61,7 +61,8 @@ export const QueryTabPanel = memo(function QueryTabPanel({ editor, ps, workspace
     const seg = useSlotRecipe({ key: "seg" })() as Styles;
     const { view, setView } = editor;
     const items = useMemo(() => [viewToolbarItem({ view, onView: setView, words, styles, seg })], [view, setView, words, styles, seg]);
-    const bar = (
+    // One view offered, no band: there is nothing to choose.
+    const bar = editor.views.length > 1 && (
         <Box css={band.toolbar} data-slot="toolbar" data-query-tab-bar="">
             <Toolbar items={items} />
         </Box>

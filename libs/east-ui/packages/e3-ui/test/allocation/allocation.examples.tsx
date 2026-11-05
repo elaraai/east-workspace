@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/e3-ui */
 import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, PatchType, StringType, example, none, some, variant } from "@elaraai/east";
 import e3 from "@elaraai/e3";
-import { Box, Button, Field, HStack, Reactive, Slice, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Allocation, Data, Func, Record, Schedule } from "@elaraai/e3-ui";
 import {
     Bay, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,
@@ -162,6 +162,40 @@ export const allocationMinimal = example({
             }}
             arrivals={Allocation.arrivals(loads.read(), { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays) })} />
         </Box>;
+    }}</Reactive>),
+});
+
+export const allocationViews = example({
+    description: "Which layouts an instance offers, chosen as the page runs: a multi-select wired into `views`, an expression of an array of Allocation.Types.Layout. Choose Table alone and Timeline is gone, its button and all; with one layout left no switch shows, and with none chosen, both. `views={[\"table\"]}` writes the same choice in the code.",
+    keywords: ["Allocation", "views", "Allocation.Types.Layout", "layout", "hide a view", "Timeline", "Table", "Select", "multiple", "onChangeMultiple", "State", "Reactive"], inputs: [],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const bins = $.let(Record.bind(minimalBins));
+        const loads = $.let(Data.bind(arrivals));
+        const yard = $.let(Data.bind(kilns));
+        const bays = $.let(Data.bind(yardBays));
+        const fit = $.let(Func.bind(minimalFit));
+        // The tags the multi-select holds, and the layouts they name.
+        const chosen = $.let(State.bind([ArrayType(StringType)], "ex.allocationViews.views", []));
+        const tags = $.let(chosen.read());
+        const onViews = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => { $(chosen.write(next)); }));
+        const every = $.const([variant("timeline", null), variant("table", null)], ArrayType(Allocation.Types.Layout));
+        const views = $.let(every.filter(($, view) => tags.toSet().has(view.getTag())));
+        return <VStack gap="3" align="stretch" width="100%">
+            <HStack gap="2" align="center"><Text>Views</Text><Select value="" placeholder="Every view" multiple={true} onChangeMultiple={onViews}
+                items={[Select.Item("timeline", "Timeline"), Select.Item("table", "Table")]} /></HStack>
+            <Box width="100%" height="700px"><Allocation id="allocationViews" views={views} fit={fit} view={{ date: yardDay }}
+                events={{ bin: Schedule.events(bins, {
+                    name: "Bin", icon: "box",
+                    at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
+                    quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor",
+                }) }}
+                resources={{
+                    bays: Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),
+                    kilns: Schedule.resources(yard.read(), { name: "Kilns", icon: "fire", label: k => k.name, min: k => k.min, max: k => k.max, jobs: k => k.charges }),
+                }}
+                arrivals={Allocation.arrivals(loads.read(), { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays) })} />
+            </Box>
+        </VStack>;
     }}</Reactive>),
 });
 

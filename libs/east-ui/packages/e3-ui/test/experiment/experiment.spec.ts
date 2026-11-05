@@ -16,6 +16,7 @@ describeEast('Experiment', (test) => {
     Assert.examples(test, {
         experimentSurface: ex.experimentSurface,
         experimentTrust: ex.experimentTrust,
+        experimentViews: ex.experimentViews,
         experimentDose: ex.experimentDose,
         experimentValidate: ex.experimentValidate,
         experimentMenu: ex.experimentMenu,

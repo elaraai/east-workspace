@@ -69,6 +69,9 @@ interface ToolbarArgs extends RosterWindow {
 /** One shared Toolbar, including the narrowing's rail and the shared editing history. */
 export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem | false | undefined> {
     const { value, view, setView, start, span, styles, commands, words, issues, editing } = args;
+    // The layouts this Roster offers: its switch, in every form, only where there is a choice to make.
+    const layouts = LAYOUTS.filter(item => args.layouts.includes(item.key));
+    const switches = layouts.length > 1;
     // The narrowing: one rail over the week's duties, the people and the activities, each source counted in its own noun
     // (#1342); the duties' range is the Roster's own navigation, never a chip of the rail (#1369).
     const chrome = value.slice.type === "some" ? value.slice.value : undefined;
@@ -117,8 +120,8 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         else if (key === "previous") navigate(-1); else if (key === "next") navigate(1);
         else if (key === "issues") args.onIssues(); else displayChoice(key);
     }}>
-        {LAYOUTS.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}
-        <ChakraMenu.Separator />{periods.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}
+        {switches && <>{layouts.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}<ChakraMenu.Separator /></>}
+        {periods.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}
         <ChakraMenu.Separator /><ChakraMenu.Item value="previous">Previous {unit}</ChakraMenu.Item><ChakraMenu.Item value="next">Next {unit}</ChakraMenu.Item>{value.inspector && <ChakraMenu.Item value="issues">{count} issues</ChakraMenu.Item>}<ChakraMenu.Separator />{displayItems}
         {heldPublish && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish" disabled={!publishable}>Publish week</ChakraMenu.Item></>}
     </ChipMenu>;
@@ -130,7 +133,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     // and, at the row's floor, holds the eye's entry beside the issues.
     const controls = (withEye: boolean) => <Box css={styles.agendaGroup}>
         {search?.forms[0]}
-        <Seg label="Layout" scope="roster" name="compact-layout" items={LAYOUTS} active={view.layout} onPick={args.setLayout} />
+        {switches && <Seg label="Layout" scope="roster" name="compact-layout" items={layouts} active={view.layout} onPick={args.setLayout} />}
         <Seg label="Period" scope="roster" name="compact-period" items={periods} active={view.period} onPick={period} />
         <ChipMenu label="Display" icon={faSliders} onSelect={displayChoice}>{displayItems}</ChipMenu>
         {value.inspector && <Button size="xs" variant="ghost" onClick={args.onIssues}>{count} issues</Button>}
@@ -150,7 +153,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         items={Array.from({ length: 7 }, (_, day) => ({ key: String(day), label: words.weekday(new Date(start.getTime() + day * DAY)) }))} />;
     return [
         ...rail,
-        { key: "roster.layout", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<Seg label="Layout" scope="roster" name="layout" items={LAYOUTS} active={view.layout} onPick={args.setLayout} />, null] },
+        switches && { key: "roster.layout", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<Seg label="Layout" scope="roster" name="layout" items={layouts} active={view.layout} onPick={args.setLayout} />, null] },
         // The layout's own periods, in every form of the row (#1406, P1).
         { key: "roster.period", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<Seg label="Period" scope="roster" name="period" items={periods} active={view.period} onPick={period} />, null] },
         { key: "roster.display", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<ChipMenu label="Display" icon={faSliders} onSelect={displayChoice}>{displayItems}</ChipMenu>, null] },

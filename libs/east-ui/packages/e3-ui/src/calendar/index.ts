@@ -12,6 +12,7 @@ import { RecordSliceConfigType, RecordSlicesChromeType, RowSourceType, type Reco
 import { FuncBindingType } from "../bind/func.js";
 import type { OptimiseHandle } from "../utils/optimise.js";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
+import { firstView, viewsProp, type ViewsProp } from "../utils/views.js";
 import { Schedule, scheduleCheck, scheduleTitled, type ScheduleNamespace } from "../schedule/index.js";
 import { checkSchedulePagedEventKinds, checkSchedulePagedKinds, checkedScheduleTilings } from "../schedule/cell-checks.js";
 import { ScheduleOptimiseRequestTypeFor, ScheduleOptimiseResultTypeFor, scheduleOptimiseBinding } from "../schedule/optimise.js";
@@ -25,6 +26,8 @@ export { CalendarPagedType, createCalendarPaged } from "./paged.js";
 
 /** Calendar's layout: a time grid, resource columns or a horizontal timeline. */
 export const CalendarLayoutType = VariantType({ calendar: NullType, resources: NullType, timeline: NullType });
+/** The layouts, in the switch's order. */
+const CALENDAR_LAYOUTS = ["calendar", "resources", "timeline"] as const;
 /** The stretch shown: a day, week or month. */
 export const CalendarPeriodType = VariantType({ day: NullType, week: NullType, month: NullType });
 /** A viewer's layout, period and reference date. */
@@ -33,7 +36,7 @@ export const CalendarViewType = StructType({ layout: CalendarLayoutType, period:
 export const CalendarLibraryTabType = VariantType({ templates: NullType, backlog: NullType, tab: ScheduleAuthorTabType });
 /** Initial view and working-time settings; every instant is shown in UTC. */
 export const CalendarSettingsType = StructType({
-    layout: CalendarLayoutType, period: CalendarPeriodType, date: OptionType(DateTimeType),
+    layout: CalendarLayoutType, views: ArrayType(CalendarLayoutType), period: CalendarPeriodType, date: OptionType(DateTimeType),
     hours: StructType({ from: IntegerType, to: IntegerType }),
     weekStart: VariantType({ monday: NullType, sunday: NullType }), weekends: BooleanType,
     density: VariantType({ compact: NullType, comfortable: NullType, spacious: NullType }),
@@ -110,6 +113,13 @@ export interface CalendarProps {
     readOnly?: SubtypeExprOrValue<BooleanType>;
     /** Initial layout, period and date. Viewer changes persist under id. */
     view?: { layout?: "calendar" | "resources" | "timeline"; period?: "day" | "week" | "month"; date?: SubtypeExprOrValue<DateTimeType> };
+    /**
+     * The layouts this instance offers: literal tags (`["calendar", "timeline"]`), `Calendar.Types.Layout` values, or an expression
+     * of an array of them, which a page's state can choose as it runs. Omitted, or empty as the page runs, all three. One left, no
+     * switch shows, in any form of the toolbar; a layout left out is never drawn, so a viewer's kept view of it opens on the first
+     * offered, and the overlaps chip stays on the layout in view rather than opening Resources.
+     */
+    views?: ViewsProp<typeof CalendarLayoutType, "calendar" | "resources" | "timeline">;
     /** Working hours, shaded outside this interval; defaults to 06–22 UTC. */
     hours?: { from: bigint; to: bigint };
     /** Initial week start and visibility of weekends. */
@@ -145,7 +155,7 @@ export interface CalendarProps {
  *   day, `slice` is not `Slice.bindRecords` or names a source no kind, templates list or tab names, a templates list is
  *   written in the code or names no source of the slice (templates are records, #1340), or a tab names a source the
  *   slice lacks, or `optimise` is not `Func.bind` of a function from `OptimiseRequest(E, S)` to `OptimiseResult(E)` over
- *   the kinds' rows (#1409); more than one resource kind is paged, or an event kind is placed on the paged kind and on
+ *   the kinds' rows (#1409); a `views` that lists nothing, names no layout, or leaves out `view.layout`; more than one resource kind is paged, or an event kind is placed on the paged kind and on
  *   another, or with no source of the slice — its record read whole, or the days in view read through its day index —
  *   each naming the series and summary indexes to declare over the kind's own fields (#1424). The series and summary
  *   indexes an event kind's source lists are refused in the same words as the Calendar is evaluated, the source's
@@ -165,6 +175,7 @@ export function createCalendarPayload(props: CalendarProps): ExprType<typeof Cal
     scheduleTitled(props.events, "Calendar");
     if (Object.keys(props.events).length === 0) throw new Error("Calendar: declare at least one event kind");
     const hours = props.hours ?? { from: 6n, to: 22n };
+    const views = viewsProp("Calendar", CalendarLayoutType, props.views, props.view?.layout);
     if (hours.from < 0n || hours.to > 24n || hours.from >= hours.to) throw new Error("Calendar: hours must satisfy 0 <= from < to <= 24");
     const events = Object.entries(props.events);
     // The app's optimiser (#1409), held to the kinds' rows by slot.
@@ -210,7 +221,7 @@ export function createCalendarPayload(props: CalendarProps): ExprType<typeof Cal
             resources: resourceKinds.map(([slot, kind]) => kind.build(slot)),
             paged: paged === undefined ? East.value(none, OptionType(CalendarPagedType)) : East.value(some(paged), OptionType(CalendarPagedType)),
             settings: {
-                layout: variant(props.view?.layout ?? "calendar", null), period: variant(props.view?.period ?? "week", null),
+                layout: variant(props.view?.layout ?? firstView(CALENDAR_LAYOUTS, props.views), null), views: views as never, period: variant(props.view?.period ?? "week", null),
                 date: props.view?.date === undefined ? none : some(props.view.date), hours,
                 weekStart: variant(props.week?.start ?? "monday", null), weekends: props.week?.weekends ?? true,
                 density: variant(props.density ?? "comfortable", null), now: props.now === undefined ? none : some(props.now),

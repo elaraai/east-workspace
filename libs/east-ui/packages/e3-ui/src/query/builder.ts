@@ -20,7 +20,9 @@ import {
     ArrayType,
     OptionType,
     StringType,
+    NullType,
     StructType,
+    VariantType,
     none,
     some,
     type ExprType,
@@ -34,6 +36,7 @@ import {
     type UIComponentType,
 } from "@elaraai/east-ui/internal";
 import { DataSourceType, dataSources, type BoundSource } from "../bind/sources.js";
+import { viewsProp, type ViewsProp } from "../utils/views.js";
 import { QueriesHandleType, type QueriesHandle } from "./queries.js";
 
 // ============================================================================
@@ -73,6 +76,18 @@ export function queryKeys(id: string | undefined): {
 // The renderer's payload
 // ============================================================================
 
+/** A view of the open query: its steps in plain words, or its jq. */
+export const QueryViewType = VariantType({ visual: NullType, jq: NullType });
+
+/** Type representing {@link QueryViewType}. */
+export type QueryViewType = typeof QueryViewType;
+
+/** A view of the result: a Table of its rows, or a tree of its value. */
+export const QueryResultViewType = VariantType({ table: NullType, tree: NullType });
+
+/** Type representing {@link QueryResultViewType}. */
+export type QueryResultViewType = typeof QueryResultViewType;
+
 /**
  * The `QueryBuilder` renderer's payload — the builder's interface.
  *
@@ -80,12 +95,16 @@ export function queryKeys(id: string | undefined): {
  * @property datasets - The data sources a query may read, by the names it reads them
  * @property query - The saved query the builder opens first, by name; none, a new query on the first data source
  * @property id - Names the builder, when a surface holds two — and the query library that opens queries in it
+ * @property views - The query's views the builder offers; empty, both
+ * @property resultViews - The result's views the builder offers; empty, both
  */
 export const QueryBuilderPayloadType = StructType({
     queries: QueriesHandleType,
     datasets: ArrayType(DataSourceType),
     query: OptionType(StringType),
     id: OptionType(StringType),
+    views: ArrayType(QueryViewType),
+    resultViews: ArrayType(QueryResultViewType),
 });
 
 /** Type representing the `QueryBuilder` renderer's payload. */
@@ -108,6 +127,8 @@ export const QueryBuilderComponent = EastUI.component("QueryBuilder", QueryBuild
  * @property datasets - The data sources a query may read: each name, as a query reads it, to its binding
  * @property query - The saved query the builder opens first, by name
  * @property id - Names the builder, when a surface holds two — and the query library that opens queries in it
+ * @property views - The query's views this builder offers
+ * @property resultViews - The result's views this builder offers
  */
 export interface QueryBuilderOptions {
     /** The saved queries record, bound with its patch mutation — `Record.bind(queries)`. */
@@ -127,6 +148,18 @@ export interface QueryBuilderOptions {
     query?: SubtypeExprOrValue<StringType>;
     /** Names the builder — needed only when one surface holds two builders, and then given to the query library that opens queries in it. */
     id?: string;
+    /**
+     * The query's views this builder offers: literal tags (`["visual"]`), `Query.Types.View` values, or an
+     * expression of an array of them, which a page's state can choose as it runs. Omitted, or empty as the page
+     * runs, both. One left, Visual · jq does not show. A saved query that is not steps opens as jq whatever this
+     * says, since it can show no other way.
+     */
+    views?: ViewsProp<QueryViewType, "visual" | "jq">;
+    /**
+     * The result's views this builder offers: literal tags (`["table"]`), `Query.Types.ResultView` values, or an
+     * expression of an array of them. Omitted, or empty as the page runs, both. One left, Table · Tree does not show.
+     */
+    resultViews?: ViewsProp<QueryResultViewType, "table" | "tree">;
 }
 
 /**
@@ -178,6 +211,8 @@ function createBuilder(options: QueryBuilderOptions): ExprType<UIComponentType> 
         datasets: dataSources("Query.Builder", options.datasets),
         query: options.query === undefined ? none : some(options.query),
         id: options.id === undefined ? none : some(options.id),
+        views: viewsProp("Query.Builder", QueryViewType, options.views) as never,
+        resultViews: viewsProp("Query.Builder", QueryResultViewType, options.resultViews) as never,
     });
 }
 

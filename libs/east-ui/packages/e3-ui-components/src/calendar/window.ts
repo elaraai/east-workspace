@@ -26,10 +26,15 @@ import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType, RecordSlicesChromeType } from "@elaraai/east-ui/internal";
 import { useSlicesReactivity } from "@elaraai/east-ui-components";
 import { recordSliceSeeded, recordSliceWindow, setRecordSliceWindow } from "@elaraai/east-ui-components/internal";
+import { CalendarLayoutType } from "@elaraai/e3-ui/internal";
 import { sourcePart } from "../shared/schedule/visibility.js";
+import { shownView, shownViews } from "../shared/views.js";
 import { calendarRange, DAY, dayStart, type CalendarKind, type CalendarRange, type CalendarValue, type CalendarView } from "./model.js";
 import { timelineRange } from "./timeline.js";
 import { useCalendarView } from "./view.js";
+
+/** The layouts, in the switch's order. */
+const LAYOUTS = Object.keys(CalendarLayoutType.cases) as readonly CalendarView["layout"][];
 
 /** One record Slice's controls. */
 type Bind = ValueTypeOf<RecordSliceBindType>;
@@ -45,6 +50,8 @@ export interface CalendarEventPart {
 /** The window and the slice that every Calendar layout consumes. */
 export interface CalendarWindow {
     view: CalendarView; setView: (next: CalendarView) => void; range: CalendarRange;
+    /** The layouts this Calendar offers, in the switch's order: the `views` prop's. */
+    layouts: readonly CalendarView["layout"][];
     /** The rail; `undefined` with no slice. */
     chrome: ValueTypeOf<RecordSlicesChromeType> | undefined;
     /** Each event kind narrowed through its source, in the kinds' order. */
@@ -93,10 +100,16 @@ export function useCalendarWindow(value: CalendarValue, key: string, now: Date):
     });
     // The first event source holding a range leads; the others follow it. One still holding its seed leads nothing:
     // its window is the author's start, and the view — restored by a reload — writes its own over it.
+    const views = value.settings.views;
+    const layouts = useMemo(() => shownViews(LAYOUTS, views), [views]);
     const lead = windowParts.filter(({ part }) => !recordSliceSeeded(part)).map(({ part }) => recordSliceWindow(part)).find(window => window?.kind === "datetime");
     const from = lead?.min;
     const to = lead?.max;
-    const view = useMemo(() => from === undefined || (state.date >= from && state.date < (to ?? from)) ? state : { ...state, date: from }, [state, from, to]);
+    // A layout this Calendar offers: what is kept stands, so the layout comes back should the Calendar offer it again.
+    const view = useMemo(() => {
+        const layout = shownView(state.layout, layouts);
+        return from === undefined || (state.date >= from && state.date < (to ?? from)) ? (layout === state.layout ? state : { ...state, layout }) : { ...state, layout, date: from };
+    }, [state, layouts, from, to]);
     const range = useMemo((): CalendarRange => {
         if (from === undefined || to === undefined || to <= from) return view.layout === "timeline" ? timelineRange(view) : calendarRange(view, value.settings);
         const days: Date[] = [];
@@ -127,5 +140,5 @@ export function useCalendarWindow(value: CalendarValue, key: string, now: Date):
         const window = next.layout === "timeline" ? timelineRange(next) : calendarRange(next, value.settings);
         write(window.from.getTime(), window.to.getTime(), () => true);
     };
-    return { view, setView, range, chrome, eventParts, windowParts, affordances, error };
+    return { view, setView, layouts, range, chrome, eventParts, windowParts, affordances, error };
 }

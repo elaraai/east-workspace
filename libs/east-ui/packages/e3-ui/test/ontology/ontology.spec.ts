@@ -23,6 +23,7 @@ describeEast('Ontology', (test) => {
         compactDensityOntology:  ex.compactDensityOntology,
         ontologyWithDiff:        ex.ontologyWithDiff,
         ontologyTableCycleView:  ex.ontologyTableCycleView,
+        ontologyViews:           ex.ontologyViews,
     });
 
     test('Ontology.Component is declared as an optional EastUI component', $ => {

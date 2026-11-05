@@ -140,6 +140,9 @@ interface ToolbarArgs extends AllocationWindow {
 export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem | false | undefined> {
     const { value, view, setView, styles, commands, words, issues, editing } = args;
     const timeline = view.layout === "timeline";
+    // The layouts this board offers: its switch, in every form, only where there is a choice to make.
+    const layouts = LAYOUTS.filter(item => args.layouts.includes(item.key));
+    const switches = layouts.length > 1;
     // The narrowing: one rail over the bins, the lanes, the resources and the arrivals, in both layouts, each source counted in the board's noun
     // under the slot the app names it by (#1336, #1339); the bins' range is the board's own navigation, never a chip of the rail (#1372).
     const chrome = value.slice.type === "some" ? value.slice.value : undefined;
@@ -171,7 +174,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
     if (!unread && historyHeld !== historyNow) setHistoryHeld(historyNow);
     const showHistory = history !== undefined && (historyNow || (unread && historyHeld));
     const layout = (key: "table" | "timeline") => setView({ ...view, layout: key });
-    const layoutSeg = (name: string) => <Seg label="Layout" scope="allocation" name={name} items={LAYOUTS} active={view.layout} onPick={layout} />;
+    const layoutSeg = (name: string) => <Seg label="Layout" scope="allocation" name={name} items={layouts} active={view.layout} onPick={layout} />;
     const focus = args.focus;
     // The Elara eye (#1409) and its entry: at the row's floor the eye goes into the View, which lists it in its place
     // (ruled 27 Oct 2026, "Into the View menu"); an eye with no entry keeps to the row.
@@ -181,7 +184,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
     // where no Esc is (A13, A78).
     const controls = (withEye: boolean) => <Box css={styles.controls}>
         {search?.forms[0]}
-        {layoutSeg("compact-layout")}
+        {switches && layoutSeg("compact-layout")}
         {timeline && focus !== undefined && focusChip(false)}
         {value.inspector && summary.count > 0 && <Button size="xs" variant="ghost" onClick={args.onIssues}>{summary.label}</Button>}
         {withEye && eye?.entry}
@@ -192,7 +195,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         else if (key === "previous") args.step(-1); else if (key === "next") args.step(1);
         else if (key === "issues") args.onIssues(); else if (key === "publish" && canPublish) commands.publish();
     }}>
-        {LAYOUTS.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}
+        {layouts.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}
         <ChakraMenu.Separator /><ChakraMenu.Item value="previous">Previous day</ChakraMenu.Item><ChakraMenu.Item value="next">Next day</ChakraMenu.Item>
         {value.inspector && summary.count > 0 && <ChakraMenu.Item value="issues">{summary.label}</ChakraMenu.Item>}
         {heldPublish && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish" disabled={!canPublish}>Publish</ChakraMenu.Item></>}
@@ -216,8 +219,9 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         controls={combined ? controls(withEye) : undefined} />;
     return [
         ...rail,
-        { key: "allocation.layout", side: "start", rank: HOST_RANK + 1, bundle: "allocation.view", forms: [layoutSeg("layout"), null] },
-        { key: "allocation.view", side: "start", rank: [HOST_RANK + 1, HOST_RANK + 6], bundle: ["allocation.view", "allocation.controls"], forms: [null, menu, null] },
+        // With no switch, nothing folds into the View, so no View to fold to.
+        switches && { key: "allocation.layout", side: "start", rank: HOST_RANK + 1, bundle: "allocation.view", forms: [layoutSeg("layout"), null] },
+        switches && { key: "allocation.view", side: "start", rank: [HOST_RANK + 1, HOST_RANK + 6], bundle: ["allocation.view", "allocation.controls"], forms: [null, menu, null] },
         // The day's navigation: compact, then the View holding the date and the controls; and, with an eye, at the row's
         // floor the View holding its entry too, in the step that takes the eye from the row (a rung of the floor).
         { key: "allocation.navigation", side: "start", rank: [HOST_RANK + 4, HOST_RANK + 6, OPTIMISE_RANK], bundle: [undefined, "allocation.controls", EYE_INTO_VIEW],

@@ -21,12 +21,15 @@ import { useCallback, useMemo, useRef } from "react";
 import { RosterLayoutType, RosterPeriodType } from "@elaraai/e3-ui/internal";
 import { usePageView } from "../shared/schedule/page-view.js";
 import { shiftCalendar } from "../shared/time/scale.js";
+import { shownView, shownViews } from "../shared/views.js";
 import {
     DAY, compareDate, dayStart, periodOf, rosterSpan, weekStart, type RosterLayout, type RosterPeriod, type RosterSpan, type RosterValue, type RosterView,
 } from "./model.js";
 
 export interface RosterWindow {
     view: RosterView; setView: (next: RosterView) => void;
+    /** The layouts this Roster offers, in the switch's order: the `views` prop's. */
+    layouts: readonly RosterLayout[];
     /** The span in view: its weeks, and the window its reads cover. */
     span: RosterSpan;
     /** The span's first week's first day. */
@@ -47,10 +50,19 @@ export interface RosterWindow {
     openWeek: (week: Date, layout?: RosterLayout) => void;
 }
 
+/** The layouts, in the switch's order. */
+const LAYOUTS = Object.keys(RosterLayoutType.cases) as readonly RosterLayout[];
+
 /** A view as it is kept: its period one its layout takes, whatever an older view held. */
 function normal(view: RosterView): RosterView {
     const period = periodOf(view.layout, view.period);
     return period === view.period ? view : { ...view, period };
+}
+
+/** A view as it is drawn: a layout this Roster offers, with the period that layout last had (P1). What is kept stands, so the layout comes back should the Roster offer it again. */
+function offered(view: RosterView, layouts: readonly RosterLayout[]): RosterView {
+    const layout = shownView(view.layout, layouts);
+    return layout === view.layout ? view : normal({ ...view, layout, period: periodOf(layout, view.held?.[layout]) });
 }
 
 /**
@@ -89,17 +101,19 @@ export function useRosterWindow(value: RosterValue, key: string): RosterWindow {
         layout: value.settings.layout.type, period: periodOf(value.settings.layout.type, value.settings.period.type),
         date: dayStart(value.settings.date.type === "some" ? value.settings.date.value : new Date()).getTime(),
     }, rosterViewOf);
-    const view = useMemo(() => normal(kept), [kept]);
+    const views = value.settings.views;
+    const layouts = useMemo(() => shownViews(LAYOUTS, views), [views]);
+    const view = useMemo(() => offered(normal(kept), layouts), [kept, layouts]);
     const sunday = value.settings.weekStart.type === "sunday";
     const span = useMemo(() => rosterSpan(view.date, view.period, sunday), [view.date, view.period, sunday]);
     const week = useMemo(() => weekStart(new Date(view.date), sunday), [view.date, sunday]);
     const day = Math.floor((dayStart(view.date).getTime() - week.getTime()) / DAY);
     const setView = useCallback((next: RosterView) => setKept(normal(next)), [setKept]);
     const setLayout = useCallback((layout: RosterLayout) => {
-        if (layout === view.layout) return;
+        if (layout === view.layout || !layouts.includes(layout)) return;
         // The layout's own period, as it last had it; the period in view kept for the layout left.
         setView({ ...view, layout, period: periodOf(layout, view.held?.[layout]), held: { ...view.held, [view.layout]: view.period } });
-    }, [view, setView]);
+    }, [view, layouts, setView]);
     // The week Month was opened from (P3, ruled 26 Oct 2026): what Month → Week returns to while the month in view still
     // holds it — a viewer toggling the two keeps their place; a month stepped to opens on its own first week.
     const left = useRef<Date | undefined>(undefined);
@@ -123,11 +137,12 @@ export function useRosterWindow(value: RosterValue, key: string): RosterWindow {
         const date = view.period === "month" ? shiftCalendar(new Date(view.date), "month", by).getTime() : view.date + by * 7 * DAY;
         setView({ ...view, date });
     }, [view, setView]);
-    const openWeek = useCallback((at: Date, layout: RosterLayout = view.layout) => {
+    const openWeek = useCallback((at: Date, asked: RosterLayout = view.layout) => {
+        const layout = shownView(asked, layouts);
         const held = layout === view.layout ? view.held : { ...view.held, [view.layout]: view.period };
         setView({ ...view, layout, period: periodOf(layout, "week"), date: at.getTime(), held });
-    }, [view, setView]);
-    return { view, setView, span, start: span.start, day, setLayout, setPeriod, step, openWeek };
+    }, [view, layouts, setView]);
+    return { view, setView, layouts, span, start: span.start, day, setLayout, setPeriod, step, openWeek };
 }
 
 /** The first day of a date's month. */

@@ -4,8 +4,8 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 
-import { DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from "@elaraai/east";
-import { Box, Button, HStack, Input, Reactive, Slice, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from "@elaraai/east";
+import { Box, Button, HStack, Input, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Calendar, Data, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -393,6 +393,30 @@ export const calendarMinimal = example({
             resources={{ machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) }}
             events={{ job: Calendar.events(jobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" }, backlog: { duration: row => variant("hours", row.hours), due: row => row.due } }) }} />
         </Box>;
+    }}</Reactive>),
+});
+
+export const calendarViews = example({
+    inputs: [],
+    description: "Which layouts an instance offers, chosen as the page runs: a multi-select wired into `views`, an expression of an array of Calendar.Types.Layout. A layout left out loses its button and is never drawn; with one left no switch shows, and with none chosen, all three. `views={[\"calendar\", \"timeline\"]}` writes the same choice in the code.",
+    keywords: ["Calendar", "views", "Calendar.Types.Layout", "layout", "hide a view", "Resources", "Timeline", "Select", "multiple", "onChangeMultiple", "State", "Reactive"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const machines = $.let(Record.bind(calendarMachines, []));
+        const jobs = $.let(Record.bind(calendarJobs));
+        // The tags the multi-select holds, and the layouts they name.
+        const chosen = $.let(State.bind([ArrayType(StringType)], "ex.calendarViews.views", []));
+        const tags = $.let(chosen.read());
+        const onViews = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => { $(chosen.write(next)); }));
+        const every = $.const([variant("calendar", null), variant("resources", null), variant("timeline", null)], ArrayType(Calendar.Types.Layout));
+        const views = $.let(every.filter(($, view) => tags.toSet().has(view.getTag())));
+        return <VStack gap="3" align="stretch" width="100%">
+            <HStack gap="2" align="center"><Text>Views</Text><Select value="" placeholder="Every view" multiple={true} onChangeMultiple={onViews}
+                items={[Select.Item("calendar", "Calendar"), Select.Item("resources", "Resources"), Select.Item("timeline", "Timeline")]} /></HStack>
+            <Box height="620px"><Calendar id="calendarViews" views={views} view={{ period: "day", date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}
+                resources={{ machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) }}
+                events={{ job: Calendar.events(jobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" }, backlog: { duration: row => variant("hours", row.hours), due: row => row.due } }) }} />
+            </Box>
+        </VStack>;
     }}</Reactive>),
 });
 

@@ -39,6 +39,7 @@ import { SCHEDULE_DEF, type ScheduleResourceKind } from "../schedule/resources.j
 import { ScheduleAllocationKindType, SchedulePeriodsKindType } from "../schedule/types.js";
 import { optimiseBinding, type OptimiseContract } from "../utils/optimise.js";
 import { recordSources } from "../utils/record-sources.js";
+import { firstView, viewsProp, type ViewsProp } from "../utils/views.js";
 import {
     allocationArrivals, allocationArrivalsOf, allocationInitial, allocationLanesOf, allocationResourcesOf, isAllocationArrivals, type AllocationArrivals,
 } from "./adapters.js";
@@ -129,13 +130,14 @@ export type AllocationTableOptionsType = typeof AllocationTableOptionsType;
  * The board's settings.
  *
  * @property layout - The first layout
+ * @property views - The layouts the board offers; empty, every one
  * @property date - The first day; today when `none`
  * @property horizon - The Timeline's resource axis around the day
  * @property title - The summary's heading
  * @property readOnly - No edits; a published day is always read-only
  */
 export const AllocationSettingsType = StructType({
-    layout: T.AllocationLayoutType, date: OptionType(DateTimeType), horizon: StructType({ before: TimeStepType, after: TimeStepType }),
+    layout: T.AllocationLayoutType, views: ArrayType(T.AllocationLayoutType), date: OptionType(DateTimeType), horizon: StructType({ before: TimeStepType, after: TimeStepType }),
     title: StringType, readOnly: BooleanType,
 });
 
@@ -282,6 +284,12 @@ export interface AllocationProps<R extends EastType = EastType> {
     inspector?: boolean;
     /** The first view, then persisted under `id`. Today's date by default. */
     view?: { layout?: "timeline" | "table"; date?: SubtypeExprOrValue<DateTimeType> };
+    /**
+     * The layouts this instance offers: literal tags (`["table"]`), `Allocation.Types.Layout` values, or an expression of an array of
+     * them, which a page's state can choose as it runs. Omitted, or empty as the page runs, both. One left, no switch shows, in any
+     * form of the toolbar; a layout left out is never drawn, so a viewer's kept view of it opens on the first offered.
+     */
+    views?: ViewsProp<typeof T.AllocationLayoutType, "timeline" | "table">;
     /** The Timeline's resource axis around the day; 3 days before and 10 after by default. */
     horizon?: { before?: SubtypeExprOrValue<TimeStepType>; after?: SubtypeExprOrValue<TimeStepType> };
     /** The summary's heading; `Allocation` by default. */
@@ -461,7 +469,7 @@ function allocationOptimiseContract(rowType: EastType): OptimiseContract {
  *   its `values` returning another struct than the bin kind's own fields; `periods` that is not `Schedule.periods`; a
  *   `fit` that is not `Func.bind` of a function from `FitRequest(R)` to `FitResult`, one over another row type naming
  *   both; an `optimise` that is not `Func.bind` of a function from `OptimiseRequest(R)` to `OptimiseResult(R)`, one over
- *   another row type naming both (#1409); a `check` of another type; a library tab or a column key listed twice; a label that is empty; the Table's
+ *   another row type naming both (#1409); a `views` that lists nothing, names no layout, or leaves out `view.layout`; a `check` of another type; a library tab or a column key listed twice; a label that is empty; the Table's
  *   bands not starting at 0 and rising within the day; and as `Schedule`'s checks, the bin kind's build
  *   (`buildAllocation`) and the slice's (`recordSources`) do
  * @internal
@@ -480,6 +488,7 @@ export function createAllocationPayload<R extends EastType>(props: AllocationPro
         throw new Error("Allocation: `inspector` is true or false — a bin's own form is the bin kind's `inspector` (Schedule.events(record, { …, inspector }))");
     }
     const labels = allocationLabels(props.labels);
+    const views = viewsProp("Allocation", T.AllocationLayoutType, props.views, props.view?.layout);
     const bands = allocationBands(props.table?.bands);
 
     // The bins: exactly one event kind.
@@ -624,7 +633,7 @@ export function createAllocationPayload<R extends EastType>(props: AllocationPro
             inspector: props.inspector ?? false,
             slice: narrowing.chrome,
             settings: {
-                layout: variant(props.view?.layout ?? "timeline", null), date: props.view?.date === undefined ? none : some(props.view.date),
+                layout: variant(props.view?.layout ?? firstView(["timeline", "table"] as const, props.views), null), views, date: props.view?.date === undefined ? none : some(props.view.date),
                 horizon: { before: props.horizon?.before ?? variant("days", 3.0), after: props.horizon?.after ?? variant("days", 10.0) },
                 title: props.title ?? "Allocation", readOnly: props.readOnly ?? false,
             },

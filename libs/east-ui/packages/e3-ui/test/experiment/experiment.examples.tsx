@@ -31,10 +31,10 @@
  */
 
 import {
-    East, ArrayType, StructType, BooleanType, FloatType, IntegerType, StringType, DateTimeType,
+    East, ArrayType, StructType, BooleanType, FloatType, IntegerType, NullType, StringType, DateTimeType,
     some, none, variant, example,
 } from '@elaraai/east';
-import { Reactive, Separator, UIComponentType, VStack } from '@elaraai/east-ui';
+import { HStack, Reactive, Select, Separator, State, Text, UIComponentType, VStack } from '@elaraai/east-ui';
 import { Data, Experiment, Func } from '@elaraai/e3-ui';
 import e3 from '@elaraai/e3';
 
@@ -452,6 +452,49 @@ export const experimentTrust = example({
                     subject="batch"
                     defaultTab="trust"
                 />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const experimentViews = example({
+    keywords: ['Experiment', 'views', 'Experiment.Types.Tab', 'tabs', 'hide a view', 'Select', 'multiple', 'onChangeMultiple', 'State', 'Reactive'],
+    description: "Which result tabs an instance offers, chosen as the page runs: a multi-select wired into `views`, an expression of an array of Experiment.Types.Tab. A tab still shows only where its data gives it. With one tab left no tabs show, and with none chosen, all it can. `views={['answer']}` writes the same choice in the code.",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const data = $.let(Data.bind(batchesInput));
+            const configs = $.let(Data.bind(experimentConfigsInput));
+            const journal = $.let(Data.bind(experimentJournalInput));
+            const experiment = $.let(Func.bind(experimentFn));
+            // The tags the multi-select holds, and the tabs they name.
+            const chosen = $.let(State.bind([ArrayType(StringType)], 'ex.experimentViews.views', []));
+            const tags = $.let(chosen.read());
+            const onViews = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => { $(chosen.write(next)); }));
+            const every = $.const([variant('answer', null), variant('trust', null), variant('dose', null), variant('validate', null)], ArrayType(Experiment.Types.Tab));
+            const views = $.let(every.filter(($, tab) => tags.toSet().has(tab.getTag())));
+            return (
+                <VStack gap="3" align="stretch" width="100%">
+                    <HStack gap="2" align="center"><Text>Views</Text><Select value="" placeholder="Every view" multiple={true} onChangeMultiple={onViews}
+                        items={[Select.Item('answer', 'The answer'), Select.Item('trust', 'Can we trust it?'), Select.Item('dose', 'How much?'), Select.Item('validate', 'Prove it')]} /></HStack>
+                    <Experiment
+                        data={data}
+                        configs={configs}
+                        experiment={experiment}
+                        journal={journal}
+                        views={views}
+                        columns={{
+                            slow_cure: { label: 'Slow cure' },
+                            bond_strength: { label: 'Bond strength', unit: 'MPa', higherIsBetter: true },
+                            incoming_grade: { label: 'Incoming grade' },
+                            mix_viscosity: { label: 'Mix viscosity' },
+                            supplier: { label: 'Supplier' },
+                            line: { label: 'Line' },
+                            product: { label: 'Product' },
+                        }}
+                        subject="batch"
+                    />
+                </VStack>
             );
         }}</Reactive>
     )),

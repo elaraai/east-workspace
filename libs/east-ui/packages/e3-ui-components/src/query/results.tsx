@@ -407,6 +407,8 @@ export interface ResultToolbarOptions {
     readonly picked: ResultView | undefined;
     /** Shows a view. */
     readonly onView: (view: ResultView) => void;
+    /** The result's views this builder offers, in the switch's order: Table · Tree shows only where there are two. */
+    readonly views: readonly ResultView[];
     /** Downloads the result. */
     readonly onDownload: (format: DownloadFormat) => void;
     /** The words. */
@@ -427,12 +429,12 @@ export interface ResultToolbarOptions {
  * @returns The items, in their order along the row
  */
 export function resultToolbarItems(options: ResultToolbarOptions): ToolbarItem[] {
-    const { view, picked, onView, onDownload, words, styles, seg } = options;
+    const { view, picked, onView, views: offered, onDownload, words, styles, seg } = options;
     const m = words.messages;
     const off = view === undefined;
     const views = (iconsOnly: boolean) => (
         <Box css={seg.root} role="group" aria-label={m.resultViewLabel()} data-query-result-view={view}>
-            {(["table", "tree"] as const).map((v) => {
+            {offered.map((v) => {
                 const pressed = v === view;
                 const label = m.resultView({ view: v });
                 const hover = v === picked ? m.resultViewPicked({ view: v }) : label;
@@ -470,7 +472,7 @@ export function resultToolbarItems(options: ResultToolbarOptions): ToolbarItem[]
         </ChakraMenu.Root>
     );
     return [
-        { key: "result-view", side: "end", forms: [views(false), views(true)], rank: RANK_VIEW, version: `${view ?? ""}|${picked ?? ""}` },
+        ...(offered.length > 1 ? [{ key: "result-view", side: "end" as const, forms: [views(false), views(true)], rank: RANK_VIEW, version: `${view ?? ""}|${picked ?? ""}` }] : []),
         { key: "download", side: "end", forms: [download(false), download(true)], rank: RANK_DOWNLOAD, version: off ? "off" : "on" },
     ];
 }

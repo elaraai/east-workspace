@@ -42,6 +42,7 @@ import {
 import { EastUI, DensityType, type DensityLiteral, type UIComponentType } from '@elaraai/east-ui';
 
 import { DiffBindingType, type BoundValue } from '../bind/data.js';
+import { viewsProp, type ViewsProp } from '../utils/views.js';
 
 // ============================================================================
 // Ontology value schema — nodes, links, metadata.
@@ -326,6 +327,8 @@ export const OntologyPayloadType = StructType({
     style:        OptionType(OntologyStyleType),
     /** Initial display mode — graph canvas (default) or process table. */
     defaultView:  OptionType(OntologyViewType),
+    /** The display modes the instance offers; none or empty, both. */
+    views:        OptionType(ArrayType(OntologyViewType)),
 });
 /** Type alias for {@link OntologyPayloadType}. */
 export type OntologyPayloadType = typeof OntologyPayloadType;
@@ -382,8 +385,15 @@ export interface OntologyOptions {
     style?: SubtypeExprOrValue<OptionType<OntologyStyleType>>;
     /** Initial display mode — `'graph'` (canvas, default) or `'table'`
      *  (objective-grouped process table). The header's segmented control
-     *  switches between them at runtime either way. */
+     *  switches between them at runtime, where {@link OntologyOptions.views}
+     *  offers both. */
     defaultView?: SubtypeExprOrValue<OptionType<OntologyViewType>> | OntologyViewLiteral;
+    /** The display modes this instance offers: literal tags (`['table']`),
+     *  `Ontology.Types.View` values, or an expression of an array of them, which a
+     *  page's state can choose as it runs. Omitted, or empty as the page runs,
+     *  both. One left, no switch shows, and a mode left out is never drawn. A
+     *  list in the code that leaves out a literal `defaultView` is refused. */
+    views?: ViewsProp<OntologyViewType, OntologyViewLiteral>;
 }
 
 /**
@@ -438,6 +448,9 @@ export const Ontology = {
             : typeof options.defaultView === 'string'
                 ? some(East.value(variant(options.defaultView, null), OntologyViewType))
                 : options.defaultView;
+        const views = options.views === undefined
+            ? none
+            : some(viewsProp('Ontology', OntologyViewType, options.views, typeof options.defaultView === 'string' ? options.defaultView : undefined) as never);
         return OntologyComponent.Root({
             binding:     view.binding,
             readonly:    options.readonly    ?? none,
@@ -448,6 +461,7 @@ export const Ontology = {
             onDiscarded: options.onDiscarded ?? none,
             style:       options.style       ?? none,
             defaultView,
+            views,
         });
     },
     /**

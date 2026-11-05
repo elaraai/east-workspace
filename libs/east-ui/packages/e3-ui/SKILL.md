@@ -222,6 +222,7 @@ Task → What do you need?
     │   ├─ The app's optimiser over the week                          → optimise={Func.bind(e3.function)} from Roster.Types.OptimiseRequest(R) to Roster.Types.OptimiseResult(R)
     │   ├─ Narrow its duties, targets, people, activities, patterns   → slice={{ slice: Slice.bindRecords(key, { duty: { source, range: "start" }, targets?, people?, activities?, patterns? }) }}
     │   ├─ People by week or by month                                 → view={{ layout: "people", period: "week" | "month", date }}
+    │   ├─ Offer only some layouts, no switch with one left           → views={["people"]} or views={expr of Array<Roster.Types.Layout>}
     │   ├─ The shifts' colours, and the app's week patterns           → Roster.shifts(rows, { …, color }) · patterns={Roster.patterns(rows, {…})} · library={[…, Roster.library.patterns()]}
     │   └─ The week's figures in a task                               → Roster.coverage / check / weekHours / rest (R)
     │
@@ -360,6 +361,15 @@ and `<Schematic>` share one contract:
 - **The app's optimiser**: `optimise={Func.bind(fn)}`, an `e3.function` from
   the builder's `Types.OptimiseRequest` to its `Types.OptimiseResult`; its
   answer lands as one undoable step.
+- **Which views an instance offers**: a component that switches between views
+  takes `views` — the Roster's, Calendar's and Allocation's layouts, the
+  Ontology's display modes, the Experiment's result tabs and `<Query.Builder>`'s
+  Visual · jq (and `resultViews`, Table · Tree). Literal tags (`views={["people"]}`),
+  variants of its `Types`, or an expression of an array of them, so a page's state
+  can choose them as it runs. Left out, or empty as the page runs, every view; one
+  left, no switch shows in any form of the toolbar; the component's own order
+  stands. `e3-ui:roster.examples.tsx:rosterViews` wires a multi-select into it.
+  `<DecisionQueue>`'s `facets` is the same.
 - **Misuse is refused at build**, naming the change — forms from earlier
   releases included — so read the error rather than guessing.
 

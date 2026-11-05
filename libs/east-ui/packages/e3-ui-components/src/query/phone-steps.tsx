@@ -302,14 +302,14 @@ export const QueryPhoneView = memo(function QueryPhoneView({ editor, ps, workspa
     return (
         <Box css={styles.queryView} data-query-tab="query" data-mode={view} data-query-phone-view="">
             <Box css={styles.queryBand}>
-                <Box css={styles.seg} role="group" aria-label={m.viewLabel()} data-query-view={view}>
-                    {(["visual", "jq"] as const).map((v) => (
+                {editor.views.length > 1 && <Box css={styles.seg} role="group" aria-label={m.viewLabel()} data-query-view={view}>
+                    {editor.views.map((v) => (
                         <chakra.button key={v} type="button" css={styles.segItem} data-state={v === view ? "on" : "off"} aria-pressed={v === view} onClick={() => setView(v)}>
                             <Box as="span" css={styles.segIcon} aria-hidden><FontAwesomeIcon icon={v === "visual" ? faDiagramProject : faCode} /></Box>
                             <span>{m.view({ view: v })}</span>
                         </chakra.button>
                     ))}
-                </Box>
+                </Box>}
                 <chakra.button type="button" css={styles.copy} data-copied={copied ? "" : undefined} data-query-copy="" onClick={copy}>
                     {copied && <FontAwesomeIcon icon={faCheck} />}{copied ? m.copied() : m.copyJq()}
                 </chakra.button>

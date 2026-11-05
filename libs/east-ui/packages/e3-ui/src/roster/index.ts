@@ -41,6 +41,7 @@ import type { ScheduleResourceKind } from "../schedule/resources.js";
 import { ScheduleClockType, SchedulePeriodsKindType, ScheduleRosterKindType } from "../schedule/types.js";
 import { optimiseBinding, type OptimiseContract } from "../utils/optimise.js";
 import { recordSources } from "../utils/record-sources.js";
+import { firstView, viewsProp, type ViewsProp } from "../utils/views.js";
 import { rosterCoverage, rosterWeekHours } from "./coverage.js";
 import { rosterAnswer, rosterFit } from "./fit.js";
 import { rosterActivitiesTab, rosterLibraryTab, rosterPatternsTab, rosterPeopleTab, type RosterLibraryTab } from "./library.js";
@@ -60,6 +61,8 @@ import * as T from "./types.js";
 export const RosterLayoutType = VariantType({ shifts: NullType, people: NullType });
 /** Roster's displayed period: Shifts shows a day or a week, People a week or a month (#1406); each layout keeps its own. */
 export const RosterPeriodType = VariantType({ day: NullType, week: NullType, month: NullType });
+/** The layouts, in the switch's order. */
+const ROSTER_LAYOUTS = ["shifts", "people"] as const;
 /** The periods each layout takes, in the Period segment's order. */
 export const ROSTER_LAYOUT_PERIODS: Readonly<Record<"shifts" | "people", readonly ("day" | "week" | "month")[]>> = { shifts: ["day", "week"], people: ["week", "month"] };
 /** Whether a People tile shows the shift's hours always, or only a duty's own times where they differ from the shift's (#1406). */
@@ -95,7 +98,7 @@ export const RosterLibraryTabType = VariantType({
  * @property inspector - Whether the inspector pane shows
  * @property narrowed - Each narrowed source's keys, paged through its part of `slice`: the people, the activities and the patterns that show (#1342)
  * @property slice - The narrowing's chrome: a Slice over the duties', the targets', the staff's and the activities' records, one rail
- * @property settings - The first view and the view settings: the layout, its period, the date, the week's start, the density, the chip skills, the requirement rows, read-only, and the People layout's `tileTimes` and `letters` (#1406)
+ * @property settings - The first view and the view settings: the layout, the layouts the instance offers (empty, every one), its period, the date, the week's start, the density, the chip skills, the requirement rows, read-only, and the People layout's `tileTimes` and `letters` (#1406)
  * @property id - The viewer's identity
  */
 export const RosterPayloadType = StructType({
@@ -124,7 +127,7 @@ export const RosterPayloadType = StructType({
     }),
     slice: OptionType(RecordSlicesChromeType),
     settings: StructType({
-        layout: RosterLayoutType, period: RosterPeriodType, date: OptionType(DateTimeType),
+        layout: RosterLayoutType, views: ArrayType(RosterLayoutType), period: RosterPeriodType, date: OptionType(DateTimeType),
         weekStart: VariantType({ monday: NullType, sunday: NullType }),
         density: VariantType({ compact: NullType, comfortable: NullType }), chipSkills: BooleanType, requirements: BooleanType, readOnly: BooleanType,
         tileTimes: RosterTileTimesType, letters: BooleanType,
@@ -214,6 +217,12 @@ export interface RosterProps<R extends EastType = EastType> {
      * (`"week"` by default, #1406); a period its layout does not take is refused at build. Each layout keeps its own period per viewer.
      */
     view?: { layout?: "shifts" | "people"; period?: "day" | "week" | "month"; date?: SubtypeExprOrValue<DateTimeType> };
+    /**
+     * The layouts this instance offers: literal tags (`["people"]`), `Roster.Types.Layout` values, or an expression of an array
+     * of them, which a page's state can choose as it runs. Omitted, or empty as the page runs, both. One left, no switch shows,
+     * in any form of the toolbar; a layout left out is never drawn, so a viewer's kept view of it opens on the first offered.
+     */
+    views?: ViewsProp<typeof RosterLayoutType, "shifts" | "people">;
     /** Week boundary; Monday by default. */
     week?: { start?: "monday" | "sunday" };
     /** Assignment spacing; comfortable by default. */
@@ -403,7 +412,7 @@ function rosterOptimiseContract(rowType: EastType): OptimiseContract {
  *   kind with no `group`; `positions` beside a duty kind with no `position` role; `pay` without `currency`; a `pay`, a
  *   `check` or a `fit` over another type, or an `optimise` that is not `Func.bind` of a function from `OptimiseRequest(R)` to
  *   `OptimiseResult(R)` (#1409); a library tab listed twice; a `view.period` its layout does not take, naming each
- *   layout's periods; `Roster.library.patterns()` without `patterns`; a `tileTimes` other than `"always"` or
+ *   layout's periods; a `views` that lists nothing, names no layout, or leaves out `view.layout`; `Roster.library.patterns()` without `patterns`; a `tileTimes` other than `"always"` or
  *   `"different"`, or a `letters` that is no boolean (#1406); and as `Schedule`'s checks, the duty kind's build
  *   (`buildRoster`) and the slice's (`recordSources`) do
  * @internal
@@ -438,7 +447,8 @@ export function createRosterPayload<R extends EastType>(props: RosterProps<R>): 
         }
     }
     // The first view: a period its layout takes (#1406).
-    const layout = props.view?.layout ?? "shifts";
+    const layout = props.view?.layout ?? firstView(ROSTER_LAYOUTS, props.views);
+    const views = viewsProp("Roster", RosterLayoutType, props.views, props.view?.layout);
     const period = props.view?.period ?? (layout === "people" ? "week" : "day");
     if (!ROSTER_LAYOUT_PERIODS[layout].includes(period)) {
         throw new Error(`Roster: \`view.period\` "${period}" is not a period of the ${layout === "people" ? "People" : "Shifts"} layout — ` +
@@ -563,7 +573,7 @@ export function createRosterPayload<R extends EastType>(props: RosterProps<R>): 
             },
             slice: narrowing.chrome,
             settings: {
-                layout: variant(layout, null), period: variant(period, null),
+                layout: variant(layout, null), views, period: variant(period, null),
                 date: props.view?.date === undefined ? none : some(props.view.date), weekStart: variant(props.week?.start ?? "monday", null),
                 density: variant(props.density ?? "comfortable", null), chipSkills: props.chipSkills ?? true,
                 requirements: props.requirements ?? true, readOnly: props.readOnly ?? false,

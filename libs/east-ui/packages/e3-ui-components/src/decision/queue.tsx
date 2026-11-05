@@ -192,7 +192,8 @@ const Row = memo(function Row({ decision, handle, selected, narrow, contract, mo
         return evidence(decision);
     }, [selected, facet, evidence, decision]);
 
-    const facetTabs = (
+    // One facet shown, no tabs: there is nothing to choose.
+    const facetTabs = visibleFacets.length > 1 && (
         <Box css={ts.root} {...(narrow ? { display: 'flex', width: '100%' } : {})}>
             {visibleFacets.map(f => (
                 <Box
@@ -507,7 +508,8 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
     // Author include-list of data facets (`null` ⇒ all). `modify` stays callback-gated.
     const facetInclude = useMemo<ReadonlySet<FacetKey> | null>(() => {
         const facets = getSomeorUndefined(value.facets);
-        return facets === undefined ? null : new Set(facets.map(f => f.type as FacetKey));
+        // An empty list says nothing, as leaving it out does: every facet.
+        return facets === undefined || facets.length === 0 ? null : new Set(facets.map(f => f.type as FacetKey));
     }, [value.facets]);
     const defaultExpanded = getSomeorUndefined(value.defaultExpanded);
 

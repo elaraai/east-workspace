@@ -570,6 +570,8 @@ explains whole-staff scope when Slice narrows visible people. A collapsed
 Library badge reports availability for the day, while tab counts report the
 library's item count.
 
+A builder offers the layouts its `views` lists (`utils/views.ts`): literal tags, variants or an expression, empty meaning every one. The list chooses and the component orders; one left, its switch leaves every form of the toolbar — the row, the View menu and the combined picker — and a kept view of a layout left out draws the first offered, the kept view standing. Every route to a layout asks the list first (the Calendar's overlaps chip stays where it is without Resources).
+
 Only show controls that change the active layout. The Roster's Period segment
 shows the layout's own periods — Day · Week for Shifts, Week · Month for
 People (#1406, P1); below 480px of main People offers Week alone — and

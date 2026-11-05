@@ -14,7 +14,7 @@ import { formatters } from "@elaraai/east-ui-components";
 import { calendarAhead, calendarRange, DAY, dayStart, inputInstant, inWindow, navigate, periodWords, type CalendarValue, type CalendarView } from "./model.js";
 import { RECENTRE_PX, TIMELINE_GUTTER, recentredView, shiftedScroll, timelineAhead, timelineDays, timelinePixels, timelineRange, timelineStep, timelineVisible } from "./timeline.js";
 import { ScheduleItemType } from "@elaraai/e3-ui/internal";
-const settings: CalendarValue["settings"] = { layout: variant("calendar", null), period: variant("week", null), date: none,
+const settings: CalendarValue["settings"] = { layout: variant("calendar", null), views: [], period: variant("week", null), date: none,
     hours: { from: 6n, to: 22n }, weekStart: variant("monday", null), weekends: true, density: variant("comfortable", null), now: none, readOnly: false };
 const view: CalendarView = { layout: "calendar", period: "week", date: Date.UTC(2026, 9, 1) };
 test("UTC week/month/day windows and weekends, including a year boundary", () => {

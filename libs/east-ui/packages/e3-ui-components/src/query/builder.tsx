@@ -85,10 +85,11 @@ import {
     entriesQuery, queryEntries, queryProgram, rootRefusal, savedEntries, savedOffers, type QueryEntry, type SavedQueries, type SavedQuery,
 } from "./session.js";
 import { QueryStatusLine, type QuerySaveLine } from "./status-line.js";
-import { queryToolbarItems } from "./toolbar.js";
+import { queryToolbarItems, type QueryView } from "./toolbar.js";
 import { useQueryEditor } from "./use-query-editor.js";
 import { useQuerySession, type QuerySessionState } from "./use-query-session.js";
 import { useQueryEditingWords, useQueryWords } from "./words.js";
+import { shownView, shownViews } from "../shared/views.js";
 
 /** The renderer's payload, decoded. */
 type QueryBuilderValue = ValueTypeOf<typeof QueryBuilderComponent.schema>;
@@ -96,6 +97,11 @@ type QueryBuilderValue = ValueTypeOf<typeof QueryBuilderComponent.schema>;
 /** The payload's equivalence: its data, and its functions by their IR and what they capture. */
 const payloadEquivalent = equivalentFor(QueryBuilderPayloadType);
 const nameEqual = equalFor(StringType);
+
+/** The query's views, in the switch's order. */
+const QUERY_VIEWS = ["visual", "jq"] as const;
+/** The result's views, in the switch's order. */
+const RESULT_VIEWS = ["table", "tree"] as const;
 
 /** How long "Saved" keeps the success ink after a save. */
 const SAVED_MS = 1800;
@@ -162,6 +168,8 @@ export const EastChakraQueryBuilder = memo(function EastChakraQueryBuilder({ val
         [opening, firstSource]);
     const [open, writeOpen, arrival] = useOpenQuery(keys.query, first);
     const session = useQuerySession({ handle, record, root, open, writeOpen, storageKey: `${storageKey}.query`, words });
+    const views = useMemo(() => shownViews(QUERY_VIEWS, value.views), [value.views]);
+    const resultViews = useMemo(() => shownViews(RESULT_VIEWS, value.resultViews), [value.resultViews]);
 
     if (!result.ok) {
         const message = result.error instanceof Error ? result.error.message : String(result.error);
@@ -174,7 +182,7 @@ export const EastChakraQueryBuilder = memo(function EastChakraQueryBuilder({ val
     }
     return (
         <QueryBuilderView session={session} entries={session.entries} record={record} root={root} open={open}
-            writeOpen={writeOpen} arrival={arrival} words={words} storageKey={storageKey} recentKey={keys.recent} id={id} />
+            writeOpen={writeOpen} arrival={arrival} words={words} storageKey={storageKey} recentKey={keys.recent} id={id} views={views} resultViews={resultViews} />
     );
 }, (prev, next) => payloadEquivalent(prev.value, next.value) && prev.storageKey === next.storageKey);
 
@@ -202,10 +210,14 @@ interface QueryBuilderViewProps {
     readonly recentKey: string;
     /** The builder's id: its drop target's, and the query library's it takes cards from. */
     readonly id: string | undefined;
+    /** The query's views this builder offers. */
+    readonly views: readonly QueryView[];
+    /** The result's views this builder offers. */
+    readonly resultViews: readonly ResultView[];
 }
 
 /** The builder over a query it can edit: the toolbar, the pane, the results and the status line. */
-function QueryBuilderView({ session: state, entries, record, root, open, writeOpen, arrival, words, storageKey, recentKey, id }: QueryBuilderViewProps) {
+function QueryBuilderView({ session: state, entries, record, root, open, writeOpen, arrival, words, storageKey, recentKey, id, views, resultViews }: QueryBuilderViewProps) {
     const ps = usePartStyles(words);
     const { styles } = ps;
     const seg = useSlotRecipe({ key: "seg" })() as Styles;
@@ -299,7 +311,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
 
     // ── Editing the open query ──────────────────────────────────────────
     const editor = useQueryEditor({
-        entries, current: state.current, gesture: state.gesture, version: state.version, root, words, summaries, saved, onOpenSaved, onShowQuery,
+        entries, current: state.current, gesture: state.gesture, version: state.version, root, views, words, summaries, saved, onOpenSaved, onShowQuery,
         bounds, sourceId, counts, arrival,
     });
     const { leaveJq } = editor;
@@ -375,7 +387,8 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
         lastRun.current = run.n; lastRunAt.current = run.at; lastCount.current = resultFooter(run, words).count;
     }
     // The view chosen and the note last until the next run.
-    const view = chosen !== undefined && chosen.n === n ? chosen.view : picked;
+    const asked = chosen !== undefined && chosen.n === n ? chosen.view : picked;
+    const view = asked === undefined ? undefined : shownView(asked, resultViews);
     const note = noted !== undefined && noted.n === n ? noted.text : undefined;
     if (view !== undefined && output !== undefined) lastView.current = view;
     // A phone keeps the last result under a run that goes or gave none (QP14), and so its view and its count.
@@ -486,7 +499,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     // ── The layout: the builder frame (#1125) ───────────────────────────
     const history = historyToolbarItem({ session, words: editingWords, editing: false, onIssue, onAction });
     const toolbar = phone ? phoneQueryToolbar({
-        history, state: run, view: phoneView, keptCount: lastCount.current, onView, onDownload, onRun, name: editor.header.name, width, words,
+        history, state: run, view: phoneView, keptCount: lastCount.current, onView, views: resultViews, onDownload, onRun, name: editor.header.name, width, words,
     }) : queryToolbarItems({
         history,
         copyText: () => editor.program,
@@ -502,7 +515,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     const openedNotice = phone && arrival !== undefined && (open.type === "saved" || open.value.from.type === "some")
         ? editor.notices.find((notice) => notice.text === arrival.text) : undefined;
     // A phone's one notice over the strip (QP16): the newest of a download's, a save's and the query opened's.
-    const controls = resultToolbarItems({ view: output === undefined ? undefined : view, picked, onView, onDownload, words, styles, seg });
+    const controls = resultToolbarItems({ view: output === undefined ? undefined : view, picked, onView, views: resultViews, onDownload, words, styles, seg });
     const tabs = (["query", "datasets", "library"] as const).map((key) => ({
         key,
         label: m.tab({ tab: key }),
@@ -606,7 +619,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
                     phoneViews
                     footer={phone ? <>{run.status === "running" && <LoadingLine value={{ kind: "loading", text: m.readingShort(), short: m.readingShort() }} shown form="short" />}{liveBand}</> : <QueryStatusLine check={editor.check} gives={editor.gives} save={save} name={editor.header.name} />}
                 >
-                    <QueryResults state={run} stale={stale} view={(phone ? phoneView : view) ?? "table"} words={words} storageKey={storageKey} controls={controls} phone={phone}
+                    <QueryResults state={run} stale={stale} view={(phone ? phoneView : view) ?? resultViews[0]!} words={words} storageKey={storageKey} controls={controls} phone={phone}
                         strips={phoneStrips} />
                 </BuilderFrame>
             </QueryDropTarget>

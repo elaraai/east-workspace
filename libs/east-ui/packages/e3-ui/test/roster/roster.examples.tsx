@@ -8,7 +8,7 @@ import {
     example, none, some, variant,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
-import { Box, Button, Field, HStack, Reactive, Slice, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Func, Record, Roster, Schedule } from "@elaraai/e3-ui";
 import {
     WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,
@@ -624,6 +624,37 @@ export const rosterMinimal = example({
             shifts={Roster.shifts(times.read(), { label: s => s.name, code: s => s.code, start: s => s.starts, hours: s => s.hours, order: s => s.order })}
             groups={Roster.groups(groups.read(), { label: t => t.name })} />
         </Box>;
+    }}</Reactive>),
+});
+
+export const rosterViews = example({
+    inputs: [], description: "Which layouts an instance offers, chosen as the page runs: a multi-select wired into `views`, an expression of an array of Roster.Types.Layout. Choose People alone and Shifts is gone, its button and all; with one layout left no switch shows, and with none chosen, both. `views={[\"people\"]}` writes the same choice in the code.",
+    keywords: ["Roster", "views", "Roster.Types.Layout", "layout", "hide a view", "Shifts", "People", "Select", "multiple", "onChangeMultiple", "State", "Reactive"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const rota = $.let(Record.bind(minimalDuties));
+        const staff = $.let(Data.bind(minimalWorkers));
+        const times = $.let(Data.bind(minimalShiftTimes));
+        const groups = $.let(Data.bind(minimalTeams));
+        // The tags the multi-select holds, and the layouts they name.
+        const chosen = $.let(State.bind([ArrayType(StringType)], "ex.rosterViews.views", []));
+        const tags = $.let(chosen.read());
+        const onViews = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => { $(chosen.write(next)); }));
+        const every = $.const([variant("shifts", null), variant("people", null)], ArrayType(Roster.Types.Layout));
+        const views = $.let(every.filter(($, view) => tags.toSet().has(view.getTag())));
+        return <VStack gap="3" align="stretch" width="100%">
+            <HStack gap="2" align="center"><Text>Views</Text><Select value="" placeholder="Every view" multiple={true} onChangeMultiple={onViews}
+                items={[Select.Item("shifts", "Shifts"), Select.Item("people", "People")]} /></HStack>
+            <Box width="100%" height="700px"><Roster id="rosterViews" views={views} view={{ date: new Date("2028-03-06T00:00:00Z") }}
+                events={{ duty: Schedule.events(rota, {
+                    name: "Duty", icon: "user-clock",
+                    start: "start", end: "end", resource: { field: "person", of: "people" },
+                    shift: "shift", group: "team",
+                }) }}
+                resources={{ people: Schedule.resources(staff.read(), { name: "People", icon: "user", label: w => w.name, group: w => w.team }) }}
+                shifts={Roster.shifts(times.read(), { label: s => s.name, code: s => s.code, start: s => s.starts, hours: s => s.hours, order: s => s.order })}
+                groups={Roster.groups(groups.read(), { label: t => t.name })} />
+            </Box>
+        </VStack>;
     }}</Reactive>),
 });
 

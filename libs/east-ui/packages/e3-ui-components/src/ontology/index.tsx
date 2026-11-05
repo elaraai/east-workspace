@@ -57,6 +57,7 @@ import { OntologyMark } from './mark.js';
 import { useFlowState } from './flow-state.js';
 import { useBindingOntology } from './bind-runtime.js';
 import { useIsDarkMode } from './use-color-mode.js';
+import { shownView, shownViews } from '../shared/views.js';
 
 // Monotonic counter for new node ids — synchronous so a pane "add node" can
 // seed the node's position before the binding refetch rebuilds the graph.
@@ -65,6 +66,11 @@ function freshNodeId(): string {
     nodeIdSeq += 1;
     return `node-${Date.now()}-${nodeIdSeq}`;
 }
+
+/** The display modes, in the switch's order. */
+const VIEWS = ['graph', 'table'] as const;
+/** Every mode: no `views` given. */
+const NO_VIEWS: readonly { readonly type: string }[] = [];
 
 const NODE_TYPES: NodeTypes = { ontology: OntologyNode };
 const EDGE_TYPES: EdgeTypes = { ontology: OntologyEdge };
@@ -450,7 +456,10 @@ const EastChakraOntology = memo(function EastChakraOntology({ value }: EastChakr
     const hideMiniMap = getOpt(value.hideMiniMap) ?? false;
     const hideSearch = getOpt(value.hideSearch) ?? false;
     const defaultView = getOpt(value.defaultView)?.type ?? 'graph';
-    const [view, setView] = useState<'graph' | 'table'>(defaultView);
+    const [picked, setView] = useState<'graph' | 'table'>(defaultView);
+    // The modes this instance offers (`views`): what is picked stands, so a mode comes back should it be offered again.
+    const views = shownViews(VIEWS, getOpt(value.views) ?? NO_VIEWS);
+    const view = shownView(picked, views);
     // Node selected from the table view — opens the shared properties drawer.
     const [tableSelectedId, setTableSelectedId] = useState<string | null>(null);
 
@@ -581,8 +590,8 @@ const EastChakraOntology = memo(function EastChakraOntology({ value }: EastChakr
                     )}
                     {/* Graph | Table — both are projections of the same bound
                         value; the staged buffer and commit machinery are
-                        view-agnostic. */}
-                    <SegmentGroup.Root
+                        view-agnostic. One offered, no switch. */}
+                    {views.length > 1 && <SegmentGroup.Root
                         size="xs"
                         value={view}
                         onValueChange={(e: { value: string | null }) => {
@@ -602,7 +611,7 @@ const EastChakraOntology = memo(function EastChakraOntology({ value }: EastChakr
                             </SegmentGroup.ItemText>
                             <SegmentGroup.ItemHiddenInput />
                         </SegmentGroup.Item>
-                    </SegmentGroup.Root>
+                    </SegmentGroup.Root>}
                 </HStack>
             </HStack>
 

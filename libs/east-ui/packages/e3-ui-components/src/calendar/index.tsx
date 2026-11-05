@@ -624,7 +624,7 @@ function CalendarFrame(props: HostProps) {
         resourcesShown, laysResources });
     const search = useMemo(() => (finder === undefined ? undefined : hiddenPick.search(finder)), [finder, hiddenPick]);
     // The window's own count: "…" while the period is read, never a count of another period's (#1398, CL13).
-    const toolbar = useCalendarToolbar({ view, setView, onNavigate, navigationDate, rangeLabel, sunday: value.settings.weekStart.type === "sunday", range: displayRange, now,
+    const toolbar = useCalendarToolbar({ view, setView, layouts: dates.layouts, onNavigate, navigationDate, rangeLabel, sunday: value.settings.weekStart.type === "sunday", range: displayRange, now,
         count: current ? items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length : undefined, uncounted,
         chrome: dates.chrome, affordances: dates.affordances, nouns, windowParts: dates.windowParts,
         ...(timeline ? { visible: visibleDays, events: { items, covered } } : {}), onToday, search, optimise: parts.toolbarItem, locked,

@@ -28,7 +28,7 @@ import * as ex from "./allocation.examples.js";
 
 describeEast("Allocation — inline bound examples", test => {
     Assert.examples(test, {
-        allocationMinimal: ex.allocationMinimal, allocationKilnYard: ex.allocationKilnYard, allocationTable: ex.allocationTable, allocationLabels: ex.allocationLabels,
+        allocationMinimal: ex.allocationMinimal, allocationViews: ex.allocationViews, allocationKilnYard: ex.allocationKilnYard, allocationTable: ex.allocationTable, allocationLabels: ex.allocationLabels,
         allocationPublished: ex.allocationPublished, allocationNoPublish: ex.allocationNoPublish, allocationSplit: ex.allocationSplit,
         allocationWindowed: ex.allocationWindowed, allocationMobile: ex.allocationMobile, allocationCustomBin: ex.allocationCustomBin,
         allocationFitRule: ex.allocationFitRule, allocationConflicts: ex.allocationConflicts,

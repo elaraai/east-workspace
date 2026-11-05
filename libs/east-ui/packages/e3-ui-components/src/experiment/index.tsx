@@ -48,6 +48,7 @@ import {
 
 import { useBindingValue } from './bind-runtime.js';
 import { useFuncCall, type FuncCallError } from '../shared/func/use-func-call.js';
+import { shownViews } from '../shared/views.js';
 import { getBindingTypes, getReactiveDatasetCache } from '../platform/index.js';
 import { ForestPlot, AreaRange, OverlapHistogram } from './charts.js';
 import { GuidanceProvider, GuidanceToggle, GuidanceGist, Help } from './help-ui.js';
@@ -90,6 +91,8 @@ const toneFill = (t: string): string => TONE_FILL[t] ?? 'brand.solid';
 // ---------------------------------------------------------------------------
 type ExperimentValueIR = ValueTypeOf<typeof Experiment.Component.schema>;
 type Tab = 'answer' | 'trust' | 'dose' | 'validate';
+/** The result tabs, in their order. */
+const TABS: readonly Tab[] = ['answer', 'trust', 'dose', 'validate'];
 
 
 function kindOfTypeValue(t: EastTypeValue): Column['kind'] {
@@ -444,6 +447,8 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
     }, [config, experiment.result, journalBind, currentConfigId]);
 
     const [tab, setTab] = useState<Tab>(getSomeorUndefined(v.defaultTab)?.type ?? 'answer');
+    // The tabs this instance offers (`views`): a tab left out is never drawn, nor its `design` run.
+    const offered = useMemo(() => shownViews(TABS, v.views), [v.views]);
     const [guidance, setGuidance] = useState(true);
     const now = useMemo(() => new Date(), []);
     const nRows = filteredRows?.length ?? 0;
@@ -484,12 +489,12 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
     const precomputedDesign = getSomeorUndefined(selectedEntry?.design) ?? null;
     const designSnapRef = useRef<{ result: ResultValue; config: ConfigValue } | null>(null);
     useEffect(() => {
-        if (tab !== 'validate' || !hasDesign || design.pending || precomputedDesign !== null) return;
+        if (tab !== 'validate' || !offered.includes('validate') || !hasDesign || design.pending || precomputedDesign !== null) return;
         if (!filteredRows || !config || !shownResult) return;
         if (Object.is(designSnapRef.current?.result, shownResult)) return;
         designSnapRef.current = { result: shownResult, config: ranConfig ?? config };
         design.call(filteredRows, ranConfig ?? config, shownResult, designConfigValue);
-    }, [tab, hasDesign, precomputedDesign, filteredRows, config, ranConfig, shownResult, design, designConfigValue]);
+    }, [tab, offered, hasDesign, precomputedDesign, filteredRows, config, ranConfig, shownResult, design, designConfigValue]);
 
     // The painted design: a precomputed entry recipe (derived against the shown result),
     // else the live design result derived against its own SNAPSHOT generation.
@@ -568,11 +573,15 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
     // dose-feature picker, so a question authored without one would otherwise
     // carry a permanently dead tab.
     const showDose = getSomeorUndefined(config.dose_feature) !== undefined || shownResult?.dose_response.type === 'some';
-    const tabKeys: Tab[] = [...(['answer', 'trust'] as Tab[]), ...(showDose ? ['dose' as Tab] : []), ...(showValidate ? ['validate' as Tab] : [])];
+    const available: Tab[] = [...(['answer', 'trust'] as Tab[]), ...(showDose ? ['dose' as Tab] : []), ...(showValidate ? ['validate' as Tab] : [])];
+    // Those of them this instance offers; where its `views` leave none its data gives, Answer: never an empty deck.
+    const kept = available.filter(key => offered.includes(key));
+    const tabKeys: Tab[] = kept.length > 0 ? kept : ['answer'];
     // The selected tab can point at a hidden pane (defaultTab="dose" with no dose
-    // feature; a question switch that drops Dose/Validate) — fall back to Answer
-    // rather than rendering an empty deck.
-    const activeTab: Tab = tabKeys.includes(tab) ? tab : 'answer';
+    // feature; a question switch that drops Dose/Validate; a tab `views` leaves
+    // out) — fall back to the first shown rather than rendering an empty deck.
+    const activeTab: Tab = tabKeys.includes(tab) ? tab : tabKeys[0]!;
+    const switches = tabKeys.length > 1;
 
     return (
         <GuidanceProvider on={guidance} vars={helpVars}>
@@ -687,8 +696,9 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
 
                 {/* result deck */}
                 <Box minW="0">
-                    <Box display="flex" alignItems="center" px="4" borderBottomWidth="1px" borderColor="border.subtle"
-                        role="tablist" aria-label="Result views"
+                    {/* One tab offered, no tabs: the band stands only to say a run is out. */}
+                    {(switches || experiment.pending) && <Box display="flex" alignItems="center" px="4" borderBottomWidth="1px" borderColor="border.subtle"
+                        {...(switches ? { role: 'tablist', 'aria-label': 'Result views' } : {})}
                         onKeyDown={(e) => {
                             const i = tabKeys.indexOf(activeTab);
                             let j = i;
@@ -702,7 +712,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                             const btns = e.currentTarget.querySelectorAll('[role="tab"]');
                             (btns[j] as HTMLElement | undefined)?.focus();
                         }}>
-                        {tabKeys.map(tk => {
+                        {switches && tabKeys.map(tk => {
                             const on = activeTab === tk;
                             const tabHelp: HelpId = tk === 'answer' ? 'tab_answer' : tk === 'trust' ? 'tab_trust' : tk === 'dose' ? 'tab_dose' : 'tab_validate';
                             // Question-form labels, matching the glossary's own names —
@@ -726,7 +736,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                                 <Text textStyle="caption.eyebrow">Running…</Text>
                             </Box>
                         )}
-                    </Box>
+                    </Box>}
 
                     {failed ? (
                         <Box px="4.5" pt="4.5"><RunError error={experiment.error!} /></Box>
@@ -743,7 +753,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
 
                     {activeTab === 'answer' && a && (
                         <AnswerNumeric a={a} verdict={verdict} narrative={view.narrative} checks={vr?.checks ?? null}
-                            onGoTrust={() => setTab('trust')} subjectMany={subject.many}
+                            onGoTrust={tabKeys.includes('trust') ? () => setTab('trust') : undefined} subjectMany={subject.many}
                             higherBetter={higherBetter} badge={badge} barList={barList} words={words} />
                     )}
                     {activeTab === 'answer' && !a && ref && (
@@ -921,7 +931,8 @@ function AnswerNumeric({ a, verdict, narrative, checks, onGoTrust, subjectMany, 
     verdict: ReturnType<typeof deriveView>['verdict'];
     narrative: ReturnType<typeof deriveView>['narrative'];
     checks: NonNullable<ReturnType<typeof deriveView>['refute']>['checks'] | null;
-    onGoTrust: () => void;
+    /** Opens the Trust tab; `undefined` where this instance offers none, the stress tests said where they are. */
+    onGoTrust: (() => void) | undefined;
     subjectMany: string;
     higherBetter: boolean | undefined;
     badge: ReturnType<typeof useRecipe>;
@@ -966,8 +977,8 @@ function AnswerNumeric({ a, verdict, narrative, checks, onGoTrust, subjectMany, 
                 test, linking to the full checklist. Without this the verdict's
                 most persuasive evidence lives only behind a tab switch. */}
             {checks && checks.length > 0 && (
-                <Box as="button" onClick={onGoTrust} display="inline-flex" alignItems="center" gap="2" flexWrap="wrap" mt="2.5"
-                    bg="transparent" border="0" p="0" cursor="pointer" title="See the full stress-test checklist">
+                <Box {...(onGoTrust === undefined ? {} : { as: 'button' as const, onClick: onGoTrust, cursor: 'pointer', title: 'See the full stress-test checklist' })}
+                    display="inline-flex" alignItems="center" gap="2" flexWrap="wrap" mt="2.5" bg="transparent" border="0" p="0">
                     <Text textStyle="caption" color="fg.muted">Stress tests:</Text>
                     {checks.map((c, i) => (
                         <Box key={i} as="span" display="inline-flex" alignItems="center" gap="1.5"
