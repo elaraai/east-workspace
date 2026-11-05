@@ -446,10 +446,12 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
         const sort = sortOf(partOf(issue)?.kind ?? "");
         return sort === undefined ? undefined : conflictValueName(sort, path, held, keyFields, model);
     }, [partOf, keyFields, model]);
-    // The history's acts: whatever has the focus lets it go first — a field commits what it holds.
+    // The history's acts: a field typed into lets go first, committing what it holds — the history's buttons take no
+    // focus from it. Anything else keeps the focus, a button of the canvas's or the canvas itself, so the next key — a
+    // Redo after an Undo — reaches the frame too, never the page.
     const onAction = useCallback((action: HistoryAction) => {
         const active = document.activeElement;
-        if (active instanceof HTMLElement) active.blur();
+        if (active instanceof HTMLElement && typedInto(active)) active.blur();
         history.act(action);
     }, [history]);
     const historyItem = edits ? historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue, where, conflictValue, onAction }) : undefined;

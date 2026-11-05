@@ -569,6 +569,37 @@ describe("a lane a state stands in, the history item and its keys", () => {
         expect(laneHeads(c)).toHaveLength(6);
     });
 
+    test("an Undo or a Redo leaves the focus where it stands, so the next key reaches the history too: + LANE clicked, then ⌘Z, ⇧⌘Z, Ctrl+Z and Ctrl+Y, each pressed where the focus is", async () => {
+        const { container: c } = await h.mountExample(ex.flowchartDepotEditing);
+        const add = c.querySelector<HTMLElement>("[data-flowchart-addlane]")!;
+        // A click focuses the button it lands on, as a browser's does.
+        await gesture(() => { add.focus(); fireEvent.click(add); });
+        expect(laneHeads(c)).toHaveLength(6);
+        const presses: [string, { metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean }, number][] = [
+            ["z", { metaKey: true }, 5], ["Z", { metaKey: true, shiftKey: true }, 6], ["z", { ctrlKey: true }, 5], ["y", { ctrlKey: true }, 6],
+        ];
+        for (const [key, held, lanes] of presses) {
+            // A key goes where the focus is, as a keyboard's does: to the page itself once nothing holds it.
+            await gesture(() => { fireEvent.keyDown(document.activeElement ?? document.body, { key, ...held }); });
+            expect([laneHeads(c).length, document.activeElement === add], `${key} ${JSON.stringify(held)}`).toEqual([lanes, true]);
+        }
+    });
+
+    test("a field typed into lets go first, committing what it holds, when the history's Undo is clicked: its rename is one step, which the Undo takes back", async () => {
+        const { container: c } = await h.mountExample(ex.flowchartDepotEditing);
+        await addLane(c);
+        await gesture(() => { fireEvent.doubleClick(c.querySelector("[data-flowchart-lane='sort']")!); });
+        const input = c.querySelector<HTMLInputElement>("[data-flowchart-lane-edit]")!;
+        await gesture(() => { input.focus(); fireEvent.change(input, { target: { value: "Sortation" } }); });
+        expect(document.activeElement).toBe(input);
+        // The history's buttons take no focus from a field: it holds it as Undo is clicked, and lets go first.
+        await press(UNDO);
+        const added = laneLabel(6).toUpperCase();
+        expect([c.querySelector("[data-flowchart-lane-edit]"), laneHeads(c)]).toEqual([null, [...HEADS, added]]);
+        await press(REDO);
+        expect(laneHeads(c)).toEqual(["INTAKE", "INDUCT", "SORTATION", "HOLD", "DISPATCH", added]);
+    });
+
     test("Discard drops every draft, in every record", async () => {
         const { container: c } = await h.mountExample(ex.flowchartDepotEditing);
         await addLane(c);
