@@ -349,9 +349,10 @@ export function CoverageView({ coverage: c, value, styles, format, compact = fal
             <Box css={styles.coverageTick} style={{ left: `${c.hours.needed / max * 100}%` }} />
         </Box>
         <Box css={styles.detail}>{parts.filter(p => p.kind !== "open" && p.width > 0).map(p => `${format.number(p.width)} ${p.kind === "permanent" ? value.vocabulary.permanentShort : p.kind === "agency" ? value.vocabulary.agencyShort : p.kind}`).join(" · ") || "Nothing rostered"} h{costed(value) && ` · ${money(format, value, c.cost)}`}</Box>
-        {!compact && c.lines.map(line => { const activity = activityOf(value, line.skill); return <Box key={line.skill} css={styles.skillLine} data-tone={line.gap > 0 ? "warning" : line.assigned >= line.needed ? "success" : undefined}
+        {!compact && c.lines.map(line => { const activity = activityOf(value, line.skill); return <Box key={line.skill} css={styles.coverageLine} data-roster-coverage-line="" data-tone={line.gap > 0 ? "warning" : line.assigned >= line.needed ? "success" : undefined}
             title={`${activity?.label ?? line.skill} · ${format.number(line.assigned)} h assigned of ${format.number(line.needed)} h needed${line.capacity.type === "some" ? ` · ${format.number(line.capacity.value)} h capacity` : ""}`}>
-            <Box as="span" css={styles.skillCode}>{activity?.code}</Box><span>{activity?.label ?? line.skill}</span><Box as="span" css={styles.skillCode}>{line.holders.type === "some" ? `${line.holders.value}/${c.people}` : "—"}</Box><span>{format.number(line.assigned)} / {format.number(line.needed)}</span>
+            <Box as="span" css={styles.coverageName} data-roster-coverage-name="">{activity?.code && <Box as="span" css={styles.skillCode}>{activity.code}</Box>}{activity?.label ?? line.skill}</Box>
+            <Box as="span" css={styles.coverageFigures} data-roster-coverage-figures=""><Box as="span" css={styles.skillCode}>{line.holders.type === "some" ? `${line.holders.value}/${c.people}` : "—"}</Box><span>{format.number(line.assigned)} / {format.number(line.needed)}</span></Box>
         </Box>; })}
     </>;
 }
