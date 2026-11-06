@@ -72,8 +72,10 @@ following their records' sources, and the item kinds' backlog (`backlog.ts`)
 as Libraries — beside a kind read by area one paged list (`backlog-pages.ts`,
 D51), each such kind's rows paged through its area index's unplaced clause, a
 row its page read the original a drop rewrites; the zones' Index (`index-tab.tsx` over `index-tree.ts`), one
-focusable tree around the shared virtual rows, marking the zone the viewport
-is in — a kind read by area's items read by the tab itself (`index-area.ts`,
+focusable tree around the shared virtual rows, one zone open at a time with
+the zones it is in, following the zone the viewport is in — opened, marked and
+scrolled to as the canvas pans and zooms, a zone the viewer closed there staying
+closed until the view moves on — a kind read by area's items read by the tab itself (`index-area.ts`,
 D52), an open zone's by its box and the search's through the kind's source; the Layers (`layers-tab.tsx`), the viewer's choices an East value in
 the UI store under the `id` (`layers-view.ts`), which the canvas obeys — a
 locked layer's entities select by no path; and an author's tabs, each

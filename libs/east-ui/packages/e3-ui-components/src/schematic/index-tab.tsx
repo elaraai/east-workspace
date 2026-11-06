@@ -9,10 +9,14 @@
  * canvas draws it, the drafts in place and a hidden layer's entities left
  * out — as a tree (`index-tree.ts`), each row the design system's tree row.
  *
- * - **A zone's row** — its chevron opens or closes it; a click on the row
- *   flies to the zone and selects it, and opens it; its count is the items it
- *   holds, its nested zones' among them. The zone the viewport is in is
- *   marked.
+ * - **One zone open at a time** — with every zone it is in, so its path
+ *   shows: opening another closes it, as the navigator did before the frame
+ *   (#1389). A zone's chevron opens or closes it; a click on its row flies to
+ *   the zone and selects it, and opens it — or, open, closes it. Its count is
+ *   the items it holds, its nested zones' among them.
+ * - **It follows the view** — the zone the viewport is in is marked, opened
+ *   and scrolled into view as the canvas pans and zooms; a zone closed while
+ *   the view is in it stays closed until the view moves to another.
  * - **An item's row** — its dot in its colour, its label and its figure; a
  *   click flies to the item and selects it. An entity on a locked layer is
  *   flown to and never selected (SC27): the canvas decides.
@@ -147,7 +151,10 @@ export function SchematicIndexTab({ zones, items, kindName, inView, selected, on
     const library = useSlotRecipe({ key: "library" })() as unknown as Styles;
     const m = words.m;
     const treeId = useId();
-    const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
+    // The one zone open, every zone it is in open with it: a chain, never two.
+    const [openZone, setOpenZone] = useState<string | undefined>(undefined);
+    // A zone the viewer closed: the view opens it again only once it has been in another.
+    const closedRef = useRef<string | undefined>(undefined);
     const [query, setQuery] = useState("");
     const searchRef = useRef<HTMLInputElement | null>(null);
     // The kinds read by area (#1393, D52): read by the tab — the open zones' items, or the search's, a pause after its
@@ -161,7 +168,6 @@ export function SchematicIndexTab({ zones, items, kindName, inView, selected, on
         const timer = setTimeout(() => setAreaQuery(text), SEARCH_DELAY_MS);
         return () => clearTimeout(timer);
     }, [query]);
-    const openZones = useMemo(() => zones.filter((zone) => open.has(zone.key)), [zones, open]);
     const searching = query.trim() !== "";
     const locale = words.locale;
     const listed = useMemo(() => {
@@ -182,6 +188,13 @@ export function SchematicIndexTab({ zones, items, kindName, inView, selected, on
         // A kind read by area's items in no zone are the search's and the Backlog's alone (D52).
         return area === undefined || searching ? built : { ...built, floor: built.floor.filter((item) => !areaSlots.has(item.ref.kind)) };
     }, [zones, listed, area, searching, areaSlots]);
+    // The open zone and every zone it is in.
+    const open = useMemo(() => {
+        const path = new Set<string>();
+        for (let at = openZone; at !== undefined; at = tree.parentOf.get(at)) path.add(at);
+        return path;
+    }, [openZone, tree]);
+    const openZones = useMemo(() => zones.filter((zone) => open.has(zone.key)), [zones, open]);
     // A zone holding items of a kind read by area counts them once its box — or an enclosing zone's — is read.
     const whole = useMemo(() => (area === undefined ? undefined : (key: string) => {
         for (let at: string | undefined = key; at !== undefined; at = tree.parentOf.get(at)) if (areaRead.read.has(at)) return true;
@@ -209,20 +222,33 @@ export function SchematicIndexTab({ zones, items, kindName, inView, selected, on
     const [shown, setShown] = useState<{ index: number; nonce: number } | undefined>(undefined);
     const rowId = useCallback((index: number) => `${treeId}-row-${index}`, [treeId]);
 
+    // Opening a zone closes the one open before, but for the zones it is in; closing one leaves the zone it is in open.
     const setZone = useCallback((key: string, next: boolean) => {
-        setOpen((was) => {
-            if (was.has(key) === next) return was;
-            const out = new Set(was);
-            if (next) out.add(key); else out.delete(key);
-            return out;
-        });
-    }, []);
-    // A row's click: a zone flies, is selected and opens; an item flies and is selected.
+        if (next) {
+            closedRef.current = undefined;
+            setOpenZone(key);
+            return;
+        }
+        closedRef.current = key;
+        setOpenZone(tree.parentOf.get(key));
+    }, [tree]);
+    // The view's zone: opened and brought into view, unless the viewer closed it while the view was in it.
+    const [followed, setFollowed] = useState<{ key: string; nonce: number } | undefined>(undefined);
+    useEffect(() => {
+        if (inView === undefined) return;
+        if (closedRef.current !== undefined) {
+            if (stringEqual(closedRef.current, inView)) return;
+            closedRef.current = undefined;
+        }
+        setOpenZone(inView);
+        setFollowed((was) => ({ key: inView, nonce: (was?.nonce ?? 0) + 1 }));
+    }, [inView]);
+    // A row's click: a zone flies, is selected and opens — or closes, open; an item flies and is selected.
     const activate = useCallback((row: IndexRow) => {
         setActive(rowKey(row));
-        if (row.kind === "zone") setZone(row.zone.key, true);
+        if (row.kind === "zone") setZone(row.zone.key, !row.open || query.trim() !== "");
         onReveal(rowKey(row));
-    }, [setZone, onReveal]);
+    }, [setZone, onReveal, query]);
     const moveTo = useCallback((index: number) => {
         const row = rows[index];
         if (row === undefined) return;
@@ -259,6 +285,16 @@ export function SchematicIndexTab({ zones, items, kindName, inView, selected, on
         }
     }, [rows, activeIndex, moveTo, setZone, activate, query]);
     const getItemKey = useCallback((index: number) => rowKey(rows[index]!), [rows]);
+    // The view's zone brought into the tree's view once its row is listed — once each time the view comes to it, so the
+    // rows moving after never pull the list back from where the viewer scrolled it.
+    const scrolledRef = useRef(0);
+    useEffect(() => {
+        if (followed === undefined || scrolledRef.current === followed.nonce) return;
+        const index = rows.findIndex((row) => row.kind === "zone" && stringEqual(row.zone.key, followed.key));
+        if (index < 0) return;
+        scrolledRef.current = followed.nonce;
+        setShown((was) => ({ index, nonce: (was?.nonce ?? 0) + 1 }));
+    }, [followed, rows]);
 
     const renderRow = (index: number) => {
         const row = rows[index]!;

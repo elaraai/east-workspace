@@ -325,12 +325,16 @@ test("the Index lists a rack read by area where its draft has it, as it lists th
     });
     await settle();
     expect(unsaved(container)).toBe(true);
-    // Cage A and the Network room opened: Cage A holds A02 to A05, and the Network room A01, as the canvas draws them.
+    // Cage A opened, then the Network room — one zone open at a time: Cage A holds A02 to A05, and the Network room A01,
+    // as the canvas draws them. A zone counts its racks only while its box is read: open.
     await openTab(container, "Index");
     await openZone(container, "Cage A");
+    await waitFor(() => expect(indexRows(container)).toEqual([
+        "Cage A ▾ 4", "  A02", "  A03", "  A04", "  A05", "Cold aisle A · 1.2 m ▸", "Hot aisle A · 1.0 m ▸", "Meet-me room ▸", "Network room ▸",
+    ]), { timeout: 5_000 });
     await openZone(container, "Network room");
     await waitFor(() => expect(indexRows(container)).toEqual([
-        "Cage A ▾ 4", "  A02", "  A03", "  A04", "  A05", "Cold aisle A · 1.2 m ▸", "Hot aisle A · 1.0 m ▸", "Meet-me room ▸", "Network room ▾ 1", "  A01",
+        "Cage A ▸", "Cold aisle A · 1.2 m ▸", "Hot aisle A · 1.0 m ▸", "Meet-me room ▸", "Network room ▾ 1", "  A01",
     ]), { timeout: 5_000 });
 });
 
@@ -349,12 +353,14 @@ test("the Index lists a rack a gesture made in the zone it stands in, and none a
     template.focus();
     await act(async () => { fireEvent.keyDown(template, { key: "Enter", code: "Enter" }); });
     await settle();
-    // Cage A and the cold aisle opened: Cage A holds A01, A03, A04 and A05, and the cold aisle the new rack, as the canvas draws them.
+    // Cage A opened, then the cold aisle — one zone open at a time: Cage A holds A01, A03, A04 and A05, and the cold aisle
+    // the new rack, as the canvas draws them.
     await openTab(container, "Index");
     await openZone(container, "Cage A");
+    await waitFor(() => expect(indexRows(container).slice(0, 5)).toEqual(["Cage A ▾ 4", "  A01", "  A03", "  A04", "  A05"]), { timeout: 5_000 });
     await openZone(container, "Cold aisle A · 1.2 m");
     await waitFor(() => expect(indexRows(container)).toEqual([
-        "Cage A ▾ 4", "  A01", "  A03", "  A04", "  A05", "Cold aisle A · 1.2 m ▾ 1", "  New 42U rack", "Hot aisle A · 1.0 m ▸", "Meet-me room ▸", "Network room ▸",
+        "Cage A ▸", "Cold aisle A · 1.2 m ▾ 1", "  New 42U rack", "Hot aisle A · 1.0 m ▸", "Meet-me room ▸", "Network room ▸",
     ]), { timeout: 5_000 });
 });
 
