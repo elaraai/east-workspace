@@ -712,7 +712,7 @@ Record.Types.Change = { at: DateTime, by: String, verb: String }
 | The Sheet's action column | e3-ui `sheet/actions.ts`, e3-ui-components `sheet/actions/` | `Record.column.action` |
 | Index-ordered windows | e3-ui `utils/ordered-source.ts` | §2.5 bands over a paged source |
 
-The renderer is a new `record/` in e3-ui-components. Its grid is drawn in the Table's anatomy, and it takes the Sheet's model and editing session. Where the Sheet's grid holds logic inline (the ring's keyboard, a cell's commit, pick and paste), that logic moves into shared hooks that both grids call. Nothing is copied.
+The renderer is a new `record/` in e3-ui-components: the Sheet's provider over the payload's `sheet`, laid out in `BuilderFrame` with the Record's own toolbar, footer and inspector. The Sheet's machine (the ring and its keys, a cell's commit, pick and paste, the paging, the lens, the session and the inspector's reads) stays in its one hook, and its grid takes its rows, its header, its gutter and its bands from the host, so the same grid draws the Record's in the Table's anatomy (§7, decision 8). A gesture that belongs to a kind (a click that steps a cycle, Space on a toggle, a member's label typed on a cycle) is the shared machine's, by the kind. Nothing is copied.
 
 ## 7. Decisions
 
@@ -725,6 +725,7 @@ Ruled 6 November 2026:
 5. **The inspector is Details and Issues.** No History tab: e3 keeps history record-wide, and the journal is one field.
 6. **A column's field is editable wherever its column is.** `editable: false` makes it read only on every row; there is no "new rows only".
 7. **Nothing holds Apply unseen** (#1527). The Record is one of the builders #1527 covers. Every refusal holding Apply, a new row's empty required field or the app's `ready` refusal, is listed and reachable (AD3, IN3, IN9). Every new row the Record makes, by Add or Duplicate, takes `newRow`'s values (AD2, IN7).
+8. **The Record's grid is the Sheet's, through its host** (ruled 6 November 2026). The Sheet's machine is one hook whose grid reads its state where it builds it. Rather than lift that state into hooks for a second grid, the host hands the grid the Record's rows, header, gutter and bands, and the kinds' own gestures live in the shared input by kind.
 
 Open, for review:
 
@@ -754,7 +755,7 @@ One epic, one branch (off #1481's, PR against `main`), one PR. The sub-issues:
 1. **Spec and DX.** `Record Cells.dc.html` and this proposal in `docs/proposals/`.
 2. **The shared kinds** (e3-ui `sheet/`). `SheetColumnKindType` gains `title`, `person`, `boolean`, `toggle`, `cycle`, `age` and `audit`, and `quantity` gains `unit`. Builders, `describeColumn`, the projection and rule cells, `elapsed`, `Record.Types.Change`, and the Sheet's refusal (§7, decision 3). Each in its spec and its examples.
 3. **`<Record>` authoring** (e3-ui `record/`). The tag merged into the `Record` namespace (`bind`, `onApply`, `column`, `register`, `field`, `patch`, `Types`), the payload and carrier, the props' checks (§2.6), the `columns` mapped type (§2.4), column groups and bands. Examples 1–5 in `test/record/record.examples.tsx` wired into their spec, the e3-ui SKILL's Record section and the plugin index.
-4. **The grid** (e3-ui-components `record/`). FR1, GR, HD, SL, BD, EM and ST, the Sheet's grid logic moved into shared hooks, P and K.
+4. **The grid** (e3-ui-components `record/`). FR1, GR, HD, SL, BD, EM and ST over the Sheet's grid through its host (§7, decision 8), P and K.
 5. **The cells.** C1–C11, the age cell's clock (§2.3), the chips' and marks' recipes.
 6. **The toolbar and footer.** The title, the status line, Add and Delete (AD1–AD7), the history bar with Issues, FT1–FT2.
 7. **The inspector.** IN1–IN9 over the Sheet's inspector, FieldForm's one-line layout (east-ui-components) and sections by column group.
