@@ -139,9 +139,9 @@ export const schematicStressHalls = e3.record("schematic_stress_halls", DictType
 export const schematicRecordIndexes = example({
     keywords: [
         "Schematic", "Schematic.items", "Schematic.zones", "Schematic.details", "Record.bind", "Data.bindPaged", "Slice.bindRecords", "index.area", "area index",
-        "window", "paging", "density", "records", "details", "editing", "drafts", "Save", "20,000",
+        "window", "paging", "density", "records", "details", "editing", "drafts", "Save", "20,000", "Schematic.library.index", "Index",
     ],
-    description: "A floor of 20,000 racks in ten halls, read a window at a time: the racks bound with their patch door and read through their source of the slice, whose indexes include an area index at a 1 cm cell, so the canvas reads only the racks its view shows, from the index alone, and draws their density from the index's counts while the view holds more than 5,000; a choice of halls reads through the area index the hall leads, and a choice of models through the one led by nothing, asking which of the window's racks the choice holds; each rack's load read by the runs its window's cells are of the area index — e3 reads their keys from the index, so none is sent — every cell not yet read in one request, so a dot draws its rack's alarm as a card does; a rack moved is a draft that waits in its session wherever the window goes, and Save writes it through the door",
+    description: "A floor of 20,000 racks in ten halls, read a window at a time: the racks bound with their patch door and read through their source of the slice, whose indexes include an area index at a 1 cm cell, so the canvas reads only the racks its view shows, from the index alone, and draws their density from the index's counts while the view holds more than 5,000; a choice of halls reads through the area index the hall leads, and a choice of models through the one led by nothing, asking which of the window's racks the choice holds; the Index in the library pane lists the halls, one open at a time — a hall's racks read by its box — and opens the hall the view is in as it pans and zooms; each rack's load read by the runs its window's cells are of the area index — e3 reads their keys from the index, so none is sent — every cell not yet read in one request, so a dot draws its rack's alarm as a card does; a rack moved is a draft that waits in its session wherever the window goes, and Save writes it through the door",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // The racks bound with their patch door, read by key through their own entries beside their source of the slice.
@@ -164,6 +164,8 @@ export const schematicRecordIndexes = example({
                 <Box height="640px">
                     <Schematic
                         id="recordIndexes"
+                        // The Index: the halls and their racks, one hall open at a time, following the hall the view is in.
+                        library={[Schematic.library.index()]}
                         extent={{ width: 382, height: 254 }}
                         scaleUnit="m"
                         slice={{ slice }}
