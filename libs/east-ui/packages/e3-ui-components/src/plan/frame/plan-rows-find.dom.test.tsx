@@ -123,6 +123,19 @@ describe("Search Records over a paged resource kind's source", () => {
         await waitFor(() => expect(document.activeElement?.closest("[role='row']")?.textContent ?? "").toContain("JOB-10001"));
     });
 
+    test("an order one choice hides is gone to with that choice alone cleared, its row taking the keyboard (review of #1481, finding 3)", async () => {
+        const { container: c } = await h.mount(records.planRecordIndexes);
+        await settle();
+        // JOB-10003 is Ready, as the narrowing chooses, and due after the first fortnight: the due window alone hides it.
+        await paste(c, "JOB-10003");
+        await waitFor(() => expect(lines(c)[0]).toMatch(/^JOB-10003 · hidden by Due: .* — picking it clears that filter$/));
+        fireEvent.keyDown(input(c), { key: "Enter" });
+        await settle();
+        await waitFor(() => expect(labels(c).some((label) => label.includes("JOB-10003"))).toBe(true), { timeout: 4000 });
+        expect(ordersNarrowing()).toContain("status");
+        await waitFor(() => expect(document.activeElement?.closest("[role='row']")?.textContent ?? "").toContain("JOB-10003"));
+    });
+
     test("an order the narrowing holds, far down its rows, is gone to with nothing cleared", async () => {
         const { container: c } = await h.mount(records.planRecordIndexes);
         await settle();

@@ -231,6 +231,12 @@ function drawsItem(body: HTMLElement | null, key: string): boolean {
     return body !== null && Array.from(body.querySelectorAll("[data-plan-item]")).some((el) => el.getAttribute("data-plan-item") === key);
 }
 
+/** The key search's box, in the row or in its popover, and the icon it folds to: where a pick leaves the focus. */
+const KEY_SEARCH_BOX = '[data-part="dataset-key-search"], [data-key-search="icon"]';
+
+/** How many frames a pick's row is waited for before the hand-off gives up on it: about a second. */
+const LAND_FRAMES = 60;
+
 /** The canvas-wide keys (§11) — esc runs the one-rung ladder, `n` / `[` / `]`
  *  move the window, `g` cycles the grain. They work from anywhere in the
  *  canvas; the grid's own keys (`root/keyboard.ts`) come first. Every key the
@@ -866,7 +872,22 @@ export function usePlanCanvas({
             return;
         }
         const key = rowItemKey(searchTarget);
-        handOff.land(() => { if (drawsItem(focusBodyRef.current, key)) controller.focusItem(key); });
+        const served = searchSeq;
+        handOff.land(() => {
+            // The row the search was served on may draw a frame or two after: the view scrolls to it, and the virtual rows
+            // mount it as they follow — a pick whose clear leaves another narrowing standing lands so (review of #1481,
+            // finding 3). It takes the keyboard once drawn, while no later search has been served and the focus is still
+            // the box's or nowhere; a row never drawn in that time takes nothing.
+            let frames = 0;
+            const take = (): void => {
+                if (servedSearch.current !== served) return;
+                const at = document.activeElement;
+                if (at !== null && at !== document.body && at.closest(KEY_SEARCH_BOX) === null) return;
+                if (drawsItem(focusBodyRef.current, key)) { controller.focusItem(key); return; }
+                if (++frames < LAND_FRAMES) requestAnimationFrame(take);
+            };
+            take();
+        });
     }, [searchSeq, searchTarget, narrow, handOff, controller]);
     // The hover cursor: direct DOM writes, zero renders (#609).
     const cursorChipRef = useRef<HTMLDivElement | null>(null);
