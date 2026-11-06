@@ -124,7 +124,6 @@ export function scheduleRecordSession(record: unknown, keyType: EastType, rowTyp
                 readEntry,
                 onPatch: none,
                 onApply: some(East.value(variant("async", onApply), EditingWireApplyType)),
-                mode: variant("batch", null),
             } as never, EditingType) as unknown as ExprType<typeof EditingType>;
             // The record read by key (#1199): its revision and a move to another, one entry's row, and its largest key.
             const seam = entries === undefined || byKey === undefined || lastKey === undefined

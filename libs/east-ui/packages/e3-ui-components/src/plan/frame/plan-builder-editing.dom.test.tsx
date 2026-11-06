@@ -16,8 +16,8 @@
  * from the history item and the keys, never while typing; Discard of every
  * kind; Save per kind, each its own commit, one kind's conflict or refusal
  * leaving the others committed, a write with no answer retried under its own
- * request id, a kind out of date discarded from its banner alone; auto mode;
- * and the drafts outliving a remount. Every word read from the history item
+ * request id, a kind out of date discarded from its banner alone; and the
+ * drafts outliving a remount. Every word read from the history item
  * and the banners is the shared messages', never written out. And `data`'s
  * rows over a record of their own (#1436, `planRowDrop`): a run moved along
  * its row, resized, carried to another row, a card dropped under the id the
@@ -217,7 +217,7 @@ describe("every gesture is one transaction (PB43)", () => {
     test("each kind's session reads its events' start and end as one range, its dates: a conflict at either is one card of the popover", async () => {
         await h.install({ fn: printKindsFn });
         const payload = printKinds();
-        const { result } = renderHook(() => usePlanEventEditing({ kinds: payload.events, applyMode: "batch", storageKey: "plan-ranges", joined: NO_JOINED }));
+        const { result } = renderHook(() => usePlanEventEditing({ kinds: payload.events, storageKey: "plan-ranges", joined: NO_JOINED }));
         await settle();
         const roles = new Map(payload.events.map((kind) => [kind.key, kind.schedule] as const));
         const ranges = result.current.sessions.map((held) => [held.kind, held.session.ranges] as const);
@@ -230,7 +230,7 @@ describe("every gesture is one transaction (PB43)", () => {
         await h.install({ fn: printKindsFn });
         const payload = printKinds();
         const kinds = new Map(payload.events.map((kind) => [kind.key, kind] as const));
-        const { result } = renderHook(() => usePlanEventEditing({ kinds: payload.events, applyMode: "batch", storageKey: "plan-gestures", joined: NO_JOINED }));
+        const { result } = renderHook(() => usePlanEventEditing({ kinds: payload.events, storageKey: "plan-gestures", joined: NO_JOINED }));
         await settle();
         const editing = () => result.current;
         /** An event as Plan draws it, the drafts in place: when it runs, and where. */
@@ -745,41 +745,10 @@ const lockedRoster = { fn: East.function([], UIComponentType, (_$) => Reactive.R
 }))) };
 
 // ============================================================================
-// Auto mode, and drafts outliving a remount (PB50)
+// Drafts outliving a remount (PB50)
 // ============================================================================
 
-/** The jobs on the presses, sent as each gesture lands, with the inspector and the jobs' customer in its form. */
-const autoJobs = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const presses = $.let(Record.bind(ex.planPrintPresses, []));
-    const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
-    const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
-    return Plan({
-        axis, applyMode: "auto", inspector: true,
-        resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
-        events: {
-            job: Schedule.events(jobs, {
-                name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
-                resource: { field: "press", of: "presses" }, fields: { customer: Schedule.field.text({ label: "Customer" }) },
-            }),
-        },
-    });
-}))) };
-
-describe("auto mode, and a remount (PB50)", () => {
-    test("applyMode auto sends each ready gesture as it lands, through the same protocol; Undo sends the inverse", async () => {
-        const { container } = await h.mount(autoJobs);
-        await settle();
-        const deployed = await commits(ex.planPrintJobs.name);
-        await select(container.querySelector<HTMLElement>(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-1001")}`)!);
-        await typeInto(container, "customer", "Alder & Finch Ltd");
-        expect((await readJobs()).get("J-1001")!.customer).toBe("Alder & Finch Ltd");
-        expect(pending(container)).toBe("0 pending");
-        await press(historyButton(container, UNDO));
-        expect((await readJobs()).get("J-1001")!.customer).toBe("Alder & Finch");
-        expect(await commits(ex.planPrintJobs.name)).toEqual(["patch", "patch", ...deployed]);
-        expect(customer(container)).toBe("Alder & Finch");
-    });
-
+describe("a remount (PB50)", () => {
     test("the drafts and their history outlive a remount, kept per record: the remounted Plan shows them, and undoes them", async () => {
         const first = await h.mount(ex.planPrintWorks);
         await settle();

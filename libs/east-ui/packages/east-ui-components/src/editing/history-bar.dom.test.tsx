@@ -49,7 +49,7 @@ const version = (end: bigint): EntryVersion<string> => ({ draft: liftDraft(Draft
 
 function setup(locked = false, phone = false) {
     const session = new EditSession<string>({
-        sourceId: "runs", entryType: Run, draftType: Draft, idField: "id", auto: false,
+        sourceId: "runs", entryType: Run, draftType: Draft, idField: "id",
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("snapshot", [{ id: "a", end: 1n }]));
@@ -130,7 +130,7 @@ test("drafts a reload would lose are said under the buttons, where the bar says 
     resetKept();
     window.sessionStorage.clear();
     const session = new EditSession<string>({
-        sourceId: "runs", entryType: Run, draftType: Draft, idField: "id", auto: false,
+        sourceId: "runs", entryType: Run, draftType: Draft, idField: "id",
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     keepDrafts(session, keptDraftsKey("", "runs", "runs.bar"), StringType);

@@ -128,7 +128,6 @@ export function useQuerySession(options: QuerySessionOptions): QuerySessionState
         readEntry: (entry: string) => (base === undefined ? none : readBaseEntry(base, entry)),
         onPatch: none,
         onApply: onApply === undefined ? none : some(variant("async", onApply)),
-        mode: variant("batch", null),
     }), [sourceId, snapshot, base, onApply]);
     const rows = useMemo(() => base?.entries ?? [], [base]);
     const positions = useMemo(() => rows.map((_, i) => i), [rows]);

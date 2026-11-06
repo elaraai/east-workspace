@@ -197,7 +197,7 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
         }
         return out;
     }, [kinds, areas]);
-    const schedule = useScheduleEditing({ kinds: NO_KINDS, records, reads, applyMode: "batch", storageKey, joined: NO_JOINED, recordSlices });
+    const schedule = useScheduleEditing({ kinds: NO_KINDS, records, reads, storageKey, joined: NO_JOINED, recordSlices });
 
     // Each draft decoded once: a session keeps an entry's version the same object until a gesture replaces it.
     const decoded = useRef(new WeakMap<EntryVersion<ScheduleEntryRef>, DraftedRow<unknown>>());

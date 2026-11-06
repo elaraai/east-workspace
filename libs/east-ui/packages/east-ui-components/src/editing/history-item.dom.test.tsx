@@ -68,7 +68,7 @@ const noop = () => {};
 
 function editSession(): EditSession<string> {
     const session = new EditSession<string>({
-        sourceId: "runs", entryType: Run, draftType: Draft, idField: "id", auto: false,
+        sourceId: "runs", entryType: Run, draftType: Draft, idField: "id",
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("snapshot", [{ id: "a", end: 1n }]));

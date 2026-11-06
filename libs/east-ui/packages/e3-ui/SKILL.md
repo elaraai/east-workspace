@@ -160,7 +160,6 @@ Task → What do you need?
     │   ├─ Drags of templates, backlog cards and events       → built in with resources + events (+ library); canDrop={fn(Schedule.Types.Candidate) => Option<String>}
     │   ├─ The app's optimiser over the window and the backlog → optimise={Func.bind(e3.function)} from Plan.Types.OptimiseRequest({ job: Job }, { presses: Press }) to Plan.Types.OptimiseResult({ job: Job })
     │   ├─ Overlap warnings, without dropping overlapping events → Schedule.events(record, { overlaps: "warn" | "allow" })
-    │   ├─ Save each changed event kind through its patch door → applyMode="batch" (default); "auto" commits each ready gesture
     │   └─ Dropped cards and moves of data rows as drafts      → a series' edit + editing={{ onUpdate | onApply }}
     │
     ├─ Let planners type rows in place — the Sheet

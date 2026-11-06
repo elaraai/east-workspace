@@ -146,7 +146,7 @@ export function bindingOf<W>(
         children: editing.children.type === "some" ? editing.children.value : undefined,
         apply: editing.onApply.type === "some" ? editing.onApply.value.value : undefined,
         patch: editing.onPatch.type === "some" ? editing.onPatch.value : undefined,
-        refresh, auto: editing.mode.type === "auto",
+        refresh,
     };
 }
 

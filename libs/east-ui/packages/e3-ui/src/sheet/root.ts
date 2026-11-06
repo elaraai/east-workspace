@@ -224,8 +224,6 @@ export interface SheetOptions<R extends StructType, K extends EastType = StringT
     /** Submit one checked, idempotent batch to the authoritative source. */
     onApply?: SubtypeExprOrValue<FunctionType<[ReturnType<typeof SheetChangeSetTypeFor<R>>], typeof SheetApplyResultType>>
         | SubtypeExprOrValue<AsyncFunctionType<[ReturnType<typeof SheetChangeSetTypeFor<R>>], typeof SheetApplyResultType>>;
-    /** Batch by default; auto submits complete gestures through the same checked protocol. */
-    applyMode?: "batch" | "auto";
     /** The ring moved. */
     onSelect?: SubtypeExprOrValue<FunctionType<[SheetSelectionType], NullType>>;
     /** Controlled selection. */

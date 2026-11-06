@@ -69,12 +69,10 @@ import {
     SetType,
     StringType,
     StructType,
-    VariantType,
     isTypeEqual,
     none,
     printType,
     some,
-    variant,
     type EastType,
     type ExprType,
     type SubtypeExprOrValue,
@@ -159,13 +157,11 @@ export const PlanEventCanDropType = FunctionType([ScheduleCandidateType], Option
 export type PlanEventCanDropType = typeof PlanEventCanDropType;
 
 /**
- * How a Plan's event kinds behave beside its canvas.
+ * Where a Plan opens.
  *
- * @property applyMode - When the event kinds' ready drafts go: on Save (`batch`), or as each gesture lands (`auto`)
  * @property date - The date brought into view first; `none`, the axis's window from its start
  */
 export const PlanSettingsType = StructType({
-    applyMode: VariantType({ batch: NullType, auto: NullType }),
     date: OptionType(DateTimeType),
 });
 
@@ -215,7 +211,7 @@ export const PlanVocabularyType = StructType({
  * @property canDrop - The event kinds' drop veto; `none`, every drop the kinds take lands
  * @property optimise - The app's optimiser, by its `e3.function`'s name (#1409): what the Elara eye calls over the plan window in
  *   view, its result one edit of the session; `none`, no eye
- * @property settings - When the event kinds' drafts go, and the date brought into view first
+ * @property settings - The date brought into view first
  * @property library - The library pane's tabs, in the order `library` lists them; empty, no pane (#1195)
  * @property inspector - Whether the Plan has an inspector pane, showing what is selected (#1197)
  * @property vocabulary - The app's words for what the Plan draws of its own (#1516)
@@ -303,7 +299,7 @@ export function planVocabulary(given: PlanVocabularyProp | undefined): ValueType
 
 /**
  * `<Plan>`'s props: the canvas's ({@link PlanConfig}), with `data` optional,
- * and the event kinds, the read-only `rows`, and how the kinds' drafts go.
+ * and the event kinds and the read-only `rows`.
  *
  * @remarks
  * `K` is the canvas's axis kind, inferred from `axis` alone: every series and
@@ -352,8 +348,6 @@ export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral, 
     events?: Readonly<Record<string, ScheduleEventKind<EastType, EastType>>>;
     /** Read-only rows: hand-built rows (`Plan.chart({ … })`) and `Plan.over(data, [series…])`. Pinned rows sit under the ruler; the rest follow the resources and `data`'s rows. */
     rows?: readonly PlanRowsItem<NoInfer<K>>[];
-    /** When the event kinds' ready drafts go: on Save (`"batch"`, the default), or as each gesture lands (`"auto"`). `data`'s session takes `editing.mode`. */
-    applyMode?: "batch" | "auto";
     /** The date brought into view first; omitted, the axis's window from its start. */
     date?: SubtypeExprOrValue<DateTimeType>;
     /**
@@ -402,9 +396,6 @@ export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral, 
 
 /** The props, erased — what the implementation reads. */
 type PlanAnyProps = PlanProps & Record<string, unknown>;
-
-/** The ways a Plan's event kinds' drafts go. */
-const APPLY_MODES: readonly string[] = ["batch", "auto"];
 
 /** The source of a Plan's slice that gives the canvas its rows (#1344). */
 const ROWS = "rows";
@@ -569,8 +560,7 @@ function checkedRowsRange(source: string, config: ExprType<RecordSliceConfigType
  *   link naming an event kind `events` has not; a `rows` item that is neither a hand-built row nor `Plan.over`'s; a
  *   `canDrop` over neither a drag nor a candidate, or over a candidate with no event kinds; an `optimise` with no event kinds,
  *   or one that is not `Func.bind` of a function from `OptimiseRequest(E, S)` to `OptimiseResult(E)` over the kinds' rows
- *   (#1409); an `applyMode` that is neither
- *   batch nor auto, or with no event kinds; an `inspector` with no event kinds; a resource kind with no event kind
+ *   (#1409); an `inspector` with no event kinds; a resource kind with no event kind
  *   placed on it and no measures; more than one paged resource kind, or one beside a paged `data` (#1199); an event
  *   kind placed on a paged resource kind and on another, or with no source of the slice — its record read whole, or the
  *   days in view read through its day index (`window`) — each naming the series and summary indexes to declare over the
@@ -591,7 +581,7 @@ function checkedRowsRange(source: string, config: ExprType<RecordSliceConfigType
  * @internal
  */
 export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
-    const { resources, events, rows, applyMode, date, canDrop, optimise, library, inspector, vocabulary, slice, ...canvas } = props as PlanAnyProps;
+    const { resources, events, rows, date, canDrop, optimise, library, inspector, vocabulary, slice, ...canvas } = props as PlanAnyProps;
     const words = planVocabulary(vocabulary);
     // The narrowing's form #1344 retired, refused by name for an app that still passes it: the bare handle.
     if (slice instanceof Expr || (slice !== undefined && (typeof slice !== "object" || slice === null || !("slice" in slice)))) {
@@ -676,10 +666,6 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         });
         if (named.includes(undefined)) links = checkedLinkKinds(links, kinds) as unknown as typeof links;
     }
-    if (applyMode !== undefined) {
-        if (!APPLY_MODES.includes(applyMode)) throw new Error(`Plan: \`applyMode\` is "batch" or "auto" — and it is "${String(applyMode)}"`);
-        if (events === undefined) throw new Error("Plan: `applyMode` says when the event kinds' drafts go, and this Plan has none — `data`'s session takes `editing.mode`");
-    }
     if (inspector !== undefined && typeof inspector !== "boolean") {
         throw new Error("Plan: `inspector` is `true` for the inspector pane, or `false` or left out for none, and this one is no boolean — a kind's own inspector for one event is Schedule.events' `inspector`");
     }
@@ -703,10 +689,7 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         }
     }
     const veto = East.value(eventCanDrop === undefined ? none : some(eventCanDrop), OptionType(PlanEventCanDropType));
-    const settings = East.value({
-        applyMode: variant(applyMode ?? "batch", null),
-        date: date === undefined ? none : some(date),
-    } as never, PlanSettingsType);
+    const settings = East.value({ date: date === undefined ? none : some(date) } as never, PlanSettingsType);
     // `data`'s series a viewer can hide are its picked ones, through the pick.
     const picked = canvas.pick !== undefined;
     return Expr.block(($) => {

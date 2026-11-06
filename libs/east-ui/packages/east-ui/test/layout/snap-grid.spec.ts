@@ -150,7 +150,6 @@ describeEast("SnapGrid", (test) => {
         $(Assert.equal(editing.onDrafted.hasTag("none"), true));
         $(Assert.equal(editing.keyType.hasTag("none"), true));
         $(Assert.equal(editing.snapshot.unwrap("some").decodeBeast(Rows, "v2"), rows));
-        $(Assert.equal(editing.mode.getTag(), "batch"));
         // The inline adapter applies each batch; no card is taken without `create`.
         $(Assert.equal(editing.onApply.hasTag("some"), true));
         $(Assert.equal(editing.create.hasTag("none"), true));

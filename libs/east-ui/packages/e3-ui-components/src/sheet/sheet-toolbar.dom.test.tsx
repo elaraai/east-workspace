@@ -104,7 +104,7 @@ const noop = () => {};
 function historyItem(): ToolbarItem {
     const Run = StructType({ id: StringType, end: IntegerType });
     const session = new EditSession<string>({
-        sourceId: "runs", entryType: Run, draftType: Editing.Types.Draft(Run), idField: "id", auto: false,
+        sourceId: "runs", entryType: Run, draftType: Editing.Types.Draft(Run), idField: "id",
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     return historyToolbarItem({ session, words: { ...formatters("en-US"), m: editingMessages }, editing: false, onAction: noop, onIssue: noop });

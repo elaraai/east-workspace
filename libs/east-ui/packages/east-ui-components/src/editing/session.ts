@@ -343,8 +343,6 @@ export interface EditSessionBinding<W> {
     patch: ((payload: Uint8Array) => unknown) | undefined;
     /** Installs the revision an apply committed. */
     refresh: ((revision: ValueTypeOf<OptionType<StringType>>) => unknown) | undefined;
-    /** Apply a ready batch as soon as it is ready. */
-    auto: boolean;
     /** Additional domain requirements over the current draft collection. */
     ready?: ((entries: ReadonlyMap<string, EntryVersion<W>>) => BatchReadiness) | undefined;
     /** One unresolved request across every view bound to this source. */
@@ -529,7 +527,6 @@ export class EditSession<W> {
     private submission: Submission<W> | undefined;
     private listeners = new Set<() => void>();
     private serial = 0;
-    private autoSequence = 0;
     private readonly draftEqual: (a: unknown, b: unknown) => boolean;
     private readonly domainEqual: (a: unknown, b: unknown) => boolean;
     private readonly draftDiff: (a: unknown, b: unknown) => Change["patch"];
@@ -1093,7 +1090,8 @@ export class EditSession<W> {
         this.draftsChanged();
         // A refused Save goes again with nothing to choose; with a conflict, the person's Save sends it once it is chosen.
         this.again = (refused || this.again) && this.unsettled === 0 && this.resent < RESENDS;
-        this.changed(); this.maybeAutoApply();
+        this.changed();
+        if (this.again) queueMicrotask(() => this.resend());
         return "merged";
     }
 
@@ -1226,7 +1224,7 @@ export class EditSession<W> {
         this.cursor++;
         this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
         if (before.size > 0) this.emit(before, after, "settle", label);
-        this.changed(); this.maybeAutoApply();
+        this.changed();
         return true;
     }
 
@@ -1347,7 +1345,7 @@ export class EditSession<W> {
         }
         this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
         this.emit(before, after, origin, label);
-        this.changed(); this.maybeAutoApply(origin !== "discard");
+        this.changed();
         return true;
     }
     /** Undo the last transaction. */
@@ -1360,7 +1358,7 @@ export class EditSession<W> {
         this.draftsChanged();
         this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
         this.emit(step.after, step.before, "undo", `Undo ${step.label}`);
-        this.changed(); this.maybeAutoApply();
+        this.changed();
     }
     /** Redo the next transaction. */
     redo(): void {
@@ -1372,7 +1370,7 @@ export class EditSession<W> {
         this.draftsChanged();
         this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
         this.emit(step.before, step.after, "redo", `Redo ${step.label}`);
-        this.changed(); this.maybeAutoApply();
+        this.changed();
     }
     /** Discard every draft, and the history with them. */
     discard(): void {
@@ -1384,20 +1382,20 @@ export class EditSession<W> {
         this.ancestors.clear(); this.forgetConflicts(); this.moving = undefined; this.again = false;
         this.history = []; this.cursor = 0; this.stale = false;
         this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
-        this.changed(); this.maybeAutoApply(false);
+        this.changed();
     }
-    private maybeAutoApply(enabled = true): void {
-        // A discard cancels queued automatic submissions as well as avoiding a
-        // new one: removing an incomplete draft may make another edit ready.
-        const sequence = ++this.autoSequence;
-        if (enabled && (this.binding.auto || this.again)) queueMicrotask(() => {
-            if (sequence !== this.autoSequence) return;
-            const again = this.again;
-            // Carried over again meanwhile: that carry-over sends it.
-            if (this.moving === undefined) this.again = false;
-            if (!this.canApply) return;
-            if (again) { this.resent++; void this.send(); } else void this.apply();
-        });
+
+    /**
+     * Send again a Save the source refused because another write got there
+     * first, its drafts carried over with nothing to choose ({@link RESENDS}):
+     * unless the person's Save or Discard came first.
+     */
+    private resend(): void {
+        // Carried over again meanwhile: that carry-over sends it.
+        if (!this.again || this.moving !== undefined) return;
+        this.again = false;
+        if (!this.canApply) return;
+        this.resent++; void this.send();
     }
 
     /** Apply the batch, as the person's Save does; a retry keeps the original immutable bytes and captured callback. */

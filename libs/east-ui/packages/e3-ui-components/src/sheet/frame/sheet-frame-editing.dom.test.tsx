@@ -5,15 +5,14 @@
  * @vitest-environment jsdom
  *
  * `<Sheet>`'s editing, undo and Save (#1185, #1216, `Sheet Builder Spec.md`
- * SB25–SB31), over the Sheet's records on e3 itself (`harness.test-utils.tsx`,
+ * SB25–SB30), over the Sheet's records on e3 itself (`harness.test-utils.tsx`,
  * #1376): each gesture one transaction, undone and redone from the history
  * item and from the keys anywhere in the frame, never while typing in a field;
  * Save one commit through the record's patch door, the history item naming
  * each state on the way; a conflict and a refusal keeping the drafts; a write
  * with no answer retried under its own request id; the drafts retiring once
  * the rows read back — whatever another write did beside them — and going out
- * of date when the record moves under them; each week its own drafts; and
- * auto mode.
+ * of date when the record moves under them; and each week its own drafts.
  */
 
 import { test, expect } from "vitest";
@@ -35,14 +34,6 @@ const PLANS = ex.sheetWeekPlans;
 const JOBS_DATASET = `records.${JOBS.name}`;
 type Jobs = ValueTypeOf<typeof JOBS.type>;
 type Job = ValueTypeOf<typeof ex.SheetJob>;
-
-/** The jobs, saved as each gesture lands (SB31). */
-const autoJobs = {
-    fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-        const jobs = $.let(Record.bind(ex.sheetJobs, ["patch"]));
-        return Sheet({ record: jobs, columns: { task: Sheet.column.text(ex.SheetJob, { header: "Task" }) }, applyMode: "auto", name: "auto" });
-    }))),
-};
 
 /** The jobs, given both panes: a library of the columns, with its search, and the inspector. */
 const panedJobs = {
@@ -422,18 +413,6 @@ test("each week keeps its own drafts across a switch of the entry, and a remount
     await press(toolbar(again.container).getByRole("button", { name: "Discard" }));
     expect(tasks(again.container)[0]).toBe("Assemble the wardrobes");
     expect(drafted(again.container)).toBe(0);
-});
-
-test("auto mode sends each ready gesture as it lands, through the same protocol; Undo then commits the inverse (SB31)", async () => {
-    const { container } = await h.mount(autoJobs);
-    const deployed = await commits(JOBS);
-    await typeInto(cells(container, "task")[3]!, "Spray finish, matt");
-    expect((await readJobs()).get("J-0004")!.task).toBe("Spray finish, matt");
-    expect(drafted(container)).toBe(0);
-    await press(toolbar(container).getByRole("button", { name: "Undo" }));
-    expect((await readJobs()).get("J-0004")!.task).toBe("Spray finish");
-    expect(await commits(JOBS)).toEqual(["patch", "patch", ...deployed]);
-    expect(tasks(container)[3]).toBe("Spray finish");
 });
 
 test("a reload keeps the drafts in this tab: the task typed and the job added are drawn as they were, still to save, and Save saves them", async () => {

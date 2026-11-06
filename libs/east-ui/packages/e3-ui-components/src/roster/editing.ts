@@ -85,7 +85,7 @@ export function useRosterEditing(value: RosterValue, storageKey: string, span: R
         return out;
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [value.duty, value.periods, value.targets, epoch, until]);
-    const schedule = useScheduleEditing({ kinds, records, reads, applyMode: "batch", storageKey, joined: NO_JOINED, range, recordSlices });
+    const schedule = useScheduleEditing({ kinds, records, reads, storageKey, joined: NO_JOINED, range, recordSlices });
     const duty = value.duty.kind.key;
     const sessionOf = (key: string): EditSession<ScheduleEntryRef> | undefined => schedule.sessions.find(held => held.kind === key)?.session;
     // Each draft decoded once: a session keeps an entry's version the same object until a gesture replaces it.

@@ -142,7 +142,7 @@ export interface RecordNounInput {
 }
 
 /** The Sheet's options a Record takes as they are. */
-type RecordSheetOptions = "registers" | "newRow" | "newKey" | "edits" | "owned" | "readOnly" | "density" | "ready" | "applyMode";
+type RecordSheetOptions = "registers" | "newRow" | "newKey" | "edits" | "owned" | "readOnly" | "density" | "ready";
 
 /**
  * What every `<Record>` takes beside its rows and its columns.

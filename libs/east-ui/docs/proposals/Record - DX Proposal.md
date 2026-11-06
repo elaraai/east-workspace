@@ -69,7 +69,7 @@ A sketch: proposed names, not code that compiles today.
 | `owned` | `(row) => Boolean` | Rows an upstream system owns: read only, as the Sheet's |
 | `readOnly` | `boolean` | The whole Record read only: no Add, Delete, select column, hover or editor |
 | `density` | `"comfortable" \| "compact" \| "condensed"` | Rows 36, 32 or 28 |
-| `ready` · `applyMode` | the Sheet's | Author readiness checks; `"auto"` saves each gesture |
+| `ready` | the Sheet's | Author readiness checks: a refusal holds Apply |
 | `name` | `string` | Keeps two Records on one surface apart |
 
 ### `Record.column.*`
@@ -908,12 +908,17 @@ Sheet.Types.Editing gains
     unsettable: { row: Array<{ field: String, label: String }>,     // a new row's (or line's) required fields only the app gives,
                   group: Array<{ field: String, label: String }> }  // and a new group's, each with what the sheet calls it
 Record.Types.Change = { at: DateTime, by: String, verb: String }
+
+Every editing session's fields (east-ui's EditingSessionFields: the Sheet's, the Plan's, SnapGrid's, Schedule's) lose
+    mode:       Variant{ batch, auto }                    // decision 11: every edit waits for Apply
+Plan's settings lose  applyMode: Variant{ batch, auto }
 ```
 
 - **The cells.** A title, person or cycle cell is the `String` arm; a boolean or toggle cell is `Boolean`. An age cell is its `since` as `DateTime`, or `Null`. An audit cell is its Change's `at` as `DateTime`, or `Null`, with `by` and `verb` projected into unrendered rule cells (`$by:updated`, `$verb:updated`), as a date's `actual` is. No new cell arm.
 - **The clock.** `elapsed` is compiled by the factory from `unit` (`since.durationMilliseconds(now)` over the unit's milliseconds, rounded down) and called by the renderer with the browser's clock (§2.3). Nothing else on the wire reads a clock.
 - **A new entry's key.** The Sheet's `newKey` crosses as text, as the rows' ids do: a String key is itself, and any other key is its `.east` printing. The Sheet's factory wraps the author's typed function in East, reading each taken key back with `parse` (as `Record.onApply` reads an id) and printing the key it returns; a String key's function crosses as it is. The Sheet's machine mints every new entry through it, with the keys taken, or else through `mintKey`.
 - **The fields only the app gives.** `unsettable` names, for a new row or line and for a new group, each required field no editable column and no form of the inspector sets (§2.7), with its label as the inspector's form gives it: the hint's label, else its column's header, else its name spelled out. The build has refused it already when `newRow` or `newGroup` is absent; the shared creation path reads it to draft nothing when the app's values leave one empty, and the status line names the field by its label, with an inspector or without one.
+- **No apply mode.** The editing session's `mode` told the shared session to apply each ready gesture at once; with it gone, every builder's batch waits for Apply (§7, decision 11). Every type that carried it changes, so this too is package-borne.
 - **Column groups** are the Table's `TableColumnGroupType`. The inspector's sections read them.
 - **No e3 wire changes.** This is a UI task's payload, rebuilt when the package is.
 
@@ -950,6 +955,7 @@ Ruled 6 November 2026:
 8. **The Record's grid is the Sheet's, through its host** (ruled 6 November 2026). The Sheet's machine is one hook whose grid reads its state where it builds it. Rather than lift that state into hooks for a second grid, the host hands the grid the Record's rows, header and gutter, and the kinds' own gestures live in the shared input by kind.
 9. **A new record's key is the app's** (ruled 6 November 2026). `newKey` gives it, and it is the Sheet's own option, typed over the rows' key and given the keys taken, in place of its `newRowId`. Without it a String key is a UUID, as every e3-ui builder mints one, the Sheet's included, and any other key needs `newKey` (§2.7).
 10. **No draft the Record can't apply** (ruled 6 November 2026). A required field no person can set comes from the app. The build refuses one with no `newRow`, and an Add whose `newRow` leaves it empty drafts nothing. The check belongs to the Sheet's root, so the Sheet takes it too, for every entry: a row or a line from `newRow`, a group from `newGroup` (§2.7). The editing declaration carries each such field with its label, the inspector form's, so the status line names it whether or not the sheet has an inspector (§5).
+11. **No apply mode** (ruled 6 November 2026). Every edit waits for Apply, in every builder. The shared session's auto mode, which applied each ready gesture at once, goes. So do the options that chose it: the Sheet's, the Record's and the Plan's `applyMode`, and SnapGrid's and `Plan.Root`'s `editing.mode`. A Save another writer refused is still sent again once its drafts carry over, as it is today.
 
 Open, for review:
 
@@ -988,5 +994,6 @@ One epic, one branch (off #1481's, PR against `main`), one PR. The sub-issues:
 8. **The inspector.** IN1–IN9 over the Sheet's inspector, FieldForm's one-line layout (east-ui-components) and sections by column group.
 9. **#1527, with the Record among its builders** (§7, decision 7). Its sub-issues #1525 (the refusals listed and reachable) and #1526 (a new row's own fields from the app) each name the Record. For the Record that means AD3, IN3 and IN9 over the app's `ready`, and Add and Duplicate over `newRow`. It also covers a new entry's key from the Sheet's `newKey`, in place of its `newRowId`, and the build's refusal of a required field no one can set, for rows, lines and groups, with the runtime check beside it in the shared creation path (§2.7, decisions 9 and 10).
 10. **The showcase and the visual contract.** A Record page with Examples 1–6, and the responsive suite's invariants for GR, HD, SL, ST, C, FT and IN, measured in the page in both themes and at the three densities. Each example is verified on e3-web through Apply and a remount.
+11. **No apply mode** (§7, decision 11). The shared session's auto mode goes, with every option that chose it, its wire field (§5), and its examples, tests and docs, the older proposals among them. It lands after the cells, before the phone.
 
 **Verification:** `make build`, `make test` and `make lint` across e3-ui, e3-ui-components and east-ui-components; the examples' specs; the renderer's DOM tests (pointer, keyboard, drafts, Add, Delete, Issues, Apply, undo); the responsive suite in both themes; the plugin index regenerated.

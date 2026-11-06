@@ -51,7 +51,7 @@ function jobs(holds: (id: string) => boolean) {
     };
     const editing: EditingValue = {
         sourceId: "jobs", entryType: toEastTypeValue(Job), draftType: toEastTypeValue(JobDraft),
-        idField: none, children: none, keyType: some(toEastTypeValue(StringType)), snapshot: none, onPatch: none, mode: variant("batch", null),
+        idField: none, children: none, keyType: some(toEastTypeValue(StringType)), snapshot: none, onPatch: none,
         readEntry: () => none,
         onApply: some(variant("sync", () => {
             rows = new Map<string, JobValue>([...rows].map(([id, row]) => [id, { ...row, qty: 5n }]));

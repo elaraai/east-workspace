@@ -255,7 +255,7 @@ describe("the session's readiness", () => {
     const version = (id: string, qty = 1n): EntryVersion => ({ draft: liftDraft(Draft, rowOf(id, qty)), wire: { ...WIRE, id }, place: none });
     const resident: SheetRowValue[] = ["a", "b", "c"].map((id) => ({ ...WIRE, id }) as unknown as SheetRowValue);
     const binding = (ready: SheetTransactionBinding["ready"]): SheetTransactionBinding => ({
-        sourceId: "readiness-859", entryType: Row, draftType: Draft, auto: false,
+        sourceId: "readiness-859", entryType: Row, draftType: Draft,
         apply: () => variant("applied", { revision: some("r2") }), patch: undefined, refresh: undefined, ready,
     });
 

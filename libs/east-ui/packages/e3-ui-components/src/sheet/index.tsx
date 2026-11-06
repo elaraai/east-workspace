@@ -3881,8 +3881,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const [actionPreview, setActionPreview] = useState<{ r: number; key: string; c: ActionCase } | undefined>(undefined);
     const previewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     useEffect(() => () => { if (previewTimer.current !== undefined) clearTimeout(previewTimer.current); }, []);
-    // Auto mode: each action saved as it is taken, its dot's echo running until the save is acknowledged (T5).
-    const autoSave = value.editing.mode.type === "auto";
     const actionHost = useMemo<SheetActionHost>(() => ({
         subscribe: actionStore.subscribe,
         version: actionStore.version,
@@ -3891,7 +3889,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         startable: (r, key) => actionApi.current?.startable(r, key) ?? false,
         held: (r, key) => actionApi.current?.held(r, key),
         dirty: (r, key) => actionApi.current?.dirty(r, key) ?? false,
-        live: (r, key) => actionApi.current?.live(r, key) ?? false,
         next: (r, key, c, anchor) => actionApi.current?.next(r, key, c, anchor),
         more: (r, key, anchor) => actionApi.current?.more(r, key, anchor),
         preview: (r, key, c) => actionApi.current?.preview(r, key, c),
@@ -4091,7 +4088,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             const was = a.lg !== undefined ? wire?.lines.find((line) => line.key === a.lg!.key)?.cells.get(key) : wire?.cells.get(key);
             return !cellEqual(was ?? NULL_CELL, a.cell ?? NULL_CELL);
         },
-        live: (r, key) => autoSave && (session.status === "applying" || session.status === "reconciling") && (actionApi.current?.dirty(r, key) ?? false),
         next: (r, key, c, anchor) => {
             // Over a range down the column, the case on every row of it (T8); else the ring moves to the cell first (P2–P4).
             const rs = actionRows(r, key);
@@ -4180,7 +4176,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // The cells look again as what they read moves: the rows and their drafts, the overlay, the frame's width.
     useLayoutEffect(() => {
         if (hasActions) actionStore.bump();
-    }, [hasActions, actionStore, rows, draftVersion, actionOverlay, canEdit, editingState.available, framePx, session.status]);
+    }, [hasActions, actionStore, rows, draftVersion, actionOverlay, canEdit, editingState.available, framePx]);
     // An overlay whose row went — a narrowing, a new revision — closes.
     useEffect(() => {
         if (actionOverlay !== undefined && actionApi.current?.offer(actionOverlay.r, actionOverlay.key) === undefined) setActionOverlay(undefined);

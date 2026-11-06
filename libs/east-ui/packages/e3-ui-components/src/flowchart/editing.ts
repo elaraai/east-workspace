@@ -295,7 +295,7 @@ export function useFlowchartEditing(value: FlowchartValue, storageKey: string, r
         }
         return out;
     }, [value]);
-    const schedule = useScheduleEditing({ kinds: NO_KINDS, records, reads, applyMode: "batch", storageKey, joined: NO_JOINED, recordSlices });
+    const schedule = useScheduleEditing({ kinds: NO_KINDS, records, reads, storageKey, joined: NO_JOINED, recordSlices });
     sessionsNow.current = schedule.sessions;
 
     // Each draft decoded once: a session keeps an entry's version the same object until a gesture replaces it.

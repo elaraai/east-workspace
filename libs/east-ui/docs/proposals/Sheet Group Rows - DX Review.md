@@ -74,7 +74,6 @@ This is a proposed API sketch, not code that compiles today. Assume `PlanType` h
     })}
     columns={lineColumns}
     registers={registers}
-    applyMode="batch"
     onPatch={observePlanChanges}
     onApply={applyPlanChanges}
 />
@@ -259,7 +258,7 @@ Array patches are positional. Stable line IDs help the UI preserve intent and fo
 
 ### Recommended interaction
 
-I would offer explicit batch application as the default for this planning surface, with the same transaction callback available for automatic application when the author chooses it.
+I would offer explicit batch application for this planning surface: every change waits for Apply.
 
 - **Typing:** keystrokes remain in the cell editor. Enter/Tab commits a local cell edit and creates one Sheet undo step. Native text undo keeps working while the editor is active; Sheet-level Ctrl-Z operates outside it. Ctrl-Y redoes a Sheet action; also support Ctrl-Shift-Z, Command-Z and Command-Shift-Z.
 - **Add row:** creates a local incomplete draft at the intended anchor immediately. No apply callback. The draft can be completed, moved locally, discarded, or undone.
@@ -268,7 +267,7 @@ I would offer explicit batch application as the default for this planning surfac
 - **Delete:** discarding an unapplied draft is local. Deleting an existing line or group stages a deletion, preserving enough data for inverse patches. Group deletion includes its children even when collapsed.
 - **Batch bar:** show `3 changes · 1 incomplete`, plus Undo, Redo, Discard changes, and Apply changes. Disable Apply for an invalid/incomplete batch and link its explanation to the affected row. Do not silently skip invalid rows; a future “apply selected changes” feature would need explicit selection and dependency checks.
 - **Application:** show applying while awaiting the callback. On success, acknowledge the submitted batch and reconcile it with the source. On rejection/conflict, keep the user's draft and explain what prevented application. A submitted batch must remain immutable and repeated clicks must not dispatch it twice.
-- **Undo after application:** stage a new inverse change set; it goes through the same validation and application callback. It is a compensating change and can conflict. In automatic mode it can be submitted immediately; in batch mode it remains pending until Apply.
+- **Undo after application:** stage a new inverse change set; it goes through the same validation and application callback. It is a compensating change, can conflict, and remains pending until Apply.
 
 Support Ctrl-Z/Ctrl-Y on Windows/Linux and Command-Z/Command-Shift-Z on macOS, with Ctrl-Shift-Z as an additional redo shortcut. Provide persistent Undo and Redo icon buttons in the toolbar, with accessible names, action-specific tooltips containing shortcuts, keyboard focus styles, and disabled states when their stacks are empty. The buttons invoke exactly the same history commands as the shortcuts. When used during an open editor, first finish that edit if possible, then execute the history command; native keyboard undo inside an input remains native text undo. Focus-only, scrolling, folding, and searching should not create data-edit history entries.
 
@@ -369,7 +368,7 @@ The following decisions supersede alternatives discussed earlier in this review:
 5. **Keep both `onPatch` and `onApply` as East functions.** `onPatch` reports incremental draft gestures, readiness, and domain patches where valid. `onApply` receives an addressed, validated, composed batch and returns an acknowledgement/rejection/conflict result. Neither assumes a particular input binding.
 6. **Use East patch types in the real implementation.** Draft-state patches support incomplete edits and local undo; valid domain patches support application. Address each patch to a group and retain transaction boundaries. The HTML's snapshots are only a prototype implementation.
 7. **One gesture is one undo step.** Include insert, cell commit, paste, fill, drag/drop, delete, and draft discard. Provide Ctrl-Z/Ctrl-Y and platform equivalents, plus Undo/Redo icon buttons with proper disabled states. Undo/redo emits `onPatch` without recursively recording a new action.
-8. **Batch mode exposes Apply changes and Discard changes.** Block application of the batch when its affected drafts are incomplete/invalid; never quietly apply a subset. Optional automatic mode uses the same callbacks and readiness gates.
+8. **The batch exposes Apply changes and Discard changes.** Block application of the batch when its affected drafts are incomplete/invalid; never quietly apply a subset. Every change waits for Apply.
 9. **Cross-group moves apply atomically.** Preserve undisplayed line fields. Group ordering and “No plan” require source-model support; array children alone do not solve either.
 10. **Handle lifecycle explicitly.** Do not lose drafts on page eviction or query changes, replay host echoes, overwrite changed array positions, or clear the batch before an apply acknowledgement. Undo of an applied action is a new inverse application, subject to conflict checks.
 

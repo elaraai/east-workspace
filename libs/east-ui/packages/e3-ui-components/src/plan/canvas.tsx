@@ -286,8 +286,6 @@ export interface PlanCanvasArgs {
     panel?: readonly string[] | undefined;
     /** The event kinds themselves (#1194): each edited in a session over its record, under one history with `data`'s. */
     kinds?: readonly PlanEventKindValue[] | undefined;
-    /** When the event kinds' drafts go (#1194): on Save (`batch`, the default), or as each gesture lands (`auto`). */
-    applyMode?: "batch" | "auto" | undefined;
     /** The resource kinds (#1196): what the event kinds' rows stand for, by name. */
     resources?: readonly PlanResourceKindValue[] | undefined;
     /** The library's tabs (#1196): the author's tabs' cards, which land on an event of their patch's kind. */
@@ -314,11 +312,11 @@ const NO_PANEL: readonly string[] = [];
  * toolbar, banners and footer are drawn from — see the module docs. The
  * frame calls it once per render and places what it hands back.
  *
- * @param args - The root, its storage key, the event kinds' rows, what the viewer hides, the panel's tabs whose cards land, the event kinds with when their drafts go, the resource kinds, the library's tabs, the event kinds' drop veto, the resources the rail shows, and whether their narrowing is resolving
+ * @param args - The root, its storage key, the event kinds' rows, what the viewer hides, the panel's tabs whose cards land, the event kinds, the resource kinds, the library's tabs, the event kinds' drop veto, the resources the rail shows, and whether their narrowing is resolving
  * @returns The canvas's parts: its contexts, main, its declared bound, and its chrome's facts
  */
 export function usePlanCanvas({
-    value: hostValue, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds = NO_KINDS, applyMode = "batch",
+    value: hostValue, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds = NO_KINDS,
     resources = NO_RESOURCES, tabs = NO_TABS, canDrop, shown: shownResources = ALL_SHOWN, busy = false, optimise,
 }: PlanCanvasArgs): PlanCanvasParts {
     planRootRenderProbe?.();
@@ -423,7 +421,7 @@ export function usePlanCanvas({
     const lead = readLead ?? standIn;
     // A kind read by its cells (#1039) finds a gesture's event in the rows its cells hold.
     const eventEditing = usePlanEventEditing({
-        kinds, applyMode, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: lead.cells?.held,
+        kinds, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: lead.cells?.held,
     });
     const history = eventEditing.history;
     historyRef.current = history;

@@ -196,7 +196,7 @@ test("40 drafts survive paging, filters and remounts; Save confirms all original
     const submitted: string[][] = [];
     const editing: EditingValue = {
         sourceId: f.slice.sourceId, entryType: toEastTypeValue(Row), draftType: toEastTypeValue(Editing.Types.Draft(Row)),
-        idField: none, children: none, keyType: some(toEastTypeValue(StringType)), snapshot: none, onPatch: none, mode: variant("batch", null),
+        idField: none, children: none, keyType: some(toEastTypeValue(StringType)), snapshot: none, onPatch: none,
         readEntry: (id) => { const current = f.slice.readEntry(id); return current.type === "some" ? current.value : none; },
         // Each Save one commit through the orders' patch door, as `Record.onApply` commits a collection's batch.
         onApply: some(variant("async", async (bytes: Uint8Array) => {
