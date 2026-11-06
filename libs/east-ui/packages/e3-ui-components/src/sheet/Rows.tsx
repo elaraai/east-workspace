@@ -48,9 +48,9 @@ import type { SheetActionHost } from "./actions/host.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
-/** Whether a column's cell names a register member, which it shows by the member's label: an enum, a reference, a lookup. */
+/** Whether a column's cell names a register member, which it shows by the member's label: an enum, a reference, a lookup, a person, a cycle. */
 export function namesMember(meta: SheetColumnMeta): boolean {
-    return meta.kind === "enum" || meta.kind === "reference" || meta.kind === "lookup";
+    return meta.kind === "enum" || meta.kind === "reference" || meta.kind === "lookup" || meta.kind === "person" || meta.kind === "cycle";
 }
 
 /**
@@ -795,6 +795,7 @@ const RUN_KINDS: Readonly<Record<SheetKind, PlaceholderKind>> = {
     date: "date", stamped: "date",
     quantity: "number", integer: "number",
     enum: "enum", set: "chip", link: "link", action: "enum",
+    title: "text", person: "text", boolean: "boolean", toggle: "enum", cycle: "enum", age: "number", audit: "date",
 };
 
 export interface SheetRunRowProps {
