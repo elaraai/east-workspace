@@ -95,6 +95,7 @@ import {
     SheetDateLevelType,
     SheetSubRowType,
     SheetOptionsRuleType,
+    RecordChangeType,
     sheetLinesOf,
     sheetRuleCell,
     type SheetColumnKindLiteral,
@@ -106,7 +107,7 @@ import { buildDraftRowDecoder, buildDraftGroupDecoder, buildDraftEntryDecoder } 
 import { buildDraftContextBridge, buildDraftBase, buildReadyContexts } from "./context-bridge.js";
 import { SheetDraftEntryTypeFor, SheetDraftGroupTypeFor } from "./drafts.js";
 import { SheetDraftTypeFor } from "./transactions.js";
-import type { SheetAnyColumnConfig, SheetColumn } from "./columns.js";
+import { RECORD_COLUMN_KINDS, type SheetAnyColumnConfig, type SheetColumn } from "./columns.js";
 import type { SheetGroupCell } from "./group.js";
 import type { SheetDriverValue, SheetRegisterValue } from "./registers.js";
 import { actionRuleCells, buildActionCodec, describeAction, type SheetActionCodec } from "./actions.js";
@@ -214,6 +215,7 @@ export function cellTagOf(t: EastType): SheetColumnMeta["cellTag"] | undefined {
 const SCALAR_PAYLOAD: Partial<Record<SheetColumnKindLiteral, EastType>> = {
     text: StringType, lookup: StringType, reference: StringType, enum: StringType, stamped: StringType,
     date: DateTimeType, quantity: FloatType, integer: IntegerType,
+    title: StringType, person: StringType, cycle: StringType, boolean: BooleanType, toggle: BooleanType,
 };
 
 /** Compile one rule accessor and check its payload — `String` or `DateTime`, or its Option. */
@@ -245,6 +247,22 @@ function ruleCellsOf(key: string, col: SheetColumn<StructType, EastType>, rowTyp
     if (cfg.detail !== undefined) out.push(ruleCell(key, "detail", rowType, cfg.detail, "String"));
     // An action column's summary, name and title (#1474).
     if (kind === "action") out.push(...actionRuleCells(key, col, rowType));
+    // An audit column's who and what, beside the moment its cell holds.
+    if (kind === "audit") {
+        const optional = optionPayload((rowType.fields as Record<string, EastType>)[key]!) !== undefined;
+        for (const rule of ["by", "verb"] as const) {
+            const fn = East.function([rowType], OptionType(StringType), ($, r) => {
+                const change = $.const((r as unknown as Record<string, ExprType<EastType>>)[key]!);
+                return optional
+                    ? (change as unknown as ExprType<OptionType<RecordChangeType>>).match({
+                        some: (_$2, c) => East.value(some(c[rule]), OptionType(StringType)),
+                        none: (_$2) => East.value(none, OptionType(StringType)),
+                    })
+                    : East.value(some((change as unknown as ExprType<RecordChangeType>)[rule]), OptionType(StringType));
+            }) as unknown as SheetRuleCellMeta["fn"];
+            out.push({ key: sheetRuleCell(rule, key), fn, tag: "String", optional: true });
+        }
+    }
     if (kind !== "date") {
         if (cfg.level !== undefined || cfg.actual !== undefined) {
             throw new Error(`Sheet: column "${key}" is a ${kind} column — \`level\` and \`actual\` are date-column rules`);
@@ -284,8 +302,44 @@ export function describeColumn(key: string, col: SheetColumn<StructType, EastTyp
     return ruleCells.length > 0 ? { ...meta, ruleCells } : meta;
 }
 
+/**
+ * An age column, described against the row type: no field of its own, its
+ * cell the moment `since` reads — a DateTime, or a Change's `at` — or none.
+ */
+function describeAge(key: string, col: SheetColumn<StructType, EastType>, rowType: StructType): SheetColumnMeta {
+    const fields = rowType.fields as Record<string, EastType>;
+    if (fields[key] !== undefined) {
+        throw new Error(`Record: column "${key}" is an age column, which shows no field — key it by a name of its own ("days_since"), not the row's "${key}" field`);
+    }
+    const since = col.config.since;
+    if (since === undefined) throw new Error(`Record: age column "${key}" needs \`since\` — when its clock started, over the row`);
+    const sinceFn = East.function([rowType], undefined, (_$, r) => since(r) as SubtypeExprOrValue<EastType>);
+    const out = (Expr.type(sinceFn as Expr<EastType>) as FunctionType).output as EastType;
+    const payload = optionPayload(out);
+    const moment = payload ?? out;
+    const change = isTypeEqual(moment, RecordChangeType);
+    if (!change && moment.type !== "DateTime") {
+        throw new Error(`Record: age column "${key}" has a \`since\` returning ${describeType(out)} — it must return a DateTime, a Record.Types.Change, or an Option of either`);
+    }
+    const derived = East.function([rowType], OptionType(DateTimeType), ($, r) => {
+        const read = $.const(sinceFn as unknown as ExprType<FunctionType<[StructType], EastType>>);
+        const value = $.const(read(r));
+        const at = (v: ExprType<EastType>): ExprType<DateTimeType> => (change ? (v as unknown as ExprType<RecordChangeType>).at : v as ExprType<DateTimeType>);
+        if (payload === undefined) return East.value(some(at(value)), OptionType(DateTimeType));
+        return (value as unknown as ExprType<OptionType<EastType>>).match({
+            some: (_$2, v) => East.value(some(at(v as ExprType<EastType>)), OptionType(DateTimeType)),
+            none: (_$2) => East.value(none, OptionType(DateTimeType)),
+        });
+    }) as unknown as ExprType<FunctionType<[StructType], EastType>>;
+    return {
+        key, field: key, kind: "age", config: col.config, fieldType: OptionType(DateTimeType), optional: true,
+        payloadType: DateTimeType, cellTag: "DateTime", editable: false, derived, derivedOptional: true,
+    };
+}
+
 /** {@link describeColumn}'s kind-by-kind half. */
 function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowType: StructType): SheetColumnMeta {
+    if (col.kind === "age") return describeAge(key, col, rowType);
     const fields = rowType.fields as Record<string, EastType>;
     const fieldType = fields[key];
     if (fieldType === undefined) {
@@ -304,6 +358,26 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
         return {
             key, field: key, kind, config: cfg, fieldType, optional: isOption, payloadType: col.variantType!,
             cellTag: "Action", editable: cfg.editable !== false, action: buildActionCodec(col.variantType!),
+        };
+    }
+
+    // An audit column: the change the app kept, read only — its cell the moment, its who and what rule cells.
+    if (kind === "audit") {
+        if (!isTypeEqual(unwrapped, RecordChangeType)) {
+            throw new Error(`Record: audit column "${key}" must sit on a Record.Types.Change or Option<Record.Types.Change> field — got ${describeType(fieldType)}`);
+        }
+        const derived = East.function([rowType], OptionType(DateTimeType), ($, r) => {
+            const change = $.const((r as unknown as Record<string, ExprType<EastType>>)[key]!);
+            return optional
+                ? (change as unknown as ExprType<OptionType<RecordChangeType>>).match({
+                    some: (_$2, c) => East.value(some(c.at), OptionType(DateTimeType)),
+                    none: (_$2) => East.value(none, OptionType(DateTimeType)),
+                })
+                : East.value(some((change as unknown as ExprType<RecordChangeType>).at), OptionType(DateTimeType));
+        }) as unknown as ExprType<FunctionType<[StructType], EastType>>;
+        return {
+            key, field: key, kind, config: cfg, fieldType, optional, payloadType: DateTimeType,
+            cellTag: "DateTime", editable: false, derived, derivedOptional: true,
         };
     }
 
@@ -382,7 +456,7 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
 
     const payloadType = SCALAR_PAYLOAD[kind] as EastType;
     if (!isTypeEqual(unwrapped, payloadType)) {
-        throw new Error(`Sheet: ${kind} column "${key}" must sit on a ${(payloadType as { type: string }).type} or Option<${(payloadType as { type: string }).type}> field — got ${(fieldType as { type: string }).type}`);
+        throw new Error(`${RECORD_COLUMN_KINDS.has(kind) ? "Record" : "Sheet"}: ${kind} column "${key}" must sit on a ${(payloadType as { type: string }).type} or Option<${(payloadType as { type: string }).type}> field — got ${(fieldType as { type: string }).type}`);
     }
     return {
         key, field: key, kind, config: cfg, fieldType, optional, payloadType,

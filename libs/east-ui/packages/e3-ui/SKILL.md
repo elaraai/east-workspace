@@ -1,6 +1,6 @@
 ---
 name: e3-ui
-description: "Builds interactive decision surfaces as e3 UI tasks (ui()) authored in east-ui JSX and bound to workspace data: Data.bind and Data.bindPaged for datasets, Record.bind for records and their mutations, Func.bind for e3.function calls, staged edits applied or discarded together. Provides the planning builders Plan, Sheet, Calendar, Roster, Allocation, Flowchart and Schematic, plus Ontology, the Decide loop (Decision.bind, DecisionQueue, DecisionJournal), the Studio page builder, saved jq queries (Query.Builder), and rendering deployed surfaces in a React app (E3Provider). Use when a UI reads or writes e3 workspace data or runs as an e3 task; components with no e3 data are east-ui's."
+description: "Builds interactive decision surfaces as e3 UI tasks (ui()) authored in east-ui JSX and bound to workspace data: Data.bind and Data.bindPaged for datasets, Record.bind for records and their mutations, Func.bind for e3.function calls, staged edits applied or discarded together. Provides the planning builders Plan, Sheet, Calendar, Roster, Allocation, Flowchart and Schematic, the Record table over a system of records, plus Ontology, the Decide loop (Decision.bind, DecisionQueue, DecisionJournal), the Studio page builder, saved jq queries (Query.Builder), and rendering deployed surfaces in a React app (E3Provider). Use when a UI reads or writes e3 workspace data or runs as an e3 task; components with no e3 data are east-ui's."
 ---
 
 # e3-ui — e3 + UI bridge
@@ -13,7 +13,7 @@ commit / discard, a view is where a user commits a decision with its evidence.
 
 Everything comes from one import, `@elaraai/e3-ui`: the `ui()` task factory, the
 bindings (`Data`, `Record`, `Func`, `Decision`, `Slice.bindRecords`), the e3
-tags (`<Ontology>`, `<Plan>`, `<Sheet>`, `<Calendar>`,
+tags (`<Ontology>`, `<Plan>`, `<Sheet>`, `<Record>`, `<Calendar>`,
 `<Roster>`, `<Allocation>`, `<Flowchart>`, `<Schematic>`, `<DecisionQueue>`,
 `<DecisionJournal>`) and the `Studio` and `Query` components. Base tags
 (`<VStack>`, `<Text>`, `<Stat>`, …) come from `@elaraai/east-ui`.
@@ -177,6 +177,14 @@ Task → What do you need?
     │   ├─ The app's optimiser over the rows in view          → optimise={Func.bind(e3.function)} from Sheet.Types.OptimiseRequest(R) to Sheet.Types.OptimiseResult(R)
     │   ├─ On a phone: a column pinned, how many in view      → narrow={{ pin?: "<column>", columns?: 1 | 2 | 3 }} (none pinned, 2 in view by default)
     │   └─ Drafts checked as they are made, one checked Save  → onUpdate | onApply, ready, newRow
+    │
+    ├─ Keep a system of records — people, skills, certificates — the Record
+    │   ├─ A record's rows, each field a typed cell           → <Record record={Record.bind(r)} columns={{ name: Record.column.title(R, {…}), … }} />
+    │   ├─ Click-stepped states, two words, a checkbox        → Record.column.cycle(R, register, { scale? }) · toggle(R, { on, off }) · boolean(R, {…})
+    │   ├─ Who, and the row's last change                     → Record.column.person(R, register, {…}) · audit(R, { mode }) on a Record.Types.Change field
+    │   ├─ Time since a moment, to the viewer's clock         → days_since: Record.column.age(R, { since, unit?, stale? }), keyed by a name no field has
+    │   ├─ Column groups, rows banded by a column             → columnGroups={[{ label, columnKeys }]} · groupBy="<column>"
+    │   └─ Narrow it — one rail — and Apply through the door  → slice={{ slice: Slice.bindRecords(key, { rows }) }} + onApply={Record.onApply(record, { keyed: true })}
     │
     ├─ Schedule bound records on a calendar — the Calendar
     │   ├─ Event records, with their backlog                  → <Calendar events={{ job: Calendar.events(Record.bind(jobs), { name, icon, title, start, end, resource: { field, of }, entries, backlog }) }} />
@@ -347,8 +355,8 @@ is the example.
 
 ## The builders
 
-`<Plan>`, `<Sheet>`, `<Calendar>`, `<Roster>`, `<Allocation>`, `<Flowchart>`
-and `<Schematic>` share one contract:
+`<Plan>`, `<Sheet>`, `<Record>`, `<Calendar>`, `<Roster>`, `<Allocation>`,
+`<Flowchart>` and `<Schematic>` share one contract:
 
 - **Data is the app's own records.** Each builder maps roles onto the app's
   fields (`title: "title", start: "start", resource: { field, of }`) and
@@ -398,6 +406,7 @@ and `<Schematic>` share one contract:
 |---|---|---|
 | `<Plan>` | Heterogeneous rows on one time / number / ordinal axis: series over data, event kinds over records, read-only rows | `e3-ui:plan-events.examples.tsx:planEvents` (smallest), `e3-ui:plan.examples.tsx:planTargetState`, `e3-ui:plan-windows.examples.tsx:planWindows`, `e3-ui:plan-records.examples.tsx:planRecordIndexes` |
 | `<Sheet>` | A planning spreadsheet over a record, the host's rows or a paged source: typed columns, registers, groups, copilot, Excel round-trip | `e3-ui:sheet.examples.tsx:sheetBasic` (smallest), `e3-ui:sheet.examples.tsx:sheetWorkshop`, `e3-ui:sheet.examples.tsx:sheetPaged`, `e3-ui:sheet-records.examples.tsx:sheetRecordIndexes` |
+| `<Record>` | A system of records' rows as a table: the Sheet's kinds with title, person, boolean, toggle, cycle, age and audit; column groups, bands, Add and Delete | `e3-ui:record.examples.tsx:recordBasic` (smallest), `e3-ui:record.examples.tsx:recordSkillsMatrix`, `e3-ui:record.examples.tsx:recordEveryKind` |
 | `<Calendar>` | Calendar, Resources and Timeline layouts over event records with a backlog | `e3-ui:calendar.examples.tsx:calendarMinimal` (smallest), `e3-ui:calendar.examples.tsx:calendarOperations`, `e3-ui:calendar-records.examples.tsx:calendarRecordIndexes` |
 | `<Roster>` | Weekly staffing: duties over people by shift, cover targets, pay, fit, publish | `e3-ui:roster.examples.tsx:rosterMinimal` (smallest), `e3-ui:roster.examples.tsx:rosterWarehouse`, `e3-ui:roster.examples.tsx:rosterPeople` |
 | `<Allocation>` | A day's arrivals booked into lane slots, each bin on resources | `e3-ui:allocation.examples.tsx:allocationMinimal` (smallest), `e3-ui:allocation.examples.tsx:allocationKilnYard`, `e3-ui:allocation.examples.tsx:allocationFitRule` |
@@ -406,7 +415,8 @@ and `<Schematic>` share one contract:
 
 Field types matter: a `Sheet.column.quantity` sits on a `Float` field, a
 `Sheet.column.date` on a `DateTime`, each `Option` of it allowed; an event's
-start and end are `Option<DateTime>` when it can wait in the backlog.
+start and end are `Option<DateTime>` when it can wait in the backlog. A
+`Record.Types.Change` field is the solution's to write; the Record only reads it.
 
 ## Other surfaces
 

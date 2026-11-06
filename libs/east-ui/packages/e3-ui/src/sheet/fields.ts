@@ -16,8 +16,12 @@
  * | `date` | The date field, at the row's date level (the renderer sets its precision) |
  * | `quantity`, `integer` | The number field — a quantity in the driver's unit |
  * | `lookup`, `reference`, `enum` | A select over the register's members (`reference` of the register) |
+ * | `person`, `cycle` | A select over the register's members — a Record draws a cycle's as one line of radios |
+ * | `title` | Text |
+ * | `boolean`, `toggle` | A checkbox — a Record draws a toggle's as one line of radios |
  * | `set`, `link` | Read only here: the renderer draws the members, and edits them in the grid |
- * | `stamped`, a `value` projection, `editable: false` | Read only |
+ * | `stamped`, `audit`, a `value` projection, `editable: false` | Read only |
+ * | `age` | None: it shows no field — the renderer draws its count among the row's facts |
  * | `action` | Its state and summary, its actions taken in the pane (#1474) |
  * | No column | By its type, as `Fields.specs` resolves it |
  *
@@ -122,6 +126,7 @@ function isHint(value: unknown): value is AnyHint {
 
 /** Why a column's field takes no editor hint, or `undefined` when it does. */
 function readOnlyReason(meta: SheetColumnMeta): string | undefined {
+    if (meta.kind === "audit") return "is an audit column, which shows the change the app keeps";
     if (meta.derived !== undefined) return "is a `value` projection, a derived read";
     if (meta.kind === "stamped") return "is stamped — a code an upstream system owns";
     if (meta.kind === "set" || meta.kind === "link") return `is a ${meta.kind} column, whose members are edited in the sheet`;
@@ -148,7 +153,12 @@ function kindEditor(meta: SheetColumnMeta): FieldEditorValue {
         case "integer": return variant("number", { unit: none, step: none, min: none, max: none });
         case "lookup":
         case "reference":
-        case "enum": return variant("reference", { of: meta.register! });
+        case "enum":
+        case "person":
+        case "cycle": return variant("reference", { of: meta.register! });
+        case "title": return variant("text", { placeholder: none });
+        case "boolean":
+        case "toggle": return variant("checkbox", null);
         default: return variant("readonly", null);
     }
 }
@@ -261,7 +271,8 @@ function formFields(
 function columnFields(metas: readonly SheetColumnMeta[]): { columns: string[]; readonly: string[] } {
     const writes = (m: SheetColumnMeta) => m.editable && m.derived === undefined;
     const columns = new Set(metas.filter(writes).flatMap((m) => (m.otherField !== undefined ? [m.field, m.otherField] : [m.field])));
-    const readonly = new Set(metas.filter((m) => !writes(m) && !columns.has(m.field)).map((m) => m.field));
+    // An age column shows no field of the struct: nothing of it to leave as it is.
+    const readonly = new Set(metas.filter((m) => !writes(m) && m.kind !== "age" && !columns.has(m.field)).map((m) => m.field));
     return { columns: [...columns], readonly: [...readonly] };
 }
 

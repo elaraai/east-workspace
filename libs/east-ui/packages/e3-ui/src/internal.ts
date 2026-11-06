@@ -52,7 +52,6 @@ export {
     FuncBindPrimitives,
 } from './bind/func.js';
 export {
-    Record,
     RecordMutateStatusType,
     RecordErrorType,
     RecordBindingType,
@@ -64,6 +63,25 @@ export {
     recordBindPlatformFn,
     RecordBindPrimitives,
 } from './bind/record.js';
+// The Record: `<Record>` with its namespace, the payload the renderer takes
+// through the `Record` carrier, and the types a Record is written with.
+// `Record` here is the internal namespace — the public one, `Record.Payload`
+// and `Record.Component`.
+export {
+    RecordInternal as Record,
+    RecordTag,
+    RecordComponent,
+    RecordPayloadType,
+    RecordBandsType,
+    createRecordPayload,
+    type RecordNamespace,
+    type RecordInternalNamespace,
+    type RecordTagType,
+    type RecordColumnSpec,
+    type RecordColumnGroupInput,
+    type RecordNounInput,
+    type RecordCommon,
+} from './record/index.js';
 export { DataManifestType, type DataManifest } from './utils/manifest.js';
 export { deriveManifest, deriveUiAccess, UiAccessType, type UiAccess } from './utils/derive.js';
 export { orderedRowSource } from './utils/ordered-source.js';
@@ -382,6 +400,15 @@ export {
     type SheetLinkConfig,
     type SheetStampedConfig,
     type SheetCustomConfig,
+    type RecordTitleConfig,
+    type RecordPersonConfig,
+    type RecordBooleanConfig,
+    type RecordToggleConfig,
+    type RecordCycleConfig,
+    type RecordAgeConfig,
+    type RecordAuditConfig,
+    type RecordAgeColumn,
+    RECORD_COLUMN_KINDS,
     type SheetRegisterValue,
     type SheetMembersConfig,
     type SheetDriverConfig,
