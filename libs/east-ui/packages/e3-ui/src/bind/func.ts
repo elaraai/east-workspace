@@ -276,13 +276,18 @@ export const FuncBindPrimitives = {
  * Bind an `e3.function` to a reactive call handle.
  *
  * Takes the {@link FunctionDef} returned by `e3.function` — the binding's
- * name, parameter types and return type are all taken from the def, the
+ * name, argument types and return type are all taken from the def, the
  * same way task wiring takes a dataset's path and type from its
  * `DatasetDef`. The binding is correct by construction: it cannot drift
  * from the deployed function's signature, because both come from the same
  * object.
  *
- * @typeParam Inputs - Positional parameter East types (from the def).
+ * A function that declares inputs (`e3.function(name, { inputs, args,
+ * output }, body)`) is bound the same way, and its handle's `call` takes the
+ * arguments alone: each call reads the inputs from the workspace as they
+ * are stored when it launches, so a page binds none of them.
+ *
+ * @typeParam Inputs - The argument East types a caller passes (from the def).
  * @typeParam Output - Return East type (from the def).
  * @param fn - The `e3.function` definition to bind.
  * @returns A handle struct described by {@link FuncBindHandleType} —
@@ -325,7 +330,9 @@ export const FuncBindPrimitives = {
 function bindFunction<Inputs extends EastType[], Output extends EastType>(
     fn: FunctionDef<Inputs, Output>,
 ): BoundFunc<Inputs, Output> {
-    const handleType = FuncBindHandleType([...fn.inputTypes], fn.outputType);
+    // The handle's `call` takes the arguments alone: a function's inputs are
+    // read by the server from the workspace, never sent from the page.
+    const handleType = FuncBindHandleType([...fn.argTypes], fn.outputType);
     // The name must be a single literal Value IR node — the only shape
     // manifest derivation (`derive.ts`) handles. `fn.name` is a static JS
     // string at IR-build time, so this holds by construction.

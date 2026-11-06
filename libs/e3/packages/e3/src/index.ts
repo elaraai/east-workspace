@@ -132,6 +132,7 @@ export default e3;
 // Also export individual functions for tree-shaking
 export { input, record, mutation, task, customTask, streamTask, partition, output, function_, package_ as package, export_ as export };
 export type { StreamTaskSpec } from './task.js';
+export type { FunctionSpec } from './function.js';
 
 // Singleton tree definitions
 export { inputsTree } from './input.js';

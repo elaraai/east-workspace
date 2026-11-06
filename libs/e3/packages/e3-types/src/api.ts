@@ -1255,10 +1255,11 @@ export const DiagnosticType = StructType({
  * - `too_large`: result over `maxResultBytes`; deploy a task and read it with `datasetGet`
  * - `timed_out`: exceeded `timeoutMs` / the server's sync deadline guard
  *
- * `inputs` names what the call read: each dataset argument's path and the hash
- * it was pinned at, in argument order, so an answer can be reproduced and a
- * stale one noticed. It is empty for a call with value arguments only, and for
- * an `invalid` result.
+ * `inputs` names what the call read: each input the function declares, then
+ * each dataset argument, with the hash it was pinned at, in parameter order,
+ * so an answer can be reproduced and a stale one noticed. It is empty for a
+ * call of a function with no inputs and value arguments only, and for an
+ * `invalid` result.
  */
 export const ExecuteResultType = StructType({
   outcome: VariantType({
@@ -1286,10 +1287,12 @@ export const CallArgType = VariantType({
 });
 
 /**
- * Named function call. Positional args, one per param: a value, or a dataset
- * of the workspace ({@link CallArgType}). The package-scoped route has no
- * workspace to read a dataset from, and answers a dataset argument `invalid`;
- * the workspace-scoped route pins it, as a one-shot's is.
+ * Named function call. Positional args, one per argument the function takes
+ * (its `argTypes`, never its inputs, which the server reads): a value, or a
+ * dataset of the workspace ({@link CallArgType}). The package-scoped route has
+ * no workspace to read a dataset from, and answers a dataset argument — or a
+ * function with inputs — `invalid`; the workspace-scoped route pins it, as a
+ * one-shot's is.
  */
 export const FunctionCallRequestType = StructType({
   args:   ArrayType(CallArgType),
@@ -1297,10 +1300,22 @@ export const FunctionCallRequestType = StructType({
   limits: OptionType(ExecuteLimitsType),
 });
 
-/** A function signature, returned by `describe` so dynamic callers can encode args. */
+/**
+ * A function signature, returned by `describe` so dynamic callers can encode
+ * args.
+ *
+ * @property name - The function's name
+ * @property inputs - The datasets a call reads from the workspace it runs in,
+ *   which the caller does not pass; a function with any is called through a
+ *   workspace
+ * @property argTypes - The types of the arguments a caller passes
+ * @property outputType - The result's type
+ * @property runner - The runtime it runs on
+ */
 export const FunctionSignatureType = StructType({
   name:       StringType,
-  inputTypes: ArrayType(EastTypeType),
+  inputs:     ArrayType(TreePathType),
+  argTypes:   ArrayType(EastTypeType),
   outputType: EastTypeType,
   runner:     RunnerType,
 });

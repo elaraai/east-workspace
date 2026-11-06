@@ -7,9 +7,10 @@
  * Function object types for e3.
  *
  * An `e3.function` is a named, typed function stored in a package and
- * invoked by name with argument values over the CLI and HTTP API. Unlike
- * a task it is not wired to datasets, not part of the dataflow graph, and
- * triggers no recomputation.
+ * invoked by name with argument values over the CLI and HTTP API. It may
+ * read datasets of the workspace a call runs through — its inputs — beside
+ * the arguments its caller passes. Unlike a task it is not part of the
+ * dataflow graph, and triggers no recomputation.
  *
  * The function object stores its signature explicitly so `describe` and
  * arity/type validation work from the small function object without
@@ -19,17 +20,25 @@
 
 import { StructType, StringType, ArrayType, EastTypeType, OptionType, ValueTypeOf, decodeBeast2For } from '@elaraai/east';
 import { RunnerType } from './runner.js';
+import { TreePathType } from './structure.js';
 
 /**
  * Function object stored in the object store, referenced by name from
  * `PackageObject.functions`.
  */
 export const FunctionObjectType = StructType({
-  /** Hash of the encoded EastIR bundle (encodeEastIR), as a task's program is. */
+  /** Hash of the encoded EastIR bundle (encodeEastIR), as a task's program is.
+   *  Its parameters are the inputs' types, in `inputs` order, then
+   *  `argTypes`. */
   bodyIr: StringType,
-  /** Positional parameter types — the IR's signature, surfaced for arity/type
-   *  validation and `describe` without decoding the whole IR. */
-  inputTypes: ArrayType(EastTypeType),
+  /** The datasets a call reads from the workspace it runs in, each pinned at
+   *  its hash when the call launches and passed before the caller's
+   *  arguments; empty for a function that reads none. */
+  inputs: ArrayType(TreePathType),
+  /** The types of the arguments a caller passes, after the inputs, surfaced
+   *  for arity/type validation and `describe` without decoding the whole
+   *  IR. */
+  argTypes: ArrayType(EastTypeType),
   /** Return type — used to decode the result `value` blob client-side. */
   outputType: EastTypeType,
   /** Author-chosen runtime: a stock runner runs the function as a unit, and a

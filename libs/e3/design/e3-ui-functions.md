@@ -4,7 +4,7 @@
 > function surface (PR #27: async call endpoints removed; the sync path's
 > server-owned deadline is the contract).
 > **DX amendment (implemented):** `Func.bind(fn)` takes the `FunctionDef`
-> returned by `e3.function` — name, `inputTypes`, and `outputType` all come
+> returned by `e3.function` — name, `argTypes`, and `outputType` all come
 > from the def (no explicit `[[Inputs…], Output], name` form; same for
 > `Data.bind(dataset)`). Signature spellings below predate this and read
 > as the def-form equivalent.
@@ -12,6 +12,12 @@
 > page (e3-web), so its `Func.bind` examples call the deployed function. The
 > in-memory `FunctionApi` (§7.0, §8, §11) is the e3-ui-components snapshot
 > harness's.
+> **Inputs amendment (#1514):** a function may declare inputs — datasets the
+> server reads from the workspace at each call (`e3-functions.md` §3.3). The
+> handle's `call` takes the function's `argTypes` alone, so a page binds none
+> of the inputs, and §5.3's check compares the bound signature with the
+> deployed `argTypes`. The snapshot harness gives an offline function's
+> inputs their declared initial values.
 > Audience: e3-ui maintainers + an implementing agent. Companion to
 > `e3-functions.md` (the `e3.function` execution primitive this binds to) and
 > `e3-ui.md` (the `e3.ui()` / `Data.bind` surface this extends). Implementation
@@ -426,7 +432,7 @@ All handles bound to the same name in the same workspace **share the entry**
 
 | field | behaviour |
 |---|---|
-| `call(args…)` | Encode each arg with `encodeBeast2For(inputTypes[i])`; bump `launchSeq`; issue `workspaceFunctionCall({ args, runner: none, limits: none })` **without awaiting**; set `running`; return `null` immediately. On settle: if the response's seq is still current, map it to `succeeded` (decode `outcome.success.value` with `decodeBeast2For(outputType)` into `result`) or `failed` (per the §4.3 outcome mapping) and notify; otherwise discard (latest-wins — a relaunch or `cancel` superseded it). Launch/transport failures → `failed` with `kind: transport`. |
+| `call(args…)` | Encode each arg with `encodeBeast2For(argTypes[i])`; bump `launchSeq`; issue `workspaceFunctionCall({ args, runner: none, limits: none })` **without awaiting**; set `running`; return `null` immediately. On settle: if the response's seq is still current, map it to `succeeded` (decode `outcome.success.value` with `decodeBeast2For(outputType)` into `result`) or `failed` (per the §4.3 outcome mapping) and notify; otherwise discard (latest-wins — a relaunch or `cancel` superseded it). Launch/transport failures → `failed` with `kind: transport`. |
 | `read()` / `status()` / `error()` / `pending()` | Read the registry entry (tracked via `registerReactiveTracker` on `key`, so `Reactive.Root` re-renders on transitions). `read` returns `some(result)` only after at least one `succeeded` call. |
 | `cancel()` | Bump `launchSeq` (orphaning the in-flight promise) and set `cancelled`; notify. Client-side only — the server runs the call to completion or its deadline either way; the late response is discarded by the seq check. No-op when not `running`. |
 | `binding` | Constant descriptor `{ name }`. |

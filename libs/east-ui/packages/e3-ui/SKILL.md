@@ -118,7 +118,8 @@ Task → What do you need?
     │   ├─ Lifecycle (variant)      → .status() (idle|running|succeeded|failed|cancelled)
     │   ├─ Failure detail           → .error()  (Option — message/kind/stdout/stderr)
     │   ├─ Spinner boolean          → .pending()
-    │   └─ Stop waiting             → .cancel() (client-side; server still finishes)
+    │   ├─ Stop waiting             → .cancel() (client-side; server still finishes)
+    │   └─ A function that reads workspace data too → e3.function(name, { inputs, args, output }, fn); .call(args…) takes the args alone
     │
     ├─ Edit a graph / ontology dataset
     │   └─ <Ontology value={view} />   (OntologyType: NodeType / LinkType)
@@ -324,6 +325,14 @@ result-size limit; long compute belongs in dataflow tasks and
 `onClick`, latest-wins; the outcome arrives reactively through `read()`,
 `status()`, `error()` and `pending()`. All handles bound to one function share
 one channel, so one component can launch while another shows the spinner.
+
+A function that declares `inputs` (`e3.function(name, { inputs, args, output },
+fn)`, the **e3** skill) is bound the same way: its handle's `call` takes the
+`args` alone, and each call reads the inputs from the workspace as they are
+stored when it launches. The page binds none of them; an optimiser's eye
+(`optimise={Func.bind(fn)}`) passes its request as the one argument while the
+function reads its reference data as inputs. `e3-ui:func.examples.tsx:funcBindInputs`
+is the example.
 
 ```tsx
 <Reactive>{$ => {

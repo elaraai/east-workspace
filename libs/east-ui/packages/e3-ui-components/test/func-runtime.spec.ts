@@ -7,7 +7,8 @@
  * Tests for `FuncRuntime` — the `Func.bind` platform runtime — on e3 itself
  * (#1378): its default API lists and calls the functions the Func.bind
  * examples' module deploys (`forecast`, `rebalance`, `checked_forecast`,
- * `count_tree`), each request through the harness's fetch. A call in flight is
+ * `count_tree`, and `quote`, which reads the workspace's prices and stock),
+ * each request through the harness's fetch. A call in flight is
  * one the harness holds on its way to e3, a lost answer or a refused list is a
  * fault there, and a call past e3's deadline is one whose unit the harness
  * holds as it starts while the clock e3 times it by moves on. What a test
@@ -19,6 +20,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+    ArrayType,
     EastTypeValueType,
     FloatType,
     IntegerType,
@@ -159,6 +161,33 @@ describe("FuncRuntime — call lifecycle", () => {
         };
         assert.ok(equalFor(FunctionCallRequestType)(body, expected), printFor(FunctionCallRequestType)(body));
         assert.equal(handle.read().value, 2.5, "e3 ran the function over them");
+    });
+
+    test("a function with inputs is called with its arguments alone, and e3 reads the inputs as stored", async () => {
+        // `quote` reads the prices and the stock from the workspace; the handle sends the order
+        const runtime = new FuncRuntime();
+        runtime.initialize(createDefaultFunctionApi(h.e3.apiUrl, h.e3.repo, h.options), h.workspace);
+        type QuoteHandle = ValueTypeOf<ReturnType<typeof FuncBindHandleType<[ArrayType<typeof ex.OrderLineType>], typeof ex.QuoteType>>>;
+        const handle = runtime.buildHandle(
+            toEastTypeValue(FuncBindHandleType([ArrayType(ex.OrderLineType)], ex.QuoteType)), ex.quoteFn.name) as QuoteHandle;
+        const order = [{ sku: "bolt", quantity: 120n }, { sku: "nut", quantity: 60n }];
+        handle.call(order);
+        await h.settle();
+        assert.equal(handle.error().type, "none");
+        assert.equal(handle.status().type, "succeeded");
+        const quoted = handle.read();
+        assert.ok(quoted.type === "some");
+        assert.ok(equalFor(ex.QuoteType)(quoted.value, { total: 36.0, short: ["nut"] }), printFor(ex.QuoteType)(quoted.value));
+
+        const [sent] = callsOf("quote");
+        assert.ok(sent?.body !== undefined, "the call was sent, its body whole");
+        const body = decodeBeast2For(FunctionCallRequestType)(sent.body);
+        const expected = {
+            args: [variant("value", encodeBeast2For(ArrayType(ex.OrderLineType))(order))],
+            runner: none,
+            limits: none,
+        };
+        assert.ok(equalFor(FunctionCallRequestType)(body, expected), `the order alone: ${printFor(FunctionCallRequestType)(body)}`);
     });
 
     test("a failed program maps to failed status with its exit code and stderr", async () => {
@@ -322,7 +351,7 @@ describe("FuncRuntime — signature validation", () => {
         const binding = canonicalTypeValue(toEastTypeValue(FuncBindHandleType([ex.TreeType], IntegerType)));
         const bindingTree = signatureOfFuncHandleType(binding).inputs[0]!;
         const listed = await createDefaultFunctionApi(h.e3.apiUrl, h.e3.repo, () => h.e3.direct).list(h.workspace);
-        const deployed = listed.find((fn) => fn.name === ex.countTreeFn.name)?.inputTypes[0];
+        const deployed = listed.find((fn) => fn.name === ex.countTreeFn.name)?.argTypes[0];
         assert.ok(deployed !== undefined, "e3 deploys count_tree");
         const printTypeValue = printFor(EastTypeValueType);
         assert.notEqual(printTypeValue(deployed), printTypeValue(bindingTree));

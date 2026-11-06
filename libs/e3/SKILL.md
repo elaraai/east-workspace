@@ -70,6 +70,7 @@ What do you need?
 │   │   └─ Split over an input, in pieces → wrap that input: e3.partition(dataset, { by? })
 │   ├─ A shell command           → e3.customTask(name, [inputs], outputType, command)
 │   ├─ A named function (RPC)    → e3.function(name, fn, config?) — called by name, persists nothing
+│   │   └─ It reads workspace data too → e3.function(name, { inputs, args, output, runner? }, fn) — inputs read at each call
 │   ├─ Audited state             → e3.record(name, type, { initial?, indexes?, mutations?, migrations? }), declared whole
 │   │   ├─ Its writes            → mutations: (mutation) => ({ name: mutation.reduce | edit | patch })
 │   │   ├─ An order to page in   → indexes: (index) => ({ name: index.on([...fields]) | index.key(fn) | index.keys(fn) }) (reference/record-indexes.md)
@@ -385,6 +386,7 @@ const change = e3.streamTask('change', {
 |---|---|
 | `e3.customTask(name, inputs, outputType, command, { environment? })` | A task that runs a bash script: `command($, inputPaths, outputPath)` builds it from the staged beast2 input files, and it writes the output as a beast2 file. |
 | `e3.function(name, fn, { runner?, environment? })` | A named function, called by name with arguments (`e3 call`, the API) and its result returned inline: not in the dataflow, and a call persists nothing. An argument is a value, or in a call through a workspace one of its datasets, read where it is stored. A server bounds a call by a timeout and a 1 MiB result, so long work belongs in a task. A `custom` runner must speak the runner CLI (`<command> -i <arg>… -o <out> <ir>`). |
+| `e3.function(name, { inputs, args, output, runner?, environment?, async? }, fn)` | A function that reads the workspace as well: `inputs` (an input, a task's output or a record, as a task takes them) are read as stored when each call launches, pinned at their hashes and named in the result's `inputs`; the caller passes `args` alone. The body takes the inputs, then the arguments. `e3.package` collects the inputs and what they depend on; nothing reruns when one changes. The inputs are read one at a time and the call waits for no run, so a call during a run may read one input before the run rewrites it and another after: the hashes in `inputs` say which. Called through a workspace only (`e3 call -w`); an unassigned input is `invalid`, naming it and why. ❗ Refused: an `e3.partition` input, and the `custom` runtime with inputs. `FunctionSpec` names the spec's type. |
 | `e3.package(name, version, ...items)` | Bundles the items and everything they depend on — pass the last tasks, records and functions; a package passed in contributes its contents. The name and version must be valid file names. |
 | `e3.export(pkg, zipPath, { functions?, cores? })` | Writes the package zip, resolving every `East.importFunction` (a workspace package is exported by the export itself, `cores` packages at once, the CPUs by default; `functions` lists manifests built elsewhere). |
 
@@ -393,7 +395,11 @@ const process = e3.customTask('process', [rawData], StringType,
   ($, inputPaths, outputPath) => East.str`python script.py -i ${inputPaths.get(0n)} -o ${outputPath}`);
 const add = e3.function('add',
   East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b)));
-await e3.export(e3.package('tools', '1.0.0', process, add), '/tmp/tools.zip');
+// Reads the price list from the workspace at each call; the caller passes the sku
+const prices = e3.input('prices', DictType(StringType, FloatType));
+const priceOf = e3.function('price_of', { inputs: [prices], args: [StringType], output: FloatType },
+  ($, prices, sku) => prices.get(sku, ($, _sku) => 0.0));
+await e3.export(e3.package('tools', '1.0.0', process, add, priceOf), '/tmp/tools.zip');
 ```
 
 ### Records — audited state, written only through mutations

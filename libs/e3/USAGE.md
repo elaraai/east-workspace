@@ -413,9 +413,8 @@ const processData = e3.customTask(
 Define a named function — invoked by name with arguments, result returned
 inline to the caller. An argument is a value, or, in a call through a
 workspace, one of its datasets, which the function reads where it is stored.
-Unlike a task it is not wired to datasets and is not part of the dataflow
-graph; calling it writes nothing to the repository. Think "stored procedure"
-for on-demand compute.
+Unlike a task it is not part of the dataflow graph; calling it writes nothing
+to the repository. Think "stored procedure" for on-demand compute.
 
 ```typescript
 const add = e3.function(
@@ -432,6 +431,29 @@ function. The optional `config.runner` selects a known runtime
 available for functions. Results are returned inline and capped (1 MB by
 default over the API); results that don't fit belong in a task output
 dataset instead.
+
+A function that needs what the workspace stores as well declares it, as a
+stream task declares its inputs:
+
+```typescript
+const prices = e3.input('prices', DictType(StringType, FloatType));
+
+const priceOf = e3.function('price_of', {
+  inputs: [prices],        // read from the workspace at each call
+  args: [StringType],      // what the caller passes
+  output: FloatType,
+}, ($, prices, sku) => prices.get(sku, ($, _sku) => 0.0));
+```
+
+The body takes the inputs, then the arguments. An input is anything a task
+takes — an input, a task's output, a record — and `e3.package` collects it,
+with what it depends on. A call through a workspace reads each input as stored
+when it launches, pinned at its hash and named in the result; it waits for no
+run, and nothing reruns when an input changes. The caller passes the arguments
+alone. An input nothing has produced yet is refused, naming it. The package
+route has no workspace to read from, so such a function is called through one
+(`e3 call -w`). `async: true` builds the body with `East.asyncFunction`; an
+`e3.partition` input, and the `custom` runtime with inputs, are refused.
 
 ### Records: `e3.record`
 
@@ -859,7 +881,9 @@ parameter types. With `-w`, an argument written `@<keypath>` is that dataset
 of the workspace — no East literal starts with `@` — which the function reads
 where it is stored, at the hash it holds when the call starts, as a task reads
 its inputs: a large collection is never sent with the call. Without `-w` one is
-refused, and an unassigned dataset is refused before anything runs. On success
+refused, and an unassigned dataset is refused before anything runs. A function
+that declares inputs reads them itself, so it is given its arguments alone and
+called with `-w`; without it, it is refused, naming its inputs. On success
 the decoded result prints to stdout; failures
 (wrong arity, runtime error, timeout, over-size result) exit non-zero with
 a diagnostic. Calls are graph-free — they trigger no dataflow and leave the

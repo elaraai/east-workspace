@@ -224,25 +224,30 @@ export interface TaskDef<TOutput extends EastType = EastType, Path extends TreeP
  * A function definition.
  *
  * Functions are named, typed callables stored in a package and invoked by
- * name with argument values (CLI / HTTP API). Unlike a task, a function is
- * not wired to datasets, is not part of the dataflow graph, and triggers no
- * recomputation. Its result is returned inline to the caller and nothing is
- * persisted.
+ * name with argument values (CLI / HTTP API). A function may read datasets
+ * of the workspace it is called through — its {@link inputs}, as a task's
+ * are declared — beside the arguments its caller passes. It is still no node
+ * of the dataflow: it has no output, nothing reruns when an input changes,
+ * and its result is returned inline to the caller, nothing persisted.
  *
- * @typeParam Inputs - The East types of the positional parameters
+ * @typeParam Args - The East types of the arguments a caller passes
  * @typeParam Output - The East type of the return value
  */
 export interface FunctionDef<
-  Inputs extends readonly EastType[] = readonly EastType[],
+  Args extends readonly EastType[] = readonly EastType[],
   Output extends EastType = EastType,
 > {
   readonly kind: 'function';
   /** Function name (unique within the package) */
   readonly name: string;
-  /** The function, as its IR bundle. */
+  /** The function, as its IR bundle: its parameters are the inputs' types,
+   *  in {@link inputs} order, then the arguments'. */
   readonly body: IRBundle | AsyncIRBundle;
-  /** Positional parameter types (the East function's signature) */
-  readonly inputTypes: Inputs;
+  /** The datasets a call reads from the workspace it runs in, each pinned at
+   *  its hash when the call launches; empty for a function that reads none. */
+  readonly inputs: readonly DatasetDef[];
+  /** The types of the arguments a caller passes, after the inputs. */
+  readonly argTypes: Args;
   /** Return type */
   readonly outputType: Output;
   /** Runtime the body runs on; defaults to DEFAULT_RUNNER */
@@ -252,7 +257,10 @@ export interface FunctionDef<
    * EnvironmentSpec at export time. Undefined ⇒ the stock runtime image.
    */
   readonly environment?: EnvironmentDecl;
-  // NO deps, NO datasets, NO trees — not in the dataflow graph
+  /** The inputs and every tree, dataset and task they depend on, which
+   *  `e3.package` collects as it collects a task's. Empty for a function that
+   *  reads nothing. */
+  readonly deps: Set<DataTreeDef | DatasetDef | TaskDef>;
 }
 
 /**
@@ -580,8 +588,9 @@ export interface PackageDef<Datasets extends Record<string, unknown>> {
   readonly datasets: Datasets;
   /** All contents of the package (trees, datasets, tasks) */
   readonly contents: Array<PackageItem>;
-  /** Named functions, by name. Functions are not part of `contents` —
-   *  they have no deps and never enter the data tree. */
+  /** Named functions, by name. Functions are not part of `contents` — they
+   *  never enter the data tree — but their inputs, and what those depend on,
+   *  are. */
   readonly functions: Record<string, FunctionDef>;
   /** Records, by name, each carrying its assembled mutations, indexes and
    *  migrations. A record's dataset is also in `contents` (records are

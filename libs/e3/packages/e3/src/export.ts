@@ -323,9 +323,10 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
     }
   }
 
-  // Write function objects (functions are not in pkg.contents — they have
-  // no deps and never enter the data tree). Mirrors how tasks are written:
-  // body IR as a content object, then a small FunctionObject pointing at it.
+  // Write function objects (functions are not in pkg.contents — they never
+  // enter the data tree, though their inputs do). Mirrors how tasks are
+  // written: body IR as a content object, then a small FunctionObject
+  // pointing at it and naming the inputs a call reads.
   const functions = new SortedMap<string, string>(); // name -> function object hash
   const functionEncoder = encodeBeast2For(FunctionObjectType);
   for (const [fname, fdef] of Object.entries(pkg.functions)) {
@@ -336,7 +337,8 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
     // the raw TS EastType definitions Expr.type yields.
     const fnObject: FunctionObject = {
       bodyIr: bodyIrHash,
-      inputTypes: fdef.inputTypes.map((t) => toEastTypeValue(t)),
+      inputs: fdef.inputs.map((input) => input.path),
+      argTypes: fdef.argTypes.map((t) => toEastTypeValue(t)),
       outputType: toEastTypeValue(fdef.outputType),
       runner: runnerToVariant(fdef.runner),
       environment: resolveEnvironment(fdef.environment, fdef.runner, fname),

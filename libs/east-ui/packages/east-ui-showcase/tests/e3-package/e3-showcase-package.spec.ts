@@ -27,7 +27,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-    equalFor, isTypeValueEqual, toEastTypeValue,
+    ArrayType, equalFor, isTypeValueEqual, toEastTypeValue,
     type EastType, type EastTypeValue, type ExampleDef,
 } from "@elaraai/east";
 import type { DataTreeDef, DatasetDef, FunctionDef, MigrationDef, MutationDef, RecordDef, RecordIndexDef, TaskDef } from "@elaraai/e3";
@@ -103,24 +103,26 @@ function nodeAt(structure: Structure, treePath: TreePath): Structure | undefined
     return node;
 }
 
-/** What a definition reaches, as `e3.package` collects it: a dataset's or
- *  task's dependencies, a mutation's, index's or migration's record, a
- *  migration's earlier step. */
+/** What a definition reaches, as `e3.package` collects it: a dataset's,
+ *  task's or function's dependencies — a function's inputs and theirs — a
+ *  mutation's, index's or migration's record, a migration's earlier step. */
 function reachedFrom(item: DataTreeDef | Definition): (DataTreeDef | Definition)[] {
     switch (item.kind) {
         case "datatree":
         case "dataset":
         case "task":
+        case "function":
             return [...item.deps];
         case "mutation":
         case "recordIndex":
             return [item.record];
         case "migration":
             return [item.record];
-        case "function":
-            return [];
     }
 }
+
+/** The inputs a function reads, by their paths. */
+const PathsType = ArrayType(TreePathType);
 
 /** Every definition the roots reach, themselves among them. */
 function reachOf(roots: readonly (DataTreeDef | Definition)[]): Set<DataTreeDef | Definition> {
@@ -219,11 +221,14 @@ describe("the showcase's e3 packages, one an area", () => {
                 assert.ok(hash !== undefined, `${where}: its area's package has no function '${definition.name}'`);
                 const fn = decodeFunctionObject(await read(hash));
                 assert.ok(
-                    fn.inputTypes.length === definition.inputTypes.length
-                        && fn.inputTypes.every((type, i) => sameType(type, definition.inputTypes[i]!))
-                        && sameType(fn.outputType, definition.outputType),
+                    fn.argTypes.length === definition.argTypes.length
+                        && fn.argTypes.every((type, i) => sameType(type, definition.argTypes[i]!))
+                        && sameType(fn.outputType, definition.outputType)
+                        && equalFor(PathsType)(fn.inputs, definition.inputs.map((input) => input.path)),
                     `${where}: its area's package's function '${definition.name}' has another signature`,
                 );
+                // What it reads from the workspace is in the package beside it
+                for (const input of definition.inputs) assertDataset(pkg, input, `${where}'s input`);
                 return;
             }
             case "mutation": {
