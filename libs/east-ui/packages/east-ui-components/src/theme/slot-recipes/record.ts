@@ -34,6 +34,11 @@
  *     Sheet kind the Sheet's strip draws its chips in this frame.
  *   - Footer: 36 tall, padded 0 20, mono 10.5 counts in `fg.muted`, and the
  *     legend's 15-tall chips.
+ *   - A phone (the Sheet's phone grid): no select column; the title held at
+ *     the left on its row's own paper, behind a `border.strong` rule, and the
+ *     header's other cells the window's snap points; the pinned column's
+ *     segment of the group row on the paper behind the same rule, and each
+ *     group's label held over its columns in view, clear of the pinned column.
  *
  * Every value is a semantic token, so the dark theme comes for free; the
  * renderer sets data attributes and geometry alone.
@@ -94,6 +99,9 @@ const DRAFT_WASH = "color-mix(in oklch, {colors.status.warn} 8%, {colors.bg.surf
 /** A new row's empty editable cell: the warn wash at 17%. */
 const REQUIRED_WASH = "color-mix(in srgb, {colors.status.warn} 17%, {colors.bg.surface})";
 
+/** A phone's pinned column's edge, down the group row, the header and the rows: the strong rule the window pages under. */
+const PINNED_EDGE = { borderInlineEndWidth: "1px", borderInlineEndStyle: "solid", borderInlineEndColor: "border.strong" } as const;
+
 export const recordSlotRecipe = defineSlotRecipe({
     className: "elara-record",
     slots: [
@@ -143,10 +151,19 @@ export const recordSlotRecipe = defineSlotRecipe({
         /* The sticky head: the group row and the header row, with one rule under them. */
         head: { background: "bg.surface", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle" },
         groupRow: { display: "grid", height: "24px" },
-        groupSeg: { minWidth: "0", display: "flex", flexDirection: "column", justifyContent: "flex-end", paddingInline: "6px" },
+        groupSeg: {
+            minWidth: "0", display: "flex", flexDirection: "column", justifyContent: "flex-end", paddingInline: "6px",
+            /* A phone's pinned column's: at the left on the paper, behind its strong rule, as the columns page under it. */
+            "&[data-pinned]": { ...PINNED_EDGE, position: "sticky", left: "0", zIndex: "2", background: "bg.surface" },
+        },
         groupLabel: {
             textAlign: "center", fontFamily: "mono", fontSize: "label.xs", fontWeight: 600, letterSpacing: "label", textTransform: "uppercase",
             lineHeight: "18px", color: "fg.subtle", whiteSpace: "nowrap", overflow: "hidden",
+            /* On a phone, centred over its group while it is all in view, and held over the part of it in view as the window pages:
+               past the pinned column (`--record-pin`, the renderer's geometry) and the group's own inset. */
+            "[data-phone] &": {
+                alignSelf: "center", maxWidth: "100%", position: "sticky", left: "calc(var(--record-pin, 0px) + 6px)", right: "6px",
+            },
         },
         groupRule: { height: "1px", background: "border.strong", "&[data-unlabelled]": { background: "transparent" } },
         headerRow: { display: "grid" },
@@ -155,6 +172,9 @@ export const recordSlotRecipe = defineSlotRecipe({
             ...CELL_PAD,
             /* The select column's box stays at the left as the columns scroll sideways under it. */
             "&[data-tick]": { cursor: "pointer", paddingInlineEnd: "12px", position: "sticky", left: "0", zIndex: "1", background: "bg.surface" },
+            /* On a phone each column's start is a place the window comes to rest — past the pinned column, which stays at the left. */
+            "[data-phone] &": { scrollSnapAlign: "start" },
+            "&[data-pinned]": { ...PINNED_EDGE, position: "sticky", left: "0", zIndex: "2", background: "bg.surface", scrollSnapAlign: "none" },
         },
         headerLabel: {
             minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "mono", fontSize: "label.sm",
@@ -177,11 +197,16 @@ export const recordSlotRecipe = defineSlotRecipe({
             /* The select column's cell: the whole cell ticks, takes no hover of its own, and stays at the left on the row's paper as the
                columns scroll sideways — above the cells' content and a ring scrolled under it (z 4), as the Sheet's gutter is. */
             "&[data-pick]": { cursor: "pointer", position: "sticky", left: "0", zIndex: "5", background: "inherit", _hover: { background: "inherit" } },
+            /* A phone's pinned title: at the left on its row's paper, whatever wash the row wears — its own states over it — above a ring
+               a cell scrolled under it draws, behind its strong rule. */
+            "&[data-pinned]": { ...PINNED_EDGE, position: "sticky", left: "0", zIndex: "5", background: "inherit" },
             "&[data-steps]": { cursor: "pointer", _hover: { background: "bg.subtle" } },
             "&[data-dirty]": { background: "brandTint", _hover: { background: "brandTint" } },
             "&[data-active]": { background: "bg.subtle", boxShadow: "{shadows.focusInset}", _hover: { background: "bg.subtle" } },
             "&[data-required]": { background: REQUIRED_WASH, _hover: { background: REQUIRED_WASH } },
             "&[data-still]": { cursor: "default", _hover: { background: "transparent" } },
+            /* …but a still pinned cell keeps its row's paper under the pointer: the columns scroll under it. */
+            "&[data-pinned][data-still]": { _hover: { background: "inherit" } },
             "&[data-still][data-dirty]": { _hover: { background: "brandTint" } },
             "&[data-still][data-active]": { _hover: { background: "bg.subtle" } },
             /* The editor of a Sheet kind lies over the cell, the cell's own box. */

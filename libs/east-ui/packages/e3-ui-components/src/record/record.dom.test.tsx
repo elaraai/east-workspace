@@ -8,9 +8,10 @@
  * rows and the header in the Table's anatomy (GR1, HD1–HD3), the select
  * column (SL1), the empty state (EM1), the states (ST4–ST9), the pointer
  * (P1–P6) and the keys (K1–K6) — the Sheet's grid drawing the Record's rows,
- * header and select column through its host (decision 8) — and its cells
- * (#1532, C1–C11), over the Record's examples deployed to e3 itself, each
- * test a workspace of its own.
+ * header and select column through its host (decision 8) — its cells
+ * (#1532, C1–C11), and the grid on a phone (#1536): the title pinned, the
+ * Sheet's pager over the other columns, no select column — over the Record's
+ * examples deployed to e3 itself, each test a workspace of its own.
  */
 
 import { describe, expect, test, vi } from "vitest";
@@ -21,7 +22,7 @@ import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-component
 import { Data, Record } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/record/record";
 import { act, settle, sheetHarness, slot } from "../sheet/frame/harness.test-utils.js";
-import { touchFrame } from "../sheet/frame.test-utils.js";
+import { frameScrolls, touchFrame } from "../sheet/frame.test-utils.js";
 // The Record is an extension: its renderer registers as it loads.
 import "./index.js";
 
@@ -89,22 +90,6 @@ describe("the grid in the Table's anatomy", () => {
         expect(grid(container).getAttribute("aria-colcount")).toBe("4");
     });
 
-    test("a narrow frame keeps the Record's grid — its select column and its columns at their widths, scrolling sideways — never the Sheet's phone frame (FR1)", async () => {
-        const restore = touchFrame(480);
-        try {
-            const { container } = await h.mount(ex.recordBasic, { storageKey: "record-narrow" });
-            expect(grid(container).hasAttribute("data-phone")).toBe(false);
-            expect(container.querySelector('[data-slot="pager"]')).toBeNull();
-            expect(rows(container)[0]!.style.gridTemplateColumns).toBe("46px 160px 80px minmax(72px, 1fr)");
-            const header = container.querySelector<HTMLElement>('[data-record] [data-slot="headerRow"]')!;
-            expect(header.style.gridTemplateColumns).toBe("46px 160px 80px minmax(72px, 1fr)");
-            expect([...header.querySelectorAll('[data-slot="headerCell"]')].map((cell) => cell.textContent)).toEqual(["Name", "Inducted", "Forklift"]);
-            expect(cellAt(container, 0, "name").textContent).toBe("A. Morgan");
-        } finally {
-            restore();
-        }
-    });
-
     test("the column groups' row: each group's label over its columns, the columns before, between and after them unlabelled, an unlabelled group drawing neither label nor rule (HD1)", async () => {
         const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-groups" });
         const segments = [...container.querySelectorAll<HTMLElement>('[data-record] [data-slot="groupSeg"]')];
@@ -128,6 +113,110 @@ describe("the grid in the Table's anatomy", () => {
         const was = cellAt(container, 0, "intake").textContent;
         await press(cellAt(container, 0, "intake"));
         expect(cellAt(container, 0, "intake").textContent).toBe(was);
+    });
+});
+
+/** The pinned title, 150 wide, then a slot of a 390 frame's other 240 for each of the shift preferences' nine other columns: two in view. */
+const PHONE_TRACKS = `150px ${Array(9).fill("120px").join(" ")}`;
+
+describe("on a phone", () => {
+    test("the title is pinned at the left and the other columns are a window of slots, with no select column — no box, no track, no tick-all (FR1, SL1)", async () => {
+        const restore = touchFrame(390);
+        try {
+            const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-phone" });
+            expect(grid(container).hasAttribute("data-phone")).toBe(true);
+            expect(grid(container).hasAttribute("data-pin")).toBe(true);
+            for (const row of rows(container)) expect(row.style.gridTemplateColumns).toBe(PHONE_TRACKS);
+            const header = container.querySelector<HTMLElement>('[data-record] [data-slot="headerRow"]')!;
+            expect(header.style.gridTemplateColumns).toBe(PHONE_TRACKS);
+            expect([...header.querySelectorAll<HTMLElement>("[data-pinned]")].map((cell) => cell.getAttribute("data-key"))).toEqual(["name"]);
+            expect(rows(container).map((_row, r) => cellAt(container, r, "name").hasAttribute("data-pinned"))).toEqual([true, true, true]);
+            expect(cellAt(container, 0, "role").hasAttribute("data-pinned")).toBe(false);
+            expect(container.querySelector("[data-record] [data-pick]")).toBeNull();
+            expect(container.querySelector("[data-record] [data-tick]")).toBeNull();
+            expect(grid(container).getAttribute("aria-colcount")).toBe("10");
+            expect(cellAt(container, 0, "name").getAttribute("aria-colindex")).toBe("1");
+        } finally {
+            restore();
+        }
+    });
+
+    test("the Sheet's pager steps the window a column past the pinned title — ‹ ›, and ← → on the grid — the ring where it is, and stops at the ends (SH1, SH8.1)", async () => {
+        const restore = touchFrame(390);
+        const restoreScroll = frameScrolls();
+        try {
+            const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-phone-pager" });
+            const pager = container.querySelector<HTMLElement>('[data-record] [data-slot="pager"]')!;
+            const shown = () => pager.querySelector('[data-slot="pagerReadout"] b')!.textContent;
+            const step = (name: "pagerPrevious" | "pagerNext") => pager.querySelector<HTMLElement>(`[data-slot="${name}"]`)!;
+            const frame = grid(container).querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!;
+            expect(shown()).toBe("1–2");
+            expect(step("pagerPrevious").getAttribute("aria-disabled")).toBe("true");
+            // The ring on a Role, which steps nothing.
+            await press(cellAt(container, 0, "role"));
+            const ring = active(container);
+            expect(ring).toBe(cellAt(container, 0, "role"));
+            await press(step("pagerNext"));
+            expect([frame.scrollLeft, shown()]).toEqual([120, "2–3"]);
+            await key(container, "ArrowRight");
+            expect([frame.scrollLeft, shown()]).toEqual([240, "3–4"]);
+            await key(container, "ArrowLeft");
+            expect([frame.scrollLeft, shown()]).toEqual([120, "2–3"]);
+            expect(active(container)).toBe(ring);
+            // Six steps more bring the window to the last two columns, and neither › nor → goes past them.
+            for (let i = 0; i < 6; i++) await press(step("pagerNext"));
+            expect([frame.scrollLeft, shown()]).toEqual([840, "8–9"]);
+            expect(step("pagerNext").getAttribute("aria-disabled")).toBe("true");
+            await key(container, "ArrowRight");
+            expect(frame.scrollLeft).toBe(840);
+            expect(active(container)).toBe(ring);
+        } finally {
+            restoreScroll();
+            restore();
+        }
+    });
+
+    test("the column groups' row lies over the window: the pinned title's segment its own, drawing nothing, then each group over its columns' slots (HD1)", async () => {
+        const restore = touchFrame(390);
+        try {
+            const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-phone-groups" });
+            const head = container.querySelector<HTMLElement>('[data-record] [data-slot="head"]')!;
+            const groupRow = head.querySelector<HTMLElement>('[data-slot="groupRow"]')!;
+            expect(groupRow.style.gridTemplateColumns).toBe(PHONE_TRACKS);
+            const segments = [...groupRow.querySelectorAll<HTMLElement>('[data-slot="groupSeg"]')];
+            // Name, pinned · Role · Shifts · Weekends · Overtime's unlabelled group · Days since and Last updated.
+            expect(segments.map((segment) => segment.style.gridColumn)).toEqual(["span 1", "span 1", "span 3", "span 2", "span 1", "span 2"]);
+            expect(segments.map((segment) => segment.textContent)).toEqual(["", "", "Shifts", "Weekends", "", ""]);
+            expect(segments.map((segment) => segment.hasAttribute("data-pinned"))).toEqual([true, false, false, false, false, false]);
+            // Where a label holds as the window pages: past the pinned column.
+            expect(head.hasAttribute("data-phone")).toBe(true);
+            expect(head.style.getPropertyValue("--record-pin")).toBe("150px");
+        } finally {
+            restore();
+        }
+    });
+
+    test("a row is picked by its title — the ring on it, and the inspector's view open on its Details — and deleted there, one step Undo takes back (P4, IN7)", async () => {
+        const restore = touchFrame(390, { builder: true });
+        try {
+            const { container } = await h.mount(ex.recordEveryKind, { storageKey: "record-phone-pick" });
+            const ids = () => rows(container).map((row) => row.getAttribute("data-row-id"));
+            expect(ids()).toEqual(["P-0401", "P-0408"]);
+            await press(cellAt(container, 1, "name"));
+            expect(active(container)).toBe(cellAt(container, 1, "name"));
+            const drawer = await waitFor(() => {
+                const open = container.querySelector<HTMLElement>("[data-frame-drawer][data-open]");
+                expect(open).not.toBeNull();
+                return open!;
+            });
+            await waitFor(() => expect(drawer.querySelector('[role="tabpanel"]:not([hidden]) [data-inspector-id]')?.textContent).toBe("P-0408"));
+            await press(drawer.querySelector('[data-inspector-action="delete"]')!);
+            expect(ids()).toEqual(["P-0401"]);
+            await key(container, "z", { metaKey: true });
+            expect(ids()).toEqual(["P-0401", "P-0408"]);
+        } finally {
+            restore();
+        }
     });
 });
 

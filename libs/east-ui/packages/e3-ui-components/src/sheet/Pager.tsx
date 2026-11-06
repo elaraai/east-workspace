@@ -12,8 +12,9 @@
  * motion tokens' times, at once under reduced motion — so a swipe and a step
  * are one window. The jump menu lists every column but the pinned one, a
  * check on those in view and each column's kind, and a pick brings its column
- * into view; under a rule, `Row number` adds the Row column, the row numbers
- * as a column of the window, and puts the window back at its start. ← and →
+ * into view; under a rule, where the grid has row numbers, `Row number` adds
+ * the Row column, the row numbers as a column of the window, and puts the
+ * window back at its start. ← and →
  * page it while the grid has the focus (SH8.1, {@link pageWindow}).
  *
  * @packageDocumentation
@@ -41,8 +42,8 @@ export interface SheetPagerProps {
     inView: number;
     /** Whether the Row column shows (SH2). */
     rowNumbers: boolean;
-    /** Told as the viewer shows or hides the Row column. */
-    onRowNumbers: (on: boolean) => void;
+    /** Told as the viewer shows or hides the Row column; absent, the grid has no row numbers — a host's (#1536) — and the menu offers no `Row number`. */
+    onRowNumbers?: ((on: boolean) => void) | undefined;
 }
 
 /** A column of the window, as the jump menu lists it (SH2). */
@@ -131,13 +132,17 @@ export const SheetPager = memo(function SheetPager({ styles, frame, columns, slo
                                     );
                                 })}
                             </ChakraMenu.ItemGroup>
-                            <ChakraMenu.Separator />
-                            <ChakraMenu.CheckboxItem value={ROW_NUMBER_ITEM} css={styles.pagerMenuItem} checked={rowNumbers} data-slot="pagerRowNumber"
-                                onCheckedChange={(on) => { onRowNumbers(on); go(0); }}>
-                                <Box as="span" css={styles.pagerMenuCheck} aria-hidden>{rowNumbers && <FontAwesomeIcon icon={faCheck} />}</Box>
-                                <Box as="span" css={styles.pagerMenuLabel}>{m.pagerRowNumber()}</Box>
-                                <Box as="span" css={[menuStyles.itemCommand, styles.pagerMenuKind]}>{m.pagerRowNumberNote()}</Box>
-                            </ChakraMenu.CheckboxItem>
+                            {onRowNumbers !== undefined && (
+                                <>
+                                    <ChakraMenu.Separator />
+                                    <ChakraMenu.CheckboxItem value={ROW_NUMBER_ITEM} css={styles.pagerMenuItem} checked={rowNumbers} data-slot="pagerRowNumber"
+                                        onCheckedChange={(on) => { onRowNumbers(on); go(0); }}>
+                                        <Box as="span" css={styles.pagerMenuCheck} aria-hidden>{rowNumbers && <FontAwesomeIcon icon={faCheck} />}</Box>
+                                        <Box as="span" css={styles.pagerMenuLabel}>{m.pagerRowNumber()}</Box>
+                                        <Box as="span" css={[menuStyles.itemCommand, styles.pagerMenuKind]}>{m.pagerRowNumberNote()}</Box>
+                                    </ChakraMenu.CheckboxItem>
+                                </>
+                            )}
                         </FrameMenuLayer>
             </ChakraMenu.Root>
             <chakra.button type="button" css={styles.pagerStep} data-slot="pagerPrevious" aria-label={m.pagerPrevious()}

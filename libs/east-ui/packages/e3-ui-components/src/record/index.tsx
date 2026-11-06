@@ -24,6 +24,11 @@
  *   title opens it on Details, its open tab kept per viewer;
  * - **the footer** — the Sheet's, with the record's last save.
  *
+ * On a phone — the frame 560 wide or less — the frame is the BuilderFrame's
+ * phone frame, the inspector its drawer, and the grid the Sheet's on a phone:
+ * the title column pinned at the left, the Sheet's pager stepping through the
+ * other columns, and no select column (`grid.tsx`).
+ *
  * Its rows are 36, 32 or 28 tall, the rule included — the Record's own
  * density, else the one it is placed in, else comfortable — at the theme's
  * `sizes.row` tokens, and its header row the same. Its ages count to one
@@ -123,7 +128,7 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
         grid: { rowPx, leadPx: readOnly ? 0 : SELECT_PX, leadRun: "check", runStyles: styles, Row: RecordRow, Header: RecordHeader, Empty: RecordEmpty, onOpen },
     }), [rowPx, readOnly, styles, onOpen]);
     const nouns = getSomeorUndefined(value.noun)?.plural ?? words.m.railRows();
-    const grid = useMemo((): RecordGrid => ({ styles, ticks, groups: value.columnGroups, lead: !readOnly, nouns }), [styles, ticks, value.columnGroups, readOnly, nouns]);
+    const grid = useMemo((): RecordGrid => ({ styles, ticks, groups: value.columnGroups, nouns }), [styles, ticks, value.columnGroups, nouns]);
     const onTab = useCallback((tab: string) => setPane({ tab }), [setPane]);
     return (
         <RecordClock>
