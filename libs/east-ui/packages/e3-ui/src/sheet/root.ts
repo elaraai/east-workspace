@@ -114,6 +114,7 @@ import type { SheetGroupValue } from "./group.js";
 import type { SheetSubRowsValue } from "./sub-rows.js";
 import type { SheetEditsInput } from "./edits.js";
 import { buildSheetEditing } from "./editing-bridge.js";
+import { unsettableFields } from "./fields.js";
 import { SheetApplyResultType, SheetNewRowType, SheetNewGroupType, SheetReadinessType, type SheetDraftOf, type SheetChangeSetTypeFor } from "./transactions.js";
 import type { SheetPatchEventTypeFor, SheetDraftEntryOf } from "./drafts.js";
 import { orderedRowSource, type OrderedRowSource } from "../utils/ordered-source.js";
@@ -391,6 +392,8 @@ export interface SheetInternalOptions {
     hold?: SheetHold;
     /** The columns may be the Record's kinds — title, person, boolean, toggle, cycle, age, audit — which only the Record's grid draws: `<Record>`'s build. */
     recordKinds?: boolean;
+    /** The inspector's hints, when `<Sheet>` shows the pane — `fields` a row's, `groupFields` a group's: what its form lets a person set on a new entry (#1536). Left out, the sheet has no inspector. */
+    inspector?: { fields?: Readonly<Record<string, unknown>> | undefined; groupFields?: Readonly<Record<string, unknown>> | undefined };
 }
 
 /** A whole-value bind handle (`State.bind` / `Data.bind`) over `Array<R>` — accepted as `data`; `R` a row struct, or an entry `Sheet.Types.Entry(P, "lines")` (#846). */
@@ -915,6 +918,31 @@ function buildSheet(
         }
     }
 
+    // The fields only the app gives a new entry (#1536), on a sheet that adds that kind of entry: a row's — a line's, a
+    // loose row's — and a group's. The session sets an entry's id field itself (a flat row's, a loose row's, a line's
+    // beside loose rows) and a group's lines. A sheet that applies nothing drafts what it likes.
+    const hinted = internal.inspector;
+    const lineLeave = new Set(idField !== undefined && (groupDecl === undefined || loose) && idField in lineType.fields ? [idField] : []);
+    const unsettable = {
+        row: adds("insertRows") ? unsettableFields(lineType, metas, hinted === undefined ? undefined : hinted.fields ?? {}, lineLeave) : [],
+        group: groupDecl !== undefined && cellMetas !== undefined && adds("insertGroups")
+            ? unsettableFields(groupType, cellMetas, hinted === undefined ? undefined : hinted.groupFields ?? {}, new Set([groupDecl.lines, ...(idField !== undefined ? [idField] : [])]))
+            : [],
+    };
+    const lineWord = groupDecl === undefined ? "row's" : loose ? "line's or loose row's" : "line's";
+    if (unsettable.row[0] !== undefined && opts.newRow === undefined) {
+        throw new Error(
+            `Sheet: a new ${lineWord} "${unsettable.row[0].field}" is required, and no column or form sets it — ` +
+            "give it in `newRow`, make it an Option, or `edits={{ insertRows: false }}`",
+        );
+    }
+    if (unsettable.group[0] !== undefined && opts.newGroup === undefined) {
+        throw new Error(
+            `Sheet: a new group's "${unsettable.group[0].field}" is required, and no band cell or form sets it — ` +
+            "give it in `newGroup`, make it an Option, or `edits={{ insertGroups: false }}`",
+        );
+    }
+
     // The bridge.
     const bridge = buildBridge({
         rowType, idField, metas, registers, driver,
@@ -1022,6 +1050,7 @@ function buildSheet(
         ...(ordered !== undefined && opts.onApply !== undefined ? { onApply: undefined, applyKeyed: opts.onApply } : {}),
         ...(internal.applyKeyed !== undefined ? { applyKeyed: internal.applyKeyed } : {}),
         ...(internal.sourceId !== undefined ? { sourceId: internal.sourceId } : {}),
+        unsettable,
     }, rowOf as unknown as ExprType<FunctionType<[EastType, StringType], typeof SheetRowType>>, driver?.column);
     // The group declaration on the wire (#740).
     const groupValue = groupBridge !== undefined && groupDecl !== undefined && cellMetas !== undefined

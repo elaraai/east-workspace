@@ -1664,6 +1664,8 @@ export const sheetUpkeep = example({
                             supplier: { name: Sheet.field.text({ placeholder: "Who supplies its parts" }), phone: Sheet.field.text({ placeholder: "01632 960 000" }) },
                         }}
                         ready={{ row: readyMachine }}
+                        // A machine's serial is its maker's: the sheet keeps the machines' upkeep, and adds none.
+                        edits={{ insertRows: false }}
                     />
                 </Box>
             );

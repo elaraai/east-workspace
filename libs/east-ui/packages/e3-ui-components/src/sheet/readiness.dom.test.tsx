@@ -12,11 +12,13 @@ import { State } from "@elaraai/east-ui/internal";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { StateImpl, UIStore } from "@elaraai/east-ui-components";
 import { useSheetEditing } from "./use-editing.js";
+import { SheetRefused } from "./creation.js";
 import { draftPresentation } from "./draft-state.js";
 import type { SheetRootValue, SheetRowValue } from "./values.js";
 
 beforeEach(() => initializeStore(new UIStore()));
 afterEach(cleanup);
+// No column sets a row's `hidden` (#1536): a sheet over it that adds rows takes it from the app's `newRow`, and one that edits them adds none.
 const Row = StructType({ id: StringType, qty: IntegerType, note: OptionType(FloatType), hidden: StringType });
 const Ready = Sheet.Types.Readiness;
 const Draft = Sheet.Types.Draft(Row);
@@ -27,7 +29,8 @@ const positive = East.function([Draft, Context], Ready, (_$, row) => row.qty.has
 ));
 const render = (check = positive) => East.function([], Sheet.Types.Root, ($) => {
     const data = $.const(State.bind([ArrayType(Row)], "readiness-rows", [{ id: "a", qty: 1n, note: none, hidden: "retained" }]));
-    return Sheet.Root(data, { qty: Sheet.column.integer(Row), note: Sheet.column.quantity(Row) }, { id: "id", onUpdate: data.write, ready: { row: check } });
+    const newRow = East.function([Sheet.Types.NewRow], Sheet.Types.Patch(Row), () => Sheet.patch(Row, { hidden: "from the app" }));
+    return Sheet.Root(data, { qty: Sheet.column.integer(Row), note: Sheet.column.quantity(Row) }, { id: "id", onUpdate: data.write, ready: { row: check }, newRow });
 }).toIR().compile(StateImpl);
 function rows(root: SheetRootValue): SheetRowValue[] {
     if (root.rows.type !== "inline") throw new Error("Expected inline");
@@ -44,15 +47,36 @@ function edit(row: SheetRowValue, qty: bigint) {
     return variant("commit", { rowId: row.id, offset: 0n, key: "qty", row: { ...row, cells: new Map(row.cells).set("qty", variant("Integer", qty)) }, source: variant("typed", null) });
 }
 
-test("author ready cannot bypass missing required hidden fields", () => {
+test("author ready cannot bypass a missing required field", () => {
     const root = render(permissive)();
     const hook = mount(root);
-    const row: SheetRowValue = { id: "new", owned: false, cells: new Map([["qty", variant("Integer", 2n)]]), lines: [], band: none, subRows: [] };
+    const row: SheetRowValue = { id: "new", owned: false, cells: new Map([["qty", variant("Null", null)]]), lines: [], band: none, subRows: [] };
     // An inserted row, recorded the way the renderer records one: a typed
     // insert event under the gesture's `insert` origin.
     act(() => hook.result.current.record([variant("insert", { afterRowId: some("a"), row, source: variant("typed", null) })], undefined, "insert"));
     expect(hook.result.current.session.canApply).toBe(false);
-    expect(hook.result.current.session.readiness).toMatchObject(variant("incomplete", expect.arrayContaining([{ entry: "new", row: none, field: some("hidden"), message: "A value is required" }])));
+    expect(hook.result.current.session.readiness).toMatchObject(variant("incomplete", expect.arrayContaining([{ entry: "new", row: none, field: some("qty"), message: "A value is required" }])));
+});
+
+test("a new row the app leaves a field of empty that no person can set is never drafted (#1536)", () => {
+    const view = East.function([], Sheet.Types.Root, ($) => {
+        const data = $.const(State.bind([ArrayType(Row)], "readiness-unset", [{ id: "a", qty: 1n, note: none, hidden: "retained" }]));
+        // The app's newRow gives a quantity, and leaves the row's `hidden` empty.
+        const newRow = East.function([Sheet.Types.NewRow], Sheet.Types.Patch(Row), () => Sheet.patch(Row, { qty: 1n }));
+        return Sheet.Root(data, { qty: Sheet.column.integer(Row) }, { id: "id", onUpdate: data.write, newRow });
+    }).toIR().compile(StateImpl);
+    const hook = mount(view());
+    const row: SheetRowValue = { id: "new", owned: false, cells: new Map([["qty", variant("Integer", 2n)]]), lines: [], band: none, subRows: [] };
+    let refused: unknown;
+    act(() => {
+        try { hook.result.current.record([variant("insert", { afterRowId: some("a"), row, source: variant("typed", null) })], undefined, "insert"); }
+        catch (error) { refused = error; }
+    });
+    // The gesture drafts nothing, and the footer names the field as the inspector's form would.
+    expect(refused).toBeInstanceOf(SheetRefused);
+    expect((refused as SheetRefused).notice).toEqual({ id: "cantAdd", what: "row", label: "Hidden", noun: undefined });
+    expect(hook.result.current.session.pending).toBe(0);
+    expect(hook.result.current.layer.appended).toHaveLength(0);
 });
 
 test("author ready cannot bypass invalid optional input", () => {
@@ -99,7 +123,7 @@ test("row and group readiness receive current reordered drafts with separately a
     ));
     const view = East.function([], Sheet.Types.Root, ($) => {
         const data = $.const(State.bind([ArrayType(Group)], "readiness-groups", [{ id: "g", name: "Review", rows: [{ qty: 1n, hidden: "first" }, { qty: 1n, hidden: "second" }] }]));
-        return Sheet.Root(data, { qty: Sheet.column.integer(Child) }, { id: "id", group: Sheet.group(Group, "rows", { title: "name" }), ready: { row: rowCheck, group: groupCheck }, onUpdate: data.write });
+        return Sheet.Root(data, { qty: Sheet.column.integer(Child) }, { id: "id", group: Sheet.group(Group, "rows", { title: "name" }), ready: { row: rowCheck, group: groupCheck }, onUpdate: data.write, edits: { insertRows: false } });
     }).toIR().compile(StateImpl);
     const value = view();
     const hook = mount(value);
@@ -121,7 +145,7 @@ test("external state read by readiness is tracked without a new Sheet value", as
         const check = $.const(East.function([Draft, Context], Ready, (_$, row) => row.qty.hasTag("value").and(() => row.qty.unwrap("value").lessEqual(limit.read())).ifElse(
             () => East.value(variant("ready", null), Ready), () => variant("incomplete", [{ field: "qty", message: "Above current limit" }]),
         )));
-        return Sheet.Root(data, { qty: Sheet.column.integer(Row) }, { id: "id", onUpdate: data.write, ready: { row: check } });
+        return Sheet.Root(data, { qty: Sheet.column.integer(Row) }, { id: "id", onUpdate: data.write, ready: { row: check }, edits: { insertRows: false } });
     }).toIR().compile(StateImpl);
     const value = view();
     const hook = renderHook(() => {
@@ -144,7 +168,7 @@ test("a check that throws on one row marks that row invalid, and the other rows 
     });
     const view = East.function([], Sheet.Types.Root, ($) => {
         const data = $.const(State.bind([ArrayType(Row)], "readiness-throws", [{ id: "a", qty: 1n, note: none, hidden: "a" }, { id: "b", qty: 1n, note: none, hidden: "b" }]));
-        return Sheet.Root(data, { qty: Sheet.column.integer(Row) }, { id: "id", onUpdate: data.write, ready: { row: zeroFails } });
+        return Sheet.Root(data, { qty: Sheet.column.integer(Row) }, { id: "id", onUpdate: data.write, ready: { row: zeroFails }, edits: { insertRows: false } });
     }).toIR().compile(StateImpl);
     const root = view();
     const hook = mount(root);

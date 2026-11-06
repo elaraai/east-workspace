@@ -1012,7 +1012,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // The rows a key's far jump holds stand in, retained, until its rows replace them (#1398, CL10): the source's own
     // rows still, which the session holds, but they take no gesture.
     const keyHeld = !lensDrawn && paging.held;
-    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn, keyHeld);
+    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn, keyHeld, declaredNoun?.singular);
     const session = editingState.session;
     // ── The app's optimiser (#1409, #1418) ────────────────────────────────
     // One run over the current tab's rows, its result landed on them as one edit (below, once the rows and their

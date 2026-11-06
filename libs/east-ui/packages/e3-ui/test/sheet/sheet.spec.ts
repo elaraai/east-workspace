@@ -962,21 +962,23 @@ describe("Sheet refusals", () => {
     hostTest("a kind under the wrong field names the column", () => {
         assert.throws(() => Sheet.Root(rows, { task: Sheet.column.date(JobType) as never }, { id: "id" }), /date column "task"/);
     });
+    // The sheets below that write add no rows: a job's count and owner have no column here, and no `newRow` gives
+    // them (#1536).
     hostTest("onUpdate needs a live handle, not a captured Array snapshot", () => {
-        assert.throws(() => Sheet.Root(rows, { task: Sheet.column.text(JobType) }, { id: "id", onUpdate: noop }), /data=\{liveHandle\}/);
+        assert.throws(() => Sheet.Root(rows, { task: Sheet.column.text(JobType) }, { id: "id", onUpdate: noop, edits: { insertRows: false } }), /data=\{liveHandle\}/);
     });
     hostTest("Dict children cannot establish an ordered group draft", () => {
         const keyed = East.value([{ id: "k", name: "Keyed", lines: new Map() }], ArrayType(KeyedPlanType));
         assert.throws(() => Sheet.Root(keyed as never, { task: Sheet.column.text(LineType) } as never, { id: "id", group: Sheet.group(KeyedPlanType, "lines" as never, { title: "name" }) } as never), /Array of row structs/);
     });
     hostTest("onUpdate on a paged source is refused", () => {
-        assert.throws(() => Sheet.Root(East.value(JOBS_SOURCE, Paged.Types.Source(Jobs)), { task: Sheet.column.text(JobType) }, { id: "id", onUpdate: noop }), /onUpdate/);
+        assert.throws(() => Sheet.Root(East.value(JOBS_SOURCE, Paged.Types.Source(Jobs)), { task: Sheet.column.text(JobType) }, { id: "id", onUpdate: noop, edits: { insertRows: false } }), /onUpdate/);
     });
     hostTest("editing paged rows needs a pinned source — one that names the snapshot a batch is checked against", () => {
         const onApply = East.function([Sheet.Types.ChangeSet(JobType)], Sheet.Types.ApplyResult, () => variant("applied", { revision: none }));
-        assert.throws(() => Sheet.Root(East.value(JOBS_SOURCE, Paged.Types.Source(Jobs)), { task: Sheet.column.text(JobType) }, { id: "id", onApply }),
+        assert.throws(() => Sheet.Root(East.value(JOBS_SOURCE, Paged.Types.Source(Jobs)), { task: Sheet.column.text(JobType) }, { id: "id", onApply, edits: { insertRows: false } }),
             /Sheet: editing paged rows needs a pinned source/);
-        assert.doesNotThrow(() => Sheet.Root(East.value(PINNED_JOBS_SOURCE, Paged.Types.PinnedSource(Jobs)), { task: Sheet.column.text(JobType) }, { id: "id", onApply }));
+        assert.doesNotThrow(() => Sheet.Root(East.value(PINNED_JOBS_SOURCE, Paged.Types.PinnedSource(Jobs)), { task: Sheet.column.text(JobType) }, { id: "id", onApply, edits: { insertRows: false } }));
     });
     hostTest("an undeclared register is refused", () => {
         assert.throws(() => Sheet.Root(rows, { task: Sheet.column.reference(JobType, "sites") }, { id: "id" }), /register "sites"/);

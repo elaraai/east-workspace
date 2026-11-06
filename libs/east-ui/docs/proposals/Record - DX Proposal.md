@@ -605,6 +605,8 @@ const operators = East.function([], UIComponentType, (_$) => (
                     record={records}
                     title="Operators"
                     noun={{ singular: "operator", plural: "operators" }}
+                    // The operators and their badges come from the Gatehouse: this Record edits them, and adds none.
+                    edits={{ insertRows: false }}
                     registers={{
                         statuses:     Record.register.members(statuses, { kind: "status", key: s => s.key, label: s => s.label, tone: s => some(s.tone) }),
                         roles:        Record.register.members(roles, { kind: "role", key: r => r, label: r => r }),
@@ -636,6 +638,8 @@ const operators = East.function([], UIComponentType, (_$) => (
     }}</Reactive>
 ));
 ```
+
+A badge is stamped, so no person can give a new operator one, and the build would refuse Add with no `newRow` to give it (§2.7). The Gatehouse adds the operators, so this Record turns Add off.
 
 ### Example 5 — read only
 
@@ -800,14 +804,15 @@ Sheet.Types.ColumnKind.quantity gains  unit: Option<String>        // a constant
 Sheet.Types.Root trades  newRowId: Option<Function([], String)>   for
     newKey:     Option<Function([Set<String>], String)>   // a new entry's key from the keys taken, over the keys' text
 Sheet.Types.Editing gains
-    unsettable: { row: Array<String>, group: Array<String> }   // a new row's (or line's) and a new group's required fields only the app gives
+    unsettable: { row: Array<{ field: String, label: String }>,     // a new row's (or line's) required fields only the app gives,
+                  group: Array<{ field: String, label: String }> }  // and a new group's, each with what the sheet calls it
 Record.Types.Change = { at: DateTime, by: String, verb: String }
 ```
 
 - **The cells.** A title, person or cycle cell is the `String` arm; a boolean or toggle cell is `Boolean`. An age cell is its `since` as `DateTime`, or `Null`. An audit cell is its Change's `at` as `DateTime`, or `Null`, with `by` and `verb` projected into unrendered rule cells (`$by:updated`, `$verb:updated`), as a date's `actual` is. No new cell arm.
 - **The clock.** `elapsed` is compiled by the factory from `unit` (`since.durationMilliseconds(now)` over the unit's milliseconds, rounded down) and called by the renderer with the browser's clock (§2.3). Nothing else on the wire reads a clock.
 - **A new entry's key.** The Sheet's `newKey` crosses as text, as the rows' ids do: a String key is itself, and any other key is its `.east` printing. The Sheet's factory wraps the author's typed function in East, reading each taken key back with `parse` (as `Record.onApply` reads an id) and printing the key it returns; a String key's function crosses as it is. The Sheet's machine mints every new entry through it, with the keys taken, or else through `mintKey`.
-- **The fields only the app gives.** `unsettable` names, for a new row or line and for a new group, each required field no editable column and no form of the inspector sets (§2.7). The build has refused it already when `newRow` or `newGroup` is absent; the shared creation path reads it to draft nothing when the app's values leave one empty.
+- **The fields only the app gives.** `unsettable` names, for a new row or line and for a new group, each required field no editable column and no form of the inspector sets (§2.7), with its label as the inspector's form gives it: the hint's label, else its column's header, else its name spelled out. The build has refused it already when `newRow` or `newGroup` is absent; the shared creation path reads it to draft nothing when the app's values leave one empty, and the status line names the field by its label, with an inspector or without one.
 - **Column groups** are the Table's `TableColumnGroupType`. The inspector's sections read them.
 - **No e3 wire changes.** This is a UI task's payload, rebuilt when the package is.
 
@@ -845,7 +850,7 @@ Ruled 6 November 2026:
 7. **Nothing holds Apply unseen** (#1527). The Record is one of the builders #1527 covers. Every refusal holding Apply, a new row's empty required field or the app's `ready` refusal, is listed and reachable (AD3, IN3, IN9). Every new row the Record makes, by Add or Duplicate, takes `newRow`'s values (AD2, IN7).
 8. **The Record's grid is the Sheet's, through its host** (ruled 6 November 2026). The Sheet's machine is one hook whose grid reads its state where it builds it. Rather than lift that state into hooks for a second grid, the host hands the grid the Record's rows, header, gutter and bands, and the kinds' own gestures live in the shared input by kind.
 9. **A new record's key is the app's** (ruled 6 November 2026). `newKey` gives it, and it is the Sheet's own option, typed over the rows' key and given the keys taken, in place of its `newRowId`. Without it a String key is a UUID, as every e3-ui builder mints one, the Sheet's included, and any other key needs `newKey` (§2.7).
-10. **No draft the Record can't apply** (ruled 6 November 2026). A required field no person can set comes from the app. The build refuses one with no `newRow`, and an Add whose `newRow` leaves it empty drafts nothing. The check belongs to the Sheet's root, so the Sheet takes it too, for every entry: a row or a line from `newRow`, a group from `newGroup` (§2.7).
+10. **No draft the Record can't apply** (ruled 6 November 2026). A required field no person can set comes from the app. The build refuses one with no `newRow`, and an Add whose `newRow` leaves it empty drafts nothing. The check belongs to the Sheet's root, so the Sheet takes it too, for every entry: a row or a line from `newRow`, a group from `newGroup` (§2.7). The editing declaration carries each such field with its label, the inspector form's, so the status line names it whether or not the sheet has an inspector (§5).
 
 Open, for review:
 

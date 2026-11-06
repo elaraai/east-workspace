@@ -32,6 +32,21 @@ export interface SheetEditingInput {
     applyKeyed?: unknown;
     /** The session's source identity, when e3-ui's record forms name it (#1182). */
     sourceId?: unknown;
+    /** A new row's (a line's) and a new group's required fields no person can set, each with its label (#1536). */
+    unsettable?: { row: readonly SheetUnsettableInput[]; group: readonly SheetUnsettableInput[] };
+}
+
+/**
+ * One field only the app gives a new entry, as the root finds it (#1536) — what
+ * crosses as a `SheetUnsettableType`.
+ *
+ * @internal
+ */
+export interface SheetUnsettableInput {
+    /** The field's name. */
+    field: string;
+    /** What the sheet calls it: a hint's label, a column's header (a literal or an expression), or the name spelled out. */
+    label: SubtypeExprOrValue<StringType>;
 }
 
 /** Validate a behavior prop against its exact East signature. */
@@ -236,6 +251,7 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
         driverColumn: driverColumn === undefined ? none : some(driverColumn),
         newRow: newRow === undefined ? none : some(newRow),
         newGroup: newGroup === undefined ? none : some(newGroup),
+        unsettable: { row: [...input.unsettable?.row ?? []], group: [...input.unsettable?.group ?? []] },
         sourceId, entryType: toEastTypeValue(rowType), draftType: toEastTypeValue(draftType),
         idField: idField !== undefined ? some(idField) : none,
         children: field !== undefined ? some(field) : none,

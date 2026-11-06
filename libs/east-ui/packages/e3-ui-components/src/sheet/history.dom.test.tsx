@@ -16,10 +16,11 @@ import { EastChakraSheet, type SheetValue } from "./frame/index.js";
 import { boundFrame } from "./frame.test-utils.js";
 import { sheetJournal } from "./journal.test-utils.js";
 
-const Row = StructType({ id: StringType, qty: IntegerType, hidden: StringType });
+// A row's note is typed in its own column (#1536): a new row given a quantity alone is still incomplete.
+const Row = StructType({ id: StringType, qty: IntegerType, note: StringType });
 const program = East.function([], SheetPayloadType, ($) => {
-    const data = $.const(State.bind([ArrayType(Row)], "sheet-history-dom", [{ id: "a", qty: 1n, hidden: "preserve" }]));
-    return Sheet.Payload({ data, columns: { qty: Sheet.column.integer(Row, { header: "Quantity" }) }, id: "id", onUpdate: data.write });
+    const data = $.const(State.bind([ArrayType(Row)], "sheet-history-dom", [{ id: "a", qty: 1n, note: "preserve" }]));
+    return Sheet.Payload({ data, columns: { qty: Sheet.column.integer(Row, { header: "Quantity" }), note: Sheet.column.text(Row, { header: "Note" }) }, id: "id", onUpdate: data.write });
 }).toIR().compile(StateImpl);
 const view = (): SheetValue => program();
 const quantity = () => {

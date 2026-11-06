@@ -91,6 +91,8 @@ const sheet = (opts: { views?: readonly View[]; activeView?: string } = {}) => (
             Sheet.library.tab(operations.read(), { name: "Operations", key: (_t, k) => k, label: (t) => t.name, source: "rowTemplates" }),
         ],
         onApply: Record.onApply(orders, { keyed: true }),
+        // No column sets an operation's machines, nor a band cell an order's customer (#1536): the sheet edits the orders, and adds none.
+        edits: { insertRows: false, insertGroups: false },
     });
 }))) });
 

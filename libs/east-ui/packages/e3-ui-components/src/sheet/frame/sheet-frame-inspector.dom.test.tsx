@@ -87,7 +87,9 @@ const selectsPayload = East.function([], SheetPayloadType, ($) => {
         columns: {
             activity: Sheet.column.enum(ex.WorkshopOperation, "words", { header: "Activity", options: firstTwo }),
             notes:    Sheet.column.enum(ex.WorkshopOperation, "words", { header: "Notes" }),
-        } });
+        },
+        // The form shows an operation's machines read only (#1536): the sheet adds no lines.
+        edits: { insertRows: false } });
 });
 
 /**
