@@ -8,7 +8,7 @@
  * which needs one as it loads (#1179).
  */
 
-import { expect, test, vi } from "vitest";
+import { expect, test } from "vitest";
 import { ArrayType, IntegerType, StringType, StructType, none, some, variant } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui/internal";
 import { discardDraft, draftChanges, draftPresentation } from "./draft-state.js";
@@ -25,7 +25,7 @@ const version = (id: string, qty = 1n): EntryVersion => ({
     place: some(variant("ordered", variant("end", null))),
 });
 const binding = (overrides: Partial<SheetTransactionBinding> = {}): SheetTransactionBinding => ({
-    sourceId: "draft-discard", entryType: Row, draftType: Draft, auto: false,
+    sourceId: "draft-discard", entryType: Row, draftType: Draft,
     apply: () => variant("applied", { revision: some("r2") }), patch: undefined, refresh: undefined,
     ...overrides,
 });
@@ -131,20 +131,4 @@ test("another Sheet's unresolved request disables draft discard", () => {
     expect(draftPresentation(session, Draft, undefined, "new").discardable).toBe(false);
     expect(discardDraft(session, Draft, undefined, "new")).toBe(false);
     expect(session.pending).toBe(1);
-});
-
-test.each([true, false])("discard never invokes onApply when removing an incomplete row unblocks automatic mode (queued work drained: %s)", async (drained) => {
-    const apply = vi.fn(() => variant("applied", { revision: some("r2") }));
-    const session = create({ auto: true, apply });
-    const incomplete: EntryVersion = { ...version("new"), draft: {
-        id: variant("value", "new"), qty: variant("value", 1n), hidden: variant("missing", null),
-    } };
-    session.record([{ id: "new", before: absent, after: incomplete }], "insert", "Add incomplete row");
-    session.record([{ id: "a", before: version("a"), after: version("a", 7n) }], "typed", "Edit existing row");
-    if (drained) await Promise.resolve();
-    expect(apply).not.toHaveBeenCalled();
-    expect(discardDraft(session, Draft, undefined, "new")).toBe(true);
-    await Promise.resolve();
-    expect(session.canApply).toBe(true);
-    expect(apply).not.toHaveBeenCalled();
 });

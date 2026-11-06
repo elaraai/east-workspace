@@ -219,23 +219,6 @@ test("a range down the action column takes a case on every row of it, as one tra
     expect(stateOf(cellOf(container, "T-302", "action"))).toBe("acknowledged");
 });
 
-test("in auto mode an action is saved as it is taken: its dot's echo runs until e3 has the commit, then the tint clears (T5, N2)", async () => {
-    const { container } = await h.mount(ex.sheetActionsTickets);
-    const saving = h.e3.hold((request) => request.kind === "mutate");
-    await press(nextOf(cellOf(container, "T-301", "action"))!);
-    await act(async () => { await saving.holding; });
-    await settle();
-    const dot = () => cellOf(container, "T-301", "action").querySelector('[data-slot="actionDot"]');
-    expect(dot()?.getAttribute("data-live")).toBe("");
-    saving.release();
-    await settle();
-    await act(async () => { await h.e3.idle(); });
-    await settle();
-    expect(dot()?.getAttribute("data-live")).toBeNull();
-    const tickets = await h.read(ex.sheetTickets);
-    expect(tickets.get("T-301")!.action).toEqual(some(variant("acknowledged", null)));
-});
-
 test("a taken action's words tint as a draft until Save (ST3, ST6)", async () => {
     const { container } = await h.mount(ex.sheetActionsBasic);
     const state = () => cellOf(container, "J-0003", "state").querySelector('[data-slot="actionState"]');

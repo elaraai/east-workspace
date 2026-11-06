@@ -121,17 +121,6 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             flex: "none",
             borderRadius: "full",
             background: "var(--action-dot)",
-            position: "relative",
-            /* While an auto save is in flight, an echo of the dot (N2). */
-            "&[data-live]::after": {
-                content: '""',
-                position: "absolute",
-                inset: 0,
-                borderRadius: "full",
-                background: "var(--action-dot)",
-                animation: "elara-live-pulse calc({durations.slow} * 4) {easings.out} infinite",
-                _motionReduce: { animation: "none" },
-            },
         },
         /* What follows the state (S7). */
         summary: {

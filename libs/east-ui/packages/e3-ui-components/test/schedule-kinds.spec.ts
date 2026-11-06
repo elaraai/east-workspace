@@ -384,7 +384,6 @@ describe("Schedule.events — the shared session over the record", () => {
         if (read.type !== "some") assert.fail("expected s2 read by its key");
         assert.ok(shiftEqual(decodeShift(read.value), shifts.get("s2")!));
         assert.equal(editing.readEntry("s7", 0n).type, "none");
-        assert.equal(editing.mode.type, "batch");
     });
 
     test("commits each Apply through the record's patch door, keyed, at the state it writes", async () => {

@@ -189,13 +189,6 @@ describe("the Plan's refusals (PB8)", () => {
         assert.match(refusal(($) => Plan.Payload({ axis, data: $.const(ROWS, Rows), series: [MARKS], canDrop: candidate })),
             /^Plan: `canDrop` over Schedule\.Types\.Candidate vets an event kind's drop, and this Plan has no event kinds$/);
     });
-
-    test("an `applyMode` that is neither batch nor auto, or with no event kinds", () => {
-        assert.match(refusal(($) => Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: jobsOf($) }, applyMode: "sometimes" as never })),
-            /^Plan: `applyMode` is "batch" or "auto" — and it is "sometimes"$/);
-        assert.match(refusal(($) => Plan.Payload({ axis, data: $.const(ROWS, Rows), series: [MARKS], applyMode: "auto" })),
-            /^Plan: `applyMode` says when the event kinds' drafts go, and this Plan has none — `data`'s session takes `editing\.mode`$/);
-    });
 });
 
 describe("its narrowing (#1344): one Slice.bindRecords, each source named after what it narrows", () => {

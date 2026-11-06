@@ -53,7 +53,7 @@ const version = (id: string, end: bigint): EntryVersion<string> => ({ draft: lif
 /** A session over runs each ending at 1, each drafted to end at 4. */
 function drafted(ids: readonly string[]): EditSession<string> {
     const session = new EditSession<string>({
-        sourceId: "runs", entryType: Run, draftType: Draft, idField: "id", auto: false,
+        sourceId: "runs", entryType: Run, draftType: Draft, idField: "id",
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("snapshot", ids.map((id) => ({ id, end: 1n }))));
@@ -353,7 +353,7 @@ const booking = (from: number, to: number): EntryVersion<string> => ({ draft: li
 
 test("an item moved both ways is one card — its dates whole on each side — and one choice settles both, one step Undo takes back", async () => {
     const session = new EditSession<string>({
-        sourceId: "bookings", entryType: Booking, draftType: BookingDraft, idField: "id", auto: false, ranges: [{ start: "start", end: "end" }],
+        sourceId: "bookings", entryType: Booking, draftType: BookingDraft, idField: "id", ranges: [{ start: "start", end: "end" }],
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("snapshot", [{ id: "B1", start: day(16), end: day(20) }]));
@@ -382,7 +382,7 @@ test("an entry drafted whole, as a schedule's kinds draft their rows, reads its 
     const WholeDraft = EditingDraftFieldType(Booking);
     const whole = (from: number, to: number): EntryVersion<string> => ({ draft: liftDraft(WholeDraft, { id: "B1", start: day(from), end: day(to) }), wire: "B1", place: start });
     const session = new EditSession<string>({
-        sourceId: "bookings", entryType: Booking, draftType: WholeDraft, idField: "id", auto: false, ranges: [{ start: "start", end: "end" }],
+        sourceId: "bookings", entryType: Booking, draftType: WholeDraft, idField: "id", ranges: [{ start: "start", end: "end" }],
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("snapshot", [{ id: "B1", start: day(16), end: day(20) }]));
@@ -406,7 +406,7 @@ const bin = (m3: bigint): EntryVersion<string> => ({ draft: liftDraft(BinDraft, 
 
 test("a quantity changed both ways is one card under its own name — the split that follows it on it — and one choice settles both", async () => {
     const session = new EditSession<string>({
-        sourceId: "bins", entryType: Bin, draftType: BinDraft, idField: "id", auto: false, together: [{ lead: "m3", with: ["kilns"], label: "Quantity" }],
+        sourceId: "bins", entryType: Bin, draftType: BinDraft, idField: "id", together: [{ lead: "m3", with: ["kilns"], label: "Quantity" }],
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("snapshot", [binOf(20n)]));
@@ -455,7 +455,7 @@ test("a number reads in mono; absence in words, in the absent style", async () =
 
 test("a long text reads two lines, and Show all opens both in place, the words that differ marked in each", async () => {
     const session = new EditSession<string>({
-        sourceId: "notes", entryType: Note, draftType: NoteDraft, idField: "id", auto: false,
+        sourceId: "notes", entryType: Note, draftType: NoteDraft, idField: "id",
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("snapshot", [{ id: "n1", note: BEGAN }]));
@@ -481,7 +481,7 @@ test("while the newest data is read, the head counts nothing: the live dot says 
     const ShiftDraft = Editing.Types.Draft(Shift);
     const shift = (hours: bigint): EntryVersion<string> => ({ draft: liftDraft(ShiftDraft, { hours }), wire: "s1", place: some(variant("keyOrder", null)) });
     const session = new EditSession<string>({
-        sourceId: "shifts", entryType: Shift, draftType: ShiftDraft, keyType: StringType, auto: false,
+        sourceId: "shifts", entryType: Shift, draftType: ShiftDraft, keyType: StringType,
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("revision", "r1"));

@@ -35,7 +35,7 @@ const version = (run: RunValue): EntryVersion<Bar> => ({
 });
 const create = (overrides: Partial<EditSessionBinding<Bar>> = {}) => {
     const session = new EditSession<Bar>({
-        sourceId: "bars", entryType: Run, draftType: Draft, idField: "id", auto: false,
+        sourceId: "bars", entryType: Run, draftType: Draft, idField: "id",
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined, ...overrides,
     });
     session.observeBase(variant("snapshot", [a]));
@@ -101,7 +101,7 @@ test("an Array batch places anchors first, so Apply leaves the drafted order whi
     const at = (id: string, place: Placement): EntryVersion<Bar> => ({ draft: liftDraft(TileDraft, { id }), wire: { key: id, caption: id }, place });
     const batches: ValueTypeOf<typeof TileBatch>[] = [];
     const session = new EditSession<Bar>({
-        sourceId: "tiles", entryType: Tile, draftType: TileDraft, idField: "id", auto: false, patch: undefined, refresh: undefined,
+        sourceId: "tiles", entryType: Tile, draftType: TileDraft, idField: "id", patch: undefined, refresh: undefined,
         apply: (bytes) => { batches.push(decodeBeast2For(TileBatch)(bytes)); return variant("applied", { revision: none }); },
     });
     session.observeBase(variant("snapshot", [{ id: "p" }, { id: "a" }, { id: "b" }, { id: "q" }]));
@@ -150,7 +150,7 @@ const spray = { task: "Spray finish", qty: 6n };
 /** A keyed session over the jobs, read whole, or at a revision when `revision` names the one it is at. */
 const keyed = (revision?: string) => {
     const session = new EditSession<Bar>({
-        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, auto: false,
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType,
         apply: () => variant("applied", { revision: some("r2") }), patch: undefined, refresh: undefined,
     });
     session.observeBase(revision === undefined ? variant("snapshot", jobs([["J1", cut], ["J2", band], ["J3", route]])) : variant("revision", revision));
@@ -274,7 +274,7 @@ test("an entry the record still holds as its edit began never confirms, though t
     const order = (ops: string[]): EntryVersion<Bar> => ({ draft: liftDraft(OrderDraft, { name: "WO-1", ops }), wire: { key: "WO-1", caption: ops.join(" · ") }, place: keyOrder });
     const orders = (ops: string[]) => new SortedMap([["WO-1", { name: "WO-1", ops }]], compareFor(StringType));
     const session = new EditSession<Bar>({
-        sourceId: "orders", entryType: Order, draftType: OrderDraft, keyType: StringType, auto: false,
+        sourceId: "orders", entryType: Order, draftType: OrderDraft, keyType: StringType,
         apply: () => variant("applied", { revision: some("r2") }), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("snapshot", orders(["Cut", "Band"])));
@@ -288,7 +288,7 @@ test("an entry the record still holds as its edit began never confirms, though t
 test("a move alone confirms at the revision it committed: its entry's value is not the change, its place is (#1185)", async () => {
     const moved = some(variant("ordered", variant("end", null)));
     const session = new EditSession<Bar>({
-        sourceId: "bars", entryType: Run, draftType: Draft, idField: "id", auto: false,
+        sourceId: "bars", entryType: Run, draftType: Draft, idField: "id",
         apply: () => variant("applied", { revision: some("r2") }), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("revision", "r1"));
@@ -360,7 +360,7 @@ const said = (entry: string) => ({ entry, row: none, field: none, message: `Chan
 /** A keyed session over the jobs at revision r1, whose Save the source answers with `issues`, a conflict. */
 const conflicting = (issues: ReturnType<typeof said>[]) => {
     const session = new EditSession<Bar>({
-        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, auto: false,
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType,
         apply: () => variant("conflict", issues), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("revision", "r1"));
@@ -418,7 +418,7 @@ test("a conflict whose entries all still take their changes, from a source that 
 
 test("a snapshot's conflict is named by its source, and a gesture after a revision's ends its naming (#1199)", async () => {
     const whole = new EditSession<Bar>({
-        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, auto: false,
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType,
         apply: () => variant("conflict", [said("J1")]), patch: undefined, refresh: undefined,
     });
     whole.observeBase(variant("snapshot", jobs([["J1", cut], ["J2", band], ["J3", route]])));
@@ -471,7 +471,7 @@ test("a view preparation is handed the rows its request began from, at its base,
     let began: HeldRows | undefined;
     let confirmed: HeldRows | undefined;
     const session = new EditSession<Bar>({
-        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, auto: false,
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType,
         apply: () => variant("applied", { revision: some("r2") }), patch: undefined, refresh: undefined,
         prepare: async (_targets, held) => { began = held; return (read) => { confirmed = read; }; },
     });
@@ -601,7 +601,7 @@ const lastConflict = (): Answer => variant("conflict", [recordIssue, said("J1")]
 const answering = (answers: Answer[]) => {
     const bases: string[] = [];
     const session = new EditSession<Bar>({
-        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, auto: false,
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType,
         apply: (bytes) => {
             const base = decodeBeast2For(JobBatch)(bytes).base;
             bases.push(base.type === "revision" ? base.value : "snapshot");
@@ -702,7 +702,7 @@ const benchDraftOf = (version: EntryVersion<Bar> | undefined) => version?.draft 
 /** A keyed session over the benches at revision r1, one job moved off bench B1 and drafted. */
 const movedOff = () => {
     const session = new EditSession<Bar>({
-        sourceId: "benches", entryType: Bench, draftType: BenchDraft, keyType: StringType, auto: false,
+        sourceId: "benches", entryType: Bench, draftType: BenchDraft, keyType: StringType,
         apply: () => variant("applied", { revision: some("r3") }), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("revision", "r1"));
@@ -777,7 +777,7 @@ test("another write to another part, while a conflict stands, is carried over be
 
 test("settling every conflict one way is one step of the history", () => {
     const session = new EditSession<Bar>({
-        sourceId: "benches", entryType: Bench, draftType: BenchDraft, keyType: StringType, auto: false,
+        sourceId: "benches", entryType: Bench, draftType: BenchDraft, keyType: StringType,
         apply: () => variant("applied", { revision: some("r3") }), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("revision", "r1"));
@@ -811,7 +811,7 @@ const late: DutyValue = { start: 14n, end: 22n, shift: "late", person: "w1" };
  */
 const carriedDuty = (mine: DutyValue, theirs: DutyValue) => {
     const session = new EditSession<Bar>({
-        sourceId: "duties", entryType: Duty, draftType: DutyDraft, keyType: StringType, auto: false,
+        sourceId: "duties", entryType: Duty, draftType: DutyDraft, keyType: StringType,
         apply: () => variant("applied", { revision: some("r3") }), patch: undefined, refresh: undefined,
         ranges: [{ start: "start", end: "end", with: ["shift"] }],
     });

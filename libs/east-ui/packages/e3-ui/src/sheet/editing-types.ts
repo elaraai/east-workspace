@@ -9,10 +9,7 @@ import { EditingSessionFields } from "@elaraai/east-ui/internal";
 import { SheetNewRowType, SheetNewGroupType, SheetReadinessType } from "./transactions.js";
 import { SheetEditsType } from "./edits.js";
 
-export {
-    EditingWireApplyType as SheetWireApplyType,
-    EditingApplyModeType as SheetApplyModeType,
-} from "@elaraai/east-ui/internal";
+export { EditingWireApplyType as SheetWireApplyType } from "@elaraai/east-ui/internal";
 
 /** A constructor's exact field draft and its visible projection. @internal */
 export const SheetSeedType = StructType({ draft: BlobType, row: BlobType });

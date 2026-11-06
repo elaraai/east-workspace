@@ -190,7 +190,7 @@ function elementKeysOf(rows: readonly PlanRowValue[]): Set<string> {
 const INERT: EditingValue = {
     sourceId: "plan:no-editing", entryType: toEastTypeValue(NullType), idField: none,
     draftType: toEastTypeValue(NullType), children: none, keyType: none, snapshot: none,
-    readEntry: () => none, onPatch: none, onApply: none, mode: variant("batch", null),
+    readEntry: () => none, onPatch: none, onApply: none,
 };
 
 /** Whether two paged sources derive the same rows — the paging driver's test (#809). */

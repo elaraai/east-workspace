@@ -44,7 +44,7 @@ type Source = keyof typeof SOURCES;
 function session(source: Source, overrides: Partial<EditSessionBinding<string>> = {}): EditSession<string> {
     const { id, job: value } = SOURCES[source];
     const made = new EditSession<string>({
-        sourceId: source, entryType: Job, draftType: JobDraft, keyType: StringType, auto: false,
+        sourceId: source, entryType: Job, draftType: JobDraft, keyType: StringType,
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined, ...overrides,
     });
     made.observeBase(variant("snapshot", held([[id, value]])));
@@ -203,7 +203,7 @@ test("a write with no answer leaves its session unknown: Save is Retry for it al
     });
     const shiftsSent: number[] = [];
     sessions.shifts.bind({
-        sourceId: "shifts", entryType: Job, draftType: JobDraft, keyType: StringType, auto: false, patch: undefined, refresh: undefined,
+        sourceId: "shifts", entryType: Job, draftType: JobDraft, keyType: StringType, patch: undefined, refresh: undefined,
         apply: () => { shiftsSent.push(1); return variant("applied", { revision: none }); },
     });
     history.record([rename("jobs", "Spring catalogue", "One")], "typed", "Edit job");

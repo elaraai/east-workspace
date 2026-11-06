@@ -429,7 +429,6 @@ test("entryIds lists a window's entries in the source's order, and readEntry rea
 test("the declaration names the canvas's entries â€” their type and key, whole-entry drafts, and the snapshot a batch begins from", () => {
     assert.equal(inline.idField.type, "none");
     assert.equal(inline.keyType.type, "some");
-    assert.equal(inline.mode.type, "batch");
     assert.equal(inline.onApply.type, "none");
     assert.equal(inline.onPatch.type, "none");
     assert.equal(inline.ready.type, "none");
@@ -557,9 +556,8 @@ test("onApply receives the change set at the canvas's own entry and key types â€
         const data = $.const(SEED, Halls);
         const onApply = $.const(East.function([Batch], Editing.Types.ApplyResult, (_$, batch) =>
             variant("applied", { revision: some(batch.requestId) })));
-        return Plan.Root({ axis, data, series: SERIES, editing: { onApply, mode: "auto" } });
+        return Plan.Root({ axis, data, series: SERIES, editing: { onApply } });
     }).toIR().compile([])());
-    assert.equal(sync.mode.type, "auto");
     assert.ok(sync.onApply.type === "some" && sync.onApply.value.type === "sync");
     if (sync.onApply.type === "some" && sync.onApply.value.type === "sync") {
         const result = sync.onApply.value.value(encodeBatch(dropOnP03("r1", variant("snapshot", SEED))));

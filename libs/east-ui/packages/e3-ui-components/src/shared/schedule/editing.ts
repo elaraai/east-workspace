@@ -243,8 +243,6 @@ export interface ScheduleEditingArgs<I extends Item = Item> {
      * finds an entry as before it, and what a Save confirms its entries by, before any is read by its key.
      */
     reads?: Readonly<Record<string, ScheduleRowRead>> | undefined;
-    /** When their drafts go: on Save, or as each gesture lands. */
-    applyMode: "batch" | "auto";
     /** The canvas's storage key: the sessions and their history are kept under it. */
     storageKey: string;
     /** Sessions made elsewhere that join the history, ahead of the kinds': `data`'s. */
@@ -349,10 +347,10 @@ function sameDrafts(a: ScheduleEventDraftsValue, b: ScheduleEventDraftsValue): b
  * The event kinds' sessions and the records' under one history with the
  * joined ones — see the module docs.
  *
- * @param args - The kinds, the records beside them, when their drafts go, the canvas's storage key, the sessions that join, and the range the canvas reads
+ * @param args - The kinds, the records beside them, the canvas's storage key, the sessions that join, and the range the canvas reads
  * @returns The history, the kinds' and the records' sessions and drafts, how an event is read, and how a gesture is recorded
  */
-export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_RECORDS, reads, applyMode, storageKey, joined, range, recordSlices, held: cellRows, quantityLabel }: ScheduleEditingArgs<I>): ScheduleEditing<I> {
+export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_RECORDS, reads, storageKey, joined, range, recordSlices, held: cellRows, quantityLabel }: ScheduleEditingArgs<I>): ScheduleEditing<I> {
     // The history, as the kinds' checks read their originals through it.
     const historyRef = useRef<EditHistory<ScheduleEntryRef> | undefined>(undefined);
     // The latest rows the kinds' cells hold: the kinds' reads read them as they run, so new cells make no new kinds.
@@ -383,11 +381,11 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
             },
         };
     }), [parts]);
-    // Each kind's source and each record's: its closed editing, sent as each gesture lands in auto mode; a kind's author's
-    // check over drafted events; and, for one read a window at a time (#1199), its record read by key — its revision the
-    // session's base, and an entry read by its key, decoded.
+    // Each kind's source and each record's: its closed editing; a kind's author's check over drafted events; and, for
+    // one read a window at a time (#1199), its record read by key — its revision the session's base, and an entry read
+    // by its key, decoded.
     const sources = useMemo(() => parts.map((kind, i): EditHistorySource<ScheduleEntryRef> => {
-        const editing = applyMode === "auto" ? { ...kind.editing, mode: variant("auto", null) } : kind.editing;
+        const editing = kind.editing;
         // The Slice over this kind's own record, if one narrows it: its Save notice counts what leaves it.
         const prepare = prepareRecordSliceSave(recordSlices?.find(slice => stringEqual(slice.sourceId, editing.sourceId)),
             kind.entries.type === "some" ? kind.entries.value.revision : undefined);
@@ -431,7 +429,7 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
             },
         };
         return { editing, ready, paged, prepare, wireType: EntryRefType, ranges, together };
-    }), [parts, codecs, applyMode, storageKey, recordSlices, quantityLabel]);
+    }), [parts, codecs, storageKey, recordSlices, quantityLabel]);
     const state = useEditHistory<ScheduleEntryRef>(sources, storageKey, joined);
     historyRef.current = state.history;
     const { history, keys, version } = state;

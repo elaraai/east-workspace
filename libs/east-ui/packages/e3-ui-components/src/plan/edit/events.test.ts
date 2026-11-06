@@ -38,7 +38,7 @@ function windowed(last: option<option<string>>): PlanEventEditingArgs["kinds"] {
         editing: {
             sourceId: "runs", entryType: toEastTypeValue(Run), idField: none, draftType: toEastTypeValue(EditingDraftFieldType(Run)),
             children: none, keyType: some(toEastTypeValue(IntegerType)), snapshot: none, readEntry: () => none, onPatch: none,
-            onApply: some(variant("sync", () => variant("applied", { revision: some("r2") }))), mode: variant("batch", null),
+            onApply: some(variant("sync", () => variant("applied", { revision: some("r2") }))),
         },
         ready: none,
         entries: some({ revision: () => some("r1"), refresh: () => null, entry: () => some(none), last: () => last }),
@@ -53,7 +53,7 @@ beforeEach(() => { initializeStore(new UIStore()); });
 
 describe("a new Integer key, for a kind read a window at a time (#1199)", () => {
     test("is the first past the record's largest, read by its key order — none until that read lands — and past the keys a gesture made", () => {
-        const { result, rerender } = renderHook(({ kinds }) => usePlanEventEditing({ kinds, applyMode: "batch", storageKey: "plan-mint", joined: [] }),
+        const { result, rerender } = renderHook(({ kinds }) => usePlanEventEditing({ kinds, storageKey: "plan-mint", joined: [] }),
             { initialProps: { kinds: windowed(none) } });
         // The largest key is still in flight: no key yet.
         expect(result.current.mint("run", "7", new Set())).toBeUndefined();

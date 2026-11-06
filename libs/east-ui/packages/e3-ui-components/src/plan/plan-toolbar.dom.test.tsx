@@ -169,7 +169,7 @@ const SEARCH: NonNullable<PlanChrome["search"]> = {
 function historyProps(): HistoryBarProps<PlanEntryRef> & { session: EditSession<PlanEntryRef> } {
     const Run = StructType({ id: StringType, end: IntegerType });
     const session = new EditSession<PlanEntryRef>({
-        sourceId: "runs", entryType: Run, draftType: Editing.Types.Draft(Run), idField: "id", auto: false,
+        sourceId: "runs", entryType: Run, draftType: Editing.Types.Draft(Run), idField: "id",
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     const noop = () => {};

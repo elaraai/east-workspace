@@ -692,3 +692,14 @@ Each wire changed under this rule, with the kind it is.
   repository upgrade step ships with it. The `Record` extension and
   `Record.Types.Change`, the last change a row's field holds for an audit
   column, are new: no earlier release wrote either, so no form of them moves.
+- **east-ui's editing session loses its apply mode: every edit waits for
+  Save** — package-borne. The shared session's fields (`EditingSessionFields`:
+  east-ui's `EditingType` and `SnapGridEditingType`, e3-ui's `PlanEditingType`
+  and `SheetEditingType`) lose `mode`, which chose between Save and applying
+  each ready gesture as it landed, and e3-ui's Plan settings
+  (`PlanSettingsType`) lose `applyMode`, keeping `date`. They travel in
+  east-ui's `SnapGrid` arm and in every e3-ui builder's payload, each Schedule
+  kind's session among them, so a UI value encoded under either type does not
+  decode under the other: packages are re-exported, and the dataflow computes
+  each UI task's output again under the new type. A UI task's output is not
+  stored state, so no repository upgrade step ships with it.

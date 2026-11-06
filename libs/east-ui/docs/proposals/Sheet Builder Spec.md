@@ -97,7 +97,7 @@ These are settled; the proposal was approved on 2026-10-04.
    discarded, per entry.
    *Amended (2026-10-07, the user's ruling, #1260):* the commit decisions 4
    and 5 call Apply reads Save, as every builder's does. Apply stays the
-   API's word: `onApply`, `Record.onApply`, `applyMode`, `Sheet.apply`.
+   API's word: `onApply`, `Record.onApply`, `Sheet.apply`.
 6. **The library is the author's** (amended 2026-10-05, on the live
    showcase): `library` lists its tabs, in order, each a `Sheet.library.*`
    call — `rows()` (templates, and on a grouped sheet groups with their
@@ -414,7 +414,7 @@ sheet already has.
 | `data`, `id`, `onApply`, `onUpdate` | as the east-ui `<Sheet>`'s | The host's rows (#1216): an array, a bind handle or a paged source, `id` their String identity field, edited through `onApply` / `onUpdate` (and `onPatch`), read only with none. Over a record, `id`, `onApply` and `onUpdate` are refused: the record identifies and commits its rows. |
 | `entry` | `{ key, rows, id }` | The rows are one entry's Array field (`rows`, a field name) with `id` their String identity field. `key` may be an expression, such as the entry the viewer picked. Omitted, the entries are the rows. |
 | `window` | `Data.bindPaged(rec)` | Reads a large record a window at a time, in the entries form. |
-| `columns`, `group`, `subRows`, `driver`, `registers`, `owned`, `suggest`, `ready`, `newRow`, `newGroup`, `newKey`, `edits`, `applyMode`, `onPatch`, `slice`, `affordances`, `activeView`, `blanks`, `readOnly`, `density`, `footer` | as `<Sheet>`'s | Unchanged (`Sheet Spec.md` §3). The row type the columns are built over is the entries' (or, with `entry`, the rows field's element type); a grouped sheet's columns are over its line type, as today. |
+| `columns`, `group`, `subRows`, `driver`, `registers`, `owned`, `suggest`, `ready`, `newRow`, `newGroup`, `newKey`, `edits`, `onPatch`, `slice`, `affordances`, `activeView`, `blanks`, `readOnly`, `density`, `footer` | as `<Sheet>`'s | Unchanged (`Sheet Spec.md` §3). The row type the columns are built over is the entries' (or, with `entry`, the rows field's element type); a grouped sheet's columns are over its line type, as today. |
 | `views` | a bind handle of `Array<Sheet.Types.View>` | The saved views, read and written by the builder: a `State.bind` to keep them per viewer, or a `Data.bind` dataset to share them. |
 | `templates` | `{ rows?, groups? }` | The Rows tab's cards (§4.2). |
 | `library` | `Sheet.library.*` calls | The library's tabs, in order (§4.4); left out, or `[]`, no library pane. |
@@ -837,8 +837,8 @@ the grid.
   Discard, and nothing is rebased.
 - **SB30.** Sessions live in the UI store by source, so a remount finds the
   drafts; with `entry` each entry keeps its own until Save or Discard.
-- **SB31.** `applyMode: "auto"` sends each ready gesture as it lands, through
-  the same protocol; Undo then commits the inverse.
+- **SB31.** Retired (2026-11-06): every edit waits for Save; there is no
+  apply mode.
 
 ### 9.7 The library pane (owner: the library pane)
 

@@ -127,7 +127,7 @@ export const editHistorySlotRecipe = defineSlotRecipe({
             display: "inline-flex", alignItems: "center", gap: "2px", fontFamily: "mono", fontSize: "11px", fontWeight: "600", color: "fg.warning",
             "& svg": { color: "status.warn" },
         },
-        /* Save's live dot while it is out: an echo of the dot, as an auto save's. */
+        /* Save's live dot while it is out: an echo of the dot. */
         live: {
             position: "relative", width: "8px", height: "8px", borderRadius: "full", background: "currentColor",
             "&::after": {

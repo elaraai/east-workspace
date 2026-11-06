@@ -49,7 +49,7 @@ The cell, left to right: **left zone** (the state, then its summary) · **next h
 
 - **ST4** Selected wins over dirty for the fill (`--paper-3`); dirty text stays `--brand-dd`.
 - **ST5** The cursor is the pointer on the next half and the ▾ part, and the default on the left zone.
-- **ST6** Dirty cells: the action cell, every cell whose value `sets` changed (Good, Done) and every band cell the group patch changed. The tint clears on Save in batch mode, or when the save lands in auto mode.
+- **ST6** Dirty cells: the action cell, every cell whose value `sets` changed (Good, Done) and every band cell the group patch changed. The tint clears on Save.
 
 ## 3 · Pointer
 
@@ -124,8 +124,8 @@ The cell, left to right: **left zone** (the state, then its summary) · **next h
 | T1 | Taking an action is one transaction, origin `action`: the field's new value, the row patch from `sets` and its group patch. Undo and redo restore all three together |
 | T2 | After taking, the ring sits on the action cell, which redraws at once with the new state and offer. Rows whose offer depends on it update in the same frame (step 30 offers Start once 20 completes) |
 | T3 | The toolbar message is `aria-live="polite"`: `{state} step {op} · set {facts}` · `Undid one action and everything it set` · `Redid one action and everything it set` · `Saved {n} changes` |
-| T4 | `applyMode="batch"`: changes stay dirty until Save. Save is Default sm 24 with a count chip (the dirty cells), and is disabled at 0 |
-| T5 | `applyMode="auto"`: each action is sent as it is taken. The action cell's state dot runs the live pulse (N2) until the save is acknowledged; the toolbar shows a `Saving` Status with a live `--brand` dot, then `Saved` with a `--pos` dot, and the tint clears. A failed save raises the Sheet's banner, never a toast. **Not in the prototype**: failure |
+| T4 | Changes stay dirty until Save. Save is Default sm 24 with a count chip (the dirty cells), and is disabled at 0. A failed save raises the Sheet's banner, never a toast. **Not in the prototype**: failure |
+| T5 | Retired (6 November 2026): an action waits for Save, as every edit does (T4) |
 | T6 | On a row whose draft is incomplete, the controls are disabled (ST2) and the strip says what is missing (`Fill Plan before starting`). **Not in the prototype** |
 | T7 | ⌫, paste and fill never change an action cell, as with a stamped cell. A way back is an action the author declares |
 | T8 | A range over action cells offers what every selected row offers. Taking it is one transaction across them; a form asks once. **Not in the prototype** |
@@ -136,7 +136,7 @@ The cell, left to right: **left zone** (the state, then its summary) · **next h
 | Id | Specification |
 |---|---|
 | N1 | Changes of fill and ink take `--dur-fast` (120 ms), `--ease-out`, with no lift, scale or shadow |
-| N2 | Live pulse while an auto save is in flight: an echo of the 8px dot, in its colour, scales 1 → 2.5 and fades 0.6 → 0 over the first 25% of a `calc(var(--dur-slow) * 4)` cycle, `--ease-out`, infinite. The dot itself never moves. Under `prefers-reduced-motion` the echo is off |
+| N2 | Retired (6 November 2026), with T5 |
 | N3 | Overlays appear and disappear at once (M7) |
 | N4 | A change of state redraws at once, with no fade-in of the new state or controls |
 | N5 | The preview has a 120 ms dwell and a 120 ms leave grace (P8) |
@@ -174,5 +174,5 @@ Applies on a coarse pointer, and at a frame width of 560 or less.
 | X9 | Taps only: no swipe-to-act and no long-press. A swipe scrolls the rows; a double-tap does what a tap does |
 | X10 | Safe areas: the bar adds `env(safe-area-inset-bottom)` to its bottom padding; the toolbar adds `env(safe-area-inset-top)` when the sheet runs full screen |
 | X11 | Landscape, or wider than 560 on a coarse pointer: §1–§10 with X1's touch sizes, and no action bar |
-| X12 | `applyMode="auto"` is the advised mode on phones: a tap saves, and the toolbar's Saving and Saved Status (T5) is the only confirmation |
+| X12 | Retired (6 November 2026), with T5 |
 | X13 | A choice or form never opens a Dialog, a Drawer or a full-screen page, at any width |

@@ -445,7 +445,6 @@ const sheet = East.function([], UIComponentType, (_$) => (
                             },
                         }),
                     }}
-                    applyMode="auto"
                 />
             </Box>
         );
@@ -453,7 +452,7 @@ const sheet = East.function([], UIComponentType, (_$) => (
 ));
 ```
 
-**Defer…** opens a form with the date field `Until`, at tomorrow (F10); its foot reads `Sets Due 04 Nov 26`. **Hand over ▾** opens a menu titled `Hand over · crews` listing the crews by label. With `applyMode="auto"` each action saves as it is taken, its dot pulsing until the save lands (T5). The crew is set only by Hand over, so a new ticket would have none, and the sheet adds no tickets.
+**Defer…** opens a form with the date field `Until`, at tomorrow (F10); its foot reads `Sets Due 04 Nov 26`. **Hand over ▾** opens a menu titled `Hand over · crews` listing the crews by label. Each action waits for Save, as every edit does (T4). The crew is set only by Hand over, so a new ticket would have none, and the sheet adds no tickets.
 
 ### Example 4 — read only
 
@@ -465,7 +464,7 @@ Example 1 with `readOnly` — or the column with `editable: false`, or rows the 
 
 ### Example 5 — a phone
 
-Nothing in the declaration changes. Example 2's sheet in a 390-wide box shows each action cell as the state alone (X4); a tap on any cell of a row turns the docked strip into that row's action bar: **✓ Complete** full width, then **Report…**, **Hold ▾** and **Alert…** in one line, the first action's consequence under them (X5, X6). Alert… opens its form inside the bar, touch sized, with Cancel and Alert halves (X7). The example is `sheetActionsPhone`: Example 2's body in `<Box width="390px" height="620px">`, with `applyMode="auto"` (X12).
+Nothing in the declaration changes. Example 2's sheet in a 390-wide box shows each action cell as the state alone (X4); a tap on any cell of a row turns the docked strip into that row's action bar: **✓ Complete** full width, then **Report…**, **Hold ▾** and **Alert…** in one line, the first action's consequence under them (X5, X6). Alert… opens its form inside the bar, touch sized, with Cancel and Alert halves (X7). The example is `sheetActionsPhone`: Example 2's body in `<Box width="390px" height="620px">`.
 
 ## 4. Wire
 
@@ -506,8 +505,8 @@ Fields.Types.Editor     gains  date: { label, precision }                 // the
 | The Status part, `status` recipe | east-ui-components | S4, S6 |
 | The Sheet's strip | e3-ui-components `sheet/Strip.tsx` | §7 |
 | The Sheet's inspector | e3-ui-components `sheet/frame/inspector.tsx` | The actions in the pane |
-| The editing session, history, `applyMode` | east-ui-components `editing`, the Sheet | §8 |
-| BuilderFrame's banners | east-ui-components | T5's failed save |
+| The editing session and its history | east-ui-components `editing`, the Sheet | §8 |
+| BuilderFrame's banners | east-ui-components | T4's failed save |
 
 ## 6. Decisions
 
@@ -520,7 +519,7 @@ Ruled 2 November 2026:
 5. **A variant of up to four `NullType` cases is a radio group** in every form — the action forms and every inspector — and a Select past four.
 6. **The inspector shows the actions too,** a form inline in the pane.
 7. **`Fields` gains a date hint,** `Sheet.field.date({ label, help, precision })`, for every inspector as for the forms.
-8. **The behaviour spec is built whole,** its not-in-the-prototype items too: a failed save (T5), an incomplete row (T6), a range of rows (T8).
+8. **The behaviour spec is built whole,** its not-in-the-prototype items too: a failed save (T4), an incomplete row (T6), a range of rows (T8).
 
 ## 7. Where this departs from the mock
 
@@ -552,10 +551,10 @@ One epic, one branch, one PR.
 **`e3-ui-components` (the renderer):**
 - The cell (§1–§4, §10, §11): anatomy, states, the ring as the cell's last child, pointer, keyboard.
 - The menu and the popover form (§5, §6), anchored to the control, with the arrow and the flip.
-- The strip's preview and the transaction (§7, §8): `updates` run dry, one step of history, auto mode's pulse, a failed save's banner, an incomplete row's disabled controls, a range of rows taken together.
+- The strip's preview and the transaction (§7, §8): `updates` run dry, one step of history, a failed save's banner, an incomplete row's disabled controls, a range of rows taken together.
 - The inspector's actions, a form inline.
 - The phone's action bar (§12).
 
-**`east-ui-components` (shared parts):** the popover's arrow and flip, the radio group in `FieldForm`, the live pulse as a recipe part if it is not one.
+**`east-ui-components` (shared parts):** the popover's arrow and flip, and the radio group in `FieldForm`.
 
 **Verification:** each example on e3-web through Save and a remount; the responsive suite's invariants for S1–S14 and ST1–ST6 in both themes, measured; the menu's and the popover's placement and flip; the inspector's inline form; the phone's action bar at 390 and a 294 parent; ⌘Z restoring the field, the row patch and the group patch together.

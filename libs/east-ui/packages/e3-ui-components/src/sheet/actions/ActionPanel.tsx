@@ -115,7 +115,7 @@ export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, 
         <chakra.div css={styles.panel} data-inspector-action-field={columnKey}>
             <chakra.div css={styles.panelState} data-phone={phone ? "" : undefined}>
                 <ActionCell column={column} summary={summary} offer={offer} controls={false} dirty={host.dirty(r, columnKey)}
-                    selected={false} held={undefined} live={host.live(r, columnKey)} onNext={() => undefined} onMore={() => undefined} />
+                    selected={false} held={undefined} onNext={() => undefined} onMore={() => undefined} />
             </chakra.div>
             {controls && offer.offered.length > 0 && (
                 <chakra.div css={phone ? styles.barRest : styles.panelActions} data-inspector-actions-offered=""

@@ -102,7 +102,7 @@ and the wire format for a name.
 | Concern | Decision |
 |---|---|
 | **What the component owns** | The sheet card (two-line header, gutter, cells, editors, selection, keyboard, clipboard), the docked strip, the footer (counts, key hint, live message, the paged transport line), the lens (hits, ±n context bands, reveals) over the slice's narrowing, the view tabs, the copilot runner, register-driven cell kinds and the link grammar. |
-| **What the host owns** | The app bar (title, breadcrumb, sync status — `<App>`), persistence and its mode (autosave = `Data.bind` direct; held-locally = `Data.bind` staged + commit), the autosave toggle, the release/stamping action, the `owned` predicate (data), registers (data), footer counts (expressions over the host's rows), **every copilot rule** (East functions), the slice binding. |
+| **What the host owns** | The app bar (title, breadcrumb, sync status — `<App>`), persistence (a `Data.bind` handle, direct or staged + commit), the release/stamping action, the `owned` predicate (data), registers (data), footer counts (expressions over the host's rows), **every copilot rule** (East functions), the slice binding. |
 | **Cells are the Table's primitive; links are typed** | A scalar cell is a bare `LiteralValueType` (`Null` is blank): `date` = `DateTime` (UTC midnight); `quantity` = `Float`; `integer` = `Integer`; everything else a `String`. A `set` / `link` cell is a **`Sheet.Types.Link` value** — two arrays of resolved members with a direction — never a string the host has to re-parse; the renderer's grammar (B§4.1) is the kind's parse / print pair (§3.4). The planner's as-typed string (B§4.2) is what the *editor* shows, and a host that wants it stored verbatim sits the column on a `String` field (§3.4). No per-cell UI in the IR (#206). |
 | **Rows are the host's structs — positional inline, keyed only when paged** | `data` inline is an `Array<R>`, or a `Data.bind` / `State.bind` handle of one (`data={jobs}` and `data={jobs.read()}` build the same IR), never a `Dict`: a dictionary decodes to a sorted map, so its rows would sit in key order (`j10` before `j2`) instead of the planner's. A **paged source** — a platform bind's handle, `Data.bindPaged` (paged data is bound-only, #849) — may be positional (`Array<R>` windows; `seek` when the source is sorted by a key) or keyed (`Dict<String, R>` windows in key order — the host designs keys that sort as the sheet should read, and the key is the row id). The factory projects `R` into sheet rows (`id` / `owned` + one cell per column) through the shared row-source contract (#567/#576). Blank padding rows are renderer state, never data. |
 | **Accessors and `SubtypeExprOrValue` — the Plan / Table rule** | `data` is the host's raw rows; every per-row fact is an **accessor** returning an expression of the IR field's type (`owned`, a column's `value`, a register's `key` / `label` / `meta` / `tone`, and — over the **driver's row type** — a quantity's `uom` and a link's `sides`); every static field of a declaration (`header`, `sub`, `width`, `accepts`) is `SubtypeExprOrValue` — a literal or an expression. Columns are **builders that take the row type first** — `Sheet.column.date(R, …)`, `Sheet.column.quantity(R, D, …)`, `Sheet.column.link(R, D, register, …)` — the `Plan.series.<kind>(OpsRow, …)` shape, so every accessor inside is typed by `R`, and by `D` (the driver's row type) where the kind reads the driver's row; the `columns` map is checked per key against the row's fields (`SheetColumnSpec<R>`, the `<Table columns>` mapped type). Nothing at the author's side is addressed by a string name — not a driver attribute, not a cell. The names that ARE strings are field KEYS of `R`, typed as such: the `columns` map's keys, `id` (the String field that identifies a row — a name, because the rebuild writes it on an insert), a date column's `base`, and a link column's `to` / `from` naming its other half's field (§3.4). |
@@ -723,12 +723,12 @@ gives an inserted row its key — `K` the source's key type (a record's, else
 mints a UUID; a sheet keyed by anything but a `String` needs it wherever it adds
 rows, and the build says so.
 
-Persistence mode is the host's, through the e3-ui bind (`east:e3-ui`):
+Persistence is the host's, through the e3-ui bind (`east:e3-ui`):
 
 ```tsx
 /** @jsxImportSource @elaraai/e3-ui */
-// autosave ON  = every mutation lands:      Data.bind(planInput)                 (direct)
-// autosave OFF = changes held locally:       Data.bind(planInput, { mode: "staged" }) + commit / discard
+// direct = each write lands:                   Data.bind(planInput)
+// staged = writes held until the host commits: Data.bind(planInput, { mode: "staged" }) + commit / discard
 <Reactive>{$ => {
     const plan   = $.let(Data.bind(planInput, { mode: "staged" }));
     const commit  = $.const(East.function([], NullType, $ => { $(plan.commit()); }));
@@ -747,10 +747,9 @@ Persistence mode is the host's, through the e3-ui bind (`east:e3-ui`):
 }}</Reactive>
 ```
 
-The prototype's autosave toggle is host chrome: a `<Switch>` in the app bar that
-selects which bound handle's `write` the sheet calls (`autosaveOn.ifElse(_$ =>
-direct.write, _$ => staged.write)`), with the "saved N m ago" stamp derived from
-the handle's `status()`.
+The prototype's autosave toggle is not built: every edit waits for Save, in
+every builder (ruled 6 November 2026). Its "saved N m ago" stamp is the footer's
+last save (`Sheet Builder Spec.md` SB22).
 
 ### 3.8 Search through the slice — the lens and the views
 

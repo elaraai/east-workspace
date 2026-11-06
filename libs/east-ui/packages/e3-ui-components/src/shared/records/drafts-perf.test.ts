@@ -60,7 +60,7 @@ function drafted<R extends Rec>(record: R, binding: RecordDraftsBinding, id: str
     const row = record.type.value as never;
     const draftType = Editing.Types.Draft(row);
     const session = new EditSession<undefined>({
-        sourceId: record.name, entryType: row, draftType, keyType: StringType, auto: false,
+        sourceId: record.name, entryType: row, draftType, keyType: StringType,
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     const revision = binding.revision();

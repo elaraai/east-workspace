@@ -127,7 +127,6 @@ import { applySeries, checkSeries, seriesWriteFn, PlanCarriedType, PlanSeriesTyp
  * @property onApply - Commit one checked batch (sync or async)
  * @property onUpdate - The inline adapter's writer — the whole collection with the batch applied (requires `data={liveHandle}`)
  * @property onPatch - Observe every gesture
- * @property mode - `"batch"` (Save sends) or `"auto"` (each ready gesture goes at once)
  * @property ready - The author's readiness check over a drafted entry
  */
 export interface PlanEditingConfig {
@@ -137,8 +136,6 @@ export interface PlanEditingConfig {
     onUpdate?: ExprType<EastType>;
     /** Observe every gesture — `Fn(Plan.Types.PatchEvent(R)) → Null`. */
     onPatch?: ExprType<EastType>;
-    /** When a ready batch goes: on Save (`"batch"`, the default), or at once (`"auto"`). */
-    mode?: "batch" | "auto";
     /** The author's check over one drafted entry — `Fn(R, K) → Editing.Types.Readiness`. */
     ready?: ExprType<EastType>;
 }
@@ -630,9 +627,6 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
             "Plan: editing.onUpdate requires data={liveHandle}, so each batch reads the latest entries — pass the bound " +
             "handle itself, or commit with onApply");
     }
-    if (input.mode === "auto" && input.onApply === undefined && input.onUpdate === undefined) {
-        throw new Error("Plan: editing.mode \"auto\" applies each ready gesture at once — it needs onApply or onUpdate to apply it with");
-    }
     if (resolved.kind !== "inline" && !resolved.pinned && input.onApply !== undefined) {
         throw new Error(
             "Plan: editing a paged source needs its revision and refresh — a pinned source (Data.bindPaged's handle): " +
@@ -851,7 +845,6 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
         readEntry,
         onPatch: onPatch !== undefined ? some(onPatch) : none,
         onApply: onApply !== undefined ? some(onApply) : none,
-        mode: variant(input.mode ?? "batch", null),
         derive,
         deriveEntry,
         write,
