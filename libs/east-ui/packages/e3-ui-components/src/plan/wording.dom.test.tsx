@@ -7,9 +7,10 @@
  * in its panes or what they tell a screen reader; a word left out stays the table's, and so a host's translation.
  */
 import { describe, expect, test } from "vitest";
+import { fireEvent } from "@testing-library/react";
 import { none, some } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
-import { e3Harness, slot } from "../e3-web-mount.test-utils.js";
+import { act, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import { planMessages, planMessagesIn, type PlanVocabulary } from "./messages.js";
 import "./index.js";
 
@@ -34,6 +35,13 @@ describe("a Plan's words", () => {
         expect(tabs.some(tab => tab.startsWith("Waiting"))).toBe(true);
         expect(found(start)).toEqual([]);
         expect(found(slot(c, "footer"))).toEqual([]);
+        // The Layers tab's search asks for layers, in the app's word for its series (review of #1481, finding 6).
+        const layers = [...start.querySelectorAll<HTMLElement>('[role="tab"]')].find(tab => (tab.textContent ?? "").startsWith("Layers"))!;
+        await act(async () => { fireEvent.click(layers); });
+        await settle();
+        const search = start.querySelector<HTMLInputElement>("[data-slot='pickSearch'] input")!;
+        expect([search.placeholder, search.getAttribute("aria-label")]).toEqual(["Search layers", "Search layers"]);
+        expect(found(start)).toEqual([]);
     });
     test("the table holds to them, and a word left out stands as the table has it", () => {
         const m = planMessagesIn(planMessages, {

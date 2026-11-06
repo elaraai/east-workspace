@@ -109,6 +109,10 @@ export const EastChakraPickPanel = memo(function EastChakraPickPanel({ value }: 
         pick.state.write([...live]);
     };
 
+    // What it lists, in the author's word for it — the panel's own `title`, which a builder gives in its own words
+    // (the Plan's Series tab, in its `vocabulary.series`): what the search box asks for and its empty line says.
+    const noun = title.toLocaleLowerCase();
+
     // Always present, not gated on a length threshold: a library is a thing you
     // search, and a control that appears once the data grows past some number
     // is a surprise rather than a discovery.
@@ -119,8 +123,8 @@ export const EastChakraPickPanel = memo(function EastChakraPickPanel({ value }: 
                 <chakra.input
                     css={styles.searchInput}
                     value={query}
-                    placeholder="Search series"
-                    aria-label="Search series"
+                    placeholder={`Search ${noun}`}
+                    aria-label={`Search ${noun}`}
                     onChange={(e) => setQuery(e.currentTarget.value)}
                 />
                 {q !== "" && (
@@ -137,7 +141,7 @@ export const EastChakraPickPanel = memo(function EastChakraPickPanel({ value }: 
         <>
             {search}
             {listed.length === 0 && (
-                <Box css={styles.empty} data-slot="pickEmpty">{`No series match "${query.trim()}"`}</Box>
+                <Box css={styles.empty} data-slot="pickEmpty">{`No ${noun} match "${query.trim()}"`}</Box>
             )}
             {listed.map((item: PickItemValue, i: number) => {
                 const on = !hidden.has(item.id);
