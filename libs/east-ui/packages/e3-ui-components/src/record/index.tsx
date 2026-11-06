@@ -13,21 +13,33 @@
  *
  * The frame's regions:
  *
- * - **the toolbar** — the Sheet's items: the rail over the record's slice,
- *   its key search and its history item;
+ * - **the toolbar** — the title and the count of the record's rows, the rail
+ *   over the record's slice, the status line, Add and Delete, and the history
+ *   bar (`toolbar.tsx`, FR2–FR7); the status line says the last gesture's
+ *   words, a step of the history's, or how many rows are ticked
+ *   (`status.ts`, FR5, AD1–AD7);
  * - **the banners** — the session's, then an `entry` the record does not
  *   hold;
  * - **main** — the grid, filling the room the inspector leaves and scrolling
  *   its own rows, the strip docked under it;
  * - **the inspector**, the end pane, 320 wide, when the Record is given one —
  *   Details for the ring's row, and the batch's Issues; a press, ⏎ or F2 on a
- *   title opens it on Details, its open tab kept per viewer;
- * - **the footer** — the Sheet's, with the record's last save.
+ *   title opens it on Details, as Add and the history bar's Issues do, its
+ *   open tab kept per viewer;
+ * - **the footer** — the rows shown of the record's, the record's last save,
+ *   the stale note and the legend (`footer.tsx`, FT1, FT2).
+ *
+ * Add drafts a row — first in the rows, in its key's place where they are
+ * keyed — the rail's search cleared so it shows, and the ring on its title,
+ * which opens it on Details (AD1). Delete takes the ticked rows out as one
+ * draft, and the ticks with them (AD5); Discard drops the ticks with every
+ * draft (AD6).
  *
  * On a phone — the frame 560 wide or less — the frame is the BuilderFrame's
  * phone frame, the inspector its drawer, and the grid the Sheet's on a phone:
  * the title column pinned at the left, the Sheet's pager stepping through the
- * other columns, and no select column (`grid.tsx`).
+ * other columns, and no select column (`grid.tsx`). Its toolbar is the title,
+ * the rail and Add; the status line's words are its footer's band.
  *
  * Its rows are 36, 32 or 28 tall, the rule included — the Record's own
  * density, else the one it is placed in, else comfortable — at the theme's
@@ -39,25 +51,32 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from "react";
 import { Box, useToken } from "@chakra-ui/react";
-import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, fromEastTypeValue, type ValueTypeOf } from "@elaraai/east";
 import { RecordComponent, RecordPayloadType, type sheetKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, usePersistedState,
-    type EditIssue,
+    type EditIssue, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, keptRead, useDensity, useSlotStyles, type SlotStyles } from "@elaraai/east-ui-components/internal";
-import { SheetFooter } from "../sheet/Footer.js";
-import { SheetGrid, SheetProvider, useSheetFooter, useSheetHistory, useSheetLoading, useSheetToolbarItems, useSheetToolbarRef, type SheetHost } from "../sheet/index.js";
+import { SheetGrid, SheetProvider, useSheetEntries, useSheetFooter, useSheetHistory, useSheetLoading, useSheetToolbarParts, useSheetToolbarRef, type SheetHost } from "../sheet/index.js";
+import { draftChanges } from "../sheet/draft-state.js";
 import { useLastCommit } from "../sheet/frame/index.js";
 import { useSheetInspector } from "../sheet/frame/inspector.js";
+import { indexColumns, indexRegisters } from "../sheet/model.js";
+import type { SheetTransactions } from "../sheet/transactions.js";
 import { issueText, useSheetWords } from "../sheet/words.js";
 import { openFramePane } from "../shared/schedule/open-pane.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
-import { RecordClock } from "./clock.js";
-import { RecordEmpty, RecordGridProvider, RecordHeader, RecordRow, type RecordGrid } from "./grid.js";
-import { createRecordTicks } from "./ticks.js";
+import { RecordClock, useRecordNow } from "./clock.js";
+import { RecordFooter, legendOf, staleNoteOf } from "./footer.js";
+import { RecordEmpty, RecordGridProvider, RecordHeader, RecordRow, useRecordGrid, type RecordGrid } from "./grid.js";
+import { recordMessages as rm } from "./messages.js";
+import { createRecordStatus, stepOf, useRecordStatusLine, type RecordNoun, type RecordStatus } from "./status.js";
+import { RecordStrip } from "./strip.js";
+import { createRecordTicks, type RecordTicks } from "./ticks.js";
+import { useRecordToolbarItems } from "./toolbar.js";
 
 /** The renderer's payload, decoded. */
 export type RecordValue = ValueTypeOf<typeof RecordPayloadType>;
@@ -116,6 +135,7 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
     // A read-only Record has no select column: nothing it ticks could be acted on.
     const readOnly = (getSomeorUndefined(value.sheet.readOnly) ?? false) || value.sheet.editing.onApply.type === "none";
     const [ticks] = useState(createRecordTicks);
+    const [status] = useState(createRecordStatus);
     // A title opens where it edits (P4): the inspector, on Details — its open tab kept per viewer.
     const frameRef = useRef<HTMLDivElement | null>(null);
     const { state: pane, setState: setPane } = usePersistedState<{ tab: string }>(`${keys.frame}.inspector.tab`, { tab: "details" }, readTab);
@@ -124,17 +144,34 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
         setPane({ tab: "details" });
         openFramePane(frameRef.current, inspectorPane, "end");
     }, [setPane, inspectorPane]);
+    // Each step of the history, told to the status line in the Record's words once it is taken (AD4–AD7): what it
+    // will take back or send read before it is taken — after it, the session holds none of it. Discard drops the ticks
+    // with the drafts (AD6); an Apply is told once its batch is written, a refusal saying itself in the banners.
+    const fields = useMemo(() => draftChanges(fromEastTypeValue(value.sheet.editing.draftType)), [value.sheet.editing.draftType]);
+    const onHistory = useCallback((action: HistoryAction, session: SheetTransactions) => {
+        const step = stepOf(action, session, fields);
+        if (step === undefined) return undefined;
+        return () => {
+            if (step.id === "applied" && !(session.status === "reconciling" || (session.status === "idle" && session.error === undefined))) return;
+            if (step.id === "discarded") ticks.clear();
+            status.say(step);
+        };
+    }, [fields, ticks, status]);
     const host = useMemo((): SheetHost => ({
-        grid: { rowPx, leadPx: readOnly ? 0 : SELECT_PX, leadRun: "check", runStyles: styles, Row: RecordRow, Header: RecordHeader, Empty: RecordEmpty, onOpen },
-    }), [rowPx, readOnly, styles, onOpen]);
-    const nouns = getSomeorUndefined(value.noun)?.plural ?? words.m.railRows();
-    const grid = useMemo((): RecordGrid => ({ styles, ticks, groups: value.columnGroups, nouns }), [styles, ticks, value.columnGroups, nouns]);
+        grid: { rowPx, leadPx: readOnly ? 0 : SELECT_PX, leadRun: "check", runStyles: styles, Row: RecordRow, Header: RecordHeader, Empty: RecordEmpty, Strip: RecordStrip, onOpen },
+        onHistory,
+    }), [rowPx, readOnly, styles, onOpen, onHistory]);
+    const noun = useMemo((): RecordNoun => getSomeorUndefined(value.noun) ?? rm.rowNoun(), [value.noun]);
+    const title = getSomeorUndefined(value.title);
+    const inspector = value.inspector.type === "some";
+    const grid = useMemo((): RecordGrid => ({ styles, ticks, groups: value.columnGroups, noun, title, inspector }), [styles, ticks, value.columnGroups, noun, title, inspector]);
     const onTab = useCallback((tab: string) => setPane({ tab }), [setPane]);
     return (
         <RecordClock>
             <RecordGridProvider value={grid}>
                 <SheetProvider value={value.sheet} storageKey={storageKey} host={host}>
-                    <RecordFrame value={value} keys={keys} styles={styles} frameRef={frameRef} tab={pane.tab} onTab={onTab} />
+                    <RecordFrame value={value} keys={keys} styles={styles} frameRef={frameRef} tab={pane.tab} onTab={onTab} onOpen={onOpen}
+                        ticks={ticks} status={status} readOnly={readOnly} />
                 </SheetProvider>
             </RecordGridProvider>
         </RecordClock>
@@ -153,23 +190,75 @@ interface RecordFrameProps {
     tab: string;
     /** Opens an inspector tab. */
     onTab: (tab: string) => void;
+    /** Opens the inspector on Details. */
+    onOpen: () => void;
+    /** The rows ticked. */
+    ticks: RecordTicks;
+    /** The steps of the history the status line is told of. */
+    status: RecordStatus;
+    /** No gesture changes the Record: no Add, no Delete. */
+    readOnly: boolean;
 }
 
 /** The frame, its regions holding the Sheet's parts and the Record's grid. */
-function RecordFrame({ value, keys, styles, frameRef, tab, onTab }: RecordFrameProps) {
+function RecordFrame({ value, keys, styles, frameRef, tab, onTab, onOpen, ticks, status, readOnly }: RecordFrameProps) {
     const words = useSheetWords();
     const { m } = words;
-    const items = useSheetToolbarItems();
+    const parts = useSheetToolbarParts();
     const toolbarRef = useSheetToolbarRef();
+    const entries = useSheetEntries();
     const footer = useSheetFooter();
     const loading = useSheetLoading();
     const { session, onAction } = useSheetHistory();
+    const now = useRecordNow();
     const lastCommit = useLastCommit(value.history, words);
     const saved = lastCommit === undefined ? undefined : m.savedAt({ when: lastCommit.when });
     const inspector = useSheetInspector({ value, keys, words, hidden: NO_COLUMN_HIDDEN, lastCommit });
     const end = inspector === undefined ? undefined : { ...inspector, tab, onTabChange: onTab };
     // A Save that takes rows out of the `rows` source's narrowing says so in the footer.
     const rowsPart = useMemo(() => sourcePart(getSomeorUndefined(value.sheet.slice), "rows"), [value.sheet.slice]);
+    const { noun, title } = useRecordGrid();
+    const columns = useMemo(() => indexColumns(value.sheet.columns), [value.sheet.columns]);
+    const registers = useMemo(() => indexRegisters(value.sheet.registers), [value.sheet.registers]);
+    // The rows ticked of those shown: what Delete deletes and the status line counts.
+    const tickVersion = useSyncExternalStore(ticks.subscribe, ticks.version);
+    const rowIds = useMemo(() => entries.rows.map((row) => row.id), [entries.rows]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tickVersion moves with every tick: the ticks are a store read by its version.
+    const ticked = useMemo(() => ticks.count(rowIds), [ticks, rowIds, tickVersion]);
+    const shown = entries.count.shown;
+    const total = entries.count.total;
+    // Every issue holding Apply, as the history bar counts them: what an issue gone to says it is one of (AD3).
+    const readiness = session.readiness;
+    const issues = readiness.type === "ready" ? session.issues : readiness.value;
+    const statusLine = useRecordStatusLine({
+        status, notice: entries.notice, gestures: entries.gestures, ticks, ticked, of: shown ?? entries.rows.length, issues, words, noun,
+    });
+    // Issues takes the ring to the first issue's field, its row opened on Details (AD3), as the Issues tab's lines do.
+    const notice = entries.notice;
+    useEffect(() => {
+        if (notice?.id === "issue") onOpen();
+    }, [notice, onOpen]);
+    // Add drafts a row, its ring on the title (AD1); Delete the ticked rows (AD5), the ticks going with them.
+    const capabilities = value.sheet.editing.edits;
+    const titleKey = useMemo(() => value.sheet.columns.find((column) => column.kind.type === "title")?.key, [value.sheet.columns]);
+    const add = entries.add;
+    const remove = entries.remove;
+    const onAdd = useCallback(() => add(titleKey), [add, titleKey]);
+    const onDelete = useCallback(() => {
+        remove(rowIds.filter((id) => ticks.has(id)));
+        ticks.clear();
+    }, [remove, rowIds, ticks]);
+    const items = useRecordToolbarItems({
+        styles, parts, title, count: total === undefined ? undefined : words.number(total), status: statusLine, noun,
+        onAdd: readOnly || !capabilities.insertRows ? undefined : onAdd,
+        onDelete: readOnly || !capabilities.removeRows ? undefined : onDelete,
+        ticked, writable: session.writable,
+    });
+    // The footer (FT1, FT2): the rows shown of the record's, the stale note over every row shown, and the legend.
+    const count = shown === undefined || total === undefined ? undefined
+        : rm.shownOf({ shown: words.number(shown), total: words.number(total), n: total, noun: noun.singular, nouns: noun.plural });
+    const stale = entries.whole ? staleNoteOf(columns, entries.rows, now, words) : undefined;
+    const legend = useMemo(() => legendOf(columns, registers), [columns, registers]);
     // An issue's place: its row's key — a Record's rows have no lines.
     const where = useCallback((issue: EditIssue) => issue.entry, []);
     const readIssue = useCallback((message: string) => issueText(message, words), [words]);
@@ -182,8 +271,8 @@ function RecordFrame({ value, keys, styles, frameRef, tab, onTab }: RecordFrameP
         onAction(action);
     }, [onAction]);
     const missing = getSomeorUndefined(value.missing);
-    // No control to show — read only, no slice, no key search — no toolbar.
-    const toolbar = items.some((item) => item !== undefined && item !== false) ? items : undefined;
+    // No control to show — read only, no title, no slice — no toolbar.
+    const toolbar = items.some((item) => item !== undefined && item !== false && item.key !== "record-status") ? items : undefined;
     const banners = (
         <>
             <SessionBanners session={session} words={words} onAction={onAction} where={where} issueText={readIssue} />
@@ -205,7 +294,8 @@ function RecordFrame({ value, keys, styles, frameRef, tab, onTab }: RecordFrameP
                 toolbarRef={toolbarRef}
                 banners={banners}
                 end={end}
-                footer={<SheetFooter {...footer} saved={saved} recordSlice={rowsPart} />}
+                footer={<RecordFooter styles={styles} count={count} saved={saved} stale={stale} recordSlice={rowsPart} legend={legend} live={statusLine}
+                    loading={footer.loading} noun={footer.noun} onRetry={footer.onRetry} />}
                 loading={loading.cold}
                 busy={loading.busy}
                 loadingPitch={loading.pitch}

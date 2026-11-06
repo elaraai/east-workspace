@@ -32,8 +32,10 @@
  *   - Strip: 32 tall on `bg.canvas`, its label mono 10/600 at 0.14em in
  *     `brand.solid`, its text 12.5 in `fg.strong`, its keys mono 10.5. Over a
  *     Sheet kind the Sheet's strip draws its chips in this frame.
- *   - Footer: 36 tall, padded 0 20, mono 10.5 counts in `fg.muted`, and the
- *     legend's 15-tall chips.
+ *   - Footer: 36 tall, padded 0 20, mono 10.5 counts in `fg.muted`, the
+ *     legend's 15-tall chips cut whole where the rail is short of room, and
+ *     the shared loading line at its end; on a phone, the status line's words
+ *     beside the line, in the band the frame lays over main's foot.
  *   - A phone (the Sheet's phone grid): no select column; the title held at
  *     the left on its row's own paper, behind a `border.strong` rule, and the
  *     header's other cells the window's snap points; the pinned column's
@@ -48,6 +50,7 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
+import { FOOTER_FIT } from "./builder-footer.js";
 
 /** A chip's or a legend chip's look: the first member, a scale step, a toggle's on, or a valence's wash, edge and text step. */
 const LOOKS = {
@@ -114,7 +117,7 @@ export const recordSlotRecipe = defineSlotRecipe({
         "age", "staleDot", "absent", "auditDate", "auditMeta", "pending", "pendingDot", "pendingMeta",
         "empty", "emptyMark", "emptyTitle", "emptyClear", "emptyBox", "emptyLink",
         "strip", "stripLabel", "stripText", "stripKeys",
-        "footer", "footerCount", "footerNote", "footerSpacer", "legend", "legendItem", "legendChip", "legendName",
+        "footer", "footerCount", "footerNote", "footerSpacer", "footerLive", "legend", "legendItem", "legendChip", "legendName",
     ],
     base: {
         /* Main: the grid, then the strip, then the footer. */
@@ -308,10 +311,12 @@ export const recordSlotRecipe = defineSlotRecipe({
         stripText: { flex: "1", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "body.sm", color: "fg.strong" },
         stripKeys: { flex: "none", fontFamily: "mono", fontSize: "label.md", color: "fg.subtle", whiteSpace: "nowrap" },
 
-        /* The footer: the rows shown, the stale count, and the legend. */
+        /* The footer: the rows shown, the stale count, and the legend, cut whole where it is short of room, then the loading line. */
         footer: {
+            ...FOOTER_FIT,
             height: "36px", boxSizing: "border-box", flex: "none", display: "flex", alignItems: "center", gap: "16px", paddingInline: "20px",
             borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle", background: "bg.surface", overflow: "hidden",
+            "& > [data-footer-line]": { marginInlineStart: "0" },
         },
         footerCount: {
             fontFamily: "mono", fontFeatureSettings: '"tnum" 1', fontSize: "label.md", color: "fg.muted", whiteSpace: "nowrap",
@@ -319,6 +324,12 @@ export const recordSlotRecipe = defineSlotRecipe({
         },
         footerNote: { fontFamily: "mono", fontFeatureSettings: '"tnum" 1', fontSize: "label.md", color: "fg.muted", whiteSpace: "nowrap" },
         footerSpacer: { flex: "1", minWidth: "0" },
+        /* The status line's words on a phone, whose toolbar has no room for them: unseen and unheard on a wider frame, where
+           the toolbar's line says them. */
+        footerLive: {
+            display: "none",
+            "[data-phone] &": { display: "block", flex: "1 1 auto", minWidth: "0", fontFamily: "mono", fontSize: "label.lg", color: "fg.muted" },
+        },
         legend: { flex: "none", display: "flex", alignItems: "center", gap: "16px" },
         legendItem: { display: "inline-flex", alignItems: "center", gap: "8px", whiteSpace: "nowrap" },
         /* A legend chip: as wide as a cell's chip is, at its own face. */

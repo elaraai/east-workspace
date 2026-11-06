@@ -9,18 +9,22 @@
  * column (SL1), the empty state (EM1), the states (ST4–ST9), the pointer
  * (P1–P6) and the keys (K1–K6) — the Sheet's grid drawing the Record's rows,
  * header and select column through its host (decision 8) — its cells
- * (#1532, C1–C11), and the grid on a phone (#1536): the title pinned, the
- * Sheet's pager over the other columns, no select column — over the Record's
- * examples deployed to e3 itself, each test a workspace of its own.
+ * (#1532, C1–C11), the grid on a phone (#1536): the title pinned, the
+ * Sheet's pager over the other columns, no select column — and its chrome
+ * (#1533): the toolbar and its fold, Add, Delete and the history's steps in
+ * the status line (FR2–FR7, AD1–AD7), the strip's words (SP1–SP7) and the
+ * footer (FT1, FT2) — over the Record's examples deployed to e3 itself, each
+ * test a workspace of its own.
  */
 
 import { describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import { ArrayType, East, StringType, StructType, equalFor, printFor, some } from "@elaraai/east";
 import { Reactive, RecordSlicesChromeType, Slice, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
-import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
+import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Data, Record } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/record/record";
+import { width } from "../e3-web-mount.test-utils.js";
 import { act, settle, sheetHarness, slot } from "../sheet/frame/harness.test-utils.js";
 import { frameScrolls, touchFrame } from "../sheet/frame.test-utils.js";
 // The Record is an extension: its renderer registers as it loads.
@@ -46,11 +50,40 @@ const part = (cell: HTMLElement, name: string) => cell.querySelector<HTMLElement
 const pane = (container: HTMLElement) => slot(container, "end")!;
 /** The row Details shows, by its key. */
 const inspected = (container: HTMLElement) => pane(container).querySelector('[role="tabpanel"]:not([hidden]) [data-inspector-id]')?.textContent;
+/** The toolbar's region. */
+const toolbar = (container: HTMLElement) => slot(container, "toolbar")!;
+/** The status line's words. */
+const status = (container: HTMLElement) => toolbar(container).querySelector('[data-slot="status"]')?.textContent;
+/** Add or Delete, where the toolbar draws it. */
+const action = (container: HTMLElement, part: "add" | "delete") => toolbar(container).querySelector<HTMLButtonElement>(`[data-record-action="${part}"]`);
+/** A button of the history bar, by its name. */
+const history = (container: HTMLElement, name: string) => within(toolbar(container)).getByRole("button", { name }) as HTMLButtonElement;
+/** A row's box in the select column. */
+const tick = (container: HTMLElement, r: number) => rows(container)[r]!.querySelector<HTMLElement>('[role="checkbox"]')!;
+/** The rows ticked, by their keys. */
+const ticked = (container: HTMLElement) => rows(container).filter((row) => row.hasAttribute("data-ticked")).map((row) => row.getAttribute("data-row-id"));
+/** The row Add drafted: the one whose empty fields say they are required. */
+const drafted = (container: HTMLElement) => rows(container).find((row) => row.querySelector("[data-required]") !== null)!;
+/** A row's cell under a column, the row given. */
+const cellOf = (row: HTMLElement, key: string) => row.querySelector<HTMLElement>(`[data-slot="cell"][data-key="${key}"]`)!;
+
+/** The Record's strip as it reads — its label, its words and its keys — or `undefined` where it draws the Sheet's, or none. */
+function stripSays(container: HTMLElement): string[] | undefined {
+    const strip = container.querySelector<HTMLElement>("[data-record] [data-record-strip]");
+    if (strip === null) return undefined;
+    return ["stripLabel", "stripText", "stripKeys"].map((name) => strip.querySelector(`[data-slot="${name}"]`)?.textContent ?? "");
+}
 
 /** A press on an element, the primary button, and what it leads to settled. */
 async function press(el: Element, init: { shiftKey?: boolean } = {}) {
     fireEvent.mouseDown(el, { button: 0, ...init });
     fireEvent.click(el, init);
+    await settle();
+}
+
+/** The pointer come to rest on a cell, and what it leads to settled. */
+async function hover(el: Element) {
+    fireEvent.mouseEnter(el);
     await settle();
 }
 
@@ -347,10 +380,10 @@ describe("the strip", () => {
         fireEvent.mouseEnter(cellAt(container, 1, "forklift"));
         await settle();
         expect(chips()).toEqual(["B. Ellis"]);
-        // No ring: leaving the grid leaves nothing to show.
+        // No ring: leaving the grid, the strip says what a click on a cell does (SP1) — the Record has no title to lead with.
         fireEvent.mouseLeave(grid(container));
         await settle();
-        expect(strip()).toBeNull();
+        expect(stripSays(container)).toEqual(["", "Click a cell to step it", "↑ ↓ ← → move"]);
         // The ring on C. Patel's: the pointer elsewhere previews it, and leaving returns the strip to the ring's.
         await press(cellAt(container, 2, "forklift"));
         expect(chips()).toEqual(["C. Patel"]);
@@ -365,6 +398,293 @@ describe("the strip", () => {
         await settle();
         await key(container, "ArrowUp");
         expect(chips()).toEqual(["B. Ellis"]);
+    });
+
+    test("over nothing, the title and what a click does; over a cycle its state, the row, where a click and a ⇧-click take it and what the record holds once a draft changed it; a toggle's two states; a title its key (SP1, SP2, SP3)", async () => {
+        const { container } = await h.mount(ex.recordBasic, { storageKey: "record-strip-words" });
+        expect(stripSays(container)).toEqual(["Crew", "Click a cell to step it", "↑ ↓ ← → move"]);
+        await hover(cellAt(container, 0, "forklift"));
+        expect(stripSays(container)).toEqual(["Forklift · 2", "A. Morgan · Competent · click → 0 · ⇧-click → 1", "space next · 0–2 set · ⌫ 0"]);
+        await press(cellAt(container, 0, "forklift"));
+        expect(stripSays(container)).toEqual(["Forklift · 0", "A. Morgan · Not trained · was 2 · click → 1 · ⇧-click → 2", "space next · 0–2 set · ⌫ 0"]);
+        await hover(cellAt(container, 1, "inducted"));
+        expect(stripSays(container)).toEqual(["Inducted · no", "B. Ellis · click → yes", "space flips"]);
+        await press(cellAt(container, 1, "inducted"));
+        expect(stripSays(container)).toEqual(["Inducted · yes", "B. Ellis · was no · click → no", "space flips"]);
+        // No inspector: a title names its row, and nowhere else to look.
+        await hover(cellAt(container, 2, "name"));
+        expect(stripSays(container)).toEqual(["crew member · C-003", "C. Patel", "↑ ↓ ← → move"]);
+    });
+
+    test("with an inspector: a title a word of its row and where its details are; a boolean; a cycle its member's name; an age with no moment; an audit when, its verb and who, pending once a draft changes its row; any other kind its column and value (SP1, SP3–SP5, SP7)", async () => {
+        const { container } = await h.mount(ex.recordEveryKind, { storageKey: "record-strip-kinds" });
+        const says = async (r: number, k: string) => {
+            await hover(cellAt(container, r, k));
+            return stripSays(container);
+        };
+        expect(stripSays(container)).toEqual(["Operators", "Click a cell to step it · select a row to open it in the inspector", "↑ ↓ ← → move"]);
+        // A word of the row's: the first column after the title that reads as words and holds some — B. Ellis has no notes.
+        expect(await says(0, "name")).toEqual(["operator · P-0401", "A. Morgan · Prefers day shifts through March · details in the inspector", "↑ ↓ ← → move"]);
+        expect(await says(1, "name")).toEqual(["operator · P-0408", "B. Ellis · On leave · details in the inspector", "↑ ↓ ← → move"]);
+        expect(await says(0, "inducted")).toEqual(["Inducted · yes", "A. Morgan · click → no", "space flips"]);
+        // No member's label is one key long: no key sets one at once.
+        expect(await says(0, "preference")).toEqual(["Overtime · prefer", "A. Morgan · Prefers · click → can't · ⇧-click → can", "space next · ⌫ can"]);
+        expect(await says(1, "days_since")).toEqual(["Days since · not confirmed", "Days since the last change · stale from 90", "↑ ↓ ← → move"]);
+        expect(await says(0, "updated")).toEqual(["Last updated", "2026-09-18 09:12 · confirmed · M. Hale", "↑ ↓ ← → move"]);
+        expect(await says(1, "updated")).toEqual(["Last updated", "—", "↑ ↓ ← → move"]);
+        expect(await says(0, "notes")).toEqual(["Notes", "Prefers day shifts through March", "⏎ edit · ↑ ↓ ← → move"]);
+        // The Gatehouse's badge: no person edits it.
+        expect(await says(0, "badge")).toEqual(["Badge", "EXT-88213", "↑ ↓ ← → move"]);
+        await press(cellAt(container, 0, "night"));
+        expect(await says(0, "updated")).toEqual(["Last updated", "1 pending · applies with the history bar", "↑ ↓ ← → move"]);
+    });
+
+    test("an age: its count to the Record's clock and its threshold, or for how long its row is stale (SP4)", async () => {
+        vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+        vi.setSystemTime(new Date("2027-01-19T10:14:00Z"));
+        try {
+            const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-strip-age" });
+            await hover(cellAt(container, 0, "days_since"));
+            expect(stripSays(container)).toEqual(["Days since · 89", "Days since the last change · stale from 90", "↑ ↓ ← → move"]);
+            await hover(cellAt(container, 2, "days_since"));
+            expect(stripSays(container)).toEqual(["Days since · 251", "Stale · no change for 251 days · threshold 90", "↑ ↓ ← → move"]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    test("a new row's empty field: Apply waits for it, and how it is set — a click on a cycle, the inspector for any other — and ⌘Z takes the row back (SP6)", async () => {
+        const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-strip-new" });
+        await press(action(container, "add")!);
+        await hover(cellOf(drafted(container), "days"));
+        expect(stripSays(container)).toEqual(["Days", "Required · Apply waits for every field of a new person · click sets can", "⌘Z removes the row"]);
+        await hover(cellOf(drafted(container), "name"));
+        expect(stripSays(container)).toEqual(["Name", "Required · Apply waits for every field of a new person · set it in the inspector", "⌘Z removes the row"]);
+    });
+
+    test("a Record read only says where it is and no more: a row opens in the inspector, and a cycle steps nowhere (SP1, SP2)", async () => {
+        const { container } = await withRows(await h.mount(ex.recordSkillsReadOnly, { storageKey: "record-strip-read-only" }));
+        expect(stripSays(container)).toEqual(["Skills matrix", "Select a row to open it in the inspector", "↑ ↓ ← → move"]);
+        await hover(cellAt(container, 0, "intake"));
+        expect(stripSays(container)).toEqual(["Intake · 2", "A. Morgan · Competent", "↑ ↓ ← → move"]);
+    });
+});
+
+/** The crew with no column for its induction, which the app's new member leaves unset: no person can set it, so an Add drafts no one. */
+const crewUninducted = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const members = $.let(Record.bind(ex.recordCrew));
+    const levels = $.let([{ key: "0", name: "Not trained" }, { key: "1", name: "Supervised" }, { key: "2", name: "Competent" }],
+        ArrayType(StructType({ key: StringType, name: StringType })));
+    const newRow = $.const(East.function([Record.Types.NewRow], Record.Types.Patch(ex.Crew), () => Record.patch(ex.Crew, { forklift: "0" })));
+    return Record({
+        record: members,
+        title: "Crew",
+        noun: { singular: "crew member", plural: "crew members" },
+        registers: { levels: Record.register.members(levels, { kind: "level", key: (l) => l.key, label: (l) => l.key, meta: (l) => some(l.name) }) },
+        columns: {
+            name: Record.column.title(ex.Crew, { header: "Name" }),
+            forklift: Record.column.cycle(ex.Crew, "levels", { header: "Forklift" }),
+        },
+        newRow,
+        name: "crewUninducted",
+    });
+})));
+
+describe("the toolbar", () => {
+    test("the title and the record's count, the status line, Add and Delete, then the history bar — folding on the shared ladder: the count first, then Add and Delete to their icons, the history last (FR2–FR4, FR6, FR7)", async () => {
+        const { container } = await h.mount(ex.recordBasic, { storageKey: "record-toolbar" });
+        const row = toolbar(container).querySelector<HTMLElement>("[data-toolbar]")!;
+        expect([...row.querySelectorAll("[data-toolbar-item]")].map((item) => item.getAttribute("data-toolbar-item"))).toEqual(["record-title", "record-status", "record-actions", "history"]);
+        expect([row.querySelector('[data-slot="titleText"]')!.textContent, row.querySelector('[data-slot="titleCount"]')?.textContent]).toEqual(["Crew", "3"]);
+        expect([action(container, "add")!.textContent, action(container, "add")!.disabled]).toEqual(["Add", false]);
+        // Nothing ticked, nothing to delete.
+        expect([action(container, "delete")!.textContent, action(container, "delete")!.disabled]).toEqual(["Delete", true]);
+        // The status line: a live region always there, so each change of its words is heard.
+        const line = row.querySelector('[data-slot="status"]')!;
+        expect([line.getAttribute("role"), line.getAttribute("aria-live"), line.textContent]).toEqual(["status", "polite", ""]);
+        expect(row.getAttribute("data-toolbar-ladder")).toBe("record-title>1 record-actions>1 history>1");
+        // The row narrowing: each form as wide as it draws, the status line taking what the rest leave.
+        const widths = new Map<string, readonly number[]>([["record-title", [200, 80]], ["record-actions", [240, 90]], ["history", [400, 160]]]);
+        let room = 0;
+        const measure = Element.prototype.getBoundingClientRect;
+        vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+            const item = this.getAttribute("data-toolbar-item");
+            const px = this.hasAttribute("data-toolbar") ? room : item === null ? undefined : widths.get(item)?.[Number(this.getAttribute("data-toolbar-form"))];
+            return px === undefined ? measure.call(this) : { x: 0, y: 0, top: 0, left: 0, right: px, bottom: 28, width: px, height: 28, toJSON() {} } as DOMRect;
+        });
+        const narrowed = async (px: number) => {
+            room = px;
+            await width(900);
+            return row.getAttribute("data-toolbar-state");
+        };
+        expect(await narrowed(800)).toBe("record-title=1/2;record-status=0/1;record-actions=0/2;history=0/2");
+        expect(row.querySelector('[data-slot="titleCount"]')).toBeNull();
+        expect(await narrowed(650)).toBe("record-title=1/2;record-status=0/1;record-actions=1/2;history=0/2");
+        expect([action(container, "add")!.textContent, action(container, "add")!.getAttribute("aria-label")]).toEqual(["", "Add"]);
+        expect(row.querySelector('[data-history-form="full"]')).not.toBeNull();
+        expect(await narrowed(400)).toBe("record-title=1/2;record-status=0/1;record-actions=1/2;history=1/2");
+        expect(row.querySelector('[data-history-form="buttons"]')).not.toBeNull();
+    });
+
+    test("on a phone: the title and its count, and Add as its icon at the row's end; no Delete; the history the second row, and the status line's words the footer's band (FR2, FR5)", async () => {
+        const restore = touchFrame(390, { builder: true });
+        try {
+            const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-phone-toolbar" });
+            expect([toolbar(container).querySelector('[data-slot="titleText"]')!.textContent, toolbar(container).querySelector('[data-slot="titleCount"]')?.textContent])
+                .toEqual(["Shift preferences", "3"]);
+            expect(toolbar(container).querySelector('[data-slot="status"]')).toBeNull();
+            expect(action(container, "delete")).toBeNull();
+            expect(slot(container, "sessionRow")!.querySelector('[data-history-form="phone"]')).not.toBeNull();
+            const add = action(container, "add")!;
+            expect([add.getAttribute("aria-label"), add.textContent]).toEqual(["Add a person", ""]);
+            await press(add);
+            expect(rows(container)).toHaveLength(4);
+            expect(slot(container, "footer")!.querySelector('[data-slot="footerLive"]')!.textContent).toBe("Added a person");
+        } finally {
+            restore();
+        }
+    });
+});
+
+describe("Add, Delete and the history's steps, in the status line", () => {
+    test("Add drafts a row, the ring on its title and the inspector open on its Details, and says so (AD1)", async () => {
+        const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-add" });
+        await press(action(container, "add")!);
+        expect(rows(container)).toHaveLength(4);
+        const added = drafted(container);
+        expect(active(container)).toBe(cellOf(added, "name"));
+        expect(status(container)).toBe("Added a person");
+        await waitFor(() => expect(inspected(container)).toBe(added.getAttribute("data-row-id")));
+    });
+
+    test("with a search standing, Add clears it, so the row it drafts shows among every row (AD1)", async () => {
+        const { container } = await withRows(await h.mount(ex.recordSkillsMatrix, { storageKey: "record-add-search" }));
+        await act(async () => { skillsRows().prefix("name", "B."); });
+        await waitFor(() => expect(rows(container)).toHaveLength(1), { timeout: 10_000 });
+        await press(action(container, "add")!);
+        await waitFor(() => expect(rows(container)).toHaveLength(6), { timeout: 10_000 });
+        expect(status(container)).toBe("Added a person");
+    });
+
+    test("an Add the app leaves a field empty that no person can set is refused, and the status line names the field (AD2)", async () => {
+        const { container } = await h.mount({ fn: crewUninducted }, { storageKey: "record-cant-add" });
+        await press(action(container, "add")!);
+        expect(rows(container)).toHaveLength(3);
+        expect(status(container)).toBe("Can't add a crew member — the app gives no Inducted");
+    });
+
+    test("Issues takes the ring to the first issue's field, its row open on Details, and the status line counts the empty fields (AD3)", async () => {
+        const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-issues" });
+        await press(action(container, "add")!);
+        const added = drafted(container);
+        // The ring elsewhere first.
+        await press(cellAt(container, rows(container).indexOf(added) === 0 ? 1 : 0, "role"));
+        await press(history(container, editingMessages.issues({ n: 8, count: "8" })));
+        expect(status(container)).toBe("8 required fields empty");
+        expect(active(container)).toBe(cellOf(added, "name"));
+        await waitFor(() => expect(inspected(container)).toBe(added.getAttribute("data-row-id")));
+    });
+
+    test("Apply writes the drafts, and the status line says what it sent: the changes, the rows they change and the rows deleted (AD4)", async () => {
+        const { container } = await h.mount(ex.recordBasic, { storageKey: "record-apply" });
+        await press(cellAt(container, 0, "forklift"));
+        await press(cellAt(container, 1, "inducted"));
+        await press(tick(container, 2));
+        await press(action(container, "delete")!);
+        await press(history(container, editingMessages.apply()));
+        await waitFor(() => expect(status(container)).toBe("Applied 2 changes to 2 crew members · deleted 1"));
+        const crew = await h.read(ex.recordCrew);
+        expect([...crew.keys()]).toEqual(["C-001", "C-002"]);
+        expect([crew.get("C-001")!.forklift, crew.get("C-002")!.inducted]).toEqual(["0", true]);
+    });
+
+    test("the status line counts the rows ticked, of those shown; Delete takes them out as one draft, the ticks with them, and Undo restores them (FR5, AD5)", async () => {
+        const { container } = await h.mount(ex.recordBasic, { storageKey: "record-delete" });
+        const ids = () => rows(container).map((row) => row.getAttribute("data-row-id"));
+        expect(status(container)).toBe("");
+        await press(tick(container, 1));
+        expect(status(container)).toBe("1 selected of 3");
+        expect(action(container, "delete")!.disabled).toBe(false);
+        await press(tick(container, 2));
+        expect(status(container)).toBe("2 selected of 3");
+        await press(action(container, "delete")!);
+        expect(ids()).toEqual(["C-001"]);
+        expect(status(container)).toBe("Deleted 2 crew members · Apply writes it, Undo restores");
+        expect(ticked(container)).toEqual([]);
+        expect(action(container, "delete")!.disabled).toBe(true);
+        await press(history(container, editingMessages.undo()));
+        expect(ids()).toEqual(["C-001", "C-002", "C-003"]);
+        expect(status(container)).toBe("Restored 2 crew members");
+    });
+
+    test("Discard drops every draft and the ticks with them, and counts the changes it dropped (AD6)", async () => {
+        const { container } = await h.mount(ex.recordBasic, { storageKey: "record-discard" });
+        // Two steps of one field, and another row's field: two changes.
+        await press(cellAt(container, 0, "forklift"));
+        await press(cellAt(container, 0, "forklift"));
+        await press(cellAt(container, 1, "inducted"));
+        await press(tick(container, 2));
+        await press(history(container, editingMessages.discard()));
+        expect(status(container)).toBe("Discarded 2 changes");
+        expect(cellAt(container, 0, "forklift").textContent).toBe("2");
+        expect(ticked(container)).toEqual([]);
+    });
+
+    test("Undo and Redo each say the step they took — from the history bar or the keys — until the next gesture (AD7)", async () => {
+        const { container } = await h.mount(ex.recordBasic, { storageKey: "record-undo" });
+        await press(cellAt(container, 0, "forklift"));
+        await press(history(container, editingMessages.undo()));
+        expect(status(container)).toBe("Undid one change");
+        expect(cellAt(container, 0, "forklift").textContent).toBe("2");
+        await press(history(container, editingMessages.redo()));
+        expect(status(container)).toBe("Redid one change");
+        await key(container, "z", { metaKey: true });
+        expect(status(container)).toBe("Undid one change");
+        await press(cellAt(container, 1, "forklift"));
+        expect(status(container)).toBe("");
+    });
+});
+
+describe("the footer", () => {
+    test("the rows shown of the record's, and the legend of the register every cycle names: each member's chip in its look, and its name (FT1, FT2)", async () => {
+        const { container } = await h.mount(ex.recordBasic, { storageKey: "record-footer" });
+        const footer = slot(container, "footer")!;
+        const count = footer.querySelector('[data-slot="footerCount"]')!;
+        expect(count.textContent).toMatch(/^3 of 3 crew members/);
+        expect(count.querySelector("b")!.textContent).toBe("3");
+        const legend = [...footer.querySelectorAll('[data-slot="legendItem"]')].map((item) => [
+            item.querySelector('[data-slot="legendChip"]')?.getAttribute("data-look"), item.querySelector('[data-slot="legendChip"]')?.textContent,
+            item.querySelector('[data-slot="legendName"]')?.textContent,
+        ]);
+        expect(legend).toEqual([["none", "0", "Not trained"], ["heat-2", "1", "Supervised"], ["heat-4", "2", "Competent"]]);
+        expect(footer.querySelector('[data-slot="footerNote"]')).toBeNull();
+    });
+
+    test("the stale note counts the rows past the first age's threshold, to the Record's clock; a valence's legend chips in its tones (FT1, FT2)", async () => {
+        vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+        vi.setSystemTime(new Date("2027-01-19T10:14:00Z"));
+        try {
+            const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-footer-stale" });
+            const footer = slot(container, "footer")!;
+            expect(footer.querySelector('[data-slot="footerCount"]')!.textContent).toMatch(/^3 of 3 people/);
+            // D. Novak's, from May.
+            expect(footer.querySelector('[data-slot="footerNote"]')!.textContent).toBe("1 stale · no update in 90 days");
+            const legend = [...footer.querySelectorAll('[data-slot="legendItem"]')].map((item) => [
+                item.querySelector('[data-slot="legendChip"]')?.getAttribute("data-look"), item.querySelector('[data-slot="legendName"]')?.textContent,
+            ]);
+            expect(legend).toEqual([["none", "Can work"], ["success", "Prefers"], ["danger", "Can't work"]]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    test("the rail's narrowing: the rows it shows, of the record's (FT1)", async () => {
+        const { container } = await withRows(await h.mount(ex.recordSkillsMatrix, { storageKey: "record-footer-narrowed" }));
+        const count = () => slot(container, "footer")!.querySelector('[data-slot="footerCount"]')!.textContent;
+        expect(count()).toMatch(/^5 of 5 people/);
+        await act(async () => { skillsRows().prefix("name", "B."); });
+        await waitFor(() => expect(rows(container)).toHaveLength(1), { timeout: 10_000 });
+        expect(count()).toMatch(/^1 of 5 people/);
     });
 });
 
