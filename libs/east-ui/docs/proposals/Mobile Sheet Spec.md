@@ -119,7 +119,7 @@ The pager needs to know which column to pin and how many to show. Proposed, on `
 />
 ```
 
-- `narrow.pin` — the column a phone frame pins at the left. Default: the first column.
+- `narrow.pin` — the column a phone frame pins at the left. Default: none — every column pages (ruled 3 Nov 2026, after this section was approved: a pinned first column took a third of a phone's width from every sheet whether its first column named the row or not). A sheet whose first column names its rows pins it here, as `sheetActionsPinned` pins its title.
 - `narrow.columns` — how many other columns a phone frame shows at once, 1 to 3. Default: 2.
 - Both optional; a sheet that sets neither gets the defaults. Above 560 px neither does anything.
 
