@@ -150,7 +150,7 @@ The editor's header has a segmented `Graph | Table` control. The table is a valu
 
 ### Edit modes and commit
 
-Every edit goes through the binding. `Data.bind(dataset)` **without `mode`** is direct: each edit is written straight to the dataset. Bind `{ mode: 'staged' }` to hold edits until they are applied: the editor's header shows *Unsaved changes*, and the page applies or drops them with the handle's `commit()` / `discard()` — the editor has no Apply of its own, so put Apply and Discard buttons beside it (disabled while `view.pending()` is false). For a locked view, `readonly: some(true)`.
+Every edit goes through the binding. `Data.bind(dataset)` **without `mode`** is direct: each edit is written straight to the dataset. Bind `{ mode: 'staged' }` to hold edits until they are applied: while a change waits the editor's header shows *Unsaved changes* with **Discard** and **Apply**, which drop or commit it (`onDiscarded` / `onCommitted` fire after). A page can do the same through the handle's `commit()` / `discard()`. For a locked view, `readonly: some(true)`.
 
 ## Validation
 

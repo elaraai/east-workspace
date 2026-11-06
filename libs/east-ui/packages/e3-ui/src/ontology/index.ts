@@ -12,9 +12,9 @@
  * typed as {@link OntologyType}. Mutations (add / delete / reconnect /
  * update node) write the whole next-ontology back through `binding.write`:
  * a direct binding (the default) writes each edit to the dataset; a staged
- * one holds them until the page calls the handle's `commit()` or
- * `discard()` — the editor has no Apply of its own, and its header says
- * when changes are unsaved.
+ * one holds them until they are applied or dropped — by the header's Apply
+ * and Discard, shown beside *Unsaved changes* while a change waits, or by
+ * the page through the handle's `commit()` and `discard()`.
  *
  * Declared via the `EastUI.component` extension API — the React renderer
  * lives in `@elaraai/e3-ui-components` and is wired via
@@ -311,10 +311,10 @@ export { DiffBindingType } from '../bind/data.js';
  *   None ⇒ false.
  * @property density - Information-density preset (`comfortable` | `compact`
  *   | `condensed`). Defaults to `comfortable`.
- * @property onCommitted - Fired after a successful commit (the bound
+ * @property onCommitted - Fired after the header's Apply commits (the bound
  *   dataset has been updated).
- * @property onDiscarded - Fired after a successful discard (the staging
- *   buffer was dropped).
+ * @property onDiscarded - Fired after the header's Discard drops the staged
+ *   change.
  * @property style - Visual style escape hatches — see
  *   {@link OntologyStyleType}.
  */
@@ -379,9 +379,9 @@ export interface OntologyOptions {
     hideSearch?: SubtypeExprOrValue<OptionType<BooleanType>>;
     /** Information-density preset. */
     density?: SubtypeExprOrValue<OptionType<DensityType>> | DensityLiteral;
-    /** Fired after a successful commit (the bound dataset is updated). */
+    /** Fired after the header's Apply commits (the bound dataset is updated). */
     onCommitted?: SubtypeExprOrValue<OptionType<FunctionType<[], NullType>>>;
-    /** Fired after a successful discard (the staging buffer was dropped). */
+    /** Fired after the header's Discard drops the staged change. */
     onDiscarded?: SubtypeExprOrValue<OptionType<FunctionType<[], NullType>>>;
     /** Visual style escape hatches — see {@link OntologyStyleType}. */
     style?: SubtypeExprOrValue<OptionType<OntologyStyleType>>;

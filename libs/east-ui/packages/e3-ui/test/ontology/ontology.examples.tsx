@@ -213,7 +213,24 @@ export const ontologyViews = example({
 });
 
 // ============================================================================
-// 3. Compact-density editor — the trading loop in tighter chrome.
+// 3. Staged edits — held until the header's Apply commits them, or its
+//    Discard drops them.
+// ============================================================================
+
+export const ontologyStaged = example({
+    keywords: ['Ontology', 'staged', 'Apply', 'Discard', 'commit', 'discard', 'pending', 'Data.bind', 'mode'],
+    description: "Staged editing: `Data.bind(…, { mode: 'staged' })` holds every edit while the header shows Unsaved changes with Discard and Apply — Apply commits the change to the dataset, Discard drops it",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const view = $.let(Data.bind(tradingCycleOntologyInput, { mode: 'staged' }));
+            return <Ontology value={view} defaultView="table" />;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// 4. Compact-density editor — the trading loop in tighter chrome.
 // ============================================================================
 
 export const compactDensityOntology = example({

@@ -33,7 +33,7 @@ import { Global } from '@emotion/react';
 // same self-contained model as east-ui-components.
 // @ts-expect-error — `?inline` returns the stylesheet as a string at build time.
 import xyflowCss from '@xyflow/react/dist/style.css?inline';
-import { Box, HStack, Input, Menu, Portal, SegmentGroup, Text } from '@chakra-ui/react';
+import { Box, Button, HStack, Input, Menu, Portal, SegmentGroup, Text } from '@chakra-ui/react';
 import { faList, faMagnifyingGlass, faShareNodes, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { none, some, variant, type ValueTypeOf } from '@elaraai/east';
 import { Ontology } from '@elaraai/e3-ui/internal';
@@ -447,12 +447,27 @@ function OntologyEditorBody({
 
 const EastChakraOntology = memo(function EastChakraOntology({ value }: EastChakraOntologyProps) {
     const binding = value.binding as ValueTypeOf<typeof Ontology.Component.schema>['binding'];
-    // The editor mutates the binding directly (direct mode writes through;
-    // staged mode buffers until the page calls the handle's commit or
-    // discard). It has no commit affordance of its own, so `commit`/`discard`
-    // aren't consumed here — `pending` is surfaced as a header hint only.
-    const { ontology, pending, mutate } = useBindingOntology(binding);
+    // The editor mutates the binding directly: direct mode writes through;
+    // staged mode buffers until Apply commits it or Discard drops it — the
+    // header's, or the page's own through the handle's commit and discard.
+    const { ontology, pending, mutate, commit, discard } = useBindingOntology(binding);
     const readonly = getOpt(value.readonly) ?? false;
+    const onCommittedFn = useMemo(() => getOpt(value.onCommitted), [value.onCommitted]);
+    const onDiscardedFn = useMemo(() => getOpt(value.onDiscarded), [value.onDiscarded]);
+    // While an Apply is on its way: both buttons off, so it is sent once.
+    const [applying, setApplying] = useState(false);
+    const apply = useCallback(() => {
+        setApplying(true);
+        void commit().then(
+            () => { setApplying(false); if (onCommittedFn) queueMicrotask(() => onCommittedFn()); },
+            // A refused commit keeps the change pending, the header still saying so.
+            () => { setApplying(false); },
+        );
+    }, [commit, onCommittedFn]);
+    const drop = useCallback(() => {
+        discard();
+        if (onDiscardedFn) queueMicrotask(() => onDiscardedFn());
+    }, [discard, onDiscardedFn]);
     const hideMiniMap = getOpt(value.hideMiniMap) ?? false;
     const hideSearch = getOpt(value.hideSearch) ?? false;
     const defaultView = getOpt(value.defaultView)?.type ?? 'graph';
@@ -587,6 +602,13 @@ const EastChakraOntology = memo(function EastChakraOntology({ value }: EastChakr
                         <Text fontFamily="mono" fontSize="label.sm" letterSpacing="wider" textTransform="uppercase" color="fg.warning">
                             Unsaved changes
                         </Text>
+                    )}
+                    {/* A staged change's Discard and Apply; a direct binding is never pending. */}
+                    {pending && !readonly && (
+                        <HStack gap="1.5">
+                            <Button size="xs" variant="ghost" disabled={applying} onClick={drop}>Discard</Button>
+                            <Button size="xs" variant="solid" disabled={applying} onClick={apply}>Apply</Button>
+                        </HStack>
                     )}
                     {/* Graph | Table — both are projections of the same bound
                         value; the staged buffer and commit machinery are
