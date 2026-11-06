@@ -49,6 +49,40 @@ component, and never in a payload. Its anatomy, props and pane modes are in
 [`east-ui-components/CLAUDE.md`](../../libs/east-ui/packages/east-ui-components/CLAUDE.md)
 › Builder frame.
 
+## Shared machinery has no one-kind special cases (MANDATORY)
+
+A component's shared machinery — the path every kind, column or component
+goes through, such as the Sheet's editor, its candidates, its parse, its
+menu and its state machine — keeps one contract for all of them. It never
+gains a branch that changes what it returns or accepts for one kind, and it
+never round-trips an identity through display text: two register members
+may show one label, so a member chosen by its label and looked up by it
+again is the first of them, and the second can never be reached.
+
+When a new kind needs behaviour the shared path lacks, in this order:
+
+1. **Generalise the shared path for every kind.** The gap is almost always
+   the shared path's, not the new kind's. A Record's person column wanted
+   its people typed by name; every register column's cells already showed a
+   member's label while its editor worked in keys. So every register column
+   — lookup, reference, enum, person, cycle — is typed and shown by label,
+   a member is found by its key, its label or an alias, and a member a
+   gesture chooses (the cell's own, a menu option, a strip chip, a taken
+   candidate) commits as itself, by its key.
+2. **A developer `FunctionType` prop**, where it is app logic the data
+   cannot express: a custom kind's `parse` / `print`, an `options` rule,
+   `newKey`. Never where the data already says it — a register's `label`
+   and `aliases` already tell the editor how its members are named.
+3. **Stop and ask.**
+
+What stays fine: an arm per kind in a dispatch that is by kind by design
+(the parse by kind, the text a kind prints, the editor a kind mounts), and
+the classifications those dispatches read. What is not: a component's
+concept in a shared union before the component exists, kept compiling by
+branches that return nothing.
+
+Before every commit, grep the diff for `kind === "` and justify each hit.
+
 ## The two prop kinds
 
 Every component prop is exactly one of:
