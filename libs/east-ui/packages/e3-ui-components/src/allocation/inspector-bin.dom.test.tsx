@@ -226,7 +226,7 @@ describe("a bin (A56–A59)", () => {
         expect(c.querySelector("[data-session-banner]")).toBeNull();
     });
 
-    test("A58 — Assigned to: the field, the fill and its meter with the min tick, the group line, Before · Hold · Next fill, its bins today and the batch line", async () => {
+    test("A58 — Assigned to: the field, the fill and its meter with the min tick, the group line, Prior job · Hold · Next job, in the app's words, its bins today and the batch line", async () => {
         const c = await open();
         await press(card(c, "3113"));
         const assigned = details(c).querySelector<HTMLElement>("[data-allocation-assigned]")!;
@@ -236,7 +236,7 @@ describe("a bin (A56–A59)", () => {
         expect([meter.firstElementChild!.querySelector<HTMLElement>("div")!.style.width, meter.querySelector<HTMLElement>("[data-allocation-min]")!.style.left]).toEqual(["100%", "50%"]);
         expect(assigned.textContent).toContain("Hall A · min 16 m³ · max 32 m³");
         expect(rowsOf(assigned.querySelector("[data-allocation-facts]"))).toEqual([
-            ["Before", "job C-3143 · released Mon 10", null], ["Hold", "Tue 11 to Mon 17 · 7 d", null], ["Next fill", "Thu 20 · 2 d spare · the plan had this charge on Wed 12", null],
+            ["Prior job", "job C-3143 · released Mon 10", null], ["Hold", "Tue 11 to Mon 17 · 7 d", null], ["Next job", "Thu 20 · 2 d spare · the plan had this charge on Wed 12", null],
         ]);
         expect(mates(c)).toEqual([["10:35", "B-2", "LD-2210", "32 m³", "current"]]);
         expect(text(assigned.querySelector("[data-allocation-batch]"))).toBe("One bin fills it.");

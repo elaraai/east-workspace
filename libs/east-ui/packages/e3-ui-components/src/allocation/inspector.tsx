@@ -470,13 +470,16 @@ function Meter({ styles, at, tone }: { styles: Styles; at: ResourceAt; tone: "br
     </Box>;
 }
 
-/** Before · Hold · Next fill (A58, A62). */
+/**
+ * The job before the day · Hold · the next job (A58, A62): each labelled in the app's words, as the Timeline's legend
+ * names them — `Prior job` · `Hold` · `Next job` unless the app's `labels` say otherwise (review of #1481, finding 7).
+ */
 function Facts({ styles, at, words, day, horizonEnd }: { styles: Styles; at: ResourceAt; words: InspectorWords; day: Date; horizonEnd: Date }) {
     const facts = factsOf(at, day, horizonEnd, words);
     return <Box as="dl" css={styles.rows} data-allocation-facts="">
-        <Box as="dt" css={styles.rowLabel}>Before</Box><Box as="dd" css={styles.rowValue}>{facts.before}</Box>
+        <Box as="dt" css={styles.rowLabel}>{words.nouns.priorJob}</Box><Box as="dd" css={styles.rowValue}>{facts.before}</Box>
         <Box as="dt" css={styles.rowLabel}>{words.nouns.hold}</Box><Box as="dd" css={styles.rowValue} data-absent={facts.hold.absent ? "" : undefined}>{facts.hold.text}</Box>
-        <Box as="dt" css={styles.rowLabel}>Next fill</Box><Box as="dd" css={styles.rowValue} data-tone={facts.next.warn ? "warning" : undefined}>{facts.next.text}</Box>
+        <Box as="dt" css={styles.rowLabel}>{words.nouns.nextJob}</Box><Box as="dd" css={styles.rowValue} data-tone={facts.next.warn ? "warning" : undefined}>{facts.next.text}</Box>
     </Box>;
 }
 
@@ -494,7 +497,7 @@ function Mates({ args, styles, words, resource, current }: Part & { resource: st
  * Assigned to (A58): the resource field — its name, or `+ Choose a resource`
  * in warn — which opens the shared Chooser in the pane, every section of it
  * the fit's answer, as the Table's chevron does (A48); then the fill and its
- * meter, the group line, Before · Hold · Next fill, the resource's bins today
+ * meter, the group line, the jobs before and after the day and the hold between, the resource's bins today
  * and the batch line. Not linked: the field, and the layout's hint.
  */
 function AssignedTo({ id, bin, current, at, ...part }: Part & { id: string; bin: Bin; current: string | undefined; at: ResourceAt | undefined }) {
@@ -734,7 +737,7 @@ function ReservationDetails({ id, bin, ...part }: Part & { id: string; bin: Bin 
     </>;
 }
 
-/** A resource (A62): its status, its group and range, its banners, today's fill and meter, Before · Hold · Next fill, its bins today and the hint. */
+/** A resource (A62): its status, its group and range, its banners, today's fill and meter, the jobs before and after the day and the hold, its bins today and the hint. */
 function ResourceDetails({ resource, ...part }: Part & { resource: string }) {
     const { args, styles, words, horizonEnd } = part;
     const nouns = words.nouns;

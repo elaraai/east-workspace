@@ -186,10 +186,10 @@ export interface ResourceFacts {
 }
 
 /**
- * A resource's facts (A58, A62): Before (`job C-3142 · released Fri 7`, or
- * `empty in the plan`), Hold (`Tue 11 to Tue 18 · 8 d`; `busy until Fri 14`, or
- * `not started`), Next fill (`Mon 17 · hold overlaps it by 2 d`, `Wed 19 · 1 d
- * spare`, with the resource's note, or `none planned to Thu 20`).
+ * A resource's facts (A58, A62), which the inspector labels in the app's words — its prior job, its hold and its next
+ * job: the job before (`job C-3142 · released Fri 7`, or `empty in the plan`), the hold (`Tue 11 to Tue 18 · 8 d`;
+ * `busy until Fri 14`, or `not started`), the next job (`Mon 17 · hold overlaps it by 2 d`, `Wed 19 · 1 d spare`,
+ * with the resource's note, or `none planned to Thu 20`).
  *
  * @param at - The resource, its load and its line
  * @param day - The plan day
