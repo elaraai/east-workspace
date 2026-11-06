@@ -7,8 +7,9 @@
  * Handlers for named package functions.
  *
  * A call reduces to the graph-free `runDetached` primitive: marshal inputs —
- * values, and through a workspace its datasets, pinned by their hashes as a
- * one-shot's are — → run a body IR on a runner → return the result inline.
+ * through a workspace the function's own inputs and the datasets its caller
+ * names, pinned by their hashes as a one-shot's are, and the caller's values
+ * — → run a body IR on a runner → return the result inline.
  * Nothing durable is written — no output object, no execution record, no
  * logs, no dataset ref.
  * Named functions are author-published IR (same trust as a deployed task),
@@ -106,19 +107,27 @@ function overrideRefusal(stored: RunnerValue, override: RunnerValue, grant: OneS
 }
 
 /**
- * The arguments a named call hands its runner: each value as its bytes, and
- * each dataset of the workspace pinned by its hash, as a one-shot's is, with
- * what the call read. A call with no workspace — through the package route —
- * has none to read a dataset from, and is `invalid`.
+ * The arguments a named call hands its runner: the function's inputs, each
+ * pinned by its hash in the workspace, then each value as its bytes and each
+ * dataset argument pinned the same way, with what the call read. A call with
+ * no workspace — through the package route — has none to read an input or a
+ * dataset from, and is `invalid`.
  */
 async function callArguments(
   storage: StorageBackend,
   repoPath: string,
   workspace: string | null,
   fnName: string,
+  fnObj: FunctionObject,
   args: FunctionCallRequest['args'],
 ): Promise<{ args: DetachedArg[]; inputs: ExecuteResult['inputs'] } | ExecuteResult> {
-  if (workspace !== null) return pinCallArguments(storage, repoPath, workspace, args);
+  if (workspace !== null) return pinCallArguments(storage, repoPath, workspace, args, { inputs: fnObj.inputs });
+  if (fnObj.inputs.length > 0) {
+    return invalidExecuteResult(
+      `'${fnName}' reads ${fnObj.inputs.map((path) => pathToString(path)).join(', ')} from the workspace it is called through, `
+      + `and a call through the package has none: call it through a workspace it is deployed to, at …/workspaces/<ws>/functions/${fnName}`
+    );
+  }
   const values: DetachedArg[] = [];
   for (const [i, arg] of args.entries()) {
     if (arg.type === 'dataset') {
@@ -151,19 +160,19 @@ async function executeFunction(
   signal?: AbortSignal,
   verbose?: boolean
 ): Promise<ExecuteResult> {
-  // Signature validation: arity is checked here, before anything runs.
-  // Per-element type errors surface as a runtime decode failure (`failed`)
-  // from the runner.
-  if (req.args.length !== fnObj.inputTypes.length) {
+  // Signature validation: arity — the arguments alone, never the inputs the
+  // server reads — is checked here, before anything runs. Per-element type
+  // errors surface as a runtime decode failure (`failed`) from the runner.
+  if (req.args.length !== fnObj.argTypes.length) {
     return invalidExecuteResult(
-      `Expected ${fnObj.inputTypes.length} argument(s), got ${req.args.length}`
+      `Expected ${fnObj.argTypes.length} argument(s), got ${req.args.length}`
     );
   }
   if (req.runner.type === 'some') {
     const refused = overrideRefusal(fnObj.runner, req.runner.value, grant);
     if (refused !== null) return refused;
   }
-  const pinned = await callArguments(storage, repoPath, workspace, fnName, req.args);
+  const pinned = await callArguments(storage, repoPath, workspace, fnName, fnObj, req.args);
   if (!('args' in pinned)) return pinned;
 
   const bodyIr = await storage.objects.read(repoPath, fnObj.bodyIr);
@@ -180,7 +189,8 @@ async function executeFunction(
     },
     { signal, storage, verbose }
   );
-  // The result names each dataset argument the call read, at its pinned hash
+  // The result names each input and dataset argument the call read, at its
+  // pinned hash
   return detachedToExecuteResult(result, pinned.inputs);
 }
 
@@ -204,7 +214,8 @@ export async function listPackageFunctions(
       const fnObj = decodeFunctionObject(await storage.objects.read(repoPath, fnHash));
       signatures.push({
         name,
-        inputTypes: fnObj.inputTypes,
+        inputs: fnObj.inputs,
+        argTypes: fnObj.argTypes,
         outputType: fnObj.outputType,
         runner: fnObj.runner,
       });
@@ -229,7 +240,8 @@ export async function describePackageFunction(
     const fnObj = await resolveFunction(storage, repoPath, pkgName, version, fnName);
     return sendSuccess(FunctionSignatureType, {
       name: fnName,
-      inputTypes: fnObj.inputTypes,
+      inputs: fnObj.inputs,
+      argTypes: fnObj.argTypes,
       outputType: fnObj.outputType,
       runner: fnObj.runner,
     });
@@ -250,11 +262,13 @@ export async function describePackageFunction(
  * (`invalid`), and a platform package the function's own runner does not
  * load unless the grant is `any` (`permission_denied`, `path` `runner`).
  *
- * An argument is a value or a dataset of the workspace the call runs in,
- * pinned by its hash at launch and named in the result's `inputs`, as a
- * one-shot's is; an unassigned one is `invalid`. A call with no workspace, the
- * package route's, has none to read a dataset from, and a dataset argument is
- * `invalid`: nothing runs.
+ * The function's inputs come first among its parameters: through a workspace
+ * each is read as stored at launch, pinned by its hash and named in the
+ * result's `inputs`; an unassigned one is `invalid`, naming its path. The
+ * caller passes the arguments alone, each a value or a dataset of the
+ * workspace, pinned the same way. A call with no workspace, the package
+ * route's, has none to read from: a function with inputs, and a dataset
+ * argument, are `invalid`, and nothing runs.
  *
  * @param storage - Storage backend
  * @param repoPath - The repository

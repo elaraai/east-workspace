@@ -19,6 +19,9 @@
  * hash it holds when the call starts, as a server pins it; no East literal
  * starts with `@`. Without -w a dataset argument is refused.
  *
+ * A function that declares inputs reads them from the workspace itself, so
+ * its caller passes the arguments alone, and calls it with -w.
+ *
  * Calls are graph-free and persist nothing: the result is returned inline
  * and printed (or written with -o); the repository is unchanged.
  */
@@ -47,7 +50,7 @@ import {
   type Budget,
   type DetachedArg,
 } from '@elaraai/e3-core';
-import { type CallArg, type RunnerValue, decodeFunctionObject, parseKeypath } from '@elaraai/e3-types';
+import { type CallArg, type RunnerValue, type TreePath, decodeFunctionObject, parseKeypath, pathToString } from '@elaraai/e3-types';
 import {
   functionDescribe,
   functionCall,
@@ -70,8 +73,32 @@ const LOCAL_LIMITS = {
 /** A function's callable signature, from either a local FunctionObject or a
  *  remote describe. */
 interface CallSignature {
-  inputTypes: EastTypeValue[];
+  inputs: TreePath[];
+  argTypes: EastTypeValue[];
   outputType: EastTypeValue;
+}
+
+/**
+ * Checks a call's arguments against the function's signature: the arguments
+ * alone are counted, never the inputs a call reads, and a function with inputs
+ * is called through a workspace.
+ *
+ * @param fn - The function's name
+ * @param signature - Its signature
+ * @param rawArgs - The arguments as written
+ * @param workspace - The workspace the call runs in, when it names one
+ * @throws {Error} When the count differs, or the function reads inputs and
+ *   the call names no workspace
+ */
+export function checkCallArguments(fn: string, signature: CallSignature, rawArgs: readonly string[], workspace: string | undefined): void {
+  if (signature.inputs.length > 0 && workspace === undefined) {
+    throw new Error(
+      `Function '${fn}' reads ${signature.inputs.map((path) => pathToString(path)).join(', ')} from the workspace it is called through: pass -w <ws>`
+    );
+  }
+  if (rawArgs.length !== signature.argTypes.length) {
+    throw new Error(`Function '${fn}' expects ${signature.argTypes.length} argument(s), got ${rawArgs.length}`);
+  }
 }
 
 /**
@@ -252,26 +279,25 @@ async function callLocal(
   }
   const fnObj = decodeFunctionObject(Buffer.from(await storage.objects.read(repoPath, fnHash)));
 
-  const signature: CallSignature = { inputTypes: fnObj.inputTypes, outputType: fnObj.outputType };
-  if (rawArgs.length !== signature.inputTypes.length) {
-    exitError(`Function '${spec.fn}' expects ${signature.inputTypes.length} argument(s), got ${rawArgs.length}`);
-  }
-  // Through a workspace an argument may be one of its datasets, pinned at the
-  // hash it holds now, as a server pins it, and named in the result; a call
-  // with none takes values only (`callCommand` refuses a dataset without -w)
+  const signature: CallSignature = { inputs: fnObj.inputs, argTypes: fnObj.argTypes, outputType: fnObj.outputType };
+  checkCallArguments(spec.fn, signature, rawArgs, workspace);
+  // Through a workspace the function's inputs, and an argument that names one
+  // of its datasets, are pinned at the hash each holds now, as a server pins
+  // them, and named in the result; a call with none takes values only
+  // (`callCommand` refuses a dataset without -w)
   let pinned: { args: DetachedArg[]; inputs: ExecuteResult['inputs'] } | ExecuteResult;
   if (workspace === undefined) {
     const values: DetachedArg[] = [];
     for (let i = 0; i < rawArgs.length; i++) {
-      values.push(await encodeArg(rawArgs[i]!, signature.inputTypes[i]!, i));
+      values.push(await encodeArg(rawArgs[i]!, signature.argTypes[i]!, i));
     }
     pinned = { args: values, inputs: [] };
   } else {
     const args: CallArg[] = [];
     for (let i = 0; i < rawArgs.length; i++) {
-      args.push(await callArg(rawArgs[i]!, signature.inputTypes[i]!, i));
+      args.push(await callArg(rawArgs[i]!, signature.argTypes[i]!, i));
     }
-    pinned = await pinCallArguments(storage, repoPath, workspace, args);
+    pinned = await pinCallArguments(storage, repoPath, workspace, args, { inputs: signature.inputs });
   }
   if (!('args' in pinned)) {
     // An unassigned dataset, and nothing ran
@@ -324,13 +350,12 @@ async function callRemote(
     ? await workspaceFunctionDescribe(baseUrl, repo, workspace, spec.fn, opts)
     : await functionDescribe(baseUrl, repo, spec.name!, version!, spec.fn, opts);
 
-  if (rawArgs.length !== signature.inputTypes.length) {
-    exitError(`Function '${spec.fn}' expects ${signature.inputTypes.length} argument(s), got ${rawArgs.length}`);
-  }
-  // The server pins a dataset argument in the workspace
+  checkCallArguments(spec.fn, signature, rawArgs, workspace);
+  // The server pins the function's inputs and a dataset argument in the
+  // workspace
   const args: CallArg[] = [];
   for (let i = 0; i < rawArgs.length; i++) {
-    args.push(await callArg(rawArgs[i]!, signature.inputTypes[i]!, i));
+    args.push(await callArg(rawArgs[i]!, signature.argTypes[i]!, i));
   }
 
   const request = { args, runner: none, limits: none };

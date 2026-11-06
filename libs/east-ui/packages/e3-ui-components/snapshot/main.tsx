@@ -28,7 +28,7 @@ import type { TreePath } from '@elaraai/e3-types';
 // real def-types (DatasetDef/FunctionDef/RecordDef/MutationDef) additionally carry
 // a `Runner` the snapshot never inspects.
 type DatasetDef = { kind: 'dataset'; path: TreePath; type: EastType; default?: unknown };
-type FunctionDef = { kind: 'function'; name: string; inputTypes: readonly EastType[]; outputType: EastType; body: unknown };
+type FunctionDef = { kind: 'function'; name: string; inputs: readonly DatasetDef[]; argTypes: readonly EastType[]; outputType: EastType; body: unknown };
 type RecordDef = { recordKind: 'record'; name: string; type: EastType; default?: unknown };
 type MutationDef = { kind: 'mutation'; name: string; argTypes: readonly EastType[]; body: unknown; record: { name: string } };
 import {
@@ -66,7 +66,9 @@ function isFunctionDef(x: unknown): x is FunctionDef {
  * stand in by compiling each function's East body to JS (East
  * functions are runnable on their own) and registering it — the function-side
  * mirror of the `e3.input` dataset seeding. One source of truth; no duplicated
- * fixture values.
+ * fixture values. A function's inputs are given their declared initial
+ * values, as the seeded datasets are; one whose input declares none is left
+ * out, and its call fails as an unknown function's.
  */
 function seedFunctions(mod: Record<string, unknown>): InMemoryFunctionDef[] {
     const defs: InMemoryFunctionDef[] = [];
@@ -76,9 +78,16 @@ function seedFunctions(mod: Record<string, unknown>): InMemoryFunctionDef[] {
             compile?: (p: never[]) => (...a: unknown[]) => unknown;
             compileAsync?: (p: never[]) => (...a: unknown[]) => Promise<unknown>;
         };
+        const unseeded = value.inputs.find(input => input.default === undefined);
+        if (unseeded !== undefined) {
+            console.warn(`[snapshot] function "${value.name}" reads an input with no initial value, and is left out`);
+            continue;
+        }
+        const seeded = value.inputs.map(input => input.default);
         try {
-            const fn = typeof body.compile === 'function' ? body.compile([]) : body.compileAsync!([]);
-            defs.push({ name: value.name, inputTypes: [...value.inputTypes], outputType: value.outputType, fn });
+            const compiled = typeof body.compile === 'function' ? body.compile([]) : body.compileAsync!([]);
+            const fn = (...args: unknown[]) => compiled(...seeded, ...args);
+            defs.push({ name: value.name, argTypes: [...value.argTypes], outputType: value.outputType, fn });
         } catch (err) {
             console.warn(`[snapshot] could not compile function "${value.name}":`, err);
         }

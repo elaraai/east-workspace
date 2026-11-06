@@ -4,8 +4,9 @@
  */
 
 import assert from "node:assert/strict";
+import { describe, test } from "node:test";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, FloatType, IntegerType, NullType, StringType, variant } from "@elaraai/east";
+import { ArrayType, East, Expr, FloatType, IntegerType, NullType, OptionType, StringType, isTypeEqual, variant, type EastType } from "@elaraai/east";
 import { Reactive, Stat, Button, UIComponentType } from "@elaraai/east-ui/internal";
 import { Func, Data, deriveManifest, ui } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -23,6 +24,7 @@ const describeDef = e3.function("describe",
 describeEast("Func", (test) => {
     Assert.examples(test, {
         funcBindCall: ex.funcBindCall,
+        funcBindInputs: ex.funcBindInputs,
         funcBindStatus: ex.funcBindStatus,
         funcBindCancel: ex.funcBindCancel,
         funcBindSharedChannel: ex.funcBindSharedChannel,
@@ -65,7 +67,7 @@ describeEast("Func", (test) => {
         const root = $.let(Reactive.Root(East.function([], UIComponentType, $ => {
             const forecast = $.let(Func.bind(forecastDef));
             const run = $.const(East.function([], NullType, $ => {
-                // Positional args type-check against the def's inputTypes.
+                // Positional args type-check against the def's argTypes.
                 $(forecast.call(12n, 1.05));
             }));
             void run;
@@ -75,6 +77,19 @@ describeEast("Func", (test) => {
         $(Assert.equal(root.unwrap().getTag(), "ReactiveComponent"));
     });
 }, { platformFns: TestImpl });
+
+describe("Func.bind of a function with inputs", () => {
+    test("gives a handle whose call takes the arguments alone, never the inputs", () => {
+        const handle = Expr.type(Func.bind(ex.quoteFn) as Expr) as EastType;
+        assert.ok(handle.type === "Struct");
+        const call = handle.fields["call"]!;
+        assert.ok(call.type === "Function");
+        assert.equal(call.inputs.length, 1, "the order alone");
+        assert.ok(isTypeEqual(call.inputs[0]!, ArrayType(ex.OrderLineType)));
+        const read = handle.fields["read"]!;
+        assert.ok(read.type === "Function" && isTypeEqual(read.output, OptionType(ex.QuoteType)), "read() is the quote");
+    });
+});
 
 describeEast("Func — manifest derivation", (test) => {
     test("deriveManifest collects bound function names", _ => {

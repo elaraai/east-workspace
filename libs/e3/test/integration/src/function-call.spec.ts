@@ -104,6 +104,30 @@ describe('e3 call (local repository)', { timeout: 120_000, concurrency: false },
       assert.match(result.stderr, /Dataset argument 1 is not assigned \(ref type: unassigned\)/);
     });
 
+    it('is passed beside a function\'s inputs, which the call reads itself and the arity does not count', async () => {
+      // `quote` reads `value` (10) and `prices` (b 2); `-w` passes `"b"` alone
+      const result = await runE3Command(['call', repoPath, '-w', 'ws', 'quote', '"b"'], process.cwd());
+      assert.equal(result.exitCode, 0, `Failed: ${result.stderr}`);
+      assert.match(result.stdout, /\b12\b/);
+
+      const counted = await runE3Command(['call', repoPath, '-w', 'ws', 'quote', '10', '"b"'], process.cwd());
+      assert.notEqual(counted.exitCode, 0);
+      assert.match(counted.stderr, /Function 'quote' expects 1 argument\(s\), got 2/);
+    });
+
+    it('refuses a function with inputs without -w, naming them', async () => {
+      const result = await runE3Command(['call', repoPath, 'local-fn-pkg.quote', '"b"'], process.cwd());
+      assert.notEqual(result.exitCode, 0);
+      assert.match(result.stderr, /Function 'quote' reads \.inputs\.value, \.inputs\.prices from the workspace it is called through: pass -w <ws>/);
+    });
+
+    it('names an unassigned input', async () => {
+      // `scaled` reads `compute`'s output, which no run has produced
+      const result = await runE3Command(['call', repoPath, '-w', 'ws', 'scaled', '3'], process.cwd());
+      assert.notEqual(result.exitCode, 0);
+      assert.match(result.stderr, /The function's input \.tasks\.compute\.output is not assigned \(ref type: unassigned\)/);
+    });
+
     it('names an @ that is not a dataset\'s keypath', async () => {
       for (const [raw, message] of [
         ['@inputs.value', /Argument 1 \(@inputs\.value\) is not a dataset's keypath, as @\.inputs\.sales is: parseKeypath: unexpected character at position 0: 'i'/],

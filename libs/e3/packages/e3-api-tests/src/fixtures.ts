@@ -106,6 +106,10 @@ export async function createRolesPackageZip(
  * - Task: "compute" - multiplies input by 2 (so the package is deployable)
  * - Function: "add" - (Integer, Integer) -> Integer
  * - Function: "slow" - (Integer) -> Integer, sleeps 30s (for timeout/cancel tests)
+ * - Function: "quote" - reads "value" and "prices" from the workspace, and
+ *   is given a String: value + prices[sku]
+ * - Function: "scaled" - reads "compute"'s output, which no run has produced
+ *   once deployed, and is given an Integer: the output times it
  *
  * @param tempDir - Directory to write the zip file
  * @param name - Package name
@@ -138,7 +142,19 @@ export async function createFunctionPackageZip(
   );
   const prices = e3.input('prices', DictType(StringType, IntegerType), variant('value', new Map([['a', 1n], ['b', 2n], ['c', 3n]])));
   const apply = e3.input('apply', FunctionType([IntegerType], IntegerType));
-  const pkg = e3.package(name, version, compute, add, slow, prices, apply);
+  // Functions that read the workspace: inputs, read at each call, beside the
+  // arguments the caller passes.
+  const quote = e3.function('quote', {
+    inputs: [input, prices],
+    args: [StringType],
+    output: IntegerType,
+  }, ($, value, prices, sku) => value.add(prices.get(sku)));
+  const scaled = e3.function('scaled', {
+    inputs: [compute.output],
+    args: [IntegerType],
+    output: IntegerType,
+  }, ($, doubled, by) => doubled.multiply(by));
+  const pkg = e3.package(name, version, compute, add, slow, prices, apply, quote, scaled);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);

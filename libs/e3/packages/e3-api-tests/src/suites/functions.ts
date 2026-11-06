@@ -13,6 +13,9 @@
  * runner override — never the custom runtime, and a package the function does
  * not load only for an elevated caller — a named call's dataset argument,
  * pinned through a workspace and refused through the package, which has none,
+ * a function's inputs — read as stored at each call, named at their hashes,
+ * never counted among the arguments, unassigned one refused naming it, and
+ * refused through the package —
  * one-shot with value, dataset and collection-dataset args,
  * the "persists nothing" guarantee, and one-shot for a reader: a platform-free
  * one runs and names the datasets it read, and any other is refused. A split
@@ -73,7 +76,7 @@ import {
   type SplitCallStatus,
 } from '@elaraai/e3-api-client';
 import {
-  ExecuteResultType, PermissionDeniedErrorType, WorkspaceNotDeployedErrorType, WorkspaceNotFoundErrorType, type TreePath,
+  ExecuteResultType, PermissionDeniedErrorType, TreePathType, WorkspaceNotDeployedErrorType, WorkspaceNotFoundErrorType, type TreePath,
 } from '@elaraai/e3-types';
 import { Console } from '@elaraai/east-node-std';
 
@@ -94,6 +97,8 @@ const ApplyType = FunctionType([IntegerType], IntegerType);
 const PricesType = DictType(StringType, IntegerType);
 /** What a result names it read. */
 const InputsType = ExecuteResultType.fields.inputs;
+/** The inputs a signature names. */
+const PathsType = ArrayType(TreePathType);
 
 const encodeInt = encodeBeast2For(IntegerType);
 const decodeInt = decodeBeast2For(IntegerType);
@@ -199,20 +204,105 @@ export function functionTests(setup: TestSetup<TestContext>): void {
 
       const fns = await functionList(ctx.config.baseUrl, ctx.repoName, PKG, VERSION, opts);
       const names = fns.map((f) => f.name).sort();
-      assert.deepEqual(names, ['add', 'slow']);
+      assert.deepEqual(names, ['add', 'quote', 'scaled', 'slow']);
       const add = fns.find((f) => f.name === 'add')!;
-      assert.equal(add.inputTypes.length, 2);
+      assert.equal(add.argTypes.length, 2);
+      assert.ok(equalFor(PathsType)(add.inputs, []), 'add reads nothing of a workspace');
       assert.equal(add.outputType.type, 'Integer');
       assert.equal(add.runner.type, 'east_node');
     });
 
-    it('functionDescribe returns a single signature', async (t) => {
+    it('functionDescribe returns a single signature, the inputs a call reads apart from the arguments its caller passes', async (t) => {
       const ctx = await withFunctions(t);
       const opts = await ctx.opts();
 
       const sig = await functionDescribe(ctx.config.baseUrl, ctx.repoName, PKG, VERSION, 'add', opts);
       assert.equal(sig.name, 'add');
-      assert.equal(sig.inputTypes.length, 2);
+      assert.equal(sig.argTypes.length, 2);
+
+      const quote = await functionDescribe(ctx.config.baseUrl, ctx.repoName, PKG, VERSION, 'quote', opts);
+      assert.ok(equalFor(PathsType)(quote.inputs, [VALUE_PATH, PRICES_PATH]), `quote reads ${printFor(PathsType)(quote.inputs)}`);
+      assert.deepEqual(quote.argTypes.map((type) => type.type), ['String']);
+      assert.equal(quote.outputType.type, 'Integer');
+    });
+
+    it('a call through a workspace reads the function\'s inputs as stored, names each at its hash, and reads one written since at its new hash', async (t) => {
+      const ctx = await withFunctions(t);
+      const opts = await ctx.opts();
+
+      await ctx.createWorkspace('fn-inputs-ws');
+      await ctx.deployPackage('fn-inputs-ws', `${PKG}@${VERSION}`);
+      const quote = (): Promise<ExecuteResult> => workspaceFunctionCall(
+        ctx.config.baseUrl, ctx.repoName, 'fn-inputs-ws', 'quote',
+        { args: [variant('value', encodeBeast2For(StringType)('b'))], runner: none, limits: none },
+        opts
+      );
+
+      // `value` holds 10, and `prices` b 2
+      const first = await quote();
+      assert.equal(successValue(first), 12n);
+      const value = await pinnedAt(ctx, 'fn-inputs-ws', VALUE_PATH, opts);
+      assertInputs(first, [value, await pinnedAt(ctx, 'fn-inputs-ws', PRICES_PATH, opts)]);
+
+      await datasetSet(ctx.config.baseUrl, ctx.repoName, 'fn-inputs-ws', VALUE_PATH, encodeInt(20n), opts);
+      const second = await quote();
+      assert.equal(successValue(second), 22n);
+      const written = await pinnedAt(ctx, 'fn-inputs-ws', VALUE_PATH, opts);
+      assert.notEqual(written.hash, value.hash, 'the write moved the input');
+      assertInputs(second, [written, await pinnedAt(ctx, 'fn-inputs-ws', PRICES_PATH, opts)]);
+    });
+
+    it('the arity of a function with inputs counts its arguments alone', async (t) => {
+      const ctx = await withFunctions(t);
+      const opts = await ctx.opts();
+
+      await ctx.createWorkspace('fn-inputs-arity-ws');
+      await ctx.deployPackage('fn-inputs-arity-ws', `${PKG}@${VERSION}`);
+      // The inputs and the argument, as a caller that sent them would
+      const result = await workspaceFunctionCall(
+        ctx.config.baseUrl, ctx.repoName, 'fn-inputs-arity-ws', 'quote',
+        { args: [variant('dataset', VALUE_PATH), variant('dataset', PRICES_PATH), variant('value', encodeBeast2For(StringType)('b'))], runner: none, limits: none },
+        opts
+      );
+      if (result.outcome.type !== 'invalid') assert.fail(`expected invalid, got ${result.outcome.type}`);
+      assert.deepEqual(result.outcome.value.diagnostics.map((diagnostic) => diagnostic.message), ['Expected 1 argument(s), got 3']);
+      assertInputs(result, []);
+    });
+
+    it('an unassigned input — a task\'s output no run has produced — is invalid, naming it, and nothing runs', async (t) => {
+      const ctx = await withFunctions(t);
+      const opts = await ctx.opts();
+
+      await ctx.createWorkspace('fn-inputs-unassigned-ws');
+      await ctx.deployPackage('fn-inputs-unassigned-ws', `${PKG}@${VERSION}`);
+      const result = await workspaceFunctionCall(
+        ctx.config.baseUrl, ctx.repoName, 'fn-inputs-unassigned-ws', 'scaled',
+        request([encodeInt(3n)]),
+        opts
+      );
+      if (result.outcome.type !== 'invalid') assert.fail(`expected invalid, got ${result.outcome.type}`);
+      assert.deepEqual(result.outcome.value.diagnostics.map((diagnostic) => diagnostic.message), [
+        'The function\'s input .tasks.compute.output is not assigned (ref type: unassigned): '
+        + 'nothing has produced it since the last deploy, and nothing ran',
+      ]);
+      assertInputs(result, []);
+    });
+
+    it('a function with inputs, called through the package, which has no workspace to read them from, is invalid and names the workspace route', async (t) => {
+      const ctx = await withFunctions(t);
+      const opts = await ctx.opts();
+
+      const result = await functionCall(
+        ctx.config.baseUrl, ctx.repoName, PKG, VERSION, 'quote',
+        { args: [variant('value', encodeBeast2For(StringType)('b'))], runner: none, limits: none },
+        opts
+      );
+      if (result.outcome.type !== 'invalid') assert.fail(`expected invalid, got ${result.outcome.type}`);
+      assert.deepEqual(result.outcome.value.diagnostics.map((diagnostic) => diagnostic.message), [
+        '\'quote\' reads .inputs.value, .inputs.prices from the workspace it is called through, and a call through the package has none: '
+        + 'call it through a workspace it is deployed to, at …/workspaces/<ws>/functions/quote',
+      ]);
+      assertInputs(result, []);
     });
 
     it('sync call computes inline, reads no dataset and persists nothing', async (t) => {

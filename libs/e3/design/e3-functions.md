@@ -35,6 +35,15 @@
 > loads a platform package the function's own runner does not needs the `any`
 > grant. The function routes take the host's `OneShotAccess` for it (§7.1,
 > §11).
+> **Amended 2026-11-06 (#1514):** a function may declare **inputs**, as a
+> stream task does — `e3.function(name, { inputs, args, output, runner? },
+> body)` — datasets of the workspace a call reads, pinned at their hashes when
+> it launches and passed before the caller's arguments (§3.3). The function
+> object gains `inputs: Array<TreePath>` and its `inputTypes` became `argTypes`
+> (a hard cutover of a package-borne wire), as did `FunctionSignatureType`'s;
+> the arity counts the arguments alone; the package route refuses a function
+> with inputs; and `Func.bind`'s `call` takes `argTypes`. A function is still
+> no node of the dataflow.
 > Audience: e3 maintainers + an implementing agent. This is the **local/shared**
 > spec (e3 monorepo). The AWS cloud implementation is specified in the companion
 > doc `e3-cloud/design/e3-functions-cloud.md`, which depends on the published
@@ -114,13 +123,13 @@ is a signal to use a task. (See §9 for the size budget.)
 |---|---|---|---|
 | Body defined | author time | author time | **call time** (IR in request) |
 | Stored in package | yes | **yes, by name** | no |
-| Inputs | wired datasets (reactive) | **argument values** | dataset paths (or values) |
+| Inputs | wired datasets (reactive) | **argument values**, and any `inputs` it declares, read at each call (§3.3) | dataset paths (or values) |
 | Output | an output dataset | **returned inline to caller** | returned inline |
-| In the dataflow graph | yes | **no** | no |
+| In the dataflow graph | yes | **no** — an input changing reruns nothing | no |
 | Invoked | automatically by the dataflow | **by name, on demand** | by API, IR each call |
 | Signature types | inferred from dataset structure | **stored on the function object** | from the supplied IR |
 | Persistence | output object + exec record + logs | **none** | none |
-| Needs a workspace | yes | **no — package-scoped (also ws)** | yes (if binding datasets) |
+| Needs a workspace | yes | **no — package-scoped (also ws)**; yes with `inputs` | yes (if binding datasets) |
 | Trust surface | author-published IR | author-published IR | **caller-supplied IR (RCE)** |
 
 A function is **not** a macro (no compile-time expansion) and **not** a task with
@@ -131,7 +140,7 @@ distinct primitive that *shares execution machinery* with tasks.
 
 New SDK primitive in **`packages/e3/src/function.ts`**. The body is an ordinary
 East function (sync or async); **its signature is the parameter list**, so there
-is no separate type array to keep in sync — `e3.function` infers `inputTypes` /
+is no separate type array to keep in sync — `e3.function` infers `argTypes` /
 `outputType` from the East function via `Expr.type(fn)` (the same mechanism
 `task()` uses for its output type at `task.ts`).
 
@@ -179,10 +188,11 @@ export interface FunctionDef<
   // generic is rejected (TS2344). Type the field loosely and cast fn.toIR(),
   // exactly as task.ts does for its function_ir (task.ts:62, :70 `as any`).
   readonly body: EastIR<any, any> | AsyncEastIR<any, any>; // fn.toIR() as any
-  readonly inputTypes: Inputs;   // Expr.type(fn).inputs (raw TS EastType[]) — converted to homoiconic values at export (§3.2)
+  readonly inputs: readonly DatasetDef[]; // what a call reads from its workspace (§3.3); [] in this form
+  readonly argTypes: Args;       // the caller's arguments, after the inputs — converted to homoiconic values at export (§3.2)
   readonly outputType: Output;   // Expr.type(fn).output
   readonly runner: Runner;       // defaults to DEFAULT_RUNNER
-  // NO deps, NO datasets, NO trees — not in the dataflow graph
+  readonly deps: Set<DataTreeDef | DatasetDef | TaskDef>; // the inputs and theirs, which e3.package collects
 }
 ```
 
@@ -235,7 +245,7 @@ for (const [fname, fdef] of Object.entries(pkg.functions)) {
   const bodyIrHash = addObject(zipfile, Buffer.from(encodeEastIR(fdef.body)));   // same as a task's commandIr/function_ir
   const fnObject = {
     bodyIr:     bodyIrHash,
-    inputTypes: fdef.inputTypes.map(toEastTypeValue),   // raw EastType -> homoiconic value, as export.ts:143 does
+    argTypes:   fdef.argTypes.map(toEastTypeValue),     // raw EastType -> homoiconic value, as export.ts:143 does
     outputType: toEastTypeValue(fdef.outputType),
     runner:     runnerToVariant(fdef.runner),           // Runner union -> RunnerType value (§5)
   };
@@ -249,7 +259,59 @@ const packageObject = { tasks, data: { structure, refs }, functions };
 `toEastTypeValue` (used at `export.ts:143` for dataset types) is **required** — the
 `FunctionObject` stores homoiconic type *values* (`EastTypeType`), not the raw TS
 `EastType` definitions that `Expr.type(fn)` yields. `runnerToVariant` is the new
-SDK helper from §5.
+SDK helper from §5. (As built, the loop writes `inputs: fdef.inputs.map((i) =>
+i.path)` and `argTypes` — §3.3.)
+
+### 3.3 A function's inputs (#1514)
+
+An `e3.function` computes over the values its caller sends, and often needs
+what the workspace stores as well: a quote needs the price list and the stock
+beside the draft order; an optimiser behind a builder's eye needs reference
+data beside its request. The data belongs to the function, not its caller, so
+the function declares it, as a stream task declares its inputs:
+
+```ts
+const prices = e3.input('prices', DictType(StringType, FloatType));
+const stock = e3.input('stock', DictType(StringType, IntegerType));
+
+const quote = e3.function('quote', {
+  inputs: [prices, stock],              // read from the workspace at each call
+  args: [ArrayType(OrderLineType)],     // what the caller passes
+  output: QuoteType,
+  runner: { runtime: 'east-py', platforms: ['east-py-datascience'] },
+}, ($, prices, stock, lines) => { … });
+```
+
+- **The body.** Its parameters are the inputs, in `inputs` order, then the
+  arguments, in `args` order; the SDK builds the East function from them as
+  `streamTask` builds its body (`async: true` builds it with
+  `East.asyncFunction`). `e3.function(name, East.function(…), config)` stays
+  for a function that reads nothing.
+- **What an input is.** What a task takes: an input, a task's output or a
+  record of the package. `e3.package` collects a function's inputs and their
+  dependencies (`FunctionDef.deps`) as it does a task's. The function is still
+  no node of the dataflow: it has no output, nothing reruns when an input
+  changes, and a call persists nothing.
+- **A call through a workspace** reads each input as stored when it launches,
+  pinned at its hash, as a dataset argument is (`pinCallArguments`' `inputs`,
+  pinned before the arguments), and the result's `inputs` names each path and
+  hash, the inputs first. It waits for no run in progress. An unassigned input
+  — a task's output not produced since the last deploy — is `invalid`, naming
+  its path, and nothing runs.
+- **The caller** passes the `args` alone: the arity counts them, and an
+  argument may still be a dataset of the workspace (`@…` with `e3 call -w`).
+  `e3 call` without `-w` refuses a function with inputs, naming them.
+- **The package route** has no workspace to read from: a function with inputs
+  is `invalid` there, naming its inputs and the workspace route.
+- **Refused at build:** an input marked with `e3.partition` (a call runs as
+  one unit), and the `custom` runtime with inputs.
+- **On a page** `Func.bind(quote)`'s `call` takes `(Array<OrderLine>)`: the
+  handle is typed from `argTypes`, and the runtime checks the deployed
+  signature's `argTypes`. A page binds none of the inputs.
+
+Not in this change: a call split over a partitioned input (split calls cover
+that for one-shots); caching a result by its input hashes and arguments; a call
+longer than the host's sync deadline (long work stays a task).
 
 ## 4. Package format change (e3-types)
 
@@ -260,9 +322,13 @@ One new object type and one new map on `PackageObjectType`, parallel to `tasks`.
 export const FunctionObjectType = StructType({
   /** Hash of the encoded EastIR bundle (encodeEastIR), like a task's commandIr object. */
   bodyIr:     StringType,
-  /** Positional parameter types — the IR's signature, surfaced for arity/type
-   *  validation and `describe` without decoding the whole IR. */
-  inputTypes: ArrayType(EastTypeType),
+  /** The datasets a call reads from its workspace, passed before the
+   *  arguments (#1514, §3.3). */
+  inputs:     ArrayType(TreePathType),
+  /** The caller's argument types — the IR's signature after the inputs,
+   *  surfaced for arity/type validation and `describe` without decoding the
+   *  whole IR. */
+  argTypes:   ArrayType(EastTypeType),
   /** Return type — used to decode the result `value` blob client-side. */
   outputType: EastTypeType,
   /** Author-chosen runtime; resolved to argv by runnerToArgv. One of the known
@@ -289,8 +355,8 @@ of old bytes**: any package exported before this change must be re-exported and
 re-deployed — acceptable only because no long-lived deployments predate the feature.
 
 `EastTypeType` is the same homoiconic type value the structure already stores at
-`value.type`, so `inputTypes`/`outputType` introduce no new representation.
-`inputTypes`/`outputType` duplicate what the IR encodes; storing them explicitly
+`value.type`, so `argTypes`/`outputType` introduce no new representation.
+`argTypes`/`outputType` duplicate what the IR encodes; storing them explicitly
 lets `describe` (§7.2) and signature validation work from the small function
 object without loading the IR bundle, and gives dynamic callers (CLI literal
 parsing, non-TS clients) the types they need to encode arguments.
@@ -407,7 +473,8 @@ export const FunctionCallRequestType = StructType({
 /** A function signature, returned by `describe` so dynamic callers can encode args. */
 export const FunctionSignatureType = StructType({
   name:       StringType,
-  inputTypes: ArrayType(EastTypeType),
+  inputs:     ArrayType(TreePathType),   // what a call reads from its workspace (#1514)
+  argTypes:   ArrayType(EastTypeType),   // what the caller passes
   outputType: EastTypeType,
   runner:     RunnerType,
 });
@@ -500,7 +567,7 @@ e3-core's `TaskRunner` — it has its own kernel; see the cloud doc. The interfa
 addition is for the local server + tests.)
 
 **Arity/type validation** happens before `runDetached`: the caller (handler)
-checks `args.length === inputTypes.length`; per-element type errors surface as a
+checks `args.length === argTypes.length`; per-element type errors surface as a
 runtime decode failure from the runner (`failed`). `runnerSearchDir` replaces the
 task path's "walk up from repo dir" anchor — for the local server pass the
 server's cwd / configured runner dir (one-shot has no repo path).
@@ -553,10 +620,11 @@ through `detachedToExecuteResult`, so it renders what a server answers.
 
 ## 7. Invocation surfaces
 
-`e3.function` touches no datasets, so it is callable at the **package** level
-(imported in a repo, no workspace) and at the **workspace** level (deployed). Both
-mount the same handlers. The workspace scope later enables dataset-bound arguments
-(the off-diagonal cell).
+An `e3.function` that declares no inputs touches no datasets, so it is callable
+at the **package** level (imported in a repo, no workspace) and at the
+**workspace** level (deployed). Both mount the same handlers. The workspace scope
+pins dataset-bound arguments (#1070), and a function's own inputs (#1514, §3.3);
+the package scope refuses both, naming the workspace route.
 
 ### 7.1 e3-api-server — handlers, routes, state
 
@@ -693,7 +761,7 @@ e3 call <repo> --workspace <ws> <pkg.fn> [args...]      # workspace-scoped
 The command: parses the `pkg[.|@ver].fn` spec (reuse `run.ts`'s `parseTaskSpec`
 shape), fetches the function's signature (local: read package directly; remote:
 `functionDescribe`), parses each positional argument — a scalar literal or a
-`.beast2`/`.json` file path — into its `inputTypes[i]` (reuse `commands/convert.ts`'s
+`.beast2`/`.json` file path — into its `argTypes[i]` (reuse `commands/convert.ts`'s
 literal/file→beast2 parsing), beast2-encodes each, calls `functionCall` (local via
 a directly-constructed `LocalTaskRunner` + the handler, or remote via the client),
 and renders `outcome.success.value` decoded with `outputType` (or writes to `-o`).
@@ -702,8 +770,8 @@ exit code.
 
 ## 8. Execution semantics
 
-- **Signature validation.** `args.length` is checked against `inputTypes` before
-  anything runs; a mismatch ⇒ `invalid` with a diagnostic, nothing executes.
+- **Signature validation.** `args.length` is checked against `argTypes` — never
+  the inputs, which the server reads — before anything runs; a mismatch ⇒ `invalid` with a diagnostic, nothing executes.
   Element-type errors surface as a runtime decode failure (`failed`) from the
   runner.
 - **Result delivery — inline, bounded, fail-closed.** The output file is
@@ -730,7 +798,7 @@ exit code.
   writing a rooted object, which contradicts the "writes nothing durable"
   contract. Default **off**; a future opt-in `cache: true` may route through a
   tracked path. If it ships, the key must hash **server-re-encoded canonical
-  BEAST2 bytes** (encoded against the function's declared `inputTypes`), not the
+  BEAST2 bytes** (encoded against the function's declared `argTypes`), not the
   raw client bytes — otherwise client-encoding drift causes (correctness-safe)
   cache misses. (Open question §14.)
 
@@ -989,7 +1057,7 @@ paths.
 ## 13. Test plan (PR-1)
 
 1. **SDK/export round-trip.** `e3.function` → `e3.package` → `e3.export` → read the
-   bundle: a `FunctionObject` with correct `bodyIr` hash, `inputTypes`,
+   bundle: a `FunctionObject` with correct `bodyIr` hash, `inputs`, `argTypes`,
    `outputType`, `runner` variant; `PackageObject.functions[name]` points at it;
    `tasks`/`data` unchanged. Old bundle (no `functions`) still decodes (§4.1).
 2. **`runDetached` pure compute (east-node).** Two scalar args + a body that
@@ -1081,6 +1149,28 @@ paths.
       reader explains a call through its job; a call is found only through the
       repository and workspace that launched it; and a reader is refused the
       poll of an admin's call on a runner given a platform package.
+
+17. **A function's inputs (#1514).**
+    - e3 `function.spec.ts`: the spec form's body takes the inputs then the
+      arguments, `argTypes` the arguments alone; `async: true`; a partitioned
+      input and the `custom` runtime with inputs are refused; `e3.package`
+      collects the inputs and the task one comes from; export writes their
+      paths.
+    - e3-api-server `handlers/functions.spec.ts`: the list names the inputs
+      apart from the arguments; the package route refuses a function with
+      inputs; the arity counts the arguments alone.
+    - e3-api-tests `functionTests`, on every server: a call through a workspace
+      computes over the inputs as stored and names each at the hash dataset
+      status reports, and an input written since is read at its new hash; an
+      unassigned input (a task's output) is `invalid`, naming it; the package
+      route refuses the function; describe lists the inputs and the argument
+      types.
+    - Integration `function-call.spec.ts`: `e3 call -w` passes the arguments
+      alone, refuses a function with inputs without `-w`, and names an
+      unassigned input.
+    - e3-ui `func.spec.ts` and e3-ui-components `func-runtime.spec.ts`:
+      `Func.bind` of such a function gives a handle whose `call` takes the
+      arguments alone, and its call on e3 sends them alone.
 
 ## 14. Open questions
 
