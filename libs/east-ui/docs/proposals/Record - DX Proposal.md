@@ -840,11 +840,8 @@ Ruled 6 November 2026:
 6. **A column's field is editable wherever its column is.** `editable: false` makes it read only on every row; there is no "new rows only".
 7. **Nothing holds Apply unseen** (#1527). The Record is one of the builders #1527 covers. Every refusal holding Apply, a new row's empty required field or the app's `ready` refusal, is listed and reachable (AD3, IN3, IN9). Every new row the Record makes, by Add or Duplicate, takes `newRow`'s values (AD2, IN7).
 8. **The Record's grid is the Sheet's, through its host** (ruled 6 November 2026). The Sheet's machine is one hook whose grid reads its state where it builds it. Rather than lift that state into hooks for a second grid, the host hands the grid the Record's rows, header, gutter and bands, and the kinds' own gestures live in the shared input by kind.
-
-Proposed 6 November 2026, for approval:
-
-9. **A new record's key is the app's.** `newKey` gives it. Without it a String key is a UUID, as every e3-ui builder mints one, and any other key needs `newKey` (§2.7).
-10. **No draft the Record can't apply.** A required field no person can set comes from `newRow`. The build refuses one with no `newRow`, and an Add whose `newRow` leaves it empty drafts nothing. The check belongs to the Sheet's root, so the Sheet takes it too (§2.7).
+9. **A new record's key is the app's** (ruled 6 November 2026). `newKey` gives it. Without it a String key is a UUID, as every e3-ui builder mints one, and any other key needs `newKey` (§2.7).
+10. **No draft the Record can't apply** (ruled 6 November 2026). A required field no person can set comes from `newRow`. The build refuses one with no `newRow`, and an Add whose `newRow` leaves it empty drafts nothing. The check belongs to the Sheet's root, so the Sheet takes it too (§2.7).
 
 Open, for review:
 
