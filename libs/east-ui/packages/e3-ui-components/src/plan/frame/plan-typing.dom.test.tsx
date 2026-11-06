@@ -461,8 +461,8 @@ describe("below 480px of main (#1438)", () => {
         await act(async () => { fireEvent.click(group); });
         await waitFor(() => expect(c.querySelector(`${leaf} [data-plan-unread]`)).not.toBeNull());
         // The frame waits on them as it does on a row in view on the desktop: main busy, and its line saying so — a phone's
-        // the start of the toolbar's second row (Mobile Builder Frame Spec.md R5).
-        const line = () => slot(c, "sessionRow")!.querySelector("[data-footer-line] [data-line-text]")?.textContent ?? null;
+        // the footer's still, laid over main's foot (Mobile Builder Frame Spec.md R5).
+        const line = () => slot(c, "footer")!.querySelector("[data-footer-line] [data-line-text]")?.textContent ?? null;
         expect(slot(c, "main")!.getAttribute("aria-busy")).toBe("true");
         await waitFor(() => expect(line()).toBe("Loading rows…"));
         reads.release();
